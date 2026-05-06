@@ -1,0 +1,28 @@
+# Clojure / CLJS
+/.cpcache/
+/.shadow-cljs/
+/target/
+/out/
+/classes/
+/node_modules/
+*.log
+pom.xml
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+*.iml
+
+# Local dev
+.env
+.env.local
+.envrc
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
