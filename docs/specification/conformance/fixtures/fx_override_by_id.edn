@@ -1,0 +1,46 @@
+;; Conformance fixture: fx/override-by-id
+;; Per-frame :fx-overrides with id-valued replacement.
+;; Exercises: pattern-level override seam (functions don't apply at this level).
+
+{:fixture/id           :fx/override-by-id
+ :fixture/spec-version "1.0"
+ :fixture/doc          "An :http call is intercepted by an id-valued override that points at a registered stub fx."
+
+ :fixture/registry
+ {:event {:user/load   {:doc "Trigger a user load."}
+          :user/loaded {:doc "Receive the user payload."}}
+  :sub   {:user {:doc "The current user."}}
+  :fx    {:http              {:doc       "HTTP request."
+                              :platforms #{:client :server}}
+          :http.canned-user  {:doc       "Canned-response stub for tests."
+                              :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:user/load   [[:fx :http {:method :get :url "/api/me" :on-success [:user/loaded]}]]
+          :user/loaded [[:set [:user] [:event-arg 1]]]}
+  :sub   {:user [[:get [:user]]]}
+  :fx    {:http              [[:noop]]                        ;; default: real HTTP — not exercised
+          :http.canned-user  [[:dispatch [:user/loaded {:id "u-1" :name "Test User"}]]]}}
+
+ :fixture/frame-config
+ {:on-create     []                                   ;; no init
+  :fx-overrides  {:http :http.canned-user}}           ;; ID-VALUED override
+
+ :fixture/dispatches
+ [[:user/load]]
+
+ :fixture/expect
+ {:final-app-db   {:user {:id "u-1" :name "Test User"}}
+
+  :sub-values     {[:user] {:id "u-1" :name "Test User"}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :user/load}}
+   ;; The override redirected the :http effect to :http.canned-user.
+   ;; A trace event records that the override was applied.
+   {:operation :rf.fx/override-applied :tags {:from :http :to :http.canned-user}}
+   {:operation :event :tags {:event-id :user/loaded}}]
+
+  :effects-routed
+  [{:fx-id :http.canned-user
+    :args {:method :get :url "/api/me" :on-success [:user/loaded]}}]}}

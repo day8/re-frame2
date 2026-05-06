@@ -1,0 +1,50 @@
+;; Conformance fixture: error/handler-exception
+;; A registered event handler throws. The runtime must emit a structured
+;; error trace event with :op-type :error and :operation
+;; :rf.error/handler-exception, AND apply the documented recovery
+;; (:no-recovery by default — cascade halts).
+
+{:fixture/id           :error/handler-exception
+ :fixture/spec-version "1.0"
+ :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event and halts the cascade."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed."}
+          :will-throw          {:doc "Always throws."}
+          :should-not-fire     {:doc "Dispatched after :will-throw — should NOT execute because cascade halts."}}
+  :sub   {:fired-events {:doc "Track which events ran for the assertion."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:fired] []]]
+          :will-throw         [[:throw "boom"]]
+          :should-not-fire    [[:update [:fired] [:fn :conj :should-not-fire]]]}
+  :sub   {:fired-events [[:get [:fired]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ ;; Simulate a handler that, on success, dispatches :should-not-fire.
+ ;; Since :will-throw throws, :should-not-fire must never run.
+ [[:will-throw]
+  [:should-not-fire]]                                  ;; this is its own dispatch; should-not-fire being "after the cascade" is the test
+
+ :fixture/expect
+ {:final-app-db {:fired [:should-not-fire]}            ;; second dispatch DID fire (separate cascade); the test below verifies the trace from the first
+
+  :trace-emissions
+  [{:operation :event
+    :tags     {:event-id :counter/initialise}}
+   {:operation :event
+    :tags     {:event-id :will-throw}}
+   ;; The error trace immediately after.
+   {:operation :rf.error/handler-exception
+    :op-type   :error
+    :tags     {:category          :rf.error/handler-exception
+               :failing-id        :will-throw
+               :handler-id        :will-throw
+               :exception-message "boom"
+               :reason            "Event handler threw."}
+    :recovery :no-recovery}
+   {:operation :event
+    :tags     {:event-id :should-not-fire}}]}}

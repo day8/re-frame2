@@ -1,0 +1,47 @@
+;; Conformance fixture: frame/multi-instance
+;; Two frames, isolated state, shared handler registry.
+;; Exercises: multi-frame isolation per [002]; shared registrar.
+
+{:fixture/id           :frame/multi-instance
+ :fixture/spec-version "1.0"
+ :fixture/doc          "Two frames sharing the same handler registry; their app-db state is isolated."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed the counter."}
+          :counter/inc        {:doc "Increment."}
+          :counter/set        {:doc "Set the counter to a value."}}
+  :sub   {:count {:doc "Current counter value."}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]
+          :counter/set        [[:set [:count] [:event-arg 1]]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frames
+ [{:id :left  :on-create [:counter/initialise]}
+  {:id :right :on-create [:counter/initialise]}]
+
+ :fixture/dispatches
+ [{:event [:counter/inc]      :frame :left}
+  {:event [:counter/inc]      :frame :left}
+  {:event [:counter/inc]      :frame :left}
+  {:event [:counter/set 100]  :frame :right}]
+
+ :fixture/expect
+ {:final-app-dbs
+  {:left  {:count 3}
+   :right {:count 100}}
+
+  :sub-values
+  {[:left  [:count]] 3
+   [:right [:count]] 100}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/initialise :frame :left}}
+   {:operation :event :tags {:event-id :counter/initialise :frame :right}}
+   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
+   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
+   {:operation :event :tags {:event-id :counter/inc       :frame :left}}
+   {:operation :event :tags {:event-id :counter/set       :frame :right}}]}}

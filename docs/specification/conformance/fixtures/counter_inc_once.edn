@@ -1,0 +1,37 @@
+;; Conformance fixture: counter/inc-once
+;; Single increment of the counter. The smallest meaningful interaction.
+;; Exercises: event handler invocation; sub computation; trace emission.
+
+{:fixture/id           :counter/inc-once
+ :fixture/spec-version "1.0"
+ :fixture/doc          "Single increment of the counter starting from 0."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed the counter at 0."}
+          :counter/inc        {:doc "Increment the counter by 1."}}
+  :sub   {:count {:doc "Current counter value."}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]]
+
+ :fixture/expect
+ {:final-app-db   {:count 1}
+
+  :sub-values     {[:count] 1}
+
+  :trace-emissions
+  [;; The :on-create event from frame setup.
+   {:operation :event :op-type :event :tags {:event-id :counter/initialise}}
+   ;; The user dispatch.
+   {:operation :event :op-type :event :tags {:event-id :counter/inc}}]
+
+  :effects-routed []}}

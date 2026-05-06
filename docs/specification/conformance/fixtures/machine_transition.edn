@@ -1,0 +1,66 @@
+;; Conformance fixture: machine/transition
+;; A pure machine-transition: given a definition, snapshot, and event,
+;; returns [next-snapshot effects]. JVM-runnable; no re-frame frame needed.
+
+{:fixture/id           :machine/transition
+ :fixture/spec-version "1.0"
+ :fixture/doc          "Pure machine-transition. Given a finite-state machine definition and snapshot, applying an event yields the next snapshot. Tests the core xstate-flavored semantics: target state, action effects."
+
+ :fixture/registry
+ {:machine
+  {:traffic-light/flow
+   {:doc "Three-state traffic light: green → yellow → red → green."
+    :definition
+    {:id      :traffic-light/flow
+     :initial :green
+     :context {}
+     :states
+     {:green
+      {:on {:tick {:target :yellow :actions [:traffic-light/log-yellow]}}}
+      :yellow
+      {:on {:tick {:target :red :actions [:traffic-light/log-red]}}}
+      :red
+      {:on {:tick {:target :green :actions [:traffic-light/log-green]}}}}}}}
+
+  :machine-action
+  {:traffic-light/log-yellow {:doc "Logs a state transition."}
+   :traffic-light/log-red    {:doc "Logs a state transition."}
+   :traffic-light/log-green  {:doc "Logs a state transition."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; Each action returns a fx that pushes the new state to a log.
+  {:traffic-light/log-yellow [[:fx :log {:level :info :msg "yellow"}]]
+   :traffic-light/log-red    [[:fx :log {:level :info :msg "red"}]]
+   :traffic-light/log-green  [[:fx :log {:level :info :msg "green"}]]}}
+
+ :fixture/calls
+ ;; Direct calls to machine-transition (no dispatch needed).
+ [{:call         :machine-transition
+   :definition   :traffic-light/flow
+   :snapshot     {:state :green :context {}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :yellow :context {}}
+   :expect-effects       [[:log {:level :info :msg "yellow"}]]}
+
+  {:call         :machine-transition
+   :definition   :traffic-light/flow
+   :snapshot     {:state :yellow :context {}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :red :context {}}
+   :expect-effects       [[:log {:level :info :msg "red"}]]}
+
+  {:call         :machine-transition
+   :definition   :traffic-light/flow
+   :snapshot     {:state :red :context {}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :green :context {}}
+   :expect-effects       [[:log {:level :info :msg "green"}]]}
+
+  ;; Unknown event in current state: snapshot unchanged, no effects.
+  {:call         :machine-transition
+   :definition   :traffic-light/flow
+   :snapshot     {:state :green :context {}}
+   :event        [:emergency-stop]
+   :expect-next-snapshot {:state :green :context {}}
+   :expect-effects       []}]}

@@ -1,0 +1,43 @@
+;; Conformance fixture: sub/chain
+;; :<- chained subscriptions. Layer 2 subs derive from layer 1 subs, never
+;; reading app-db directly. Implementations must support :<- composition.
+
+{:fixture/id           :sub/chain
+ :fixture/spec-version "1.0"
+ :fixture/doc          "A sub composed via :<- against another sub. Total derives from items; updating items propagates."
+
+ :fixture/registry
+ {:event {:cart/initialise {:doc "Seed the cart."}
+          :cart.item/add   {:doc "Add an item with qty + price."}}
+  :sub   {:cart/items {:doc "All items in the cart."}
+          :cart/total {:doc "Sum of qty * price."
+                       :inputs [:cart/items]}}}
+
+ :fixture/handlers
+ {:event {:cart/initialise [[:set [:cart] {:items []}]]
+          :cart.item/add   [[:update [:cart :items] [:fn :conj [:event-arg 1]]]]}
+  :sub   {:cart/items [[:get [:cart :items]]]
+          :cart/total [[:reduce-input :cart/items
+                        [:fn :+]
+                        [:fn :item-amount]]]}}        ;; sum of (qty * price) for each item
+
+ :fixture/frame-config
+ {:on-create [:cart/initialise]}
+
+ :fixture/dispatches
+ [[:cart.item/add {:id "a" :qty 2 :price 9.99}]
+  [:cart.item/add {:id "b" :qty 1 :price 4.50}]]
+
+ :fixture/expect
+ {:final-app-db
+  {:cart {:items [{:id "a" :qty 2 :price 9.99}
+                  {:id "b" :qty 1 :price 4.50}]}}
+
+  :sub-values
+  {[:cart/items] [{:id "a" :qty 2 :price 9.99}
+                  {:id "b" :qty 1 :price 4.50}]
+   [:cart/total] 24.48}
+
+  :sub-graph-topology
+  {[:cart/total] [[:cart/items]]}                    ;; total depends on items
+  }}

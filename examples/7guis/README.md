@@ -1,0 +1,26 @@
+# 7GUIs in re-frame2
+
+[7GUIs](https://eugenkiss.github.io/7guis/) is a cross-framework UI benchmark — seven progressively complex tasks that exercise different facets of UI programming. Implementing them in re-frame2 demonstrates how the pattern handles the full range, from trivial state mutation to spreadsheet-grade formula evaluation.
+
+| # | Task | Demonstrates | File |
+|---|---|---|---|
+| 1 | Counter | Smallest possible app: events, subs, view | [`../counter/core.cljs`](../counter/core.cljs) |
+| 2 | Temperature Converter | Bidirectional derivations; one source of truth | [`02_temperature.cljs`](02_temperature.cljs) |
+| 3 | Flight Booker | Form validation; layered subs deriving the Book button's enabled-state | [`03_flight_booker.cljs`](03_flight_booker.cljs) |
+| 4 | Timer | `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time | [`04_timer.cljs`](04_timer.cljs) |
+| 5 | CRUD | List operations (add/update/delete); selection-as-state; derived filtered list | [`05_crud.cljs`](05_crud.cljs) |
+| 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`06_circle_drawer.cljs`](06_circle_drawer.cljs) |
+| 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`07_cells.cljs`](07_cells.cljs) |
+
+Each example is single-file (no shadow-cljs.edn, no package.json, no HTML scaffolding) and demonstrates the imagined re-frame2 API. Together they exercise the construction prompts (CP-1..CP-9) and validate that the pattern's primitives compose into real UI work.
+
+## How these compare to the original 7GUIs reference
+
+The reference implementations on the [7GUIs site](https://eugenkiss.github.io/7guis/tasks) are typically tens of lines of imperative code per task. The re-frame2 versions are slightly longer because they:
+
+- Carry `:doc` metadata on registrations.
+- Attach Malli schemas where the data shape benefits.
+- Use registered views (Var-reference style, the canonical form).
+- Demonstrate headless tests where the task's logic is non-trivial.
+
+The verbosity tax is real but small. The win is that every artefact is named, queryable, schema-able, and AI-amenable — at the same scale as the imperative reference.

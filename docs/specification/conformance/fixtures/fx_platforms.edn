@@ -1,0 +1,38 @@
+;; Conformance fixture: fx/platforms
+;; :platforms metadata on reg-fx gates whether the fx runs given the active
+;; platform. A :client-only fx is skipped on the server (with a trace event).
+
+{:fixture/id           :fx/platforms
+ :fixture/spec-version "1.0"
+ :fixture/doc          "An fx with :platforms #{:client} is skipped when the active platform is :server. The runtime emits a :rf.fx/skipped-on-platform trace event."
+
+ :fixture/registry
+ {:event {:storage/save {:doc "Persist value to localStorage. Triggers :localstorage/set fx."}}
+  :fx    {:localstorage/set {:doc       "Browser localStorage."
+                             :platforms #{:client}}}}
+
+ :fixture/handlers
+ {:event {:storage/save
+          [[:fx :localstorage/set {:key "k" :value [:event-arg 1]}]]}
+  :fx    {:localstorage/set [[:noop]]}}             ;; default no-op for tests
+
+ :fixture/runtime
+ {:platform :server}                                  ;; ← simulate server-side
+
+ :fixture/dispatches
+ [[:storage/save "test-value"]]
+
+ :fixture/expect
+ {:trace-emissions
+  [{:operation :event
+    :tags     {:event-id :storage/save}}
+   ;; The fx was skipped because :server is not in :platforms.
+   {:operation :rf.fx/skipped-on-platform
+    :op-type   :warning
+    :tags     {:fx-id                :localstorage/set
+               :platform             :server
+               :registered-platforms #{:client}}
+    :recovery :skipped}]
+
+  :effects-routed []                                  ;; nothing was actually routed; :localstorage/set was skipped
+  }}

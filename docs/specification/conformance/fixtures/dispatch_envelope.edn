@@ -1,0 +1,36 @@
+;; Conformance fixture: dispatch/envelope
+;; The dispatch envelope is an open map containing :event, :frame,
+;; and optional :trace-id, :source, :fx-overrides, :interceptor-overrides.
+;; Implementations must surface these to handler code via the cofx context.
+
+{:fixture/id           :dispatch/envelope
+ :fixture/spec-version "1.0"
+ :fixture/doc          "An event dispatched with :source :ui surfaces in the cofx context map. Implementations expose :frame, :trace-id, and :source as additional keys on the cofx map for reg-event-fx handlers."
+
+ :fixture/registry
+ {:event {:probe/echo {:doc "Captures envelope keys into app-db for inspection."}}
+  :sub   {:envelope {:doc "Read the captured envelope."}}}
+
+ :fixture/handlers
+ {:event {:probe/echo
+          ;; Capture all keys from the cofx map except the well-known :db.
+          [[:set [:envelope] [:cofx-without :db]]]}
+  :sub   {:envelope [[:get [:envelope]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [{:event [:probe/echo] :source :ui :trace-id "t-1"}]
+
+ :fixture/expect
+ {:final-app-db
+  {:envelope {:event    [:probe/echo]
+              :frame    :rf/default
+              :source   :ui
+              :trace-id "t-1"}}
+
+  :trace-emissions
+  [{:operation :event
+    :tags     {:event-id :probe/echo
+               :source   :ui
+               :trace-id "t-1"}}]}}
