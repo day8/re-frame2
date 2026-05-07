@@ -42,7 +42,8 @@
     :ssr/error-projection
     :schemas/runtime
     :routing/ranking
-    :routing/fragment})
+    :routing/fragment
+    :routing/blocking})
 
 ;; ---- fixture loader -------------------------------------------------------
 

@@ -355,18 +355,23 @@
                    (reduce reducer
                            (if mapper (map mapper input-val) input-val)))})
 
-      ;; layer-1 :get
-      (and (vector? first-step) (= :get (first first-step)))
-      {:kind :layer-1
-       :body (fn [db _query] (get-in db (second first-step)))}
-
       :else
-      ;; default: run the steps over db, return the resulting db (identity sub)
+      ;; layer-1 pipeline: reduce over steps, transforming the value at
+      ;; each step. :get reads from db; :fn applies a builtin (with the
+      ;; current value as the first arg). Other ops are passed through.
       {:kind :layer-1
        :body (fn [db _query]
-               (:db (reduce apply-step
-                            {:db db :event nil :fx []}
-                            steps)))})))
+               (reduce
+                 (fn [v step]
+                   (case (first step)
+                     :get  (get-in db (second step))
+                     :fn   (let [[_ k & extra] step
+                                 f (builtin k)
+                                 args (mapv #(resolve-value % {:db db}) extra)]
+                             (apply f v args))
+                     v))
+                 nil
+                 steps))})))
 
 (defn realise-sub-handler
   "Backwards-compatible: returns just the body fn. Prefer realise-sub when

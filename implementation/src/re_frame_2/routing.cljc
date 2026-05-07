@@ -523,6 +523,60 @@
 (defn- alloc-nav-token []
   (str "nav-" (swap! nav-token-counter inc)))
 
+;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
+;;
+;; Per Spec 012 §Navigation blocking — pending-nav protocol: a route may
+;; declare :can-leave (a sub-id whose value is true when leaving is OK).
+;; A user-initiated :rf/url-requested checks the active route's can-leave.
+;; If it rejects, the navigation is held in :rf/pending-navigation, a
+;; :rf.route/navigation-blocked trace fires, and no URL push happens.
+;; The user's app then dispatches :rf.route/continue (resume) or
+;; :rf.route/cancel (drop).
+
+(defonce ^:private pending-nav-counter (atom 0))
+
+(defn- alloc-pending-nav-id []
+  (str "pn-" (swap! pending-nav-counter inc)))
+
+(defn- can-leave?
+  "Resolve and call the route's :can-leave sub against the live frame."
+  [frame route-meta]
+  (if-let [sub-id (:can-leave route-meta)]
+    (when-let [subscribe-value (resolve 're-frame-2.subs/subscribe-value)]
+      (boolean ((deref subscribe-value) frame [sub-id])))
+    true))
+
+(events/reg-event-fx :rf/url-requested
+  (fn [{:keys [db frame]} [_ {:keys [url] :as request}]]
+    (let [m              (match-url url)
+          current-route  (:route db)
+          current-meta   (registrar/lookup :route (:id current-route))
+          ok?            (can-leave? (or frame :rf/default) current-meta)]
+      (cond
+        (not ok?)
+        (let [pn-id (alloc-pending-nav-id)]
+          (trace/emit! :event :rf.route/navigation-blocked
+                       {:requested-url   url
+                        :rejecting-route (:id current-route)})
+          {:db (assoc db :rf/pending-navigation
+                      {:id pn-id :request request})})
+
+        :else
+        ;; can leave — just dispatch :rf/url-changed for the new URL.
+        {:fx [[:dispatch [:rf/url-changed url]]]}))))
+
+(events/reg-event-fx :rf.route/continue
+  (fn [{:keys [db]} [_ _pn-id]]
+    (let [pending (:rf/pending-navigation db)
+          url     (get-in pending [:request :url])]
+      (cond-> {:db (dissoc db :rf/pending-navigation)}
+        url (assoc :fx [[:dispatch [:rf/url-changed url]]
+                        [:rf.nav/push-url url]])))))
+
+(events/reg-event-fx :rf.route/cancel
+  (fn [{:keys [db]} [_ _pn-id]]
+    {:db (dissoc db :rf/pending-navigation)}))
+
 (events/reg-event-fx :rf/url-changed
   (fn [{:keys [db]} [_ url]]
     ;; Per Spec 012 §URL changes are events / §Fragments. Splits URL into
