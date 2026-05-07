@@ -31,20 +31,46 @@
 
 ;; ---- registration ---------------------------------------------------------
 
+(defonce ^:private replacement-hooks
+  ;; Subscribers to "an existing id was replaced". Each is called with
+  ;; a map {:kind :id :was :now}. Registered by namespaces that need to
+  ;; respond to hot-reload (e.g. subs.cljc invalidates its cache).
+  (atom []))
+
+(defn add-replacement-hook!
+  "Register a fn called on every register! that replaces an existing
+  registration. Args: a map {:kind kind :id id :was prev-meta :now new-meta}."
+  [f]
+  (swap! replacement-hooks conj f)
+  nil)
+
 (defn register!
   "Register an id under kind with the given metadata. Re-registering the
   same id replaces the slot atomically (per Spec 001 §Hot-reload semantics
   guarantee 1 — non-destructive to in-flight work; the runtime sees the
-  new fn on the next lookup)."
+  new fn on the next lookup).
+
+  When this is a re-registration, every replacement-hook fires and a
+  :rf.registry/handler-replaced trace event is emitted (per Spec 009).
+  Hooks run AFTER the swap so listeners observe the new state."
   [kind id metadata]
   (when-not (valid-kind? kind)
     (throw (ex-info (str "re-frame-2: unknown registry kind: " kind)
                     {:kind kind :id id})))
   (let [previous (get-in @kind->id->metadata [kind id])]
     (swap! kind->id->metadata assoc-in [kind id] metadata)
-    ;; Trace event :rf.registry/handler-{registered,replaced} per Spec 009.
-    ;; Trace integration is wired in re-frame-2.trace; we don't import it
-    ;; here to keep the registrar dep-free and JVM-runnable.
+    (when previous
+      ;; Hot-reload notifications. Hooks run isolated — listener failures
+      ;; don't propagate.
+      (doseq [f @replacement-hooks]
+        (try (f {:kind kind :id id :was previous :now metadata})
+             (catch #?(:clj Throwable :cljs :default) _ nil)))
+      ;; Trace via late-bound resolve so registrar stays dep-free.
+      (when-let [emit! (resolve 're-frame-2.trace/emit!)]
+        (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
+          ((deref emit!) :registry :rf.registry/handler-replaced
+                         (cond-> {:kind kind :id id}
+                           different? (assoc :different-fn? true))))))
     {:was previous :now metadata}))
 
 (defn unregister!

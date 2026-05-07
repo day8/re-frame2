@@ -104,6 +104,31 @@
       (is (not (contains? @cache [:n]))
           "cache slot is removed when ref-count reaches zero"))))
 
+(deftest sub-hot-reload-invalidates-cache
+  (testing "re-registering a :sub disposes cached reactions and emits a trace"
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed])
+    ;; v1 of :answer returns the value as-is.
+    (rf/reg-sub :answer (fn [db _] (:n db)))
+    (is (= 7 (rf/subscribe-value [:answer])))
+    ;; Force the cache to retain the entry by holding a ref via subscribe.
+    (let [_pinned (rf/subscribe [:answer])
+          traces  (atom [])]
+      (rf/register-trace-cb! ::hot-reload (fn [ev] (swap! traces conj ev)))
+      ;; Re-register with a transformed body.
+      (rf/reg-sub :answer (fn [db _] (* 10 (:n db))))
+      (rf/remove-trace-cb! ::hot-reload)
+      ;; After re-registration, the next subscribe-value sees the new fn.
+      (is (= 70 (rf/subscribe-value [:answer]))
+          "after re-registration the new sub body is used")
+      (is (some (fn [ev]
+                  (and (= :rf.registry/handler-replaced (:operation ev))
+                       (= :registry (:op-type ev))
+                       (= :sub (:kind (:tags ev)))
+                       (= :answer (:id (:tags ev)))))
+                @traces)
+          "expected :rf.registry/handler-replaced trace"))))
+
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]

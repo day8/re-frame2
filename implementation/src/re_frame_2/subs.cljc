@@ -206,6 +206,36 @@
               (catch #?(:clj Throwable :cljs :default) _ nil)))
        nil))))
 
+;; ---- hot-reload invalidation ---------------------------------------------
+;;
+;; Per Spec 001 §Hot-reload semantics: when a :sub re-registers, every
+;; cached reaction whose query-id is that sub MUST be disposed and
+;; evicted across every frame's cache. Cached reactions hold the OLD
+;; body via closure; without explicit invalidation, they'd silently
+;; serve stale values.
+
+(defn- invalidate-sub-on-replace!
+  [{:keys [kind id]}]
+  (when (= kind :sub)
+    (doseq [frame-id (frame/frame-ids)]
+      (when-let [cache (:sub-cache (frame/frame frame-id))]
+        (let [evictions (atom [])]
+          (swap! cache
+                 (fn [m]
+                   (let [hit-keys (->> (keys m)
+                                       (filter #(= id (first %))))]
+                     (doseq [k hit-keys]
+                       (when-let [r (get-in m [k :reaction])]
+                         (swap! evictions conj r)))
+                     (apply dissoc m hit-keys))))
+          (doseq [r @evictions]
+            (try (interop/dispose! r)
+                 (catch #?(:clj Throwable :cljs :default) _ nil))))))))
+
+(defonce ^:private _hot-reload-hook
+  (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
+      :installed))
+
 (defn clear-subscription-cache!
   "Dispose every cached entry and clear the cache. Test fixtures use this."
   ([] (clear-subscription-cache! :rf/default))
