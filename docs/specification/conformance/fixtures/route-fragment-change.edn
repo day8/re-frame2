@@ -1,0 +1,67 @@
+;; Conformance fixture: routing/fragment-change
+;;
+;; The :route slice carries :fragment from the URL. Fragment-only changes update
+;; the slice and emit :rf.route/url-changed but do NOT re-fire :on-match. Path
+;; changes (with or without a different fragment) DO re-fire :on-match.
+;;
+;; Per [012 §Fragments](../../012-Routing.md#fragments).
+
+{:fixture/id           :routing/fragment-change
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/fragment}
+ :fixture/doc          "Fragment is part of the route slice. Fragment-only changes update :fragment without re-firing :on-match. Path changes re-fire :on-match regardless of fragment. The :rf.route/url-changed trace event differentiates fragment-only changes from full URL changes."
+
+ :fixture/registry
+ {:route
+  {:route/docs {:path     "/docs/:page"
+                :params   [:map [:page :string]]
+                :on-match [[:docs/load-page]]}
+   :route/instrumentation {:path     "/docs/instrumentation"
+                           :on-match [[:docs/load-page]]}}
+
+  :event
+  {:docs/load-page {:doc "Increments a counter so the fixture can detect re-fires."}}}
+
+ :fixture/handlers
+ {:event
+  {:docs/load-page
+   [[:update [:load-count] [:fn :inc]]]}}
+
+ :fixture/dispatches
+ [;; Step 1: Navigate to /docs/routing#scroll-restoration. :on-match fires once.
+  [:rf/url-changed "/docs/routing#scroll-restoration"]
+
+  ;; Step 2: Same path, same params, different fragment.
+  ;; :fragment updates; :on-match does NOT fire; :rf.route/url-changed trace fires.
+  [:rf/url-changed "/docs/routing#caching"]
+
+  ;; Step 3: Different path (still has a fragment). :on-match DOES re-fire.
+  [:rf/url-changed "/docs/instrumentation#scroll-restoration"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route      {:id         :route/instrumentation
+                :params     {}
+                :query      {}
+                :fragment   "scroll-restoration"
+                :transition :idle
+                :error      nil
+                ;; nav-token is implementation-defined; the harness asserts presence
+                ;; via partial-match (the fixture compares only the locked fields).
+                }
+   :load-count 2}                                     ;; first call (step 1) + path-change (step 3); step 2 did NOT fire
+
+  :trace-emissions
+  [;; Step 1: full navigation; nav-token allocated; :on-match fires.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/docs}}
+
+   ;; Step 2: fragment-only; :rf.route/url-changed fires; no nav-token allocation.
+   {:operation :rf.route/url-changed
+    :tags      {:route-id      :route/docs
+                :prev-fragment "scroll-restoration"
+                :next-fragment "caching"}}
+
+   ;; Step 3: full navigation (path differs); fresh nav-token; :on-match re-fires.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/instrumentation}}]}}

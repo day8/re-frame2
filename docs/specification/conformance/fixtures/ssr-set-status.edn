@@ -1,0 +1,42 @@
+;; Conformance fixture: ssr/set-status
+;; A handler emits :rf.server/set-status 404 during the SSR drain. The
+;; runtime's response accumulator's :status is 404; HTML render proceeds.
+;; Per [011 §HTTP response contract].
+
+{:fixture/id           :ssr/set-status
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :ssr/response-contract}
+ :fixture/doc          "A 'page-not-found' handler emits :rf.server/set-status 404. The accumulator's :status is 404 (default 200 if no fx sets one). HTML body still renders (this is a 404 page, not a redirect)."
+
+ :fixture/registry
+ {:event {:rf/server-init       {:doc       "Per-request server-side init."
+                                 :platforms #{:server}}
+          :rf.route/not-found      {:doc       "Render the not-found page with the right status."
+                                 :platforms #{:server}}}
+  :fx    {:rf.server/set-status {:doc       "Set the response status code."
+                                 :platforms #{:server}
+                                 :spec      :rf.fx.server/set-status-args}}
+  :sub   {:rf/response          {:doc "Read the response accumulator."}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init  [[:fx [[:dispatch [:rf.route/not-found]]]]]
+          :rf.route/not-found [[:set [:page] :not-found]
+                            [:fx [[:rf.server/set-status 404]]]]}
+  :sub   {:rf/response [[:get [:rf/response]]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ {:final-app-db {:page :not-found}
+
+  :ssr/request-result
+  {:response {:status 404
+              :headers [["content-type" "text/html; charset=utf-8"]]
+              :cookies []
+              :redirect nil}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :rf.route/not-found}}]}}

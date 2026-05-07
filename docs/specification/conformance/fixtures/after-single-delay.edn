@@ -1,0 +1,80 @@
+;; Conformance fixture: machine/after-single-delay
+;;
+;; A state with a single :after entry. On state entry the timer schedules with
+;; the current epoch; the test-clock advances time; the timer fires; the
+;; transition runs; the snapshot lands at the target. Verify the
+;; :rf.machine.timer/scheduled and :rf.machine.timer/fired trace events bracket the
+;; transition.
+;;
+;; Per [005 §Delayed :after transitions]
+;; (../../005-StateMachines.md#delayed-after-transitions).
+;;
+;; The harness substitutes a deterministic clock via re-frame.interop —
+;; with-redefs of re-frame.interop/schedule-after! to a fixture-controlled
+;; queue, and re-frame.interop/now-ms to a fixture-controlled counter. The
+;; harness exposes an `:advance-clock` step which fires every queued timer
+;; whose due-time is <= the new now-ms.
+
+{:fixture/id           :machine/after-single-delay
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after}
+ :fixture/doc          "A state with one :after entry. After entry, the test-clock advances past the delay; the timer fires; the transition runs; verify the snapshot moves to the target and the :rf.machine.timer/scheduled / :rf.machine.timer/fired trace events both emit with matching epochs."
+
+ :fixture/registry
+ {:machine-action
+  {:loading/note-entry {:doc "Records that :loading was entered."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:loading/note-entry [[:set [:entered?] true]]}}
+
+ :fixture/calls
+ [;; Step 1: Dispatch :fetch — machine transitions :idle → :loading; entry
+  ;; action runs; the 5000ms :after timer schedules with epoch 1.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 0}
+                  :actions {:note-entry :loading/note-entry}
+                  :states
+                  {:idle {:on {:fetch :loading}}
+                   :loading
+                   {:entry :note-entry
+                    :after {5000 :timeout}
+                    :on    {:loaded :ready}}
+                   :timeout {}
+                   :ready   {}}}
+   :snapshot     {:state :idle :data {:rf/after-epoch 0}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1 :entered? true}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/scheduled
+     :tags      {:state :loading :delay 5000 :epoch 1}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to :loading}}]}
+
+  ;; Step 2: Test-clock advances 5000ms. The timer fires; epoch matches; the
+  ;; transition resolves; snapshot lands at :timeout; epoch advances to 2.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 1 :entered? true}
+                  :actions {:note-entry :loading/note-entry}
+                  :states
+                  {:idle {:on {:fetch :loading}}
+                   :loading
+                   {:entry :note-entry
+                    :after {5000 :timeout}
+                    :on    {:loaded :ready}}
+                   :timeout {}
+                   :ready   {}}}
+   :snapshot     {:state :loading :data {:rf/after-epoch 1 :entered? true}}
+   ;; The synthetic timer-elapsed event carries (delay, epoch); the harness
+   ;; supplies it as the dispatched event.
+   :event        [::after-elapsed 5000 1]
+   :expect-next-snapshot {:state :timeout :data {:rf/after-epoch 2 :entered? true}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/fired
+     :tags      {:state :loading :delay 5000 :epoch 1 :fired? true}}
+    {:operation :rf.machine/transition
+     :tags      {:from :loading :to :timeout}}]}]}

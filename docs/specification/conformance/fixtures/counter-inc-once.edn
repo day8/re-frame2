@@ -4,6 +4,7 @@
 
 {:fixture/id           :counter/inc-once
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
  :fixture/doc          "Single increment of the counter starting from 0."
 
  :fixture/registry

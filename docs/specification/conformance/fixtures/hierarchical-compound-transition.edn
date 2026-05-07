@@ -1,0 +1,57 @@
+;; Conformance fixture: machine/hierarchical-compound-transition
+;;
+;; Hierarchical compound state: a transition between two SIBLING leaf states
+;; inside the same compound parent. Verify that the exit/entry cascade only
+;; touches the leaf states — the LCA is the parent, so the parent's :exit
+;; and :entry MUST NOT fire.
+;;
+;; Per [005 §Entry/exit cascading along the LCA]
+;; (../../005-StateMachines.md#entryexit-cascading-along-the-lca).
+
+{:fixture/id           :machine/hierarchical-compound-transition
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "Sibling-leaf transition inside a compound state. The LCA is the parent compound; only the leaf states' exit/entry fire — the parent's :entry must NOT re-fire because we are not leaving and re-entering it."
+
+ :fixture/registry
+ {:machine-action
+  {:auth/log-enter-authenticated {:doc "Logs entering :authenticated."}
+   :auth/log-exit-authenticated  {:doc "Logs exiting :authenticated."}
+   :auth/log-enter-dashboard     {:doc "Logs entering :dashboard."}
+   :auth/log-exit-dashboard      {:doc "Logs exiting :dashboard."}
+   :auth/log-enter-settings      {:doc "Logs entering :settings."}
+   :auth/log-exit-settings       {:doc "Logs exiting :settings."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/log-enter-authenticated [[:fx :log {:msg "enter authenticated"}]]
+   :auth/log-exit-authenticated  [[:fx :log {:msg "exit authenticated"}]]
+   :auth/log-enter-dashboard     [[:fx :log {:msg "enter dashboard"}]]
+   :auth/log-exit-dashboard      [[:fx :log {:msg "exit dashboard"}]]
+   :auth/log-enter-settings      [[:fx :log {:msg "enter settings"}]]
+   :auth/log-exit-settings       [[:fx :log {:msg "exit settings"}]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:initial :authenticated
+                  :data    {}
+                  :states
+                  {:authenticated
+                   {:initial :dashboard
+                    :entry   :auth/log-enter-authenticated
+                    :exit    :auth/log-exit-authenticated
+                    :states
+                    {:dashboard {:entry :auth/log-enter-dashboard
+                                 :exit  :auth/log-exit-dashboard
+                                 :on    {:open-settings :settings}}
+                     :settings  {:entry :auth/log-enter-settings
+                                 :exit  :auth/log-exit-settings
+                                 :on    {:close :dashboard}}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:open-settings]
+   ;; LCA is :authenticated (length-1 prefix). Exit cascade is just [:dashboard]
+   ;; (deepest-first, but only one level here). Entry cascade is just [:settings].
+   ;; The parent :authenticated is NOT exited or re-entered.
+   :expect-next-snapshot {:state [:authenticated :settings] :data {}}
+   :expect-effects       [[:log {:msg "exit dashboard"}]
+                          [:log {:msg "enter settings"}]]}]}

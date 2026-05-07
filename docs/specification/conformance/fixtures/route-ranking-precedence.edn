@@ -1,0 +1,80 @@
+;; Conformance fixture: routing/ranking-precedence
+;;
+;; Verifies the 6-rule ranking cascade in Spec 012 §Route ranking algorithm.
+;; Each call exercises one rule of the cascade against deliberately-overlapping
+;; registrations; every implementation MUST produce the same winner.
+;;
+;; Per [012 §Route ranking algorithm](../../012-Routing.md#route-ranking-algorithm).
+
+{:fixture/id           :routing/ranking-precedence
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/ranking}
+ :fixture/doc          "Deterministic route-ranking cascade. Six overlapping registration sets exercise rules 1-6; each URL has exactly one winner across all conforming implementations. Equal-score conflicts emit :rf.warning/route-shadowed-by-equal-score."
+
+ :fixture/registry
+ {:route
+  {;; Rule 1 — more static segments beat fewer
+   :route/users.me        {:path "/users/me"}
+   :route/users.detail    {:path "/users/:id" :params [:map [:id :string]]}
+
+   ;; Rule 2 — among equally-static-counted, longer paths beat shorter
+   :route/users.id        {:path "/users/:id" :params [:map [:id :string]]}
+   :route/users.id.edit   {:path "/users/:id/edit" :params [:map [:id :string]]}
+
+   ;; Rule 3 — named params beat splats
+   :route/files.named     {:path "/files/:name" :params [:map [:name :string]]}
+   :route/files.splat     {:path "/files/*rest" :params [:map [:rest :string]]}
+
+   ;; Rule 4 — rest params beat catch-all
+   :route/catch-all       {:path "/*"}
+   :route/files.rest      {:path "/files/*rest" :params [:map [:rest :string]]}
+
+   ;; Rule 5 — exact beats optional-group
+   :route/about           {:path "/about"}
+   :route/optional-about  {:path "/{:base}?/about"}
+
+   ;; Rule 6 — registration order final-tiebreak (also: warning on equal scores)
+   :rf.route/equal.first     {:path "/equal-score/:x" :params [:map [:x :string]]}
+   :rf.route/equal.second    {:path "/equal-score/:y" :params [:map [:y :string]]}}}
+
+ :fixture/calls
+ [;; Rule 1: /users/me — :route/users.me wins over :route/users.detail
+  {:call :match-url :url "/users/me"
+   :expect {:route-id :route/users.me :params {} :query {} :validation-failed? false}}
+
+  ;; Rule 2: /users/abc/edit — :route/users.id.edit wins over :route/users.id
+  {:call :match-url :url "/users/abc/edit"
+   :expect {:route-id :route/users.id.edit :params {:id "abc"} :query {} :validation-failed? false}}
+
+  ;; Rule 3: /files/x.txt — :route/files.named (named) wins over :route/files.splat
+  {:call :match-url :url "/files/x.txt"
+   :expect {:route-id :route/files.named :params {:name "x.txt"} :query {} :validation-failed? false}}
+
+  ;; Rule 4: /files/a/b/c — :route/files.rest wins over :route/catch-all
+  {:call :match-url :url "/files/a/b/c"
+   :expect {:route-id :route/files.rest :params {:rest "a/b/c"} :query {} :validation-failed? false}}
+
+  ;; Rule 5: /about — :route/about (exact) wins over :route/optional-about
+  {:call :match-url :url "/about"
+   :expect {:route-id :route/about :params {} :query {} :validation-failed? false}}
+
+  ;; Rule 6: /equal-score/x — :rf.route/equal.first wins (registered first)
+  {:call :match-url :url "/equal-score/x"
+   :expect {:route-id :rf.route/equal.first :params {:x "x"} :query {} :validation-failed? false}}
+
+  ;; Rank tuples are queryable via handler-meta — tooling reads :rf.route/rank
+  ;; (registrar-attached at registration time, conforms to :rf/route-rank).
+  ;; Higher rank = more specific. Fixture asserts the relative ordering only;
+  ;; absolute tuple values are implementation-flexible (the fixture asserts
+  ;; "users.me has greater rank than users.detail" rather than literal values).
+  {:call :assert-rank-greater :winner :route/users.me   :loser :route/users.detail}
+  {:call :assert-rank-greater :winner :route/files.named :loser :route/files.splat}
+  {:call :assert-rank-greater :winner :route/about      :loser :route/optional-about}]
+
+ :fixture/expect
+ {;; Rule 6 also emits a registration-time warning for the equal-score pair.
+  :trace-emissions
+  [{:operation :rf.warning/route-shadowed-by-equal-score
+    :op-type   :warning
+    :tags      {:route-id :rf.route/equal.second
+                :shadowed :rf.route/equal.first}}]}}

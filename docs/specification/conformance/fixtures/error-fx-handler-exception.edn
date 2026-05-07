@@ -1,0 +1,52 @@
+;; Conformance fixture: error/fx-handler-exception
+;; A registered fx throws while resolving an effect map. Runtime emits a
+;; structured :rf.error/fx-handler-exception trace. Default recovery is
+;; :no-recovery — the offending fx is skipped; surrounding fx that are
+;; independent still run; the cascade does NOT halt globally (per 009 default).
+
+{:fixture/id           :error/fx-handler-exception
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error}
+ :fixture/doc          "An fx implementation throws while processing its args. The runtime emits :rf.error/fx-handler-exception, skips the offending fx, and continues with the rest of the effect map's :fx vector."
+
+ :fixture/registry
+ {:event {:user/init {:doc "Seed."}
+          :user/save {:doc "Saves a user via two fx: a buggy :persist + a :log. Only :log should run after :persist throws."}}
+  :sub   {:log {:doc "What :log saw."}}
+  :fx    {:persist {:doc "Buggy: throws every time."}
+          :log     {:doc "Appends to :log in app-db."}}}
+
+ :fixture/handlers
+ {:event {:user/init [[:set [:log] []]]
+          :user/save [[:fx [[:persist {:user "alice"}]
+                            [:log     {:msg "save attempted"}]]]]}
+  :sub   {:log [[:get [:log]]]}
+  :fx    {:persist [[:throw "persist exploded"]]
+          :log     [[:update [:log] [:fn :conj [:event-arg 1]]]]}}        ;; appends args to :log
+
+ :fixture/frame-config {:on-create [:user/init]}
+
+ :fixture/dispatches
+ [[:user/save]]
+
+ :fixture/expect
+ {:final-app-db {:log [{:msg "save attempted"}]}    ;; :log still ran even though :persist threw
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :user/init}}
+   {:operation :event :tags {:event-id :user/save}}
+   ;; :persist throws — structured trace, then :log fires.
+   {:operation :rf.error/fx-handler-exception
+    :op-type   :error
+    :tags      {:category          :rf.error/fx-handler-exception
+                :failing-id        :persist
+                :fx-id             :persist
+                :fx-args           {:user "alice"}
+                :exception-message "persist exploded"
+                :reason            "Effect handler `:persist` threw: persist exploded."}
+    :recovery  :no-recovery}
+   {:operation :event/do-fx :tags {}}]              ;; the remaining fx (:log) was processed
+
+  :effects-routed
+  [{:fx-id :persist :args {:user "alice"}}          ;; attempted (then threw)
+   {:fx-id :log     :args {:msg "save attempted"}}]}}

@@ -1,0 +1,43 @@
+;; Conformance fixture: drain/depth-limit
+;; Exercises the drain-depth-exceeded error. A handler that recursively
+;; dispatches itself triggers the configured drain depth limit.
+
+{:fixture/id           :drain/depth-limit
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. Cascade halts."
+
+ :fixture/registry
+ {:event {:recursive {:doc "Always dispatches itself."}}
+  :sub   {:depth {:doc "How many times the handler ran."}}}
+
+ :fixture/handlers
+ {:event {:recursive [[:update [:depth] [:fn :inc]]
+                      [:fx :dispatch [:recursive]]]}
+  :sub   {:depth [[:get [:depth]]]}}
+
+ :fixture/frame-config
+ {:on-create   []
+  :drain-depth 5}                                         ;; small limit for testing
+
+ :fixture/dispatches
+ [[:recursive]]
+
+ :fixture/expect
+ {;; The handler ran 5 times (the depth limit) before the runtime aborted.
+  :final-app-db {:depth 5}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :recursive}}
+   {:operation :event :tags {:event-id :recursive}}
+   {:operation :event :tags {:event-id :recursive}}
+   {:operation :event :tags {:event-id :recursive}}
+   {:operation :event :tags {:event-id :recursive}}
+   ;; Drain depth exceeded — the 6th attempt is rejected.
+   {:operation :rf.error/drain-depth-exceeded
+    :op-type   :error
+    :tags      {:category   :rf.error/drain-depth-exceeded
+                :depth      5
+                :queue-size 1
+                :last-event [:recursive]}
+    :recovery  :no-recovery}]}}

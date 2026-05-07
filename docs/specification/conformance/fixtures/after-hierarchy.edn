@@ -1,0 +1,139 @@
+;; Conformance fixture: machine/after-hierarchy
+;;
+;; A parent compound state declares :after; its children transition between
+;; themselves without exiting the parent. The parent's :after timer remains
+;; live across the sibling-leaf transition (epoch is per-machine, but the
+;; parent-level entry doesn't re-schedule when only the leaf changes; the
+;; parent-level timer continues to count down). Eventually a transition
+;; exits the parent compound; the parent-level timer is now stale.
+;;
+;; Verifies:
+;;   1. Entering the parent schedules its :after timer.
+;;   2. Sibling-leaf transitions inside the parent do NOT cancel the parent's
+;;      :after — the parent's :after is still scheduled with its original epoch.
+;;   3. Exiting the parent advances the epoch and the parent-level timer's
+;;      eventual firing is stale (:rf.machine.timer/stale-after).
+;;
+;; Per [005 §Delayed :after transitions §Hierarchy interaction]
+;; (../../005-StateMachines.md#hierarchy-interaction).
+
+{:fixture/id           :machine/after-hierarchy
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/delayed-after}
+ :fixture/doc          "Parent compound state declares :after; child sibling-leaf transitions don't cancel the parent's :after. Exit from the parent compound advances the epoch; the in-flight parent-level timer goes stale on eventual firing."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: Enter the parent (:authenticated) with default initial leaf
+  ;; :dashboard. The parent's :after timer schedules with epoch 1.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 0}
+                  :states
+                  {:idle {:on {:login :authenticated}}
+                   :authenticated
+                   {:initial :dashboard
+                    :after   {30000 :session-timeout}
+                    :states
+                    {:dashboard {:on {:open-settings :settings}}
+                     :settings  {:on {:close :dashboard}}}
+                    :on {:logout :idle}}
+                   :session-timeout {}}}
+   :snapshot     {:state :idle :data {:rf/after-epoch 0}}
+   :event        [:login]
+   :expect-next-snapshot {:state [:authenticated :dashboard]
+                          :data  {:rf/after-epoch 1}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/scheduled
+     :tags      {:state :authenticated :delay 30000 :epoch 1}}
+    {:operation :rf.machine/transition
+     :tags      {:from :idle :to [:authenticated :dashboard]}}]}
+
+  ;; Step 2: Sibling-leaf transition :dashboard → :settings inside the parent.
+  ;; The LCA is :authenticated; the parent is NOT exited. The parent's :after
+  ;; remains live with its original epoch. The implementation must NOT
+  ;; re-schedule the parent's :after just because a child transitioned.
+  ;;
+  ;; Note: the epoch-counter advance on this leaf transition is a per-machine
+  ;; advance (per [005 §Hierarchy interaction]). The contract this fixture
+  ;; verifies is that the *parent's* timer-handle (its in-flight firing) is
+  ;; not re-scheduled — equivalently, the harness sees no second
+  ;; :rf.machine.timer/scheduled trace for the parent.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 1}
+                  :states
+                  {:idle {:on {:login :authenticated}}
+                   :authenticated
+                   {:initial :dashboard
+                    :after   {30000 :session-timeout}
+                    :states
+                    {:dashboard {:on {:open-settings :settings}}
+                     :settings  {:on {:close :dashboard}}}
+                    :on {:logout :idle}}
+                   :session-timeout {}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {:rf/after-epoch 1}}
+   :event        [:open-settings]
+   :expect-next-snapshot {:state [:authenticated :settings]
+                          :data  {:rf/after-epoch 1}}        ;; epoch unchanged — parent stays entered
+   :expect-effects       []
+   :expect-trace
+   ;; Critically: NO :rf.machine.timer/scheduled trace re-emits for the parent.
+   ;; Only the leaf-level transition trace surfaces.
+   [{:operation :rf.machine/transition
+     :tags      {:from [:authenticated :dashboard]
+                 :to   [:authenticated :settings]}}]}
+
+  ;; Step 3: Exit the parent compound via :logout. Snapshot lands at :idle;
+  ;; epoch advances to 2; the parent's in-flight timer (epoch 1) is now stale.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 1}
+                  :states
+                  {:idle {:on {:login :authenticated}}
+                   :authenticated
+                   {:initial :dashboard
+                    :after   {30000 :session-timeout}
+                    :states
+                    {:dashboard {:on {:open-settings :settings}}
+                     :settings  {:on {:close :dashboard}}}
+                    :on {:logout :idle}}
+                   :session-timeout {}}}
+   :snapshot     {:state [:authenticated :settings] :data {:rf/after-epoch 1}}
+   :event        [:logout]
+   :expect-next-snapshot {:state :idle :data {:rf/after-epoch 2}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine/transition
+     :tags      {:from [:authenticated :settings] :to :idle}}]}
+
+  ;; Step 4: The parent-level :after timer (still in flight from step 1) fires
+  ;; with its captured epoch (1). The current epoch is 2; the handler ignores
+  ;; the firing and emits :rf.machine.timer/stale-after. Snapshot stays at :idle.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 2}
+                  :states
+                  {:idle {:on {:login :authenticated}}
+                   :authenticated
+                   {:initial :dashboard
+                    :after   {30000 :session-timeout}
+                    :states
+                    {:dashboard {:on {:open-settings :settings}}
+                     :settings  {:on {:close :dashboard}}}
+                    :on {:logout :idle}}
+                   :session-timeout {}}}
+   :snapshot     {:state :idle :data {:rf/after-epoch 2}}
+   :event        [::after-elapsed 30000 1]
+   :expect-next-snapshot {:state :idle :data {:rf/after-epoch 2}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/stale-after
+     :tags      {:state :authenticated :delay 30000
+                 :scheduled-epoch 1 :current-epoch 2}}]}]}

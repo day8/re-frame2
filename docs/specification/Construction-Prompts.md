@@ -1,8 +1,9 @@
 # Construction Prompts (AI Agent Templates)
 
-> Status: Drafting. CP-1 through CP-9 are all filled in with full templates (pre-flight checks, registration form, idiomatic naming, tests, AI-first checklists, worked examples). Cross-linked to the 7GUIs example series and the login feature for "this prompt, in working code" references.
->
-> Per [reorient.md](reorient.md): the AI-first stance demands a complementary artefact to MIGRATION.md — *construction prompts* that tell an AI how to build new code in this pattern. Templates per kind. Worked examples for CP-7 (route) and CP-9 (SSR setup) are still pending — see beads rf2-2nq and rf2-2yh.
+> **Type:** Construction Prompts
+> Per-kind AI-scaffolding templates for new code in the re-frame2 pattern. Sibling to [MIGRATION.md](MIGRATION.md) (which covers upgrades of existing code).
+
+CP-10 (story / variant / workspace) is post-v1; its sketch lives in [007-Stories.md §Construction prompt (CP-10)](007-Stories.md#construction-prompt-cp-10) and the full template lands here when `re-frame.stories` ships.
 
 ## Purpose
 
@@ -11,24 +12,32 @@
 This artefact is intended to be:
 
 - **Per-kind.** Separate templates for events, subscriptions, schema-bound views, state machines, features, routes, effects.
-- **Self-contained.** Each prompt provides enough context for an AI to scaffold the kind without needing to read the full EP set.
+- **Self-contained.** Each prompt provides enough context for an AI to scaffold the kind without needing to read the full Spec set.
 - **Shape-aware via the host's idiom.** The pattern requires shape description; the *mechanism* is host-specific. **Dynamic hosts** (CLJS + Malli, Python + Pydantic, JS + Zod): the prompts attach `:spec` metadata referring to a schema. **Static hosts** (TypeScript, Kotlin): the prompts emit type-annotated registrations whose shapes the compiler enforces. Either way, an AI reading the artefact has a description of the shapes; the prompts adapt to the host.
 - **Worked-example-heavy.** Each prompt ends with one or two complete, runnable examples.
-- **Aligned with the [Goals in 000](000-Vision.md) and the [eight AI-first properties in reorient.md](reorient.md).** A construction-prompt-generated artefact is, by construction, AI-first.
+- **Aligned with the [Goals in 000](000-Vision.md) and the [nine AI-first properties in Principles.md](Principles.md).** A construction-prompt-generated artefact is, by construction, AI-first.
 
-## Catalogue (planned)
+## Shared pre-flight (applies to every CP)
 
-Each entry will become its own section or sub-document:
+Every CP below begins with the same mechanics; rather than restate them in each, treat the following as a shared preamble. Each CP's "Pre-flight checks" section calls out only the *delta* — the kind-specific naming convention or extra check — on top of these.
+
+1. **Choose a namespaced id.** Lowercase, kebab-case. The id-prefix matches the feature (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)).
+2. **Verify the id is unused.** Query the registry via the public registrar query API for the relevant kind (e.g., `(rf/handlers :event)`, `(rf/handlers :sub)`, `(rf/handlers :fx)`, `(rf/handlers :view)`, `(rf/handlers :route)`).
+3. **Consult registered schemas** (`(rf/app-schemas)`, `(rf/app-schema-at <path>)`) so the new artefact aligns with shapes already in use.
+
+## Catalogue
+
+Each entry below is one CP:
 
 ### CP-1. Add an event handler
 
 **When to use this prompt:** the user wants the app to react to something — a button click, a server response, a timer tick, a child machine sending a message. If the reaction modifies state only, prefer `reg-event-db`. If it also produces side-effects (HTTP call, navigation, dispatch chain, local-storage write), use `reg-event-fx`.
 
-**Pre-flight checks (mandatory):**
+**Pre-flight delta (in addition to the shared preamble above):**
 
-1. **Choose an id.** Convention: `:feature/verb-noun` or `:feature.subfeature/verb-noun`. Lowercase, kebab-case, namespaced. Examples: `:auth/login`, `:auth.password/reset`, `:cart.item/remove`.
-2. **Verify the id is unused.** Query the registry: `(rf/handlers :event)` returns the map of registered events. If your id collides, pick another or coordinate with the user.
-3. **Identify the relevant `app-db` paths.** Query `(rf/app-schemas)` to see registered schemas. If the event reads or writes a schema-bound path, your handler must produce schema-compliant output (validation runs in dev).
+- **Id-shape convention:** `:feature/verb-noun` or `:feature.subfeature/verb-noun`. Examples: `:auth/login`, `:auth.password/reset`, `:cart.item/remove`. The relevant registry kind is `:event`.
+- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope)): `[<id>]` for trivial events, `[<id> <single-scalar>]` for single-argument events, `[<id> {<key> <val> ...}]` for multi-argument events. Multi-positional `[<id> a b c]` is tolerated for v1 compatibility but not what new code should emit.
+- **Schema-bound paths.** If the event reads or writes a schema-bound `app-db` path, your handler must produce schema-compliant output (validation runs in dev).
 
 **Template — `reg-event-db` (state-only):**
 
@@ -36,10 +45,11 @@ Each entry will become its own section or sub-document:
 (rf/reg-event-db :feature/verb-noun
   {:doc  "One-sentence what-and-why."
    :spec EventSchema}                         ;; optional Malli schema for the event vector
-  (fn handler-feature-verb-noun [db [_ arg1 arg2]]
-    ;; Pure: read db and event args, return the new db.
+  (fn handler-feature-verb-noun [db [_ {:keys [field-1 field-2]}]]
+    ;; Pure: read db and event payload, return the new db.
+    ;; Multi-arg events take a single map payload; destructure named keys.
     ;; No side-effects. No dispatching from inside the handler — return effects from reg-event-fx if needed.
-    (assoc-in db [:feature :path] arg1)))
+    (assoc-in db [:feature :path] field-1)))
 ```
 
 **Template — `reg-event-fx` (with effects):**
@@ -49,8 +59,10 @@ Each entry will become its own section or sub-document:
   {:doc          "One-sentence what-and-why."
    :spec         EventSchema
    :interceptors []}                          ;; optional; usually empty
-  (fn handler-feature-verb-noun [{:keys [db] :as cofx} [_ arg1]]
+  (fn handler-feature-verb-noun [{:keys [db] :as cofx} [_ payload]]
     ;; Pure: read db and any injected cofx, return an effect map.
+    ;; payload is a single scalar (for single-arg events) or a map (for multi-arg events
+    ;; — destructure named keys: [_ {:keys [field-1 field-2]}]).
     ;; Effects are data; the runtime interprets them.
     {:db        (assoc-in db [:feature :loading?] true)
      :fx        [[:http {:method :get :url "/api/feature" :on-success [:feature/loaded]}]]}))
@@ -98,12 +110,12 @@ Each entry will become its own section or sub-document:
 
 **When to use this prompt:** the user wants a derived view of `app-db` — a computed value views can read. A subscription is *not* a place to put side-effects; it is a pure function from state to value.
 
-**Pre-flight checks:**
+**Pre-flight delta (in addition to the shared preamble above):**
 
-1. **Choose an id.** Convention: `:feature/property` or `:feature/computed-value`. Examples: `:cart/total`, `:cart/items-count`, `:auth/logged-in?`.
-2. **Verify the id is unused.** `(rf/handlers :sub)`.
-3. **Decide the input.** Either reads `app-db` directly (Layer 1 sub) or composes other subs (Layer 2 / signal-graph chained sub via `:<-`).
-4. **Check schemas.** If the sub's return value has a registered schema (rare for layer-1, common for layer-2), align the output shape.
+- **Id-shape convention:** `:feature/property` or `:feature/computed-value`. Examples: `:cart/total`, `:cart/items-count`, `:auth/logged-in?`. The relevant registry kind is `:sub`.
+- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope), same as for events): `[<id>]` for trivial subs, `[<id> <single-scalar>]` for single-argument subs (`[:user-by-id 42]`), `[<id> {<key> <val> ...}]` for multi-argument subs (`[:items-filtered {:status :pending :limit 20}]`). Multi-positional `[<id> a b c]` is tolerated for v1 compatibility but not what new code should emit.
+- **Decide the input.** Either reads `app-db` directly (Layer 1 sub) or composes other subs (Layer 2 / signal-graph chained sub via `:<-`).
+- **Check schemas.** If the sub's return value has a registered schema (rare for layer-1, common for layer-2), align the output shape.
 
 **Template — Layer 1 (reads app-db directly):**
 
@@ -175,12 +187,11 @@ Each entry will become its own section or sub-document:
 
 **When to use this prompt:** the user wants a side-effect — HTTP, local-storage, navigation, websocket message, timer, log. Effects are id'd, registered, and platform-tagged for SSR (per [011](011-SSR.md)).
 
-**Pre-flight checks:**
+**Pre-flight delta (in addition to the shared preamble above):**
 
-1. **Choose an id.** Convention: a single namespaced keyword. Examples: `:http`, `:localstorage`, `:nav/replace`, `:websocket/send`.
-2. **Verify the id is unused.** `(rf/handlers :fx)`.
-3. **Decide the platform.** Server-only? Client-only? Both? Default `#{:client}` if absent.
-4. **Identify the args shape.** What does the effect map's value look like? Does it need a schema?
+- **Id-shape convention:** a single namespaced keyword. Examples: `:http`, `:localstorage`, `:rf.nav/replace`, `:websocket/send`. The relevant registry kind is `:fx`.
+- **Decide the platform.** Server-only? Client-only? Both? Default `#{:server :client}` (universal) if absent — set explicitly to `#{:client}` if the fx genuinely cannot run server-side (DOM mutation, `js/window`, `localStorage`).
+- **Identify the args shape.** What does the effect map's value look like? Does it need a schema?
 
 **Template:**
 
@@ -256,12 +267,11 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **When to use this prompt:** the user wants a UI component that renders state and dispatches events. Always prefer `reg-view` over plain Reagent fns for any view that may render under a non-default frame (which, with SSR-per-request, is most views).
 
-**Pre-flight checks (mandatory):**
+**Pre-flight delta (in addition to the shared preamble above):**
 
-1. **Choose a view id.** Convention: `:feature/component-name` or `:feature.area/component-name`. Plural component names for lists (`:cart/items`), singular for single-instance (`:cart/total`).
-2. **Verify the id is unused.** `(rf/handlers :view)`.
-3. **Identify the subscriptions the view will read.** Each must be already registered (`(rf/handlers :sub)`) or scaffolded as a sibling — if missing, invoke CP-2.
-4. **Identify the events the view will dispatch.** Each must be already registered (`(rf/handlers :event)`) — if missing, invoke CP-1.
+- **Id-shape convention:** `:feature/component-name` or `:feature.area/component-name`. Plural component names for lists (`:cart/items`), singular for single-instance (`:cart/total`). The relevant registry kind is `:view`.
+- **Identify the subscriptions the view will read.** Each must be already registered (`(rf/handlers :sub)`) or scaffolded as a sibling — if missing, invoke CP-2.
+- **Identify the events the view will dispatch.** Each must be already registered (`(rf/handlers :event)`) — if missing, invoke CP-1.
 
 **Template — Form-1 (simple render fn):**
 
@@ -341,111 +351,257 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **When to use this prompt:** the user describes a multi-step interaction with discrete, named states — a login flow, a checkout wizard, a video player, a modal lifecycle, a websocket connection. If you can list the states and the events that move between them, you have a machine.
 
+**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event-fx` whose body comes from `create-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
+
+**Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside `create-machine-handler`. This is the **default** because the named id carries semantic meaning that visualisers, AIs, conformance fixtures, and humans all read; an inline `(fn [snap ev] ...)` is opaque to inspection. Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
+
 **Pre-flight checks:**
 
 1. **Choose a machine id.** Convention: `:feature.flow/machine` or `:feature/flow`. Examples: `:auth.login/flow`, `:checkout/flow`, `:video-player/flow`.
-2. **Verify the id is unused.** `(rf/handlers :machine)`.
-3. **Choose the `:machine-path`.** Where in `app-db` the snapshot lives. Convention: `[:feature :machine :flow]`. The snapshot has shape `{:state ... :context ...}`.
-4. **List the states.** Discrete, named, named in past tense or noun form (`:idle`, `:loading`, `:loaded`, `:error`).
-5. **List the events that move between states.** Each event triggers exactly one transition.
-6. **Identify guards (predicates) and actions (side-effects-as-data).** Each is a registered id.
+2. **Verify the id is unused.** `(rf/handlers :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
+3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
+4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
+5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [snapshot event] boolean)` and each action `(fn [snapshot event] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). **Inline only when the body is a single non-branching expression.**
 
-**Template — transition table (xstate-flavoured):**
+**Where state lives.** Every machine's snapshot lives at the runtime-managed path `[:rf/machines <machine-id>]` in the frame's `app-db`. For id `:auth.login/flow`, the snapshot is at `[:rf/machines :auth.login/flow]` and contains `{:state ... :data ...}`. You do not pick the path — `create-machine-handler` does not accept a `:path` key. Per-frame isolation is automatic: each frame has its own `app-db` and thus its own `:rf/machines` map. See [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live).
 
-```clojure
-(def auth-login-flow
-  {:id      :auth.login/flow
-   :initial :idle
-   :context {:attempts 0 :error nil}
-   :states
-   {:idle
-    {:on {:auth.login/submit {:target :submitting
-                              :actions [:auth.login/clear-error]}}}
+**Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/sub-machine :auth.login/flow)` returns the snapshot (sugar over `@(rf/subscribe [:rf/machine :auth.login/flow])`) — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
-    :submitting
-    {:entry [:auth.login/issue-request]
-     :on    {:auth.login/success {:target  :authed
-                                  :actions [:auth.login/store-session]}
-             :auth.login/failure {:target  :error-shown
-                                  :cond    :auth.login/under-retry-limit
-                                  :actions [:auth.login/record-error]}
-             :auth.login/failure {:target  :locked-out
-                                  :actions [:auth.login/lock-account]}}}
+**Strict encapsulation.** Actions and guards see `{:state :data}` only — *no `:db`, no cofx*. Cross-cutting reads pass through the event payload; cross-cutting writes go via `:fx [[:dispatch <named-event>]]`. Action effect maps are `{:data {...} :fx [...]}` — symmetric with `reg-event-fx`'s `{:db :fx}`. The named-bounce-event pattern is a feature, not a tax: it makes the cross-cutting concern visible in the trace, the registry, and 10x's event log (per [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)).
 
-    :error-shown
-    {:on {:auth.login/dismiss {:target :idle}
-          :auth.login/submit  {:target :submitting}}}
-
-    :authed
-    {:meta {:terminal? true}}
-
-    :locked-out
-    {:meta {:terminal? true}}}})
-```
-
-**Template — guards and actions (registered separately, definition/implementation split):**
+**Worked example — auth login flow (named guards/actions in `:guards` / `:actions` maps):**
 
 ```clojure
-(rf/reg-machine-guard :auth.login/under-retry-limit
-  {:doc "Did this login flow have fewer than 3 prior attempts?"}
-  (fn guard-under-retry-limit [{:keys [context]} _event]
-    (< (:attempts context) 3)))
+;; The machine — every guard and action is named in :guards / :actions and
+;; referenced from the transition table by keyword. Resolution is
+;; machine-local: the runtime calls (get-in spec [:guards :under-retry-limit])
+;; etc. There is no global :machine-guard / :machine-action registry.
 
-(rf/reg-machine-action :auth.login/clear-error
-  {:doc "Reset error and increment attempts in context."}
-  (fn action-clear-error [{:keys [context]} _event]
-    {:context (assoc context :error nil)}))
+(rf/reg-event-fx :auth.login/flow
+  {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
+  (rf/create-machine-handler
+    {:initial :idle
+     :data    {:attempts 0 :error nil}
 
-(rf/reg-machine-action :auth.login/issue-request
-  {:doc "Issue the HTTP login request. Returns effects for the runner."}
-  (fn action-issue-request [_snapshot [_ creds]]
-    {:fx [[:http {:method :post :url "/api/login" :body creds
-                  :on-success [:auth.login/success]
-                  :on-error   [:auth.login/failure]}]]}))
+     :guards
+     {:under-retry-limit
+      ;; Has this login had fewer than 3 prior attempts?
+      (fn [{:keys [data]} _event]
+        (< (:attempts data) 3))}
+
+     :actions
+     {:begin-submit
+      ;; Clear the prior error and emit the HTTP request for credential check.
+      (fn [_snap [_ creds]]
+        {:data {:error nil}
+         :fx   [[:http {:method     :post
+                        :url        "/api/login"
+                        :body       creds
+                        :on-success [:auth.login/flow [:succeeded]]
+                        :on-error   [:auth.login/flow [:failed]]}]]})
+
+      :record-failure
+      ;; Bump the attempts counter and surface a credentials error.
+      (fn [{:keys [data]} _event]
+        {:data {:attempts (inc (:attempts data))
+                :error    :credentials}})
+
+      :lock-out
+      ;; Lock the account after exceeding the retry limit.
+      (fn [_snap _event]
+        {:data {:error :locked}})
+
+      :clear-error
+      ;; Reset the error before re-submitting.
+      (fn [_snap _event]
+        {:data {:error nil}})
+
+      :clear-and-record-success
+      ;; On successful auth, clear any residual error state.
+      (fn [_snap _event]
+        {:data {:error nil}})}
+
+     :states
+     {:idle
+      {:on
+       {:submit
+        {:target :submitting
+         :action :begin-submit}}}                            ;; resolves to :actions :begin-submit
+
+      :submitting
+      {:on
+       {:succeeded
+        {:target :authed
+         :action :clear-and-record-success}
+
+        :failed
+        ;; multiple candidates with guards — first match wins
+        [{:target :error-shown
+          :guard  :under-retry-limit                         ;; resolves to :guards :under-retry-limit
+          :action :record-failure}
+         {:target :locked-out
+          :action :lock-out}]}}
+
+      :error-shown
+      {:on
+       {:dismiss {:target :idle}
+        :submit  {:target :submitting
+                  :action :clear-error}}}
+
+      :authed     {:meta {:terminal? true}}
+      :locked-out {:meta {:terminal? true}}}}))
 ```
 
-**Template — registering as an event handler:**
+**What "named in `:guards` / `:actions` by default" buys:**
+
+- A reviewer scanning the transition table sees `:guard :under-retry-limit` and immediately knows what gates the transition.
+- An AI proposing a change to "the retry-limit guard" can resolve the id against the machine's `:guards` map (visible in `(machine-meta :auth.login/flow)`).
+- A diagram exporter can label the transition arrow with the guard's name.
+- A Level-1 test can stub the spec's `:actions :begin-submit` for deterministic HTTP behaviour by re-defining one entry in the spec — no need to re-register a global handler.
+- A conformance fixture can assert "the `:failed` event in `:submitting` runs the `:record-failure` action."
+- `create-machine-handler` validates every keyword reference against `:guards` / `:actions` at registration time — typos surface immediately as `:rf.error/machine-unresolved-guard` / `:rf.error/machine-unresolved-action`, not at runtime when the transition fires.
+
+**Template — internal vs external self-transitions:**
 
 ```clojure
-(rf/reg-event-fx :auth.login/event-handler
-  {:doc          "All :auth.login/* events route through here, interpreted as a machine."
-   :machine-path [:auth :login :flow]
-   :machine      auth-login-flow}
-  (rf/machine-handler [:auth :login :flow] auth-login-flow))
+{:editing
+ {:on
+  {:drag-slider
+   ;; internal self-transition — no :target, so :exit and :entry do NOT fire.
+   ;; Update :data via an action named in the machine's :actions map.
+   {:action :update-preview-radius}
+
+   :poke
+   ;; external self-transition — :target :same-state, so :exit and :entry DO fire.
+   {:target :same-state
+    :action :randomise-poke-count}}}}
 ```
 
-The `:machine-path` metadata + `machine-handler` body means the runtime treats this handler as a machine: it reads the snapshot at `[:auth :login :flow]`, applies `machine-transition`, writes the new snapshot, and emits the action effects.
+**Template — `:raise` for transition chaining (atomic, pre-commit):**
+
+```clojure
+;; ... inside the machine spec:
+:actions
+{:notify-and-audit
+ (fn [_ _]
+   {:fx [[:raise    [:notify-listeners]]      ;; same machine, atomic, pre-commit
+         [:dispatch [:audit/login-ok]]]})}    ;; runtime queue, post-commit
+
+:states
+{:submitting
+ {:on {:succeeded
+       {:target :idle
+        :action :notify-and-audit}}}}
+```
+
+`:raise` and `:spawn` are **reserved fx-ids inside `:fx`** — the machine handler routes them locally. `[:raise <ev>]` ≡ "back into THIS machine, processed before the snapshot is committed"; `[:dispatch <ev>]` is the standard runtime-queue dispatch. They have **different ordering semantics** — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
+
+**Template — `:spawn` for dynamic actors:**
+
+```clojure
+;; ... inside the machine spec:
+:actions
+{:spawn-fetch
+ (fn [_ [_ url]]
+   {:fx [[:spawn {:machine-id :request/protocol
+                  :id-prefix  :request/protocol
+                  :data       {:url url}
+                  :on-spawn   (fn [data id] (assoc data :pending-request id))
+                  :start      [:begin]}]]})}
+
+:states
+{:idle {:on {:fetch {:target :loading :action :spawn-fetch}}}}
+```
+
+After this action, `(:pending-request data)` is the new actor's id; subsequent transitions can dispatch to it. The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` (runtime-managed; the spawn-spec does not pick a location). The `:on-spawn` callback is an inline fn here — that's appropriate; it's a single non-branching `assoc`.
+
+**Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, or substitutes for parallel-regions / history-states, consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
 
 **Pattern-level discipline:**
 
 - The transition table is **pure data** (per [005](005-StateMachines.md)) — serialisable, AI-readable, visualisable.
-- Guards and actions are **registered separately** by id; the table references them. (Definition/implementation split.)
+- **Default to registered guards and actions.** Inline fns are an escape hatch for trivial logic, not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
+- Action and guard slots are **single fn or single registered id** — no `:actions [a1 a2 a3]` vector form, no `{:and [...]}` compound-guard data form. Multi-step composition is fn composition; reused composition is registered with a meaningful name.
+- Action signature: `(fn [snapshot event] {:data {...} :fx [...]})`. **Strict encapsulation**: no `:db`, no cofx — the runtime hard-disallows `:db` in the action's effect map (`:rf.error/machine-action-wrote-db`).
 - `machine-transition` is a **pure function** — `(definition, snapshot, event) → [next-snapshot, effects]`. JVM-runnable, headless-testable.
 - The actor system boundary is the frame; cross-machine messages within a frame settle via run-to-completion drain.
 
-**Headless test:**
+**Headless tests — three levels:**
 
 ```clojure
-(deftest auth-login-flow-happy-path
-  (let [snapshot {:state :idle :context {:attempts 0 :error nil}}]
-    (let [[s1 _fx] (rf/machine-transition auth-login-flow snapshot
-                     [:auth.login/submit {:email "a@b.com" :password "..."}])]
-      (is (= :submitting (:state s1))))
-    (let [[s2 _fx] (rf/machine-transition auth-login-flow {:state :submitting :context {:attempts 0}}
-                     [:auth.login/success {:user {:id 1}}])]
-      (is (= :authed (:state s2))))))
+;; Level 1 — pure transition function (fastest; FSM logic only).
+(deftest auth-login-happy-path-l1
+  (let [snap   {:state :idle :data {:attempts 0 :error nil}}
+        [s1 _] (rf/machine-transition auth-login-table snap [:submit {:email "..."}])]
+    (is (= :submitting (:state s1)))))
+
+;; Level 2 — unregistered handler fn (handler-level wiring; still no test frame).
+;; Possible because create-machine-handler is a pure factory.
+;; Snapshots live at [:rf/machines <id>] in app-db (runtime-managed).
+(deftest auth-login-happy-path-l2
+  (let [handler (rf/create-machine-handler {:initial :idle ...})]
+    (let [{:keys [db]} (handler {:db {:rf/machines {:auth.login/flow {:state :idle :data {}}}}}
+                                [:auth.login/flow [:submit {:email "..."}]])]
+      (is (= :submitting (get-in db [:rf/machines :auth.login/flow :state]))))))
+
+;; Level 3 — registered in a test frame (full integration; required for spawn lifecycle).
+(deftest auth-login-happy-path-l3
+  (rf/with-frame [f (rf/make-frame {:on-create [:auth/init]})]
+    (rf/dispatch-sync [:auth.login/flow [:submit {:email "..."}]] {:frame f})
+    ;; Read via the framework-registered :rf/machine sub:
+    (is (= :submitting (:state @(rf/subscribe [:rf/machine :auth.login/flow] {:frame f}))))))
+```
+
+**Template — view consuming `sub-machine`:**
+
+The framework-registered `:rf/machine` sub returns the snapshot for any machine; the wrapper `sub-machine` is the canonical user-facing form:
+
+```clojure
+(rf/reg-view :auth.login/form
+  (fn render-auth-login-form []
+    (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
+      [:form
+       (case state
+         :idle        [submit-button]
+         :submitting  [spinner]
+         :error-shown [:<>
+                       [:p (str "Error: " (:error data))]
+                       [:button {:on-click #(rf/dispatch [:auth.login/flow [:dismiss]])}
+                        "Try again"]]
+         :authed      [:p "Welcome!"]
+         :locked-out  [:p "Account locked."]
+         nil          [:p "Loading..."])])))           ;; nil before initialisation
+```
+
+For projections, compose against `:rf/machine` via `:<-`:
+
+```clojure
+(rf/reg-sub :auth.login/state
+  :<- [:rf/machine :auth.login/flow]
+  (fn [snap _] (:state snap)))
 ```
 
 **AI-first checklist:**
 
-- [ ] Machine id is namespaced.
+- [ ] Machine id is namespaced; registered via `reg-event-fx` + `create-machine-handler`.
+- [ ] No `:path` key in the machine spec — the runtime stores snapshots at `[:rf/machines <id>]`.
 - [ ] All states are listed in `:states`; no string-based or computed state names.
-- [ ] Every event a state listens to is in its `:on` map.
-- [ ] Guards and actions are registered by id, referenced in the table; no inline lambdas.
+- [ ] Every input the machine listens to is in some state's `:on` map.
+- [ ] **Non-trivial guards and actions are named in the machine's `:guards` / `:actions` maps and referenced by keyword from the transition table, not inline.** Inline fns are reserved for single non-branching expressions per [005 §Inspectability bias](005-StateMachines.md#inspectability-bias).
+- [ ] Every keyword reference under `:guard` / `:action` (in `:on`, `:always`, `:entry`, `:exit`) is a key in the spec's `:guards` / `:actions` map — `create-machine-handler` validates this at registration time and raises `:rf.error/machine-unresolved-{guard|action}` on miss.
+- [ ] No `reg-machine-guard` / `reg-machine-action` calls — those APIs are removed; guards and actions are machine-scoped.
+- [ ] `:guard` and `:action` are single fns (or single keyword references) — not vectors.
+- [ ] No `[:assign ...]`, `[:raise ...]`, `[:fx ...]` data forms in transition slots — actions return `{:data {...} :fx [...]}` directly.
+- [ ] No compound-guard `{:and ...}` / `{:or ...}` / `{:not ...}` data forms — composition is fns or named compounds in `:guards`.
+- [ ] No `:db` in action effect maps — cross-cutting writes go via `:fx [[:dispatch <named-event>]]`.
+- [ ] Cross-cutting reads come through the event payload, not from `app-db`.
+- [ ] Cross-machine reuse of a guard/action is via a Clojure var referenced from each machine's `:guards` / `:actions` map — not via a global registry.
+- [ ] Views read state via `@(rf/sub-machine <machine-id>)` (or the explicit `@(rf/subscribe [:rf/machine <machine-id>])`); no manual `reg-sub` over `[:rf/machines ...]`.
 - [ ] Transition table conforms to `:rf/transition-table` schema (per [Spec-Schemas](Spec-Schemas.md)).
-- [ ] Headless test passes via `machine-transition` (no event dispatch needed).
+- [ ] Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - [ ] If the machine has terminal states, they're marked `:meta {:terminal? true}`.
-- [ ] Trace events on `:machine/transition` are visible in 10x / re-frame-pair.
+- [ ] Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
+- [ ] `(rf/machines)` includes the new id; `(rf/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
 
 ### CP-6. Scaffold a feature
 
@@ -584,62 +740,65 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 **Pre-flight checks:**
 
 1. **Choose route ids.** Convention: `:route/page-name`. Examples: `:route/home`, `:route/cart`, `:route/cart.item-detail`.
-2. **Identify the URL pattern for each.** `/` → `:route/home`, `/cart` → `:route/cart`, `/cart/items/:id` → `:route/cart.item-detail`.
-3. **Verify the route ids are unused.** `(rf/handlers :route)` if your impl registers routes; otherwise check the route-table data structure.
+2. **Identify the URL pattern for each.** Use the canonical grammar — [012 §Path-pattern grammar](012-Routing.md#path-pattern-grammar-canonical) is the single source of truth (literal segments, `:name` path params, `{...}?` optional groups, `*name` splats). Do not restate the grammar in handler comments or auxiliary docs; cross-reference 012.
+3. **Distinguish path params from query params.**
+   - Path: captured by `:name` / `*name` segments — declared in `:params` schema.
+   - Query: parsed from `?key=value&...` — declared in `:query` schema, with `:query-defaults` and `:query-retain` for ergonomics.
+4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
+5. **Verify the route ids are unused.** `(rf/handlers :route)` enumerates registered routes.
 
-**Per [reorient.md](reorient.md):** routing is *state plus events*, not a separate subsystem. The URL is a derivable view of `app-db`; navigation is an event.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
-**Template — route registry (data):**
-
-```clojure
-(def routes
-  [{:id   :route/home
-    :path "/"}
-   {:id   :route/cart
-    :path "/cart"}
-   {:id   :route/cart.item-detail
-    :path "/cart/items/:id"
-    :params {:id :uuid}}])
-
-(rf/reg-app-schema [:route]
-  [:map
-   [:id     :keyword]
-   [:params {:optional true} :map]])
-```
-
-**Template — `:route/navigate` event:**
+**Template — register routes (declarative; the runtime owns dispatch):**
 
 ```clojure
-(rf/reg-event-fx :route/navigate
-  {:doc  "Navigate to a registered route. Updates app-db and the URL."
-   :spec [:cat [:= :route/navigate] :keyword [:? :map]]}
-  (fn handler-route-navigate [{:keys [db]} [_ route-id params]]
-    (let [route (route-by-id route-id)]
-      {:db        (assoc db :route {:id route-id :params (or params {})})
-       :fx        [[:nav/push-url (route-url route params)]]})))
+(rf/reg-route :route/home
+  {:doc  "Landing page."
+   :path "/"})
+
+(rf/reg-route :route/cart
+  {:doc      "The cart."
+   :path     "/cart"
+   :on-match [[:cart/load-items]                          ;; runtime dispatches on match (server + client)
+              [:user/load-prefs]]
+   :on-error [:route/cart-load-failed]                    ;; if any :on-match event errors
+   :scroll   :top})                                       ;; scroll-to-top on entering this route
+
+(rf/reg-route :route/cart.item-detail
+  {:doc    "Detail page for a single cart item."
+   :path   "/cart/items/:id"
+   :params [:map [:id :uuid]]
+   :parent :route/cart})                                  ;; nested-layout convention
+
+(rf/reg-route :route/search
+  {:doc            "Search results."
+   :path           "/search"
+   :query          [:map [:q :string] [:page {:optional true} :int]]
+   :query-defaults {:page 1}
+   :query-retain   #{:theme :locale}                      ;; carry through subsequent navigations
+   :on-match       [[:search/run]]})
+
+(rf/reg-route :rf.route/not-found
+  {:doc  "Default 404."
+   :path "/404"})
 ```
 
-**Template — `:route/handle-url-change` event (browser back/forward, deep links):**
+**No need to register `:rf.route/navigate` or `:rf.route/handle-url-change` yourself** — the runtime ships them. Re-register only to override behaviour (e.g. add a guard interceptor; see [012 §Redirects and guards](../specification/012-Routing.md#redirects-and-guards)).
+
+**Template — `:on-match` data-loading event:**
 
 ```clojure
-(rf/reg-event-fx :route/handle-url-change
-  {:doc "Triggered by URL change (popstate or initial load). Sets app-db's route slice from the URL."}
-  (fn handler-route-handle-url-change [{:keys [db]} [_ url]]
-    (let [{:keys [route-id params]} (parse-url url routes)]
-      {:db (assoc db :route {:id route-id :params params})})))
+(rf/reg-event-fx :cart/load-items
+  {:doc "Load cart items for the active cart route."}
+  (fn handler-cart-load-items [{:keys [db]} _]
+    (let [user-id (get-in db [:auth :user :id])]
+      {:fx [[:http {:method     :get
+                    :url        (str "/api/users/" user-id "/cart")
+                    :on-success [:cart/items-loaded]
+                    :on-error   [:cart/load-failed]}]]})))
 ```
 
-**Template — `:route` sub:**
-
-```clojure
-(rf/reg-sub :route
-  {:doc "The current route map: {:id ... :params ...}"}
-  (fn sub-route [db _] (:route db)))
-
-(rf/reg-sub :route/id
-  :<- [:route]
-  (fn [route _] (:id route)))
-```
+The handler reads `(:route db)` for any path/query params it needs — the `:route` slice is already populated when `:on-match` events fire.
 
 **Template — route-aware root view:**
 
@@ -647,47 +806,59 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 (def root-view
   (rf/reg-view :app/root
     (fn render-app-root []
-      (let [route-id @(subscribe [:route/id])]
-        (case route-id
-          :route/home             [home-page]
-          :route/cart             [cart-page]
-          :route/cart.item-detail [cart-item-detail-page]
-          [not-found-page])))))
+      (let [route-id   @(subscribe [:rf.route/id])
+            transition @(subscribe [:rf.route/transition])]
+        [:div
+         (when (= transition :loading) [progress-bar])
+         (case route-id
+           :route/home              [home-page]
+           :route/cart              [cart-page]
+           :route/cart.item-detail  [cart-item-detail-page]
+           :route/search            [search-page]
+           :rf.route/not-found         [not-found-page]
+           [not-found-page])]))))
 ```
 
-**Template — `:nav/push-url` fx (CLJS reference, client only):**
+**Template — links (use the registered `route-link` view):**
 
 ```clojure
-(rf/reg-fx :nav/push-url
-  {:doc       "Push a URL onto the browser history."
-   :platforms #{:client}}
-  (fn fx-nav-push-url [_m url]
-    (.pushState js/history nil "" url)))
+[rf/route-link {:to :route/cart} "Cart"]
+[rf/route-link {:to :route/cart.item-detail :params {:id item-id}} "View"]
+[rf/route-link {:to :route/search :query {:q "clojure" :page 2}} "Search"]
 ```
+
+`route-link` dispatches `:rf/url-requested` on click; the runtime's default handler classifies internal vs external and dispatches `:rf.route/navigate` for matched routes.
 
 **Template — wiring (called once at app boot):**
 
 ```clojure
 (defn install-router! [frame-id]
   (.addEventListener js/window "popstate"
-    #(rf/dispatch [:route/handle-url-change (.. js/window -location -pathname)] {:frame frame-id}))
-  (rf/dispatch [:route/handle-url-change (.. js/window -location -pathname)] {:frame frame-id}))
+    #(rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
+  (rf/dispatch [:rf/url-changed (.. js/window -location -href)] {:frame frame-id}))
 ```
+
+`:rf/url-changed` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
 
 **Pattern-level discipline:**
 
 - The route is in `app-db`; the URL is derivable. Never make routing state live outside `app-db`.
-- Navigation is an event. Don't call browser APIs directly from view code; dispatch `:route/navigate`.
-- Server-side renders set the route from the request URL via a server cofx; the same `:route/handle-url-change` handler runs on the server (it has no `:platforms` marker, so it's universal).
+- Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
+- Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
+- Server-side renders set the route via `:rf/url-changed` against the request URL; the same `:on-match` events run server-side.
+- Path params and query params are **separate maps** — `(:params (:route db))` and `(:query (:route db))`.
 
 **AI-first checklist:**
 
 - [ ] Route ids are namespaced (`:route/...`).
-- [ ] The route table is data; route registration is `reg-app-schema` + a data structure.
-- [ ] All navigation goes through `:route/navigate` (no inline `pushState` in view bodies).
-- [ ] `:route/handle-url-change` resolves URL → route id (works on both server and client).
-- [ ] The root view dispatches on `:route/id`; per-page views are registered separately.
-- [ ] Server-side renders set the route via the request cofx before `:on-create` finishes.
+- [ ] Each route's `:path` conforms to the canonical path-pattern grammar.
+- [ ] Path params are declared in `:params` (schema); query params are declared in `:query` (schema).
+- [ ] Per-route data dependencies are declared in `:on-match` (vector of event vectors).
+- [ ] Per-route error handling is declared in `:on-error` (single event vector) where needed.
+- [ ] All navigation goes through `:rf.route/navigate` (or `route-link`); no inline `pushState`.
+- [ ] The root view dispatches on `:rf.route/id`; per-page views are registered separately.
+- [ ] A `:rf.route/not-found` route is registered.
+- [ ] Nested layouts use `:parent` (or id-prefix-only if no shared loader/chrome is needed); read the chain via `:rf.route/chain`.
 
 ### CP-8. Scaffold a schema
 
@@ -748,7 +919,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
   ...)
 ```
 
-**Pattern-level discipline (per [010](010-Schemas.md) and [reorient.md](reorient.md)):**
+**Pattern-level discipline (per [010](010-Schemas.md) and [000-Vision.md](000-Vision.md)):**
 
 - **Open by default.** Don't add `:closed true` unless the data crosses a process boundary.
 - **Don't model object hierarchies.** A schema describes the *shape* of an open map. There are no classes.
@@ -770,7 +941,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 
 **Pre-flight checks:**
 
-1. **Identify the per-request setup events.** What does the server need to dispatch before rendering? Typically: `:auth/load-session`, `:route/handle-url-change`, feature-specific `:feature/load-initial-data`.
+1. **Identify the per-request setup events.** What does the server need to dispatch before rendering? Typically: `:auth/load-session`, `:rf.route/handle-url-change`, feature-specific `:feature/load-initial-data`.
 2. **Identify the fx that need server platforms.** HTTP for sure. Anything else? Confirm with `(rf/handlers :fx)` and audit each fx's `:platforms` metadata.
 3. **Identify the views that may render under SSR.** All of them, in principle. Confirm none use Form-2 outer-fn-side-effects (they don't run on the server).
 4. **Confirm the root view is registered** via `reg-view`, not a plain Reagent fn.
@@ -862,26 +1033,9 @@ The drain settles before `with-frame` returns; the final state is captured.
 - [ ] Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
 - [ ] All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 
-## How an AI uses these
-
-The intended workflow:
-
-1. The user describes the thing they want (e.g., "add a login form with validation").
-2. The AI selects the relevant construction prompt(s) — typically **CP-6 (feature)** as the umbrella, possibly invoking **CP-1**, **CP-2**, **CP-4**, and **CP-8** internally.
-3. The AI consults the existing registry (via the public registrar query API — see [002 §The public registrar query API](002-Frames.md)) to choose an id namespace that doesn't collide.
-4. The AI consults existing schemas to align with the shapes already in use.
-5. The AI generates the artefact — registration calls, view fn, schema, smoke test — adhering to the prompt's conventions.
-6. The AI runs the smoke test (or asks the user to) and reports.
-
-## What construction prompts do *not* cover
-
-- Migration of existing code (use [MIGRATION.md](MIGRATION.md)).
-- Architectural decisions (use the EP docs and [reorient.md](reorient.md)).
-- Choice of host language or substrate (the prompts are CLJS-flavoured by default; non-CLJS variants would need their own).
-
 ## Cross-references
 
-- [reorient.md §Construction prompts as a deliverable](reorient.md) — why this artefact exists.
+- [Principles.md §Construction prompts as a deliverable](Principles.md#construction-prompts-as-a-deliverable) — why this artefact exists.
 - [000-Vision.md](000-Vision.md) — the goals and contract.
 - [MIGRATION.md](MIGRATION.md) — the sibling artefact for upgrades.
 - [API.md](API.md) — signatures the prompts produce calls against.
@@ -898,6 +1052,6 @@ The [7GUIs example series](../../examples/7guis/README.md) and the [login exampl
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../../examples/login/core.cljs) — full transition table with guards, actions, terminal states |
 | CP-6 (feature scaffold) | [Login](../../examples/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
-| CP-7 (route) | [Routing example](../../examples/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:route/navigate`, `:route/handle-url-change`, `route-link`, server-and-client-shared handler |
+| CP-7 (route) | [Routing example](../../examples/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
 | CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../../examples/login/core.cljs) and [Flight Booker](../../examples/7guis/03_flight_booker.cljs) also attach event schemas |
 | CP-9 (SSR setup) | [SSR example](../../examples/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |

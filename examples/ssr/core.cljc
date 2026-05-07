@@ -4,7 +4,7 @@
    server renders a 'recent articles' page; client hydrates and remains
    interactive.
 
-   Per [reorient.md](../../reorient.md): SSR is part of the target
+   Per [011-SSR.md](../../docs/specification/011-SSR.md): SSR is part of the target
    architecture, not a future concession. View pure-fn requirement,
    id-valued override seam, hydration via :rf/hydrate.
 
@@ -17,8 +17,11 @@
    - Server-only fx via :platforms #{:server}        (and skipping on the client)
    - Pure hiccup → HTML emitter                       (rf/render-to-string)
    - Hydration payload format                         (:rf/hydration-payload schema)
-   - :rf/hydrate event seeding the client app-db
-   - First-render hash mismatch detection trace event"
+   - :rf/hydrate replaces (not merges) the client app-db, per the locked
+     :replace-app-db policy
+   - data-rf-render-hash structural marker on the root element; the runtime
+     diffs server vs. client hashes after first render and emits
+     :rf.ssr/hydration-mismatch on disagreement"
   (:require [re-frame.core :as rf]
             #?(:cljs [reagent.dom.client :as rdc])))
 
@@ -78,11 +81,20 @@
   (fn handler-articles-loaded [db [_ articles]]
     (assoc db :articles articles)))
 
-(rf/reg-event-db :rf/hydrate
-  {:doc "Seed the client-side app-db from the server-supplied payload."}
-  (fn handler-rf-hydrate [db [_ payload]]
-    ;; Merge so client-bootstrap state (like :browser/window-size) survives.
-    (merge db (:rf/app-db payload))))
+;; The runtime ships a default :rf/hydrate handler that uses the locked
+;; :replace-app-db policy (per Spec 011 §The :rf/hydrate event): server is
+;; authoritative for the initial client app-db. We re-register here only to
+;; document the contract for the example's readers — the body matches the
+;; runtime default. If you wanted client-only transient state to survive
+;; hydration, this is the place you'd switch to an explicit merge in the
+;; order *you* want — but the default is replace, and that's the spec lock.
+(rf/reg-event-fx :rf/hydrate
+  {:doc       "Seed the client-side app-db from the server-supplied payload."
+   :platforms #{:client}}
+  (fn handler-rf-hydrate [_ [_ {:rf/keys [app-db version schema-digest]}]]
+    {:db app-db                                     ;; replace, not merge
+     :fx (cond-> [[:rf.ssr/check-version version]]
+           schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS / VIEWS
@@ -125,11 +137,19 @@
                                          :on-create [:rf/server-init request]})]
          (let [final-db @(rf/get-frame-db f)
                hiccup   ((rf/get-view :app/root))
-               html     (rf/render-to-string hiccup {:frame f :doctype? true})
-               render-hash (hash hiccup)
-               payload  {:rf/version    "1.0"
-                         :rf/frame-id   frame-id
-                         :rf/app-db     final-db
+               ;; render-to-string computes the structural render-hash from
+               ;; the canonical-EDN traversal of the render tree (per Spec
+               ;; 011 §Hydration-mismatch detection: FNV-1a 32-bit, lowercase
+               ;; hex) and embeds it on the root element as
+               ;; data-rf-render-hash. The mismatch comparison happens
+               ;; automatically on the client after first render — no app
+               ;; code needed. We keep the hash on the payload for parity
+               ;; with environments that prefer to mark it that way too.
+               {:keys [html render-hash]}
+                        (rf/render-to-string hiccup {:frame f :doctype? true})
+               payload  {:rf/version     1                ;; integer per :rf/hydration-payload schema
+                         :rf/frame-id    frame-id
+                         :rf/app-db      final-db
                          :rf/render-hash render-hash}]
            {:status  200
             :headers {"Content-Type" "text/html"}
@@ -152,9 +172,11 @@
 ;; The client flow:
 ;;   1. Read the embedded :__rf_payload.
 ;;   2. Create the client frame.
-;;   3. dispatch-sync :rf/hydrate before first render.
-;;   4. Render against the now-seeded state. First render should match the
-;;      server's HTML byte-for-byte (hash check is automatic).
+;;   3. dispatch-sync :rf/hydrate before first render. The handler *replaces*
+;;      app-db with the server slice (locked :replace-app-db policy).
+;;   4. Render against the now-seeded state. The runtime hashes the client
+;;      render-tree, compares to the data-rf-render-hash on the server's
+;;      root element, and emits :rf.ssr/hydration-mismatch on disagreement.
 
 #?(:cljs
    (defn read-server-payload []
@@ -198,11 +220,17 @@
                                        :fx-overrides {:http/get :http/get.canned-articles}})]
        (let [final-db @(rf/get-frame-db f)
              hiccup   ((rf/get-view :app/root))
-             html     (rf/render-to-string hiccup {:frame f})]
+             {:keys [html render-hash]}
+                      (rf/render-to-string hiccup {:frame f})]
          ;; State was loaded.
          (assert (= 2 (count (:articles final-db))))
          ;; HTML contains the article titles.
          (assert (clojure.string/includes? html "Article A"))
          (assert (clojure.string/includes? html "Article B"))
          ;; HTML round-trips via render-to-string without needing React/JSDOM.
-         (assert (clojure.string/includes? html "<h1>"))))))
+         (assert (clojure.string/includes? html "<h1>"))
+         ;; render-hash is a structural marker (lowercase-hex FNV-1a per
+         ;; Spec 011); the client recomputes it and the runtime emits a
+         ;; :rf.ssr/hydration-mismatch trace event on disagreement.
+         (assert (string? render-hash))
+         (assert (clojure.string/includes? html "data-rf-render-hash"))))))

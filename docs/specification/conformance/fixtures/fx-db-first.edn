@@ -1,0 +1,53 @@
+;; Conformance fixture: fx/db-first
+;; :db is committed atomically before any :fx entry is processed. The first
+;; :fx entry's fx-handler observes the post-:db state. Per
+;; 002-Frames §`:fx` ordering and atomicity guarantees.
+
+{:fixture/id           :fx/db-first
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/sub}
+ :fixture/doc          "When a handler returns {:db ... :fx [[:dispatch [:observe]]]}, the dispatched :observe handler reads the post-:db state. Subscriptions over the new :db observe the new value from the first :fx entry onwards."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed the counter at 0."}
+          :counter/inc-and-observe
+          {:doc "Increment the counter and dispatch a follow-up that captures the post-:db value."}
+          :counter/observed
+          {:doc "Records the value of [:count] read at the moment of dispatch into [:observed]."}}
+  :sub   {:count    {:doc "Current counter value."}
+          :observed {:doc "Value captured by the follow-up observer event."}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event {:counter/initialise
+          [[:set [:count] 0]]
+          :counter/inc-and-observe
+          ;; Returns {:db (assoc db :count 1) :fx [[:dispatch [:counter/observed]]]}.
+          ;; The :db is committed first; the dispatched :counter/observed sees :count = 1.
+          [[:update [:count] [:fn :inc]]
+           [:fx :dispatch [:counter/observed]]]
+          :counter/observed
+          ;; Reads the current :count and writes it under :observed.
+          [[:set [:observed] [:db-get [:count]]]]}
+  :sub   {:count    [[:get [:count]]]
+          :observed [[:get [:observed]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc-and-observe]]
+
+ :fixture/expect
+ {:final-app-db   {:count 1 :observed 1}
+
+  :sub-values     {[:count]    1
+                   [:observed] 1}                       ;; observer saw the post-:db state.
+
+  :trace-emissions
+  [{:operation :event :op-type :event :tags {:event-id :counter/initialise}}
+   {:operation :event :op-type :event :tags {:event-id :counter/inc-and-observe}}
+   ;; :db committed; then :fx [[:dispatch [:counter/observed]]] queued.
+   {:operation :event :op-type :event :tags {:event-id :counter/observed}}]
+
+  :effects-routed []}}

@@ -1,0 +1,86 @@
+;; Conformance fixture: machine/hierarchical-parent-fallthrough
+;;
+;; Deepest-wins transition resolution: an event declared on a PARENT state
+;; is resolved correctly when the active leaf does not handle it. The
+;; runtime walks from leaf up to root, first match wins. This fixture also
+;; verifies that a leaf-level handler OVERRIDES the parent's handler for
+;; the same event id.
+;;
+;; Per [005 §Transition resolution — deepest-wins with parent fallthrough]
+;; (../../005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough).
+
+{:fixture/id           :machine/hierarchical-parent-fallthrough
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "Deepest-wins resolution with parent fallthrough. (1) Event handled only by parent → walk leaf-then-parent finds it at the parent. (2) Event handled by both parent and leaf → leaf-level wins (override). Both cases verify the lookup walks deepest-first."
+
+ :fixture/registry
+ {:machine-action
+  {:auth/parent-handles-help {:doc "Action declared at parent for :help event."}
+   :auth/leaf-handles-help   {:doc "Action declared at the leaf, overriding the parent."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/parent-handles-help [[:fx :log {:msg "parent handled :help"}]]
+   :auth/leaf-handles-help   [[:fx :log {:msg "leaf handled :help"}]]}}
+
+ :fixture/calls
+ ;; Definition reused across both calls — :help is declared on the parent
+ ;; (:authenticated) AND on the :settings leaf. The :dashboard leaf has no
+ ;; :help handler, so :help should fall through to the parent.
+ [;; Case 1: :dashboard does NOT handle :help — parent fallthrough.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :auth/parent-handles-help}}    ;; internal — no :target
+      :states
+      {:dashboard {}                                            ;; no :on map; no :help handler
+       :settings  {:on {:help {:action :auth/leaf-handles-help}}}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:help]
+   ;; Walk: :dashboard (no match) → :authenticated (match). Internal
+   ;; transition (no :target) — no exit/entry, no state change.
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       [[:log {:msg "parent handled :help"}]]}
+
+  ;; Case 2: :settings DOES handle :help — leaf wins (deepest-wins).
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :auth/parent-handles-help}}
+      :states
+      {:dashboard {}
+       :settings  {:on {:help {:action :auth/leaf-handles-help}}}}}}}
+   :snapshot     {:state [:authenticated :settings] :data {}}
+   :event        [:help]
+   ;; Walk: :settings (match — first match wins). Parent's handler is
+   ;; SHADOWED, not also-fired. Internal — no state change.
+   :expect-next-snapshot {:state [:authenticated :settings] :data {}}
+   :expect-effects       [[:log {:msg "leaf handled :help"}]]}
+
+  ;; Case 3: no level handles :unknown-event — snapshot unchanged, no fx.
+  ;; (See §Transition resolution: emits :rf.warning/unhandled-event trace —
+  ;; trace assertion is left to a per-host instrumentation fixture.)
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :auth/parent-handles-help}}
+      :states
+      {:dashboard {}
+       :settings  {:on {:help {:action :auth/leaf-handles-help}}}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:unknown-event]
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       []}]}

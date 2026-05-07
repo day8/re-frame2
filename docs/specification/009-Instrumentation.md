@@ -1,37 +1,22 @@
-# EP 009 — Instrumentation, Tracing, and Performance Integration
+# Spec 009 — Instrumentation, Tracing, and Performance Integration
 
-> Status: Drafting. **v1-required.** Tracing is the substrate that re-frame-10x consumes; without it, 10x is broken in re-frame2. This EP locks the trace event model, subscription mechanism, hot-path discipline, Chrome Performance API integration, and the forward-compatibility commitments that let 10x and re-frame-pair evolve without re-litigating the framework.
+> The trace event stream is a **pattern-level** primitive — every implementation supplies a structured trace stream from well-defined points in the runtime. Trace events are open maps with stable required keys, consistent with the open-maps-with-schemas principle. The CLJS-specific bits — `goog-define` for production elision, the Chrome Performance API bridge, `register-trace-cb` as the listener API — are reference-implementation details. Other-language implementations resolve elision and listener delivery differently.
 >
-> **Per [reorient.md](reorient.md):** the trace event stream is a **pattern-level** primitive — every implementation supplies a structured trace stream from well-defined points in the runtime. Trace events are open maps with stable required keys, consistent with the open-maps-with-schemas principle. The CLJS-specific bits — `goog-define` for production elision, the Chrome Performance API bridge, `register-trace-cb` as the listener API — are reference-implementation details. Other-language implementations would resolve elision and listener delivery differently.
+> For where the trace bus sits in relation to the runtime's other components (registrar, drain loop, sub-cache, substrate adapter), see [Runtime-Architecture](Runtime-Architecture.md).
 
 ## Abstract
 
-re-frame2 emits a stream of **trace events** describing what's happening at runtime — dispatches, interceptor steps, effect handler calls, subscription updates, frame lifecycle, machine transitions. Tools subscribe to this stream; current tools include re-frame-10x (the visual dev panel) and re-frame-pair (the nREPL-attached AI/REPL agent). Future tools will be different.
+re-frame2 emits a stream of **trace events** describing what's happening at runtime — dispatches, interceptor steps, effect handler calls, subscription updates, frame lifecycle, machine transitions. Tools subscribe to this stream.
 
 The tracing surface is designed to be **stable** (required fields don't change), **extensible** (open maps; new fields are additive), **cheap on the hot path** (near-zero overhead with no listeners), and **cross-platform** (JVM-runnable for the data; Chrome Performance integration is CLJS-side).
 
-**All tracing — including the Performance API bridge — is compile-time eliminated in production builds.** No exceptions. Production binaries contain zero trace code; there is no "leave a small thing on" mode. Tracing is a dev-time concern only.
-
-## Why this is its own EP
-
-Tracing is the connective tissue between the runtime and every tool that observes it. Splitting it into its own EP:
-
-- Locks the data shape independently of any specific tool.
-- Documents the forward-compat commitments tools depend on.
-- Separates "framework emits events" (002 territory) from "framework provides a tap surface" (this EP).
-- Makes the Chrome Performance API integration explicit rather than implicit.
-
-It's v1-required because:
-
-- 10x has to work in re-frame2 from day one; 10x consumes traces.
-- re-frame-pair already attaches to running re-frame apps via nREPL; the trace surface is part of what it reads.
-- Without explicit forward-compat commitments, future 10x/re-frame-pair work is risky.
+**All tracing — including the Performance API bridge — is compile-time eliminated in production builds.** No exceptions. Production binaries contain zero trace code. Tracing is a dev-time concern only.
 
 ## The trace event model
 
 A trace event is an immutable map describing one *span* of work in the runtime — an event's processing, a sub computation, a render, an effect. Events flow into a single per-application trace stream; subscribers listen.
 
-The shape inherits current re-frame's trace convention (preserved for tool compatibility) and adds re-frame2 fields additively.
+The shape is documented below.
 
 ### Core fields (required on every event)
 
@@ -39,7 +24,7 @@ The shape inherits current re-frame's trace convention (preserved for tool compa
 {:id        <int>            ;; auto-incrementing trace id; unique per process
  :operation <kw-or-vec>      ;; what's being traced — typically the event-id, sub-id, etc.
  :op-type   <kw>             ;; discriminator: :event, :sub/run, :sub/create, :render, :raf,
-                              ;;   :event/do-fx, :reagent/quiescent, :machine/transition, etc.
+                              ;;   :event/do-fx, :reagent/quiescent, :rf.machine/transition, etc.
  :start     <ms>             ;; start timestamp (host clock)
  :end       <ms>             ;; end timestamp (set by finish-trace)
  :duration  <ms>             ;; end - start
@@ -58,15 +43,18 @@ These are top-level fields on every event for re-frame2-aware traces; tools writ
 
 ### `:op-type` vocabulary
 
-Existing values consumed by re-frame-10x today: `:event`, `:sub/run`, `:sub/create`, `:render`, `:raf`, `:event/do-fx`, `:reagent/quiescent`, `:sync`, `::fsm-trigger`.
+Core values: `:event`, `:sub/run`, `:sub/create`, `:render`, `:raf`, `:event/do-fx`, `:reagent/quiescent`, `:sync`, `::fsm-trigger`.
 
-re-frame2 adds new `:op-type` values for new concerns:
+Additional values for re-frame2 concerns:
 
 - `:frame/created` / `:frame/reset` / `:frame/destroyed` — frame lifecycle.
-- `:machine.lifecycle/created` / `:machine.lifecycle/destroyed` — machine instance lifecycle.
-- `:machine/event-received` / `:machine/transition` / `:machine/snapshot-updated` — machine activity.
-- `:registry/handler-registered` / `:registry/handler-cleared` — registration changes (hot reload).
-- `:error/handler` / `:error/interceptor` / `:error/fx` / `:error/drain-depth-exceeded` — errors.
+- `:rf.machine.lifecycle/created` / `:rf.machine.lifecycle/destroyed` — machine instance lifecycle.
+- `:rf.machine/event-received` / `:rf.machine/transition` / `:rf.machine/snapshot-updated` — machine activity.
+- `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` — state-machine `:after` timer lifecycle (per [005 §Trace events](005-StateMachines.md#trace-events)). The `*/stale-*` form is the canonical naming for [§stale-detection trace events](Pattern-StaleDetection.md) — see also `:route.nav-token/stale-suppressed` below.
+- `:route.nav-token/allocated` / `:route.nav-token/stale-suppressed` — navigation-token lifecycle (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). `*-allocated` fires when a navigation cascade begins; `*-stale-suppressed` fires when an async result arrives carrying a now-superseded token. Same epoch idiom as the machine-`:after` timer events.
+- `:route.url/fragment-changed` / `:rf.route/navigation-blocked` — fragment-only URL change emission (per [012 §Fragments](012-Routing.md#fragments); distinct from the runtime event `:rf/url-changed` which fires on every URL transition) and pending-nav protocol blockage (per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol)).
+- `:rf.registry/handler-registered` / `:rf.registry/handler-cleared` / `:rf.registry/handler-replaced` — registration changes (hot reload). The canonical trio: `-registered` for a fresh id, `-cleared` for an explicit removal, `-replaced` when re-registration overwrote an existing id (the typical hot-reload case).
+- `:error` / `:warning` — universal severity discriminators for failure events. The category-specific identity lives in `:operation` (e.g. `:rf.error/handler-exception`); see [§Error contract](#error-contract) for the authoritative model.
 
 Consumers filter by `:op-type` (or `:frame`, or `:source`) to get the slice they care about. Adding new `:op-type` values is non-breaking — tools ignore what they don't understand.
 
@@ -78,32 +66,40 @@ Variable per-event data goes in `:tags`. Existing examples: `:app-db-before`, `:
 
 The map is open. New fields can be added by future versions without breaking consumers — listeners read what they understand and ignore the rest. The forward-compat commitments:
 
-- **Required top-level fields** (`:id`, `:operation`, `:op-type`, `:start`, `:end`, `:duration`, `:child-of`, `:tags`) are stable across all re-frame2 versions. Removing or renaming any is a breaking change.
+- **Required top-level fields** (`:id`, `:operation`, `:op-type`, `:start`, `:end`, `:duration`, `:child-of`, `:tags`) are stable. Removing or renaming any is a breaking change.
 - **Re-frame2 additions** (`:frame`, `:source`) are stable once shipped; they are present on every re-frame2 trace event.
 - **Op-type-specific fields inside `:tags`** are stable within their op-type. New optional tag keys are additive; existing keys don't change shape.
 - **New `:op-type` values** can be added without breaking existing tools — tools filter the values they recognise.
 
-Tools written against re-frame2 v1 continue to work against v1.x and v2 unless they read fields that haven't been promised stable.
-
 ## Subscription / consumption
 
-The current re-frame trace API uses **batched, debounced delivery** — listeners receive collections of trace events at a regular cadence (default 50ms) rather than per-event. This is essential for performance: per-event delivery on a hot dispatch loop would slow the host application; batching amortises cost and gives consumers a chance to coalesce updates.
-
-re-frame2 keeps this model.
+re-frame2's trace API uses **batched, debounced delivery** — listeners receive collections of trace events at a regular cadence (default 50ms). This is essential for performance: per-event delivery on a hot dispatch loop would slow the host application; batching amortises cost and gives consumers a chance to coalesce updates.
 
 ### The listener API
 
+The canonical listener API has one shape:
+
 ```clojure
 (rf/register-trace-cb key callback-fn)
-;; Subscribes callback-fn to receive batched trace events.
-;; callback-fn signature: (fn [traces] ...) — traces is a collection.
-;; Same key replaces any previously-registered listener under that key.
+(rf/register-trace-cb key callback-fn opts)
+;; Subscribes callback-fn to receive trace events. Same key replaces any
+;; previously-registered listener under that key.
+;;
+;; Arguments:
+;;   key         — keyword identifying the listener (replaces same-key registration)
+;;   callback-fn — invoked with the trace payload (see :batched? below for shape)
+;;   opts        — optional map. Recognised keys:
+;;                   :batched? — boolean (default true).
+;;                     true  → callback-fn receives a collection of trace events
+;;                             (the debounced batch); signature (fn [traces] ...)
+;;                     false → callback-fn receives one trace event per call;
+;;                             signature (fn [trace] ...). Use sparingly.
 
 (rf/remove-trace-cb key)
-;; Unsubscribes.
+;; Unsubscribes the listener registered under key.
 ```
 
-Conventional keys: `:re-frame.10x/main`, `:re-frame.pair/main`, `:my-app/recorder`.
+Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc. The two-arity form is the typical case; the three-arity form opts out of batching (per [§Per-event delivery](#per-event-delivery--opt-out-of-batching) below).
 
 ### Listener invocation rules
 
@@ -111,11 +107,33 @@ Conventional keys: `:re-frame.10x/main`, `:re-frame.pair/main`, `:my-app/recorde
 - **Debounced.** A 25ms grace window after the most recent emit before delivery, capped at 50ms total. Avoids constant timeout setting/cancelling on busy dispatch loops.
 - **After settle.** A trace event lands in the batch only after its underlying span completes (`finish-trace` runs). Listeners see fully-formed events with `:end` and `:duration` populated.
 - **Exception isolation.** An exception thrown by a listener is caught, logged via `re-frame.loggers`, and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools.
-- **Buffer flush after delivery.** After a batch is delivered to all listeners, the framework's internal trace buffer is reset. The framework holds no long-term history; tools that want one (e.g., 10x's epoch buffer) maintain their own.
+- **Buffer flush after delivery.** After a batch is delivered to all listeners, the framework's internal *delivery* buffer is reset. The delivery buffer is the short-lived collection that accumulates events between debounce windows; it is distinct from the retain-N ring buffer described next.
+
+### Retain-N trace ring buffer (dev-only)
+
+In dev builds, the framework maintains a **retain-N trace ring buffer** alongside the debounced delivery path. The ring buffer holds the most recent N completed trace events and is queryable. This lets pair-shaped AI tools, REPL-attached debuggers, and post-mortem dashboards read recent activity without having to be registered as a `register-trace-cb` listener at the time the events fire.
+
+Contract:
+
+| API | Signature | Notes |
+|---|---|---|
+| `(rf/trace-buffer)` | `() → vector` | Returns the buffer's current contents, oldest-first. Empty when no events have been recorded. |
+| `(rf/trace-buffer opts)` | `(opts) → vector` | Optional filter: `{:frame frame-id}`, `{:op-type kw}`, `{:since trace-id}`. Filters compose. |
+| `(rf/clear-trace-buffer!)` | `() → nil` | Empties the buffer. Tooling uses this between sessions. |
+| `(rf/configure :trace-buffer {:depth N})` | `(N) → nil` | Configure depth; default 200 events. `0` disables the ring buffer (delivery path still works). |
+
+Semantics:
+
+- **Ring discipline.** When the buffer is full, the oldest event is evicted as a new one is pushed. No allocation churn beyond the slot count.
+- **Same events as delivery.** Every event that lands in the delivery buffer also lands in the ring buffer. Ring-buffer events are fully-formed (`:end` and `:duration` populated, per [§Listener invocation rules](#listener-invocation-rules)).
+- **Independent of listeners.** A tool that attaches *after* events have fired can read the most-recent N from the ring buffer to bootstrap its view; a tool that wants a continuous live feed registers a `register-trace-cb` listener as well.
+- **Production elision.** The ring buffer, like the rest of the trace surface, is compile-time eliminated in production builds (per [§Production builds](#production-builds-zero-overhead-zero-code)). `(rf/trace-buffer)` returns an empty vector in production, and the buffer itself is not allocated.
+
+Why this is a framework primitive (not a 10x-specific concern): pair-shaped tools, REPL companions, and any non-10x consumer needs recent-history access. Locating the buffer in the framework means external tools depend on a stable framework primitive rather than on 10x's internal data structures. See [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) for the full consumption pattern.
 
 ### Per-event delivery — opt out of batching
 
-A listener that genuinely needs per-event delivery (rare) can opt out:
+A listener that genuinely needs per-event delivery (rare) opts out via the three-arity form documented in [§The listener API](#the-listener-api) above:
 
 ```clojure
 (rf/register-trace-cb :my/realtime callback-fn {:batched? false})
@@ -126,7 +144,7 @@ Use sparingly — most tools should batch.
 
 ## Emitting trace events — the macro suite
 
-re-frame2 emits traces using a small macro suite (inherited from current re-frame):
+re-frame2 emits traces using a small macro suite:
 
 ```clojure
 (trace/with-trace {:operation event-id
@@ -158,19 +176,19 @@ All three macros expand to `(when (is-trace-enabled?) ...emit...)` gates. `is-tr
 
 ### Where trace emission lives
 
-The framework emits traces from these call sites (inherited from current re-frame, with new ones for re-frame2):
+The framework emits traces from these call sites:
 
 - `events.cljc` — `:event` traces wrap each handler's interceptor pipeline.
 - `subs.cljc` — `:sub/create` and `:sub/run` traces wrap subscription materialisation and recompute.
 - `fx.cljc` — `:event/do-fx` traces wrap effect handler iteration; `:reagent/quiescent` for the post-render moment.
 - `interceptor.cljc` — `merge-trace!` adds `:interceptors` tag to the surrounding event trace.
 - `router.cljc` — `:sync` for `dispatch-sync`; FSM-trigger traces for the router state machine.
-- `std_interceptors.cljc` — `path`, `enrich`, `after`, `on-changes` interceptors emit their own traces.
+- `std_interceptors.cljc` — `path`, `inject-cofx`, `unwrap` interceptors emit their own traces. (`debug`, `trim-v`, `on-changes`, `enrich`, `after` removed in v2 per [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors).)
 
 re-frame2 adds emit sites for new concerns:
 
 - Frame lifecycle (`reg-frame`, `make-frame`, `reset-frame`, `destroy-frame`).
-- Machine handlers (`machine-handler` emits transition / lifecycle / snapshot-update traces).
+- Machine handlers (the fn returned by `create-machine-handler` emits transition / lifecycle / snapshot-update traces).
 - Run-to-completion drain (drain-start / drain-end / drain-depth-exceeded).
 - Per-frame override application (which fx was overridden, by what).
 
@@ -182,7 +200,7 @@ User code can also emit traces — `with-trace` and `merge-trace!` are public.
 
 ### The mechanism: `goog-define trace-enabled?` + `is-trace-enabled?`
 
-Following the convention already in current re-frame's `re-frame.trace`:
+The convention in `re-frame.trace`:
 
 ```clojure
 (ns re-frame.trace)
@@ -226,7 +244,9 @@ In production (closure-define `false`), `is-trace-enabled?` is a constant `false
 
 ### JVM builds
 
-For JVM builds, `trace-enabled?` is a plain `^boolean` def; production artefacts use a build-time flag (or reader conditional) to set it. JVM doesn't have the closure compiler's elision — the dead code stays in the bytecode — but the runtime cost is one boolean check on each emit, near-zero overhead.
+JVM builds resolve `trace-enabled?` via a build-time `System/getProperty` (or equivalent build-time flag) read at namespace load — `(def ^boolean trace-enabled? (= "true" (System/getProperty "re-frame.trace.enabled" "false")))`. Default is `false` (trace disabled in production-built JVM artefacts). Setting `-Dre-frame.trace.enabled=true` at build/run time turns it on for that artefact.
+
+JVM doesn't have the closure compiler's dead-code elimination — the gated code paths remain in the bytecode regardless of the flag's value — but the runtime cost is one boolean check on each emit, near-zero overhead. The compile-time-elision guarantee is **CLJS-only**; the JVM contract is "runtime-cheap when off, runs when on." Reader conditionals are not used for trace gating — the same `^boolean` value lives on both platforms; only its origin differs (closure-define on CLJS, system property on JVM).
 
 ## Hot path in dev builds
 
@@ -244,16 +264,31 @@ Dev iteration matters; you don't want trace machinery to slow ordinary feedback 
 
 ## Chrome Performance API integration
 
-The Chrome Performance API ([User Timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing)) lets dev tools see custom timing alongside React renders, network, paint, etc. re-frame2 wires a built-in bridge between trace emission and `performance.mark` / `performance.measure`. The bridge is part of the trace machinery: it activates whenever tracing is active (dev builds) and is compiled out entirely in production along with the rest of tracing.
+The Chrome Performance API ([User Timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing)) lets dev tools see custom timing alongside React renders, network, paint, etc. re-frame2 ships a built-in bridge between trace emission and `performance.mark` / `performance.measure`. The bridge is **separately enable-able from core tracing**: trace emission is the core contract; the browser-timeline bridge is an explicit convenience layer that can be turned off without disabling the rest of trace.
 
-### Implementation: hardcoded into emit, not a registered listener
+### Configuration
 
-The bridge is *not* a `register-trace-cb` listener — it is hardcoded into the trace-emit path itself, **inside the `(when (is-trace-enabled?) ...)` compile-time gate**. So in production builds, the gate is dead, the entire emit path is elided, and the bridge calls disappear with everything else. In dev builds, the gate is live, every trace emit invokes the bridge, and the marks land in Chrome's Performance panel.
+```clojure
+(rf/configure :performance-api {:enabled? true})    ;; force-on
+(rf/configure :performance-api {:enabled? false})   ;; force-off
+```
 
-Two reasons for hardcoding into emit rather than registering as a listener:
+Default: enabled when `(is-trace-enabled?)` returns true; disabled otherwise. So in a dev build with tracing on, the bridge is on out of the box; turning it off with `:enabled? false` keeps trace events flowing to listeners (10x, re-frame-pair, custom recorders) but stops the `performance.mark` / `performance.measure` calls. Useful when:
+
+- The Performance panel marks are noisy and the user wants the trace stream without the timeline annotations.
+- A custom profiling integration owns the Performance API and re-frame2's marks would conflict.
+- The host environment exposes a partial Performance API and the bridge's negligible-by-default cost would not be negligible.
+
+Production builds elide the bridge code along with the rest of tracing (per "Production builds" above) regardless of the configuration value.
+
+### Implementation: hardcoded into emit, gated separately
+
+The bridge sits inside the trace-emit path itself, **inside the `(when (is-trace-enabled?) ...)` compile-time gate**, with an additional `(when (performance-api-enabled?) ...)` runtime gate that reads the `:performance-api` config. So in production builds, the outer compile-time gate is dead, the entire emit path is elided, and the bridge calls disappear with everything else. In dev builds, the outer gate is live; the inner config gate decides whether the bridge fires.
+
+Two reasons for hardcoding the bridge into emit rather than registering it as a `register-trace-cb` listener:
 
 - **Performance.** `performance.mark` / `performance.measure` calls are heavily optimised in browsers and add negligible overhead per emit; routing them through the user-listener pipeline would require running them on every batch even when no user listeners exist.
-- **The "no user listeners" cheap path stays meaningful.** With the bridge hardcoded, a dev build with no `register-trace-cb` callbacks attached still pays only the bridge's negligible per-emit cost; the user-listener invocation path remains empty until a tool attaches.
+- **The "no user listeners" cheap path stays meaningful.** With the bridge hardcoded, a dev build with no `register-trace-cb` callbacks attached still pays only the bridge's negligible per-emit cost (or zero, if the user has set `:performance-api {:enabled? false}`); the user-listener invocation path remains empty until a tool attaches.
 
 ### How it maps
 
@@ -274,19 +309,19 @@ Result in Chrome DevTools:
 
 ### Activation
 
-The bridge activates whenever tracing is active (dev builds) — there is no separate opt-in. If you can see traces, you can see them in Chrome's Performance panel. Production builds elide tracing entirely (per "Production builds" above), and with it the bridge.
+By default, the bridge activates whenever tracing is active (dev builds). Users who want the trace stream without timeline marks turn the bridge off via `(rf/configure :performance-api {:enabled? false})`; the rest of trace continues to flow. Production builds elide tracing entirely (per "Production builds" above), and with it the bridge — the configuration value has no effect on production code paths.
 
 ### CLJS-only
 
-The Chrome Performance API is browser-specific. JVM-side has its own profiling (clj-async-profiler, JFR); we don't bridge to those in v1. The CLJS-only nature is documented; users running tests on JVM see all the trace events but not Performance marks.
+The Chrome Performance API is browser-specific. JVM-side profiling uses the host's own tools (clj-async-profiler, JFR). The CLJS-only nature is documented; users running tests on JVM see all the trace events but not Performance marks.
 
 ### Forward compat
 
 If Chrome's Performance API changes (e.g., adds new measure types), the bridge implementation updates internally; user code is unaffected because the bridge has no user-facing API — it's a hardcoded part of the trace-emit path. Browsers that don't expose `performance.mark`/`measure` (or expose only a subset) see the bridge no-op gracefully.
 
-## Forward compatibility for tools (10x, re-frame-pair)
+## Forward compatibility for tools
 
-External tools (re-frame-10x, re-frame-pair, custom dashboards) consume re-frame2 through stable surfaces. Production builds elide the entire trace surface; everything in this section is dev-only.
+External tools consume re-frame2 through stable surfaces. Production builds elide the entire trace surface; everything in this section is dev-only.
 
 ### Stable surfaces consumed by every tool
 
@@ -299,9 +334,9 @@ External tools (re-frame-10x, re-frame-pair, custom dashboards) consume re-frame
 | `:tags` for op-type-specific data (`:app-db-before`, `:app-db-after`, `:input-signals`, `:cached?`, `:value`, `:error`) | Preserved |
 | `is-trace-enabled?` | Preserved |
 | Compile-time elision via `goog-define trace-enabled?` | Preserved |
-| `(trace-api-version)` integer (bumps on contract revisions) | New |
+| `(trace-api-version)` integer (bumps on contract revisions) | Provided |
 | Public registrar query API (`handlers`/`handler-meta`/`frame-ids`/`frame-meta`/`get-frame-db`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
-| Hot-reload notifications (`:registry/handler-registered`, `:registry/handler-cleared`, `:frame/created`, `:frame/destroyed`) | New trace events |
+| Hot-reload notifications (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`, `:frame/created`, `:frame/destroyed`) | Trace events |
 
 `(trace-api-version)` is the version gate:
 
@@ -311,28 +346,20 @@ External tools (re-frame-10x, re-frame-pair, custom dashboards) consume re-frame
   ...)
 ```
 
-10x's existing reads against private `re-frame.db/app-db` must move to the public query API (per MIGRATION M-1).
-
-### What 10x will need to adapt
+### Capabilities tools depend on
 
 - **Multi-frame UI** — frame selector; per-frame trace slicing via `:frame`; per-frame app-db via `(get-frame-db id)`.
-- **Drain semantics in epochs** — more events drain into a single epoch (run-to-completion); `:child-of` chain works as-is; visual layout may want to mark drain boundaries.
-- **Machine trace types** — new `:op-type` values (`:machine/transition`, etc.); additive, can ignore initially.
-- **Per-frame override visibility** — surface `:fx-overrides`/`:interceptor-overrides` in the frame inspector via `(frame-meta id)`.
+- **Drain semantics in epochs** — multiple events drain into a single epoch (run-to-completion); `:child-of` chain expresses the cascade.
+- **Machine trace types** — `:op-type` values (`:rf.machine/transition`, etc.) for state-machine activity.
+- **Per-frame override visibility** — `:fx-overrides`/`:interceptor-overrides` are inspectable via `(frame-meta id)`.
 
-### What re-frame-pair can do without re-frame2 changes
+### Programmatic interaction surfaces
 
 - Generate test cases from trace history.
 - Suggest refactors based on registry inspection.
 - Drive interactions via `dispatch-sync`.
 - Snapshot state, modify, restore.
 - Read state in any frame; `frame-ids` enumerates them.
-
-### What still needs design work for pair
-
-- Sandboxed execution ("run this dispatch but undo any side-effects after"). Partially expressible today via per-frame `:fx-overrides` (override every fx with a no-op or recorder).
-- Speculative execution (`simulate-dispatch` that doesn't commit).
-- Write-then-rollback transactions.
 
 ## JVM vs. CLJS scope
 
@@ -353,6 +380,11 @@ Trace data is just data; both platforms emit it during dev. The Performance API 
 
 Errors that occur during runtime execution are emitted as **structured trace events**, with a defined `:op-type` and a Malli-schemed `:tags` payload. This satisfies AI-first property P7 (machine-readable errors) and gives every consumer of the trace stream a consistent error surface.
 
+This section is the **authoritative model** for re-frame2's error taxonomy. Per-feature specs (010, 011, 012, etc.) reference categories defined here; the `Error categories` table below is the single source of truth for category names, payload shapes, and recovery defaults. Two axes carry the structured information:
+
+- **`:op-type`** — universal severity discriminator (`:error` or `:warning`). Consumers branch on severity without parsing the prefix.
+- **`:operation`** — namespaced category keyword (`:rf.error/<category>`, `:rf.fx/<category>`, `:rf.ssr/<category>`, `:rf.warning/<category>`, `:rf.epoch/<category>`). The prefix carries domain provenance; the suffix names the specific category.
+
 ### The error event shape
 
 All error trace events are open maps with these required keys:
@@ -361,19 +393,38 @@ All error trace events are open maps with these required keys:
 {:id        any                                  ;; unique trace id
  :operation :rf.error/<category>                 ;; specific category, see below
  :op-type   :error                               ;; the universal discriminator for errors
+ :frame     keyword                              ;; the frame the failure happened in
+ :source    keyword?                             ;; the trigger source (:ui, :timer, :http, ...)
  :start     timestamp
  :end       timestamp
  :duration  number-ms
  :tags      {:category    :rf.error/<category>   ;; same as :operation, for consumer convenience
              :failing-id  any                    ;; the registered id that failed (event id, fx id, sub id, view id, etc.)
-             :frame       keyword                ;; the frame the failure happened in
              :reason      string                 ;; one-sentence human description
              ...}                                ;; category-specific keys
  :child-of  any?                                 ;; parent trace id if nested
  :recovery  keyword?}                            ;; :no-recovery, :replaced-with-default, :retried, :skipped, ...
 ```
 
-The `:tags` payload's category-specific keys are documented per category below, and each category has a registered Malli schema so consumers can validate / branch on the payload safely.
+`:frame` and `:source` are the same top-level fields documented in [§Re-frame2 additions](#re-frame2-additions-additive-optional) — they live at the top level on **every** trace event, errors included; they are not duplicated inside `:tags`. The `:tags` payload's category-specific keys are documented per category below, and each category has a registered Malli schema so consumers can validate / branch on the payload safely.
+
+### Error namespace convention — five prefix shapes
+
+Error categories use **five distinct namespace prefixes**:
+
+| Prefix | Meaning | Example |
+|---|---|---|
+| `:rf.error/<category>` | A genuine runtime error: a contract was violated. | `:rf.error/handler-exception`, `:rf.error/no-such-sub` |
+| `:rf.fx/<category>` | An fx-substrate event that rides the error envelope but is not necessarily a failure. | `:rf.fx/skipped-on-platform` |
+| `:rf.ssr/<category>` | An SSR-substrate event with its own diagnostic shape (server-vs-client divergence, hash mismatches). | `:rf.ssr/hydration-mismatch` |
+| `:rf.warning/<category>` | A misuse the runtime can recover from but wants surfaced. | `:rf.warning/plain-fn-under-non-default-frame` |
+| `:rf.epoch/<category>` | Time-axis tooling (epoch buffer, time-travel) diagnostics. | `:rf.epoch/replay-conflict` |
+
+The prefix carries domain provenance that consumers branch on. `:rf.fx/` marks "fx substrate emitted this"; `:rf.ssr/` marks "SSR substrate emitted this"; `:rf.warning/` marks "this is recoverable." Routing on the prefix is cheap (string-prefix dispatch) and matches how tools consume the stream.
+
+The `:op-type` field carries the universal severity discriminator (`:error` / `:warning`) so consumers that want severity branching get it without parsing the prefix. `:op-type` answers *how serious is this?*; the prefix answers *which subsystem owns it?*.
+
+This convention is **stable**: new error categories adopt one of the five existing prefixes. New ad-hoc prefixes are not part of the contract.
 
 ### Error categories (initial set)
 
@@ -382,13 +433,21 @@ The `:tags` payload's category-specific keys are documented per category below, 
 | `:rf.error/handler-exception` | An event handler threw | `:event` (vector), `:handler-id`, `:exception-message`, `:exception-data?` |
 | `:rf.error/fx-handler-exception` | A registered fx threw during effect resolution | `:fx-id`, `:fx-args`, `:exception-message` |
 | `:rf.error/sub-exception` | A subscription's computation threw | `:sub-query`, `:sub-id`, `:exception-message` |
+| `:rf.error/no-such-sub` | A subscription's `:<-` input refers to an unregistered sub | `:sub-id`, `:unresolved-input`, `:resolved-inputs` |
 | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed validation | `:where` (`:event`/`:sub-return`/`:app-db`/`:fx-args`/...), `:path`, `:value`, `:explanation` (Malli explanation map) |
 | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit | `:depth`, `:queue-size`, `:last-event` |
 | `:rf.error/no-such-handler` | A dispatch arrived with no registered handler | `:event`, `:kind` |
+| `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside an event handler's interceptor pipeline (use `:fx [[:dispatch event]]` instead — see [002 §dispatch-sync](002-Frames.md#dispatch-sync)) | `:event`, `:enclosing-event`, `:enclosing-frame` |
 | `:rf.error/override-fallthrough` | An override was specified but no matching id existed | `:overrides-map`, `:looked-up-id` |
 | `:rf.fx/skipped-on-platform` | An fx was skipped because its `:platforms` excluded the active platform (per [011](011-SSR.md)) | `:fx-id`, `:platform`, `:registered-platforms` |
 | `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree (per [011](011-SSR.md)) | `:server-hash`, `:client-hash`, `:first-diff-path?` |
-| `:rf.warning/plain-fn-under-non-default-frame` | A plain (non-`reg-view`) Reagent fn rendered under a non-default frame; routed to `:re-frame/default`. Per [004 §Plain Reagent fns](004-Views.md) | `:fn-name`, `:rendered-under`, `:routed-to` |
+| `:rf.warning/plain-fn-under-non-default-frame-once` | A plain (non-`reg-view`) Reagent fn rendered under a non-default frame; routed to `:rf/default`. Emitted at most once per `(component-id, non-default-frame-id)` pair — see [004 §Plain Reagent fns](004-Views.md) | `:fn-name`, `:rendered-under`, `:routed-to` |
+| `:rf.warning/no-clock-configured` | A timing-sensitive substrate feature (e.g. state-machine `:after` per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) was exercised on a host whose `re-frame.interop` clock primitives (`now-ms` / `schedule-after!` / `cancel-scheduled!`) weren't wired up. The runtime falls back to the host-native clock if available; this advisory surfaces so tests / agents can spot the missing wiring | `:feature` (e.g. `:rf.machine/after`), `:fallback` (the host-native clock used) |
+| `:rf.error/duplicate-url-binding` | A second frame attempted `:url-bound? true` while another already owns the URL. Per [012 §Multi-frame routing](012-Routing.md#multi-frame-routing) | `:existing-frame`, `:offending-frame` |
+| `:rf.warning/multiple-status-set` | Two or more `:rf.server/set-status` calls in the same request drain. Last-write-wins; advisory for finding the conflicting handlers. Per [011 §Multiple-status policy](011-SSR.md#multiple-status-policy) | `:writes` (vector of `{:status :handler-id :event}` per write), `:final-status` |
+| `:rf.warning/multiple-redirects` | Two or more `:rf.server/redirect` calls in the same request drain. Last-write-wins. Per [011 §Redirect precedence](011-SSR.md#redirect-precedence) | `:writes` (vector), `:final-redirect` |
+| `:rf.warning/head-mismatch` | Client-computed head model differs from server-supplied head; client re-renders and replaces. Per [011 §Mismatch detection — head](011-SSR.md#mismatch-detectionhead) | `:server-hash`, `:client-hash`, `:head-id` |
+| `:rf.error/sanitised-on-projection` | The active error projector threw or returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 public shape. Per [011 §Where sanitisation happens — before render](011-SSR.md#where-sanitisation-happensbefore-render) | `:projector-id`, `:original-operation`, `:projection-failure-reason` |
 
 `:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
 
@@ -399,11 +458,14 @@ Each category's `:tags` shape is registered as a Malli schema so consumers can v
 ```clojure
 ;; Conceptual; the actual registration mechanism is implementation-specific.
 
+;; :frame is the top-level field on the trace event itself (per the error event
+;; shape above), not a :tags key — it appears on every trace event, error or
+;; otherwise. The schemas below describe the :tags payload only.
+
 (def HandlerExceptionTags
   [:map
    [:category          [:= :rf.error/handler-exception]]
    [:failing-id        :keyword]
-   [:frame             :keyword]
    [:reason            :string]
    [:event             [:vector :any]]
    [:handler-id        :keyword]
@@ -414,7 +476,6 @@ Each category's `:tags` shape is registered as a Malli schema so consumers can v
   [:map
    [:category    [:= :rf.error/schema-validation-failure]]
    [:failing-id  :keyword]
-   [:frame       :keyword]
    [:reason      :string]
    [:where       [:enum :event :sub-return :app-db :fx-args :cofx-args :on-create]]
    [:path        [:vector :any]]
@@ -424,11 +485,17 @@ Each category's `:tags` shape is registered as a Malli schema so consumers can v
 ;; ... and so on for each category.
 ```
 
-Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is stable and additive — new categories can be added but existing ones cannot be renamed or removed (Spec-ulation).
+Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is stable and additive — new categories can be added but existing ones cannot be renamed or removed.
+
+### Server error projection — public boundary
+
+For SSR specifically, the structured trace event is the **internal** record (rich, full detail, monitor-bound) and a separate **public projection** is written to the HTTP response (sanitised, client-safe). The internal trace event is **never** serialised to the client. The projection mechanism is owned by [011 §Server error projection](011-SSR.md#server-error-projection); the trace stream is unchanged by it. Tools that want full error detail subscribe via `register-trace-cb` as usual; the response carries only the locked `:rf/public-error` shape.
+
+The runtime emits `:rf.error/sanitised-on-projection` (above) when the projector itself fails, so monitor dashboards see when the public boundary fell back to the generic-500 shape.
 
 ### Recovery contract
 
-The `:recovery` field on the trace event tells consumers (10x, re-frame-pair, error-monitor integrations) what the runtime did:
+The `:recovery` field on the trace event tells consumers (dev panels, error-monitor integrations, tooling) what the runtime did:
 
 - `:no-recovery` — the error propagated; the event was not handled.
 - `:replaced-with-default` — the runtime used a default value (e.g., `:no-such-handler` falling through to a no-op).
@@ -468,7 +535,7 @@ The error-handler:
 
 - Receives the structured error event (an `:rf/trace-event` with `:op-type :error`).
 - Returns either `nil` (no policy override; runtime applies its default per-category recovery) or a map with at least `:recovery` set to one of the documented recovery keywords.
-- Optional keys in the return map: `:replacement` (a value to use when `:recovery` is `:replaced-with-default`), `:retry-count` (when `:recovery` is `:retried`), `:notes` (a string surfaced in the resulting trace).
+- Optional keys in the return map: `:replacement` (a value to use when `:recovery` is `:replaced-with-default`) and `:notes` (a string surfaced in the resulting trace). The framework does not ship a `:retried` recovery — handlers cannot ask the runtime to re-execute the failed operation. If retry semantics are wanted, the user dispatches a fresh event from inside the error-handler (see "Composition with libraries" below).
 
 Only **one** error-handler is registered at a time per process. Replacing it replaces the policy. The default error-handler is registered automatically; user calls to `reg-event-error-handler` override it.
 
@@ -479,12 +546,52 @@ Only **one** error-handler is registered at a time per process. Replacing it rep
 | `:rf.error/handler-exception` | `:no-recovery` | The exception propagates; the cascade halts. |
 | `:rf.error/fx-handler-exception` | `:no-recovery` | The fx is skipped; cascade continues if other fx independent. |
 | `:rf.error/sub-exception` | `:replaced-with-default` | The sub returns `nil`; views see no value. |
+| `:rf.error/no-such-sub` | `:replaced-with-default` | The unresolved input is substituted with `nil`; the sub's body still runs. Strict mode (`:strict-subs` config) escalates to a thrown exception. |
 | `:rf.error/schema-validation-failure` | `:no-recovery` (dev) / `:replaced-with-default` (prod) | Dev: hard-fail to surface bugs early. Prod: log and proceed with the offending value (validation at boundaries should already have rejected it). |
 | `:rf.error/drain-depth-exceeded` | `:no-recovery` | Always indicates a bug; halt the cascade. |
 | `:rf.error/no-such-handler` | `:replaced-with-default` | No-op; emit the trace. |
+| `:rf.error/dispatch-sync-in-handler` | `:no-recovery` | The call is rejected. Use `:fx [[:dispatch event]]` in the effect map. |
 | `:rf.error/override-fallthrough` | `:replaced-with-default` | Use the registered fx as if no override existed. |
 | `:rf.fx/skipped-on-platform` | `:skipped` | Documented; not really an error. |
 | `:rf.ssr/hydration-mismatch` | `:warned-and-replaced` | Re-render client-side; the server's HTML is replaced. |
+| `:rf.warning/multiple-status-set` | `:warned-and-replaced` | Last-write wins; advisory only. |
+| `:rf.warning/multiple-redirects` | `:warned-and-replaced` | Last-write wins; advisory only. |
+| `:rf.warning/head-mismatch` | `:warned-and-replaced` | Client renders its head; server's is replaced. |
+| `:rf.error/sanitised-on-projection` | `:replaced-with-default` | Runtime falls back to the locked generic-500 public-error shape. |
+
+#### Style rubric for `:reason` strings (non-normative)
+
+The structured fields of an error trace event (`:operation`, `:failing-id`, `:frame`, category-specific `:tags`) are the *contract* — tools branch on those. The `:reason` string is the **one-sentence human-facing accompaniment** that error-monitor dashboards, dev panels, and tooling surface to a reader. The voice matters. The goal is wording that helps the reader fix the problem in one read.
+
+A good `:reason` string:
+
+1. **Names the failing thing** — the registered id, in backticks. `'Event handler `:cart/add-item` threw an exception.'` not `'A handler threw.'`
+2. **Names the broken contract** — what was expected. `'... expected to return an effects-map; got a vector.'` not `'... bad return value.'`
+3. **Suggests the fix in one clause** when the fix is unambiguous from the structured payload. `'... did you mean to wrap it in `{:fx [...]}` ?'` not `'See docs.'`
+4. **Stays under ~20 words.** The structured `:tags` payload carries the detail; `:reason` is the headline.
+5. **Is mechanically composable from the `:tags` payload.** Implementations build `:reason` from a category-specific template plus `:tags` substitutions; nothing in `:reason` is information not also present in structured form.
+
+Example pairs (acceptable → preferred):
+
+```
+:rf.error/handler-exception
+  acceptable: "Handler threw."
+  preferred:  "Event handler `:cart/add-item` threw: TypeError: Cannot read property 'price' of undefined."
+
+:rf.error/no-such-sub
+  acceptable: "Subscription input not found."
+  preferred:  "Subscription `:cart/total` depends on `:cart/items` which is not registered. Did you forget to require the cart namespace?"
+
+:rf.error/schema-validation-failure
+  acceptable: "Schema validation failed."
+  preferred:  "Event vector for `:cart/add-item` failed schema at path [1 :id]: expected :uuid, got \"abc\"."
+
+:rf.error/drain-depth-exceeded
+  acceptable: "Drain depth exceeded."
+  preferred:  "Drain depth limit (100) exceeded — likely a dispatch loop. Last event in queue: `[:cart/recompute]`."
+```
+
+Implementations that omit a `:reason` (returning the empty string) are conformant — the structured payload is the contract — but the rubric is the recommended voice for the reference implementation and for ports.
 
 #### Composition with libraries (Sentry, Honeybadger, etc.)
 
@@ -499,38 +606,37 @@ Error-monitoring libraries integrate by registering an error-handler that forwar
 
 Multiple monitoring concerns compose in user code (one error-handler that fans out to several services). The runtime exposes one slot.
 
+## Notes
+
+### Why this is its own Spec
+
+Tracing is the connective tissue between the runtime and every tool that observes it. Splitting it into its own Spec:
+
+- Locks the data shape independently of any specific tool.
+- Documents the forward-compat commitments tools depend on.
+- Separates "framework emits events" (002 territory) from "framework provides a tap surface" (this Spec).
+- Makes the Chrome Performance API integration explicit rather than implicit.
+
 ## Open questions
 
-### I-1. Trace allocation cost in dev when no listeners
+### Trace allocation cost in dev when no listeners
 
-When a listener is *never* registered, the macros' compile-time gate doesn't help — `is-trace-enabled?` is true (dev), so the body runs. The body should fast-fail when `(empty? @trace-cbs)`. Confirm the emit macros do this check before allocating the trace map; profile against eager allocation if uncertain.
+When a listener is *never* registered, the macros' compile-time gate doesn't help — `is-trace-enabled?` is true (dev), so the body runs. The body should fast-fail when `(empty? @trace-cbs)`. The emit macros perform this check before allocating the trace map.
 
-### I-2. Listener ordering
+### Privacy / sensitive data in traces
 
-Multiple listeners exist (10x + re-frame-pair + custom). Order is by registration time (FIFO map iteration). Locked: tools should not depend on order, since batched delivery means each listener gets the same collection independently.
+Trace events contain dispatched event vectors, which may include user input (passwords, PII). Tools that ship traces (e.g., to monitoring services) must redact. Recommendation: provide a `:sensitive?` tag that handlers can set; a `with-redacted` interceptor pattern that strips sensitive args before emit.
 
-### I-3. ~~Trace correlation across the cascade~~ — *resolved.*
+## Resolved decisions
 
-Use the existing `:child-of` field (parent trace id). 10x's epoch grouping already relies on this; re-frame2 preserves it.
+### Listener ordering
 
-### I-4. Trace event for app-db changes
+Multiple listeners may register concurrently. Order is by registration time (FIFO map iteration). Tools must not depend on order, since batched delivery gives each listener the same collection independently.
 
-`:db` mutations happen inside `do-fx`. Today's re-frame already captures `:app-db-before` and `:app-db-after` in the `:event` trace's `:tags`. Sufficient for 10x's purposes; no separate `:app-db/changed` event needed. Locked.
+### Trace correlation across the cascade
 
-### I-5. Privacy / sensitive data in traces
+Use the `:child-of` field (parent trace id). Epoch grouping relies on this; the framework preserves it.
 
-Trace events contain dispatched event vectors, which may include user input (passwords, PII). Tools that ship traces (e.g., to Sentry) must redact. Recommendation: provide a `:sensitive?` tag that handlers can set; a `with-redacted` interceptor pattern that strips sensitive args before emit. Worth a documented pattern in v1.x; not blocking for v1.
+### Trace event for app-db changes
 
-## Disposition
-
-**v1.** Tracing ships in v1 because 10x depends on it. The Chrome Performance API bridge ships as part of the trace machinery — automatic in dev builds when tracing is active, fully elided in production along with the rest of tracing. The forward-compat commitments are stated now and locked.
-
-The substrate is small — trace events are data, listeners are functions, cheap-path is one atom-deref. Most of the work is in defining the event taxonomy and getting the discipline right.
-
-Post-v1 work this enables:
-
-- 10x evolution (UI changes, new panels, new integrations) without re-frame2 changes.
-- re-frame-pair evolution (smarter agent workflows) without re-frame2 changes.
-- New tools (custom dev panels, observability platforms, learning agents) using the same trace surface.
-
-The forward-compat commitments turn this from "current tooling support" into "infrastructure for any future tool."
+`:db` mutations happen inside `do-fx`. The runtime captures `:app-db-before` and `:app-db-after` in the `:event` trace's `:tags`. No separate `:app-db/changed` event is emitted.

@@ -4,18 +4,27 @@
    home, articles list, article detail. Demonstrates URL ↔ frame state,
    navigation as event, route as sub, and route-aware root-view dispatch.
 
-   Per [reorient.md](../../reorient.md): routing is *state plus events*, not
+   Per [000-Vision §Working design implications](../../docs/specification/000-Vision.md#working-design-implications): routing is *state plus events*, not
    a separate subsystem. The URL is a derivable view of `app-db`; navigation
    is an event. The same `:route/handle-url-change` handler runs server- and
    client-side for SSR.
 
-   Demonstrates:
-   - reg-route                              — routes as registry entries
-   - :route/navigate                        — navigation as event
-   - :route/handle-url-change                — popstate / initial-load handler
-   - :route, :route/id, :route/params        — route subs
-   - case-on-:route/id at the root          — page dispatch
-   - :nav/push-url fx (client-only)          — browser history push"
+   This is a deliberately minimal subset of the Spec 012 routing surface,
+   intended as a teaching sketch — see examples/realworld/routing.cljs for
+   the full surface (`:on-match`, `:can-leave`, route ranking, nav-token
+   stale-result suppression, fragment scroll strategies). The events,
+   subscriptions, and link-component name used here match the runtime
+   contract so a reader sees the standard names from the start:
+
+   - canonical link view `:rf/route-link`     (re-stated locally for the example)
+   - clicks dispatch `:rf/url-requested`      (the runtime's classifier event)
+   - which the runtime maps to `:route/navigate` for internal URLs
+   - canonical :route slice keys              — id, params, query, fragment,
+                                                  transition, error, nav-token
+   - `:route/handle-url-change` on popstate / initial-load
+   - `:route`, `:route/id`, `:route/params`   — route subs
+   - case-on-`:route/id` at the root          — page dispatch
+   - `:nav/push-url` fx (client-only)          — browser history push"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]))
 
@@ -44,10 +53,17 @@
 ;; SCHEMA  (the route slice in app-db)
 ;; ============================================================================
 
+;; The :route slice canonical shape per [012 §The :route slice]:
+;; {:id :params :query :fragment :transition :error :nav-token}.
 (rf/reg-app-schema [:route]
   [:map
-   [:id     :keyword]
-   [:params {:default {}} :map]])
+   [:id         :keyword]
+   [:params     {:default {}} :map]
+   [:query      {:default {}} :map]
+   [:fragment   {:optional true} [:maybe :string]]
+   [:transition {:default :idle} [:enum :idle :loading :error]]
+   [:error      {:optional true} [:maybe :map]]
+   [:nav-token  {:optional true} [:maybe :string]]])
 
 ;; ============================================================================
 ;; EVENTS
@@ -55,29 +71,62 @@
 
 (rf/reg-event-db :app/initialise
   (fn [_ _]
-    {:route    {:id :route/home :params {}}
+    {:route    {:id         :route/home
+                :params     {}
+                :query      {}
+                :fragment   nil
+                :transition :idle
+                :error      nil
+                :nav-token  nil}
      :articles [{:id "intro" :title "Intro to re-frame2"  :body "..."}
                 {:id "ssr"   :title "Server rendering"   :body "..."}]}))
 
 (rf/reg-event-fx :route/navigate
-  {:doc  "Navigate to a registered route."
-   :spec [:cat [:= :route/navigate] :keyword [:? :map]]}
-  (fn handler-route-navigate [{:keys [db]} [_ route-id params]]
-    (let [params (or params {})
-          url    (rf/route-url route-id params)]
-      {:db (assoc db :route {:id route-id :params params})
-       :fx [[:nav/push-url url]]})))
+  {:doc  "MINIMAL re-statement of the framework-shipped :route/navigate
+          (Spec 012). The runtime ships a default; this body is mirrored
+          here for teaching. Real apps consume :route/navigate as-is.
+          The Spec-012 signature accepts an optional opts map (e.g.
+          {:return-to ...}, {:replace? true}); this minimal subset only
+          uses path-params."
+   :spec [:cat [:= :route/navigate] :keyword [:? :map] [:? :map]]}
+  (fn handler-route-navigate [{:keys [db]} [_ route-id params _opts]]
+    (let [params    (or params {})
+          url       (rf/route-url route-id params)
+          nav-token (rf/gen-nav-token)]
+      {:db (assoc db :route {:id         route-id
+                             :params     params
+                             :query      {}
+                             :fragment   nil
+                             :transition :idle
+                             :error      nil
+                             :nav-token  nav-token})
+       :fx [[:nav/push-url url]
+            [:rf/trace [:route.nav-token/allocated
+                        {:route-id route-id :nav-token nav-token}]]]})))
 
 (rf/reg-event-db :route/handle-url-change
   {:doc       "Triggered on browser back/forward and on initial page load.
                Same handler runs server-side during SSR."
    :platforms #{:client :server}}
   (fn handler-route-handle-url-change [db [_ url]]
-    (let [m (rf/match-url url)]
+    (let [{:keys [route-id params query fragment]} (rf/match-url url)
+          nav-token                                (rf/gen-nav-token)]
       (assoc db :route
-             (if m
-               {:id (:route-id m) :params (:params m)}
-               {:id :route/not-found :params {:url url}})))))
+             (if route-id
+               {:id         route-id
+                :params     (or params {})
+                :query      (or query {})
+                :fragment   fragment
+                :transition :idle
+                :error      nil
+                :nav-token  nav-token}
+               {:id         :route/not-found
+                :params     {:url url}
+                :query      {}
+                :fragment   nil
+                :transition :idle
+                :error      nil
+                :nav-token  nav-token})))))
 
 ;; ============================================================================
 ;; FX  (client-only navigation push)
@@ -110,17 +159,28 @@
   (fn [arts [_ id]] (first (filter #(= id (:id %)) arts))))
 
 ;; ============================================================================
-;; LINK COMPONENT — anchor that dispatches navigate on click
+;; LINK COMPONENT — anchor that dispatches :rf/url-requested on click
 ;; ============================================================================
+;;
+;; Registered under the canonical name :rf/route-link (per Spec 012). Click
+;; dispatches :rf/url-requested — the runtime's classifier event that decides
+;; internal-vs-external and dispatches :route/navigate for internal URLs.
+;; That extra step is what lets the framework own the modifier-key passthrough
+;; and external-link semantics for everyone uniformly.
 
 (def route-link
-  (rf/reg-view :route/link
+  (rf/reg-view :rf/route-link
     (fn render-route-link [{:keys [to params]} & children]
       (let [url (rf/route-url to (or params {}))]
         [:a {:href     url
              :on-click (fn [e]
-                         (.preventDefault e)
-                         (dispatch [:route/navigate to (or params {})]))}
+                         (when (and (zero? (.-button e))
+                                    (not (.-metaKey e))
+                                    (not (.-ctrlKey e))
+                                    (not (.-shiftKey e)))
+                           (.preventDefault e)
+                           (dispatch [:rf/url-requested
+                                      {:url url :to to :params (or params {})}])))}
          (into [:span] children)]))))
 
 ;; ============================================================================

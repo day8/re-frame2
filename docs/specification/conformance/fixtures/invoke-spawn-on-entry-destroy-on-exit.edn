@@ -1,0 +1,112 @@
+;; Conformance fixture: machine/invoke-spawn-on-entry-destroy-on-exit
+;;
+;; Declarative :invoke on a state node desugars at registration time into
+;; entry/exit actions that emit :spawn (on entry) and :destroy-machine (on
+;; exit) fx. Verify:
+;;
+;;   1. Entering the :invoke-bearing state emits a :spawn fx whose args carry
+;;      the user-declared :machine-id, :data, :on-spawn, and :start keys.
+;;   2. The :on-spawn callback fires with (data, spawned-id) and the parent's
+;;      :data is updated accordingly (here: :pending bound to the actor id).
+;;   3. Exiting the state emits a :destroy-machine fx targeting the recorded
+;;      child id (read out of the parent's :data via the key the :on-spawn
+;;      installed).
+;;
+;; Per [005 §Declarative :invoke (sugar over spawn)]
+;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn).
+;;
+;; The fixture exercises the desugared shape directly via :machine-transition
+;; calls — the :spawn / :destroy-machine fx the runtime emits are observable
+;; at the same level as any other fx. Hosts whose harness can simulate the
+;; :spawn fx (assigning a deterministic id) can verify (3) by chaining a
+;; second call with the recorded id; hosts that don't simulate spawn validate
+;; (1) and (2) only and report (3) as not-exercised.
+;;
+;; The :on-spawn callback is supplied as a registered :machine-action body so
+;; the host's handler-body DSL can drive it as data — it follows the same
+;; convention as inline actions elsewhere in the corpus.
+
+{:fixture/id           :machine/invoke-spawn-on-entry-destroy-on-exit
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke}
+ :fixture/doc          "Declarative :invoke on a state node desugars to entry/exit :spawn / :destroy-machine fx at registration time. Verifies that entering the state emits :spawn with the declared spec, the :on-spawn callback updates the parent's :data with the spawned id, and exiting the state emits :destroy-machine with the recorded id."
+
+ :fixture/registry
+ {:machine
+  {:http/post {:doc "Stub child machine — the actor :invoke spawns. Body is irrelevant to this fixture; only the spawn/destroy lifecycle is observed."}}}
+
+ :fixture/calls
+ ;; ---- (1) Entering :authenticating: spawn fx is emitted with the
+ ;;          declared :machine-id, :data, :on-spawn, and :start.
+ ;;
+ ;; The transition fires from :idle on [:submit ...]; the entry-cascade for
+ ;; :authenticating runs, emitting the auto-spawn fx. The :on-spawn callback
+ ;; runs against the spawn's assigned id (host-deterministic in fixtures).
+ [{:call         :machine-transition
+   :definition
+   {:initial :idle
+    :data    {:credentials {:user "alice" :pass "secret"}}
+    :states
+    {:idle
+     {:on {:submit :authenticating}}
+
+     :authenticating
+     {:invoke {:machine-id :http/post
+               :data       {:url "/api/login" :body {:user "alice" :pass "secret"}}
+               :on-spawn   :auth/record-actor
+               :start      [:begin]}
+      :on    {:auth/succeeded :authenticated
+              :auth/failed    :idle}}
+
+     :authenticated {}}}
+   :snapshot     {:state :idle :data {:credentials {:user "alice" :pass "secret"}}}
+   :event        [:submit]
+   ;; After the transition, :authenticating's auto-spawn entry has run.
+   ;; The :on-spawn callback (:auth/record-actor) records the spawn's id at
+   ;; :pending. The fixture harness assigns the deterministic id
+   ;; :http/post#1 for spawn-fx in test mode.
+   :expect-next-snapshot {:state :authenticating
+                          :data  {:credentials {:user "alice" :pass "secret"}
+                                  :pending     :http/post#1}}
+   :expect-effects       [[:spawn {:machine-id :http/post
+                                   :id-prefix  :http/post
+                                   :data       {:url "/api/login"
+                                                :body {:user "alice" :pass "secret"}}
+                                   :on-spawn   :auth/record-actor
+                                   :start      [:begin]}]]}
+
+  ;; ---- (3) Exiting :authenticating: destroy fx is emitted with the
+  ;;          recorded child id from the parent's :data.
+  ;;
+  ;; Driven directly with the post-(1) snapshot; the :auth/failed event
+  ;; transitions back to :idle, firing :authenticating's auto-destroy exit.
+  {:call         :machine-transition
+   :definition
+   {:initial :idle
+    :data    {}
+    :states
+    {:idle
+     {:on {:submit :authenticating}}
+
+     :authenticating
+     {:invoke {:machine-id :http/post
+               :data       {:url "/api/login"}
+               :on-spawn   :auth/record-actor
+               :start      [:begin]}
+      :on    {:auth/succeeded :authenticated
+              :auth/failed    :idle}}
+
+     :authenticated {}}}
+   :snapshot     {:state :authenticating
+                  :data  {:pending :http/post#1}}
+   :event        [:auth/failed]
+   :expect-next-snapshot {:state :idle :data {:pending :http/post#1}}
+   :expect-effects       [[:destroy-machine :http/post#1]]}]
+
+ :fixture/handlers
+ {:machine-action
+  ;; The :on-spawn callback the desugared :entry uses to record the spawned
+  ;; id under :pending. Signature: (fn [data spawned-id] new-data). The
+  ;; handler-body DSL form: read the spawned-id from the action's invocation
+  ;; envelope and assoc it into :data under :pending.
+  {:auth/record-actor [[:set [:data :pending] [:event-arg 1]]]}}}

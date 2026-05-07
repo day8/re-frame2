@@ -1,0 +1,52 @@
+;; Conformance fixture: error/override-fallthrough
+;; A frame's :fx-overrides specifies a redirection target id that is NOT
+;; registered in the :fx kind. When the override is consulted the runtime
+;; emits :rf.error/override-fallthrough and resolves to the originally-
+;; registered fx as if no override existed (default :replaced-with-default).
+
+{:fixture/id           :error/override-fallthrough
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error}
+ :fixture/doc          "An :fx-overrides map points :http at :nonexistent-stub which has not been registered. The runtime emits :rf.error/override-fallthrough and falls through to the registered :http handler."
+
+ :fixture/registry
+ {:event {:user/load   {:doc "Triggers an :http call."}
+          :user/loaded {:doc "Receives the user payload."}}
+  :sub   {:user {:doc "The current user."}}
+  :fx    {:http {:doc       "Real HTTP fx — the conformance harness stubs this to dispatch :user/loaded with a sentinel value so we can observe fall-through."
+                 :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:user/load   [[:fx :http {:method :get :url "/api/me" :on-success [:user/loaded]}]]
+          :user/loaded [[:set [:user] [:event-arg 1]]]}
+  :sub   {:user [[:get [:user]]]}
+  :fx    {:http [[:dispatch [:user/loaded {:from :http :id "real-http"}]]]}}
+
+ :fixture/frame-config
+ {:on-create     []
+  :fx-overrides  {:http :nonexistent-stub}}         ;; redirects to an unregistered id
+
+ :fixture/dispatches
+ [[:user/load]]
+
+ :fixture/expect
+ ;; The override is fall-through: :http runs as if no override existed.
+ ;; A trace event records the fall-through.
+ {:final-app-db {:user {:from :http :id "real-http"}}
+
+  :sub-values   {[:user] {:from :http :id "real-http"}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :user/load}}
+   {:operation :rf.error/override-fallthrough
+    :op-type   :error
+    :tags      {:category      :rf.error/override-fallthrough
+                :failing-id    :http
+                :overrides-map {:http :nonexistent-stub}
+                :looked-up-id  :nonexistent-stub
+                :reason        "Override redirected `:http` to `:nonexistent-stub`, which is not registered. Using the registered `:http` instead."}
+    :recovery  :replaced-with-default}
+   {:operation :event :tags {:event-id :user/loaded}}]
+
+  :effects-routed
+  [{:fx-id :http :args {:method :get :url "/api/me" :on-success [:user/loaded]}}]}}

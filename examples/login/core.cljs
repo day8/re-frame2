@@ -3,14 +3,19 @@
 
    Demonstrates:
    - Feature scaffold (CP-6)              — the :auth.login/* registry slice
-   - Schema attachment (CP-8)              — Malli schemas for the slice and events
+   - Schema attachment (CP-8)              — Malli schema for the machine snapshot
    - Event handlers (CP-1)                 — pure (state, event) → effects
    - Subscriptions (CP-2)                  — pure derivations, including a :<- chain
    - Registered fx (CP-3)                  — :http with :platforms metadata
    - Registered view (CP-4)                — Var reference (canonical), Form-1 only
    - State machine (CP-5)                  — login flow as a transition table
+                                              read via [:rf/machines :auth.login/flow]
    - Open-map idiom                        — every shape on the wire is an open map
-   - Headless test                         — JVM-runnable smoke test
+   - Headless test                         — browserless smoke test (no DOM
+                                               required; runs in any CLJS host
+                                               that boots re-frame2. To run on
+                                               the JVM, port the testable parts
+                                               to .cljc.)
 
    In a real codebase, this single file would be split per CP-6 conventions:
      login/schema.cljc | events.cljs | subs.cljs | views.cljs |
@@ -24,27 +29,30 @@
 ;; SCHEMAS  (CP-8)
 ;; ============================================================================
 ;;
-;; Open by default. The slice schema describes the shape of [:auth.login] in
-;; app-db; event schemas describe the shape of dispatched event vectors. None
-;; carry :closed true — this isn't a system boundary.
+;; Open by default. The snapshot schema describes the shape of
+;; [:rf/machines :auth.login/flow] in app-db; event schemas describe the shape
+;; of dispatched event vectors. None carry :closed true — this isn't a system
+;; boundary.
 
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
-(def AuthLoginState
+;; The login flow's runtime state lives in the machine snapshot at
+;; [:rf/machines :auth.login/flow] (per [005 §Where snapshots live]).
+;; The snapshot shape is {:state <kw> :data <map>} per Spec 005.
+(def AuthLoginSnapshot
   [:map
-   [:state    [:enum :idle :submitting :error-shown :authed :locked-out]]
-   [:context  [:map
-               [:attempts {:default 0} :int]
-               [:error    [:maybe :string]]]]
-   [:user     [:maybe [:map [:id :uuid] [:email :string]]]]])
+   [:state [:enum :idle :submitting :error-shown :authed :locked-out]]
+   [:data  [:map
+            [:attempts {:default 0} :int]
+            [:error    [:maybe :string]]]]])
 
 (def SubmitEvent
   [:tuple [:= :auth.login/submit] Credentials])
 
-(rf/reg-app-schema [:auth :login] AuthLoginState)
+(rf/reg-app-schema [:rf/machines :auth.login/flow] AuthLoginSnapshot)
 
 ;; ============================================================================
 ;; FX  (CP-3)
@@ -81,111 +89,108 @@
 ;; STATE MACHINE  (CP-5)
 ;; ============================================================================
 ;;
-;; The login flow is a finite state machine. Five states, named events, named
-;; guards and actions. All registered ids; nothing inline.
+;; The login flow is a finite state machine. Five states, named events. All
+;; non-trivial guards and actions live in the machine's :guards / :actions
+;; maps and are referenced by keyword from the transition table; resolution
+;; is machine-local (no global registry).
 
-(def login-flow
-  {:id      :auth.login/flow
-   :initial :idle
-   :context {:attempts 0 :error nil}
-   :states
-   {:idle
-    {:on {:auth.login/submit {:target  :submitting
-                              :actions [:auth.login/clear-error]}}}
+(rf/reg-event-fx :auth.login/flow
+  {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
+  (rf/create-machine-handler
+    {:initial :idle
+     :data    {:attempts 0 :error nil}
 
-    :submitting
-    {:entry [:auth.login/issue-request]
-     :on    {:auth.login/success {:target  :authed
-                                  :actions [:auth.login/store-session]}
-             :auth.login/failure [{:target  :error-shown
-                                   :cond    :auth.login/under-retry-limit
-                                   :actions [:auth.login/record-error]}
-                                  {:target  :locked-out
-                                   :actions [:auth.login/lock-account]}]}}
+     :guards
+     {:under-retry-limit
+      ;; True if the flow has had fewer than 3 prior failed attempts.
+      (fn [{:keys [data]} _event]
+        (< (:attempts data) 3))}
 
-    :error-shown
-    {:on {:auth.login/dismiss {:target :idle}
-          :auth.login/submit  {:target :submitting}}}
+     :actions
+     {:clear-error
+      ;; Reset error and prepare to submit.
+      (fn [_ _event]
+        {:data {:error nil}})
 
-    :authed
-    {:meta {:terminal? true}}
+      :issue-request
+      ;; Issue the login HTTP request. Returns effects, not side-effects.
+      (fn [_snapshot [_ creds]]
+        {:fx [[:http {:method     :post
+                      :url        "/api/login"
+                      :body       creds
+                      :on-success [:auth.login/flow [:auth.login/success]]
+                      :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
 
-    :locked-out
-    {:meta {:terminal? true}}}})
+      :record-error
+      ;; Record the failure into :data and bump the attempt counter.
+      (fn [{:keys [data]} [_ err]]
+        {:data (-> data
+                   (update :attempts inc)
+                   (assoc :error (or (:message err) "Login failed.")))})
 
-;; Guards (registered, pure predicates).
-(rf/reg-machine-guard :auth.login/under-retry-limit
-  {:doc "True if the flow has had fewer than 3 prior failed attempts."}
-  (fn guard-under-retry-limit [{:keys [context]} _event]
-    (< (:attempts context) 3)))
+      :lock-account
+      ;; Mark the account as locked after too many failed attempts.
+      (fn [_snapshot _event]
+        {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
 
-;; Actions (registered; produce context updates and/or effects as data).
-(rf/reg-machine-action :auth.login/clear-error
-  {:doc "Reset error and prepare to submit."}
-  (fn action-clear-error [{:keys [context]} _event]
-    {:context (assoc context :error nil)}))
+      :store-session
+      ;; Persist the session token returned by a successful login.
+      (fn [_snapshot [_ {:keys [token]}]]
+        {:fx [[:auth.session/store {:token token}]]})}
 
-(rf/reg-machine-action :auth.login/issue-request
-  {:doc "Issue the login HTTP request. Returns effects, not side-effects."}
-  (fn action-issue-request [_snapshot [_ creds]]
-    {:fx [[:http {:method     :post
-                  :url        "/api/login"
-                  :body       creds
-                  :on-success [:auth.login/success]
-                  :on-error   [:auth.login/failure]}]]}))
+     :states
+     {:idle
+      {:on {:auth.login/submit {:target :submitting
+                                :action :clear-error}}}
 
-(rf/reg-machine-action :auth.login/record-error
-  {:doc "Record the failure into context and bump attempt counter."}
-  (fn action-record-error [{:keys [context]} [_ err]]
-    {:context (-> context
-                  (update :attempts inc)
-                  (assoc :error (or (:message err) "Login failed.")))}))
+      :submitting
+      {:entry :issue-request
+       :on    {:auth.login/success {:target :authed
+                                    :action :store-session}
+               :auth.login/failure [{:target :error-shown
+                                     :guard  :under-retry-limit
+                                     :action :record-error}
+                                    {:target :locked-out
+                                     :action :lock-account}]}}
 
-(rf/reg-machine-action :auth.login/lock-account
-  {:doc "Mark the account as locked after too many failed attempts."}
-  (fn action-lock-account [_snapshot _event]
-    {:fx [[:http {:method :post :url "/api/auth/lock"}]]}))
+      :error-shown
+      {:on {:auth.login/dismiss {:target :idle}
+            :auth.login/submit  {:target :submitting}}}
 
-(rf/reg-machine-action :auth.login/store-session
-  {:doc "Persist the session token returned by a successful login."}
-  (fn action-store-session [_snapshot [_ {:keys [token]}]]
-    {:fx [[:auth.session/store {:token token}]]}))
+      :authed
+      {:meta {:terminal? true}}
+
+      :locked-out
+      {:meta {:terminal? true}}}}))
 
 ;; ============================================================================
 ;; EVENTS  (CP-1)
 ;; ============================================================================
 ;;
-;; Three categories:
-;;   1. :auth.login/initialise              — feature setup
-;;   2. :auth.login/submit etc.             — machine-routed events
-;;   3. :auth.login/success                 — the user-payload-bearing variant
-
-(rf/reg-event-db :auth.login/initialise
-  {:doc "Seed the auth.login slice."}
-  (fn handler-auth-login-initialise [db _event]
-    (assoc-in db [:auth :login]
-              {:state   :idle
-               :context {:attempts 0 :error nil}
-               :user    nil})))
-
-(rf/reg-event-fx :auth.login/event-handler
-  {:doc          "All :auth.login/* events route through here, interpreted as a machine."
-   :machine-path [:auth :login]}
-  (rf/machine-handler [:auth :login] login-flow))
+;; The machine handler (registered above as :auth.login/flow via reg-event-fx
+;; + create-machine-handler) is self-initialising: its `:initial` state and
+;; `:data` seed [:rf/machines :auth.login/flow] when the machine first runs.
+;; No separate :initialise event is required (per [005 §Restore semantics]).
+;;
+;; Sub-events route in via:
+;;   (rf/dispatch [:auth.login/flow [:auth.login/submit creds]])
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS  (CP-2)
 ;; ============================================================================
 
+;; The machine snapshot is read via `sub-machine` (per [005 §Reading the
+;; snapshot]); these named subs project out the convenient pieces.
+
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
   (fn sub-auth-login-state [db _]
-    (get-in db [:auth :login :state])))
+    (get-in db [:rf/machines :auth.login/flow :state])))
 
 (rf/reg-sub :auth.login/error
   {:doc "Current error message, if any."}
   (fn sub-auth-login-error [db _]
-    (get-in db [:auth :login :context :error])))
+    (get-in db [:rf/machines :auth.login/flow :data :error])))
 
 (rf/reg-sub :auth.login/submitting?
   {:doc "Convenience: true when the flow is in :submitting."}
@@ -218,7 +223,7 @@
           [:form.login-form
            {:on-submit (fn [e]
                          (.preventDefault e)
-                         (dispatch [:auth.login/submit @state]))}
+                         (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
            [:input  {:type        "email"
                      :placeholder "Email"
                      :disabled    submitting?
@@ -252,18 +257,21 @@
 ;; HEADLESS TEST  (smoke test for the feature)
 ;; ============================================================================
 ;;
-;; Runs JVM-side. No browser, no React. Drives the machine via dispatch-sync
-;; and asserts on app-db. Uses the id-valued override seam (:http →
+;; Browserless. No DOM, no React. Drives the machine via dispatch-sync and
+;; asserts on app-db. Uses the id-valued override seam (:http →
 ;; :http.canned-success) so the test doesn't issue real network requests.
+;; Because this file is .cljs, the test runs in a CLJS host (Node, browser
+;; without a DOM, shadow-cljs node-test target); to run it on the JVM, lift
+;; the events / subs / machine into a .cljc namespace.
 
 (defn login-feature-happy-path-test []
-  (rf/with-frame [f (rf/make-frame {:on-create     [:auth.login/initialise]
-                                    :fx-overrides  {:http :http.canned-success}})]
-    ;; Initial state.
-    (assert (= :idle (rf/compute-sub [:auth.login/state] @(rf/get-frame-db f))))
-
+  ;; The machine self-initialises on first dispatch — no :on-create needed.
+  (rf/with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
     ;; Submit credentials. Dispatches synchronously; drain settles before return.
-    (rf/dispatch-sync [:auth.login/submit {:email "user@example.com" :password "correct-horse"}]
+    ;; Sub-events route via the machine id (per [005 §Registration]).
+    (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                         {:email "user@example.com"
+                                          :password "correct-horse"}]]
                       {:frame f})
 
     ;; After drain: machine has transitioned :idle → :submitting → :authed.
@@ -275,15 +283,16 @@
     {:platforms #{:client :server}}
     (fn [_m {:keys [on-error]}] (rf/dispatch (conj on-error {:message "bad creds"}))))
 
-  (rf/with-frame [f (rf/make-frame {:on-create    [:auth.login/initialise]
-                                    :fx-overrides {:http :http.canned-failure}})]
+  (rf/with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
     ;; Three failures → locked-out.
     (dotimes [_ 3]
-      (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrongpass"}]
+      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                           {:email "x@y.z" :password "wrongpass"}]]
                         {:frame f})
-      (rf/dispatch-sync [:auth.login/dismiss] {:frame f}))
+      (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
 
-    (rf/dispatch-sync [:auth.login/submit {:email "x@y.z" :password "wrongpass"}]
+    (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                         {:email "x@y.z" :password "wrongpass"}]]
                       {:frame f})
     (assert (= :locked-out (rf/compute-sub [:auth.login/state] @(rf/get-frame-db f))))))
 

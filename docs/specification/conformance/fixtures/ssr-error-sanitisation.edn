@@ -1,0 +1,56 @@
+;; Conformance fixture: ssr/error-sanitisation
+;; A handler throws during the SSR drain. The runtime captures the full
+;; structured trace event (with exception detail). The active error
+;; projector produces a sanitised :rf/public-error. The HTTP response
+;; uses the public shape; the rendered HTML contains NO stack trace, NO
+;; exception message, NO internal detail. Per [011 §Server error projection].
+
+{:fixture/id           :ssr/error-sanitisation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error :ssr/error-projection}
+ :fixture/doc          "A handler throws. Internal trace event carries full :exception-message; public-error response shape carries only {:status 500 :code :internal-error :message \"Something went wrong\" :retryable? false}. The rendered error page does not leak the stack trace."
+
+ :fixture/registry
+ {:event {:rf/server-init   {:platforms #{:server}}
+          :load/article     {:doc "Throws — used to trigger projection." :platforms #{:server}}}
+  :error-projector
+        {:rf.ssr/default-error-projector
+         {:doc "The runtime's default error projector — generic 500 in prod."}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init [[:fx [[:dispatch [:load/article]]]]]
+          :load/article   [[:throw "Database connection failed: SECRET_TOKEN=xyz"]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init]
+                        :platform :server
+                        :ssr {:public-error-id   :rf.ssr/default-error-projector
+                              :dev-error-detail? false}}      ;; prod-mode default
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ {;; Internal trace event preserves full detail (for monitoring).
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :load/article}}
+   {:operation :rf.error/handler-exception
+    :op-type   :error
+    :tags      {:category          :rf.error/handler-exception
+                :failing-id        :load/article
+                :exception-message "Database connection failed: SECRET_TOKEN=xyz"}}]
+
+  ;; The HTTP response carries ONLY the public projection.
+  :ssr/request-result
+  {:response {:status 500
+              :headers [["content-type" "text/html; charset=utf-8"]]}
+   :public-error {:status     500
+                  :code       :internal-error
+                  :message    "Something went wrong"
+                  :retryable? false}}
+
+  ;; The rendered HTML body must NOT contain the internal detail.
+  :ssr/rendered-html-must-not-contain
+  ["SECRET_TOKEN"
+   "Database connection failed"
+   "load/article"
+   "exception-message"]}}

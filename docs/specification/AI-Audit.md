@@ -1,8 +1,28 @@
 # AI-First Audit
 
-> Status: First pass. Per [reorient.md](reorient.md): the eight AI-first properties are a checklist EPs are graded against. This doc applies that checklist to the existing EPs and surfaces gaps that the next round of design work should close.
+> **Type:** Audit
+> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–013) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work.
 
-## The eight properties
+## Scope
+
+This audit grades every artefact in `docs/specification/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
+
+- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications. Specs 001 (Registration), 006 (ReactiveSubstrate), and 007 (Stories) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
+- **Spec-Schemas** — the spec's own runtime-shape catalogue.
+- **Construction-Prompts** — the AI-scaffolding catalogue.
+- **conformance/README** — the fixture format and capability-tagging convention.
+
+Other companion documents (Principles, Conventions, Patterns, MIGRATION, Tool-Pair, Implementor-Checklist, README) are out of scope: they are rationale, conventions, or migration artefacts, not contracts an implementation conforms to.
+
+The audit produces three artefacts:
+
+1. **Per-Spec scoring** — a property-by-property grade per numbered Spec.
+2. **Cross-cutting goal sections** — grades a goal (rather than a property) across every Spec that touches it.
+3. **Cross-cutting gaps (G-A through G-F)** — issues that recur across Specs; defined once below in §Cross-cutting gaps and referenced from the Per-Spec tables and §Headline finding by their G-letter.
+
+Forward-references to `G-A`/`G-B`/etc. in Per-Spec tables resolve to §Cross-cutting gaps below.
+
+## The nine properties
 
 | # | Property | Short-form question |
 |---|---|---|
@@ -14,6 +34,7 @@
 | P6 | Deterministic execution | Can an agent run a focused experiment and trust it? |
 | P7 | Machine-readable errors | Are errors structured, not stringy? |
 | P8 | Low hidden context | Is behaviour determined by visible inputs? |
+| P9 | Name over place | Where data carries multiple values, are they named (map keys) rather than positional? Per-Spec scoring will fill in as Specs are re-audited; the principle is canonical and applies corpus-wide. |
 
 Plus the cross-cutting:
 
@@ -25,85 +46,97 @@ Plus the cross-cutting:
 - ✓ — property is well-served.
 - ◐ — partial; gap noted.
 - ✗ — gap; remediation needed.
+- n/a — the property does not apply to this artefact (e.g., runtime properties P4/P6/P7 against a doc-level Spec like 000-Vision; or capability-conformance grading against a Spec that isn't capability-graded).
 
-## Per-EP scoring
+## Per-Spec scoring
 
-### EP 000 — Vision
+References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to entries in [§Cross-cutting gaps](#cross-cutting-gaps-across-multiple-specs).
+
+### Spec 000 — Vision
 
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ✓ | Pattern/reference-impl split makes the canonical shape unambiguous. |
-| P2 Named things | ✓ | Goals, EPs, constraints all stably-id'd. |
+| P2 Named things | ✓ | Goals, Specs, constraints all stably-id'd. |
 | P3 Data before magic | ✓ | Doc itself is structured data the reader interprets. |
 | P4 Public query surfaces | n/a | (Doc-level, not runtime.) |
-| P5 Schemas | ◐ | Goal #2 names schemas-everywhere; the doc itself isn't schema-described. Probably out-of-scope for a vision doc. |
+| P5 Schemas | ◐ | Goal #4 (Clojure ethos / open shape descriptions) names schemas-everywhere; the doc itself isn't schema-described. Probably out-of-scope for a vision doc. |
 | P6 Deterministic execution | n/a | |
 | P7 Machine-readable errors | n/a | |
-| P8 Low hidden context | ✓ | Cross-references to source rationale (reorient + on-dynamics + data-oriented-design) are explicit. |
+| P8 Low hidden context | ✓ | Cross-references to source rationale (on-dynamics, data-oriented-design) are explicit. |
 
 **Gaps:** none significant. The doc serves its purpose.
 
-### EP 002 — Frames
+### Spec 002 — Frames
 
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ◐ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has *three* (`get-view` / Var / `h` macro) — that's drifty. CP-4 should specify when each is canonical. |
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
-| P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. **`:fx-overrides` and `:interceptor-overrides` accept *function values*** at the CLJS reference level — not data. Pattern-level contract is now id-based (per the recent edit), but the body of 002 still has function-valued examples prominent. |
+| P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `handlers`, `frame-meta`, `frame-ids`, `get-frame-db`, `snapshot-of`, `sub-topology` all in. |
 | P5 Schemas | ◐ | `:spec` in registration metadata is documented for handlers/subs/fx but the *frame's `:on-create` event* and *override map shape* aren't schema-described. |
 | P6 Deterministic execution | ✓ | Run-to-completion drain, depth limit, no-cross-frame-drain — all locked. |
 | P7 Machine-readable errors | ◐ | "Errors are maps with documented keys" stated as an aspiration but the actual error shapes aren't enumerated. Needs a §Error contract subsection. |
-| P8 Low hidden context | ◐ | **The biggest gap.** React-context-driven `dispatch`/`subscribe` injection is hidden context by definition. Recent reorient edit reframes this as a CLJS optimisation atop an explicit-frame contract, but 002's body still leans on the React-context machinery as primary. Full rewrite of the View Ergonomics section would close this. |
+| P8 Low hidden context | ◐ | **The biggest gap.** React-context-driven `dispatch`/`subscribe` injection is hidden context by definition. The pattern contract is explicit-frame addressing with React context positioned as a CLJS optimisation, but 002's body still leans on the React-context machinery as primary. A full rewrite of the View Ergonomics section would close this. |
 | Constrained model | ✓ | Frame-as-actor-boundary, event-as-FSM-step, drain-as-RtC. |
 | Data is code | ✓ | Events, effects, frames, registrations all data interpreted by the runtime. |
 
 **Gaps:**
-1. Override seam still presents function-valued as default; pattern-level id-valued should lead the §Per-frame and per-call overrides section.
-2. Error contract is gestured at but not specified.
+1. Override seam still presents function-valued as default; pattern-level id-valued should lead the §Per-frame and per-call overrides section. (Tracked as **G-C**.)
+2. Error contract is gestured at but not specified. (Tracked as **G-A**.)
 3. View ergonomics section's narrative still reads CLJS-context-primary; needs a top-down rewrite to lead with explicit-frame.
-4. View invocation has three forms — pick a canonical and document the others as alternatives.
+4. View invocation has three forms — pick a canonical and document the others as alternatives. (Tracked as **G-E**.)
 
-### EP 004 — Views
+**`:preset` audit row.** Frames declare a `:preset` (`:default`, `:test`, `:story`, `:ssr-server`); the runtime expands and `(frame-meta <id>)` records the applied preset. AI-amenable scaffolding should:
+
+- ✓ Use the locked closed set; never invent unknown preset values (would emit `:rf.error/unknown-preset` at registration).
+- ✓ Read the *expanded* metadata to see the effective config rather than re-deriving from the preset name.
+- ✓ Override individual keys when the preset's default doesn't fit, rather than hand-rolling a full metadata map.
+
+Worked-example check: `examples/realworld/auth.cljs` (test fixture frames) should declare `:preset :test`; story-driven examples should declare `:preset :story`; the SSR example should declare `:preset :ssr-server`. Drift here surfaces as a follow-up bead.
+
+### Spec 004 — Views
 
 | Property | Score | Notes |
 |---|---|---|
 | P1 Regularity | ◐ | Three hiccup-invocation forms (see 002 above). Form-1/2/3 component handling adds three more shape variants for the registration. |
 | P2 Named things | ✓ | All views id'd. |
-| P3 Data before magic | ✓ | View output is hiccup (data); render-tree contract is serialisable per the recent SSR-audit edit. |
+| P3 Data before magic | ✓ | View output is hiccup (data); render-tree contract is serialisable. |
 | P4 Public query surfaces | ✓ | View registry queryable via `(handlers :view)`. |
 | P5 Schemas | ◐ | `:spec` for the view's *props vector* is documented but most examples don't use it. Construction Prompts CP-4 enforces. |
 | P6 Deterministic execution | ✓ | Pure render-tree per pattern contract. |
 | P7 Machine-readable errors | n/a | (Errors during render are mostly substrate concerns.) |
-| P8 Low hidden context | ◐ | Plain Reagent fns "silently route to `:re-frame/default`" if rendered under a non-default frame. Documented as a known limitation. Removing this footgun (or making it loud at runtime) closes the gap. |
+| P8 Low hidden context | ◐ | Plain Reagent fns "silently route to `:rf/default`" if rendered under a non-default frame. Documented as a known limitation. Removing this footgun (or making it loud at runtime) closes the gap. |
 | Constrained model | ✓ | Pure `(state, props) → render-tree`. |
 | Data is code | ✓ | Hiccup is the canonical example of data-is-code. |
 
 **Gaps:**
-1. Pick a canonical hiccup-invocation form and document the others as alternatives — three forms is a P1 hit.
-2. Make the plain-Reagent-fn-routes-to-default footgun loud (warn at render time when a plain fn renders under a non-default frame).
-3. Consider whether Form-1/2/3 are all needed or whether Form-2's outer-fn-side-effects should be discouraged in favour of Form-1 + an explicit setup event.
+1. Pick a canonical hiccup-invocation form and document the others as alternatives — three forms is a P1 hit. (Tracked as **G-E**.)
+2. Make the plain-Reagent-fn-routes-to-default footgun loud (warn at render time when a plain fn renders under a non-default frame). (Tracked as **G-D**.)
+3. Consider whether Form-1/2/3 are all needed or whether Form-2's outer-fn-side-effects should be discouraged in favour of Form-1 + an explicit setup event. (Tracked as **G-F**.)
 
-### EP 005 — State Machines
+### Spec 005 — State Machines
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One transition-table shape; one machine-handler call site; one snapshot shape. |
-| P2 Named things | ✓ | Machines, states, transitions, guards, actions all id'd. |
-| P3 Data before magic | ✓ | Transition table is data. xstate adoption strengthens this. |
-| P4 Public query surfaces | ◐ | Snapshot reachable via `(snapshot-of path)` but the *transition table* registration isn't enumerated as its own kind in the registry. Consider `(handlers :machine)`. |
-| P5 Schemas | ◐ | `:spec` for the transition table itself isn't specified — the table has its own grammar (`:initial`, `:states`, `:on`, `:entry`, `:exit`, ...) which is itself a schema-able thing. Worth a Malli schema. |
-| P6 Deterministic execution | ✓ | Pure `machine-transition`; finite states; explicit transitions. |
-| P7 Machine-readable errors | ✓ | Trace events on machine lifecycle. |
-| P8 Low hidden context | ✓ | All machine state lives at the explicit `:machine-path`. |
+| P1 Regularity | ✓ | One transition-table shape; one `create-machine-handler` call site; one snapshot shape (`{:state :data}`). |
+| P2 Named things | ✓ | Machines, states, transitions, guards, actions all id'd. The machine itself is the registered event handler. |
+| P3 Data before magic | ✓ | Transition table is data; action and guard slots are fns (per the data-DSL-vs-fn rule), but the references and the structure are data. |
+| P4 Public query surfaces | ✓ | A machine *is* an event handler — enumerated via `(handlers :event)`, filterable by `:rf/machine?` metadata; the discovery lens `(rf/machines)` / `(rf/machine-meta id)` makes this a first-class operation. Snapshot reachable via the framework-registered `:rf/machine` parametric sub (`@(rf/sub-machine <machine-id>)` or `@(rf/subscribe [:rf/machine <machine-id>])`) or `(get-in @(get-frame-db f) [:rf/machines <id>])`; guards/actions are **machine-scoped** — declared in the machine's `:guards` / `:actions` maps and visible via `(machine-meta <id>)` (the registration metadata exposes the transition table including the `:guards` / `:actions` slots). |
+| P5 Schemas | ✓ | `:rf/transition-table` and `:rf/machine-snapshot` registered in [Spec-Schemas](Spec-Schemas.md); `:rf.fx/spawn-args` for spawn specs. |
+| P6 Deterministic execution | ✓ | Pure `machine-transition`; pure factory `create-machine-handler`; finite states; explicit transitions; deterministic four-level drain. |
+| P7 Machine-readable errors | ✓ | Trace events on machine lifecycle; `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`. |
+| P8 Low hidden context | ✓ | All machine state lives at the reserved runtime-managed path `[:rf/machines <id>]`. Strict encapsulation: actions and guards see `{:state :data}` only — no `:db`, no cofx. |
+| Machine table inspectability | ✓ | Both keyword-reference and inline-fn forms are first-class at the grammar level, but [005 §Inspectability bias](005-StateMachines.md#inspectability-bias) makes named entries in the machine's `:guards` / `:actions` map the **default** form for non-trivial logic. The CP-5 auth-flow example uses keyword references throughout. In the Circle Drawer example in 005 the right-click action (compound three-key seed) is named `:begin-edit` in the machine's `:actions` map, the close-dialog action (emits `:fx` AND clears `:data`) is `:commit`, and the drag-slider and cancel-dialog actions stay inline because their bodies are single non-branching expressions. Both examples uniformly demonstrate the inspectability-bias rule. |
 | Constrained model | ✓ | The strongest example. |
 | Data is code | ✓ | Transition tables ARE the canonical "data is code" example for stateful flows. |
 
 **Gaps:**
-1. Register transition tables as a queryable `:machine` kind in the registrar.
+1. Register transition tables as a queryable `:machine` kind in the registrar. (Resolved in part by `(rf/machines)` / `(rf/machine-meta id)` — a derived lens over `(handlers :event)` filtered by `:rf/machine?` metadata; see [005 §Querying machines](005-StateMachines.md#querying-machines).)
 2. Ship a Malli schema for the transition-table grammar.
 
-### EP 008 — Testing
+### Spec 008 — Testing
 
 | Property | Score | Notes |
 |---|---|---|
@@ -116,9 +149,9 @@ Plus the cross-cutting:
 | P7 Machine-readable errors | ✓ | Test failures route through assertion macros; trace events available. |
 | P8 Low hidden context | ✓ | Each test runs in a fresh frame. |
 
-**Gaps:** none significant. EP 008 is the strongest of the existing EPs on AI-first grounds — testing is *intrinsically* AI-amenable when state is bounded.
+**Gaps:** none significant. Spec 008 is the strongest of the existing Specs on AI-first grounds — testing is *intrinsically* AI-amenable when state is bounded.
 
-### EP 009 — Instrumentation
+### Spec 009 — Instrumentation
 
 | Property | Score | Notes |
 |---|---|---|
@@ -126,16 +159,16 @@ Plus the cross-cutting:
 | P2 Named things | ✓ | `:id`, `:operation`, `:op-type` all id'd. |
 | P3 Data before magic | ✓ | Trace events are open maps. |
 | P4 Public query surfaces | ✓ | The trace stream IS the query surface for runtime behaviour. |
-| P5 Schemas | ◐ | Trace event shape has stable required keys but no Malli schema is registered for it. Should be `(rf/reg-app-schema [:re-frame/trace] TraceEventSchema)` or similar. |
+| P5 Schemas | ◐ | Trace event shape has stable required keys but no Malli schema is registered for it. Should be `(rf/reg-app-schema [:rf/trace] TraceEventSchema)` or similar. |
 | P6 Deterministic execution | ✓ | Per-trace events for every drain step. |
 | P7 Machine-readable errors | ◐ | Errors emit trace events but the *error event shape* isn't formally defined alongside the others. |
 | P8 Low hidden context | ✓ | All emit sites are visible in source. |
 
 **Gaps:**
 1. Register a Malli schema for the trace event shape.
-2. Define error trace events as a first-class subset.
+2. Define error trace events as a first-class subset. (Tracked as **G-A**.)
 
-### EP 010 — Schemas
+### Spec 010 — Schemas
 
 | Property | Score | Notes |
 |---|---|---|
@@ -148,9 +181,9 @@ Plus the cross-cutting:
 | P7 Machine-readable errors | ◐ | Validation errors include the failing path and value but the explicit error envelope isn't defined as a structured map alongside other errors. |
 | P8 Low hidden context | ✓ | Every validation point is explicit. |
 
-**Gaps:** validation-error envelope as a structured shape (alongside other errors).
+**Gaps:** validation-error envelope as a structured shape (alongside other errors). (Tracked as **G-A**.)
 
-### EP 011 — SSR
+### Spec 011 — SSR
 
 | Property | Score | Notes |
 |---|---|---|
@@ -165,11 +198,64 @@ Plus the cross-cutting:
 
 **Gaps:** schema for the hydration payload format.
 
-## Cross-cutting gaps (across multiple EPs)
+## Cross-cutting goal: AI-implementable from the spec alone
+
+[000-Vision §AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone) (Goal 2) is the meta-property that grades the spec corpus's *completeness* — can an AI build v1 from `/docs/specification/` alone? Audit dimension: **spec self-containedness** — every spec must be readable without consulting re-frame v1 source, and every shape on the wire must be schema'd.
+
+| Spec | Score | Notes |
+|---|---|---|
+| 000-Vision | ✓ | Names the goal; explains rationale, what-this-implies, connection-to-other-goals, and failure mode. Capability matrix entries (FSM-richness + actor-model rows) added to the host-profile matrix. |
+| 001-Registration | ◐ | Metadata-map shape is well-specced; the *exact* set of metadata keys per `reg-*` kind needs a single canonical table. |
+| 002-Frames | ◐ | Drain semantics, envelope shape, view ergonomics all specced; error contract is gestured at but not enumerated (G-A in §Cross-cutting gaps). |
+| 005-StateMachines | ◐ | Foundation specced in detail; capability matrix in place; hierarchical / eventless / delayed / declarative-`:invoke` capabilities are claimed but drain-rule extensions for compound entry/exit are still being elaborated. |
+| 008-Testing | ✓ | Three test levels, fixture lifecycle, framework adapters all specced. |
+| 009-Instrumentation | ◐ | Trace event shape stable; error event shape not formally enumerated. Closes alongside G-A. |
+| 010-Schemas | ✓ | Self-referential — schemas are specced via examples in re-frame2's own conventions. |
+| 011-SSR | ◐ | Hydration payload schema missing (existing gap). |
+| 012-Routing | ✓ | URL ↔ params grammar, route metadata shape, fx ids all specced. |
+| Spec-Schemas | ◐ | Most shapes covered; declarative-`:invoke` schema additions remain to be written; hydration payload schema and trace-event schema (G-A) are tracked elsewhere. |
+| conformance/README | ✓ | Cross-references the goal; capability-tagging convention added to fixture metadata. |
+
+**Gaps:** G-A (error envelope), G-B (CP depth), and schema-on-the-spec's-own-shapes coverage.
+
+## Cross-cutting goal: Capability-conformance clarity
+
+[000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) (Goal 6) makes conformance graded against the implementor's claimed capability list. Audit dimension: **capability-conformance clarity** — does each spec section name which capabilities it depends on?
+
+| Spec | Score | Notes |
+|---|---|---|
+| 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
+| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; substitutes for parallel and history specced. |
+| Spec-Schemas | ◐ | `:rf/transition-table` schema covers the flat-FSM grammar; hierarchical / eventless / delayed / declarative-`:invoke` schema additions remain to be written. |
+| Construction-Prompts | ✓ | CP-5 forward-points at substitutes for parallel-feeling and history-feeling workflows. |
+| conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
+| Other Specs (002, 008, 009, 011, 012) | n/a | Capability-list scoping is FSM-and-actor-specific; other Specs aren't capability-graded in the same way (they are pattern-required as a whole). |
+
+**Gaps:** schema additions in Spec-Schemas for hierarchical-states / eventless / delayed / declarative-`:invoke`.
+
+## Cross-cutting goal: Frame state revertibility
+
+[000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility) (Goal 2) is a top-level goal that several Specs are responsible for satisfying together. Audit summary:
+
+| Spec | Score | Notes |
+|---|---|---|
+| 000-Vision | ✓ | Names the goal; explains rationale, implications, and the boundary at the registered-fx seam (external side effects need compensation, not reversal). Marks persistent data structures as pattern-required in the host-profile matrix. |
+| 002-Frames | ✓ | Frame state is one persistent value (`app-db`, router, sub-cache, lifecycle). Run-to-completion drain provides atomic per-event transitions — every settled state is a snapshottable boundary. The two-tier registry (central boot-time vs frame-local) is articulated under §State machines are just event handlers; frame-local registrations live inside the frame's value. `make-restore-fn` exposes the goal as user-facing API. |
+| 005-StateMachines | ✓ | Machine snapshots live at `[:rf/machines <id>]` inside `app-db`. Strict encapsulation prevents leakage outside the frame value. Spawn registers in the frame-local tier so undo rolls back spawned actors with their snapshots. §What the Single Store gives us for free enumerates the concrete revertibility wins (undo/redo, time-travel, persistence, snapshot-and-replay). |
+| 008-Testing | ✓ | Per-test frames + `make-restore-fn` rollback rely on the goal directly; teardown is "drop the frame's value." |
+| 011-SSR | ✓ | Hydration replaces `app-db` with the server-supplied value; machine snapshots ride along. SSR is a special case of "snapshot-and-replay." |
+| 006-ReactiveSubstrate | ✓ | [006 §Revertibility constraints on adapters](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters) locks the rule: adapter-internal state is allowed iff derivable from the frame's value. Memoisation caches, reaction caches, and listener registries are derivable; non-derivable observer state is prohibited. Reagent and plain-atom reference adapters audited compliant. DOM render output sits at the registered-fx seam (per Goal 3) and is out of scope for frame-state revert. |
+| 009-Instrumentation | ✓ | Trace stream is append-only and not part of frame state, so revert is well-defined: "drop trace events after timestamp T" is a separate operation from frame-state revert. |
+| 010-Schemas | n/a | Schemas are static registry data; not in scope for frame revert. |
+| 012-Routing | ✓ | `:route` lives at a reserved app-db key, so route state reverts with the rest of `app-db`. |
+
+**Gaps:** none. Spec 006's §Revertibility constraints on adapters closes the previously-noted gap; every Spec scores ✓ on Goal 3 alignment.
+
+## Cross-cutting gaps (across multiple Specs)
 
 ### G-A. Error envelope is gestured at but not standardised
 
-Errors are mentioned in 002, 009, 010 but no single doc defines the canonical structured-error shape. Proposal: a small section in 009 enumerating error event shapes (validation failure, handler exception, hydration mismatch, drain depth exceeded, override fallthrough), each with a registered Malli schema and a unique `:op-type`. This closes P7 in three EPs simultaneously.
+Errors are mentioned in 002, 009, 010 but no single doc defines the canonical structured-error shape. Proposal: a small section in 009 enumerating error event shapes (validation failure, handler exception, hydration mismatch, drain depth exceeded, override fallthrough), each with a registered Malli schema and a unique `:op-type`. This closes P7 in three Specs simultaneously.
 
 ### G-B. Construction prompts not yet wired into pre-flight tooling
 
@@ -181,7 +267,7 @@ Pattern contract is id-based (per recent edits), but the CLJS reference accepts 
 
 ### G-D. The plain-Reagent-fn footgun
 
-Plain Reagent fns rendered inside a non-default frame silently route to `:re-frame/default`. This violates P8 (hidden context). Either remove the footgun (mandate `reg-view`) or make it loud (runtime warning).
+Plain Reagent fns rendered inside a non-default frame silently route to `:rf/default`. This violates P8 (hidden context). Either remove the footgun (mandate `reg-view`) or make it loud (runtime warning).
 
 ### G-E. View invocation has three forms (P1 violation)
 
@@ -193,19 +279,4 @@ Three component shapes inherit from Reagent. Form-2's outer-fn-side-effects patt
 
 ## Headline finding
 
-The EPs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). The recurring weak points are:
-
-- **P7 (machine-readable errors)** — gestured at but not standardised. Worth a focused EP-fragment.
-- **P8 (low hidden context)** — the biggest single delta from "current re-frame" to "AI-first re-frame," concentrated in 002's view ergonomics and 004's plain-Reagent-fn footgun.
-- **P5 (schemas everywhere)** — the spec hasn't yet been applied to the spec's *own* shapes (trace events, hydration payload, transition tables, error envelopes). Closing this is high-leverage: the schemas become the conformance test corpus implementations validate against (per [reorient.md §Open questions](reorient.md) Q10).
-
-Closing P7 + P5-on-the-spec's-own-shapes is the single most impactful next move.
-
-## Recommended next actions, in priority order
-
-1. **Standardise the error envelope** (G-A). One doc, several Malli schemas, used across 002/009/010/011.
-2. **Schema the spec's own shapes** (P5 follow-through). Trace event, hydration payload, transition table, dispatch envelope, registration metadata. Each becomes a registered `app-schema` and a conformance check.
-3. **Rewrite 002's View Ergonomics narrative** to lead with explicit-frame and treat React-context as the optimisation (G-C, P8).
-4. **Resolve view-invocation regularity** (G-E). Pick the canonical.
-5. **Fix the plain-Reagent-fn footgun** (G-D). Loud warning at minimum.
-6. **Fill in CP-2/3/5/7/8/9** with the same depth as CP-1/4/6.
+The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation) and P6 (determinism). The recurring weak points are P7 (machine-readable errors), P8 (low hidden context), and P5 (schemas applied to the spec's own shapes). The cross-cutting gaps section above enumerates the specific findings.

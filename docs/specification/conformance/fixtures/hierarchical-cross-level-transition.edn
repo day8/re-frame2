@@ -1,0 +1,71 @@
+;; Conformance fixture: machine/hierarchical-cross-level-transition
+;;
+;; Cross-level transition: from a deeply-nested leaf to a top-level sibling.
+;; The LCA is the root. Verify the exit cascade fires every intermediate
+;; state's :exit deepest-first, and the entry cascade lands on the new top-
+;; level state shallowest-first.
+;;
+;; Per [005 §Entry/exit cascading along the LCA]
+;; (../../005-StateMachines.md#entryexit-cascading-along-the-lca).
+;; Also exercises:
+;;   - Vector-form :target ([:unauthenticated]) — absolute path from root.
+;;   - Initial-state cascading on the entry side ([:unauthenticated] is a
+;;     leaf, so no further cascade fires).
+
+{:fixture/id           :machine/hierarchical-cross-level-transition
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "Cross-level transition from a deeply-nested leaf to a top-level sibling. LCA is the root; the exit cascade walks every intermediate ancestor (deepest-first) before the entry cascade enters the top-level sibling."
+
+ :fixture/registry
+ {:machine-action
+  {:auth/log-exit-paying          {:doc "Logs exiting :paying."}
+   :auth/log-exit-cart            {:doc "Logs exiting :cart."}
+   :auth/log-exit-authenticated   {:doc "Logs exiting :authenticated."}
+   :auth/log-on-logout            {:doc "Transition action at LCA."}
+   :auth/log-enter-unauthenticated {:doc "Logs entering :unauthenticated."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/log-exit-paying           [[:fx :log {:msg "exit paying"}]]
+   :auth/log-exit-cart             [[:fx :log {:msg "exit cart"}]]
+   :auth/log-exit-authenticated    [[:fx :log {:msg "exit authenticated"}]]
+   :auth/log-on-logout             [[:fx :log {:msg "transition action: logout"}]]
+   :auth/log-enter-unauthenticated [[:fx :log {:msg "enter unauthenticated"}]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:initial :unauthenticated
+    :data    {}
+    :states
+    {:unauthenticated
+     {:entry :auth/log-enter-unauthenticated
+      :on    {:login [:authenticated]}}                ;; vector :target
+     :authenticated
+     {:initial :dashboard
+      :exit    :auth/log-exit-authenticated
+      :on      {:logout {:target [:unauthenticated]    ;; vector :target — absolute
+                         :action :auth/log-on-logout}}
+      :states
+      {:dashboard {}
+       :cart      {:initial :browsing
+                   :exit    :auth/log-exit-cart
+                   :states  {:browsing  {}
+                             :paying    {:exit :auth/log-exit-paying}
+                             :confirmed {}}}}}}}
+   :snapshot     {:state [:authenticated :cart :paying] :data {}}
+   :event        [:logout]
+   ;; The :logout transition is declared on :authenticated; deepest-wins
+   ;; resolution walks :paying (no match), :cart (no match), :authenticated
+   ;; (match). LCA of [:authenticated :cart :paying] and [:unauthenticated]
+   ;; is the root. Order:
+   ;;   1. Exit cascade (deepest-first):  paying → cart → authenticated
+   ;;   2. Transition :action (at LCA):    log-on-logout
+   ;;   3. Entry cascade (shallowest-first): unauthenticated
+   :expect-next-snapshot {:state [:unauthenticated] :data {}}
+   :expect-effects       [[:log {:msg "exit paying"}]
+                          [:log {:msg "exit cart"}]
+                          [:log {:msg "exit authenticated"}]
+                          [:log {:msg "transition action: logout"}]
+                          [:log {:msg "enter unauthenticated"}]]}]}

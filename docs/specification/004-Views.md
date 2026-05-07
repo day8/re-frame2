@@ -1,34 +1,18 @@
-# EP 004 — Views
+# Spec 004 — Views
 
-> Status: Drafting. **v1-required.** `reg-view` is the boundary where re-frame inserts frame awareness; without it, views inside non-default `frame-provider` subtrees can't see their frame. EP 004 was originally a Placeholder (a nice-to-have for tooling and hiccup-as-data); the multi-frame goal in [002-Frames.md](002-Frames.md) lifts it to load-bearing v1.
->
-> **Reframed per [reorient.md](reorient.md):** the **pattern-level view contract is `(state, props) → render-tree`** — pure, with the render-tree as a serialisable data structure. The `reg-view`-with-lexical-injection design below is the CLJS reference implementation of that contract. EP 011 (SSR & Hydration) requires that views can render on the server without a React runtime, which forces explicit-frame addressing as the underlying contract. Hiccup is the CLJS render-tree shape; other implementations choose differently. A subsequent SSR audit pass will surface what is server-renderable, what is pure render-time input, and what requires a client-only runtime.
+> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` injects frame-bound `dispatch`/`subscribe` lexically — an ergonomic realisation of the explicit-frame contract. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
 
 ## Abstract
 
-### Pattern-level view contract
-
-A view is a **pure function `(state, props) → render-tree`**. Three commitments:
+A view is a **pure function `(state, props) → render-tree`**. The pattern-level commitments:
 
 1. **Pure.** No render-time side-effects, no implicit reads from ambient state beyond what's declared in inputs.
 2. **Frame-explicit.** The view targets a specific frame; that frame is part of the render-time inputs (via parameter, closure, or implementation-specific injection that resolves to the same observable).
-3. **Render-tree is serialisable data.** The output is a nested data structure (hiccup, JSX-as-data, virtual-DOM nodes — implementation choice) that the runtime can render to a string for SSR (per [011](011-SSR.md)) or to whatever client-side substrate the implementation uses.
+3. **Render-tree is serialisable data.** A nested data structure (hiccup, JSX-as-data, virtual-DOM nodes — host choice) that the runtime can render to a string for SSR (per [011](011-SSR.md)) or to a client-side substrate.
 
 These are pattern-level commitments; they hold across CLJS, TS, Python, etc.
 
-### CLJS reference: `reg-view`
-
-In the CLJS reference, a **registered view** is a render fn associated with a keyword via `reg-view`. Registration:
-
-- Captures source coords and `:doc`/`:spec` metadata for tooling.
-- Wraps the fn so that, on each render, frame-bound `dispatch` and `subscribe` are injected as lexical locals — the body reads exactly like today's re-frame.
-- Returns the wrapped fn so the user can `def` it as a Var if they want Reagent-style hiccup invocation.
-
-The lexical-injection style is the CLJS *realisation* of the explicit-frame contract: instead of threading the frame as a parameter, the macro injects it as a closed-over local resolved from React context. Other-language implementations would resolve the same contract differently (a hooks-flavoured `useFrame()`, a function argument, dependency injection — see [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part)).
-
-Registered views can be invoked in hiccup three ways. Plain (unregistered) Reagent functions continue to work in v1 with a documented frame-routing limitation; `reg-view` is the staged-adoption path for multi-frame correctness.
-
-The frame-routing mechanics that `reg-view` consumes (React-context resolution, `frame-provider`, `bound-fn`/`bound-dispatcher` for callbacks crossing the render→callback boundary) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part). EP 004 owns the view-side API surface; 002 owns the frame-side mechanics.
+The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `frame-provider`, `bound-fn`/`bound-dispatcher`) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
 
 ### What is server-renderable, what is client-only
 
@@ -40,9 +24,95 @@ Per [011](011-SSR.md):
 
 The view function's *body* — including `subscribe` calls that yield values, and `dispatch` calls that close over the frame — runs on the server given a frame and an `app-db`. The reactive *tracking* of subs (auto-rerender on change) is a client concern. SSR computes subs against a static `app-db`; hydration on the client wires up the reactive tracking.
 
+### The render-tree shape (pattern-level contract)
+
+Three things are specified separately to avoid conflating them: the **conceptual node shape** (the data model every host shares), the **carrier** (the host-language data structure that holds the shape), and the **serialisation boundary** (which parts of the shape survive a print/read round-trip).
+
+#### Conceptual node shape
+
+A render-tree node is conceptually one of:
+
+- A **literal value** — string, number, `nil` — rendered as text or empty.
+- A **structured node** carrying three slots:
+  - **`tag`** — either an *id* (resolves to a registered view; the host's identity primitive) **or** a *host-DOM tag* (`div`, `span`, etc., interpreted as raw DOM by the renderer).
+  - **`attrs`** — an open map of key-value pairs: DOM attributes, event handlers, style, props.
+  - **`children`** — zero or more child render-tree nodes.
+
+This conceptual shape is **host-independent** — it is what every conformant view contract produces.
+
+#### Carrier (host-specific)
+
+The conceptual node shape is encoded into the host's idiomatic data structure:
+
+| Host | Carrier | Example |
+|---|---|---|
+| Clojure / CLJS reference | Hiccup vector — `[tag attrs? & children]` (attrs map is positional and optional) | `[:div {:class "x"} "hi"]` |
+| TypeScript | Array form `[tag, attrs?, ...children]` or VDOM-object `{type, props, children}` — both valid | `['div', {className: 'x'}, 'hi']` |
+| Python | Tuple / dataclass tree | `Node(tag='div', attrs={'class':'x'}, children=['hi'])` |
+| Kotlin | Sealed-class node hierarchy | `Element("div", attrs, children)` |
+
+The carrier is the host's choice; the conceptual shape is what every host's renderer walks. **Template-string DSLs (Mustache, Jinja, etc.) are NOT a valid carrier** — strings don't compose, don't diff, don't lint, don't round-trip. The pattern requires structured data the runtime can walk.
+
+The pattern does NOT commit to:
+- A specific tag-name vocabulary for DOM (HTML elements vs custom).
+- A specific attrs spelling (`:on-click` vs `onClick` vs `on_click`).
+- A specific event-handler signature.
+- Whether `children` is variadic, positional, or wrapped in an array.
+
+These are carrier-level choices.
+
+#### Serialisation boundary
+
+The render-tree's *structure* — the tags, the children nesting, and the **non-function values** inside `attrs` (strings, numbers, keywords, plain maps, vectors of the same) — is **fully serialisable** and survives a print/read round-trip. SSR ([011](011-SSR.md)) relies on this for the server-side render-to-string path.
+
+**Function values inside `attrs` (`:on-click` lambdas, `:ref` callbacks, custom prop closures) are NOT serialisable** and lie outside the serialisation boundary. SSR's discipline:
+
+- The server's render-to-string path walks the render-tree and emits HTML for the structure; it ignores function-valued attrs (they would not survive the wire and have no client-side meaning until hydration).
+- On the client, hydration re-renders the same view function under the same `app-db` value; the client-side render produces the function-valued attrs at render time and React/the substrate attaches them.
+
+The contract therefore: **structure is serialisable; behaviour (functions) is not**. This is consistent with the broader spec position that the wire carries data and behaviour is registered at runtime per host.
+
+### Loading state is explicit, not implicit
+
+React Suspense lets a component "suspend" while async work runs; the framework shows a fallback; the component renders normally on resolve. Loading state is implicit, sitting inside the suspended-component machinery. **Re-frame2 takes the opposite approach: loading state is explicit data in `app-db`.** [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status :loading` is the canonical place it lives; views read the state and branch on it. The choice is deliberate and worth calling out, because developers arriving from React (and other Suspense-using frameworks) would otherwise expect the implicit form.
+
+#### Why explicit-loading-state wins for re-frame2
+
+The choice falls out of the Single Store invariant and substrate-agnosticism:
+
+1. **Single Store invariant.** Loading state IS state; it lives in `app-db` with everything else. [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) requires this — a frame is fully revertible only when all its state is in the value.
+2. **Substrate-agnostic.** Suspense is React-specific. Re-frame2 supports plain-atom (JVM / headless tests / SSR), Reagent (CLJS), and future substrates per [Spec 006](006-ReactiveSubstrate.md). A Suspense-based approach would couple the pattern to React.
+3. **Testability.** Headless tests of "what does this view render when loading?" are straightforward when loading is just data. Suspense requires a React-aware test renderer.
+4. **Inspectability.** Tools (10x, Tool-Pair, story tools) introspect `app-db` to see what is loading. Suspense state is not queryable from outside the React tree.
+5. **SSR symmetry.** Loading state during SSR is just `app-db` state, loaded synchronously on the server. Suspense streaming-SSR has complex boundary semantics that re-frame2 sidesteps.
+6. **AI-amenability.** "Is this view loading?" is a sub query an AI can reason about. Suspense's throws-promise machinery is harder to inspect, harder to mock, harder to scaffold from a construction prompt.
+7. **Cross-component coordination.** Sibling views can ask "is this data loaded?" via subs. With Suspense, sibling components don't naturally know about each other's suspended state.
+8. **Composes with state machines.** Loading is itself a state — a Pattern-RemoteData status; a state machine governs the transitions. Suspense doesn't compose with state machines; it's a parallel mechanism.
+
+#### Trade-offs to acknowledge
+
+- **Slightly more verbose at the call site.** A view reads the loading state and branches: `(if loading? [Loading-view] [Loaded-view ...])`. With Suspense the view code looks "synchronous"; the Suspense boundary handles the fallback elsewhere.
+- **The user must surface loading state in `app-db`.** Pattern-RemoteData provides the slice; users register the four standard events; AI scaffolding (CP-N for remote-data) makes this mechanical.
+
+These costs are small; the wins above justify them.
+
+#### Anti-patterns
+
+- **Hiding loading in component-local React state.** Defeats Single Store and inspectability; tools cannot see what is loading; SSR cannot replay it.
+- **Building a Suspense-equivalent in re-frame2** — e.g., events that "throw" until data arrives. Opposite of the spec; collides with run-to-completion drain semantics; collides with state machines.
+- **Forgetting to surface loading state at all.** Silent loading; users wait for "done" with no UI feedback; tests cannot assert the loading branch.
+
+#### What this composes with
+
+Pattern-RemoteData's `:status` field is the canonical home for loading state. Pattern-Boot makes the boot phase visible via `:rf/boot {:phase :authenticating}`. The Nine States example renders all loading states exhaustively. State machines naturally have `:loading` as a state with `:on` transitions to `:loaded` / `:error`. All of these compose cleanly because they share the explicit-state approach; a Suspense-based machinery would collide with all of them.
+
 ## `reg-view` is the multi-frame contract
 
-`reg-view` registers a render function under a keyword. Inside the registered view's body, `dispatch` and `subscribe` are **frame-bound locals** injected by `reg-view` (the implicit-lexical-injection style):
+`reg-view` registers a render function under a keyword. The macro wraps the user's fn so that, on each render, three frame-bound names are injected as lexical locals inside the body:
+
+- `dispatch` — frame-bound `(fn [event] ...)` building an envelope tagged with the surrounding frame's id.
+- `subscribe` — frame-bound `(fn [query-v] ...)` consulting the surrounding frame's sub-cache.
+- `frame-id` — the keyword identifying the surrounding frame (useful for debugging, logging, or passing to non-frame-aware children).
 
 ```clojure
 (rf/reg-view :counter
@@ -53,43 +123,43 @@ The view function's *body* — including `subscribe` calls that yield values, an
        (str label ": " n)])))
 ```
 
-Inside the body:
+The `:on-click` lambda closes over the local `dispatch`, so it carries the frame into the callback automatically — there is no render-time-binding-vs-callback-time problem.
 
-- `subscribe` and `dispatch` are **lexically bound** to closures that know the surrounding frame.
-- The `:on-click` lambda closes over the local `dispatch` — it carries the frame into the callback automatically. No render-time-binding-vs-callback-time problem.
-- Code reads identically to today's re-frame view (per G1 — no cultural shift).
-
-**A view always obtains its frame from React context.** The injected `dispatch`/`subscribe` resolve to whatever frame the surrounding `frame-provider` puts in scope; views never target a frame explicitly. Qualified `re-frame.core/dispatch` exists for use *outside* views (REPL, event-handler effects, plain non-rendering helpers) where there is no React context to read.
+**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from React context** — the injected closures resolve to whatever frame the surrounding `frame-provider` puts in scope. The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
 
 The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
 
-## Three injected names
-
-Inside the body, the macro injects three names:
-
-- `dispatch` — frame-bound `(fn [event] ...)` building an envelope tagged with the surrounding frame's id.
-- `subscribe` — frame-bound `(fn [query-v] ...)` consulting the surrounding frame's sub-cache.
-- `frame-id` — the keyword itself, useful for debugging, logging, or passing to non-frame-aware children.
-
 ## How registered views are used in hiccup
 
-> **Per the [AI-First Audit](AI-Audit.md) (G-E):** v1 ships three forms for invoking a registered view. To honour P1 (one obvious way), one of them is **canonical** and the others are **alternatives** with documented use cases.
+v1 ships three forms for invoking a registered view. To honour the principle of "one obvious way", one of them is **canonical** and the others are **alternatives** with documented use cases.
 
-### The canonical form: Var reference
+### The canonical form: `reg-view` auto-defs the Var
 
 ```clojure
-(def counter (rf/reg-view :counter {…} (fn [label] ...)))
+(rf/reg-view :counter
+  {:doc "A counter widget."}
+  (fn [label] ...))
+;; ⇒ defs `counter` (the local part of :counter) in the current namespace
+;;   bound to the wrapped (frame-aware) fn.
 
 ;; ... elsewhere in hiccup
 [counter "Hello"]
 ```
 
-`reg-view` returns the wrapped (frame-aware) render fn. The user `def`s a Var from that return value and uses it Reagent-style in hiccup. This is the canonical form because:
+`reg-view` *defs* the Var as part of registration. There is no separate `(def counter (rf/reg-view ...))` step — `(reg-view :counter ...)` is the one form that registers + binds. The Var name is the keyword's local name (the part after the slash); namespaced ids (e.g. `:cart.item/row`) bind the local symbol (`row`) and are accessed under their fully-qualified namespace.
 
-- It reads exactly like today's Reagent code — no cultural shift (Goal 11).
-- The Var is a stable, named binding — anonymous closures are avoided (P2).
-- It works without macro magic at the call site (P3 / P8 — no hidden expansion).
-- IDE / static analysis tooling treats it as a normal Var.
+Override the auto-def behaviour via `:as` in the metadata — `:as 'my-counter` for explicit naming, `:as nil` to suppress the def entirely (registration-only).
+
+### `get-view` — the canonical post-registration lookup
+
+Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. `h` and the other call-site forms are sugar over `get-view`.
+
+```clojure
+(rf/get-view :counter)               ;; → wrapped fn
+((rf/get-view :counter) "label")     ;; identical observably to: [counter "label"]
+```
+
+`get-view` returning `nil` for an unregistered keyword is a normal lookup miss (no error trace).
 
 ### Alternative forms (use only when the canonical form is awkward)
 
@@ -108,9 +178,7 @@ Inside the body, the macro injects three names:
 (rf/h [:counter "Hello"])
 ```
 
-**Bare `[:counter "Hello"]` in raw hiccup** (without an `h` wrapper, where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in EP 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
-
-**Construction-prompt guidance ([CP-4](Construction-Prompts.md)):** AI-generated views default to the Var-reference form. The other two are escape hatches for specific situations.
+**Bare `[:counter "Hello"]` in raw hiccup** (without an `h` wrapper, where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
 
 ### The `h` macro
 
@@ -137,25 +205,27 @@ Compile-time expansion means the registry must be populated when the macro fires
 
 ## Plain Reagent fns: staged adoption (with a loud footgun warning)
 
-Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection. Their `subscribe`/`dispatch` calls (qualified `rf/`) target `:re-frame/default`.
+Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection. Their `subscribe`/`dispatch` calls (qualified `rf/`) target `:rf/default`.
 
-This means plain fns are safe in single-frame apps (no different from today) and in default-frame portions of multi-frame apps. But if a plain fn is rendered **inside a non-default `frame-provider`** subtree, its `subscribe`/`dispatch` calls **silently route to `:re-frame/default`** — almost certainly not what the author intended.
+This means plain fns are safe in single-frame apps (no different from today) and in default-frame portions of multi-frame apps. But if a plain fn is rendered **inside a non-default `frame-provider`** subtree, its `subscribe`/`dispatch` calls **silently route to `:rf/default`** — almost certainly not what the author intended.
 
-### The footgun is now loud (per [AI-First Audit](AI-Audit.md) G-D)
+### The footgun is loud, but at most once per (component, non-default-frame) pair
 
-Previously documented as a known limitation. Now: **the runtime emits a warning trace event the first time a plain Reagent fn renders inside a non-default frame**:
+The runtime emits a warning trace event the **first** time a plain Reagent fn renders inside a non-default frame, then suppresses repeats for that pair:
 
 ```clojure
-{:operation :rf.warning/plain-fn-under-non-default-frame
+{:operation :rf.warning/plain-fn-under-non-default-frame-once
  :op-type   :warning
  :tags      {:fn-name        "my-app.cart.views/render-summary"
              :rendered-under :user-session-7
-             :routed-to      :re-frame/default
-             :reason         "Plain Reagent fns do not pick up the surrounding frame; their dispatch/subscribe targets :re-frame/default. To capture the surrounding frame, register the view via reg-view."}
+             :routed-to      :rf/default
+             :reason         "Plain Reagent fns do not pick up the surrounding frame; their dispatch/subscribe targets :rf/default. To capture the surrounding frame, register the view via reg-view."}
  :recovery  :warned-and-replaced}
 ```
 
-The warning fires once per `(plain-fn, frame)` pair (not per render — that would flood). 10x and re-frame-pair surface the warning. In dev, the runtime also `console.warn`s the first occurrence. In production, the warning code path is elided (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
+Suppression key: the `(component-id, non-default-frame-id)` pair, where `component-id` is the plain fn's stable identity (Var name in CLJS; equivalent fingerprint elsewhere). This deliberately bounds noise: a v1 app that adopts a single non-default frame for one feature gets one warning per plain component that ever renders under that frame, **not** one warning per render and **not** N warnings for N existing components in unrelated parts of the tree (which would amount to a hard footgun). 10x and re-frame-pair surface the warning. In dev, the runtime also `console.warn`s the first occurrence. In production, the warning code path is elided (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
+
+The suppression cache is per-frame-instance: destroying and re-creating a frame resets the warning history for that frame (so hot-reloaded development sessions don't accumulate stale entries). The `:rf.warning/plain-fn-under-non-default-frame-once` op-type is reserved; consumers branch on it.
 
 ### Migration path
 
@@ -190,7 +260,7 @@ Same closure mechanic as `reg-view`, just opt-in per-call. Slightly more verbose
 
 ## Form-1, Form-2, Form-3 components
 
-> **Per [AI-First Audit](AI-Audit.md) (G-F):** Form-1 is the **canonical** form for AI-first scaffolded views. Form-2 and Form-3 exist for Reagent compatibility but the audit flags Form-2's outer-fn-side-effects pattern as a P8 (low hidden context) hit — a side-effect at mount time that doesn't appear at the call site. AI-generated views default to Form-1 + an explicit setup event.
+Form-1 is the **canonical** form. Form-2 and Form-3 exist for Reagent compatibility, but Form-2's outer-fn-side-effects pattern hides a mount-time side-effect that doesn't appear at the call site — Form-1 + an explicit setup event is preferred.
 
 ### Form-1 (canonical — simple render fn)
 
@@ -200,7 +270,7 @@ Same closure mechanic as `reg-view`, just opt-in per-call. Slightly more verbose
     [:button (str label)]))
 ```
 
-Each render invocation runs the body fresh. No setup ceremony, no closure subtleties. **This is what construction-prompt-generated views look like.**
+Each render invocation runs the body fresh. No setup ceremony, no closure subtleties.
 
 For setup-on-mount work that *would* go in a Form-2 outer fn, use a separate event dispatched explicitly:
 
@@ -239,7 +309,7 @@ The `dispatch` and `subscribe` in both the outer and inner fn refer to the same 
 
 Class-form views that return a map of lifecycle methods (`:reagent-render`, `:component-did-mount`, etc.) — supported, but the injected locals are only in scope for the lifecycle methods themselves, not for any user code outside the registered fn. Consistent treatment with Form-2; the macro injects the `let` once around the entire returned map's body.
 
-Required only when interop with stateful third-party React components needs explicit lifecycle hooks (`componentDidMount`, `componentWillUnmount`). Construction-prompt-generated views never use Form-3 by default.
+Required only when interop with stateful third-party React components needs explicit lifecycle hooks (`componentDidMount`, `componentWillUnmount`).
 
 ## View registry — tooling surface
 
@@ -258,46 +328,86 @@ Registered views referenced from hiccup inherit the surrounding frame from React
 (rf/reg-view :outer
   (fn []
     [:div
-     [counter "Inner"]                  ;; or [:counter "Inner"] under EP 004's `h` macro
+     [counter "Inner"]                  ;; or [:counter "Inner"] under the `h` macro
      [rf/frame-provider {:frame :other}
       [counter "Other-frame inner"]]])) ;; nested provider re-points
 ```
 
 Nested `frame-provider`s re-point children. The deepest provider in scope wins.
 
-## EP 003 (Reusable Components) subsumption
+## Reusable components
 
-The original EP 003 wanted React-context-style sharing for reusable components. Two concerns motivated it:
+Reusable-component concerns are addressed by:
 
-1. **Reusable widgets need to subscribe and dispatch** — solved by `reg-view`'s frame-bound injection.
-2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — solved by [002's `frame-provider`](002-Frames.md#what-frame-provider-is) plus user-defined React contexts for non-frame state.
-
-EP 003 is therefore subsumed by EP 002 + EP 004; no separate doc planned.
+1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
+2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — [002's `frame-provider`](002-Frames.md#what-frame-provider-is-cljs-reference) plus user-defined React contexts for non-frame state.
 
 ## Open questions
 
-### V-1. Should `reg-view` def the Var by default?
-
-Currently `reg-view` returns the wrapped fn, and the user opts into Var-style hiccup by writing `(def counter (rf/reg-view ...))`. Alternative: `reg-view` is a macro that defs the Var as a side effect, the way `defn` does. Trade-off: less ceremony for users who want Var-style; more magic; potential conflict with namespace-level `def` discipline. Currently leaning toward "user opts in explicitly" for explicitness; revisit if the ecosystem prefers the auto-def form.
-
-### V-2. The `h` macro's expansion strategy
-
-`h` walks hiccup at compile time. Two questions: (a) does it walk recursively into nested vectors, or only the top level? (b) does it look up keywords against the *current* registry at expansion time, or use a deferred runtime lookup? Recommend recursive walk + compile-time lookup for the common case (deterministic; faster) with a runtime escape hatch for dynamic cases.
-
-### V-3. Form-3 (`reagent.core/create-class`) — full lifecycle exposure
-
-Supported, but the locked design says injected locals are scoped to the entire returned-map's body. Whether all lifecycle methods (`:component-did-mount`, `:component-did-update`, `:component-will-unmount`, etc.) see the injected `dispatch`/`subscribe` consistently — including across Reagent's various class-creation paths (legacy `r/create-class` vs newer hooks-flavoured) — needs an implementation walk-through before locking.
-
-### V-4. Hot-reload behaviour for re-registered views
-
-When `reg-view` is re-evaluated against the same keyword (developer saved a file), the new render fn replaces the old. Mounted components automatically pick up the new fn on next render via the registry indirection (`get-view`). Confirm: does this work cleanly with Reagent's component cache? Probably yes (Reagent re-creates components on render); empirical confirmation needed.
-
-### V-5. `h` macro and dynamic keyword tags
+### `h` macro and dynamic keyword tags
 
 `(rf/h [first-tag-var label])` where `first-tag-var` is a runtime-resolved keyword — does the macro fall through gracefully (treating the keyword as a DOM tag) or error? Recommendation: fall through; runtime substitution is the user's responsibility.
 
-## Disposition
+The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and is out of scope for v1; it is deferred to the substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md).
 
-**v1.** `reg-view` ships in v1 as the multi-frame contract. The three hiccup invocation forms ship in v1. The `h` macro ships in v1 as opt-in sugar. Plain Reagent fns continue to work; staged adoption.
+## Resolved decisions
 
-The bare `[:my-view "args"]` form in raw hiccup is deferred to OQ-7 (substrate decoupling work) — it requires Reagent extension and is out of scope for v1.
+### `reg-view` defs the Var by default
+
+`reg-view` defs the Var as a side effect. No need to write `(def x (rf/reg-view :x ...))` — `(rf/reg-view :x ...)` is enough; a Var named `x` is created in the surrounding namespace.
+
+The macro takes the id keyword's local name (the part after the slash) as the Var's symbol:
+
+```clojure
+(rf/reg-view :counter
+  (fn [label] [:button label]))
+;; ⇒ defs `counter` in the current namespace, bound to the wrapped fn.
+;; You can now write [counter "Hi"] in hiccup directly.
+
+(rf/reg-view :cart.item/row
+  (fn [item] [:tr ...]))
+;; ⇒ defs `row` (uses the local name after the slash).
+;; Use the qualified namespace prefix when reading: [cart.item.row item]
+```
+
+This matches `defn`'s shape (registers + binds a Var) and removes a redundant naming step. Other registration kinds don't need this because their values aren't called as Reagent components in hiccup — only views are.
+
+For the rare case where the user wants to control the Var name explicitly (or suppress the def — e.g. for views generated programmatically), pass `:as` in the metadata:
+
+```clojure
+(rf/reg-view :counter
+  {:as 'my-counter}                     ;; explicitly named
+  (fn [label] [:button label]))
+
+(rf/reg-view :counter
+  {:as nil}                             ;; suppress the def; only register
+  (fn [label] [:button label]))
+```
+
+### The `h` macro's expansion strategy
+
+Recursive walk + runtime lookup, with the keyword set frozen at compile time.
+
+(a) **Recursive walk.** `h` walks the entire hiccup tree, not only the top level. Substitution happens wherever a vector starts with a keyword that was registered as a `:view` *at expansion time*. This matches author intent: AIs and humans write `(h [:layout [:counter] [:counter]])` and expect both `:counter` references to substitute.
+
+(b) **Runtime lookup with a compile-time keyword set.** At expansion, `h` consults the registrar to enumerate the set of keywords currently registered as `:view`. Each match in the hiccup expands to `[(rf/get-view :keyword) args ...]` — a *runtime* registry lookup. This gives:
+
+- **Determinism at expansion** — the keyword set is captured when the form is compiled. A view registered after expansion does not magically activate inside an already-compiled form. The user can re-evaluate the form to pick it up.
+- **Hot-reload friendliness** — `(get-view :counter)` re-resolves on every render, so re-registering `:counter` (developer saves a file) takes effect without re-expanding `h`.
+- **Aligns with `reg-view`'s auto-def form** — `(reg-view :counter ...)` produces a callable Var; `(h [:counter])` produces `[(get-view :counter)]`. The two are observably equivalent at the call-site.
+
+A keyword *not* registered as a view at expansion time passes through unchanged. DOM tags (`:div`, `:span`, …) and unregistered keywords are untouched. The dynamic-keyword-tag case (`[some-keyword-var ...]`) falls through to runtime — `h` does not attempt to rewrite it; the runtime treats it as a DOM tag.
+
+**Edge case — re-registration shadowing a DOM tag.** A user must not `(reg-view :div ...)`. The runtime emits a warning at registration time; `h` honours the registry (the registered fn wins). Documented as a footgun, not policed.
+
+### Form-3 (`reagent.core/create-class`) — full lifecycle exposure
+
+Form-3 lifecycle methods all see the injected `dispatch`/`subscribe`/`frame-id` locals. The macro wraps the *entire returned map's body* in the same `let` — `:reagent-render`, `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, etc. all close over the same frame-bound locals. Across Reagent's class-creation paths (`r/create-class`, hooks-flavoured wrappers) the expansion is uniform: one `let` around the map literal, all method bodies read the same locals.
+
+This matches Form-2's treatment (one `let` around the outer + inner fns) and keeps Form-3 a true *escape hatch* for stateful third-party React interop — `componentDidMount`-style hooks have access to the right `dispatch`/`subscribe` without ceremony.
+
+### Hot-reload behaviour for re-registered views
+
+Re-registering a view replaces the registry entry; `(get-view :id)` re-resolves on every render, so mounted components pick up the new render fn on next render with no further action. Reagent's component cache keys on the wrapper fn the macro emits; because that wrapper delegates to `(get-view view-id)` on each call, the cache hit returns the *new* render fn body once the registry is updated. No explicit invalidation needed.
+
+The runtime emits `:rf.registry/handler-replaced` (per [009](009-Instrumentation.md)) when re-registration overwrites an existing view; tools branch on the trace event to refresh their UI.

@@ -1,20 +1,22 @@
-# EP 002 — Frames
+# Spec 002 — Frames
 
-> Status: Drafting. Builds on the locked stances in [000-Vision.md](000-Vision.md).
+> **What this Spec is about.** A *frame* is an isolated runtime boundary — multi-instance widget, per-test fixture, per-request server-side render, per-session — all the same shape. The pattern's contract is **explicit-frame addressing**: every dispatch and subscribe targets a specific frame at the call site. The CLJS reference's React-context-driven view injection (in §View ergonomics) is an *ergonomic optimisation* atop that contract, not a pattern-level commitment.
 >
-> **Reframed per [reorient.md](reorient.md):** a *frame* is now defined as **an isolated runtime boundary** — multi-instance widget, per-test fixture, **per-request server-side render**, per-session — all the same shape. The pattern's contract is **explicit-frame addressing**; the React-context-driven view injection in §View ergonomics is a **CLJS-implementation optimisation atop that contract**, not a pattern-level commitment. A subsequent rewrite pass will surface this split inside the doc; for now, treat the React-context machinery as a CLJS reference detail and the keyword-id-based addressing as the portable contract.
+> For the bird's-eye view of where the frame container, router, drain loop, and `do-fx` sit in relation to the registrar, sub-cache, substrate adapter, and trace bus, see [Runtime-Architecture](Runtime-Architecture.md).
 
 ## Abstract
 
 A **frame** is an **isolated runtime boundary**, identified by keyword, that owns the runtime state of a re-frame application: its `app-db`, its event router/queue, and its subscription cache. Multiple frames can coexist — multi-instance on a page (devcards, isolated widgets, serial test instances), per server-side request, per session — and live independently.
 
+> **Terminology:** "isolated runtime boundary" is the canonical definition. Other Specs sometimes describe a frame in terms of a particular role it plays — *actor-system boundary* (Spec 005, when describing message-passing semantics), *frame contract* (Spec 006, when describing what the substrate-agnostic core requires from an adapter), *per-request runtime* (Spec 011, when describing SSR). All refer to the same thing under different aspects.
+
 All frames share **one global handler registrar**. Multi-frame means "multiple instances of the same app's handlers" — devcards, isolated widgets, story variants, test fixtures — not "multiple different apps with different handler sets on one page." The latter use case (micro-frontends, embedded white-label widgets) is out of scope; iframes already serve it.
 
-**Backwards compatibility:** existing single-frame apps need no migration. A pre-registered `:re-frame/default` catches every dispatch and subscription that doesn't specify a frame; today's re-frame is structurally re-frame2 with only the default frame in play.
+**Backwards compatibility:** existing single-frame apps need no migration. A pre-registered `:rf/default` catches every dispatch and subscription that doesn't specify a frame; today's re-frame is structurally re-frame2 with only the default frame in play.
 
 ## Goals
 
-This EP inherits the constraints and goals from 000 and adds two frame-specific design rules:
+This Spec inherits the constraints and goals from 000 and adds two frame-specific design rules:
 
 - **Frame plurality is invisible to single-frame apps.** No new API surfaces in user code unless the user opts in.
 - **Frame identity is a value, not a reference.** Frames are addressed by keyword in user code; runtime frame *records* are an internal detail.
@@ -34,11 +36,11 @@ This EP inherits the constraints and goals from 000 and adds two frame-specific 
 (rf/reg-view :counter {,,,} (fn [label] ,,,))   ;; injects frame-bound `dispatch`/`subscribe`
 
 ;; Plain (non-view) APIs — frame-aware variants
-(rf/dispatch      [:foo])                          ;; defaults to :re-frame/default
+(rf/dispatch      [:foo])                          ;; defaults to :rf/default
 (rf/dispatch      [:foo] {:frame :todo             ;; opts map extends the dispatch envelope
                           :fx-overrides {:http stub-fn}})
 (rf/dispatch-sync [:foo] {:fx-overrides {...}})    ;; same opts-arg shape, sync variant
-(rf/subscribe     [:bar])                          ;; defaults to :re-frame/default
+(rf/subscribe     [:bar])                          ;; defaults to :rf/default
 (rf/subscribe     [:bar] {:frame :todo})           ;; opts arg targets a specific frame
 
 ;; Test/REPL helper
@@ -68,7 +70,7 @@ Three observations:
 
 ## Frame lifecycle
 
-### `reg-frame` is atomic
+### `reg-frame` — atomic create-and-register and the canonical metadata grammar
 
 ```clojure
 (rf/reg-frame :todo {:on-create [:todo/initialise]})
@@ -77,6 +79,8 @@ Three observations:
 ```
 
 Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states.
+
+This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations-provisional), [§Per-instance frames](#per-instance-frames--anonymous-make-frame) — refer to the keys defined here; they do not re-define them.
 
 `reg-frame` accepts a metadata map mirroring other registrations:
 
@@ -109,7 +113,7 @@ If the frame's initialisation needs to fire multiple events, the single `:on-cre
 
 The framework stamps the dispatch envelope with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If the event handler needs the frame-id at runtime, it reads `(:frame m)` from its context.
 
-[EP 007 — Stories](007-Stories.md) builds on this for variants but uses its own multi-event setup sequence (not desugared to `:on-create`, which is single-event by design).
+[Spec 007 — Stories](007-Stories.md) builds on this for variants but uses its own multi-event setup sequence (not desugared to `:on-create`, which is single-event by design).
 
 ### Destroy
 
@@ -125,7 +129,7 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 
 ### Re-registration — surgical update
 
-`reg-frame` against an already-registered keyword performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `reg-frame` forms, the page doesn't blink, the user's state survives.
+`reg-frame` against an already-registered keyword performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `reg-frame` forms, the page doesn't blink, the user's state survives. The contract for re-registration of every other registry kind (events, subs, fx, cofx, machine actions/guards, views, routes, heads, error projectors) is owned by [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
 
 **What gets replaced on surgical update:**
 
@@ -142,6 +146,8 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 - `:on-create` events do not re-fire (they fired on the original creation and don't re-run on re-registration).
 - `:on-destroy` events do not fire (they only fire on `destroy-frame`).
 - Sub-cache, router queue, in-flight events all remain.
+
+**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event-fx` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`. Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
 
 **Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:on-create` and re-saves will not see the new init event re-fire — they need to call `reset-frame` to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
 
@@ -164,9 +170,107 @@ Equivalent to `(destroy-frame :todo)` followed by `(reg-frame :todo <current-con
 
 `destroy-frame` (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame throws `:reason :frame-destroyed`.
 
-### `:re-frame/default`
+### `:rf/default`
 
-Registered by re-frame at load time, under the keyword `:re-frame/default`, as a regular registry entry. No special-casing in the lookup path. Listable in tooling. Overridable by re-registration if a user really wants different default behaviour (rare; documented).
+Registered by re-frame at load time, under the keyword `:rf/default`, as a regular registry entry. No special-casing in the lookup path. Listable in tooling. Overridable by re-registration if a user really wants different default behaviour (rare; documented).
+
+### Frame presets — capability bundles for common configurations
+
+A `:preset` key on the metadata expands at registration time into a fixed bundle of metadata keys the user could otherwise write by hand. User-supplied keys win on conflict. Presets exist to make declarative intent — "this is a test frame," "this is a story frame" — visible at the call site and machine-readable from `(rf/frame-meta <id>)`.
+
+```clojure
+;; Concise; intent visible at the call site.
+(rf/reg-frame :test/auth-flow
+  {:preset :test})
+
+;; The `:preset` expands; user-supplied keys override individual expansion entries.
+(rf/reg-frame :test/long-running
+  {:preset :test
+   :drain-depth 1000})        ;; overrides the :test preset's drain-depth default
+```
+
+The closed canonical set of four presets, with their exact expansions:
+
+#### `:default`
+
+No expansion — explicitly the empty preset. `{:preset :default}` is identical to omitting `:preset`. Acts as documentation: the user is declaring "I have considered the preset list and chosen the default."
+
+| Expansion key | Value |
+|---|---|
+| (none) | (none) |
+
+Use case: production single-frame app; multi-instance widgets.
+
+#### `:test`
+
+| Expansion key | Value | Why |
+|---|---|---|
+| `:url-bound? false` | URL changes do not affect this frame; navigation events are no-ops | Tests should not couple to browser URL |
+| `:fx-overrides` | `{:http :rf.test/stub-http :dispatch-later :rf.test/clock-controlled :rf.nav/push-url :rf.test/no-op :rf.nav/replace-url :rf.test/no-op :rf.nav/scroll :rf.test/no-op}` | Network and clock stubbed via the `re-frame.interop` test-clock; navigation fxs no-op since `:url-bound?` is false |
+| `:platforms` | `#{:test}` (added to the active platform set) | Allows registering test-only fxs gated to `:platforms #{:test}` |
+| `:drain-depth` | `100` | Sane default; test code may dispatch deeper cascades than production |
+
+Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
+
+#### `:story`
+
+| Expansion key | Value | Why |
+|---|---|---|
+| `:url-bound? false` | Stories do not navigate; URL is irrelevant | Story frames are isolated demonstrations, not routed pages |
+| `:fx-overrides` | `{:http :rf.story/stub-http :rf.nav/push-url :rf.story/no-op :rf.nav/replace-url :rf.story/no-op}` | Network stubbed; navigation no-op'd. **Time-based fxs are NOT stubbed** — stories animate in real time |
+| `:isolation/global-state false` | Story frames do not read or write process-global state outside their own `app-db` | Stories must run side-by-side without leaks |
+| `:platforms` | `#{:story :client}` | Allows story-only fxs |
+
+Use case: story / variant frames (per the post-v1 [007-Stories](007-Stories.md) library).
+
+#### `:ssr-server`
+
+| Expansion key | Value | Why |
+|---|---|---|
+| `:url-bound? false` | Server does not navigate; route is parsed once from the request cofx | Per-request frames are stateless w.r.t. URL after request handling |
+| `:platforms` | `#{:server}` | Only `:server`-platforms fxs run; client-only fxs no-op via the `:platforms` mechanism (per [011-SSR](011-SSR.md)) |
+| `:fx-overrides` | `{:dispatch-later :rf.server/no-op :rf.nav/push-url :rf.server/no-op :rf.nav/replace-url :rf.server/no-op :rf.nav/scroll :rf.server/no-op}` | Server has no clock-driven UI; no DOM; no navigation |
+| `:on-create` | `[:rf/server-init]` (default; user may override) | Standard server-side init handshake |
+
+Use case: per-request server-side render frame (per [011-SSR.md](011-SSR.md)).
+
+#### Expansion algorithm
+
+At registration time, the runtime:
+
+1. Reads the `:preset` key from the user's metadata (if any).
+2. Looks up the expansion table (above).
+3. Constructs an effective metadata map: `(merge expansion user-supplied-metadata)`. **User keys win on conflict** — the preset is a default, not a closed bundle.
+4. The effective metadata is what `(frame-meta <id>)` returns; the original `:preset` is preserved as a metadata field for inspection.
+
+Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; an `:rf/preset` key in the returned metadata records which preset was applied. Tools can inspect:
+
+```clojure
+(rf/frame-meta :test/auth-flow)
+;; → {:preset :test
+;;    :url-bound? false
+;;    :fx-overrides {:http :rf.test/stub-http ...}
+;;    :platforms   #{:test}
+;;    :drain-depth 100}
+```
+
+#### Adding presets
+
+The four above are the **closed v1 set**. Adding a fifth preset is a Spec-change-only operation: presets are fixed and additive. The framework will *not* recognise unknown preset values; passing `:preset :devcards` to a runtime that doesn't ship that preset emits `:rf.error/unknown-preset` at registration time.
+
+This is a deliberate constraint — it prevents preset proliferation and makes the four presets canonical for AI scaffolding (an AI reading the spec sees the closed set and chooses from it).
+
+#### `:preset` works on `make-frame` too
+
+Anonymous frames (per [§Per-instance frames](#per-instance-frames--anonymous-make-frame)) accept `:preset` in their opts map identically:
+
+```clojure
+(rf/make-frame {:preset :test
+                :on-create [:counter/init]})
+;; → :rf.frame/<gensym>  with the :test preset's expansion applied
+```
+
+Symmetric with `reg-frame`; same expansion algorithm; same conflict-resolution rule.
 
 ### Per-instance frames — anonymous `make-frame`
 
@@ -206,7 +310,17 @@ Tests use this pattern as their fixture lifecycle:
 
 The mechanism that gets a dispatch to the right frame is **frame identity carried on the in-flight event**.
 
-User-facing event shape stays a vector — `[:add-todo "milk"]` — for backwards compat. *Internally*, every dispatch becomes a **dispatch envelope**:
+User-facing event shape stays a vector — `[:add-todo "milk"]` — for backwards compat. The **canonical call shapes** are:
+
+| Arity | Canonical | Tolerated (discouraged) |
+|---|---|---|
+| Trivial — id only | `[:counter/inc]` | (same) |
+| Single argument | `[:user-by-id 42]` | (same) |
+| Multi-argument | `[:user/login {:email e :password p}]` (single map payload) | `[:user/login e p]` (multi-positional; linter nudges; existing v1 codebases unaffected) |
+
+The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe takes the same shape (`[:items-filtered {:status :pending :limit 20}]`). The full rationale is in [Principles §Name over place](Principles.md#name-over-place); the migration rule for legacy multi-positional code is [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). The v1 `unwrap` interceptor (which required this exact `[event-id payload-map]` shape) ships unchanged in v2 as opt-in handler-side sugar; v1 `trim-v` is dropped because its purpose was the multi-positional form v2 leaves behind.
+
+*Internally*, every dispatch becomes a **dispatch envelope**:
 
 ```clojure
 {:event        [:add-todo "milk"]      ;; the user-facing vector, unchanged
@@ -219,13 +333,13 @@ User-facing event shape stays a vector — `[:add-todo "milk"]` — for backward
 
 The envelope is just a map. Any field can be set by:
 
-- **The two-arg dispatch form** — `(dispatch [:foo] {:frame :todo :fx-overrides {...}})`. The opts map's keys flow into the envelope. `dispatch-sync` takes the same opts arg.
+- **The two-arg dispatch form** — `(dispatch [:foo] {:frame :todo :fx-overrides {...}})`. The opts map's keys flow into the envelope. `dispatch-sync` takes the same opts arg. The opts map's schema is `:rf/dispatch-opts` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-opts) — a strict subset of the envelope (the runtime supplies `:event` and may add `:dispatched-at`).
 - **Frame-level config** — `reg-frame` keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
 - **Lexical injection** — `reg-view`-injected `dispatch` closures carry `:frame` from React context.
 
-re-frame2 does **not** ship `dispatch-to`, `dispatch-with`, or `dispatch-sync-with` — the two-arg `dispatch` form covers all of these cases. Master's `dispatch-with` users migrate to `(dispatch event {:fx-overrides overrides})`. (Clojure metadata still works as a backwards-compat shim — see MIGRATION.md.)
+The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. (Clojure metadata on the event vector is accepted as a backwards-compat shim — see [MIGRATION.md](MIGRATION.md).)
 
-The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the same shape they always have (`db`+`event-vec` for `reg-event-db`, context map for `reg-event-fx`); the envelope is not exposed to user handlers in v1.
+The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the same shape they always have (`db`+`event-vec` for `reg-event-db`, context map for `reg-event-fx`); the envelope is not exposed to user handlers.
 
 ### How `:frame` gets attached
 
@@ -234,13 +348,11 @@ In priority order, where the frame keyword comes from:
 1. **Explicit `:frame` in the dispatch opts map.** `(dispatch [:foo] {:frame :todo})` always wins. The opts map's keys flow straight into the dispatch envelope.
 2. **Lexical `dispatch` injected by `reg-view`.** The closure carries the frame keyword resolved from React context at render. (See View Ergonomics, below.) Internally, the injected `dispatch` is `(fn [event] (dispatch event {:frame <captured>}))`.
 3. **Dynamic binding.** Inside `(with-frame :todo ...)` (test/REPL helper), a Clojure dynamic var carries the frame; the bare `(rf/dispatch [:foo])` in the body picks it up. This makes `(with-frame :todo (rf/dispatch [:foo]))` Just Work without an opts map.
-4. **Default.** `:re-frame/default`.
-
-(Note: master's `dispatch-with [event] {overrides}` attaches overrides via Clojure metadata. re-frame2 drops `dispatch-with` in favour of the unified two-arg form: `(dispatch event {:fx-overrides overrides})`. See [MIGRATION.md](MIGRATION.md) for the migration rule.)
+4. **Default.** `:rf/default`.
 
 ## View ergonomics (the hard part)
 
-> **Pattern vs. CLJS reference (per [reorient.md](reorient.md)):**
+> **Pattern vs. CLJS reference:**
 >
 > - **Pattern-level contract:** every dispatch and every subscribe carries an explicit frame identity. Views are pure `(state, props) → render-tree`; their dispatch/subscribe targets a specific frame. Callbacks created during render close over the frame by value at construction time.
 > - **CLJS reference realisation:** React context carries the frame keyword through the component tree; `reg-view` reads it during render and injects frame-bound `dispatch`/`subscribe` as lexical locals so the *call site* doesn't need to thread the frame explicitly. This is an *ergonomic optimisation* atop the explicit-frame contract — observable behaviour is identical to passing the frame as a parameter, with less ceremony.
@@ -278,7 +390,7 @@ So the CLJS reference has to **convert render-time frame knowledge into a closur
        (str label ": " n)])))
 ```
 
-Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` continues to refer to the global function (defaults to `:re-frame/default`, also useful at the REPL).
+Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` continues to refer to the global function (defaults to `:rf/default`, also useful at the REPL).
 
 This is the *implicit lexical injection* style chosen in 000 (the (α) option). It reads identically to today's re-frame view code. No env-arg change to view signatures.
 
@@ -321,7 +433,7 @@ The `read-frame-from-context` function is implemented as a tiered lookup, with t
 
 ```clojure
 (defonce ^:private frame-context
-  (.createContext js/React :re-frame/default))
+  (.createContext js/React :rf/default))
 
 (defn- read-frame-from-context []
   (or *current-frame*                                ;; tier: dynamic var (set by `with-frame`)
@@ -329,7 +441,7 @@ The `read-frame-from-context` function is implemented as a tiered lookup, with t
         (let [ctx (.-context cmp)]
           (when (and ctx (not= "object" (goog/typeOf ctx)))
             ctx)))                                   ;; tier: closest enclosing `frame-provider`
-      :re-frame/default))                            ;; tier: default
+      :rf/default))                            ;; tier: default
 ```
 
 How the React-context tier wires up:
@@ -343,19 +455,17 @@ For other rendering substrates the same function differs only in lines 4–7:
 - **UIx / Helix** (function components, hooks-first): replace the `current-component`/`.-context` block with `(.useContext js/React frame-context)`.
 - **Tests / headless / non-React contexts:** the React-context tier is skipped entirely; the dynamic var or default carries the frame.
 
-The substrate-decoupling work in [000-Vision.md](000-Vision.md) §OQ-7 is largely a matter of parameterising *this single function* across rendering libraries — the rest of re-frame2 doesn't care.
+Substrate-agnostic frame resolution is a matter of parameterising *this single function* across rendering libraries — the rest of re-frame2 doesn't care.
 
-#### Why the keyword-in-context choice pays off
-
-freerange puts the *frame value* in React context. On hot reload the embedded value is stale until the provider re-renders, and consumers may need to be invalidated explicitly. Putting the keyword in context and resolving it against the global frame registry on every read sidesteps this: `(reg-frame :todo {…new-config…})` swaps the registry entry, and every consumer picks up the new frame on next render automatically, with no React-side invalidation needed. Re-registration of `:re-frame/default` works the same way — context's default value is the keyword, not a record, so swapping the underlying frame is transparent.
+The context's value is the **keyword**, not the frame record: each consumer resolves the keyword against the global frame registry on every read, so re-registering a frame (including `:rf/default`) is picked up automatically on next render with no React-side invalidation.
 
 #### Edge cases
 
-- **No `frame-provider` in scope.** When `contextType` is set on a class but no Provider sits above the component, React leaves `this.context` as Reagent's empty default object (`#js {}`). The `(not= "object" (goog/typeOf ctx))` check filters that out and we fall through to `:re-frame/default`. (freerange uses an equivalent `(not (object? ctx))` test.)
-- **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:re-frame/default`.
-- **Concurrent rendering.** React 18 may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. (See OQ-F-7.)
+- **No `frame-provider` in scope.** When `contextType` is set on a class but no Provider sits above the component, React leaves `this.context` as Reagent's empty default object (`#js {}`). The `(not= "object" (goog/typeOf ctx))` check filters that out and the lookup falls through to `:rf/default`.
+- **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:rf/default`.
+- **Concurrent rendering.** React 18 may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
 
-### View-side details — see EP 004
+### View-side details — see Spec 004
 
 Form-1/2/3 component handling, plain Reagent fns and the `(rf/dispatcher)`/`(rf/subscriber)` affordance, and composing registered views across nested `frame-provider`s — all live in [004-Views.md](004-Views.md). 002 owns the frame-side mechanics; 004 owns the view registration surface.
 
@@ -371,6 +481,8 @@ Sometimes a function created during render isn't a hiccup callback but is invoke
 `bound-fn` produces a `(fn ...)` that, when called, runs in a `binding [*current-frame* <captured-frame>]` block — `*current-frame*` is the dynamic-binding tier of the resolution chain (above), so plain `dispatch`/`subscribe` inside the closure pick up the right frame.
 
 ### Subscriptions composing across the signal graph
+
+`reg-sub` is the **only** sub-registration form in v2. The v1 `reg-sub-raw` escape hatch is not shipped (per [MIGRATION §M-18](MIGRATION.md)); the use cases it covered now have explicit answers in the architecture: non-app-db sources route through Pattern-AsyncEffect and registered fx, lifecycle-bearing reactive computations become state machines (per [005](005-StateMachines.md)), and bridging external reactive sources is the [006](006-ReactiveSubstrate.md) adapter contract's job.
 
 Subs can compose via `:<-`. All composition stays within a single frame's sub-cache and `app-db`:
 
@@ -394,16 +506,18 @@ The signal graph is therefore per-frame. Sub-caches do not leak across frames, e
 
 ### Async effects and frame propagation
 
+> The canonical "register fx → return `:fx` → post work → async reply → dispatch → commit" shape that every async-effecting feature follows is named in [Pattern-AsyncEffect](Pattern-AsyncEffect.md). This section specifies the frame-routing rule that makes the shape work across multiple frames.
+
 The trickiest correctness question. Consider:
 
 ```clojure
 (rf/reg-event-fx :load-todo
   (fn [{:keys [db event]}]
-    {:http {:url "/todo/1"
-            :on-success [:todo-loaded]}}))
+    {:fx [[:http {:url "/todo/1"
+                  :on-success [:todo-loaded]}]]}))
 ```
 
-When `:load-todo` is dispatched in frame `:todo`, the `:http` effect fires. Some time later, the HTTP machinery dispatches `[:todo-loaded ...]`. **It must dispatch into `:todo`, not `:re-frame/default`** — otherwise the response lands in the wrong app-db.
+When `:load-todo` is dispatched in frame `:todo`, the `:http` effect fires. Some time later, the HTTP machinery dispatches `[:todo-loaded ...]`. **It must dispatch into `:todo`, not `:rf/default`** — otherwise the response lands in the wrong app-db.
 
 The mechanism is symmetric with how event handlers receive their context: **fx handlers receive the same `m` that the originating event handler received**, including `:frame`. Routing follows from explicit data, not implicit state.
 
@@ -464,14 +578,7 @@ Existing fx libraries shipping unary handlers `(fn [args] (rf/dispatch ...))` co
 
 `do-fx` detects arity at registration. When invoking a unary handler, it wraps the call in `(binding [*current-frame* (:frame m)] ...)`, so any internal `(rf/dispatch event)` is frame-aware via the dynamic-var fallback. **The dynamic var is a compatibility shim, not the primary mechanism** — new fx code uses the binary form.
 
-The async case is the one place where unary legacy handlers can still get multi-frame routing wrong: if the library captures a callback that fires after the handler returns, the dynamic-var binding has unwound. Library authors targeting re-frame2's multi-frame use cases should update to binary; the migration is small (one extra arg, one `:frame` lookup, swap `(rf/dispatch ev)` for `(rf/dispatch ev {:frame frame})` or use `bound-dispatcher` in async callbacks).
-
-#### Why this design
-
-- **Explicit data flow.** The frame is a value in `m`, not state pulled from elsewhere. Symmetric with event handlers; consistent with re-frame's data orientation.
-- **Agent-friendly and test-friendly.** An agent simulating fx calls the handler with synthetic `m`; a test passes whatever frame it wants. No `binding` setup.
-- **Async safety.** Capturing `(:frame m)` into a closure is plain Clojure — values close over cleanly.
-- **Backwards compatible.** Legacy unary handlers run inside a `*current-frame*` binding so internal `rf/dispatch` calls still route correctly in single-frame contexts and most sync multi-frame cases. Libraries don't have to update on day one.
+The async case is the one place where unary legacy handlers can still get multi-frame routing wrong: if the library captures a callback that fires after the handler returns, the dynamic-var binding has unwound. Library authors targeting re-frame2's multi-frame use cases should update to binary; swap `(rf/dispatch ev)` for `(rf/dispatch ev {:frame frame})` or use `bound-dispatcher` in async callbacks.
 
 #### What library authors of async fx have to know
 
@@ -495,21 +602,19 @@ A thin wrapper over the rendering library's React context. It puts the **keyword
 Implementation skeleton (Reagent flavour):
 
 ```clojure
-(defonce ^:private frame-context (js/React.createContext :re-frame/default))
+(defonce ^:private frame-context (js/React.createContext :rf/default))
 
 (defn frame-provider [{:keys [frame]} & children]
   (into [:> (.-Provider frame-context) {:value frame}] children))
 ```
 
-Other rendering substrates (UIx, Helix) use the same shape with their context primitive — adapter-style. Other-language ports realise this differently: a hooks-style `useFrame()` in TS, an explicit `Frame` parameter in Python, dependency injection in Kotlin. The *contract* — every view targets a specific frame — survives all of these; the *mechanism* is host-specific. See [reorient.md §The pattern](reorient.md) and the View Ergonomics top-of-section banner above.
+Other rendering substrates (UIx, Helix) use the same shape with their context primitive — adapter-style. Other-language ports realise this differently: a hooks-style `useFrame()` in TS, an explicit `Frame` parameter in Python, dependency injection in Kotlin. The *contract* — every view targets a specific frame — survives all of these; the *mechanism* is host-specific. See [000-Vision §The pattern](000-Vision.md#the-pattern-language-agnostic) and the View Ergonomics top-of-section banner above.
 
 ## REPL and test ergonomics
 
-### v1 testing — see EP 008
+### Testing — see Spec 008
 
-The concrete API and patterns for v1 testing — fixture lifecycle, per-test stubbing, headless evaluation, framework adapters — live in [008-Testing.md](008-Testing.md). The foundation primitives this EP defines (`make-frame`, `destroy-frame`, `with-frame`, `dispatch-sync` with opts, per-frame and per-call overrides, registrar query API, `machine-transition`, `compute-sub`) are what 008 composes into a test-friendly experience.
-
-If you're writing tests, start at 008. If you're designing a new framework primitive, check 008's "Forward compatibility with stories" section to ensure your design doesn't preclude what the post-v1 story library will need.
+The foundation primitives this Spec defines (`make-frame`, `destroy-frame`, `with-frame`, `dispatch-sync` with opts, per-frame and per-call overrides, registrar query API) are what [008-Testing.md](008-Testing.md) composes into the test API: fixture lifecycle, per-test stubbing, headless evaluation, framework adapters. `machine-transition` (defined in [005](005-StateMachines.md)) and `compute-sub` (defined in [008 §`compute-sub` algorithm](008-Testing.md#compute-sub-algorithm)) round out the JVM-runnable surface for headless testing; both are referenced here only as pointers.
 
 ### Frame-targeted dispatch and subscribe (no provider needed)
 
@@ -565,20 +670,55 @@ For async closures that fire after the body returns, capture the frame keyword e
 
 ### `dispatch-sync`
 
-`dispatch-sync` continues to exist with its existing semantics ("skip the router queue when called from outside any handler") and gains the same opts-arg shape as `dispatch`:
+`dispatch-sync` is the entry point for synchronously running an event cascade to completion from *outside* the run-to-completion drain — typically tests, REPL exploration, and event-bootstrapping at app startup. It runs the event through the same RtC drain as `dispatch`; the difference is that the call returns only after the drain settles. Inside an event handler the drain is already running, so calling `dispatch-sync` there is rejected (see "Calling `dispatch-sync` *inside* a handler" below). It accepts the same opts-arg shape as `dispatch`:
 
 ```clojure
 (rf/dispatch-sync [:foo] {:frame :todo
                           :fx-overrides {:http stub-fn}})
 ```
 
-Useful for tests, REPL exploration, and event-bootstrapping at app startup. Inside a handler, `dispatch` and `dispatch-sync` converge in observable behaviour because the cascade is already running synchronously under the run-to-completion drain rule.
+#### Calling `dispatch-sync` *inside* a handler is an error
+
+Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-dispatch-drain-semantics)), the cascade is already running synchronously, so `dispatch-sync` from inside a handler conveys no extra meaning over `dispatch`. Calling `dispatch-sync` inside an event handler's interceptor pipeline is **rejected**: the runtime emits `:rf.error/dispatch-sync-in-handler` (per [009 §Error contract](009-Instrumentation.md#error-contract)) and the call is dropped (default recovery `:no-recovery`).
+
+The shape that drains as part of the surrounding cascade is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](MIGRATION.md) for the migration rule.
+
+### Preserved low-level APIs are per-frame
+
+The router/queue helpers preserved from v1 (`make-restore-fn`, `add-post-event-callback`, `remove-post-event-callback`, `purge-event-queue`) operate on a *specific* frame's router state. Multi-frame routing made them under-specified in v1; v1.x of re-frame2 locks the rule:
+
+> **Every preserved low-level router helper takes an explicit `frame-id` argument. The zero-arg form targets `:rf/default`.**
+
+```clojure
+;; v1 form (preserved): targets :rf/default
+(rf/add-post-event-callback :my/recorder f)
+(rf/remove-post-event-callback :my/recorder)
+(rf/purge-event-queue)
+(rf/make-restore-fn)
+
+;; explicit-frame form: targets a specific frame
+(rf/add-post-event-callback :todo :my/recorder f)
+(rf/remove-post-event-callback :todo :my/recorder)
+(rf/purge-event-queue :todo)
+(rf/make-restore-fn :todo)
+```
+
+Per-helper semantics:
+
+- **`add-post-event-callback`** — registers `f` to run after every event handled in the named frame's router. Different frames have independent post-event callback maps; a callback added to `:todo` does not fire for events handled in `:rf/default`.
+- **`remove-post-event-callback`** — removes the callback from the named frame's map.
+- **`purge-event-queue`** — drops every event currently sitting in the named frame's router queue. Other frames' queues are untouched. Tools and tests use this to recover a stuck frame (e.g. after a long debugging session) without resetting `app-db`.
+- **`make-restore-fn`** — captures the named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback.
+
+The single-arg / zero-arg forms (`(purge-event-queue)`, `(make-restore-fn)`, etc.) are preserved verbatim from v1 and target `:rf/default`. Existing single-frame v1 code keeps working without change. New multi-frame code uses the explicit-frame form.
+
+These helpers are not part of the dispatch envelope and don't propagate across frames — they are operational helpers, not data-flow primitives. Tools (10x, re-frame-pair) call them per-frame as part of session management.
 
 ## Run-to-completion dispatch (drain semantics)
 
 re-frame2 dispatches **run to completion**: when an external event is processed, every event dispatched (synchronously) during its handler — and every event those handlers dispatch in turn — drains to fixed point before any further external event is processed *for this frame*, and before any view re-renders.
 
-This is the dispatch semantics, not a mode. There is no opt-out. The guarantee gives actor-style machine composition determinism for free ([EP 005](005-StateMachines.md), when drafted) and removes a class of "flash" intermediate renders that today's async dispatch can cause.
+This is the dispatch semantics, not a mode. There is no opt-out. The guarantee gives actor-style machine composition determinism for free ([Spec 005](005-StateMachines.md), when drafted) and removes a class of "flash" intermediate renders that today's async dispatch can cause. It is also load-bearing for [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): every settled, between-event state of a frame is a snapshottable boundary, and no async mutation escapes the dispatch loop to leave the frame's value inconsistent with its registered handlers.
 
 ### Terminology
 
@@ -605,27 +745,206 @@ The distinction is documentary and conceptual, not technical. One dispatch pipel
 - **Async effects** — `:http`, timer-based, websocket-flavoured — are *not*. Their responses arrive later as fresh domain events, which then re-engage drain for their own cascade.
 - **Domain events from outside the frame** wait until the current drain cascade settles.
 
-### Why per-frame, not per-app
+### Render boundaries
 
-Per-frame is the only granularity with clean semantics. Per-app would force every subsystem to share one drain queue. Per-event flags would let one event drain and the next not, leaving visible state inconsistent. Frames already isolate state and routing; drain naturally lives at the frame level.
+Under run-to-completion, a dispatched event runs synchronously *before* the originator returns; views do not render any intermediate state of the cascade. Render happens once, after the cascade settles. (Code that requires a render between two events in a cascade is incompatible with this contract — see [MIGRATION.md](MIGRATION.md).)
 
-### Behaviour change vs. today's re-frame
+`dispatch-sync` means "skip the router queue when called from outside any handler." Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync) above); the in-handler shape is `[[:dispatch event]]` under `:fx`.
 
-Today's `:dispatch` effect runs the dispatched event on a later tick — views may render between the originator and the dispatchee. Under run-to-completion, the dispatchee runs synchronously *before* the originator returns; views do not render the intermediate state.
+### `:fx` ordering and atomicity guarantees
 
-For the vast majority of code this is harmless or strictly better — fewer flash renders, more deterministic ordering. Apps that *depended* on the intermediate render are broken; this is recorded as a migration rule in [MIGRATION.md](MIGRATION.md).
+When an `event-fx` handler returns `{:db <new-db> :fx [[a 1] [b 2] [c 3]]}`, the runtime processes the effect map under four locked rules. Apps may rely on them; conformant implementations must produce them.
 
-`dispatch-sync` continues to mean "skip the router queue when called from outside any handler." Inside a handler, ordinary `dispatch` and `dispatch-sync` converge in observable behaviour because the cascade is already running synchronously.
+1. **`:db` is the first side effect (when present).** The snapshot transitions atomically in one step before any `:fx` entry is processed. No external observer ever sees a half-written `app-db`.
+2. **`:fx` entries are processed in source order.** `[a 1]` runs before `[b 2]` runs before `[c 3]`. The order in which the handler wrote the entries is the order in which they reach `do-fx`.
+3. **Each `:fx` entry is processed serially before the next.** No interleaving. The fx-handler for entry N completes (synchronously, from `do-fx`'s perspective) before entry N+1 begins. *Asynchronous* work an fx kicks off (an outbound HTTP request, a `dispatch-later` timer) is not awaited; "complete" means the fx-handler function has returned.
+4. **Subscriptions observe the post-`:db` state.** When the first `:fx` entry fires, `app-db` has already transitioned and sub-cache invalidation has happened. A handler may legitimately return `{:db <new-state> :fx [[:dispatch [:react-to-new-state]]]}` and the dispatched event's handler will see the new state.
 
-### Implementation note
+From the *handler's* perspective, the handler returns once with the full effects map; sequencing of `:fx` entries is deterministic; the handler doesn't observe the side effects firing — it just declares them.
 
-Drain semantics fit naturally onto the transducer-shaped router sketched in OQ-F-9: the reducing function processes all queued events to fixed point and yields once.
+**Composition with the dispatch queue.** When `:fx` entries include `:dispatch`, the dispatched events are appended to the runtime FIFO queue in source order — preserving source-order all the way down a chain. `:dispatch-later` schedules timers in source order; actual delivery depends on each timer's delay.
+
+**Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:db` write at `[:rf/machines <id>]`), then `:fx` entries process in source order with reserved fx-ids (`:raise`, `:spawn`) routed locally and the rest forwarded to the standard fx pipeline.
+
+**Error during `:fx`.** If the fx-handler for `[a 1]` throws, subsequent entries `[b 2]` and `[c 3]` **continue to run.** Each thrown error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit is preserved (it happened before any `:fx` entry). Rationale: `:fx` entries are by design independent; ordering means *order*, not *dependency*. An fx that genuinely depends on a prior fx succeeding should be lifted to a `:dispatch` chain — observe the result via cofx in the dispatched handler. Halting on first error would conflate the two concerns.
+
+Conformance fixtures: [`fx-db-first.edn`](conformance/fixtures/fx-db-first.edn), [`fx-ordering-source-order.edn`](conformance/fixtures/fx-ordering-source-order.edn).
+
+### Drain-loop pseudocode
+
+The rules above (the four `:fx` ordering rules, run-to-completion, depth-limited drain) compose into one execution loop. This subsection writes that loop down. v1's `re-frame.router` is the implementation reference — the loop below tracks v1's working router closely; what is *new* in re-frame2 is per-frame queuing, the `:raise` pre-commit primitive, and the machine microstep interleave from [005 §Drain semantics](005-StateMachines.md#drain-semantics).
+
+The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-StateMachines.md#level-4--across-the-runtime)) that pumps events FIFO from the router, and a **per-event drain** that runs one event end-to-end through interceptor chain, `do-fx`, and (for machine events) the Level 3 cascade.
+
+```clojure
+;; ============================================================================
+;; OUTER DRAIN — per-frame Level-4 loop
+;; ============================================================================
+;; Triggered when an event arrives in an empty queue. Schedules itself via the
+;; interop layer's next-tick so the host event loop interleaves rendering.
+
+(defn dispatch [frame envelope]
+  (let [router (:router frame)]
+    (swap! (:queue router) conj envelope)              ;; FIFO append
+    (when-not (:scheduled? @router)
+      (swap! router assoc :scheduled? true)
+      (interop/next-tick (fn [] (drain! frame))))))
+
+(defn drain! [frame]
+  (try
+    (loop [depth 0]
+      (when (> depth (:drain-depth (:config frame)))
+        (raise! :rf.error/drain-depth-exceeded
+                {:frame (:id frame) :depth depth})
+        (throw ::halt))
+      (when-let [envelope (peek-and-pop! (:queue (:router frame)))]
+        (process-event! frame envelope)                ;; per-event drain
+        (recur (inc depth))))
+    (catch :default _ nil)
+    (finally
+      (swap! (:router frame) assoc :scheduled? false)
+      ;; render-tick: the substrate adapter's reactions fire on next read.
+      ;; Per the run-to-completion rule, no view re-renders observed any
+      ;; intermediate state of this drain.
+      )))
+
+;; ============================================================================
+;; PER-EVENT DRAIN — one envelope, end-to-end
+;; ============================================================================
+
+(defn process-event! [frame envelope]
+  (let [{:keys [event opts]} envelope
+        handler-id           (first event)
+        handler-meta         (registrar/lookup :event handler-id)]
+    (trace! :event/run-start {:event event :frame (:id frame)})
+    (when (nil? handler-meta)
+      (raise! :rf.error/no-such-handler
+              {:event event :frame (:id frame)})
+      (return-from process-event!))
+
+    ;; 1. Run the interceptor chain — :before steps in order, then handler,
+    ;;    then :after steps in reverse. The chain produces an effects map.
+    (let [effects (run-interceptor-chain
+                    frame envelope handler-meta)]
+
+      ;; 2. Apply :db FIRST. Atomic single replace-container! call.
+      ;;    This is the moment sub-cache invalidation fires (per :fx ordering
+      ;;    rule 4 above and per [006 §Subscription cache invalidation]).
+      (when (contains? effects :db)
+        (substrate/replace-container! (:app-db frame) (:db effects))
+        (sub-cache/invalidate! frame))
+
+      ;; 3. Walk :fx in source order. Each entry's handler returns
+      ;;    synchronously before the next begins. Errors trace and continue.
+      (doseq [[fx-id args] (:fx effects)]
+        (try
+          (let [fx-handler (lookup-fx frame fx-id)]    ;; honors :fx-overrides
+            (fx-handler frame args))
+          (catch :default e
+            (raise! :rf.error/fx-handler-exception
+                    {:fx-id fx-id :event event :frame (:id frame) :ex e}))))
+
+      (trace! :event/run-end {:event event :frame (:id frame)}))))
+
+;; ============================================================================
+;; do-fx for the FOUR reserved fx-ids the runtime owns
+;; ============================================================================
+;; :dispatch       — append to back of router queue; the outer drain picks
+;;                   it up in this same drain cycle (run-to-completion).
+;; :dispatch-later — schedule via interop/set-timeout!; the timer fires a
+;;                   fresh dispatch later, re-engaging the drain loop.
+;; :db             — handled inline in process-event! step 2; not seen here.
+;; :raise / :spawn — machine-internal; routed by create-machine-handler
+;;                   BEFORE :fx reaches do-fx (see machine pseudocode below).
+
+(defmethod do-fx :dispatch [frame ev]
+  (dispatch frame {:event ev}))                        ;; back of queue, FIFO
+
+(defmethod do-fx :dispatch-later [frame {:keys [ms event]}]
+  (interop/set-timeout!
+    (fn [] (dispatch frame {:event event}))
+    ms))
+```
+
+For machine events, `process-event!` step 1 lands inside the machine handler, which runs the Level-3 cascade before returning effects. The cascade is Level 3 in [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event):
+
+```clojure
+;; ============================================================================
+;; MACHINE EVENT — Level-3 cascade (called from process-event! step 1)
+;; ============================================================================
+;; create-machine-handler returns this as a regular event handler. From the
+;; outer drain's perspective, it returns an effects-map like any other handler.
+
+(defn machine-event-handler [machine-def]
+  (fn [frame envelope]
+    (let [snapshot-path [:rf/machines (:id machine-def)]
+          db            (substrate/read-container (:app-db frame))
+          snapshot      (get-in db snapshot-path)]
+      (loop [in-flight    snapshot
+             accum-fx     []
+             raise-queue  [(:event envelope)]
+             always-depth 0]
+        (when (> always-depth (:always-depth-limit machine-def 16))
+          (raise! :rf.error/machine-always-depth-exceeded ...)
+          (throw ::halt))
+
+        (cond
+          ;; Drain the local raise queue first — depth-first, pre-commit.
+          (seq raise-queue)
+          (let [[ev & rest-q] raise-queue
+                {:keys [data-after fx]} (run-transition machine-def in-flight ev)]
+            (recur (assoc in-flight :data data-after)
+                   (into accum-fx fx)                  ;; non-:raise/:spawn fx
+                   (into (vec rest-q) (extract-raises fx))
+                   always-depth))
+
+          ;; Microstep loop — check :always; loop back into raise-drain on match.
+          (let [matched (resolve-always machine-def in-flight)]
+            (some? matched))
+          (let [{:keys [data-after fx target]} (apply-always machine-def in-flight)]
+            (recur (-> in-flight
+                       (assoc :state target)
+                       (assoc :data data-after))
+                   (into accum-fx fx)
+                   (extract-raises fx)
+                   (inc always-depth)))
+
+          ;; Fixed point reached. Commit ONE :db write at [:rf/machines <id>].
+          :else
+          {:db (assoc-in db snapshot-path in-flight)
+           :fx accum-fx})))))
+```
+
+The handler returns its `{:db :fx}`; the outer `process-event!` then runs the `:fx` walk that ships the cascade's accumulated effects to `do-fx`. The whole macrostep — raise drain, microstep loop, snapshot commit — appears as one logical step to external observers. Sub-cache invalidation fires once (in `process-event!` step 2), not on every microstep.
+
+#### Interaction map
+
+This per-event drain is the canonical place every other piece of the runtime hooks in.
+
+| Phase | Interacts with |
+|---|---|
+| `process-event!` step 1 | [Registrar](Runtime-Architecture.md#1-registrar) — handler resolution; [001-Registration §Registry kind taxonomy](001-Registration.md#registry-kind-taxonomy) |
+| `process-event!` step 2 | [Substrate adapter §replace-container!](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value--nil); [Sub-cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics) |
+| `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
+| Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
+| Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); `reg-event-error-handler` fires the user-defined projector |
+| Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` and `:spawn` are routed by `create-machine-handler` *before* `:fx` reaches `do-fx` (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
+
+#### Edge cases worth pinning
+
+1. **`:raise` inside an `:always` action.** The microstep that fires the action accumulates its `:fx` (including `:raise`) into the same Level-3 accumulator; the next iteration of the cascade drains the new raise-queue before re-checking `:always`. Same loop, no special case. Tracked via the same depth limits.
+2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
+3. **`:dispatch` to self in a handler.** Goes to the back of the runtime FIFO, runs against the post-commit snapshot. **Different** from `:raise`, which runs pre-commit, depth-first. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
+4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-aborted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
+5. **Effect handler kicks off async work and returns.** Handler returns synchronously; the async work runs against future ticks; its eventual reply is a fresh `dispatch` per [Pattern-AsyncEffect](Pattern-AsyncEffect.md). The drain loop is non-blocking — `:fx` "complete" means the fx-handler fn has returned, not that its observable side effects have settled.
 
 ## Per-frame and per-call overrides
 
 > **Expected use case: testing.** Overrides are designed for tests, story fixtures, REPL exploration, and dev-time scenarios. They are *not* a production behaviour-routing mechanism — production code should use ordinary fx and interceptors registered globally. Overrides exist so tests can run without monkey-patching the global registry; they leave no trace once the test ends.
 >
-> **Pattern-level contract vs. CLJS reference (per [reorient.md](reorient.md)):** at the **pattern level**, override values are *registered ids* — `{:http :http/canned-200}` swaps one registered fx for another by id. Functions don't serialize across the wire; an SSR-capable architecture (EP 011) requires id-valued overrides. The **CLJS reference** additionally supports function-valued overrides (`{:http (fn [m args] ...)}`) as a client-only convenience for tests and story fixtures where the override is a one-off lambda. Both forms accepted; id-valued is the portable shape, function-valued is CLJS sugar.
+> **Pattern-level contract vs. CLJS reference (locked):** at the **pattern level**, override values are *registered ids* — `{:http :http/canned-200}` swaps one registered fx for another by id. Functions don't serialise across the wire; an SSR-capable architecture (Spec 011) requires id-valued overrides. The **CLJS reference v1** additionally supports function-valued overrides (`{:http (fn [m args] ...)}`) as a client-only convenience for tests and story fixtures where the override is a one-off lambda. Both forms accepted; id-valued is the portable shape, function-valued is CLJS-only sugar.
+>
+> **Asymmetry (explicit, locked):** other-language implementations need only support **id-valued** overrides — that's the conformance contract. The CLJS reference accepting function values is a local ergonomic affordance, not a pattern-level contract. AI scaffolding (Construction-Prompts) and the conformance corpus generate id-valued overrides. The `:rf/dispatch-envelope` schema's `:fx-overrides` value is `[:map-of :keyword :any]` rather than `[:map-of :keyword :keyword]` precisely because the CLJS reference admits the function-valued form; non-CLJS implementations narrow the value type to id-only.
 
 Three things can be overridden per-call (via the dispatch opts map) and per-frame (via `reg-frame` keys):
 
@@ -708,7 +1027,7 @@ When the router builds the interceptor chain for the event, a small step walks i
 Use cases (all testing-flavoured):
 
 - **Turn off a logging interceptor in tests** — `{:my-app/logging nil}` removes it for the test's events.
-- **Swap a real-clock cofx-injector for a fixed-time one** — `{:re-frame/inject-cofx-now (constantly fixed-time-icpt)}`.
+- **Swap a real-clock cofx-injector for a fixed-time one** — `{:rf/inject-cofx-now (constantly fixed-time-icpt)}`.
 - **Replace a remote-call validator with a relaxed one** for stories that intentionally violate the schema for visualisation.
 - **Wrap a specific interceptor with timing** for a perf test.
 
@@ -731,16 +1050,11 @@ Use cases:
 - **Tracing decorator** — emit fine-grained trace events scoped to a particular frame.
 - **Effect recorder** — capture but don't fire effects, for dry-run/documentation modes (often combined with `:fx-overrides` to also disable real firing).
 
+**Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](MIGRATION.md)). For cross-frame *observation* (audit logging, performance instrumentation, schema-validation-via-trace) use `register-trace-cb` per [009-Instrumentation](009-Instrumentation.md). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor on each frame's `:interceptors` vector explicitly. Single-frame apps (only `:rf/default` in play) recover v1's global semantics by adding the interceptor to the default frame's `:interceptors`.
+
 ### Cascade propagation
 
 All three override types propagate transitively through any depth of `:fx [:dispatch ...]` cascade. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, etc.). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation.
-
-### Why ship in v1
-
-- **Tests want all three.** Frame-scoped fx stubs, interceptor swaps, and interceptor injection together let tests run with full isolation: no global state spilled, no coordination between concurrent tests, no monkey-patching.
-- **Stories want them too.** EP 007 decorators compose into these three keys.
-- **Implementation is small.** Each reduces to envelope-field manipulation: the routing layer merges frame config into envelopes; standard interceptors read envelopes; chain-rewriting happens once per event entry.
-- **No new substrate.** Envelopes and interceptors are existing concepts; we're sourcing envelope fields from a frame config (additive) and adding override-by-id semantics over an existing chain (also additive).
 
 ### Discoverability
 
@@ -752,16 +1066,22 @@ The drain semantics above were motivated by actor-style machine composition. The
 
 > **A state machine has the same contract as an event handler.** Given current state + an event, it produces new state + effects — exactly what `reg-event-fx` is. A machine is an event handler whose *body* happens to be a transition-table interpreter.
 
-re-frame2 therefore needs **no new registration kind, no new dispatch pipeline, no new effect substrate** for machines. The foundation hooks shipped here are all that v1 needs:
+Machines therefore reuse the existing event registry, dispatch pipeline, and effect substrate. Co-locating machine snapshots in `app-db` (rather than in a parallel substrate) is what makes machine state inherit [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free; spawn-time registrations live in the **frame-local** tier of the two-tier registry (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The foundation hooks defined here are:
 
-- `:machine-path` metadata on `reg-event-fx` — marks the registration as a machine; tools filter the registrar by it.
-- A snapshot shape `{:state ... :context ...}` lives at the path in `app-db`. Machines store discrete state alongside extended-state context.
-- Two thin v1 helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(machine-handler path definition)` (glue producing an `reg-event-fx` body).
-- Inspection trace events with `:source :machine` (`:machine.lifecycle/created`, `:machine/transition`, `:machine/snapshot-updated`, etc.) ride the standard trace stream — no new inspection mechanism.
+- A registered event handler whose body comes from `create-machine-handler` *is* the machine. Tools filter by the `:rf/machine?` metadata exposed in `(handler-meta :event <id>)` to enumerate machines.
+- Snapshots live at the **reserved per-frame path `[:rf/machines <machine-id>]`** in each frame's `app-db` (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's `app-db` has its own `:rf/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf/machines]`. Because `:rf/machine` reads from the active frame's `app-db`, per-frame isolation extends transparently to subscription reads as well.
+- Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf/machines <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+- Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(create-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
+- Two reserved fx-ids (`:raise`, `:spawn`) the machine handler routes locally inside the action's returned `:fx` vector; both compose with the standard `do-fx` resolver.
+- Inspection trace events with `:source :machine` (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, etc.) ride the standard trace stream.
 - Composition via ordinary `dispatch`. Run-to-completion drain guarantees deterministic settling within a frame.
 - A frame is the actor-system boundary; cross-frame dispatch is async (per the no-cross-frame-drain rule above).
 
-Full design — three-way conceptual split, snapshot shape variants (flat/hierarchical/parallel), where instances live, definition-data + co-located-impls split, lifecycle patterns, transition-table grammar, library packaging — lives in [005-StateMachines.md](005-StateMachines.md).
+Full design — three-way conceptual split, snapshot shape, transition-table grammar, drain semantics across the four nested levels, spawn lifecycle, testing pyramid, library packaging — lives in [005-StateMachines.md](005-StateMachines.md).
+
+### Interop layer — clock primitives — see Spec 005
+
+Clock primitives (`now-ms`, `schedule-after!`, `cancel-scheduled!`) live in `re-frame.interop` and are owned by [005 §Clock abstraction](005-StateMachines.md#clock-abstraction) — they are a substrate concern shared by `:after` transitions, `:dispatch-later`, and any future timing-sensitive feature, not a frame concern. The standard `:dispatch-later` fx delegates to the same primitives so tests can swap the clock at the namespace level.
 
 ## Interaction with libraries
 
@@ -777,24 +1097,24 @@ Authors of fx that escape into async land *do* have to use `bound-dispatcher` to
 
 ### The public registrar query API
 
-re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 9 (Strong introspection surface)](000-Vision.md#goals-summary) says this is first-class; the concrete contract:
+re-frame2 commits to a queryable public registrar for every kind of registered entity (frames, events, subs, fx, cofx, views, interceptors). [Goal 10 (Strong introspection surface)](000-Vision.md#goals) says this is first-class. **The contract for registry queries (`handlers`, `handler-meta`, `frame-ids`, `frame-meta`) is owned by [001 §The query API](001-Registration.md#the-query-api).** The table below restates that surface alongside the frame-runtime queries (`get-frame-db`, `snapshot-of`, `sub-topology`, `sub-cache`) that 002 owns:
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/handlers kind)` | Map of id → metadata for every handler of the given kind (`:event-db`, `:event-fx`, `:event-ctx`, `:sub`, `:sub-raw`, `:fx`, `:cofx`, `:view`, `:interceptor`). | Yes |
+| `(rf/handlers kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. | Yes |
 | `(rf/handlers kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
 | `(rf/handler-meta kind id)` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |
 | `(rf/get-frame-db id)` | Atom-deref-able handle to a frame's `app-db`. | Yes |
-| `(rf/snapshot-of path)` | Snapshot value at a path in the current frame's `app-db` (typically a machine snapshot). | Yes |
+| `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form uses `:rf/default` frame; two-arg accepts `{:frame frame-id}`. | Yes |
 | `(rf/sub-topology)` | **Static** dependency graph from `:<-` declarations: a map of `sub-id → {:inputs [<input-sub-ids>], :doc, :ns/:line/:file}`. Pure data derived from the registrar at registration time. | Yes |
 | `(rf/sub-cache id)` | **Runtime** cache state for a frame: which subs are currently materialised, their current cached values, dependent components if any. Requires the reactive runtime. | **No** — CLJS-only |
 
 Most queries are JVM-runnable because they read from the registrar (which is data) and from `app-db` (which is data). One query is not, and the table marks it: `sub-cache` reads runtime state from the reactive substrate (currently Reagent-specific). Static topology and snapshot reads stay pure-data.
 
-The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [§Registration shape](000-Vision.md#registration-shape-ep-001-territory) in 000-Vision for handler metadata, and [§reg-frame is atomic](#reg-frame-is-atomic) above for frame metadata. (EP 001 is the formal write-up for the handler-metadata contract; the contract itself is locked in 000 and consumed by this section.) Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
+The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [001 §Registration grammar](001-Registration.md#registration-grammar) for handler metadata, and [§reg-frame is atomic](#reg-frame-is-atomic) above for frame metadata. Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
 
 ### Per-frame and trace surface
 
@@ -802,64 +1122,52 @@ The metadata maps returned by `handler-meta` and `frame-meta` follow a documente
 - **Trace per frame.** Each frame's router emits a stream of trace events (event in, interceptors, effects out) that 10x and other tools subscribe to. Coordination point with 10x: epochs are tagged with their frame.
 - **Hot-reload notifications.** `reg-frame`/`reg-event-*`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state.
 
-## Storybook-style tooling
+## Story-tool foundation hooks — see Spec 007
 
-A purpose-built CLJS analog of Storybook (story-by-story rendering of components in isolation, with discoverable metadata and isolated state) maps almost directly onto re-frame2's foundation. Full design lives in [EP 007 — Stories, Variants, and Workspaces](007-Stories.md); the foundation hooks 007 consumes are:
-
-- **Each story/variant is a frame.** Multiple stories on one page share the global handler registry; each has isolated `app-db`/router/sub-cache.
-- **Discovery is free** — frame and view registries both expose `:doc`, source coords, args info.
-- **Hot reload is free** — keyword-in-context means edits to a view re-register and every story picks up the new fn next render.
-- **Action logging is straightforward** — the dispatch envelope already carries the originating frame; Storybook's "Actions" panel filters by the `story` namespace prefix.
-- **Per-story isolation is automatic** — click in story A, only A's `app-db` changes.
-- **Per-frame fx and interceptor overrides** ([§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) handle the test/story stubbing case directly.
-- **`make-frame`** ([§Per-instance frames](#per-instance-frames--anonymous-make-frame)) handles per-mount isolation when stories want unique-per-mount frames rather than named-and-shared.
-
-The principle worth highlighting: the introspection surface that supports Storybook is **the same surface** that supports 10x, re-frame-pair, and AI agents. Designing well for Storybook is designing well for all of them — and vice versa.
-
-## Open questions
-
-### OQ-F-1. ~~`reg-frame` re-registration semantics~~ — *resolved.*
-
-**Surgical update is the default.** `reg-frame` against an existing keyword preserves runtime state (`app-db`, sub-cache, router) and replaces only the config. `reset-frame` does full replace as an opt-in. `destroy-frame` removes from registry. See [§Re-registration — surgical update](#re-registration--surgical-update) above.
-
-### OQ-F-2. ~~Initial-`:db` shape — value or fn?~~ — *resolved.*
-
-**`reg-frame` does not take a `:db` config.** Frames always start with `app-db = {}`. Initialisation happens via the single `:on-create` event, which is dispatch-synced into the frame at creation. The init event's handler can set initial state (`:db {...}` in its effect map) and chain follow-ups via `:fx` (nested-pair form). See [§reg-frame is atomic](#reg-frame-is-atomic) above. Single mechanism (events) for all state changes; no value-vs-fn discriminator; no special static-init path.
-
-### OQ-F-3. Event-id collisions on re-registration
-
-Hot-reloading the same handler under the same id is normal and expected. But re-registering the same id with a *different* handler function — accidentally, e.g. two namespaces colliding — is silent last-write-wins. Should re-frame2 warn at registration time when an id is being re-registered with a function whose source coords don't match the previous registration? Probably yes, with a configurable threshold.
-
-### OQ-F-4. Sub-cache invalidation across frames
-
-If two frames depend on a shared piece of *registry* state (handler definitions), and a sub is hot-reloaded, both frames' caches need invalidation for any cached reactives derived from that sub. Mechanism: registry change fires a notification that frame sub-caches subscribe to. Detail-level design; flagged here so it is not forgotten.
-
-### OQ-F-5. ~~Plain Reagent fns: how loud is the footgun warning?~~ — *resolved.*
-
-Resolved per [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning) and [009 §Error contract](009-Instrumentation.md#error-contract). The runtime emits a `:rf.warning/plain-fn-under-non-default-frame` trace event on the first render of a plain Reagent fn under a non-default frame; the warning fires once per `(plain-fn, frame)` pair. 10x / re-frame-pair / dev-time `console.warn` surface it. Production builds elide entirely.
-
-### OQ-F-6. ~~Frame-aware events outside views~~ — *resolved.*
-
-The canonical spelling is the **two-arg dispatch with an opts map**: `(rf/dispatch [:foo] {:frame :todo})`. Metadata-on-event-vector still works as a backwards-compat shim but is not the documented mechanism. `dispatch-to` and `dispatch-with` are not shipped — the unified two-arg form covers their use cases.
-
-### OQ-F-7. Concurrent React rendering
-
-React 18's concurrent rendering can render the same component multiple times before committing. `reg-view`'s injected `dispatch` is a value, so it survives this fine. But any `dispatch` *executed during render* (Form-2's outer fn, `:on-create`-style patterns) may run more than once. Confirm with the substrate (Reagent today; possibly UIx tomorrow per OQ-7) and document.
-
-### OQ-F-8. Sub-cache disposal on frame destroy
-
-When `destroy-frame` runs, every cached reactive needs its `dispose!`-equivalent called. With Reagent reactions today, this is direct. With a future substrate-agnostic substrate (per 000's OQ-7), the disposal contract becomes part of the adapter API. Flagged so the adapter-layer design includes it.
-
-### OQ-F-9. Transducer-shaped event processing (substrate-agnostic router)
-
-pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed.
-
-Worth considering for v1 even if the broader substrate-decoupling work in 000's OQ-7 is deferred. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API — it doesn't pull in core.async or any other concurrency machinery (re-frame doesn't use core.async today and re-frame2 should not introduce it). Flagged for an EP-level design pass alongside the router work.
-
-### OQ-F-10. ~~Per-instance frames via anonymous `make-frame`~~ — *resolved; see "Per-instance frames" below.*
-
-### OQ-F-11. ~~Per-frame fx override and interceptor injection~~ — *resolved; see [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides).*
+Stories/variants/workspaces consume foundation primitives this Spec defines (frames per variant, per-frame fx/interceptor overrides, `make-frame` for per-mount isolation, the registrar query API). The story-tool surface lives in [007-Stories.md](007-Stories.md); 002 owns the foundation it consumes.
 
 ## Migration
 
-See [MIGRATION.md](MIGRATION.md) for the maintained, AI-agent-facing migration prompt with concrete rules. Short version: single-frame apps need no changes; private-namespace access (`re-frame.db/app-db` etc.) breaks; everything else is additive opt-in.
+See [MIGRATION.md](MIGRATION.md) for the migration rules. Single-frame apps need no changes; private-namespace access (`re-frame.db/app-db` etc.) breaks; everything else is additive opt-in.
+
+## Open questions
+
+### Event-id collisions on re-registration
+
+Hot-reloading the same handler under the same id is normal and expected. But re-registering the same id with a *different* handler function — accidentally, e.g. two namespaces colliding — is silent last-write-wins. Should re-frame2 warn at registration time when an id is being re-registered with a function whose source coords don't match the previous registration? Probably yes, with a configurable threshold.
+
+### Sub-cache invalidation across frames
+
+If two frames depend on a shared piece of *registry* state (handler definitions), and a sub is hot-reloaded, both frames' caches need invalidation for any cached reactives derived from that sub. Mechanism: registry change fires a notification that frame sub-caches subscribe to. Detail-level design; flagged here so it is not forgotten.
+
+### Concurrent React rendering
+
+React 18's concurrent rendering can render the same component multiple times before committing. `reg-view`'s injected `dispatch` is a value, so it survives this fine. But any `dispatch` *executed during render* (Form-2's outer fn, `:on-create`-style patterns) may run more than once. Confirm with the substrate (Reagent today; possibly UIx tomorrow) and document.
+
+### Sub-cache disposal on frame destroy
+
+When `destroy-frame` runs, every cached reactive needs its `dispose!`-equivalent called. With Reagent reactions today, this is direct. With a future substrate-agnostic substrate, the disposal contract becomes part of the adapter API. Flagged so the adapter-layer design includes it.
+
+### Transducer-shaped event processing (substrate-agnostic router)
+
+pure-frame implements event processing as a transducer parameterised by the frame: `(frame-transducer-factory frame) → transducer`, with the reducing function determining how state flows (sync, queued, batch). The transducer captures the per-event step (resolve handler → run interceptor pipeline → produce new state); the reducing function decides how successive states are accumulated and committed.
+
+Worth considering for v1. A transducer-shaped router is reusable, testable, and extensible without exposing rendering or scheduling primitives at the public API. Flagged for a Spec-level design pass alongside the router work.
+
+### Frame presets — initial list and expansion (RESOLVED)
+
+Resolved: the closed v1 set is **`:default`**, **`:test`**, **`:story`**, **`:ssr-server`** with the precise expansions documented in [§Frame presets](#frame-presets--capability-bundles-for-common-configurations). Adding a fifth preset is a Spec-change-only operation; the runtime emits `:rf.error/unknown-preset` for unrecognised preset values at registration time. `:preset` works identically on `make-frame`. The expansion algorithm is `(merge expansion user-supplied-metadata)` with user keys winning on conflict. Candidates considered and not adopted in v1: `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise).
+
+## Resolved decisions
+
+A pointer-only index of decisions taken in this Spec. Each entry's load-bearing prose lives in the linked section above (or in the linked sibling Spec).
+
+| Decision | Pointer |
+|---|---|
+| `reg-frame` re-registration is a surgical update by default; `reset-frame` is the opt-in full replace; `destroy-frame` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame — full replace, opt-in](#reset-frame--full-replace-opt-in) |
+| `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame-is-atomic) |
+| Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
+| The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |
+| Plain Reagent fns under a non-default frame fire a one-shot warning per `(component-id, frame-id)`, elided in production | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning) |
+| Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
+| Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`, `:interceptors` | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |

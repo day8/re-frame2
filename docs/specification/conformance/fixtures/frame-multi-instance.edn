@@ -4,6 +4,7 @@
 
 {:fixture/id           :frame/multi-instance
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
  :fixture/doc          "Two frames sharing the same handler registry; their app-db state is isolated."
 
  :fixture/registry

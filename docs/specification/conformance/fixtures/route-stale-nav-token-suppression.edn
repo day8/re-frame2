@@ -1,0 +1,90 @@
+;; Conformance fixture: routing/stale-nav-token-suppression
+;;
+;; Canonical "older load clobbers newer state" race. A route is loading; the
+;; user navigates away (allocating a fresh nav-token); the older load eventually
+;; completes; the runtime detects the mismatch via the carried token and
+;; suppresses the stale result, emitting :route.nav-token/stale-suppressed.
+;;
+;; This is the routing analogue of :rf.machine.timer/stale-after — same epoch
+;; idiom; see [Pattern-StaleDetection.md](../../Pattern-StaleDetection.md) for
+;; the cross-cutting pattern.
+;;
+;; Per [012 §Navigation tokens — stale-result suppression]
+;; (../../012-Routing.md#navigation-tokens--stale-result-suppression).
+
+{:fixture/id           :routing/stale-nav-token-suppression
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/nav-token}
+ :fixture/doc          "Load route :route/article id=A; before A's :on-match dispatches a continuation, navigate to id=B (fresh token). A's continuation arrives carrying the stale token; the framework cofx checks it against the current token and suppresses; trace event :route.nav-token/stale-suppressed emits; no commit, no transition. The :route slice reflects only the B navigation."
+
+ :fixture/registry
+ {:route
+  {:route/article {:path     "/articles/:id"
+                   :params   [:map [:id :string]]
+                   :on-match [[:article/load]]}}
+
+  :event
+  {:article/load          {:doc "Initiates the article fetch — emits an http fx whose :on-success carries the captured nav-token via :rf.route/with-nav-token."}
+   :article/loaded        {:doc "Completion handler. Validates :nav-token cofx against the current route slice. Mismatch → suppressed."}}
+
+  :sub
+  {:article {:doc "The currently-loaded article."}}}
+
+ :fixture/handlers
+ {:event
+  {:article/load
+   ;; Reads :nav-token from cofx; emits an :http fx whose :on-success uses
+   ;; :rf.route/with-nav-token to thread the captured token into the dispatched
+   ;; continuation [:article/loaded id payload].
+   [[:fx [[:http {:method :get
+                  :url    "/api/articles"
+                  :on-success [:rf.route/with-nav-token
+                               {:do        [:dispatch [:article/loaded "captured-id" "payload"]]
+                                :nav-token [:get [:route :nav-token]]}]}]]]]
+
+   :article/loaded
+   ;; The receiving handler runs ONLY if the :nav-token cofx-validator passed.
+   ;; If it ran, store the payload at [:article].
+   [[:set [:article] [:event-arg 2]]]}}
+
+ :fixture/dispatches
+ [;; Step 1: Navigate to /articles/A. nav-token = "nav-1". :on-match dispatches
+  ;; [:article/load] which schedules the http fx with :on-success carrying nav-1.
+  [:rf/url-changed "/articles/A"]
+
+  ;; Step 2: Before A's http completes, navigate to /articles/B. nav-token
+  ;; advances to "nav-2". :on-match dispatches [:article/load] which schedules
+  ;; another http fx (this one carrying nav-2).
+  [:rf/url-changed "/articles/B"]
+
+  ;; Step 3: A's http :on-success arrives. It carries the stale token "nav-1".
+  ;; The cofx-validator checks against current ("nav-2"), mismatches, suppresses.
+  ;; Trace fires; the [:article/loaded "A" "A-payload"] handler does NOT run.
+  ;; (Harness simulates the http resolution arriving with the carried token.)
+  [:rf.test/simulate-http-resolution {:on-success-event [:article/loaded "A" "A-payload"]
+                                      :carried-nav-token "nav-1"}]
+
+  ;; Step 4: B's http :on-success arrives. Carries "nav-2"; matches; commits.
+  [:rf.test/simulate-http-resolution {:on-success-event [:article/loaded "B" "B-payload"]
+                                      :carried-nav-token "nav-2"}]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route   {:id :route/article :params {:id "B"} :query {} :fragment nil
+             :transition :idle :error nil :nav-token "nav-2"}
+   :article "B-payload"}                              ;; A's payload was suppressed
+
+  :trace-emissions
+  [;; Token allocated for A
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/article :nav-token "nav-1"}}
+
+   ;; Token allocated for B (advances)
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/article :nav-token "nav-2"}}
+
+   ;; A's continuation is stale; suppressed.
+   {:operation :route.nav-token/stale-suppressed
+    :tags      {:carried-token "nav-1"
+                :current-token "nav-2"
+                :event-id      :article/loaded}}]}}

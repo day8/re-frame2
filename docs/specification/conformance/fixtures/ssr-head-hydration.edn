@@ -1,0 +1,57 @@
+;; Conformance fixture: ssr/head-hydration
+;; The hydration payload carries :rf/head and :rf/head-hash. After
+;; hydration the client recomputes the head and verifies it matches
+;; the server-rendered head. Per [011 §Mismatch detection — head].
+
+{:fixture/id           :ssr/head-hydration
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
+ :fixture/doc          "Hydration payload includes the server-supplied head model and head-hash. Client recomputes the head from the same state; computed head matches; no :rf.warning/head-mismatch emitted."
+
+ :fixture/registry
+ {:event {:rf/hydrate {:doc "Standard hydration handler."}}
+  :route {:route/article {:doc "Article page." :path "/articles/:id" :head :head/article}}
+  :head  {:head/article {:doc "Article-page head model."}}}
+
+ :fixture/handlers
+ {:event {:rf/hydrate [[:set [] [:event-arg 1 :rf/app-db]]]}
+  :head  {:head/article
+          [[:return-head
+            {:title "Article: re-frame2 SSR — Example"
+             :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
+             :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}]]}}
+
+ :fixture/frame-config {:on-create [] :platform :client}
+
+ :fixture/dispatches
+ [[:rf/hydrate {:rf/version    1
+                :rf/frame-id   :rf/default
+                :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
+                                                  :summary "How re-frame2 ships SSR"}}
+                                :route    {:id :route/article :params {:id "123"}}}
+                :rf/head       {:title "Article: re-frame2 SSR — Example"
+                                :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
+                                :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
+                :rf/head-hash  "head-hash-server-A"}]]
+
+ :fixture/render-after-hydrate
+ ;; Harness simulates the client recomputing the head; the simulated client
+ ;; head-hash matches the server-supplied hash. No mismatch trace.
+ {:simulated-client-head-hash "head-hash-server-A"}
+
+ :fixture/expect
+ {:final-app-db {:articles {"123" {:title "re-frame2 SSR"
+                                   :summary "How re-frame2 ships SSR"}}
+                 :route    {:id :route/article :params {:id "123"}}}
+
+  :ssr/active-head
+  {:title "Article: re-frame2 SSR — Example"
+   :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
+   :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
+
+  ;; Importantly: NO :rf.warning/head-mismatch trace.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/hydrate :source :ssr-hydration}}]
+
+  :trace-not-emitted
+  [{:operation :rf.warning/head-mismatch}]}}

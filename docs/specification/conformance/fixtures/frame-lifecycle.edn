@@ -1,0 +1,42 @@
+;; Conformance fixture: frame/lifecycle
+;; Frame :on-create fires at creation; :on-destroy fires at destruction.
+;; The frame's app-db starts empty; :on-create seeds it.
+
+{:fixture/id           :frame/lifecycle
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler}
+ :fixture/doc          "Per [002]: a frame's :on-create event fires once at creation; :on-destroy fires once at destruction. Both are dispatched synchronously, before the frame becomes available to user code."
+
+ :fixture/registry
+ {:event {:counter/init    {:doc "Seed at 0."}
+          :counter/destroy {:doc "Cleanup logger."}}
+  :sub   {:count {:doc "Current count."}}}
+
+ :fixture/handlers
+ {:event {:counter/init    [[:set [:count] 0]
+                            [:set [:logged-init?] true]]
+          :counter/destroy [[:fx :log {:msg "destroyed"}]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frame-config
+ {:on-create  [:counter/init]
+  :on-destroy [:counter/destroy]}
+
+ :fixture/dispatches
+ ;; No dispatches; the lifecycle events are the only events that fire.
+ []
+
+ :fixture/expect
+ ;; State after creation (before destruction).
+ {:final-app-db   {:count 0 :logged-init? true}
+  :sub-values     {[:count] 0}
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/init}}
+   {:operation :frame/created :tags {:frame :rf/default}}]
+
+  ;; What happens on destroy:
+  :on-destroy-emissions
+  [{:operation :event :tags {:event-id :counter/destroy}}
+   {:operation :frame/destroyed :tags {:frame :rf/default}}]
+  :on-destroy-effects
+  [{:fx-id :log :args {:msg "destroyed"}}]}}

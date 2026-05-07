@@ -1,0 +1,58 @@
+;; Conformance fixture: machine/always-depth-exceeded
+;;
+;; A cycle of :always transitions that never settles to a fixed point. The
+;; microstep loop runs to its depth limit and aborts. The snapshot is NOT
+;; committed; recovery is :no-recovery; the cascade halts.
+;;
+;; This is the :always counterpart to drain-depth-limit.edn — same shape,
+;; different counter. Default limit is 16; this fixture overrides to a small
+;; value (5) for testing economy.
+;;
+;; Per [005 §Bounded depth]
+;; (../../005-StateMachines.md#bounded-depth)
+;; and [005 §Drain semantics gotchas]
+;; (../../005-StateMachines.md#drain-semantics-gotchas).
+
+{:fixture/id           :machine/always-depth-exceeded
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/eventless-always}
+ :fixture/doc          "Two states each with an :always pointing at the other under a guard that's always true. The microstep loop ping-pongs :a → :b → :a → ... and hits the depth limit. Snapshot is uncommitted; :rf.error/machine-always-depth-exceeded fires; recovery is :no-recovery. The :always-depth-limit is a frame-config knob; this fixture sets it to 5 for testing."
+
+ :fixture/registry
+ {:machine-guard
+  {:always/true? {:doc "Always true."}}}
+
+ :fixture/handlers
+ {:machine-guard
+  {:always/true? [[:fn :identity true]]}}
+
+ :fixture/frame-config
+ {:on-create          []
+  :always-depth-limit 5}                         ;; small limit for testing
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:initial :start
+                  :data    {}
+                  :guards  {:p? :always/true?}
+                  :states
+                  {:start {:on {:go {:target :a}}}
+                   :a     {:always [{:guard :p? :target :b}]}
+                   :b     {:always [{:guard :p? :target :a}]}}}
+   :snapshot     {:state :start :data {}}
+   :event        [:go]
+   ;; The original :go transition lands at :a. :a's :always fires (microstep 1, → :b).
+   ;; :b's :always fires (microstep 2, → :a). And so on. After 5 microsteps the
+   ;; cascade halts.
+   ;;
+   ;; The snapshot does NOT commit — the externally-visible state remains :start.
+   ;; The runtime emits :rf.error/machine-always-depth-exceeded.
+   :expect-next-snapshot {:state :start :data {}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.error/machine-always-depth-exceeded
+     :op-type   :error
+     :tags      {:category :rf.error/machine-always-depth-exceeded
+                 :depth    5
+                 :path     [:a :b :a :b :a :b]}     ;; visited path; entry point + 5 microsteps
+     :recovery  :no-recovery}]}]}

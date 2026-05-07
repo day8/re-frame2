@@ -6,6 +6,7 @@
 
 {:fixture/id           :error/handler-exception
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error}
  :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event and halts the cascade."
 
  :fixture/registry

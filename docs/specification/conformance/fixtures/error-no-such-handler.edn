@@ -1,0 +1,41 @@
+;; Conformance fixture: error/no-such-handler
+;; A dispatch arrives with no registered handler. Runtime emits a
+;; :rf.error/no-such-handler trace event with default :replaced-with-default
+;; recovery (no-op).
+
+{:fixture/id           :error/no-such-handler
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/doc          "Dispatching an unknown event id. Runtime logs a structured error trace event and the cascade continues (no-op for that event)."
+
+ :fixture/registry
+ {:event {:counter/init {:doc "Seed."}
+          :counter/inc  {:doc "Increment."}}
+  :sub   {:count {:doc "Current count."}}}
+
+ :fixture/handlers
+ {:event {:counter/init [[:set [:count] 0]]
+          :counter/inc  [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frame-config {:on-create [:counter/init]}
+
+ :fixture/dispatches
+ [[:counter/inc]
+  [:does-not-exist]                                      ;; no handler registered
+  [:counter/inc]]                                         ;; cascade continues
+
+ :fixture/expect
+ ;; The unknown event is a no-op; surrounding events still fire.
+ {:final-app-db {:count 2}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/init}}
+   {:operation :event :tags {:event-id :counter/inc}}
+   {:operation :rf.error/no-such-handler
+    :op-type   :error
+    :tags      {:category :rf.error/no-such-handler
+                :event    [:does-not-exist]
+                :kind     :event}
+    :recovery  :replaced-with-default}
+   {:operation :event :tags {:event-id :counter/inc}}]}}

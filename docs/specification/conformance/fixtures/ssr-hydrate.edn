@@ -1,0 +1,39 @@
+;; Conformance fixture: ssr/hydrate
+;; Server-supplied state is seeded into the client frame's app-db via
+;; :rf/hydrate. Subsequent dispatches operate on hydrated state.
+
+{:fixture/id           :ssr/hydrate
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/hydration}
+ :fixture/doc          "The :rf/hydrate event seeds the client frame from a server-supplied payload. The client's first render works against the hydrated state."
+
+ :fixture/registry
+ {:event {:rf/hydrate {:doc "Seed app-db from server payload."}
+          :counter/inc {:doc "Increment."}}
+  :sub   {:count {:doc "Current count."}
+          :user  {:doc "Current user."}}}
+
+ :fixture/handlers
+ {:event {:rf/hydrate  [[:merge-into-db [:get-event-arg 1 :rf/app-db]]]
+          :counter/inc [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]
+          :user  [[:get [:user]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ [;; Hydrate from server-supplied payload.
+  [:rf/hydrate {:rf/version    "1.0"
+                :rf/frame-id   :rf/default
+                :rf/app-db     {:count 42 :user {:id "u-1" :name "Hydrated"}}
+                :rf/render-hash "h1"}]
+  ;; Then a regular event.
+  [:counter/inc]]
+
+ :fixture/expect
+ {;; Final app-db reflects hydrated state PLUS the post-hydration increment.
+  :final-app-db {:count 43 :user {:id "u-1" :name "Hydrated"}}
+  :sub-values   {[:count] 43 [:user] {:id "u-1" :name "Hydrated"}}
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/hydrate :source :ssr-hydration}}
+   {:operation :event :tags {:event-id :counter/inc}}]}}

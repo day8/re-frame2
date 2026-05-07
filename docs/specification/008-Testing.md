@@ -1,54 +1,69 @@
-# EP 008 — Testing
+# Spec 008 — Testing
 
-> Status: Drafting. **v1-required.** A re-frame2 release without a coherent testing story is unshippable; this EP captures the v1 testing API and patterns. Forward-compatible with [EP 007 — Stories](007-Stories.md), which builds on this infrastructure post-v1.
+> Forward-compatible with [Spec 007 — Stories](007-Stories.md), which builds on this infrastructure.
 >
-> **Per [reorient.md](reorient.md):** the testing primitives in this EP — JVM-runnable handler invocation, headless sub computation, pure machine transitions — are *pattern-level* contracts, not CLJS-only conveniences. Other-language implementations supply equivalent headless-evaluation surfaces. The CLJS-specific framework adapters (`cljs.test`/`clojure.test`/`kaocha`/`re-frame-test` compatibility) are reference-implementation details. Note also that "JVM-runnable view rendering" — currently marked CLJS-only — moves across the line as EP 011 (SSR) lands; pure hiccup → string emission is JVM-runnable.
+> The testing primitives in this Spec — JVM-runnable handler invocation, headless sub computation, pure machine transitions — are *pattern-level* contracts, not CLJS-only conveniences. Other-language implementations supply equivalent headless-evaluation surfaces. The CLJS-specific framework adapters (`cljs.test`/`clojure.test`/`kaocha`/`re-frame-test` compatibility) are reference-implementation details. Pure hiccup → string emission via `render-to-string` (per Spec 011) is JVM-runnable; React-driven view mounting is CLJS-only.
 
 ## Abstract
 
-Testing is a [first-class principle](000-Vision.md#goals-summary) (Goal 10 per the reorient ordering — was G4) in re-frame2. This EP details the **v1 testing surface** — the concrete API, patterns, and adapter shape that re-frame2 ships so users can write small, fast, isolated tests without ceremony or global-state pollution.
+Testing is a [first-class principle](000-Vision.md#goals) (Goal 11) in re-frame2. This Spec details the **testing surface** — the concrete API, patterns, and adapter shape that re-frame2 ships so users can write small, fast, isolated tests without ceremony or global-state pollution.
 
-The v1 testing surface is built entirely from foundation primitives in [002-Frames.md](002-Frames.md): `make-frame` / `destroy-frame`, `with-frame`, `dispatch-sync` with the opts map, per-frame and per-call overrides, the public registrar query API, drain semantics, and pure machine transition functions. This EP doesn't introduce new framework primitives — it documents how to compose the existing ones into a test-friendly experience.
+The testing surface is built entirely from foundation primitives in [002-Frames.md](002-Frames.md): `make-frame` / `destroy-frame`, `with-frame`, `dispatch-sync` with the opts map, per-frame and per-call overrides, the public registrar query API, drain semantics, and pure machine transition functions. This Spec doesn't introduce new framework primitives — it documents how to compose the existing ones into a test-friendly experience.
 
-## Why testing has its own EP
+## Normative surface
 
-Testing and stories share infrastructure (frames, overrides, drain, dispatch-sync) but have different requirements:
-
-| Concern | Testing (v1) | Stories (post-v1) |
-|---|---|---|
-| Run mode | Headless, JVM or CLJS | Browser only (rendered) |
-| Per-fixture rendering | Optional / skipped | Required |
-| Decorators | Minimal | Rich (theme/auth/router/mocks) |
-| Args / controls | No | Yes |
-| Play functions | Sometimes (assertions) | Yes (interaction simulation) |
-| Workspace layout | No | Yes |
-| Tag system | Simple | Rich (`:dev`/`:docs`/`:test`/...) |
-| Test-runner adapters | Primary client | No |
-| Tool UI | None | Storybook-class |
-
-Their lifecycles also differ: testing ships in v1; stories may slip past v1 but must not be precluded by v1 testing decisions.
-
-## v1 test surface
-
-The concrete API available *in v1* for testing, satisfying [Goal 10 (Deterministic, testable runtime)](000-Vision.md#goals-summary):
+The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runtime)](000-Vision.md#goals). Every entry below is a re-export from `re-frame.core` and re-exported again from the convenience namespace `re-frame.test` (per [§Built-in test-runner namespace](#built-in-test-runner-namespace)) — the inventory is single-source-of-truth.
 
 | Need | API |
 |---|---|
 | Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame f)` |
-| Scoped REPL/test block | `(rf/with-frame :scratch ...)` |
+| Scoped REPL/test block | `(rf/with-frame [binding-sym frame-or-id] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
 | Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:http stub-fn}})` |
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
 | Assertion: read app-db | `@(rf/get-frame-db :test-frame)` |
-| Assertion: read snapshot | `(rf/snapshot-of [:auth :state-machine])` |
+| Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/machines :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
 | Machine cleanup on destroy | `(rf/destroy-frame f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |
 | Sub computation against an `app-db` | `(rf/compute-sub query-v db)` — query-v is `[:sub-id arg1 arg2]`, JVM-runnable |
+| Test-flavoured helpers | `(rf/dispatch-sequence frame events)` — chained `dispatch-sync`; `(rf/assert-state frame path expected)` — assertion macro. Both ship with `re-frame.test`. |
 
-All of these are JVM-runnable except where noted, per [C2 in 000](000-Vision.md#c2-cross-platform-jvm-interop-preserved).
+### `with-frame` call shapes
+
+`with-frame` has **one canonical shape** — a binding-vector form, modelled on `with-open`:
+
+```clojure
+(rf/with-frame [binding-sym frame-or-id] body...)
+```
+
+`frame-or-id` is either:
+
+- a freshly-created frame value (typical: `(rf/make-frame opts)`); or
+- a registered frame id (keyword), to use the named registered frame for the body.
+
+In both cases, `binding-sym` is bound to the frame value (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), the frame is set as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) the frame is destroyed if it was created by `make-frame` in the binding expression, or `reset-frame` is called if a registered id was supplied (so the next test starts fresh). Hosts MAY provide a one-arg id-only shortcut `(rf/with-frame :id body...)` as sugar for `(rf/with-frame [_ :id] body...)`; the binding-vector form is the canonical surface tests are written against.
+
+### JVM-runnable boundary (authoritative)
+
+Every entry in the table above is JVM-runnable, with the exceptions listed below — this is the single authoritative statement of the test-surface's JVM/CLJS split, per [C2](000-Vision.md#c2-cross-platform-jvm-interop-preserved):
+
+- ✓ `make-frame` / `destroy-frame` / `reset-frame` / `with-frame`
+- ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
+- ✓ All `reg-event-*` handler invocation
+- ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
+- ✓ `app-db` mutation and snapshot reading
+- ✓ Cofx injection
+- ✓ `machine-transition` (pure function)
+- ✓ `compute-sub` (sub computation against an `app-db` value)
+- ✓ Public registrar queries (`handlers`, `frame-meta`, `sub-topology`, etc.)
+- ✓ **Hiccup → HTML string emission** (per [011](011-SSR.md)) — pure function over hiccup data, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
+- ✗ React-actually-mounting (mount lifecycle, `:on-click` event firing into the real DOM, scroll events) — CLJS-only.
+- ✗ Reactive subscription *tracking* (auto-subscribe-on-deref, dispose lifecycle) — CLJS-only. Subscription *computation* (running the body against an `app-db` value) is JVM-runnable via `compute-sub`.
+
+In practice: every business-logic test runs on the JVM. View *content* tests (does the rendered hiccup contain the expected text? does the structure match the schema?) also run on the JVM via `render-to-string`. Only tests that exercise actual React mounting, click events firing through DOM listeners, or scroll-position-style interactive behaviour need a CLJS runtime. The split is clean and SSR-friendly.
 
 ## Test fixture lifecycle patterns
 
@@ -107,14 +122,14 @@ For testing state machine transitions, skip the frame entirely:
 
 ```clojure
 (deftest auth-machine-transitions
-  (let [snap-1 {:state :idle :context {}}
+  (let [snap-1 {:state :idle :data {}}
         [snap-2 effects] (rf/machine-transition auth-machine-table snap-1
                                                 [:auth/login-pressed])]
     (is (= :validating (:state snap-2)))
-    (is (= [{:dispatch [:auth/check-credentials]}] effects))))
+    (is (= [[:dispatch [:auth/check-credentials]]] effects))))
 ```
 
-`machine-transition` is a pure function — no frame, no `app-db`, no router. Test the logic in isolation; integration tests cover the wiring.
+`machine-transition` is a pure function — no frame, no `app-db`, no router. Test the logic in isolation; integration tests cover the wiring. See [005 §Testing](005-StateMachines.md#testing) for the full three-level test pyramid (pure `machine-transition`, unregistered handler fn from `create-machine-handler`, registered in test frame).
 
 ## Per-test stubbing patterns
 
@@ -188,6 +203,39 @@ The recommended pattern is to drive `db` state via dispatches against a fixture 
 
 Composed subs (`:<-`) are computed transitively — the inputs are computed first, then the output. All without spinning up the reactive cache.
 
+#### `compute-sub` algorithm
+
+`compute-sub` is **pure**: same `(query-v, db)` always returns the same value. No reactive cache, no Reagent reactions, no `app-db` deref — the function takes `db` as a value argument.
+
+Pseudocode (the contract every implementation matches):
+
+```
+compute-sub(query-v, db):
+  let sub-id   = head(query-v)
+  let reg      = handler-meta(:sub, sub-id)
+  if reg is nil:
+     emit :rf.error/no-such-sub trace; return nil       ; per 009 default :replaced-with-default
+
+  ; Resolve inputs first (the chained-sub case).
+  let inputs = match reg.signal-fn:
+                 nil                     -> nil          ; root sub: body reads db directly
+                 [:<- input-query-vs]    -> map (q -> compute-sub(q, db)) input-query-vs
+                 fn                      -> resolve-signal-result((signal-fn db query-v), db)
+
+  ; Run the body with resolved inputs (or with db, for root subs).
+  return reg.computation-fn(inputs-or-db, query-v)
+```
+
+Notes on the contract:
+
+- **Recursive resolution.** `compute-sub` recursively calls itself on each input `query-v`. Layered subs (`A` ← `B` ← `C`) resolve depth-first: `C` is computed first against `db`, then `B` against `[C-value]`, then `A` against `[B-value]`. Each layer's output is passed as a flat positional list to the next layer's `computation-fn`, exactly mirroring how Reagent's `make-reaction` chains compose `:<-` inputs.
+- **No memoisation across calls.** `compute-sub` is a pure function over `(query-v, db)`. Implementations may memoise *within* a single call (the same input sub appearing twice in one tree is computed once and reused) but **must not** carry a cache between calls — it is not a substitute for the reactive runtime, and an `app-db` value that has changed must produce a fresh result. Per-call memoisation is an optimisation; tests must not depend on it.
+- **No cycles.** A cycle in the static `:<-` topology is a registration-time error (per [001](001-Registration.md)); `compute-sub` does not need to detect cycles at call time. If a host bypasses the registration-time check, `compute-sub` may stack-overflow — surface a structured error trace if cheap; otherwise let the host's stack overflow propagate.
+- **Errors.** If a sub's `computation-fn` throws, emit `:rf.error/sub-exception` per [009 §Error contract](009-Instrumentation.md#error-contract); default recovery `:replaced-with-default` returns `nil`. Strict-subs config (`:strict-subs`) escalates the same error to `:no-recovery`. An unresolved input sub (`:rf.error/no-such-sub`) substitutes `nil` and the body still runs (default `:replaced-with-default`).
+- **Determinism.** `compute-sub` is JVM-runnable, deterministic, and free of side effects. It is the function the conformance corpus invokes for `:sub-values` assertions per [conformance/README.md](conformance/README.md).
+
+The function form for `:<-` matches Reagent's existing `subs/reg-sub` semantics — the resolved input *values* are passed positionally to the body, not the input `query-v`s. The outer `query-v` (the one being computed) remains the second argument to `computation-fn`, identical to in-runtime behaviour.
+
 For unit-testing a sub in pure isolation against a literal `db` (rare, but useful for very simple readers where the dispatch path adds no value), pass a literal map directly:
 
 ```clojure
@@ -216,7 +264,7 @@ Already covered in Pattern 4 — `machine-transition` is pure and JVM-runnable.
 ### Reading machine snapshots
 
 ```clojure
-(is (= :authenticated (:state (rf/snapshot-of [:auth :state-machine] {:frame :test-frame}))))
+(is (= :authenticated (:state @(rf/sub-machine :auth/state-machine {:frame :test-frame}))))
 ```
 
 ### Asserting on effects (without firing them)
@@ -253,7 +301,7 @@ Because run-to-completion drain settles each `dispatch-sync` before returning, a
 
 ## Test-framework adapters
 
-The v1 surface is framework-agnostic — `make-frame` and friends work from any host that can require re-frame. Test framework integration is a thin layer of conventions per framework.
+The testing surface is framework-agnostic — `make-frame` and friends work from any host that can require re-frame. Test framework integration is a thin layer of conventions per framework.
 
 ### cljs.test (CLJS)
 
@@ -280,7 +328,7 @@ Identical shape, just the require:
          '[re-frame.core :as rf])
 
 ;; same patterns as cljs.test — re-frame2's testing surface is JVM-runnable
-;; for everything except view rendering and reactive subscription tracking
+;; per the boundary in §Normative surface above.
 ```
 
 ### Kaocha / Cognitect's test-runner
@@ -289,70 +337,83 @@ No special integration — works because `cljs.test` and `clojure.test` work. Ka
 
 ### `re-frame-test` (existing community library)
 
-The current `re-frame-test` library (`day8/re-frame-test`) provides `run-test-sync` and similar helpers for today's re-frame. v1 should ship with a *re-frame2-aware* version (probably the same library, updated): `run-test-sync` becomes a thin wrapper over `with-frame` + `dispatch-sync`. Migration of existing `re-frame-test` users is mechanical — same API shape, frame-aware under the hood.
-
-## JVM-runnable testing
-
-The full v1 test surface is JVM-runnable, with the exceptions explicitly called out in [C2](000-Vision.md#c2-cross-platform-jvm-interop-preserved):
-
-- ✓ `make-frame` / `destroy-frame` / `reset-frame` / `with-frame`
-- ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
-- ✓ All `reg-event-*` handler invocation
-- ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
-- ✓ `app-db` mutation and snapshot reading
-- ✓ Cofx injection
-- ✓ `machine-transition` (pure function)
-- ✓ `compute-sub` (sub computation against an `app-db` value)
-- ✓ Public registrar queries (`handlers`, `frame-meta`, `sub-topology`, etc.)
-- ✓ **Hiccup → HTML string emission** (per [011](011-SSR.md)) — pure function over hiccup data, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
-- ✗ React-actually-mounting (mount lifecycle, `:on-click` event firing into the real DOM, scroll events) — CLJS-only.
-- ✗ Reactive subscription *tracking* (auto-subscribe-on-deref, dispose lifecycle) — CLJS-only. Subscription *computation* (running the body against an `app-db` value) is JVM-runnable via `compute-sub`.
-
-In practice: every business-logic test runs on the JVM (faster, simpler test setup, no JS runtime). View *content* tests (does the rendered hiccup contain the expected text? does the structure match the schema?) also run on the JVM via `render-to-string`. Only tests that exercise actual React mounting, click events firing through DOM listeners, or scroll-position-style interactive behaviour need a CLJS runtime. The split is clean and SSR-friendly.
+The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 ships a *re-frame2-aware* version: `run-test-sync` is a thin wrapper over `with-frame` + `dispatch-sync`. Migration of existing `re-frame-test` users is mechanical — same API shape, frame-aware under the hood.
 
 ## Forward compatibility with stories
 
-A forcing function: every API choice in 008 must not preclude what stories ([007](007-Stories.md), post-v1) will need on top. A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)).
-
-### Shapes 008 guarantees for 007
+A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
 - `(make-frame {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(get-frame-db f)` — deref-able atom.
 - `(snapshot-of path {:frame f})` — exact opts arg.
 - `(destroy-frame f)` — exact teardown contract.
-- Inclusion-tag schema is open (additive `set` on `reg-frame` metadata) — testing must not lock it to test-only values.
+- Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
 
-If 008's testing patterns ever require a *different* shape than 007 will need, that's a forcing-function violation and the design must change to align.
+## Notes
+
+### Why testing has its own Spec
+
+Testing and stories share infrastructure (frames, overrides, drain, dispatch-sync) but have different requirements:
+
+| Concern | Testing | Stories |
+|---|---|---|
+| Run mode | Headless, JVM or CLJS | Browser only (rendered) |
+| Per-fixture rendering | Optional / skipped | Required |
+| Decorators | Minimal | Rich (theme/auth/router/mocks) |
+| Args / controls | No | Yes |
+| Play functions | Sometimes (assertions) | Yes (interaction simulation) |
+| Workspace layout | No | Yes |
+| Tag system | Simple | Rich (`:dev`/`:docs`/`:test`/...) |
+| Test-runner adapters | Primary client | No |
+| Tool UI | None | Story-tool UI |
 
 ## Open questions
 
-### T-1. ~~Built-in test-runner namespace?~~ — *resolved.*
+### Snapshot / fixture serialization
 
-re-frame2 ships a `re-frame.test` convenience namespace as part of v1. Mostly re-exports of `with-frame`, `make-frame`, `destroy-frame`, `dispatch-sync`, plus a small number of test-flavoured helpers (`dispatch-sequence` for chained dispatches; `assert-state` macro for asserting on a frame's `app-db` at a path). Lowers cognitive load for new users; matches `cljs.test` / `clojure.test` shape. See [Disposition](#disposition) below.
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str @(get-frame-db f)))`); a helper is user-space.
 
-### T-2. ~~`re-frame-test` library compatibility~~ — *resolved.*
+### Property-based testing integration
 
-re-frame2 ships a compatibility wrapper for `day8/re-frame-test`'s `run-test-sync` API as part of v1. The wrapper delegates to `with-frame` + `dispatch-sync`. Existing test suites built against `re-frame-test` work unchanged after the migration; new tests use the v1 API directly. See [Disposition](#disposition) below.
+`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern.
 
-### T-3. Snapshot / fixture serialization
+### Model-based testing harness over `machine-transition`
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str @(get-frame-db f)))`); the question is whether to ship a helper.
+`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes.
 
-Recommendation: not in v1 framework; user-space.
+Sketch of the surface:
 
-### T-4. Property-based testing integration
+```clojure
+(rf/test/machine-paths definition {:coverage :transition-coverage})
+;; → seq of [<event-vec> ...] sequences that together visit every transition
 
-`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Worth a documented pattern, not a special API.
+(rf/test/shortest-path-to definition target-state)
+;; → seq of event vectors that drives a fresh snapshot to target-state
+```
 
-Recommendation: document the pattern; don't add specific support.
+Effectful actions (HTTP, dispatch) need stubbing in the harness — same pattern as `:fx-overrides`. The harness emits an EDN fixture corpus per machine, and tooling can ask "cover every transition" and receive deterministic test data back.
 
-### T-5. ~~Headless rendering for visual regression~~ — *resolved by EP 011.*
+This is library territory, not framework. See [005 §Future](005-StateMachines.md#future) for the state-machine-side forward-pointer.
 
-EP 011 (SSR & Hydration) ships a pure hiccup → HTML string emitter that is JVM-runnable (per [011 §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)). Snapshot tests, visual-regression diffs, and SSR conformance tests all use this emitter — `(rf/render-to-string view-or-hiccup {:frame f})` returns a string suitable for diffing without JSDOM. Tests that need React mount/commit lifecycle (interactive event firing) still require CLJS; everything else runs JVM-side.
+## Resolved decisions
 
-## Disposition
+### Built-in test-runner namespace
 
-**v1.** Testing must ship in v1; the v1 framework provides every primitive listed above. The patterns and adapter shape are documented here. The `re-frame.test` namespace (T-1) and `re-frame-test` compatibility wrapper (T-2) ship as part of v1 — they're thin layers.
+re-frame2 ships a `re-frame.test` convenience namespace. The canonical helper inventory is:
 
-The forward-compatibility-with-stories section is the discipline check: any change to 008's surface must be vetted against what the post-v1 story library will need.
+| Helper | Origin | Purpose |
+|---|---|---|
+| `with-frame`, `make-frame`, `destroy-frame`, `reset-frame`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
+| `dispatch-sequence` | test-flavoured | `(dispatch-sequence frame [event-1 event-2 ...])` — dispatch-syncs each event in order against `frame`. Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
+| `assert-state` | test-flavoured macro | `(assert-state frame [:auth :state] :validating)` — assertion macro reading `(get-in @(get-frame-db frame) path)` and checking equality. Reports the actual value on failure. |
+
+This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
+
+### `re-frame-test` library compatibility
+
+re-frame2 ships a compatibility wrapper for `day8/re-frame-test`'s `run-test-sync` API. The wrapper delegates to `with-frame` + `dispatch-sync`. Existing test suites built against `re-frame-test` work unchanged after the migration; new tests use the API directly.
+
+### Headless rendering for visual regression
+
+Spec 011 (SSR & Hydration) ships a pure hiccup → HTML string emitter that is JVM-runnable (per [011 §The render-tree → HTML emitter](011-SSR.md#the-render-tree--html-emitter-cljs-reference)). Snapshot tests, visual-regression diffs, and SSR conformance tests all use this emitter — `(rf/render-to-string view-or-hiccup {:frame f})` returns a string suitable for diffing without JSDOM. Tests that need React mount/commit lifecycle (interactive event firing) still require CLJS; everything else runs JVM-side.

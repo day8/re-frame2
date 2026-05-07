@@ -1,0 +1,48 @@
+;; Conformance fixture: ssr/cookie
+;; A handler emits :rf.server/set-cookie with a structured cookie map.
+;; The accumulator collects it; the host adapter would serialise to a
+;; Set-Cookie: header. Per [011 §Cookie shape].
+
+{:fixture/id           :ssr/cookie
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :ssr/response-contract}
+ :fixture/doc          "A login handler emits :rf.server/set-cookie {:name session :value abc123 :http-only true :secure true :same-site :lax :path /}. The response accumulator's :cookies vector contains the structured cookie. The host adapter would serialise to Set-Cookie: per RFC 6265."
+
+ :fixture/registry
+ {:event {:rf/server-init       {:doc       "Per-request server-side init."
+                                 :platforms #{:server}}
+          :auth/establish       {:doc       "Set the session cookie after auth succeeds."
+                                 :platforms #{:server}}}
+  :fx    {:rf.server/set-cookie {:doc       "Add a structured cookie to the response accumulator."
+                                 :platforms #{:server}
+                                 :spec      :rf.fx.server/set-cookie-args}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init [[:fx [[:dispatch [:auth/establish]]]]]
+          :auth/establish [[:fx [[:rf.server/set-cookie {:name      "session"
+                                                         :value     "abc123"
+                                                         :max-age   3600
+                                                         :secure    true
+                                                         :http-only true
+                                                         :same-site :lax
+                                                         :path      "/"}]]]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ {:ssr/request-result
+  {:response {:status  200
+              :cookies [{:name      "session"
+                         :value     "abc123"
+                         :max-age   3600
+                         :secure    true
+                         :http-only true
+                         :same-site :lax
+                         :path      "/"}]
+              :redirect nil}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :auth/establish}}]}}

@@ -1,0 +1,59 @@
+;; Conformance fixture: ssr/head-emits
+;; A registered :head function for the active route produces a head model;
+;; the runtime emits <title>, <meta>, <link> tags from the model into the
+;; rendered HTML. Per [011 §Head/meta contract].
+
+{:fixture/id           :ssr/head-emits
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :ssr/head-contract}
+ :fixture/doc          "An :route/article route declares :head :head/article. The article-page head fn derives :title, :meta, :link from app-db's article. The rendered HTML's <head> contains the expected tags in canonical order: <title>, <meta>, <link>."
+
+ :fixture/registry
+ {:route {:route/article {:doc  "Article page."
+                          :path "/articles/:id"
+                          :head :head/article}}
+  :head  {:head/article {:doc "Article-page head model."}}
+  :event {:rf/server-init {:platforms #{:server}}}}
+
+ :fixture/handlers
+ {:head  {:head/article
+          ;; A head fn body is a sub-shaped DSL: it reads from db and the
+          ;; route, and returns a head-model map.
+          [[:return-head
+            {:title "Article: re-frame2 SSR — Example"
+             :meta  [{:name "description" :content "How re-frame2 ships SSR"}
+                     {:property "og:title" :content "Article: re-frame2 SSR"}
+                     {:property "og:image" :content "https://example.com/og.png"}]
+             :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}]]}
+  :event {:rf/server-init [[:set [:articles "123"] {:title "re-frame2 SSR"
+                                                    :summary "How re-frame2 ships SSR"
+                                                    :image "https://example.com/og.png"}]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+
+ :fixture/dispatches [[:rf.route/handle-url-change "/articles/123"]]
+
+ :fixture/expect
+ {;; The active head model after the route is matched.
+  :ssr/active-head
+  {:title "Article: re-frame2 SSR — Example"
+   :meta  [{:name "description" :content "How re-frame2 ships SSR"}
+           {:property "og:title" :content "Article: re-frame2 SSR"}
+           {:property "og:image" :content "https://example.com/og.png"}]
+   :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
+
+  ;; Substring assertions on the rendered <head> content.
+  :ssr/rendered-head-contains
+  ["<title>Article: re-frame2 SSR — Example</title>"
+   "<meta name=\"description\" content=\"How re-frame2 ships SSR\">"
+   "<meta property=\"og:title\" content=\"Article: re-frame2 SSR\">"
+   "<meta property=\"og:image\" content=\"https://example.com/og.png\">"
+   "<link rel=\"canonical\" href=\"https://example.com/articles/123\">"]
+
+  ;; The head emission also writes a head-hash attribute on <html> for
+  ;; client-side mismatch detection.
+  :ssr/html-attr-present "data-rf-head-hash"
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :rf.route/handle-url-change}}]}}

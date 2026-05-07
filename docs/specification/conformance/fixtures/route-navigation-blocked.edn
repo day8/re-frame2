@@ -1,0 +1,81 @@
+;; Conformance fixture: routing/navigation-blocked
+;;
+;; A route declares :can-leave (a sub-id whose value is true when leaving is OK).
+;; While the sub returns false, navigation requests are blocked: the runtime
+;; sets :rf/pending-navigation, emits :rf.route/navigation-blocked, and does NOT
+;; change the URL. User dispatch of :rf.route/continue resumes the navigation
+;; (bypassing the guard for one shot). :rf.route/cancel abandons it.
+;;
+;; Per [012 §Navigation blocking](../../012-Routing.md#navigation-blocking--pending-nav-protocol).
+
+{:fixture/id           :routing/navigation-blocked
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/blocking}
+ :fixture/doc          "An :editor/article route's :can-leave sub returns false (form is dirty). Attempting to navigate to :route/cart sets :rf/pending-navigation, emits :rf.route/navigation-blocked, and leaves the URL unchanged. :rf.route/continue re-issues the navigation; :rf.route/cancel abandons it."
+
+ :fixture/registry
+ {:route
+  {:editor/article {:path      "/editor/articles/:id"
+                    :params    [:map [:id :string]]
+                    :can-leave :editor/can-leave?}
+   :route/cart     {:path "/cart"}}
+
+  :event
+  {:editor/set-dirty {:doc "Mark the form dirty (so :can-leave? returns false)."}
+   :editor/save      {:doc "Mark the form clean (so :can-leave? returns true)."}}
+
+  :sub
+  {:editor/dirty?     {:doc "Whether the editor form has unsaved changes."}
+   :editor/can-leave? {:doc "Returns true when the form has no unsaved changes."}}}
+
+ :fixture/handlers
+ {:event
+  {:editor/set-dirty [[:set [:editor :dirty?] true]]
+   :editor/save      [[:set [:editor :dirty?] false]]}
+
+  :sub
+  {:editor/dirty?     [[:get [:editor :dirty?]]]
+   :editor/can-leave? [[:get [:editor :dirty?]]
+                       ;; The harness wraps with a `not` for the negation.
+                       ;; (Built-in :not.)
+                       [:fn :not]]}}
+
+ :fixture/dispatches
+ [;; Step 1: Navigate to /editor/articles/A. nav-token allocates; route lands.
+  [:rf/url-changed "/editor/articles/A"]
+
+  ;; Step 2: Dirty the form.
+  [:editor/set-dirty]
+
+  ;; Step 3: Try to navigate to /cart. The :can-leave guard rejects.
+  ;; :rf/pending-navigation gets set; :rf.nav/push-url is NOT emitted; URL unchanged;
+  ;; :route slice unchanged; :rf.route/navigation-blocked trace fires.
+  [:rf/url-requested {:url "/cart"}]
+
+  ;; Step 4: User dispatches :rf.route/continue with the pending-nav id.
+  ;; The runtime clears the slot and re-issues the navigation, bypassing :can-leave.
+  ;; URL becomes /cart; :route/cart becomes active.
+  [:rf.route/continue "pn-1"]]                         ;; harness substitutes the actual id
+
+ :fixture/expect
+ {:final-app-db
+  {:route                  {:id :route/cart :params {} :query {} :fragment nil
+                            :transition :idle :error nil}
+   :editor                 {:dirty? true}
+   :rf/pending-navigation  nil}                      ;; cleared by :rf.route/continue
+
+  :trace-emissions
+  [;; Step 3 emits the blocked trace.
+   {:operation :rf.route/navigation-blocked
+    :tags      {:requested-url   "/cart"
+                :rejecting-route :editor/article}}
+
+   ;; Step 4 allocates a fresh nav-token for the resumed navigation.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/cart}}]
+
+  :effects-routed
+  [;; The blocked navigation does NOT push.
+   ;; The harness asserts no [:rf.nav/push-url "/cart"] emitted in step 3.
+   ;; After :rf.route/continue, :rf.nav/push-url IS emitted.
+   [:rf.nav/push-url "/cart"]]}}

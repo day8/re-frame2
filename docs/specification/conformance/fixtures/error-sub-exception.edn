@@ -1,0 +1,55 @@
+;; Conformance fixture: error/sub-exception
+;; A subscription's computation-fn throws when computed against the current app-db.
+;; Runtime emits :rf.error/sub-exception. Default recovery is :replaced-with-default —
+;; the sub returns nil; views see no value; the cascade is unaffected.
+
+{:fixture/id           :error/sub-exception
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/sub :core/error}
+ :fixture/doc          "A sub's computation-fn throws. The runtime emits :rf.error/sub-exception and the sub resolves to nil (default :replaced-with-default recovery)."
+
+ :fixture/registry
+ {:event {:cart/init {:doc "Seed an empty cart."}
+          :cart/break {:doc "Set :items to a non-collection value."}}
+  :sub   {:cart/items {:doc "All items in the cart."}
+          :cart/count {:doc "Item count — throws if :items is not countable."
+                       :inputs [:cart/items]}}}
+
+ :fixture/handlers
+ {:event {:cart/init  [[:set [:cart] {:items []}]]
+          :cart/break [[:set [:cart :items] "broken"]]}        ;; string is not countable
+  :sub   {:cart/items [[:get [:cart :items]]]
+          :cart/count [[:reduce-input :cart/items
+                        [:fn :+]
+                        [:fn :count]]]}}                       ;; will throw on a string
+
+ :fixture/frame-config {:on-create [:cart/init]}
+
+ :fixture/dispatches
+ [[:cart/break]]
+
+ :fixture/compute-subs
+ ;; The harness invokes compute-sub against the post-dispatch app-db.
+ ;; :cart/items returns the broken value cleanly; :cart/count throws.
+ [[:cart/items] [:cart/count]]
+
+ :fixture/expect
+ {:final-app-db {:cart {:items "broken"}}
+
+  :sub-values
+  {[:cart/items] "broken"
+   [:cart/count] nil}                               ;; :replaced-with-default — sub resolves to nil
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :cart/init}}
+   {:operation :event :tags {:event-id :cart/break}}
+   ;; The sub-exception trace fires when compute-sub is invoked for [:cart/count].
+   {:operation :rf.error/sub-exception
+    :op-type   :error
+    :tags      {:category          :rf.error/sub-exception
+                :failing-id        :cart/count
+                :sub-id            :cart/count
+                :sub-query         [:cart/count]
+                :exception-message "cannot count a string"
+                :reason            "Subscription `:cart/count` threw while computing: cannot count a string. Returning nil."}
+    :recovery  :replaced-with-default}]}}

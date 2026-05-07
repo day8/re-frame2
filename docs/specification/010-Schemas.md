@@ -1,10 +1,8 @@
-# EP 010 — Schemas (CLJS reference)
+# Spec 010 — Schemas (CLJS reference)
 
-> Status: Drafting. **v1-required for the CLJS reference.**
+> Schemas are how *dynamically typed hosts* describe shape. CLJS is dynamically typed, so it ships a runtime schema layer (Malli). *Statically typed hosts* (TypeScript, Kotlin, Rust, F#) describe shape via the type system instead and may omit a runtime schema library entirely. The pattern requires shape description; the mechanism is host-specific.
 >
-> **Per [reorient.md](reorient.md):** schemas are how *dynamically typed hosts* describe shape. CLJS is dynamically typed, so it ships a runtime schema layer (Malli). *Statically typed hosts* (TypeScript, Kotlin, Rust, F#) describe shape via the type system instead and may omit a runtime schema library entirely. The pattern requires shape description; the mechanism is host-specific.
->
-> This EP specifies the CLJS reference's shape-description integration: Malli as the schema language, `:spec` metadata on every `reg-*`, path-based `app-db` schemas via `reg-app-schema`. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Open-shape-with-describing-schema is the right port for any *dynamic* host (Pydantic with `extra="allow"`, Zod's `.passthrough()`, dry-rb open hashes). Closed records / `exactOptionalPropertyTypes` / Pydantic without `extra="allow"` are not the right shape. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
+> This Spec specifies the CLJS reference's shape-description integration: Malli as the schema language, `:spec` metadata on every `reg-*`, path-based `app-db` schemas via `reg-app-schema`. Schemas are **open by default** — consumers tolerate unknown keys; producers add new keys additively; `:closed` is opt-in only at system boundaries. Statically typed hosts express the same open-with-known-keys idiom via index signatures + known fields (`type T = { knownField: string; [k: string]: unknown }`).
 
 ## Abstract
 
@@ -18,19 +16,7 @@ A schema describes the *shape* of data flowing through a re-frame app:
 
 re-frame2 lets users attach a Malli schema to any of these via the `:spec` metadata key on the relevant `reg-*` registration, plus a dedicated `reg-app-schema` API for `app-db`. In dev builds the framework validates against schemas at well-defined points; in production validation elides (or is restricted to system boundaries) to keep the hot path cheap.
 
-This EP collects the spec/schema material that previously lived in 000's "Specs (Malli)" section and adds the validation-timing, dev-vs-prod, and tooling-integration details.
-
-## Why Malli
-
-Malli is the preferred schema library over `clojure.spec`:
-
-- **Data-first.** Schemas are EDN data, not function calls. Inspectable, transmittable, AI-readable, queryable.
-- **Decomposable.** Schemas compose by reference; sub-schemas can be named and reused.
-- **Performant.** Validation is fast; schema-to-validator compilation is cheap.
-- **Multi-format generation.** Malli generates JSON Schema, OpenAPI, type signatures, generators for property-based testing.
-- **Modern feature set.** Open/closed maps, regex schemas, function schemas, ref support, transformers.
-
-Users may use a different library if they prefer (the `:spec` value is opaque to re-frame; only the registered validator function is invoked). Malli is the documented and supported default.
+Malli is the documented and supported default schema library; users may substitute another (the `:spec` value is opaque to re-frame; only the registered validator function is invoked). See [§Notes — Why Malli](#notes--why-malli) for the rationale, and [§Non-Malli validators — the validator-fn extension point](#non-malli-validators--the-validator-fn-extension-point) for how a host or app substitutes a different validator.
 
 ## Where schemas attach
 
@@ -97,15 +83,17 @@ Re-registering a schema at a path replaces the previous one (last-write-wins, sa
 
 ### When schemas are checked
 
-| Schema attached to | Validates |
-|---|---|
-| `reg-event-*` `:spec` | The dispatched event vector, *before* the handler runs. Failure aborts the dispatch with a structured error. |
-| `reg-sub` `:spec` | The sub's return value, *after* compute. Failure raises a runtime error with sub-id and computed-value context. |
-| `reg-fx` `:spec` | The effect's argument data, *before* the fx handler runs. Failure aborts the effect. |
-| `reg-cofx` `:spec` | The coeffect's data, *after* injection. Failure aborts the dispatch. |
-| `reg-app-schema` (path-based) | The slice at the registered path, *after every handler* completes a state mutation. Failure raises a structured error naming the path, the offending value, and the rule violated. |
+| Schema attached to | Validates | Failure recovery (canonical, see [§Per-step recovery](#per-step-recovery) for full detail) |
+|---|---|---|
+| `reg-event-*` `:spec` | The dispatched event vector, *before* the handler runs. | Skip handler; emit `:rf.error/schema-validation-failure :where :event`; downstream queue continues. |
+| `reg-sub` `:spec` | The sub's return value, *after* compute. | `:replaced-with-default` (sub yields `nil`); strict mode re-raises. |
+| `reg-fx` `:spec` | The effect's argument data, *before* the fx handler runs. | Skip the offending fx only; sibling fx in the same `:fx` vector continue; downstream queue continues. |
+| `reg-cofx` `:spec` | The coeffect's data, *after* injection. | Skip handler; emit `:where :cofx`; downstream queue continues. |
+| `reg-app-schema` (path-based) | The slice at the registered path, *after every handler* completes a state mutation. | Dev: roll back the `:db` effect, treat dispatch as failed; prod (when re-enabled): log and proceed. |
 
-All validation points emit machine-readable errors per [Goal 9 (Strong introspection surface)](000-Vision.md#goals-summary) and the structured error contract in [009 §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/schema-validation-failure` events carry `{:where :event/:sub-return/:app-db/...; :path [...]; :value <bad>; :explanation <Malli explanation>}`.
+**Not every schema failure aborts dispatch.** The recovery depends on *where* the failure occurs: pre-handler failures (event vector, cofx) skip the handler; in-flight fx failures skip just the offending fx; post-handler `app-db` failures roll back in dev. Downstream queued events continue draining in every case (per the run-to-completion drain — a single failed event does not poison the queue). The detailed per-step table below is normative; this summary table is its index.
+
+All validation points emit machine-readable errors per [Goal 10 (Strong introspection surface)](000-Vision.md#goals) and the structured error contract in [009 §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/schema-validation-failure` events carry `{:where :event/:sub-return/:app-db/...; :path [...]; :value <bad>; :explanation <Malli explanation>}`.
 
 ### Validation order on event processing
 
@@ -119,6 +107,19 @@ For a single dispatched event, schema checks fire in this order:
 6. Sub return-value schemas — after each materialisation/recompute that involves a schema'd sub.
 
 A failure at any step aborts the dispatch with a structured error.
+
+### Per-step recovery
+
+| Step | Failure mode | Recovery |
+|---|---|---|
+| 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:spec`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
+| 2. Cofx | A cofx's injected value doesn't conform to its `:spec`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
+| 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); cascade halts. |
+| 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`. **Dev:** the `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed. **Prod (when validation re-enabled):** log and proceed with the offending value (cf. [009 §Per-category recovery defaults](009-Instrumentation.md#per-category-recovery-defaults)). |
+| 5. Fx-args | A registered fx's args map doesn't conform to its `:spec`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
+| 6. Sub return-value | A schema'd sub's computed value doesn't conform. | Emit with `:where :sub-return`. Default recovery: `:replaced-with-default` — the sub returns `nil` to its consumer; views see no value. Strict mode re-raises. |
+
+The fx-args recovery is "skip the offending fx, continue the rest" rather than "halt the dispatch" because a single broken fx (a typo in a `:url`, a missing required key) should not take down the rest of an event's effect cascade. The trace event names the failing fx; the rest of the page continues to render.
 
 ## Dev vs production
 
@@ -138,6 +139,14 @@ For users who want production validation at *system boundaries* — typically in
    :spec         ApiResponseSchema}
   (fn [m] ...))
 ```
+
+**Relationship to the handler's `:spec`.** `:spec/validate-at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
+
+- In **dev builds**, every event handler's `:spec` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
+- In **production builds**, the global `re-frame.spec/validation-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:spec` check inline, so handlers carrying it still validate at the boundary.
+- In **production builds with no `:spec`** on the handler, the boundary interceptor is a no-op (nothing to validate against) and emits `:rf.warning/boundary-without-spec` once per `(handler-id)` to flag the misconfiguration.
+
+Failures from the boundary interceptor flow through the same `:rf.error/schema-validation-failure :where :event` path as dev-mode step-1 failures — the recovery (skip handler; downstream queue continues) is identical. The only difference is *whether the check ran*, not *what happens when it fails*.
 
 Production builds in this configuration: 99% of code has zero validation overhead; the few system-boundary handlers validate every incoming payload.
 
@@ -164,7 +173,122 @@ Tools and agents read these to:
 - Generate JSON Schema or OpenAPI from registered schemas — useful for cross-platform contracts.
 - Diff schemas across versions to detect breaking shape changes in app-db structure.
 
-## What schemas don't do
+## Per-frame schemas
+
+`reg-app-schema` is per-frame — registered against the active frame at registration time. The public lookup APIs (`app-schemas`, `app-schema-at`) take an optional `frame-id` and default to the active frame (or `:rf/default`).
+
+```clojure
+;; Registers against the active frame (or :rf/default when no active frame).
+(rf/reg-app-schema [:user] UserSchema)
+
+;; Registers explicitly against a named frame.
+(rf/with-frame :story.auth.login-form/empty
+  (rf/reg-app-schema [:user] StoryUserSchema))
+
+;; Public query API takes an optional frame-id.
+(rf/app-schema-at [:user])                                ;; → schema in the active frame
+(rf/app-schema-at [:user] {:frame :story.auth.login-form/empty})
+(rf/app-schemas)                                          ;; → {[:user] ... [:todos] ...} for the active frame
+(rf/app-schemas {:frame :production})                     ;; → schema set for the named frame
+```
+
+**Why per-frame:** stories, multi-instance widgets, and per-test fixtures need shape-flexibility — a stripped-down schema for a story variant should not bleed into the production frame's contract. Path + frame-id is the registration key; tools query "what schema applies at path P in frame F?".
+
+**Schema digest:** the registered schema set per frame has a stable digest (a hash of the registered `[path, schema]` pairs in canonical order). Tools and the SSR hydration handshake use the digest for client/server divergence detection — see [§Schema digest](#schema-digest) below and [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event).
+
+## Schema digest
+
+Every frame exposes a stable digest of its registered schema set:
+
+```clojure
+(rf/app-schemas-digest)                                   ;; → "sha256:abc1234567890def" for the active frame
+(rf/app-schemas-digest {:frame :production})              ;; → "sha256:..." for the named frame
+```
+
+Used by:
+
+- **SSR hydration** ([011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)) — the server includes its digest in the hydration payload; the client compares its own digest on hydrate and emits a `:rf.ssr/schema-digest-mismatch` trace event on divergence. Catches deploy-drift bugs (server bundle has newer schemas than the client's active bundle).
+- **Pair tools** — the runtime pair tool can warn when an attached REPL session is talking to a runtime whose schema set has shifted under it.
+- **Cross-host conformance** — a TS client talking to a CLJS server can record digests for replay/snapshot regression.
+
+The digest is **derived data**, not part of the registration shape. Implementations that don't ship a runtime schema layer (some statically typed hosts) may compute it from the type system's structural fingerprint or omit the feature.
+
+### Digest algorithm (normative)
+
+The digest must be **cross-runtime reproducible** — a CLJS server and a CLJS client running the same schema set produce the same digest, byte-for-byte. The algorithm below is normative; ports that ship a digest must implement exactly this procedure.
+
+**Inputs.** The frame's registered `app-db` schema set, as a map `{path → schema-value}` where `path` is a vector of keywords (or the empty vector for the root schema) and `schema-value` is the registered schema (a Malli EDN form in the CLJS reference; another data form in non-Malli ports — see [§Non-Malli validators](#non-malli-validators--the-validator-fn-extension-point)).
+
+**Procedure.**
+
+1. **Serialise each schema value to a stable byte sequence.** The serialisation fn (`schema-print`) is supplied alongside the validator fn (per [§Non-Malli validators](#non-malli-validators--the-validator-fn-extension-point)) and must be deterministic — the same schema value always produces the same bytes. The CLJS reference's default uses `pr-str` over the Malli EDN form with map-key ordering normalised (keys sorted by `(compare a b)` after coercing to a comparable representation; printed without metadata). UTF-8 encoded.
+2. **Hash each schema independently.** Compute `SHA-256(schema-print(schema-value))` for every entry, producing a 32-byte digest per schema.
+3. **Build the per-entry record.** For each `(path, schema-value)`, emit the line `<path-string> <hex-of-sha256-bytes>\n` where:
+   - `path-string` is the path printed as `pr-str` of the path vector (e.g. `[:user]`, `[:auth :credentials]`, `[]` for the root). Empty path renders as `[]`.
+   - `hex-of-sha256-bytes` is the 64-character lowercase hex encoding of the SHA-256 bytes from step 2.
+   - The trailing `\n` is a literal newline byte (`0x0A`).
+4. **Sort the lines** lexicographically as byte sequences (UTF-8). Lexicographic byte order is well-defined and identical across hosts — no locale or collation involvement.
+5. **Concatenate the sorted lines** into a single byte sequence (already terminated with `\n` per line; no separator added between lines).
+6. **Hash the concatenation** with SHA-256 to produce the **final 32-byte digest**.
+7. **Encode the output** as `"sha256:" + first-16-hex-chars-of-digest` (lowercase). The 16-char prefix is sufficient for collision detection across the relatively small space of registered schema sets; full 64-char hex is acceptable for tools that want maximum strictness, but the canonical wire form is the 16-char-prefix variant.
+
+**Output.** A string of the form `"sha256:abc1234567890def"` — the literal prefix `sha256:` followed by 16 lowercase hex characters. Two frames produce equal digests iff their `{path → schema-value}` maps serialise byte-for-byte identically.
+
+**Why this shape.** Per-schema hashing in step 2 means a single schema change perturbs exactly one line; the per-entry record in step 3 binds path to schema-hash so two schemas swapping paths produce different digests; the byte-lexicographic sort in step 4 is the same on every host (no Unicode-collation-rule dependence); SHA-256 is universally available; the 16-char hex prefix is short enough to ship in trace events without bloat. FNV-1a was considered but SHA-256 was chosen for cryptographic-strength collision resistance and ubiquity (every JVM, every browser via Web Crypto, every Python `hashlib`, every Rust `sha2`).
+
+**Test vector.** A frame with two registrations:
+
+```clojure
+(rf/reg-app-schema [:user]   [:map [:id :uuid]])
+(rf/reg-app-schema [:todos]  [:vector :string])
+```
+
+After the procedure above (using the CLJS reference's `pr-str` serialisation for Malli forms), the digest is deterministic. Conformance fixtures pin a small number of schema sets to expected digest values so port implementations can self-check their digest pipeline.
+
+**Non-schema-layer hosts.** A host whose type system supplies the shape information (TypeScript, Kotlin) and ships no runtime schema layer may compute the digest from a structural fingerprint of its types — but if it does ship a digest, the *output shape* (`"sha256:" + 16 hex chars`) and the *input ordering* (sorted-by-path) must match so cross-host comparisons remain meaningful. Hosts that omit the digest entirely return `nil` from `app-schemas-digest`, and `:rf.ssr/schema-digest-mismatch` is suppressed when either side returns `nil`.
+
+## Non-Malli validators — the validator-fn extension point
+
+The runtime never inspects the value stored in `:spec`. Validation always goes through a single registered **validator fn** of shape:
+
+```clojure
+(fn validator [schema value] result)
+;; result :: nil          — the value conforms (no error)
+;;       | {:explanation <data> :path? [...] :rule? <id>}    ;; structured failure
+```
+
+The validator fn is registered at the substrate level — typically once per app at boot, not per `:spec`:
+
+```clojure
+(rf/set-schema-validator! my-validator-fn)
+```
+
+The CLJS reference's default validator delegates to Malli (`(m/explain schema value)` adapted to the result shape above). Substituting a different validator (a `clojure.spec` adapter, a JSON-Schema validator, a host's structural-typecheck wrapper) is a **single registration call** — the rest of the spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+
+Locked rules:
+
+- **One validator fn per frame** is in effect at any time. Last-write-wins on re-registration; tools warn if the source coords differ between registrations (same form re-register is benign hot-reload).
+- **The validator fn is pure** — same `(schema, value)` returns the same result. Implementations may memoise but tests must not depend on memoisation.
+- **The validator fn must be production-elidable** alongside `re-frame.spec/validation-enabled?` — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
+- **Schema digests** ([§Schema digest](#schema-digest)) are computed from the schema **values** as serialised by the registered validator's `serialise` companion fn (see [§Schema digest](#schema-digest)) — not from the validator. Two ports using different validators against the same Malli-EDN schemas produce the same digest; two ports using *different* schema languages produce different digests by construction.
+
+What the extension point does NOT cover: a *mix* of validators within one frame. The runtime resolves one validator and uses it for every `:spec` in the frame; a hybrid setup (Malli for app schemas, JSON-Schema for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
+
+## Notes
+
+### Why Malli
+
+Malli is the preferred schema library over `clojure.spec`:
+
+- **Data-first.** Schemas are EDN data, not function calls. Inspectable, transmittable, AI-readable, queryable.
+- **Decomposable.** Schemas compose by reference; sub-schemas can be named and reused.
+- **Performant.** Validation is fast; schema-to-validator compilation is cheap.
+- **Multi-format generation.** Malli generates JSON Schema, OpenAPI, type signatures, generators for property-based testing.
+- **Modern feature set.** Open/closed maps, regex schemas, function schemas, ref support, transformers.
+
+The `:spec` value is opaque to re-frame; only the registered validator function is invoked. A user wishing to use `clojure.spec` or another library registers the appropriate validator. Malli is the documented and supported default.
+
+### What schemas don't do
 
 - **They don't enforce non-shape invariants.** Malli describes shapes (this is a string of length ≥ 8; this is a vector of TodoItems). Higher-level invariants (this user's email matches their account; this request's signature is valid) live in handlers, not schemas.
 - **They don't replace tests.** Schemas catch shape violations; tests catch behavioural correctness. Both are needed.
@@ -172,39 +296,24 @@ Tools and agents read these to:
 
 ## Open questions
 
-### S-1. Default-frame `app-db` schema vs per-frame schemas
+### Schema-driven generative tests
 
-Multi-frame apps may want a different `app-db` schema per frame (a story frame's `:db` shape is different from production's). Current `reg-app-schema` registers globally. Should it accept an opt-in `:frame` arg?
+Malli generators can produce values matching a schema. A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md).
 
-```clojure
-(rf/reg-app-schema [:user] UserSchema {:frame :production})
-(rf/reg-app-schema [:user] StoryUserSchema {:frame :story.auth.login-form/empty})
-```
+### Schema migration on hot-reload
 
-Recommendation: yes, with default-frame as the default. Path + frame-id is the registration key; tools query "what schema applies at path P in frame F?"
+When a sub-path schema changes during dev (file save), the live `app-db` may now violate the new schema. Recommendation: log + emit a `:spec/violation` trace event so dev panels highlight it; don't abort the live app.
 
-### S-2. Schema-driven generative tests
+### Boundary-validation interceptor naming
 
-Malli generators can produce values matching a schema. A natural pattern: "for every event with a `:spec`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Worth documenting as a property-based-testing pattern in [008-Testing.md](008-Testing.md).
+`:spec/validate-at-boundary` is a placeholder name. Alternatives: `:spec/strict`, `:spec/always`, `:spec/at-boundary`.
 
-### S-3. Schema migration on hot-reload
+### Schema versioning
 
-When a sub-path schema changes during dev (file save), the live `app-db` may now violate the new schema. Should the framework warn loudly, soft-fail, or just log? Recommendation: log + emit a `:spec/violation` trace event so 10x highlights it; don't abort the live app.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is open.
 
-### S-4. Boundary-validation interceptor naming
+## Resolved decisions
 
-`:spec/validate-at-boundary` is a placeholder name. Worth bikeshedding — `:spec/strict`, `:spec/always`, `:spec/at-boundary` are alternatives. Lock with the v1 release.
+### Non-Malli library support
 
-### S-5. Schema versioning
-
-Apps evolve; `app-db` shapes evolve; schemas evolve. Should re-frame2 ship a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling? Likely post-v1.
-
-### S-6. Non-Malli library support
-
-If a user wants to use `clojure.spec` or a custom validator, the `:spec` value is opaque to re-frame; only validators (registered via `reg-spec-validator` or similar) interpret it. Worth a documented extension point. Out of scope for v1; Malli is the default and supported library.
-
-## Disposition
-
-**v1.** Schemas ship in v1 as opt-in per-registration metadata plus the `reg-app-schema` API. Validation runs in dev; elides in production with the boundary-validation interceptor for system-boundary use cases. Malli is the default library; `re-frame.spec` namespace ships as the small validation-machinery layer.
-
-The tooling/agent surface (querying schemas via the registrar) is part of [Goal 9 (Strong introspection surface)](000-Vision.md#goals-summary) and lives there; this EP defines the validation contract.
+Substitution is via a single `set-schema-validator!` registration; the `:spec` value is opaque to re-frame; the registered validator interprets it. Malli is the default and supported library; substitution is one call. See [§Non-Malli validators — the validator-fn extension point](#non-malli-validators--the-validator-fn-extension-point).

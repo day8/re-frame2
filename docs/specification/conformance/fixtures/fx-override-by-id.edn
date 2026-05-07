@@ -4,6 +4,7 @@
 
 {:fixture/id           :fx/override-by-id
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx}
  :fixture/doc          "An :http call is intercepted by an id-valued override that points at a registered stub fx."
 
  :fixture/registry

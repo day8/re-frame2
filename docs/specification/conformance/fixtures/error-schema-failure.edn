@@ -1,0 +1,48 @@
+;; Conformance fixture: error/schema-failure
+;; A registered :spec on a sub's return value (or an event vector, or app-db
+;; at a path) fails Malli validation. Runtime emits :rf.error/schema-validation-failure.
+;; Per [009 §Error contract].
+;;
+;; This fixture is dynamic-host only — statically typed hosts catch the
+;; mismatch at compile time and produce no runtime trace event. Static-host
+;; harnesses skip this fixture.
+
+{:fixture/id           :error/schema-failure
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/error :schemas/runtime}
+ :fixture/doc          "An event handler returns an app-db that fails the registered :rf/app-schema at the affected path. The runtime emits a :rf.error/schema-validation-failure trace event with the explanation."
+ :fixture/dynamic-host-only? true
+
+ :fixture/registry
+ {:event {:counter/init       {:doc "Seed."}
+          :counter/set-bad    {:doc "Sets :count to a non-integer (violates schema)."}}
+  :sub   {:count {:doc "Current count."}}
+  :app-schema
+  {[:count] [:int]}}                                 ;; the registered schema at path [:count]
+
+ :fixture/handlers
+ {:event {:counter/init    [[:set [:count] 0]]
+          :counter/set-bad [[:set [:count] "not-a-number"]]}    ;; intentionally violates [:int]
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frame-config {:on-create [:counter/init]}
+
+ :fixture/dispatches
+ [[:counter/set-bad]]
+
+ :fixture/expect
+ ;; In dev mode, default recovery is :no-recovery — the cascade halts and
+ ;; the offending app-db update IS still applied (validation runs after the
+ ;; handler returns); production default is :replaced-with-default.
+ {:trace-emissions
+  [{:operation :event :tags {:event-id :counter/init}}
+   {:operation :event :tags {:event-id :counter/set-bad}}
+   {:operation :rf.error/schema-validation-failure
+    :op-type   :error
+    :tags      {:category   :rf.error/schema-validation-failure
+                :failing-id :counter/set-bad
+                :where      :app-db
+                :path       [:count]
+                :value      "not-a-number"
+                :reason     "App-db at path [:count] failed schema [:int]: expected :int, got string."}
+    :recovery  :no-recovery}]}}                      ;; dev default; prod uses :replaced-with-default

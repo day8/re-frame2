@@ -1,0 +1,39 @@
+;; Conformance fixture: ssr/redirect
+;; A handler emits :rf.server/redirect during the SSR drain. The runtime
+;; sets :status 302 and Location, and TRUNCATES the HTML body — :html and
+;; :payload are absent from the request result. Per [011 §Redirect precedence].
+
+{:fixture/id           :ssr/redirect
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :ssr/response-contract}
+ :fixture/doc          "An :on-create event emits :rf.server/redirect with status 302 and Location /login. The request result has the redirect populated and :html absent (HTML render skipped)."
+
+ :fixture/registry
+ {:event {:rf/server-init     {:doc       "Per-request server-side init."
+                               :platforms #{:server}}
+          :auth/check-session {:doc       "Authentication gate."
+                               :platforms #{:server}}}
+  :fx    {:rf.server/redirect {:doc       "Set redirect on the response accumulator; truncates HTML body."
+                               :platforms #{:server}
+                               :spec      :rf.fx.server/redirect-args}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init     [[:fx [[:dispatch [:auth/check-session]]]]]
+          :auth/check-session [[:fx [[:rf.server/redirect {:status 302 :location "/login"}]]]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init] :platform :server}
+
+ :fixture/dispatches []                                              ;; the :on-create cascade is sufficient
+
+ :fixture/expect
+ {:final-app-db {}
+
+  :ssr/request-result
+  {:html     :absent                                                 ;; redirect truncates the body
+   :payload  :absent
+   :response {:status   302
+              :redirect {:status 302 :location "/login"}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :auth/check-session}}]}}

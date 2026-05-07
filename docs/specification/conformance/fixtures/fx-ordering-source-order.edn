@@ -1,0 +1,55 @@
+;; Conformance fixture: fx/ordering-source-order
+;; :fx entries are processed in source order, serially. Three :dispatch entries
+;; in [a b c] order produce events in [a b c] order on the runtime FIFO queue,
+;; and the dispatched handlers append to a log in that same order.
+;; Per 002-Frames §`:fx` ordering and atomicity guarantees.
+
+{:fixture/id           :fx/ordering-source-order
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx}
+ :fixture/doc          "An event-fx handler that returns :fx [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]] produces events in declared order. Each appends to [:log], and the final value is [:a :b :c]."
+
+ :fixture/registry
+ {:event {:fx-order/initialise {:doc "Seed [:log] with []."}
+          :fx-order/run        {:doc "Returns three :dispatch entries in [a b c] order."}
+          :fx-order/a          {:doc "Appends :a to [:log]."}
+          :fx-order/b          {:doc "Appends :b to [:log]."}
+          :fx-order/c          {:doc "Appends :c to [:log]."}}
+  :sub   {:log {:doc "The append-only ordering log."}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event {:fx-order/initialise
+          [[:set [:log] []]]
+          :fx-order/run
+          ;; Three :dispatch entries in source order. Each entry must reach
+          ;; do-fx in declared order; each dispatched handler must run before
+          ;; the next is dequeued (run-to-completion drain).
+          [[:fx :dispatch [:fx-order/a]]
+           [:fx :dispatch [:fx-order/b]]
+           [:fx :dispatch [:fx-order/c]]]
+          :fx-order/a [[:update [:log] [:fn :conj] :a]]
+          :fx-order/b [[:update [:log] [:fn :conj] :b]]
+          :fx-order/c [[:update [:log] [:fn :conj] :c]]}
+  :sub   {:log [[:get [:log]]]}}
+
+ :fixture/frame-config
+ {:on-create [:fx-order/initialise]}
+
+ :fixture/dispatches
+ [[:fx-order/run]]
+
+ :fixture/expect
+ {:final-app-db   {:log [:a :b :c]}
+
+  :sub-values     {[:log] [:a :b :c]}
+
+  :trace-emissions
+  [{:operation :event :op-type :event :tags {:event-id :fx-order/initialise}}
+   {:operation :event :op-type :event :tags {:event-id :fx-order/run}}
+   ;; Drained in source order — :a before :b before :c.
+   {:operation :event :op-type :event :tags {:event-id :fx-order/a}}
+   {:operation :event :op-type :event :tags {:event-id :fx-order/b}}
+   {:operation :event :op-type :event :tags {:event-id :fx-order/c}}]
+
+  :effects-routed []}}

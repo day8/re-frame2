@@ -4,6 +4,7 @@
 
 {:fixture/id           :sub/chain
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/sub}
  :fixture/doc          "A sub composed via :<- against another sub. Total derives from items; updating items propagates."
 
  :fixture/registry

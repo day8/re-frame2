@@ -1,0 +1,33 @@
+;; Conformance fixture: counter/inc-multi
+;; Multiple events in a single dispatch cycle. Tests run-to-completion drain:
+;; views see only the final state, not intermediate values.
+
+{:fixture/id           :counter/inc-multi
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
+ :fixture/doc          "Three sequential :counter/inc events. Each handler runs in turn; the final app-db reflects all three increments. Sub values reflect the final state."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed."}
+          :counter/inc        {:doc "Increment."}}
+  :sub   {:count {:doc "Current count."}}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ :fixture/frame-config {:on-create [:counter/initialise]}
+
+ :fixture/dispatches
+ [[:counter/inc]
+  [:counter/inc]
+  [:counter/inc]]
+
+ :fixture/expect
+ {:final-app-db    {:count 3}
+  :sub-values      {[:count] 3}
+  :trace-emissions [{:operation :event :tags {:event-id :counter/initialise}}
+                    {:operation :event :tags {:event-id :counter/inc}}
+                    {:operation :event :tags {:event-id :counter/inc}}
+                    {:operation :event :tags {:event-id :counter/inc}}]}}

@@ -5,6 +5,7 @@
 
 {:fixture/id           :dispatch/envelope
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler}
  :fixture/doc          "An event dispatched with :source :ui surfaces in the cofx context map. Implementations expose :frame, :trace-id, and :source as additional keys on the cofx map for reg-event-fx handlers."
 
  :fixture/registry
@@ -31,6 +32,6 @@
 
   :trace-emissions
   [{:operation :event
+    :source    :ui                          ;; top-level per 009 — origin of the trigger
     :tags     {:event-id :probe/echo
-               :source   :ui
                :trace-id "t-1"}}]}}

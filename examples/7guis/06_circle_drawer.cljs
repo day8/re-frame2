@@ -38,7 +38,10 @@
 (def DrawerState
   [:map
    [:circles   [:vector Circle]]
-   [:dialog    [:maybe [:map [:circle-id :uuid] [:initial-radius pos-int?]]]]
+   [:dialog    [:maybe [:map
+                        [:circle-id      :uuid]
+                        [:initial-radius pos-int?]
+                        [:draft-radius   pos-int?]]]]
    [:undo      [:vector :any]]                  ;; stack of prior :circles values
    [:redo      [:vector :any]]])
 
@@ -93,32 +96,31 @@
                                 (filter #(= circle-id (:id %)))
                                 first)]
       (assoc-in db [:drawer :dialog] {:circle-id      circle-id
-                                      :initial-radius radius}))))
+                                      :initial-radius radius
+                                      :draft-radius   radius}))))
 
 (rf/reg-event-db :drawer/dialog-drag
-  {:doc "Slider movement during the dialog. Continuous; does NOT push undo."}
+  {:doc "Slider movement during the dialog. Updates the draft radius only;
+         the circle itself is not mutated until the dialog commits.
+         Continuous; does NOT push undo."}
   (fn handler-drawer-dialog-drag [db [_ new-radius]]
-    (let [{:keys [circle-id]} (get-in db [:drawer :dialog])]
-      (update-in db [:drawer :circles]
-                 (fn [cs]
-                   (mapv #(if (= circle-id (:id %))
-                            (assoc % :radius new-radius)
-                            %)
-                         cs))))))
+    (assoc-in db [:drawer :dialog :draft-radius] new-radius)))
 
 (rf/reg-event-db :drawer/close-dialog
-  {:doc          "Dialog closed (committing the new radius). Undoable as a single step."
+  {:doc          "Dialog closed (committing the new radius). The :circles vector
+                  was untouched while the slider moved, so the undoable
+                  interceptor's prior-snapshot is exactly the pre-dialog state —
+                  the whole edit collapses into a single undo step."
    :interceptors [undoable]}
   (fn handler-drawer-close-dialog [db _]
-    (let [{:keys [circle-id initial-radius]} (get-in db [:drawer :dialog])]
-      ;; The undoable interceptor captured the *current* circles as the prior
-      ;; state; we need to override that capture with what circles looked
-      ;; like *before* dialog opened. Restore initial-radius momentarily:
+    (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db
-          ;; Re-set the radius to the captured initial so the interceptor's
-          ;; prior-snapshot represents the pre-dialog state in undo.
-          ;; (In a real lib, this is what makes "edit dialog" a single undo
-          ;; step — the interceptor is configured to snapshot at dialog open.)
+          (update-in [:drawer :circles]
+                     (fn [cs]
+                       (mapv #(if (= circle-id (:id %))
+                                (assoc % :radius draft-radius)
+                                %)
+                             cs)))
           (assoc-in [:drawer :dialog] nil)))))
 
 (rf/reg-event-db :drawer/undo
@@ -187,7 +189,7 @@
             [:p (str "Adjust diameter of circle " (:circle-id dialog))]
             [:input {:type      "range"
                      :min       5 :max 100 :step 1
-                     :value     30
+                     :value     (:draft-radius dialog)
                      :on-change #(dispatch [:drawer/dialog-drag
                                             (js/parseInt (.. % -target -value))])}]
             [:button {:on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))))

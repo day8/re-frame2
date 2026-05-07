@@ -1,0 +1,83 @@
+;; Conformance fixture: machine/after-stale-detection
+;;
+;; A state's :after timer schedules at entry with epoch N. Before the timer
+;; fires, a real :on event arrives and transitions the machine elsewhere; the
+;; epoch advances to N+1. When the (still-in-flight) timer eventually fires,
+;; its carried epoch (N) doesn't match the current (N+1); the handler emits
+;; :rf.machine.timer/stale-after and silently ignores the firing.
+;;
+;; This is the canonical "real event beats the timer" race the epoch
+;; mechanism exists to handle.
+;;
+;; Per [005 §Delayed :after transitions §Epoch-based stale detection]
+;; (../../005-StateMachines.md#epoch-based-stale-detection).
+
+{:fixture/id           :machine/after-stale-detection
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/delayed-after}
+ :fixture/doc          "An :after timer is in flight when a real event transitions the machine out of the state. The epoch advances. When the now-stale timer fires, the handler ignores it and emits :rf.machine.timer/stale-after. The snapshot stays at the target of the real event — the timer's transition does NOT fire."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: Enter :loading via :fetch. Timer schedules with epoch 1.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 0}
+                  :states
+                  {:idle    {:on {:fetch :loading}}
+                   :loading {:after {5000 :timeout}
+                             :on    {:loaded :ready}}
+                   :timeout {}
+                   :ready   {}}}
+   :snapshot     {:state :idle :data {:rf/after-epoch 0}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/scheduled
+     :tags      {:state :loading :delay 5000 :epoch 1}}]}
+
+  ;; Step 2: A real :loaded event arrives BEFORE the 5000ms timer would fire.
+  ;; Transition runs; snapshot lands at :ready; epoch advances to 2. The
+  ;; in-flight timer is now stale (it carries epoch 1).
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 1}
+                  :states
+                  {:idle    {:on {:fetch :loading}}
+                   :loading {:after {5000 :timeout}
+                             :on    {:loaded :ready}}
+                   :timeout {}
+                   :ready   {}}}
+   :snapshot     {:state :loading :data {:rf/after-epoch 1}}
+   :event        [:loaded]
+   :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine/transition
+     :tags      {:from :loading :to :ready}}]}
+
+  ;; Step 3: The timer eventually fires with its captured epoch (1). The
+  ;; handler compares against the current epoch (2); mismatch; ignored.
+  ;; Snapshot is unchanged. :rf.machine.timer/stale-after emits.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {:rf/after-epoch 2}
+                  :states
+                  {:idle    {:on {:fetch :loading}}
+                   :loading {:after {5000 :timeout}
+                             :on    {:loaded :ready}}
+                   :timeout {}
+                   :ready   {}}}
+   :snapshot     {:state :ready :data {:rf/after-epoch 2}}
+   :event        [::after-elapsed 5000 1]
+   :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
+   :expect-effects       []
+   :expect-trace
+   [{:operation :rf.machine.timer/stale-after
+     :tags      {:delay 5000 :scheduled-epoch 1 :current-epoch 2}}]}]}

@@ -1,0 +1,66 @@
+;; Conformance fixture: ssr/hydration-mismatch
+;; The first client render produces a render-tree whose hash differs from
+;; the server-supplied hash in the :rf/hydration-payload. Runtime emits
+;; :rf.ssr/hydration-mismatch with both hashes; default recovery is
+;; :warned-and-replaced (the client re-renders, replacing the server HTML).
+;; Per [011 §Hydration-mismatch detection].
+
+{:fixture/id           :ssr/hydration-mismatch
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/hydration}
+ :fixture/doc          "A hydration payload carries :rf/render-hash 'server-hash-A'; the client's first render hashes to 'client-hash-B'. The runtime emits :rf.ssr/hydration-mismatch and applies :warned-and-replaced recovery."
+
+ :fixture/registry
+ {:event {:rf/hydrate    {:doc "Standard hydration handler — replaces app-db with payload's :rf/app-db."}
+          :counter/init  {:doc "Client-only seed; clobbered by hydrate."}}
+  :sub   {:count {:doc "Current count."}
+          :greeting {:doc "Greeting derived from app-db. Used for the render-hash check."}}
+  :view  {:root {:doc "Root view; greeting + count."}}}
+
+ :fixture/handlers
+ {:event {:rf/hydrate   [[:set [] [:event-arg 1 :rf/app-db]]]      ;; replace app-db with payload's :rf/app-db
+          :counter/init [[:set [] {:count 0 :greeting "Hello, client!"}]]}
+  :sub   {:count    [[:get [:count]]]
+          :greeting [[:get [:greeting]]]}}
+
+ :fixture/frame-config
+ {:on-create [:counter/init]}                                       ;; client seeds something different than the server
+
+ :fixture/dispatches
+ ;; Hydrate with a payload that carries the server's render-hash.
+ ;; The server's payload.app-db has greeting "Hello, server!" and the server
+ ;; rendered with that string; the client's first render hashes a different DOM
+ ;; (because rendering happens before the dispatch settles, or because of an
+ ;; environment-derived greeting differing per side). The harness simulates
+ ;; this by supplying both hashes in the expected trace.
+ [[:rf/hydrate {:rf/version       1
+                :rf/frame-id      :rf/default
+                :rf/app-db        {:count 5 :greeting "Hello, server!"}
+                :rf/render-hash   "server-hash-A"}]]
+
+ :fixture/render-after-hydrate
+ ;; The harness simulates a client-side first-render whose hash is "client-hash-B".
+ ;; (Implementations that don't have a render layer skip this.)
+ {:simulated-client-render-hash "client-hash-B"
+  :first-diff-path              [:body 0 :children 0]}
+
+ :fixture/expect
+ {:final-app-db {:count 5 :greeting "Hello, server!"}
+
+  :sub-values   {[:count] 5
+                 [:greeting] "Hello, server!"}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :counter/init}}
+   {:operation :event :tags {:event-id :rf/hydrate}}
+   ;; Mismatch detected after the first client render.
+   {:operation :rf.ssr/hydration-mismatch
+    :op-type   :error
+    :tags      {:category        :rf.ssr/hydration-mismatch
+                :failing-id      :rf/hydrate
+                :server-hash     "server-hash-A"
+                :client-hash     "client-hash-B"
+                :first-diff-path [:body 0 :children 0]
+                :frame           :rf/default
+                :reason          "Hydration mismatch: server hash 'server-hash-A' != client hash 'client-hash-B'. Re-rendering client-side."}
+    :recovery  :warned-and-replaced}]}}

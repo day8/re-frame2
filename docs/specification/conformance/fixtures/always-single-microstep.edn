@@ -1,0 +1,84 @@
+;; Conformance fixture: machine/always-single-microstep
+;;
+;; A state with :always declaring a guarded eventless transition. After the
+;; resolving event runs and the snapshot lands in the state, the microstep
+;; loop checks :always; the guard is now true; the microstep transitions
+;; once; fixed-point reached; commit.
+;;
+;; External observers see ONE macrostep (a → c, never the intermediate a' state).
+;; Trace surface: one outer :rf.machine/transition with :microsteps 1, plus one
+;; per-microstep :rf.machine.microstep/transition.
+;;
+;; Per [005 §Eventless :always transitions]
+;; (../../005-StateMachines.md#eventless-always-transitions).
+
+{:fixture/id           :machine/always-single-microstep
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/eventless-always}
+ :fixture/doc          "A state with :always firing once after the resolving event. Verify single macrostep externally; verify microstep counter; verify per-microstep trace event; verify atomic commit (intermediate state is NOT externally observable)."
+
+ :fixture/registry
+ {:machine-action
+  {:quiz/count-correct {:doc "Increments :correct-count by 1."}}
+  :machine-guard
+  {:quiz/enough-correct? {:doc "True when (>= correct-count 10)."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; The action returns {:data {:correct-count <new>}} — no :fx, no :target.
+  ;; This is an internal transition: snapshot stays at :asking; data updates.
+  {:quiz/count-correct [[:set [:correct-count] [:fn :+ [:get [:correct-count]] 1]]]}
+
+  :machine-guard
+  {:quiz/enough-correct? [[:fn :>= [:get [:correct-count]] 10]]}}
+
+ :fixture/calls
+ [;; Pre-condition: correct-count is 9. After this :answer-correct it becomes
+  ;; 10; the :always guard fires; microstep transitions to :winner.
+  {:call         :machine-transition
+   :definition   {:initial :asking
+                  :data    {:correct-count 9}
+                  :guards  {:enough-correct? :quiz/enough-correct?}
+                  :actions {:count-correct   :quiz/count-correct}
+                  :states
+                  {:asking
+                   {:always [{:guard :enough-correct? :target :winner}]
+                    :on     {:answer-correct {:action :count-correct}}}
+                   :winner {}
+                   :loser  {}}}
+   :snapshot     {:state :asking :data {:correct-count 9}}
+   :event        [:answer-correct]
+   ;; External-observable next snapshot: :winner. The "still in :asking
+   ;; with correct-count 10" intermediate state is invisible.
+   :expect-next-snapshot {:state :winner :data {:correct-count 10}}
+   :expect-effects       []
+   :expect-microsteps    1
+   :expect-trace
+   ;; Two trace events at machine level — one per-microstep, one outer macrostep.
+   [{:operation :rf.machine.microstep/transition
+     :tags      {:from :asking :to :winner :microstep-index 0}}
+    {:operation :rf.machine/transition
+     :tags      {:from :asking :to :winner :microsteps 1}}]}
+
+  ;; Pre-condition: correct-count is 5. The :answer-correct increments to 6;
+  ;; :always's :enough-correct? is false; microstep loop terminates with
+  ;; zero microsteps; commit lands at :asking.
+  {:call         :machine-transition
+   :definition   {:initial :asking
+                  :data    {:correct-count 5}
+                  :guards  {:enough-correct? :quiz/enough-correct?}
+                  :actions {:count-correct   :quiz/count-correct}
+                  :states
+                  {:asking
+                   {:always [{:guard :enough-correct? :target :winner}]
+                    :on     {:answer-correct {:action :count-correct}}}
+                   :winner {}
+                   :loser  {}}}
+   :snapshot     {:state :asking :data {:correct-count 5}}
+   :event        [:answer-correct]
+   :expect-next-snapshot {:state :asking :data {:correct-count 6}}
+   :expect-effects       []
+   :expect-microsteps    0
+   :expect-trace
+   [{:operation :rf.machine/transition
+     :tags      {:from :asking :to :asking :microsteps 0}}]}]}

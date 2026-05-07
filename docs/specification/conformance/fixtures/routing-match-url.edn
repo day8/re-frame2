@@ -1,0 +1,75 @@
+;; Conformance fixture: routing/match-url
+;; The bidirectional URL ↔ params helpers (rf/match-url and rf/route-url)
+;; are pure functions. Pure-function tests; no frame, no dispatch.
+;;
+;; Per Spec 012 §Path-pattern grammar (canonical) and §Bidirectional URL ↔ params:
+;; - match-url returns {:route-id :params :query :validation-failed?} or nil.
+;; - :params is the path-params map; :query is the query-params map (separate).
+;; - route-url has 2- and 3-arity forms: (route-url id path-params) and (route-url id path-params query-params).
+
+{:fixture/id           :routing/match-url
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url}
+ :fixture/doc          "Pure bidirectional URL ↔ route-id + path-params + query-params. match-url parses; route-url unparses; together they round-trip."
+
+ :fixture/registry
+ {:route
+  {:route/home            {:path "/"}
+   :route/articles        {:path "/articles"}
+   :route/article-detail  {:path "/articles/:id" :params [:map [:id :string]]}
+   :route/article-with-slug {:path "/articles/:id{/:slug}?"
+                              :params [:map [:id :string] [:slug {:optional true} :string]]}
+   :route/files           {:path "/files/*rest" :params [:map [:rest :string]]}
+   :route/search          {:path           "/search"
+                           :query          [:map [:q :string] [:page {:optional true} :int]]
+                           :query-defaults {:page 1}}}}
+
+ :fixture/calls
+ ;; match-url: URL → {:route-id :params :query :validation-failed?}.
+ [{:call :match-url :url "/"
+   :expect {:route-id :route/home :params {} :query {} :validation-failed? false}}
+
+  {:call :match-url :url "/articles"
+   :expect {:route-id :route/articles :params {} :query {} :validation-failed? false}}
+
+  {:call :match-url :url "/articles/intro"
+   :expect {:route-id :route/article-detail :params {:id "intro"} :query {} :validation-failed? false}}
+
+  ;; Optional segment present
+  {:call :match-url :url "/articles/intro/welcome"
+   :expect {:route-id :route/article-with-slug :params {:id "intro" :slug "welcome"} :query {} :validation-failed? false}}
+
+  ;; Splat capture
+  {:call :match-url :url "/files/a/b/c.txt"
+   :expect {:route-id :route/files :params {:rest "a/b/c.txt"} :query {} :validation-failed? false}}
+
+  ;; Query coercion via :query schema (string "2" → int 2 for :page)
+  {:call :match-url :url "/search?q=clojure&page=2"
+   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 2} :validation-failed? false}}
+
+  ;; :query-defaults populates absent keys (page → 1)
+  {:call :match-url :url "/search?q=clojure"
+   :expect {:route-id :route/search :params {} :query {:q "clojure" :page 1} :validation-failed? false}}
+
+  {:call :match-url :url "/garbage/path"
+   :expect nil}                                       ;; unmatched
+
+  ;; route-url: route-id + path-params [+ query-params] → URL.
+  {:call :route-url :route-id :route/home :params {}
+   :expect "/"}
+
+  {:call :route-url :route-id :route/article-detail :params {:id "intro"}
+   :expect "/articles/intro"}
+
+  ;; 3-arity form: with query-params
+  {:call :route-url :route-id :route/search :params {} :query {:q "clojure" :page 2}
+   :expect "/search?q=clojure&page=2"}
+
+  ;; Splat round-trip
+  {:call :route-url :route-id :route/files :params {:rest "a/b/c.txt"}
+   :expect "/files/a/b/c.txt"}
+
+  ;; Round-trip property: for every registered route, route-url ∘ match-url is identity.
+  {:call :round-trip :url "/articles/intro"}
+  {:call :round-trip :url "/files/a/b/c.txt"}
+  {:call :round-trip :url "/search?q=test&page=3"}]}

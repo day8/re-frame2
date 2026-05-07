@@ -1,26 +1,45 @@
-# EP 007 — Stories, Variants, and Workspaces
+# Spec 007 — Stories, Variants, and Workspaces
 
-> Status: Drafting. Post-v1 per [000 §Scope](000-Vision.md#scope). Builds on the frame foundation in [002-Frames.md](002-Frames.md) and the testing infrastructure in [008-Testing.md](008-Testing.md) — stories *use* the same primitives tests use, layered with rendering, args/controls, decorators, play functions, and a Storybook-class UI.
+> Builds on the frame foundation in [002-Frames.md](002-Frames.md) and the testing infrastructure in [008-Testing.md](008-Testing.md) — stories *use* the same primitives tests use, layered with rendering, args/controls, decorators, play functions, and a Storybook-class UI.
+>
+> **Ownership boundary:** [008-Testing.md](008-Testing.md) is the **owner** of the testing infrastructure surface — fixtures, dispatch-sync, per-test stubbing, headless evaluation, framework adapters, the JVM-runnable test surface. 007 cross-references 008 for portable-stories-as-tests rather than restating; story-as-test plumbing builds *on* 008's primitives.
 
 ## Abstract
 
-A re-frame2 component-development tool surfaces re-frame components in isolation, in specific states, with rich tooling around them — Storybook for re-frame, but data-oriented and frame-native. This EP captures the design space, drawing on Storybook (CSF, args, decorators, play), Histoire (the story/variant split), Workspaces (the workspace layout concept), and devcards (the meta-application philosophy).
+A re-frame2 component-development tool surfaces re-frame components in isolation, in specific states, with rich tooling around them — data-oriented and frame-native. This Spec captures the design space.
 
-The unit of design is a **three-way split** that prior art across these libraries supports:
+The unit of design is a **three-way split**:
 
 - **Story** — a topic / component / slice. Defines what's being shown and the surrounding fixtures.
 - **Variant** — one concrete scenario of a Story. Each variant is the Story rendered in a specific state.
 - **Workspace** — a layout that arranges stories/variants on screen for browsing, documentation, or comparison.
 
-This split is the single most important learning from prior art; the rest of the design — args, decorators, play, tags — slots cleanly into one of the three.
+The rest of the design — args, decorators, play, tags — slots cleanly into one of the three.
 
-## Why a separate EP
+## Why a separate Spec
 
 Stories/variants/workspaces are downstream concerns. They are *enabled by* the frame and view designs in 002 and 004; they shouldn't drive those decisions. Keeping the design here:
 
 - Lets 002 and 004 stay focused on the foundation.
-- Lets the story-tool design evolve independently of v1 framework decisions.
-- Makes it easy to defer past v1 if other work takes priority — `reg-story`/`reg-variant`/`reg-workspace` are sugar; everything is doable by hand with `reg-frame` + `reg-view` + `frame-provider`.
+- Lets the story-tool design evolve independently of foundation framework decisions.
+- `reg-story`/`reg-variant`/`reg-workspace` are sugar; everything is doable by hand with `reg-frame` + `reg-view` + `frame-provider`.
+
+## Canonical id grammar
+
+The story / variant / workspace id syntax is **locked** and used consistently throughout the document, the registrar, and the story tool:
+
+| Artefact | Id shape | Example |
+|---|---|---|
+| Story | `:story.<dotted-path>` | `:story.auth.login-form` |
+| Variant | `:story.<dotted-path>/<variant-name>` | `:story.auth.login-form/empty` |
+| Workspace | `:Workspace.<dotted-path>/<workspace-name>` | `:Workspace.Auth/all-states` |
+
+Rules:
+
+1. The `:story.<...>` and `:Workspace.<...>` prefixes are reserved (see [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+2. The dotted path segments organise the tree the story tool renders — split on `.` to build the navigator.
+3. Variant names go after `/`. A variant id always belongs to exactly one story; the story id is everything before `/`.
+4. Tools enumerate via `(rf/handlers :story)`, `(rf/handlers :variant)`, `(rf/handlers :workspace)`. The hierarchy is recoverable from the id alone — no separate `:title` field is required.
 
 ## The three concepts
 
@@ -69,6 +88,80 @@ A variant is a **specific scenario** — one state of a story. Variants register
 
 The keyword convention `:story.<path>/<variant>` keeps stories and their variants discoverable as a group, while still being a single keyword for re-frame's purposes.
 
+#### Variant artefact contract — variants are data, not functions
+
+Locked. A variant's body is a **serialisable artefact** — every field is plain data (vectors, maps, keywords, strings, numbers), not a function. This makes variants:
+
+- **Wire-portable.** A variant is round-trippable as EDN/JSON; the visual-regression service, the documentation generator, and the agent-input pipeline all consume the same shape.
+- **Storable.** A frozen variant snapshot (per [§Variant snapshot identity](#variant-snapshot-identity)) is serialisable.
+- **Diffable.** Two variants compare structurally; the story tool's "what changed" panel is structural diff, not function identity.
+
+Concretely, the keys allowed in a `reg-variant` body:
+
+| Key | Shape | Notes |
+|---|---|---|
+| `:doc` | string | One-sentence what-and-why. |
+| `:extends` | variant-id | Parent variant; merged at registration time per [§Composed variants](#composed-variants--reference-parent-by-id-override-by-data). Resolves to a registered variant id; cycles are a registration error. |
+| `:events` | vector of event vectors | Setup events; dispatch-synced into the variant's frame in order, after `:loaders` complete. Data only. |
+| `:play` | vector of event vectors (incl. `:rf.assert/*`) | Post-render interaction sequence. Data only. |
+| `:args` | map | Override or extend the parent story's args. |
+| `:argtypes` | map (optional override) | Per-arg control description. Auto-derived from the view's [Spec 010](010-Schemas.md) schema where present. |
+| `:tags` | set of keyword | Inclusion tags from the registered vocabulary (see [§Inclusion tags](#inclusion-tags)). |
+| `:decorators` | vector of vectors | Each decorator is `[decorator-id args...]` — id-valued, not function-valued. |
+| `:loaders` | vector of event vectors | Async setup events; dispatch-synced before `:events` and before render (see [§Loaders](#loaders-advanced--async-setup) for the lifecycle). Data; the *handler* the loader event ids point to is the only fn-valued part. |
+| `:args->events` | map | Per-arg event-id mapping `{<arg-key> <event-id>}`; the registered handler at `<event-id>` receives the new value as its payload. Data only — see [§Args mapping to state](#args-mapping-to-state). |
+| `:platforms` | set | Subset of `#{:server :client}`; controls where the variant runs. |
+
+**No fn-valued slots** in variant bodies. Where today's prior art (Storybook decorators, Histoire `setup`) takes a function, re-frame2 takes a registered id (`reg-decorator :centered-layout {...}`); the function lives at the registration site, not at the variant call site.
+
+#### Composed variants — reference parent by id, override by data
+
+A variant may reference another variant as its base, overriding selected keys:
+
+```clojure
+(rf/reg-variant :story.auth.login-form/loading-with-prefill
+  {:extends :story.auth.login-form/loading                ;; parent variant id
+   :events [[:auth/initialise]
+            [:auth/email-changed "alice@example.com"]
+            [:auth/password-changed "hunter2"]
+            [:auth/login-pressed]]                         ;; override events
+   :tags   #{:dev :docs}})                                  ;; override tags
+```
+
+`:extends` resolves at registration time. The library merges the parent's body with the child's (child wins key-by-key); the result is a fully data-shaped variant artefact. Composition is a pure-data transform — no closures, no inheritance ceremony.
+
+The `:rf/variant` schema enforces both rules (data-only fields; `:extends` resolves to a registered variant id). See [Spec-Schemas §`:rf/variant`](Spec-Schemas.md#rfvariant).
+
+### Combined `reg-story` form — a sugar that desugars
+
+Two registration forms are canonical, and authors choose by ergonomics:
+
+**Form A (separate, hot-reload-friendly):** `(rf/reg-story :id metadata)` + N `(rf/reg-variant :story-id/variant-id metadata)` calls. Each variant is a top-level form — saving the file invalidates only the changed variant; hot-reload is precise.
+
+**Form B (combined):** `(rf/reg-story :id metadata)` with a `:variants` map in the metadata. The story library *desugars* this at macro-expansion time into Form A — the registrar receives N independent `reg-variant` calls, so hot-reload-by-variant still works the same way. Form B is sugar for one-form-per-story authoring.
+
+```clojure
+;; Form B: combined; the macro emits N reg-variant calls at expansion.
+(rf/reg-story :story.auth.login-form
+  {:doc "The login form component."
+   :component login-form
+   :decorators [[centered-layout]]
+   :args     {:placeholder "you@example.com"}
+   :argtypes {:placeholder {:control :text}}
+   :tags     #{:dev :docs}
+   :variants {:empty             {:events [[:auth/initialise]]}
+              :validation-error  {:events [[:auth/initialise]
+                                           [:auth/email-changed "not-an-email"]
+                                           [:auth/login-pressed]]
+                                  :tags   #{:dev :docs :test}}
+              :loading           {:events [[:auth/initialise]
+                                           [:auth/email-changed "alice@example.com"]
+                                           [:auth/login-pressed]]
+                                  :decorators [[force-fx-stub :http {:status :pending}]]}}})
+```
+
+Both forms are first-class.
+
 ### Workspace
 
 A workspace is a **layout** — multiple stories/variants arranged on screen for browsing, documentation, or side-by-side comparison.
@@ -99,8 +192,6 @@ Storybook's headline UX is the **controls** panel — interactive props that re-
 
 ### Args at three levels
 
-Following Storybook's inheritance:
-
 1. **Global args** — re-frame2 doesn't have a global default beyond what frames give us. Story-tool config can supply defaults (theme, locale).
 2. **Story-level args** — declared on `reg-story`; inherited by every variant.
 3. **Variant-level args** — override or extend the story's args.
@@ -128,6 +219,8 @@ Following Storybook's inheritance:
 
 Control types map to common widgets: `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`, `:date`, `:color`. The tool can extend with custom controls.
 
+> **Auto-derivation from Spec 010 schemas.** A Malli enum on a view's arg becomes a `:select`; a string becomes `:text`; a `[:int {:min 1 :max 100}]` becomes a bounded number control. The stories library consults the view's [Spec 010](010-Schemas.md) schema and synthesises `:argtypes`; authors write `:argtypes` only to override or extend. Single source of truth for arg shape.
+
 ### Args mapping to state
 
 Args are passed to the view as data. By default the view renders with the current args:
@@ -142,18 +235,23 @@ Args are passed to the view as data. By default the view renders with the curren
 
 When a control mutates an arg, the story tool dispatches `[:story/set-arg <story-id> <arg-key> <new-value>]` into the variant's frame; the view re-renders with the new args.
 
-For variants that need args to map into `app-db` (e.g., a `:logged-in?` arg controls whether the auth section is rendered), the variant declares an explicit mapping:
+For variants that need args to map into `app-db` (e.g., a `:logged-in?` arg controls whether the auth section is rendered), the variant declares an explicit mapping by registered event id:
 
 ```clojure
+;; Register an event handler that receives the new arg value as its payload.
+(rf/reg-event-fx :story.auth/set-logged-in
+  (fn [_ [_ v]]
+    (if v
+      {:fx [[:dispatch [:auth/restore-session {:user "alice"}]]]}
+      {:fx [[:dispatch [:auth/log-out]]]})))
+
 (rf/reg-variant :story.auth.login-form/logged-in-arg
   {:args         {:logged-in? false}
-   :args->events {:logged-in? (fn [v] (if v
-                                        [:auth/restore-session {:user "alice"}]
-                                        [:auth/log-out]))}
-   :events [[:auth/initialise]]})
+   :args->events {:logged-in? :story.auth/set-logged-in}    ;; registered id, not a fn
+   :events       [[:auth/initialise]]})
 ```
 
-Most stories don't need `:args->events` — args going to the view directly is enough.
+`:args->events` is `{<arg-key> <event-id>}` — entries are registered event ids, not inline functions. When the control mutates the arg, the story tool dispatches `[<event-id> <new-value>]` into the variant's frame. Most stories don't need `:args->events` — args going to the view directly is enough.
 
 ## Decorators
 
@@ -175,9 +273,10 @@ Decorators wrap stories with shared infrastructure: themes, layout containers, m
 [mock-auth {:user {:id 42 :name "Alice"}}]
 [mock-router {:current-path "/dashboard"}]
 
-;; Fx override — affects effects
-[force-fx-stub :http (fn [args] {:status 200 :body {...}})]
-[force-fx-stub :localstorage (constantly nil)]
+;; Fx override — affects effects. The stub payload is data; any handler logic
+;; lives in a registered event/fx handler that the decorator references by id.
+[force-fx-stub :http {:status 200 :body {...}}]
+[force-fx-stub :localstorage {:value nil}]
 ```
 
 Decorators are themselves re-frame artefacts — usually small libraries that ship as `re-frame.decorators.theme`, `re-frame.decorators.auth`, etc. Story authors require what they need; decorators register hooks against the framework's interceptor and fx surfaces (no new framework primitives required).
@@ -188,7 +287,7 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 
 ## Play functions
 
-Storybook's play functions execute after render to simulate user interaction. In re-frame2, play is a **sequence of events fired after the variant has rendered**, distinct from `:events` (which run before render to set up state).
+Play is a **sequence of events fired after the variant has rendered**, distinct from `:events` (which run before render to set up state).
 
 ```clojure
 (rf/reg-variant :story.auth.login-form/login-flow
@@ -197,15 +296,17 @@ Storybook's play functions execute after render to simulate user interaction. In
    :play   [[:auth/email-changed "alice@example.com"]
             [:auth/password-changed "hunter2"]
             [:auth/login-pressed]
-            [:assert/path-equals [:auth :status] :authenticated]
-            [:assert/path-equals [:nav :route] :dashboard]]})
+            [:rf.assert/path-equals [:auth :status] :authenticated]
+            [:rf.assert/path-equals [:nav :route] :dashboard]]})
 ```
 
-`:assert/...` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints.
+`:rf.assert/*` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see [§Assertion vocabulary is registered and enumerable](#assertion-vocabulary) below for the full registered set.
+
+> **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/handlers :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
 
 ### Story-as-test duality
 
-This is the most important consequence of the play model: **a variant with `:events` + `:play` + `:assert/...` is a complete component test**. Same artefact serves dev-time visualisation, regression testing, and AI-agent input. Test runners just iterate over `:story.*/*` variants tagged `:test` and run their setup + play, asserting on the resulting state.
+A variant with `:events` + `:play` + `:rf.assert/*` is a complete component test. Same artefact serves dev-time visualisation, regression testing, and tooling input. Test runners iterate over `:story.*/*` variants tagged `:test` and run their setup + play, asserting on the resulting state.
 
 This collapses several artefacts a typical project maintains separately: the dev-time playground, the test suite, the regression-screenshot fixtures, and the documentation. They become facets of one registered thing.
 
@@ -217,13 +318,13 @@ The standardised inclusion-tag vocabulary controls which contexts include a vari
 |---|---|
 | `:dev` | Visible in the development story tool. |
 | `:docs` | Included in generated documentation pages. |
-| `:test` | Run as a test in the test suite (`:play` + `:assert/...`). |
+| `:test` | Run as a test in the test suite (`:play` + `:rf.assert/*`). |
 | `:screenshot` | Captured in screenshot/visual-regression runs. |
 | `:experimental` | Hidden in production-ish views; visible in dev. |
 | `:internal` | Excluded from public-facing docs. |
 | `:agent` | Surfaced to AI agents as canonical examples. |
 
-A variant's tags default to `#{:dev :docs}`. Custom tags work for project-specific filters. Tools intersect their requested tag set with the variant's tags.
+A variant's tags default to `#{:dev :docs}`. Tools intersect their requested tag set with the variant's tags.
 
 ```clojure
 :tags #{:dev :docs :test :screenshot}      ;; full coverage
@@ -231,28 +332,63 @@ A variant's tags default to `#{:dev :docs}`. Custom tags work for project-specif
 :tags #{:dev :test}                        ;; not in docs (e.g., edge case)
 ```
 
-## Loaders (advanced — async setup)
+### Tags are a registered, queryable vocabulary
 
-Storybook loaders run asynchronously before stories render to fetch data. We prefer **deterministic `:events`** because they're reproducible and replayable. Loaders are an escape hatch for cases that genuinely need async setup (e.g., generating a test image from a remote service).
+Tags are not free-form strings — every tag a project recognises must be **registered** via `reg-tag`:
 
 ```clojure
+(rf/reg-tag :dev
+  {:doc "Visible in the development story tool."})
+
+(rf/reg-tag :auth/regression-set
+  {:doc "Variants used in the auth feature's regression suite."})
+```
+
+The default tag vocabulary above (`:dev`, `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal`, `:agent`) is registered by the stories library at load time. Project-specific tags must be registered before use. The tag set is **queryable**:
+
+```clojure
+(rf/handlers :tag)               ;; → all registered tags + their docs
+(rf/handlers :tag #(contains? (:tags %) :auth))   ;; filtered
+```
+
+Tools enumerate this set before assigning tags to a variant. A variant whose tags include an unregistered keyword fails registration with `:rf.error/unknown-tag`. This is the AI-first "public query surfaces" principle ([Principles.md §Public query surfaces](Principles.md#public-query-surfaces)) applied to tag vocabulary.
+
+## Loaders (advanced — async setup)
+
+Loaders run asynchronously before stories render to fetch data. **Deterministic `:events`** are preferred because they're reproducible and replayable. Loaders are an escape hatch for cases that genuinely need async setup (e.g., generating a test image from a remote service).
+
+```clojure
+;; The async work lives in a registered event handler; the variant references it by id.
+(rf/reg-event-fx :charts.heatmap/fetch-fixture
+  (fn [_ _]
+    {:fx [[:http {:url     "/fixtures/heatmap.json"
+                  :on-success [:charts/load-fixture]}]]}))
+
 (rf/reg-variant :story.charts.heatmap/with-real-data
   {:doc      "Renders against a fixture fetched from disk."
-   :loaders  [(fn [] (-> (js/fetch "/fixtures/heatmap.json")
-                         (.then ...)))]
+   :loaders  [[:charts.heatmap/fetch-fixture]]              ;; event vector — the handler does the async work
    :events   [[:charts/load-fixture]]
    :tags     #{:dev :docs}})
 ```
 
-Mark loaders as advanced in docs. The vast majority of variants should use `:events`.
+### Loader lifecycle (canonical)
+
+The variant setup phases run in this fixed order:
+
+1. **Loaders.** Each event in `:loaders` is dispatched into the variant's frame. The library waits for the loader's drain to settle (run-to-completion per [002](002-Frames.md)) and any pending fx the loader emitted (e.g., `:http`) to resolve and dispatch their continuation events. A loader is *complete* when no further events are in flight against the variant's frame.
+2. **Events.** Each event in `:events` is dispatch-synced in order, after every loader has completed. By the time `:events` runs, the loaded data is already in `app-db`.
+3. **Render.** The view renders against the post-events `app-db`.
+4. **Play.** Each event in `:play` is dispatched in order against the now-rendered view (per [§Play functions](#play-functions)).
+
+Hosts that don't have a usable async surface for waiting on loader completion (rare) treat `:loaders` as a synonym for `:events`; the canonical flow is the four-phase sequence above. Mark loaders as advanced in docs. The vast majority of variants should use `:events` only.
 
 ## Effect mocking — hook design, not policy
 
 Stubbing `:http` and similar effects for stories uses **hooks for per-variant interceptors and fx overrides** — not mocking policy baked into `reg-variant`.
 
-The framework hooks (added at the foundation level — see 002 §Per-frame drain mode, but expanded):
+The framework hooks (at the foundation level — see [002-Frames.md](002-Frames.md)):
 
-- `:on-create` events run at frame creation (already in 002).
+- `:on-create` events run at frame creation.
 - **Per-frame fx override** — a variant can declare fx replacements active for its frame's lifetime. Available via `reg-frame :fx-overrides` (see [002 §Per-frame and per-call overrides](002-Frames.md)).
 - **Per-frame interceptor injection** — a variant can register interceptors that run only for its frame.
 
@@ -275,35 +411,68 @@ Use cases:
 
 - **Component tests** (`deftest` in CLJS test suites) — call `run-variant`, assert on `:assertions` or `:app-db`.
 - **Screenshot tests** — render `:rendered-hiccup` to JSDOM/Playwright, capture image, diff.
-- **Agent input** — pass the variant id to a re-frame-pair-flavoured agent; agent reads `:app-db` and `:assertions` to reason about behaviour.
+- **Tooling input** — pass the variant id to an attached agent or inspector; consumers read `:app-db` and `:assertions` to reason about behaviour.
 - **Manual REPL exploration** — call `run-variant` interactively to see what state events produce.
 
 The same data drives every consumer. No artefact duplication.
 
-## What v1 supplies vs. what the library adds
+> **Live-watching a variant.** `(rf/watch-variant variant-id)` re-runs the variant whenever any of its dependencies (events, subs, view, schema) re-register. The framework already ships hot-reload notifications; `watch-variant` is a thin library composition over them. Cycle-prevention via registry-version diffing — only re-run when a dependency's registration metadata actually changed.
 
-Staging policy: see [000 §Scope](000-Vision.md#scope). What sits where:
+## Variant snapshot identity
 
-**v1 framework hooks (already in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`handlers`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
+Every variant has a stable **snapshot identity** comprising its `:variant-id` plus a content hash of its serialised body. The hash includes:
 
-**Post-v1 `re-frame.stories` library:** `reg-story`/`reg-variant`/`reg-workspace`; side-table registries; `run-variant` (programmatic execution + assertions); `reset-variant`; `variants-with-tags`; the Storybook-class UI.
+- `:events` and `:play` event vectors (in order),
+- the resolved (post-`:extends`-merge) args, decorators, and tags,
+- the parent story's component id (`:component`) and decorators,
+- the *registered* schema digest of the view (per [011 §`:rf/schema-digest`](011-SSR.md)) — so a schema change invalidates the snapshot identity.
 
-The framework v1 surface is sufficient for any team to roll their own equivalent if they want.
+The hash is computed over a canonicalised data form (sorted keys, deterministic vector order) so it round-trips across hosts. Visual-regression and screenshot pipelines key against `[variant-id content-hash]` — when the body changes, the hash changes; when the body doesn't change, the hash is stable across runs. The framework hook is `(rf/snapshot-identity variant-id) → {:variant-id ..., :content-hash "..."}`.
+
+This is the AI-first "machine-readable invariants" principle: tooling comparing before-and-after a code change asks the runtime which variants' snapshot identities changed without re-rendering them.
+
+## Story-tool extension hook
+
+The stories library's tool surface is **extensible by registering panels**. A panel is a registered view with a known kind:
+
+```clojure
+(rf/reg-story-panel :a11y/inspector
+  {:doc       "Accessibility issues for the active variant."
+   :title     "Accessibility"
+   :placement :right
+   :render    :a11y/inspector-view})        ;; id of a reg-view
+```
+
+Panels are registered against the story-tool's own registry; the tool reads `(rf/handlers :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
+
+The framework registrar already supports new kinds via the existing reg- machinery (per [001-Registration.md](001-Registration.md)); panels do not require a new framework primitive.
+
+## What the framework supplies vs. what the library adds
+
+**Framework hooks (in 002):** `make-frame`/`destroy-frame`/`reset-frame`; per-frame `:fx-overrides`/`:interceptor-overrides`/`:interceptors`; run-to-completion drain; public registrar query API (`handlers`/`frame-meta`/`frame-ids`/`get-frame-db`/`snapshot-of`/`sub-topology`); hot-reload notifications.
+
+**`re-frame.stories` library:** `reg-story`/`reg-variant`/`reg-workspace`; side-table registries; `run-variant` (programmatic execution + assertions); `reset-variant`; `variants-with-tags`; the story-tool UI.
+
+The framework surface is sufficient for any team to roll their own equivalent if they want.
 
 ## Relationship with frames
 
-A variant *is* a frame, registered under its variant keyword. But variant `:events` are NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame-is-atomic)), while variant `:events` is an explicitly multi-step setup sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration:
+A variant *is* a frame, registered under its variant keyword. But variant `:events` are NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame-is-atomic)), while variant `:events` is an explicitly multi-step setup sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
 
 ```clojure
 ;; conceptual setup logic for reg-variant
 (defn setup-variant! [variant-id]
-  (let [{:keys [events]} (variant-meta variant-id)
-        story-events     (story-events-for variant-id)
-        all-events       (concat story-events events)]
-    (rf/reg-frame variant-id {:doc ...})           ;; frame starts with app-db = {}
-    (doseq [ev all-events]
-      (rf/dispatch-sync ev {:frame variant-id}))   ;; iterate events, dispatch each
+  (let [{:keys [loaders events]} (variant-meta variant-id)
+        story-events             (story-events-for variant-id)
+        all-events               (concat story-events events)]
+    (rf/reg-frame variant-id {:doc ...})              ;; frame starts with app-db = {}
+    (doseq [ev loaders]                               ;; phase 1 — async loaders
+      (rf/dispatch-sync ev {:frame variant-id})
+      (await-loader-drain variant-id))
+    (doseq [ev all-events]                            ;; phase 2 — :events (incl. story-level)
+      (rf/dispatch-sync ev {:frame variant-id}))
     (record-variant-meta variant-id {:view ..., :decorators ..., :play ..., :tags ...})))
+;; phase 3 (render) and phase 4 (play) happen later, driven by the host.
 ```
 
 So the variant's *frame* is a normal frame (no `:on-create`); the variant *library* handles the multi-event setup. This keeps `reg-frame :on-create` semantically simple (one event) while letting stories express their richer setup pattern.
@@ -312,50 +481,32 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 ## Open questions
 
-### S-1. Should `reg-story` and `reg-variant` be separate, or unified?
+### Workspaces — generic or specialised?
 
-Two macros (`reg-story` declares the topic + shared fixtures; `reg-variant` declares each scenario) is cleaner but verbose for simple cases. A combined form (`reg-story` with `:variants {...}` map) is terser but harder to hot-reload variant-by-variant.
+A `:layout` field with `:grid`, `:prose`, `:tabs` etc. covers common cases. Custom layouts are just custom views referencing variant ids.
 
-Recommendation: **both forms, with the combined form desugaring to separate registrations**. Single source of truth, two ergonomics.
+### Devcards / Workspaces interop
 
-### S-2. Hierarchy convention — keyword segments or `:title`?
+Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims.
 
-Storybook uses `title: "Components/Forms/LoginForm"`. Histoire uses file paths. We can use namespaced-keyword segments (`:story.components.forms/login-form`) parsed by the tool — Clojure-native, no separate field.
+### Story composition across libraries
 
-Recommendation: keyword segments. Tools split on `.` to build the tree; the part after `/` is the variant name within a story; story-only ids end in just the story name.
+Multiple `:story.*` namespaces can come from different libraries. The story tool reads all registered `:story.*` ids.
 
-### S-3. Args mapping — view-direct or via app-db?
+## Resolved decisions
+
+### Should `reg-story` and `reg-variant` be separate, or unified?
+
+**Both forms, with the combined form desugaring to separate registrations.** `(reg-story :id metadata)` + N `(reg-variant :story-id/variant-id metadata)` is the canonical pair. The combined `:variants {...}` map on `reg-story` is sugar that desugars at macro-expansion time to N independent `reg-variant` calls — hot-reload-by-variant still works. See [§Combined `reg-story` form](#combined-reg-story-form--a-sugar-that-desugars).
+
+### Args mapping — view-direct or via app-db?
 
 Args go to the view directly by default; explicit `:args->events` for variants that need state changes. Simple cases stay simple; complex cases have an opt-in mechanism.
 
-Resolution: implemented as sketched above.
+### Test integration — built-in runner or test-framework adapter?
 
-### S-4. Test integration — built-in runner or test-framework adapter?
+The story library ships a `run-variant`-flavoured runner. Test-framework adapters (`re-frame-test`, etc.) consume `run-variant` and produce framework-specific test cases. The built-in runner is part of the story library, not the framework; adapters layer on top of it.
 
-The story library (post-v1) can ship a `run-variant`-flavoured runner. Test-framework adapters (`re-frame-test`, etc.) consume `run-variant` and produce framework-specific test cases. The built-in runner is part of the story library, not the v1 framework; adapters layer on top of it.
+### Screenshot / visual-regression integration
 
-### S-5. Workspaces — generic or specialised?
-
-A `:layout` field with `:grid`, `:prose`, `:tabs` etc. covers common cases. Custom layouts are just custom views referencing variant ids. Generic enough for v1; rich enough for most uses.
-
-### S-6. Screenshot / visual-regression integration
-
-Out of scope for the framework; the test runner integration is enough. Visual-regression tools (Chromatic-flavoured) consume the variant registry and `run-variant`'s rendered hiccup.
-
-### S-7. Devcards / Workspaces interop
-
-Existing CLJS projects using devcards or Wilker Lúcio's workspaces should be able to consume re-frame2 stories with adapter shims. Not v1 work; possible community contribution.
-
-### S-8. Story composition across libraries
-
-Storybook supports federating multiple Storybook instances on one page. We can do the same with the existing namespace mechanism — multiple `:story.*` namespaces can come from different libraries. The story tool reads all registered `:story.*` ids.
-
-## Disposition
-
-**Not v1.** The framework hooks needed are small (per-frame fx override + interceptor injection; the variants/workspaces registries can live in user-space first). Path:
-
-1. **v1** ships the foundation hooks (frames, `:on-create`/`:on-destroy`, `reset-frame`, the inclusion-tag concept folded into the registrar metadata, hook surface for fx override).
-2. **Post-v1**, prototype `re-frame.stories` as an external library against the foundation. Iterate on `reg-story`/`reg-variant`/`reg-workspace` and the runner.
-3. **Once stable**, evaluate promoting to in-tree (or document as the recommended companion library).
-
-The same path xstate took: external library, became standard, stayed external. The framework provides the substrate; the experience-layer libraries thrive on top.
+The framework hook is: variants have a stable snapshot identity (`:variant-id` + content hash) per [§Variant snapshot identity](#variant-snapshot-identity). Specific visual-regression service integrations consume the variant registry, `run-variant`'s rendered hiccup, and the snapshot identity.

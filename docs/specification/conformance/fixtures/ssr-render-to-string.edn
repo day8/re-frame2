@@ -1,0 +1,42 @@
+;; Conformance fixture: ssr/render-to-string
+;; Pure hiccup → HTML string emission. JVM-runnable; no React or DOM.
+
+{:fixture/id           :ssr/render-to-string
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/render-to-string}
+ :fixture/doc          "render-to-string emits HTML from hiccup. Pure function. Tests element nesting, attribute encoding, void elements, text escaping, and registered-view resolution."
+
+ :fixture/registry
+ {:view {:greeting {:doc "Greeting block."}}
+  :sub  {}}
+
+ :fixture/handlers
+ {:view {:greeting [[:hiccup [:div.greet
+                              [:h1 "Hello"]
+                              [:p "Welcome, " [:strong [:event-arg 0]]]]]]}}
+
+ :fixture/calls
+ [{:call    :render-to-string
+   :input   [:greeting "world"]
+   :expect  "<div class=\"greet\"><h1>Hello</h1><p>Welcome, <strong>world</strong></p></div>"}
+
+  ;; Void elements self-close per HTML5.
+  {:call    :render-to-string
+   :input   [:img {:src "/logo.png" :alt "Logo"}]
+   :expect  "<img src=\"/logo.png\" alt=\"Logo\">"}
+
+  ;; Text content is escaped.
+  {:call    :render-to-string
+   :input   [:p "<script>alert('xss')</script>"]
+   :expect  "<p>&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;</p>"}
+
+  ;; Attribute values are escaped.
+  {:call    :render-to-string
+   :input   [:a {:href "/?q=1&y=2" :title "A & B"} "link"]
+   :expect  "<a href=\"/?q=1&amp;y=2\" title=\"A &amp; B\">link</a>"}
+
+  ;; Doctype prefix on demand.
+  {:call    :render-to-string
+   :input   [:html [:body "page"]]
+   :opts    {:doctype? true}
+   :expect  "<!DOCTYPE html><html><body>page</body></html>"}]}

@@ -4,6 +4,7 @@
 
 {:fixture/id           :fx/platforms
  :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/fx :ssr/response-contract}
  :fixture/doc          "An fx with :platforms #{:client} is skipped when the active platform is :server. The runtime emits a :rf.fx/skipped-on-platform trace event."
 
  :fixture/registry
