@@ -1,20 +1,18 @@
 <p align="center"><img src="docs/images/logo/re-frame-colour.png?raw=true" alt="re-frame2 logo"></p>
 
-
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
 
-Son of [re-frame](https://github.com/day8/re-frame).
+## What Is It?
 
+It is the firstborn of [re-frame](https://github.com/day8/re-frame).
 
 ## Status
 
 Still **very** much a work in progress. Call it alpha. Call it aspirational. Call me crazy.
 
-None of the primary claims/goals have yet been verified. But the specification itself is almost complete and you can most certainly see where this is going.  Interested in constructive feedback if you have the time.
-
-
+None of the primary claims/goals have yet been verified. But the specification itself is almost complete and you can most certainly see where this is going. Interested in constructive feedback if you have the time.
 
 ## AI First?
 
@@ -76,7 +74,6 @@ The three AI-first perspectives above ship across **three concrete layers**:
 - **For AI agents and implementors (the specification).** Start at [`docs/specification/`](docs/specification/) — load-bearing decisions in [000-Vision](docs/specification/000-Vision.md), per-area Specs in 001–013, plus the conformance corpus.
 - **Worked examples.** [`examples/`](examples/README.md) — pedagogical sketches ([counter](examples/counter/), [login](examples/login/), [routing](examples/routing/), [SSR](examples/ssr/)); benchmarks ([7GUIs](examples/7guis/README.md), [nine-states](examples/nine-states/README.md)); the [RealWorld (Conduit)](examples/realworld/README.md) worked scaffold. Maturity tagging on each — see [examples/README.md](examples/README.md). Note: written against the imagined v2 API; they won't run until the reference implementation lands.
 
-
 ## Reading paths
 
 The corpus has two audiences and they each get their own docs.
@@ -111,7 +108,6 @@ Because re-frame2 is AI-oriented, **the main body of the documentation is the [s
 5. The capability Specs (004–013) in numeric order. Each is independent.
 6. [`docs/specification/conformance/`](docs/specification/conformance/) — the fixture corpus an AI verifies against.
 7. [`examples/`](examples/) — see the pattern in working code (once the reference implementation lands).
-
 
 ## Project layout
 
