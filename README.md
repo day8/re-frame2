@@ -10,9 +10,11 @@ It is the firstborn of [re-frame](https://github.com/day8/re-frame).
 
 ## Status
 
-Still **very** much a work in progress. Call it alpha. Call it aspirational. Call me crazy.
+Still very much a **work in progress**. Call it alpha. Call it aspirational. Call me crazy.
 
-None of the primary claims/goals have yet been verified. But the specification itself is almost complete and you can most certainly see where this is going. Interested in constructive feedback if you have the time.
+None of the primary claims/goals have yet been verified and **there is no working implementation yet**. But the specification itself is almost complete and you can most certainly see where this is going.
+
+I'm interested in constructive feedback if you have the time.
 
 ## AI First?
 
