@@ -54,6 +54,55 @@
       (is (= {:flag :set} (rf/get-frame-db :rf/default)))
       (is (= 1 @fired)))))
 
+;; ---- standard interceptors ------------------------------------------------
+
+(deftest path-interceptor
+  (testing "(path :a :b) focuses a handler on the [:a :b] sub-slice"
+    (rf/reg-event-db :init   (fn [_ _] {:user {:profile {:name "alice" :role :admin}}}))
+    (rf/reg-event-db :rename
+      [(rf/path :user :profile :name)]
+      ;; Handler sees ONLY the slice value as :db.
+      (fn [name [_ new-name]]
+        (str new-name "-renamed-from-" name)))
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:rename "bob"])
+    ;; Result spliced back at [:user :profile :name]; :role is preserved.
+    (is (= {:user {:profile {:name "bob-renamed-from-alice"
+                             :role :admin}}}
+           (rf/get-frame-db :rf/default)))))
+
+(deftest unwrap-interceptor
+  (testing "[unwrap] gives the handler the payload map directly"
+    (let [seen (atom nil)]
+      (rf/reg-event-fx :consume
+        [rf/unwrap]
+        (fn [_cofx payload]
+          (reset! seen payload)
+          {}))
+      (rf/dispatch-sync [:consume {:k "v" :n 7}])
+      (is (= {:k "v" :n 7} @seen)
+          "handler should receive the payload map as :event"))))
+
+(deftest dispatch-sync-in-handler-errors
+  (testing "calling dispatch-sync from inside a handler raises a structured error"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
+      (rf/reg-event-fx :nested
+        (fn [_ _]
+          ;; Calling dispatch-sync from inside a handler should NOT silently
+          ;; interleave; it must raise :rf.error/dispatch-sync-in-handler.
+          (rf/dispatch-sync [:outer])
+          {}))
+      (rf/dispatch-sync [:nested])
+      (rf/remove-trace-cb! ::dsih)
+      (is (some (fn [ev]
+                  (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                       (= :error (:op-type ev))
+                       (= :no-recovery (:recovery ev))))
+                @traces)
+          "expected :rf.error/dispatch-sync-in-handler trace event"))))
+
 ;; ---- subscription chain ---------------------------------------------------
 
 (deftest layer-1-and-layer-2-subs

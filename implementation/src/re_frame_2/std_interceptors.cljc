@@ -77,10 +77,15 @@
                                   :expected "[event-id payload-map]"
                                   :recovery :no-recovery})
               ctx)
-          (interceptor/assoc-coeffect ctx :event (second event)))))
+          ;; Stash the unwrapped event under :rf/unwrap-stash so :after
+          ;; can restore the original vector for downstream consumers.
+          (-> ctx
+              (assoc :rf/unwrap-stash event)
+              (interceptor/assoc-coeffect :event (second event))))))
     :after
     (fn [ctx]
-      ;; Restore :event from :original-event so downstream :after stages
-      ;; (and trace event tagging) see the unmodified vector.
-      (interceptor/assoc-coeffect ctx :event
-        (interceptor/get-coeffect ctx :original-event)))))
+      (if-let [original (:rf/unwrap-stash ctx)]
+        (-> ctx
+            (dissoc :rf/unwrap-stash)
+            (interceptor/assoc-coeffect :event original))
+        ctx))))

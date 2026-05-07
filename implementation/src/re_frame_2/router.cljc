@@ -232,7 +232,8 @@
   immediately, then drain any synchronously-enqueued events to fixed
   point. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
   callers (test setup, REPL). Calling from inside a handler raises
-  :rf.error/dispatch-sync-in-handler.
+  :rf.error/dispatch-sync-in-handler — handler bodies should use
+  dispatch (the queued form) instead.
 
   Implementation: the seed event is pushed at the FRONT of the queue
   and then the drain loop runs. Because the scheduled? flag is set to
@@ -244,17 +245,35 @@
   ([event opts]
    (let [envelope     (build-envelope event opts)
          frame-record (frame/frame (:frame envelope))]
-     (when frame-record
+     (cond
+       (nil? frame-record)
+       (trace/emit-error! :rf.error/frame-destroyed
+                          {:frame (:frame envelope) :event event
+                           :recovery :no-recovery})
+
+       (:in-sync-drain? @(:router frame-record))
+       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside a
+       ;; running drain is an error — the event would interleave with the
+       ;; outer handler's run-to-completion.
+       (trace/emit-error! :rf.error/dispatch-sync-in-handler
+                          {:frame    (:frame envelope)
+                           :event    event
+                           :reason   "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
+                           :recovery :no-recovery})
+
+       :else
        (let [router (:router frame-record)]
          ;; Put the seed at the front and mark scheduled to suppress async.
+         ;; :in-sync-drain? lets a nested dispatch-sync detect the unsafe
+         ;; call and refuse rather than silently interleave.
          (swap! router (fn [{:keys [queue] :as r}]
                          (assoc r
                                 :queue (into interop/empty-queue
                                              (cons envelope queue))
-                                :scheduled? true)))
+                                :scheduled?     true
+                                :in-sync-drain? true)))
          (try
            (drain! (:frame envelope))
-           (catch #?(:clj Throwable :cljs :default) e
-             (swap! router assoc :scheduled? false)
-             (throw e)))))
+           (finally
+             (swap! router assoc :in-sync-drain? false)))))
      nil)))
