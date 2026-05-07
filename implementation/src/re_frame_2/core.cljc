@@ -45,6 +45,25 @@
   ([id metadata render-fn]
    (registrar/register! :view id (assoc metadata :handler-fn render-fn))
    id))
+
+(defn get-view
+  "Return the render fn for a registered view by id, or nil if not
+  registered. The wrapped fn called with the view's invocation args
+  yields the hiccup tree."
+  [id]
+  (when-let [meta (registrar/lookup :view id)]
+    (:handler-fn meta)))
+
+(defn render-to-string
+  "Render a hiccup tree to an HTML string. Per Spec 011 §The render-tree
+  → HTML emitter. The plain-atom adapter dispatches through to
+  re-frame-2.ssr/render-to-string. opts may carry :doctype? to prepend
+  '<!DOCTYPE html>'."
+  ([render-tree] (render-to-string render-tree {}))
+  ([render-tree opts]
+   ;; Lazy-resolve so the SSR ns isn't required up-front.
+   (let [r2s (requiring-resolve 're-frame-2.ssr/render-to-string)]
+     (when r2s ((deref r2s) render-tree opts)))))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
