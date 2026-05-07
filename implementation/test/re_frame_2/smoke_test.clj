@@ -1,0 +1,111 @@
+(ns re-frame-2.smoke-test
+  "Smoke tests — exercise the foundation end-to-end on the JVM via the
+  plain-atom adapter. These are the bare-minimum 'does the dispatch
+  pipeline actually work?' tests. Conformance fixtures are a separate
+  TODO."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame-2.core :as rf]
+            [re-frame-2.frame :as frame]
+            [re-frame-2.registrar :as registrar]
+            [re-frame-2.flows :as flows]
+            [re-frame-2.machines :as machines]
+            [re-frame-2.routing :as routing]))
+
+(defn reset-runtime [test-fn]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (reset! flows/flows {})
+  (rf/init!)
+  (test-fn))
+
+(use-fixtures :each reset-runtime)
+
+;; ---- registry round-trip --------------------------------------------------
+
+(deftest registrar-round-trip
+  (testing "registering and looking up a handler"
+    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (let [meta (rf/handler-meta :event :counter/inc)]
+      (is (some? meta))
+      (is (fn? (:handler-fn meta)))
+      (is (= :db (:event/kind meta))))))
+
+;; ---- end-to-end dispatch --------------------------------------------------
+
+(deftest dispatch-sync-event-db
+  (testing "dispatch-sync runs an event-db handler and commits :db"
+    (rf/reg-event-db :counter/init (fn [_ _] {:n 0}))
+    (rf/reg-event-db :counter/inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:counter/init])
+    (rf/dispatch-sync [:counter/inc])
+    (rf/dispatch-sync [:counter/inc])
+    (is (= 2 (:n (rf/get-frame-db :rf/default))))))
+
+(deftest dispatch-sync-event-fx
+  (testing "dispatch-sync runs an event-fx handler with :db and :fx"
+    (let [fired (atom 0)]
+      (rf/reg-fx :test/incr-counter
+                 (fn [_ _] (swap! fired inc)))
+      (rf/reg-event-fx :do-it
+        (fn [_ _]
+          {:db {:flag :set}
+           :fx [[:test/incr-counter :go]]}))
+      (rf/dispatch-sync [:do-it])
+      (is (= {:flag :set} (rf/get-frame-db :rf/default)))
+      (is (= 1 @fired)))))
+
+;; ---- subscription chain ---------------------------------------------------
+
+(deftest layer-1-and-layer-2-subs
+  (testing "layer-1 and layer-2 subs return computed values"
+    (rf/reg-event-db :seed (fn [_ _] {:items [1 2 3 4 5]}))
+    (rf/reg-sub :items     (fn [db _] (:items db)))
+    (rf/reg-sub :item-count :<- [:items] (fn [items _] (count items)))
+    (rf/dispatch-sync [:seed])
+    (is (= [1 2 3 4 5] (rf/subscribe-value :rf/default [:items])))
+    (is (= 5           (rf/subscribe-value :rf/default [:item-count])))))
+
+;; ---- machine ---------------------------------------------------------------
+
+(deftest pure-machine-transition
+  (testing "machine-transition is pure"
+    (let [m {:id     :traffic-light
+             :initial :red
+             :data    {}
+             :states
+             {:red    {:on {:tick {:target :green}}}
+              :green  {:on {:tick {:target :yellow}}}
+              :yellow {:on {:tick {:target :red}}}}}]
+      (let [[s1 _] (machines/machine-transition m {:state :red :data {}} [:tick])]
+        (is (= :green (:state s1))))
+      (let [[s2 _] (machines/machine-transition m {:state :green :data {}} [:tick])]
+        (is (= :yellow (:state s2)))))))
+
+;; ---- flows ----------------------------------------------------------------
+
+(deftest flow-rectangle-area
+  (testing "a flow recomputes :area when :width or :height changes"
+    (rf/reg-event-db :init (fn [_ _] {:width 0 :height 0}))
+    (rf/reg-event-db :w! (fn [db [_ w]] (assoc db :width w)))
+    (rf/reg-event-db :h! (fn [db [_ h]] (assoc db :height h)))
+    (rf/reg-flow {:id     :rect/area
+                  :inputs [[:width] [:height]]
+                  :output (fn [w h] (* w h))
+                  :path   [:area]})
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:w! 3])
+    (rf/dispatch-sync [:h! 4])
+    ;; After the events apply, run-flows! is called by the drain. But our
+    ;; first-pass router doesn't call run-flows! yet — file as bead.
+    (flows/run-flows! :rf/default)
+    (is (= 12 (:area (rf/get-frame-db :rf/default))))))
+
+;; ---- routing --------------------------------------------------------------
+
+(deftest match-and-route-url
+  (testing "match-url and route-url round-trip"
+    (rf/reg-route :user/show {:path "/users/:id"})
+    (let [m (rf/match-url "/users/42")]
+      (is (= :user/show (:route-id m)))
+      (is (= "42" (:id (:params m)))))
+    (is (= "/users/42" (rf/route-url :user/show {:id 42})))))
