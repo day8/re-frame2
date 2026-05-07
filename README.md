@@ -20,23 +20,23 @@ I'm interested in constructive feedback if you have the time.
 
 re-frame2 is AI-first from **three distinct perspectives**:
 
-**1. The specification is what an AI implements from.** The spec in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe in a variety of host languages.
+**1. One-shot-able.** The spec in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe even in a variety of host languages.
 
 The implication: **if you don't like this specification, change it, and one-shot your own framework.** The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that.
 
-The further implication is that value has moved up the chain. **The value of code is now $0. All the value is in the specification.**
+The further implication is that value has moved up the chain. The value of code is now $0. All the value is in the specification.
 
-**2. The resulting library makes applications highly AI-pair-programmable.** Apps built on re-frame2 are highly amenable to AI pair-programming because the runtime exposes deep trace and integration points. The AI can interact with a running program, not just work on the static code. The [re-frame-pair](https://github.com/day8/re-frame-pair) lineage from v1 — an nREPL-attached AI companion that watches a running app — will be carried forward and formalised for v2.
+**2. re-frame2 applications are highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time**, so the AI doesn't just get to work with static code. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
 **3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a [migration prompt](docs/specification/MIGRATION.md) — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent.
 
 ## Why re-frame2?
 
-**Because its computational model is so simple**. A 6 domino cascade. Events are causal. Views are purely reactive and they stay where they belong: at the end of the data flow, not at its centre. All state in the one place.
+**Because its computational model is so simple**. A 6 domino cascade. Everything is data driven. Events are causal. Views are purely reactive and they stay where they belong: at the end of the data flow, not at its centre. All state in the one place — immutable.
 
 There are no side channels, no async backdoors, no hooks dependency-array decisions. The computational model is small enough to fit in your head — and the things that don't fit (state machines, async effects, SSR) inherit the same shape rather than escaping it.
 
-**~10 years of staying still on purpose.** The original re-frame has powered production ClojureScript SPAs continuously since 2015. Across that span, half a dozen "new" state-management patterns have churned through the JS world — Redux, MobX, Zustand, Recoil, Jotai, signals, server components — and each iteration has crept toward the ground re-frame already stood on. *Imagine your team's productivity if you didn't have to contend with technical churn, and have new magic burn your fingers every two years.* That bet is what re-frame2 doubles down on.
+**~10 years of staying still on purpose.** The original re-frame has powered production ClojureScript SPAs since 2015. Across that span, half a dozen "new" state-management patterns have churned through the JS world — Redux, MobX, Zustand, Recoil, Jotai, signals, server components — and each iteration has crept toward the ground re-frame already stood on. (The notable exception is xstate, from which we have drawn inspiration.) Imagine your team's productivity if you didn't have to contend with technical churn, and have new magic burn your fingers every two years.
 
 **Lisp's quiet advantage.** Alan Kay once described Lisp as "Maxwell's equations of software." Paul Graham described how Lisp was a competitive advantage at Viaweb. re-frame leverages 50 years of foliated excellence from the very best minds available, and a thriving ClojureScript community alongside it.
 
