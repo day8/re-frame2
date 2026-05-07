@@ -1,34 +1,20 @@
 <p align="center"><img src="docs/images/logo/re-frame-colour.png?raw=true" alt="re-frame2 logo"></p>
 
-# re-frame2
-
-> A specification for a **re-frame-flavoured pattern for building SPAs**, plus a planned Clojure/CLJS reference implementation, plus planned AI tooling that pairs with apps built on it.
-
-The pattern is **data-oriented, language-agnostic, AI-first, SSR-capable**. The CLJS reference inherits a mechanical-upgrade obligation from existing re-frame applications.
 
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
 
+Son of [re-frame](https://github.com/day8/re-frame).
+
+
 ## Status
 
 Still **very** much a work in progress. Call it alpha. Call it aspirational. Call me crazy.
 
-The first claim — that an AI can one-shot an implementation in CLJS from the specification — remains untested (but will be shortly). Other-host implementations are even further out. But the specification itself is nearing completion.
+None of the primary claims/goals have yet been verified. But the specification itself is almost complete and you can most certainly see where this is going.  Interested in constructive feedback if you have the time.
 
-### What exists today
 
-| Component | Status |
-|---|---|
-| **Specification corpus** (`docs/specification/`) | **Drafted; mostly locked.** Major Specs (000, 001, 002, 004, 005, 006, 008, 009, 010, 011, 012, 013) have their open questions resolved. Read it; cite it; one-shot from it. |
-| **Human-facing guide** (`docs/guide/`) | Drafted. Eight narrative chapters covering the pattern end-to-end. |
-| **Conformance corpus** (`docs/specification/conformance/`) | 43 fixtures across the main capability axes. Coverage of the most recently locked contracts is the next expansion. |
-| **CLJS reference implementation** | **Not yet built.** The specification is what an AI (or a human) would implement against. The "AI one-shots the implementation" claim is the design's acceptance test, not a current artefact. |
-| **Worked examples** (`examples/`) | Partial. Some are pedagogical sketches; some are full feature scaffolds; the reference-implementation-dependent ones won't run until the CLJS implementation lands. |
-| **Runtime pair tool** | Planned. The [re-frame-pair v1](https://github.com/day8/re-frame-pair) lineage is what v2 will carry forward; v2's runtime contract is designed for it. |
-| **Pair-improver skill** (`skills/`) | Planned. The [re-frame-pair-improver v1](https://github.com/day8/re-frame-pair-improver) lineage is what v2 will carry forward as a Claude skill that reviews pair sessions and surfaces improvements to the pair tool itself. |
-
-So: **the spec is the deliverable today**; the reference implementation, the runtime tooling, and the pair-improver skill are downstream artefacts the spec is designed to produce.
 
 ## AI First?
 
@@ -107,7 +93,7 @@ It is probably worth acknowledging that this repo is not really for humans. AIs 
 4. [07 — From re-frame v1](docs/guide/07-from-re-frame-v1.md) — what changed and why, for v1 users.
 5. [08 — The dynamic-model story](docs/guide/08-the-dynamic-model.md) — the long-form essay on why less-powerful-is-more.
 
-After the guide, **read code** — the [`examples/`](examples/README.md) directory has the pattern in worked form. Examples are tagged by maturity: pedagogical sketches ([counter](examples/counter/), [login](examples/login/), [routing](examples/routing/), [SSR](examples/ssr/)) for one-mechanism-at-a-time learning; benchmarks ([7GUIs](examples/7guis/README.md), [nine-states](examples/nine-states/README.md)) for breadth; and the [RealWorld (Conduit)](examples/realworld/README.md) worked scaffold for substantial-app shape. They're the bridge between the narrative and the spec — same shape humans saw in the guide, written the way you'd actually write it. Note: written against the imagined v2 API and won't run until the [reference implementation](#what-exists-today) lands.
+After the guide, **read code** — the [`examples/`](examples/README.md) directory has the pattern in worked form. Examples are tagged by maturity: pedagogical sketches ([counter](examples/counter/), [login](examples/login/), [routing](examples/routing/), [SSR](examples/ssr/)) for one-mechanism-at-a-time learning; benchmarks ([7GUIs](examples/7guis/README.md), [nine-states](examples/nine-states/README.md)) for breadth; and the [RealWorld (Conduit)](examples/realworld/README.md) worked scaffold for substantial-app shape. They're the bridge between the narrative and the spec — same shape humans saw in the guide, written the way you'd actually write it. Note: written against the imagined v2 API and won't run until the [reference implementation](#status) lands.
 
 After the examples, the **system-understanding bridge** — two specification companion docs that read precisely (the AI track uses them) but accessibly (the human track can too):
 
@@ -116,7 +102,7 @@ After the examples, the **system-understanding bridge** — two specification co
 
 ### For AIs
 
-Because re-frame2 is AI-oriented, **the main body of the documentation is the [specification](docs/specification/)** — written for AI agents to read, scaffold against, and one-shot implementations from. Humans can read it too; but they may loose focus.
+Because re-frame2 is AI-oriented, **the main body of the documentation is the [specification](docs/specification/)** — written for AI agents to read, scaffold against, and one-shot implementations from. Humans can read it too; but they may lose focus.
 
 1. [`docs/specification/000-Vision.md`](docs/specification/000-Vision.md) — goals, the pattern's minimal core, CLJS reference choices.
 2. [`docs/specification/Principles.md`](docs/specification/Principles.md) — the 9 AI-first practical principles.
