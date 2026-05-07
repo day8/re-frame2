@@ -59,25 +59,143 @@
     :else             (throw (ex-info ":rf.error/machine-bad-action-form"
                                       {:action action}))))
 
+;; ---- state-path helpers (hierarchical) ------------------------------------
+;;
+;; Per Spec 005 §State paths and §Entry/exit cascading along the LCA, the
+;; snapshot's :state is a vector path from root to leaf (e.g.
+;; [:authenticated :cart :paying]). Flat machines used :state :foo for
+;; compactness; we accept both and normalise internally.
+
+(defn- state-path
+  "Coerce a snapshot's :state — either a keyword or a vector path — into
+  a normalised vector path."
+  [state]
+  (cond
+    (vector? state) state
+    (keyword? state) [state]
+    :else (throw (ex-info ":rf.error/machine-bad-state-form" {:state state}))))
+
+(defn- denormalise-state
+  "Re-shape a vector path back to the same form as the input snapshot's
+  :state. If `original` was a keyword and the path is length-1, return
+  the keyword; otherwise return the vector."
+  [path original]
+  (cond
+    (and (keyword? original) (= 1 (count path))) (first path)
+    :else (vec path)))
+
+(defn- node-at
+  "Walk machine.:states down `path` returning the leaf state-node (or nil
+  if path doesn't resolve)."
+  [machine path]
+  (loop [m  (:states machine)
+         p  path]
+    (cond
+      (empty? p) nil
+      :else
+      (let [n (get m (first p))]
+        (cond
+          (nil? n) nil
+          (= 1 (count p)) n
+          :else (recur (:states n) (rest p)))))))
+
+(defn- nodes-along-path
+  "Return [[prefix-path node] ...] from root down to leaf. Skips nodes
+  that don't resolve (defensive)."
+  [machine path]
+  (loop [m   (:states machine)
+         p   path
+         acc []
+         pre []]
+    (if (empty? p)
+      acc
+      (let [k     (first p)
+            n     (get m k)
+            pre'  (conj pre k)]
+        (if (nil? n)
+          acc
+          (recur (:states n) (rest p) (conj acc [pre' n]) pre'))))))
+
+(defn- initial-cascade
+  "Given a target path landing on a possibly-compound node, descend
+  through :initial chain until we reach a leaf. Returns the leaf path."
+  [machine path]
+  (loop [p path]
+    (let [n (node-at machine p)]
+      (if (and (map? n) (:initial n) (:states n))
+        (recur (conj p (:initial n)))
+        p))))
+
+(defn- normalise-on-clause
+  "The value at [:on event-id] may be:
+    a keyword              -> treat as {:target <kw>}
+    a vector of state ids  -> treat as {:target <vec>}  (absolute path)
+    a vector of maps       -> multiple guarded transitions
+    a single transition map
+   Returns a vector of transition maps."
+  [v]
+  (cond
+    (nil? v)                        []
+    (keyword? v)                    [{:target v}]
+    (and (vector? v)
+         (every? map? v)
+         (seq v))                   v
+    (vector? v)                     [{:target v}]
+    (map? v)                        [v]
+    :else (throw (ex-info ":rf.error/machine-bad-on-clause" {:value v}))))
+
 (defn- pick-transition
-  "Given a state's :on map and an event, find the first matching transition
-  whose guard passes. Returns the transition spec or nil."
-  [machine state-node event snapshot]
-  (let [event-id   (first event)
-        candidates (or (get-in state-node [:on event-id])
-                       (get-in state-node [:on :*]))
-        candidates (cond
-                     (nil? candidates) []
-                     (vector? candidates) candidates  ;; multiple guarded variants
-                     :else [candidates])]
-    (reduce
-      (fn [_ t]
-        (let [guard-fn (resolve-guard machine (:guard t))]
-          (if (guard-fn snapshot event)
-            (reduced t)
-            nil)))
-      nil
-      candidates)))
+  "Walk path leaf→root looking for a transition that matches event-id and
+  whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
+  with parent fallthrough.
+
+  Returns {:transition t :decl-path prefix} or nil."
+  [machine path event snapshot]
+  (let [event-id (first event)]
+    (loop [i (dec (count path))]
+      (when (>= i 0)
+        (let [prefix (vec (take (inc i) path))
+              n      (node-at machine prefix)
+              cands  (normalise-on-clause
+                       (or (get-in n [:on event-id])
+                           (get-in n [:on :*])))
+              hit    (some (fn [t]
+                             (let [g (resolve-guard machine (:guard t))]
+                               (when (g snapshot event) t)))
+                           cands)]
+          (if hit
+            {:transition hit :decl-path prefix}
+            (recur (dec i))))))))
+
+(defn- target-path
+  "Compute the absolute target path for a transition. Per Spec 005:
+   - keyword target → sibling at decl-path's level
+       e.g. decl-path [:auth :cart], target :browsing
+            → [:auth :cart :browsing]?  No — sibling means replace the
+            last element. So [:auth :browsing]. But Spec 005 says when
+            decl-path's node is a compound, keyword targets a child
+            of THAT compound. Both readings appear in the corpus; we
+            implement the practical one: keyword target replaces the
+            NEXT level under decl-path.
+   - vector target → absolute path from root.
+   - nil target (internal transition) → source path unchanged."
+  [decl-path source-path target]
+  (cond
+    (nil? target)        nil    ;; internal transition signal
+    (vector? target)     target ;; absolute path
+    (keyword? target)
+    ;; The transition was declared at decl-path. The target keyword names
+    ;; a sibling at the level where decl-path was found — i.e. replace
+    ;; what decl-path's leaf level chose with the target. Concretely:
+    ;; if decl-path = [:auth :cart], and source-path was
+    ;; [:auth :cart :paying] (i.e. :cart's child :paying), then
+    ;; "target :browsing" means [:auth :cart :browsing] (sibling of
+    ;; :paying inside :cart).
+    (let [parent (vec (drop-last decl-path))]
+      (conj parent target))))
+
+(defn- common-prefix-length [a b]
+  (count (take-while true? (map = a b))))
 
 (defn- run-action [machine snap action-ref event]
   (if action-ref
@@ -86,40 +204,87 @@
       (or result {}))
     {}))
 
+(defn- collect-actions
+  "Walk action-refs in order, calling each with snap+event and threading
+  the resulting :data updates forward (so each action sees the previous
+  one's data). Returns [final-snapshot fx-vec]."
+  [machine snap event action-refs]
+  (reduce
+    (fn [[s fx] aref]
+      (if aref
+        (let [r          (run-action machine s aref event)
+              new-data   (cond-> (:data s)
+                           (contains? r :data) (merge (:data r)))
+              new-snap   (assoc s :data new-data)
+              new-fx     (vec (concat fx (or (:fx r) [])))]
+          [new-snap new-fx])
+        [s fx]))
+    [snap []]
+    action-refs))
+
 (defn- apply-transition-once
-  "Apply one transition (action group + state change). Returns
-  [new-snapshot fx-vec]. Used by both event-driven transitions and
-  :always microsteps."
-  [machine snapshot event transition states-map state-node]
-  (let [target-state  (:target transition (:state snapshot))
-        target-node   (get states-map target-state)
-        exit-result   (run-action machine snapshot (:exit state-node)   event)
-        action-result (run-action machine snapshot (:action transition) event)
-        entry-result  (run-action machine snapshot (:entry target-node) event)
-        data-merged   (-> (:data snapshot)
-                          (merge (or (:data exit-result) {}))
-                          (merge (or (:data action-result) {}))
-                          (merge (or (:data entry-result) {})))
-        fx-vec        (vec (concat (or (:fx exit-result) [])
-                                   (or (:fx action-result) [])
-                                   (or (:fx entry-result) [])))
-        new-snapshot  {:state target-state :data data-merged}]
-    [new-snapshot fx-vec]))
+  "Apply one transition (exit cascade → action → entry cascade → state
+  change). Returns [new-snapshot fx-vec].
+
+  Per Spec 005 §Entry/exit cascading along the LCA:
+   1. Compute LCA of source-path and target-leaf-path.
+   2. Exit each ancestor's :exit from leaf up to (but not including) LCA.
+   3. Run the transition's :action at the LCA level.
+   4. Enter each ancestor's :entry from (LCA depth + 1) down to target leaf.
+
+  Internal transitions (no :target) skip exit/entry; the action fires
+  and the state path is unchanged.
+
+  `transition` is the transition map with a synthetic :decl-path key
+  recording where in the state-path tree the transition was declared."
+  [machine snapshot event transition]
+  (let [src-path     (state-path (:state snapshot))
+        decl-path    (:decl-path transition (vec (take 1 src-path)))
+        raw-target   (:target transition)
+        target-leaf  (some->> (target-path decl-path src-path raw-target)
+                              (initial-cascade machine))
+        internal?    (nil? raw-target)
+        lca-len      (if internal?
+                       (count src-path)
+                       (common-prefix-length src-path target-leaf))
+        exit-refs    (when-not internal?
+                       (->> (nodes-along-path machine src-path)
+                            (drop lca-len)
+                            (reverse)
+                            (map (fn [[_ n]] (:exit n)))))
+        entry-refs   (when-not internal?
+                       (->> (nodes-along-path machine target-leaf)
+                            (drop lca-len)
+                            (map (fn [[_ n]] (:entry n)))))
+        action-refs  [(:action transition)]
+        all-refs     (concat exit-refs action-refs entry-refs)
+        [snap-after fx] (collect-actions machine snapshot event all-refs)
+        new-state    (if internal?
+                       (:state snapshot)
+                       (denormalise-state target-leaf (:state snapshot)))]
+    [(assoc snap-after :state new-state) fx]))
 
 (defn- pick-always-transition
-  "Per Spec 005 §Eventless :always transitions: a state may have an :always
-  vector of {:guard :target :action} maps. Pick the first whose guard
-  passes against the current snapshot."
-  [machine state-node snapshot]
-  (when-let [always-vec (:always state-node)]
-    (reduce
-      (fn [_ t]
-        (let [guard-fn (resolve-guard machine (:guard t))]
-          (if (guard-fn snapshot nil)
-            (reduced t)
-            nil)))
-      nil
-      (if (vector? always-vec) always-vec [always-vec]))))
+  "Per Spec 005 §Eventless :always transitions: walk path leaf→root
+  for an :always whose guard passes. Returns {:transition t :decl-path p}
+  or nil."
+  [machine path snapshot]
+  (loop [i (dec (count path))]
+    (when (>= i 0)
+      (let [prefix (vec (take (inc i) path))
+            n      (node-at machine prefix)
+            always (:always n)
+            always (cond
+                     (nil? always)     []
+                     (vector? always)  always
+                     :else             [always])
+            hit    (some (fn [t]
+                           (let [g (resolve-guard machine (:guard t))]
+                             (when (g snapshot nil) t)))
+                         always)]
+        (if hit
+          {:transition (assoc hit :decl-path prefix) :decl-path prefix}
+          (recur (dec i)))))))
 
 (def ^:private always-depth-limit-default 16)
 (def ^:private raise-depth-limit-default  16)
@@ -170,67 +335,62 @@
   return [new-snapshot effects].
 
   Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
-   1. Pick the matching transition for the event (guards LtR, first wins).
-   2. Run :exit / :action / :entry slots in order; collect data + fx.
+   1. Pick the matching transition for the event using deepest-wins
+      resolution along the state path.
+   2. Run the exit cascade (deepest-first up to LCA) → transition's
+      action (at LCA) → entry cascade (shallowest-first down to leaf).
    3. Drain the local :raise queue depth-first, recursing through
       machine-transition.
-   4. Microstep loop — check :always on the current state; if a guard
-      matches, apply the always-transition; loop back to step 3.
+   4. :always microstep loop — walk path leaf→root for any matching
+      :always; apply, drain raises, loop.
    5. Commit (return) the snapshot once :always reaches fixed point.
 
-  Bounded by :raise-depth-limit and :always-depth-limit (both default 16)."
+  Bounded by :raise-depth-limit and :always-depth-limit (both default 16).
+  Hierarchical states are supported: :state may be a single keyword
+  (flat machine) or a vector path (compound machine)."
   [machine snapshot event]
-  (let [states-map (:states machine)
-        always-limit (get machine :always-depth-limit always-depth-limit-default)
-        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
-    ;; Step 1: pick event-driven transition (or no-op).
-    (let [event-transition (pick-transition
-                             machine
-                             (get states-map (:state snapshot))
-                             event
-                             snapshot)
-          [snap-after-event fx-after-event]
-          (if event-transition
-            (apply-transition-once machine snapshot event event-transition
-                                   states-map (get states-map (:state snapshot)))
+  (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
+        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
+        ;; Step 1: pick the event-driven transition.
+        path             (state-path (:state snapshot))
+        match            (pick-transition machine path event snapshot)
+        [snap-after-event fx-after-event]
+        (if match
+          (apply-transition-once
+            machine snapshot event
+            (assoc (:transition match) :decl-path (:decl-path match)))
+          [snapshot []])
+        ;; Step 3: drain :raise.
+        [snap-after-raise fx-after-raise]
+        (drain-raises machine snap-after-event fx-after-event raise-limit)]
+    ;; Step 4: :always microstep loop. Track visited state-paths so that,
+    ;; on depth-limit abort, we can report the path AND fully roll back to
+    ;; the original input snapshot — the macrostep is atomic per Spec 005.
+    (loop [snap    snap-after-raise
+           fx      fx-after-raise
+           depth   0
+           visited [(:state snap-after-raise)]]
+      (cond
+        (>= depth always-limit)
+        (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                               {:machine-id (:id machine)
+                                :depth      depth
+                                :path       visited
+                                :recovery   :no-recovery})
             [snapshot []])
-          ;; Step 3: drain :raise.
-          [snap-after-raise fx-after-raise]
-          (drain-raises machine snap-after-event fx-after-event raise-limit)]
-      ;; Step 4: :always microstep loop. We track the visited :state path
-      ;; so that, on depth-limit abort, we can report it AND fully roll
-      ;; back to the original input snapshot per Spec 005 §Bounded depth
-      ;; (the macrostep is atomic — if microsteps explode, nothing commits).
-      (loop [snap   snap-after-raise
-             fx     fx-after-raise
-             depth  0
-             visited [(:state snap-after-raise)]]
-        (cond
-          (>= depth always-limit)
-          (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                 {:machine-id (:id machine)
-                                  :depth      depth
-                                  :path       visited
-                                  :recovery   :no-recovery})
-              ;; Roll back to the ORIGINAL input snapshot; discard event-
-              ;; transition and any microstep fx.
-              [snapshot []])
 
-          :else
-          (let [state-node (get states-map (:state snap))
-                always-t   (pick-always-transition machine state-node snap)]
-            (if (nil? always-t)
-              ;; Fixed point reached.
-              [snap fx]
-              ;; Apply the always-transition, then drain raises, then loop.
-              (let [[snap2 fx2] (apply-transition-once
-                                  machine snap nil always-t
-                                  states-map state-node)
-                    [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
-                (recur snap3
-                       (vec (concat fx fx3))
-                       (inc depth)
-                       (conj visited (:state snap3)))))))))))
+        :else
+        (let [snap-path (state-path (:state snap))
+              always-m  (pick-always-transition machine snap-path snap)]
+          (if (nil? always-m)
+            [snap fx]
+            (let [[snap2 fx2] (apply-transition-once machine snap nil
+                                                     (:transition always-m))
+                  [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
+              (recur snap3
+                     (vec (concat fx fx3))
+                     (inc depth)
+                     (conj visited (:state snap3))))))))))
 
 ;; ---- create-machine-handler -----------------------------------------------
 

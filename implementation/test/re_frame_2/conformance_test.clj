@@ -33,6 +33,7 @@
     :core/error
     :fsm/flat
     :fsm/eventless-always
+    :fsm/hierarchical
     :routing/match-url})
 
 ;; ---- fixture loader -------------------------------------------------------
