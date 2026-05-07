@@ -35,7 +35,8 @@
     :fsm/eventless-always
     :fsm/hierarchical
     :routing/match-url
-    :ssr/render-to-string})
+    :ssr/render-to-string
+    :ssr/hydration})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -323,8 +324,43 @@
           (let [{event :event :as opts} ev]
             (rf/dispatch-sync event (dissoc opts :event)))
 
+          ;; Convention: :rf/hydrate events dispatch with :source :ssr-hydration
+          ;; per Spec 011 §The :rf/hydrate event. Real clients pass this on the
+          ;; hydrate-call site; the conformance runner stamps it for the user.
+          (and (vector? ev) (= :rf/hydrate (first ev)))
+          (rf/dispatch-sync ev {:source :ssr-hydration})
+
           :else
           (rf/dispatch-sync ev)))
+      ;; :fixture/render-after-hydrate — for SSR hydration fixtures, the
+      ;; harness simulates a client-side first render whose hash differs
+      ;; from the server's. We inspect the most-recent :rf/hydrate dispatch
+      ;; for the server hash and compare against the simulated client hash;
+      ;; when they differ we emit :rf.ssr/hydration-mismatch.
+      (when-let [render-spec (:fixture/render-after-hydrate fixture)]
+        (let [client-hash    (:simulated-client-render-hash render-spec)
+              first-diff-path (:first-diff-path render-spec)
+              hydrate-ev      (some (fn [e]
+                                      (when (and (vector? e)
+                                                 (= :rf/hydrate (first e)))
+                                        e))
+                                    dispatches)
+              payload         (when hydrate-ev (second hydrate-ev))
+              server-hash     (:rf/render-hash payload)
+              frame-id        (:rf/frame-id payload :rf/default)]
+          (when (and server-hash client-hash (not= server-hash client-hash))
+            (trace/emit-error! :rf.ssr/hydration-mismatch
+                               {:failing-id      :rf/hydrate
+                                :server-hash     server-hash
+                                :client-hash     client-hash
+                                :first-diff-path first-diff-path
+                                :frame           frame-id
+                                :reason          (str "Hydration mismatch: server hash '"
+                                                      server-hash
+                                                      "' != client hash '"
+                                                      client-hash
+                                                      "'. Re-rendering client-side.")
+                                :recovery        :warned-and-replaced}))))
       ;; :fixture/calls — pure-function assertions (match-url, route-url,
       ;; machine-transition, etc.). Run AFTER dispatches so any
       ;; handler-mediated state is in place.

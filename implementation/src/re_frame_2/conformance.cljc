@@ -100,9 +100,23 @@
   (cond
     (vector? form)
     (case (first form)
-      :event-arg    (let [[_ idx default] form
+      :event-arg    (let [[_ idx maybe] form
                           v (get (:event ctx) idx)]
-                      (if (and (nil? v) (>= (count form) 3)) default v))
+                      ;; Two shapes overload the third element:
+                      ;;   [:event-arg n default-for-nil]
+                      ;;   [:event-arg n key-into-value]   (when value is a map
+                      ;;                                    and 3rd is keyword)
+                      ;; Disambiguate by the type of the third element.
+                      (cond
+                        (and (>= (count form) 3)
+                             (keyword? maybe)
+                             (map? v))             (get v maybe)
+                        (and (>= (count form) 3)
+                             (nil? v))             maybe
+                        :else                      v))
+      :get-event-arg (let [[_ idx k] form
+                           m (get (:event ctx) idx)]
+                       (get m k))
       :db-get       (let [[_ path default] form
                           v (get-in (:db ctx) path)]
                       (if (and (nil? v) (>= (count form) 3)) default v))
@@ -159,12 +173,21 @@
 
     :set       (let [[_ path value] step
                      v (resolve-value value ctx)]
-                 (assoc ctx :db (assoc-in db path v)))
+                 ;; assoc-in with an empty path would associate at key nil
+                 ;; (Clojure's destructuring quirk). Treat empty path as
+                 ;; "replace whole db" — used by hydrate handlers.
+                 (assoc ctx :db
+                        (if (empty? path) v (assoc-in db path v))))
 
     :update    (let [[_ path fn-form & extra-args] step
                      f             (resolve-value fn-form ctx)
                      resolved-args (mapv #(resolve-value % ctx) extra-args)]
                  (assoc ctx :db (apply update-in db path f resolved-args)))
+
+    :merge-into-db
+    (let [[_ value-form] step
+          payload (resolve-value value-form ctx)]
+      (assoc ctx :db (merge db payload)))
 
     :fx        (let [[_ a b] step]
                  (cond

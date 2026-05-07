@@ -62,11 +62,14 @@
   [op operation tags]
   (when interop/debug-enabled?
     (let [source (:source tags)
+          ;; :source is mirrored at the top level (per Spec 009 §Core
+          ;; fields) AND retained in :tags so consumers that read either
+          ;; shape see it. Different fixtures expect different shapes.
           event  (cond-> {:operation operation
                           :op-type   op
                           :id        (next-event-id)
                           :time      (interop/now-ms)
-                          :tags      (dissoc tags :source)}
+                          :tags      tags}
                    source (assoc :source source))]
       (doseq [[_ f] @listeners]
         (try
