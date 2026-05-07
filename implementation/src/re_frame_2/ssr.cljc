@@ -113,7 +113,7 @@
                   attrs       (merge-class-attrs tag-attrs user-attrs)
                   void?       (contains? void-elements (keyword tag-name))]
               (if void?
-                (str "<" tag-name (attr-string attrs) " />")
+                (str "<" tag-name (attr-string attrs) ">")
                 (str "<" tag-name (attr-string attrs) ">"
                      (emit-children children)
                      "</" tag-name ">")))))
@@ -147,7 +147,7 @@
   [render-tree opts]
   (let [body (emit-element render-tree)]
     (if (:doctype? opts)
-      (str "<!DOCTYPE html>\n" body)
+      (str "<!DOCTYPE html>" body)
       body)))
 
 ;; Bind into the substrate adapter dynamic var so plain-atom adapter's

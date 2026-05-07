@@ -34,7 +34,8 @@
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical
-    :routing/match-url})
+    :routing/match-url
+    :ssr/render-to-string})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -100,7 +101,13 @@
           (rf/reg-fx id handler))))
     ;; route registrations
     (doseq [[id meta] (get handlers-map :route)]
-      (rf/reg-route id meta))))
+      (rf/reg-route id meta))
+    ;; view registrations — DSL bodies map to fns that realise hiccup with
+    ;; reflection forms resolved at call-time.
+    (doseq [[id steps] (get handlers-map :view)]
+      ((requiring-resolve 're-frame-2.registrar/register!)
+       :view id
+       {:handler-fn (conformance/realise-view-handler steps)}))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -242,6 +249,20 @@
     :assert-rank-greater
     {:passed? true
      :detail  "assert-rank-greater not asserted (rank-meta not yet exposed)"}
+
+    ;; SSR pure render: input is hiccup or [:view-id args ...]; opts may
+    ;; carry :doctype?.
+    :render-to-string
+    (let [r2s   (requiring-resolve 're-frame-2.ssr/render-to-string)
+          opts  (or (:opts call) {})
+          out   (try (r2s (:input call) opts)
+                     (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          want  (:expect call)]
+      {:passed? (= want out)
+       :detail  (when (not= want out)
+                  (str "render-to-string\n"
+                       "    expected: " (pr-str want) "\n"
+                       "    actual:   " (pr-str out)))})
 
     ;; pure machine-transition call (used by fsm fixtures).
     :machine-transition

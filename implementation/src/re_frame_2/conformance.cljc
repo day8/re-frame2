@@ -222,6 +222,40 @@
         db-changed?       (assoc :db (:db final))
         (seq (:fx final)) (assoc :fx (:fx final))))))
 
+(defn- walk-hiccup
+  "Recursively walk a hiccup tree, replacing reflection forms with their
+  resolved values. Used by realise-view-handler so view bodies can
+  embed [:event-arg n] / [:db-get path] / [:fn ...] inside hiccup."
+  [form ctx]
+  (cond
+    (and (vector? form)
+         (#{:event-arg :db-get :fn :get} (first form)))
+    (resolve-value form ctx)
+
+    (vector? form)
+    (mapv #(walk-hiccup % ctx) form)
+
+    (map? form)
+    (reduce-kv (fn [m k v] (assoc m k (walk-hiccup v ctx))) {} form)
+
+    :else form))
+
+(defn realise-view-handler
+  "DSL → a view handler fn that, given the args passed to the view (e.g.
+  [\"world\"] for [:greeting \"world\"]), returns a hiccup tree with
+  reflection forms resolved.
+
+  Conventions:
+    [:hiccup <tree>] — the body is the hiccup tree.
+    [:event-arg n]   — indexes args (no event-id offset).
+    [:db-get path]   — reads from the implicit db (currently nil)."
+  [steps]
+  (fn [& args]
+    (let [hiccup-step (some (fn [s] (when (= :hiccup (first s)) s)) steps)
+          tree        (when hiccup-step (second hiccup-step))
+          ctx         {:event (vec args) :db nil}]
+      (when tree (walk-hiccup tree ctx)))))
+
 (defn realise-fx-handler
   "DSL → an fx handler fn. fx handlers receive ({:frame frame-id} args).
 
