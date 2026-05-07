@@ -3,11 +3,11 @@
 
   Routes are registry entries (kind :route) keyed by user route-id.
   Navigation is an event (`:rf.route/navigate`); URL changes are events
-  (`:rf.route/url-changed`); the :rf/route slice in app-db carries
+  (`:rf.route/url-changed`); the :route slice in app-db carries
   {:id :params :query :fragment :transition :error :nav-token}.
 
   This first pass implements the core: reg-route, match-url, route-url,
-  the :rf.route/navigate event, the :rf/route slice. Stale-nav-token
+  the :rf.route/navigate event, the :route slice. Stale-nav-token
   suppression, can-leave guards, scroll restoration, fragments are
   TODO (filed as beads).
 
@@ -499,7 +499,7 @@
                     [:rf.nav/replace-url url]
                     [:rf.nav/push-url    url])
           on-match-vec (vec (or (:on-match route-meta) []))]
-      {:db (assoc db :rf/route
+      {:db (assoc db :route
                   {:id         route-id
                    :params     path-params
                    :query      query-params
@@ -507,6 +507,66 @@
                    :error      nil})
        :fx (vec (concat [push-fx]
                         (mapv (fn [ev] [:dispatch ev]) on-match-vec)))})))
+
+(defn- split-fragment
+  "Split a URL into [url-without-fragment fragment]. Returns
+  [path-and-query nil] when no '#' is present, else
+  [before-hash after-hash]."
+  [url]
+  (let [hash-idx (.indexOf url "#")]
+    (if (neg? hash-idx)
+      [url nil]
+      [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
+
+(defonce ^:private nav-token-counter (atom 0))
+
+(defn- alloc-nav-token []
+  (str "nav-" (swap! nav-token-counter inc)))
+
+(events/reg-event-fx :rf/url-changed
+  (fn [{:keys [db]} [_ url]]
+    ;; Per Spec 012 §URL changes are events / §Fragments. Splits URL into
+    ;; path-with-query and fragment. If only the fragment differs from the
+    ;; current slice, update :fragment but DO NOT re-fire :on-match — emit
+    ;; :rf.route/url-changed instead. Otherwise full nav: allocate a
+    ;; nav-token, write new slice, fire :on-match.
+    (let [[path-q fragment] (split-fragment url)
+          m                 (match-url path-q)
+          prev              (:route db)
+          fragment-only?    (and prev m
+                                 (= (:id prev)     (:route-id m))
+                                 (= (:params prev) (:params m))
+                                 (= (:query prev)  (:query m))
+                                 (not= (:fragment prev) fragment))]
+      (cond
+        fragment-only?
+        (do (trace/emit! :event :rf.route/url-changed
+                         {:route-id      (:id prev)
+                          :prev-fragment (:fragment prev)
+                          :next-fragment fragment})
+            {:db (assoc-in db [:route :fragment] fragment)})
+
+        (some? m)
+        (let [route-meta   (registrar/lookup :route (:route-id m))
+              on-match-vec (vec (or (:on-match route-meta) []))
+              token        (alloc-nav-token)]
+          (trace/emit! :event :route.nav-token/allocated
+                       {:route-id  (:route-id m)
+                        :nav-token token})
+          {:db (assoc db :route
+                      {:id         (:route-id m)
+                       :params     (:params m)
+                       :query      (:query m)
+                       :fragment   fragment
+                       :transition :idle
+                       :error      nil
+                       :nav-token  token})
+           :fx (vec (mapv (fn [ev] [:dispatch ev]) on-match-vec))})
+
+        :else
+        (do (trace/emit-error! :rf.error/no-such-handler
+                               {:url url :recovery :replaced-with-default})
+            {})))))
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db]} [_ url]]
@@ -523,7 +583,7 @@
             query      (or (:query m) {})
             route-meta (registrar/lookup :route route-id)
             on-match-vec (vec (or (:on-match route-meta) []))]
-        {:db (assoc db :rf/route
+        {:db (assoc db :route
                     {:id         route-id
                      :params     params
                      :query      query
@@ -557,6 +617,6 @@
 ;; For now, expose helpers and let the public API wire them.)
 
 (defn route-sub-fn
-  "Layer-1 sub fn for :rf/route — reads the slice from app-db."
+  "Layer-1 sub fn for :route — reads the slice from app-db."
   [db _query]
-  (:rf/route db))
+  (:route db))

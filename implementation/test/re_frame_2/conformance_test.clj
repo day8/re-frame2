@@ -41,7 +41,8 @@
     :ssr/head-contract
     :ssr/error-projection
     :schemas/runtime
-    :routing/ranking})
+    :routing/ranking
+    :routing/fragment})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -151,6 +152,23 @@
   (let [traces (atom [])]
     (trace/register-trace-cb! [fixture-id] (fn [ev] (swap! traces conj ev)))
     traces))
+
+(defn- submap?
+  "True if every key in expected appears in actual with a matching value.
+  Recurses into nested maps so partial expectations on nested slices
+  work the same way (e.g. :rf/route's :nav-token can be implementation-
+  defined yet other slice keys are checked exactly)."
+  [expected actual]
+  (cond
+    (and (map? expected) (map? actual))
+    (every? (fn [[k v]]
+              (let [a (get actual k)]
+                (cond
+                  (and (map? v) (map? a)) (submap? v a)
+                  :else                   (= v a))))
+            expected)
+
+    :else (= expected actual)))
 
 (defn- check-trace-emissions
   "Per the conformance README §Fixture lifecycle: trace-emissions partial-
@@ -452,8 +470,10 @@
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))]
         (trace/clear-trace-cbs!)
         {:fixture-id   fid
-         :passed?      (and (or (nil? expected-db) (= expected-db final-db))
-                            (or (nil? expected-dbs) (= expected-dbs final-dbs))
+         :passed?      (and (or (nil? expected-db) (submap? expected-db final-db))
+                            (or (nil? expected-dbs)
+                                (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
+                                        expected-dbs))
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures))
          :final-db     final-db
