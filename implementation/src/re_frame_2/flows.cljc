@@ -145,6 +145,25 @@
 (defn reg-flow-fx! [flow] (reg-flow flow))
 (defn clear-flow-fx! [id] (clear-flow id))
 
+;; ---- hot-reload invalidation ---------------------------------------------
+;;
+;; Per Spec 001 §Hot-reload semantics: when a flow re-registers, the
+;; per-frame :last-inputs entry MUST clear so the new flow re-evaluates
+;; on the next drain regardless of whether inputs changed. Without this,
+;; a hot-reloaded flow with a different :output fn but identical recent
+;; inputs would silently keep serving the previous result.
+
+(defn- invalidate-flow-on-replace!
+  [{:keys [kind id]}]
+  (when (= kind :flow)
+    (swap! last-inputs
+           (fn [m]
+             (into {} (remove (fn [[[_ flow-id] _]] (= flow-id id))) m)))))
+
+(defonce ^:private _hot-reload-hook
+  (do (registrar/add-replacement-hook! invalidate-flow-on-replace!)
+      :installed))
+
 ;; ---- evaluation -----------------------------------------------------------
 ;;
 ;; Called from the per-event drain after :db commits and before :fx runs.

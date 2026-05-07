@@ -104,6 +104,30 @@
       (is (not (contains? @cache [:n]))
           "cache slot is removed when ref-count reaches zero"))))
 
+(deftest flow-hot-reload-invalidates-last-inputs
+  (testing "re-registering a flow re-evaluates even when inputs are unchanged"
+    (rf/reg-event-db :init   (fn [_ _] {:n 5}))
+    (rf/reg-event-db :inc-n  (fn [db _] (update db :n inc)))
+    ;; v1 flow: doubles :n at [:doubled].
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 n))
+                  :path   [:doubled]})
+    (rf/dispatch-sync [:init])
+    (is (= 10 (:doubled (rf/get-frame-db :rf/default))))
+    (rf/dispatch-sync [:inc-n])
+    (is (= 12 (:doubled (rf/get-frame-db :rf/default))))
+    ;; Re-register with a NEW formula. Inputs haven't changed yet — but the
+    ;; flow body did, so the next drain should re-evaluate.
+    (rf/reg-flow {:id     :double
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 n))
+                  :path   [:doubled]})
+    ;; Trigger ANY event to drive the drain (no input change).
+    (rf/dispatch-sync [:inc-n])
+    (is (= 700 (:doubled (rf/get-frame-db :rf/default)))
+        "after re-registration the flow body re-evaluates on the next drain")))
+
 (deftest sub-hot-reload-invalidates-cache
   (testing "re-registering a :sub disposes cached reactions and emits a trace"
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
