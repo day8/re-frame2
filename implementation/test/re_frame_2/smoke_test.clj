@@ -305,6 +305,24 @@
                 (tree-seq coll? seq exp))
           "h expansion references get-view for namespaced keywords"))))
 
+(deftest render-tree-hash-is-stable
+  (testing "render-tree-hash is deterministic and order-sensitive on vectors"
+    (require 're-frame-2.ssr)
+    (let [hash (resolve 're-frame-2.ssr/render-tree-hash)
+          h1   (@hash [:div {:class "x"} [:p "hello"]])
+          h2   (@hash [:div {:class "x"} [:p "hello"]])
+          h3   (@hash [:div {:class "y"} [:p "hello"]])]
+      (is (= h1 h2) "identical trees hash identically")
+      (is (not= h1 h3) "different attrs change the hash")
+      (is (re-matches #"[0-9a-f]{8}" h1)
+          "hash is 8-char lowercase hex (FNV-1a 32-bit)"))))
+
+(deftest render-to-string-emits-hash
+  (testing ":emit-hash? opts adds data-rf-render-hash on the root element"
+    (let [out (rf/render-to-string [:div [:p "hi"]] {:emit-hash? true})]
+      (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
+          "root element carries the data-rf-render-hash attribute"))))
+
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves"
     (rf/reg-view :greet

@@ -8,6 +8,7 @@
             [re-frame-2.registrar :as registrar]
             [re-frame-2.flows :as flows]
             [re-frame-2.machines :as machines]
+            [re-frame-2.ssr :as ssr]
             [re-frame-2.substrate.adapter :as adapter]
             [re-frame-2.substrate.reagent :as reagent-adapter]
             [re-frame-2.views])
@@ -207,6 +208,21 @@
                   (= :rf.error/sub-exception (:operation ev)))
                 @traces)
           "expected :rf.error/sub-exception trace"))))
+
+;; ---- render-tree-hash ----------------------------------------------------
+;; Per Spec 011 §Hydration-mismatch detection: the hash must be stable
+;; across JVM and CLJS. The JVM smoke test asserts JVM stability; this
+;; test asserts CLJS stability. The matching JVM/CLJS hex strings are
+;; verifiable manually (or via a future cross-runtime test harness).
+
+(deftest render-tree-hash-cljs
+  (testing "render-tree-hash returns 8-char lowercase hex deterministically"
+    (let [r2h   (ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
+          r2h-2 (ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
+          r2h-3 (ssr/render-tree-hash [:div {:class "y"} [:p "hi"]])]
+      (is (= r2h r2h-2))
+      (is (not= r2h r2h-3))
+      (is (re-matches #"[0-9a-f]{8}" r2h)))))
 
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
