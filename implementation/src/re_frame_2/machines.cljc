@@ -144,28 +144,69 @@
     (map? v)                        [v]
     :else (throw (ex-info ":rf.error/machine-bad-on-clause" {:value v}))))
 
+(defn- pick-after-transition
+  "Per Spec 005 §Delayed :after transitions. The synthetic event
+  [:rf.machine.timer/after-elapsed delay carried-epoch] arrives. Walk
+  path leaf→root for an :after table at that delay. If the carried
+  epoch matches the snapshot's current :rf/after-epoch, return the
+  transition. Otherwise return :stale (so the caller can emit
+  :rf.machine.timer/stale-after)."
+  [machine path event snapshot]
+  (let [[_ delay carried-epoch] event
+        current-epoch (get-in snapshot [:data :rf/after-epoch])]
+    (loop [i (dec (count path))]
+      (if (neg? i)
+        nil
+        (let [prefix (vec (take (inc i) path))
+              n      (node-at machine prefix)
+              t      (get-in n [:after delay])]
+          (cond
+            (nil? t)
+            (recur (dec i))
+
+            (= carried-epoch current-epoch)
+            {:transition (if (keyword? t) {:target t} t)
+             :decl-path  prefix
+             :delay      delay
+             :epoch      carried-epoch}
+
+            :else
+            {:stale?         true
+             :state          (last prefix)
+             :delay          delay
+             :scheduled-epoch carried-epoch
+             :current-epoch   current-epoch}))))))
+
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
   with parent fallthrough.
 
-  Returns {:transition t :decl-path prefix} or nil."
+  Special-cases the synthetic :rf.machine.timer/after-elapsed event by
+  delegating to pick-after-transition.
+
+  Returns {:transition t :decl-path prefix} or {:stale? true ...} or nil."
   [machine path event snapshot]
   (let [event-id (first event)]
-    (loop [i (dec (count path))]
-      (when (>= i 0)
-        (let [prefix (vec (take (inc i) path))
-              n      (node-at machine prefix)
-              cands  (normalise-on-clause
-                       (or (get-in n [:on event-id])
-                           (get-in n [:on :*])))
-              hit    (some (fn [t]
-                             (let [g (resolve-guard machine (:guard t))]
-                               (when (g snapshot event) t)))
-                           cands)]
-          (if hit
-            {:transition hit :decl-path prefix}
-            (recur (dec i))))))))
+    (cond
+      (= :rf.machine.timer/after-elapsed event-id)
+      (pick-after-transition machine path event snapshot)
+
+      :else
+      (loop [i (dec (count path))]
+        (when (>= i 0)
+          (let [prefix (vec (take (inc i) path))
+                n      (node-at machine prefix)
+                cands  (normalise-on-clause
+                         (or (get-in n [:on event-id])
+                             (get-in n [:on :*])))
+                hit    (some (fn [t]
+                               (let [g (resolve-guard machine (:guard t))]
+                                 (when (g snapshot event) t)))
+                             cands)]
+            (if hit
+              {:transition hit :decl-path prefix}
+              (recur (dec i)))))))))
 
 (defn- target-path
   "Compute the absolute target path for a transition. Per Spec 005:
@@ -235,6 +276,11 @@
   Internal transitions (no :target) skip exit/entry; the action fires
   and the state path is unchanged.
 
+  Per Spec 005 §Delayed :after transitions, every external transition
+  advances :data.:rf/after-epoch (so any in-flight timer captured before
+  the change becomes stale). A target leaf that declares :after schedules
+  a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
+
   `transition` is the transition map with a synthetic :decl-path key
   recording where in the state-path tree the transition was declared."
   [machine snapshot event transition]
@@ -259,10 +305,57 @@
         action-refs  [(:action transition)]
         all-refs     (concat exit-refs action-refs entry-refs)
         [snap-after fx] (collect-actions machine snapshot event all-refs)
-        new-state    (if internal?
-                       (:state snapshot)
-                       (denormalise-state target-leaf (:state snapshot)))]
-    [(assoc snap-after :state new-state) fx]))
+        ;; Per Spec 005 §Delayed :after transitions §Hierarchy interaction:
+        ;; the epoch advances iff any state being EXITED or ENTERED in this
+        ;; transition declares an :after table (that's the in-flight timer
+        ;; either being scheduled, or being invalidated). Sibling-leaf
+        ;; transitions that don't cross an :after-bearing state leave the
+        ;; epoch alone. Internal transitions never advance.
+        exited-nodes  (when-not internal?
+                        (->> (nodes-along-path machine src-path)
+                             (drop lca-len)
+                             (map (fn [[_ n]] n))))
+        entered-nodes (when-not internal?
+                        (->> (nodes-along-path machine target-leaf)
+                             (drop lca-len)
+                             (map (fn [[_ n]] n))))
+        epoch-bumps?  (and (not internal?)
+                           (boolean
+                             (some :after (concat exited-nodes entered-nodes))))
+        new-state    (cond
+                       internal?            (:state snapshot)
+                       (vector? raw-target) (vec target-leaf)
+                       (keyword? raw-target) (if (= 1 (count target-leaf))
+                                               (first target-leaf)
+                                               (vec target-leaf))
+                       :else                (denormalise-state target-leaf (:state snapshot)))
+        snap-final   (cond
+                       internal?
+                       (assoc snap-after :state new-state)
+
+                       epoch-bumps?
+                       (let [new-epoch (inc (or (get-in snap-after [:data :rf/after-epoch]) 0))]
+                         (-> snap-after
+                             (assoc :state new-state)
+                             (assoc-in [:data :rf/after-epoch] new-epoch)))
+
+                       :else
+                       (assoc snap-after :state new-state))]
+    ;; Schedule :after timers declared on any newly-entered ancestor whose
+    ;; level didn't already host an active timer (i.e. nodes BELOW the LCA
+    ;; on the entry side). This skips sibling-leaf transitions that didn't
+    ;; cross the :after-bearing parent.
+    (when-not internal?
+      (doseq [n entered-nodes]
+        (when-let [after-map (:after n)]
+          (let [epoch      (get-in snap-final [:data :rf/after-epoch])
+                ;; Find the state-id whose node IS n.
+                leaf-state (some (fn [[p node]] (when (= node n) (last p)))
+                                 (nodes-along-path machine target-leaf))]
+            (doseq [[delay _target] after-map]
+              (trace/emit! :machine :rf.machine.timer/scheduled
+                           {:state leaf-state :delay delay :epoch epoch}))))))
+    [snap-final fx]))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root
@@ -354,11 +447,32 @@
         ;; Step 1: pick the event-driven transition.
         path             (state-path (:state snapshot))
         match            (pick-transition machine path event snapshot)
+        ;; Trace timer firing / staleness BEFORE running the transition,
+        ;; so listeners see the firing event in the order it occurred.
+        _ (when (and match (:stale? match))
+            (trace/emit! :machine :rf.machine.timer/stale-after
+                         {:state           (:state match)
+                          :delay           (:delay match)
+                          :scheduled-epoch (:scheduled-epoch match)
+                          :current-epoch   (:current-epoch match)
+                          :recovery        :replaced-with-default}))
+        _ (when (and match (not (:stale? match)) (:delay match))
+            (trace/emit! :machine :rf.machine.timer/fired
+                         {:state  (last (:decl-path match))
+                          :delay  (:delay match)
+                          :epoch  (:epoch match)
+                          :fired? true}))
         [snap-after-event fx-after-event]
-        (if match
+        (cond
+          (and match (:stale? match))
+          [snapshot []]   ;; suppress: snapshot unchanged
+
+          match
           (apply-transition-once
             machine snapshot event
             (assoc (:transition match) :decl-path (:decl-path match)))
+
+          :else
           [snapshot []])
         ;; Step 3: drain :raise.
         [snap-after-raise fx-after-raise]

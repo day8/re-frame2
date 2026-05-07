@@ -34,6 +34,7 @@
     :fsm/flat
     :fsm/eventless-always
     :fsm/hierarchical
+    :fsm/delayed-after
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration
