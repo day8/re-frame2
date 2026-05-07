@@ -32,7 +32,7 @@ The further implication is that value has moved up the chain. The value of code 
 
 ## Why re-frame2?
 
-**Because its computational model is so simple**. A 6 domino cascade. Everything is data driven. Events are causal. Views are purely reactive and they stay where they belong: at the end of the data flow, not at its centre. All state in the one place — immutable.
+**Because its computational model is so simple**. A 6 domino cascade. Everything is data driven. Events are causal. Effects are isolated. Views are purely reactive and they stay where they belong: at the end of the data flow, not at its centre. All state in the one place — immutable.
 
 There are no side channels, no async backdoors, no hooks dependency-array decisions. The computational model is small enough to fit in your head — and the things that don't fit (state machines, async effects, SSR) inherit the same shape rather than escaping it.
 
@@ -65,7 +65,7 @@ It is probably worth acknowledging that this repo is not really for humans. AIs 
 
 [The guide](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
 
-After that, browse the aspirational [examples](examples/README.md). Note: all are written against the imagined v2 API and won't run until the [reference implementation](#status) lands.
+After that, browse the aspirational [examples](examples/README.md). Note: all are written against the imagined v2 API as a proof of concept and won't run until the [reference implementation](#status) lands (soon).
 
 Maybe then glance at some of [the specification](docs/specification/README.md).
 
