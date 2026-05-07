@@ -65,63 +65,147 @@
       nil
       candidates)))
 
+(defn- run-action [machine snap action-ref event]
+  (if action-ref
+    (let [f (resolve-action machine action-ref)
+          result (f snap event)]
+      (or result {}))
+    {}))
+
+(defn- apply-transition-once
+  "Apply one transition (action group + state change). Returns
+  [new-snapshot fx-vec]. Used by both event-driven transitions and
+  :always microsteps."
+  [machine snapshot event transition states-map state-node]
+  (let [target-state  (:target transition (:state snapshot))
+        target-node   (get states-map target-state)
+        exit-result   (run-action machine snapshot (:exit state-node)   event)
+        action-result (run-action machine snapshot (:action transition) event)
+        entry-result  (run-action machine snapshot (:entry target-node) event)
+        data-merged   (-> (:data snapshot)
+                          (merge (or (:data exit-result) {}))
+                          (merge (or (:data action-result) {}))
+                          (merge (or (:data entry-result) {})))
+        fx-vec        (vec (concat (or (:fx exit-result) [])
+                                   (or (:fx action-result) [])
+                                   (or (:fx entry-result) [])))
+        new-snapshot  {:state target-state :data data-merged}]
+    [new-snapshot fx-vec]))
+
+(defn- pick-always-transition
+  "Per Spec 005 §Eventless :always transitions: a state may have an :always
+  vector of {:guard :target :action} maps. Pick the first whose guard
+  passes against the current snapshot."
+  [machine state-node snapshot]
+  (when-let [always-vec (:always state-node)]
+    (reduce
+      (fn [_ t]
+        (let [guard-fn (resolve-guard machine (:guard t))]
+          (if (guard-fn snapshot nil)
+            (reduced t)
+            nil)))
+      nil
+      (if (vector? always-vec) always-vec [always-vec]))))
+
+(def ^:private always-depth-limit-default 16)
+(def ^:private raise-depth-limit-default  16)
+
+(defn- drain-raises
+  "Drain the :raise queue inside fx-vec. Each :raise becomes an inline
+  recursive machine-transition call; non-:raise fx pass through to the
+  accumulator. Returns [new-snapshot accum-fx]."
+  [machine snapshot fx-vec depth-limit]
+  (loop [pending fx-vec
+         accum   []
+         snap    snapshot
+         depth   0]
+    (cond
+      (> depth depth-limit)
+      (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
+                             {:machine-id (:id machine) :depth depth
+                              :recovery :no-recovery})
+          [snap accum])
+
+      (empty? pending)
+      [snap accum]
+
+      :else
+      (let [[fx-id args] (first pending)
+            rest-pending (rest pending)]
+        (case fx-id
+          :raise
+          ;; Recursive call into the FULL machine-transition (including
+          ;; its own raise-drain + always-microstep loop). The result's
+          ;; fx vector is appended to the pending list (NOT prepended)
+          ;; per Spec 005 §Drain semantics §Level 3 step 3 — the raise
+          ;; queue is drained depth-first, but new fx land at the end.
+          (let [[snap2 fx2] ((resolve `machine-transition) machine snap args)]
+            (recur (concat fx2 rest-pending)
+                   accum
+                   snap2
+                   (inc depth)))
+
+          ;; default: forward to do-fx
+          (recur rest-pending
+                 (conj accum [fx-id args])
+                 snap
+                 depth))))))
+
 (defn machine-transition
-  "Pure function. Given a machine definition, the current snapshot, and
-  an event, return [new-snapshot effects].
+  "Pure function. Given a machine definition, current snapshot, and event,
+  return [new-snapshot effects].
 
-  Snapshot shape: {:state <keyword> :data <map>} per Spec 005 §Snapshot shape.
-  Effects shape: a vector of [fx-id args] pairs, with :raise routed locally
-  (we drain any :raise inside this fn) and the rest forwarded to do-fx."
+  Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
+   1. Pick the matching transition for the event (guards LtR, first wins).
+   2. Run :exit / :action / :entry slots in order; collect data + fx.
+   3. Drain the local :raise queue depth-first, recursing through
+      machine-transition.
+   4. Microstep loop — check :always on the current state; if a guard
+      matches, apply the always-transition; loop back to step 3.
+   5. Commit (return) the snapshot once :always reaches fixed point.
+
+  Bounded by :raise-depth-limit and :always-depth-limit (both default 16)."
   [machine snapshot event]
-  (let [{:keys [state data]} snapshot
-        states-map           (:states machine)
-        state-node           (get states-map state)
-        transition           (pick-transition machine state-node event snapshot)]
-    (if (nil? transition)
-      ;; No matching transition: snapshot unchanged.
-      [snapshot []]
-      (let [target-state (:target transition state)
-            target-node  (get states-map target-state)
-            ;; Run :exit, :action, :entry in order.
-            run-action (fn [snap action-ref event]
-                         (if action-ref
-                           (let [f (resolve-action machine action-ref)
-                                 result (f snap event)]
-                             (or result {}))
-                           {}))
-            exit-result   (run-action snapshot (:exit state-node)         event)
-            action-result (run-action snapshot (:action transition)       event)
-            entry-result  (run-action snapshot (:entry target-node)       event)
-            ;; Merge :data updates (last write wins on collisions).
-            data-merged (-> data
-                            (merge (or (:data exit-result) {}))
-                            (merge (or (:data action-result) {}))
-                            (merge (or (:data entry-result) {})))
-            ;; Concatenate :fx in slot order.
-            fx-vec (vec (concat (or (:fx exit-result) [])
-                                (or (:fx action-result) [])
-                                (or (:fx entry-result) [])))
-            new-snapshot {:state target-state :data data-merged}]
-        ;; Drain :raise pre-commit: any [:raise <ev>] in fx is processed
-        ;; inline against the in-flight snapshot. Other fx-ids passed through.
-        (loop [pending fx-vec
-               accum-fx []
-               snap     new-snapshot]
-          (if (empty? pending)
-            [snap accum-fx]
-            (let [[fx-id args] (first pending)
-                  rest-pending (rest pending)]
-              (case fx-id
-                :raise
-                (let [[snap-after raised-fx] (machine-transition machine snap args)]
-                  (recur (concat raised-fx rest-pending)
-                         accum-fx
-                         snap-after))
+  (let [states-map (:states machine)
+        always-limit (get machine :always-depth-limit always-depth-limit-default)
+        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
+    ;; Step 1: pick event-driven transition (or no-op).
+    (let [event-transition (pick-transition
+                             machine
+                             (get states-map (:state snapshot))
+                             event
+                             snapshot)
+          [snap-after-event fx-after-event]
+          (if event-transition
+            (apply-transition-once machine snapshot event event-transition
+                                   states-map (get states-map (:state snapshot)))
+            [snapshot []])
+          ;; Step 3: drain :raise.
+          [snap-after-raise fx-after-raise]
+          (drain-raises machine snap-after-event fx-after-event raise-limit)]
+      ;; Step 4: :always microstep loop.
+      (loop [snap snap-after-raise
+             fx   fx-after-raise
+             depth 0]
+        (cond
+          (> depth always-limit)
+          (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                 {:machine-id (:id machine) :depth depth
+                                  :recovery :no-recovery})
+              [snap fx])
 
-                ;; default: forward to do-fx
-                (recur rest-pending
-                       (conj accum-fx [fx-id args])
-                       snap)))))))))
+          :else
+          (let [state-node (get states-map (:state snap))
+                always-t   (pick-always-transition machine state-node snap)]
+            (if (nil? always-t)
+              ;; Fixed point reached.
+              [snap fx]
+              ;; Apply the always-transition, then drain raises, then loop.
+              (let [[snap2 fx2] (apply-transition-once
+                                  machine snap nil always-t
+                                  states-map state-node)
+                    [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
+                (recur snap3 (vec (concat fx fx3)) (inc depth))))))))))
 
 ;; ---- create-machine-handler -----------------------------------------------
 

@@ -15,6 +15,7 @@
             [re-frame-2.cofx :as cofx]
             [re-frame-2.subs :as subs]
             [re-frame-2.interceptor :as interceptor]
+            [re-frame-2.std-interceptors :as std-interceptors]
             [re-frame-2.schemas :as schemas]
             [re-frame-2.flows :as flows]
             [re-frame-2.machines :as machines]
@@ -85,6 +86,8 @@
 (def get-effect      interceptor/get-effect)
 (def assoc-effect    interceptor/assoc-effect)
 (def inject-cofx     cofx/inject-cofx)
+(def path            std-interceptors/path)
+(def unwrap          std-interceptors/unwrap)
 
 ;; ---- trace ----------------------------------------------------------------
 
