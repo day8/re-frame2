@@ -33,6 +33,18 @@
 (def reg-fx          fx/reg-fx)
 (def reg-cofx        cofx/reg-cofx)
 (def reg-frame       frame/reg-frame)
+
+(defn reg-view
+  "Register a view by id. The render-fn is `(fn [args...] hiccup-tree)`.
+
+  This is the JVM-runnable / SSR-friendly form. CLJS apps using Reagent
+  should prefer `re-frame-2.views/reg-view` (a macro that also defs the
+  local var) for client-side use."
+  ([id render-fn]
+   (reg-view id {} render-fn))
+  ([id metadata render-fn]
+   (registrar/register! :view id (assoc metadata :handler-fn render-fn))
+   id))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)

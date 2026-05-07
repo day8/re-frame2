@@ -282,6 +282,16 @@
 
 ;; ---- SSR emitter ----------------------------------------------------------
 
+(deftest reg-view-jvm
+  (testing "reg-view registers a view that ssr/render-to-string resolves"
+    (require 're-frame-2.ssr)
+    (let [r2s @(resolve 're-frame-2.ssr/render-to-string)]
+      (rf/reg-view :greet
+        (fn [name] [:p "hello " [:strong name]]))
+      (is (= "<p>hello <strong>world</strong></p>"
+             (r2s [:greet "world"] {}))
+          "render-to-string resolves [:greet args] via the :view registry"))))
+
 (deftest ssr-render-to-string-basics
   (testing "basic hiccup → HTML"
     (require 're-frame-2.ssr)
