@@ -26,11 +26,9 @@ The further implication is that value has moved up the chain. **The value of cod
 
 **2. The resulting library makes applications AI-pair-programmable.** Apps built on re-frame2 are highly amenable to AI pair-programming because the runtime exposes deep integration points the AI can talk to **live**: registry queries (every event, sub, fx, machine, route is named and enumerable), structured trace events (every dispatch, drain, render, error is a data event), hot-swap re-registration, time-travel over the per-frame value, fx stubbing for synthetic experiments. The [re-frame-pair](https://github.com/day8/re-frame-pair) lineage from v1 — an nREPL-attached AI companion that watches a running app — is carried forward and formalised in v2's runtime contract. The same shapes that let an AI implement the framework (small primitives, named registrations, queryable runtime, structured errors) are what let an AI navigate, reason about, and improve a codebase built on the framework.
 
-**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, the corpus ships a [migration prompt](docs/specification/MIGRATION.md) — twenty-one rules, mechanical where possible, flagged-for-human-review where the rewrite depends on intent — that an AI follows to transition a legacy re-frame v1 application to v2. Same AI-first discipline that makes the spec one-shottable makes the migration mechanically tractable: every breaking change is a named rule with a closed transformation.
+**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, the corpus ships a [migration prompt](docs/specification/MIGRATION.md) — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent.
 
-The three perspectives reinforce each other: an AI that one-shots the implementation knows the runtime intimately, which is also what it needs to pair-program against an application running on it — and the same named-and-enumerable surface that makes pair-programming work makes v1 → v2 migration analysable rule-by-rule.
-
-## Why re-frame2
+## Why re-frame2?
 
 **Events are causal. Views are purely reactive.** Everything else is a derivation.
 
@@ -42,9 +40,7 @@ That sentence is the entire dynamic-model thesis. State changes go through event
 
 **Reagent is the V.** re-frame2 only needs the rendering substrate to be the V in MVC, and no more. The pattern is decoupled from Reagent and React via the [adapter contract](docs/specification/006-ReactiveSubstrate.md) — Reagent ships as the default, plain-atom adapters cover JVM/SSR/headless, and other-host implementations (TS+Solid, Vue, Python+RxPy) plug in via the same closed nine-fn interface. Views stay where they belong: at the end of the data flow, not at its centre.
 
-The long-form argument lives in the guide — start with [01 — Why re-frame2](docs/guide/01-why-re-frame2.md).
-
-## What's new versus re-frame v1
+## What's New?
 
 Coming from v1 of re-frame? Here's what's new.
 
@@ -59,7 +55,6 @@ Coming from v1 of re-frame? Here's what's new.
 | **Multi-host implementability** | The pattern stops being "a CLJS thing." Other hosts (TypeScript, Python, Kotlin, Rust, Swift) ship via the [Implementor's Checklist](docs/specification/Implementor-Checklist.md) — declare which optional capabilities, pick host-discretion technologies, run the conformance subset matching the claimed list. The CLJS reference is one host; the spec is the contract. | [000-Vision §Host-profile matrix](docs/specification/000-Vision.md#host-profile-matrix), [Implementor-Checklist](docs/specification/Implementor-Checklist.md) |
 
 What re-frame2 *keeps*: the same six dominoes, the same single source of truth, the same preference for data over APIs over syntax. If you've used re-frame v1, re-frame2 code reads on the first pass.
-
 
 ## Reading paths
 
