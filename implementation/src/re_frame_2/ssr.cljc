@@ -25,7 +25,9 @@
   ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame-2.frame :as frame]
             [re-frame-2.registrar :as registrar]
-            [re-frame-2.events :as events]))
+            [re-frame-2.events :as events]
+            #?(:cljs [re-frame-2.substrate.plain-atom :as plain-atom-cljs])
+            #?(:cljs [re-frame-2.substrate.reagent :as reagent-adapter])))
 
 (defn- escape-html [s]
   (-> (str s)
@@ -234,16 +236,22 @@
       (str "<!DOCTYPE html>" body)
       body)))
 
-;; Wire our render-to-string into the plain-atom adapter so callers using
-;; rf/render-to-string (which delegates through the substrate adapter) get
-;; this implementation on the JVM. CLJS apps install a Reagent adapter
-;; instead and don't go through plain-atom.
+;; Wire our render-to-string into both adapters so callers using
+;; rf/render-to-string (which delegates through the substrate adapter)
+;; get this implementation on either runtime. JVM apps use the
+;; plain-atom adapter; CLJS apps use the Reagent adapter; both reach
+;; this fn via their adapter's :render-to-string slot.
 #?(:clj
    (try
      (require 're-frame-2.substrate.plain-atom)
      ((requiring-resolve 're-frame-2.substrate.plain-atom/set-hiccup-emitter!)
       render-to-string)
      (catch Throwable _ nil)))
+
+#?(:cljs
+   (do
+     (plain-atom-cljs/set-hiccup-emitter! render-to-string)
+     (reagent-adapter/set-hiccup-emitter! render-to-string)))
 
 ;; ---- hydrate event --------------------------------------------------------
 

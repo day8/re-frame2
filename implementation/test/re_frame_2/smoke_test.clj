@@ -323,6 +323,39 @@
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
+(deftest ssr-end-to-end
+  (testing "complete SSR flow: dispatch-sync → render-to-string → embedded hash"
+    ;; Register a trivial articles app — an event seeds state, a sub
+    ;; reads it, a view renders it.
+    (rf/reg-event-db :articles/seed
+      (fn [_ _] {:articles [{:id "a" :title "Article A" :body "Body A"}
+                            {:id "b" :title "Article B" :body "Body B"}]}))
+    (rf/reg-sub :articles (fn [db _] (:articles db)))
+    (rf/reg-view :pages/articles
+      (fn []
+        (let [arts (rf/subscribe-value [:articles])]
+          [:div.page
+           [:h1 "Recent articles"]
+           [:ul
+            (for [{:keys [id title body]} arts]
+              ^{:key id} [:li [:h3 title] [:p body]])]])))
+
+    ;; Server flow: dispatch the seed event, render the root, capture hash.
+    (rf/dispatch-sync [:articles/seed])
+    (let [html (rf/render-to-string [:pages/articles] {:emit-hash? true})]
+      (is (clojure.string/includes? html "Article A")
+          "rendered HTML contains the title from app-db")
+      (is (clojure.string/includes? html "Article B"))
+      (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
+                   html)
+          "root <div> carries a data-rf-render-hash attribute")
+      ;; The hash is reproducible: re-render the same tree, same hash.
+      (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
+            html-2 (rf/render-to-string [:pages/articles] {:emit-hash? true})
+            h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
+        (is (= (second h1) (second h2))
+            "re-rendering the same view+state yields the same hash")))))
+
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves"
     (rf/reg-view :greet

@@ -224,6 +224,23 @@
       (is (not= r2h r2h-3))
       (is (re-matches #"[0-9a-f]{8}" r2h)))))
 
+(deftest ssr-end-to-end-cljs
+  (testing "complete SSR flow runs against the Reagent adapter on CLJS"
+    (rf/reg-event-db :seed (fn [_ _] {:items ["a" "b" "c"]}))
+    (rf/reg-sub :items (fn [db _] (:items db)))
+    (rf/reg-view :pages/list
+      (fn []
+        [:ul
+         (for [it (rf/subscribe-value [:items])]
+           ^{:key it} [:li it])]))
+    (rf/dispatch-sync [:seed])
+    (let [html (rf/render-to-string [:pages/list] {:emit-hash? true})]
+      (is (re-find #"<ul[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
+          "rendered HTML carries a stable hash on the root <ul>")
+      (is (clojure.string/includes? html "<li>a</li>"))
+      (is (clojure.string/includes? html "<li>b</li>"))
+      (is (clojure.string/includes? html "<li>c</li>")))))
+
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
