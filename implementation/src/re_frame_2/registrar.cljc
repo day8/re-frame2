@@ -60,17 +60,22 @@
   (let [previous (get-in @kind->id->metadata [kind id])]
     (swap! kind->id->metadata assoc-in [kind id] metadata)
     (when previous
-      ;; Hot-reload notifications. Hooks run isolated — listener failures
-      ;; don't propagate.
-      (doseq [f @replacement-hooks]
-        (try (f {:kind kind :id id :was previous :now metadata})
-             (catch #?(:clj Throwable :cljs :default) _ nil)))
-      ;; Trace via late-bound resolve so registrar stays dep-free.
-      (when-let [emit! (resolve 're-frame-2.trace/emit!)]
-        (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
-          ((deref emit!) :registry :rf.registry/handler-replaced
-                         (cond-> {:kind kind :id id}
-                           different? (assoc :different-fn? true))))))
+      (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
+        ;; Hot-reload notifications. Hooks run isolated — listener failures
+        ;; don't propagate. Hooks fire on EVERY re-registration so dependent
+        ;; namespaces can clean up their caches even on idempotent reloads
+        ;; (the same fn shape is fine; closure state may differ).
+        (doseq [f @replacement-hooks]
+          (try (f {:kind kind :id id :was previous :now metadata
+                   :different-fn? different?})
+               (catch #?(:clj Throwable :cljs :default) _ nil)))
+        ;; Only trace when the handler-fn actually changed — idempotent
+        ;; re-registrations (same fn instance, common during ns reload of
+        ;; static defs) would otherwise spam the trace stream.
+        (when different?
+          (when-let [emit! (resolve 're-frame-2.trace/emit!)]
+            ((deref emit!) :registry :rf.registry/handler-replaced
+                           {:kind kind :id id :different-fn? true})))))
     {:was previous :now metadata}))
 
 (defn unregister!
