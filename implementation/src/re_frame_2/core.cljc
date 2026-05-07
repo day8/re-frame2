@@ -164,6 +164,8 @@
 
 (def handlers     registrar/handlers)
 (def handler-meta registrar/handler-meta)
+(def handler-ids  registrar/ids)
+(def registry-summary registrar/all-kinds-with-counts)
 (def frames       (fn [] (frame/frame-ids)))
 (def frame-meta   frame/frame-meta)
 (def get-frame-db frame/frame-app-db-value)
