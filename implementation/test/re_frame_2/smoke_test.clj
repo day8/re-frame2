@@ -282,6 +282,29 @@
 
 ;; ---- SSR emitter ----------------------------------------------------------
 
+(deftest views-macros-load-cleanly
+  (testing "the views-macros ns loads on the JVM and macros expand"
+    (require 're-frame-2.views-macros)
+    ;; with-frame expands into binding *current-frame*.
+    (let [exp (macroexpand-1 `(re-frame-2.views-macros/with-frame :foo :body))]
+      (is (some #(= 're-frame-2.core/*current-frame* %)
+                (tree-seq coll? seq exp))
+          "with-frame expansion references *current-frame*"))
+    ;; reg-view defs a local var named after the keyword's name. Use
+    ;; macroexpand (not -1) because the 2-arity form delegates to the
+    ;; 3-arity form via a self-call.
+    (let [exp (macroexpand `(re-frame-2.views-macros/reg-view
+                              :my-widget (fn [] :body)))]
+      (is (= 'def (first exp))
+          "reg-view expansion starts with def")
+      (is (= 'my-widget (second exp))
+          "reg-view defs the var with the keyword's name"))
+    ;; h leaves DOM tags alone but rewrites namespaced view refs.
+    (let [exp (macroexpand-1 `(re-frame-2.views-macros/h [:my-ns/w {:k 1}]))]
+      (is (some #(= 're-frame-2.core/get-view %)
+                (tree-seq coll? seq exp))
+          "h expansion references get-view for namespaced keywords"))))
+
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves"
     (rf/reg-view :greet
