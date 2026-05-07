@@ -1,0 +1,120 @@
+(ns re-frame-2.core
+  "Public API surface for re-frame2. Per docs/specification/API.md.
+
+  Users `(:require [re-frame-2.core :as rf])` and call `rf/dispatch`,
+  `rf/reg-event-fx`, etc. Internal namespaces are not part of the
+  contract.
+
+  This namespace re-exports the canonical surface; per-namespace docs
+  carry the design rationale."
+  (:require [re-frame-2.registrar :as registrar]
+            [re-frame-2.frame :as frame]
+            [re-frame-2.router :as router]
+            [re-frame-2.events :as events]
+            [re-frame-2.fx :as fx]
+            [re-frame-2.cofx :as cofx]
+            [re-frame-2.subs :as subs]
+            [re-frame-2.interceptor :as interceptor]
+            [re-frame-2.schemas :as schemas]
+            [re-frame-2.flows :as flows]
+            [re-frame-2.machines :as machines]
+            [re-frame-2.routing :as routing]
+            [re-frame-2.trace :as trace]
+            [re-frame-2.substrate.adapter :as adapter]
+            [re-frame-2.substrate.plain-atom :as plain-atom]))
+
+;; ---- registration ---------------------------------------------------------
+
+(def reg-event-db    events/reg-event-db)
+(def reg-event-fx    events/reg-event-fx)
+(def reg-event-ctx   events/reg-event-ctx)
+(def reg-sub         subs/reg-sub)
+(def reg-fx          fx/reg-fx)
+(def reg-cofx        cofx/reg-cofx)
+(def reg-frame       frame/reg-frame)
+(def make-frame      frame/make-frame)
+(def reset-frame     frame/reset-frame!)
+(def destroy-frame   frame/destroy-frame!)
+(def reg-flow        flows/reg-flow)
+(def clear-flow      flows/clear-flow)
+(def reg-route       routing/reg-route)
+(def reg-app-schema  schemas/reg-app-schema)
+(def reg-machine     machines/reg-machine)
+
+;; ---- clearing -------------------------------------------------------------
+
+(def clear-event events/clear-event)
+(def clear-sub   subs/clear-sub)
+(def clear-fx    fx/unregister-fx)
+(def clear-subscription-cache! subs/clear-subscription-cache!)
+
+;; ---- dispatch and subscribe -----------------------------------------------
+
+(def dispatch       router/dispatch!)
+(def dispatch-sync  router/dispatch-sync!)
+(def subscribe      subs/subscribe)
+(def subscribe-value subs/subscribe-value)
+
+;; ---- view ergonomics (CLJS only) ------------------------------------------
+;; reg-view, frame-provider, h, with-frame live in re-frame-2.views.cljs;
+;; users `:require [re-frame-2.views :as v]` for those.
+
+;; ---- routing helpers ------------------------------------------------------
+
+(def match-url routing/match-url)
+(def route-url routing/route-url)
+
+;; ---- machine helpers ------------------------------------------------------
+
+(def create-machine-handler machines/create-machine-handler)
+(def machine-transition     machines/machine-transition)
+
+;; ---- introspection (per Spec 002 §The public registrar query API) -------
+
+(def handlers     registrar/handlers)
+(def handler-meta registrar/handler-meta)
+(def frames       (fn [] (frame/frame-ids)))
+(def frame-meta   frame/frame-meta)
+(def get-frame-db frame/frame-app-db-value)
+
+;; ---- interceptors ---------------------------------------------------------
+
+(def ->interceptor   interceptor/->interceptor)
+(def get-coeffect    interceptor/get-coeffect)
+(def assoc-coeffect  interceptor/assoc-coeffect)
+(def get-effect      interceptor/get-effect)
+(def assoc-effect    interceptor/assoc-effect)
+(def inject-cofx     cofx/inject-cofx)
+
+;; ---- trace ----------------------------------------------------------------
+
+(def register-trace-cb! trace/register-trace-cb!)
+(def remove-trace-cb!   trace/remove-trace-cb!)
+(def emit-trace!        trace/emit!)
+
+;; ---- substrate adapter ----------------------------------------------------
+
+(def install-adapter!  adapter/install-adapter!)
+(def dispose-adapter!  adapter/dispose-adapter!)
+
+;; ---- boot -----------------------------------------------------------------
+
+(defn init!
+  "Idempotent boot. Installs an adapter (defaulting to plain-atom for JVM /
+  headless / SSR — CLJS browser apps should pass the Reagent adapter
+  explicitly). Ensures :rf/default frame is present."
+  ([] (init! plain-atom/adapter))
+  ([adapter]
+   (when-not (adapter/current-adapter)
+     (adapter/install-adapter! adapter))
+   (frame/ensure-default-frame!)
+   nil))
+
+;; ---- self-registration of framework subs ----------------------------------
+
+(reg-sub :rf/route routing/route-sub-fn)
+(reg-sub :rf.route/id     :<- [:rf/route] (fn [route _] (:id route)))
+(reg-sub :rf.route/params :<- [:rf/route] (fn [route _] (:params route)))
+(reg-sub :rf.route/query  :<- [:rf/route] (fn [route _] (:query route)))
+(reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
+(reg-sub :rf.route/error  :<- [:rf/route] (fn [route _] (:error route)))
