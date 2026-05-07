@@ -59,7 +59,8 @@
   → HTML emitter. Delegates to the installed substrate adapter's
   :render-to-string slot — for the plain-atom adapter (JVM/SSR) that
   routes through re-frame-2.ssr; for Reagent it can route through
-  reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'."
+  reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'
+  and :emit-hash? to inject data-rf-render-hash on the root element."
   ([render-tree] (render-to-string render-tree {}))
   ([render-tree opts]
    ;; On JVM the plain-atom adapter's :render-to-string requires that
@@ -67,6 +68,18 @@
    ;; Force the load lazily — otherwise the adapter throws a clear error.
    #?(:clj (try (require 're-frame-2.ssr) (catch Throwable _ nil)))
    (adapter/render-to-string render-tree opts)))
+
+(defn render-tree-hash
+  "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
+  hex). Identical output on JVM and CLJS for the same canonical-EDN
+  representation. Per Spec 011 §Hydration-mismatch detection."
+  [render-tree]
+  #?(:clj (try (require 're-frame-2.ssr) (catch Throwable _ nil)))
+  (let [hash-fn #?(:clj  (requiring-resolve 're-frame-2.ssr/render-tree-hash)
+                   :cljs (resolve 're-frame-2.ssr/render-tree-hash))]
+    (when hash-fn
+      #?(:clj  ((deref hash-fn) render-tree)
+         :cljs (hash-fn render-tree)))))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
@@ -99,14 +112,10 @@
 ;; plain fns (tests, JVM SSR, REPL) capture-and-bind a frame without
 ;; Reagent.
 
-(def ^:dynamic *current-frame* nil)
-
-(defn current-frame
-  "Return the active frame keyword. Resolution: dynamic var → :rf/default.
-  CLJS extends this with a React-context lookup; the JVM stops at the
-  dynamic var."
-  []
-  (or *current-frame* :rf/default))
+;; *current-frame* and current-frame live in re-frame-2.frame so the
+;; sub / dispatch defaults can read them without a circular require.
+;; Re-export here for the public API surface.
+(def current-frame frame/current-frame)
 
 (defn dispatcher
   "Return a fn that dispatches an event under the current frame.
@@ -134,7 +143,7 @@
   in re-frame-2.views wraps an expression in a thunk; this fn variant
   is JVM-friendly for tests / SSR / REPL."
   [frame-id thunk]
-  (binding [*current-frame* frame-id]
+  (binding [frame/*current-frame* frame-id]
     (thunk)))
 
 (defn bound-dispatcher

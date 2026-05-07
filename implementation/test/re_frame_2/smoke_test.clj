@@ -287,7 +287,7 @@
     (require 're-frame-2.views-macros)
     ;; with-frame expands into binding *current-frame*.
     (let [exp (macroexpand-1 `(re-frame-2.views-macros/with-frame :foo :body))]
-      (is (some #(= 're-frame-2.core/*current-frame* %)
+      (is (some #(= 're-frame-2.frame/*current-frame* %)
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
     ;; reg-view defs a local var named after the keyword's name. Use
@@ -322,6 +322,49 @@
     (let [out (rf/render-to-string [:div [:p "hi"]] {:emit-hash? true})]
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
+
+(deftest ssr-with-fx-override
+  (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
+    (let [stub-fired? (atom false)]
+      ;; Stub fx that synthesises an HTTP response. Threads the active
+      ;; frame through to the dispatch so :articles/loaded lands in the
+      ;; right frame's app-db (per Spec 002 §Routing the dispatch envelope:
+      ;; fx handlers receive {:frame frame-id} as their first arg).
+      (rf/reg-fx :http/get.canned-articles
+        {:platforms #{:server :client}}
+        (fn [{:keys [frame]} {:keys [on-success]}]
+          (reset! stub-fired? true)
+          (when on-success
+            (rf/dispatch (conj on-success
+                               [{:id "a" :title "Article A"}
+                                {:id "b" :title "Article B"}])
+                         {:frame frame}))))
+      ;; The real fx must be registered for the override to know what
+      ;; "http/get" is — register a no-op so it exists.
+      (rf/reg-fx :http/get
+        {:platforms #{:server :client}}
+        (fn [_ _] nil))
+
+      (rf/reg-event-fx :rf/server-init
+        (fn [{:keys [db]} [_ _request]]
+          {:db (assoc db :route {:id :route/articles})
+           :fx [[:http/get {:url "/api/articles"
+                            :on-success [:articles/loaded]}]]}))
+      (rf/reg-event-db :articles/loaded
+        (fn [db [_ articles]] (assoc db :articles articles)))
+
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::ssr (fn [ev] (swap! traces conj ev)))
+        (let [f  (rf/make-frame
+                   {:on-create    [:rf/server-init {:uri "/articles"}]
+                    :fx-overrides {:http/get :http/get.canned-articles}})
+              db (rf/get-frame-db f)]
+          (rf/remove-trace-cb! ::ssr)
+          (is @stub-fired? "the override redirected the fx to the stub")
+          (is (= 2 (count (:articles db)))
+              (str "expected 2 articles in db; traces: "
+                   (pr-str (mapv :operation @traces))))
+          (is (= "Article A" (-> db :articles first :title))))))))
 
 (deftest ssr-end-to-end
   (testing "complete SSR flow: dispatch-sync → render-to-string → embedded hash"

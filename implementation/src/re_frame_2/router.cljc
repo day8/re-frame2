@@ -22,14 +22,15 @@
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
   The envelope carries:
     :event              the user-facing event vector
-    :frame              resolved frame keyword (caller-supplied or default)
+    :frame              resolved frame keyword (caller-supplied via opts,
+                        else the active *current-frame*, else :rf/default)
     :fx-overrides       per-call fx-id-to-fx-id remapping
     :interceptor-overrides
     :trace-id           tooling
     :source             :ui :timer :http :repl :machine ..."
   [event opts]
   {:event                  event
-   :frame                  (:frame opts :rf/default)
+   :frame                  (or (:frame opts) (frame/current-frame))
    :fx-overrides           (:fx-overrides opts {})
    :interceptor-overrides  (:interceptor-overrides opts {})
    :trace-id               (:trace-id opts)

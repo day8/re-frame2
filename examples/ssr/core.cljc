@@ -22,7 +22,7 @@
    - data-rf-render-hash structural marker on the root element; the runtime
      diffs server vs. client hashes after first render and emits
      :rf.ssr/hydration-mismatch on disagreement"
-  (:require [re-frame.core :as rf]
+  (:require [re-frame-2.core :as rf]
             #?(:cljs [reagent.dom.client :as rdc])))
 
 ;; ============================================================================
@@ -40,24 +40,26 @@
 ;; ============================================================================
 
 (rf/reg-fx :http/get
-  {:doc       "GET request. Returns to dispatch on success/error."
+  {:doc       "GET request. Returns to dispatch on success/error.
+                Thread the active frame through to dispatch so the
+                continuation lands in the right frame's app-db."
    :platforms #{:server :client}}
-  (fn fx-http-get [m {:keys [url on-success on-error]}]
+  (fn fx-http-get [{:keys [frame]} {:keys [url on-success on-error]}]
     #?(:cljs (-> (js/fetch url)
                  (.then  #(.json %))
                  (.then  #(when on-success
                             (rf/dispatch (conj on-success (js->clj % :keywordize-keys true))
-                                         {:frame (:frame m)})))
+                                         {:frame frame})))
                  (.catch #(when on-error
-                            (rf/dispatch (conj on-error %) {:frame (:frame m)}))))
+                            (rf/dispatch (conj on-error %) {:frame frame}))))
        :clj  (try
                (let [resp (slurp url)
                      data (clojure.edn/read-string resp)]
                  (when on-success
-                   (rf/dispatch (conj on-success data) {:frame (:frame m)})))
+                   (rf/dispatch (conj on-success data) {:frame frame})))
                (catch Exception e
                  (when on-error
-                   (rf/dispatch (conj on-error e) {:frame (:frame m)})))))))
+                   (rf/dispatch (conj on-error e) {:frame frame})))))))
 
 (rf/reg-fx :auth.session/store
   {:doc       "Persist a session token in localStorage."
@@ -102,22 +104,26 @@
 
 (rf/reg-sub :articles (fn [db _] (:articles db)))
 
+;; rf/reg-view returns the view-id keyword. CLJS apps using the
+;; views-macros version of reg-view get an auto-defed Var as well; here
+;; we just bind the keyword.
 (def articles-page
   (rf/reg-view :pages/articles
     (fn render-articles []
-      (let [arts @(subscribe [:articles])]
+      (let [arts (rf/subscribe-value [:articles])]
         [:div.page
          [:h1 "Recent articles"]
          (if (seq arts)
-           [:ul
-            (for [{:keys [id title body]} arts]
-              ^{:key id}
-              [:li [:h3 title] [:p body]])]
+           (into [:ul]
+                 (for [{:keys [id title body]} arts]
+                   ^{:key id}
+                   [:li [:h3 title] [:p body]]))
            [:p "No articles."])]))))
 
 (def root-view
   (rf/reg-view :app/root
-    (fn render-root [] [articles-page])))
+    (fn render-root []
+      [(rf/get-view :pages/articles)])))
 
 ;; ============================================================================
 ;; SERVER ENTRY POINT
@@ -132,38 +138,40 @@
 
 #?(:clj
    (defn handle-request [request]
-     (let [frame-id (gensym "ssr-")]
-       (rf/with-frame [f (rf/make-frame {:id frame-id
-                                         :on-create [:rf/server-init request]})]
-         (let [final-db @(rf/get-frame-db f)
-               hiccup   ((rf/get-view :app/root))
-               ;; render-to-string computes the structural render-hash from
-               ;; the canonical-EDN traversal of the render tree (per Spec
-               ;; 011 §Hydration-mismatch detection: FNV-1a 32-bit, lowercase
-               ;; hex) and embeds it on the root element as
-               ;; data-rf-render-hash. The mismatch comparison happens
-               ;; automatically on the client after first render — no app
-               ;; code needed. We keep the hash on the payload for parity
-               ;; with environments that prefer to mark it that way too.
-               {:keys [html render-hash]}
-                        (rf/render-to-string hiccup {:frame f :doctype? true})
-               payload  {:rf/version     1                ;; integer per :rf/hydration-payload schema
-                         :rf/frame-id    frame-id
-                         :rf/app-db      final-db
-                         :rf/render-hash render-hash}]
-           {:status  200
-            :headers {"Content-Type" "text/html"}
-            :body
-            (str "<!DOCTYPE html><html><head>"
-                 "<meta charset='utf-8'/>"
-                 "<title>SSR demo</title>"
-                 "</head><body>"
-                 "<div id='app'>" html "</div>"
-                 "<script id='__rf_payload' type='application/edn'>"
-                 (pr-str payload)
-                 "</script>"
-                 "<script src='/main.js'></script>"
-                 "</body></html>")})))))
+     (let [f (rf/make-frame {:on-create [:rf/server-init request]})]
+       (rf/with-frame f
+         (fn []
+           (let [final-db (rf/get-frame-db f)
+                 hiccup   ((rf/get-view :app/root))
+                 ;; render-to-string with :emit-hash? embeds
+                 ;; data-rf-render-hash="<hex>" on the root element. The
+                 ;; client recomputes the hash after its first render and
+                 ;; the runtime emits :rf.ssr/hydration-mismatch on
+                 ;; disagreement.
+                 html     (rf/render-to-string hiccup
+                                               {:doctype?    true
+                                                :emit-hash?  true})
+                 ;; Same hash also lands on the payload so non-DOM
+                 ;; environments (server logs, CDN cache keys) can read it
+                 ;; without HTML parsing.
+                 render-hash (rf/render-tree-hash hiccup)
+                 payload  {:rf/version     1
+                           :rf/frame-id    f
+                           :rf/app-db      final-db
+                           :rf/render-hash render-hash}]
+             {:status  200
+              :headers {"Content-Type" "text/html"}
+              :body
+              (str "<!DOCTYPE html><html><head>"
+                   "<meta charset='utf-8'/>"
+                   "<title>SSR demo</title>"
+                   "</head><body>"
+                   "<div id='app'>" html "</div>"
+                   "<script id='__rf_payload' type='application/edn'>"
+                   (pr-str payload)
+                   "</script>"
+                   "<script src='/main.js'></script>"
+                   "</body></html>")}))))))
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT
@@ -207,30 +215,45 @@
 
 #?(:clj
    (defn ssr-tests []
-     ;; Stub :http/get so the test doesn't make real network calls.
+     ;; Boot the runtime (idempotent) — installs the plain-atom adapter
+     ;; and the :rf/default frame.
+     (rf/init!)
+     ;; Stub :http/get so the test doesn't make real network calls. The
+     ;; per-frame :fx-overrides redirect :http/get to this canned stub.
+     ;; Note: fx handlers receive {:frame frame-id} as their first arg —
+     ;; thread it through to dispatch so the :on-success continuation
+     ;; lands in the right frame's app-db.
      (rf/reg-fx :http/get.canned-articles
        {:platforms #{:server :client}}
-       (fn [_m {:keys [on-success]}]
+       (fn [{:keys [frame]} {:keys [on-success]}]
          (when on-success
            (rf/dispatch (conj on-success
                               [{:id "a" :title "Article A" :body "Body A"}
-                               {:id "b" :title "Article B" :body "Body B"}])))))
+                               {:id "b" :title "Article B" :body "Body B"}])
+                        {:frame frame}))))
 
-     (rf/with-frame [f (rf/make-frame {:on-create    [:rf/server-init {:uri "/articles"}]
-                                       :fx-overrides {:http/get :http/get.canned-articles}})]
-       (let [final-db @(rf/get-frame-db f)
-             hiccup   ((rf/get-view :app/root))
-             {:keys [html render-hash]}
-                      (rf/render-to-string hiccup {:frame f})]
-         ;; State was loaded.
-         (assert (= 2 (count (:articles final-db))))
-         ;; HTML contains the article titles.
-         (assert (clojure.string/includes? html "Article A"))
-         (assert (clojure.string/includes? html "Article B"))
-         ;; HTML round-trips via render-to-string without needing React/JSDOM.
-         (assert (clojure.string/includes? html "<h1>"))
-         ;; render-hash is a structural marker (lowercase-hex FNV-1a per
-         ;; Spec 011); the client recomputes it and the runtime emits a
-         ;; :rf.ssr/hydration-mismatch trace event on disagreement.
-         (assert (string? render-hash))
-         (assert (clojure.string/includes? html "data-rf-render-hash"))))))
+     (let [f           (rf/make-frame {:on-create    [:rf/server-init {:uri "/articles"}]
+                                       :fx-overrides {:http/get :http/get.canned-articles}})
+           final-db    (rf/get-frame-db f)
+           ;; The root view's body invokes the articles-page render fn,
+           ;; which calls (rf/subscribe-value [:articles]). Both run
+           ;; INSIDE render-to-string's tree walk; with-frame binds
+           ;; *current-frame* across that walk so the sub reads from f
+           ;; and not from :rf/default.
+           hiccup      ((rf/get-view :app/root))
+           html        (rf/with-frame f
+                         (fn [] (rf/render-to-string hiccup {:emit-hash? true})))
+           render-hash (rf/render-tree-hash hiccup)]
+       ;; State was loaded.
+       (assert (= 2 (count (:articles final-db))))
+       ;; HTML contains the article titles.
+       (assert (clojure.string/includes? html "Article A"))
+       (assert (clojure.string/includes? html "Article B"))
+       ;; HTML round-trips via render-to-string without needing React/JSDOM.
+       (assert (clojure.string/includes? html "<h1>"))
+       ;; render-hash is a structural marker (lowercase-hex FNV-1a per
+       ;; Spec 011); the client recomputes it and the runtime emits a
+       ;; :rf.ssr/hydration-mismatch trace event on disagreement.
+       (assert (re-matches #"[0-9a-f]{8}" render-hash))
+       (assert (clojure.string/includes? html "data-rf-render-hash"))
+       :ok)))

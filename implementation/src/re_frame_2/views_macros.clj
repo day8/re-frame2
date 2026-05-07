@@ -33,11 +33,11 @@
     (and (vector? bindings) (= 2 (count bindings)))
     (let [[sym expr] bindings]
       `(let [~sym ~expr]
-         (binding [re-frame-2.core/*current-frame* ~sym]
+         (binding [re-frame-2.frame/*current-frame* ~sym]
            ~@body)))
 
     :else
-    `(binding [re-frame-2.core/*current-frame* ~bindings]
+    `(binding [re-frame-2.frame/*current-frame* ~bindings]
        ~@body)))
 
 ;; ---- bound-fn ------------------------------------------------------------
@@ -53,7 +53,7 @@
   (let [frame-sym (gensym "frame__")]
     `(let [~frame-sym (re-frame-2.core/current-frame)]
        (fn ~argv
-         (binding [re-frame-2.core/*current-frame* ~frame-sym]
+         (binding [re-frame-2.frame/*current-frame* ~frame-sym]
            ~@body)))))
 
 ;; ---- reg-view ------------------------------------------------------------

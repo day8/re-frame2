@@ -33,6 +33,21 @@
   frames
   (atom {}))
 
+;; ---- frame resolution at call sites --------------------------------------
+;;
+;; *current-frame* is the dynamic var that with-frame binds. Subscribe and
+;; dispatch default to (current-frame) when no :frame is supplied, so views
+;; nested under a (with-frame ...) wrapper or a Reagent frame-provider
+;; auto-route to the right frame.
+
+(def ^:dynamic *current-frame* nil)
+
+(defn current-frame
+  "Resolution chain: dynamic var → :rf/default. CLJS-side
+  re-frame-2.views extends this with a React-context lookup."
+  []
+  (or *current-frame* :rf/default))
+
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn frame

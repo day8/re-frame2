@@ -147,8 +147,10 @@
 
 (defn subscribe
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
-  build-and-cache on miss; reuse on hit."
-  ([query-v] (subscribe :rf/default query-v))
+  build-and-cache on miss; reuse on hit. The 1-arity form resolves
+  the active frame via re-frame-2.frame/current-frame so subscribe
+  inside a with-frame or under a frame-provider auto-routes."
+  ([query-v] (subscribe (frame/current-frame) query-v))
   ([frame-id query-v]
    (let [frame-record (frame/frame frame-id)
          _ (when (nil? frame-record)
@@ -171,7 +173,7 @@
   retain a ref on the cache entry — the caller asked a one-shot
   question. Reactive callers (Reagent views, tools holding the
   reaction) should use subscribe."
-  ([query-v] (subscribe-value :rf/default query-v))
+  ([query-v] (subscribe-value (frame/current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
          v        (when reaction @reaction)]
@@ -187,7 +189,7 @@
   need to call this explicitly. Tests, REPL sessions, and tools that
   subscribe imperatively should call unsubscribe when they're done
   to release the cache slot."
-  ([query-v] (unsubscribe :rf/default query-v))
+  ([query-v] (unsubscribe (frame/current-frame) query-v))
   ([frame-id query-v]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (let [k                   (cache-key query-v)
