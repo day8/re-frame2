@@ -161,13 +161,50 @@
            (:reaction entry))
        (compute-and-cache! frame-id query-v)))))
 
+(declare unsubscribe)
+
 (defn subscribe-value
   "Subscribe and immediately deref. Useful in handler bodies where a
-  reaction isn't needed — the caller wants the value now."
+  reaction isn't needed — the caller wants the value now.
+
+  subscribe-value also calls unsubscribe immediately so it does NOT
+  retain a ref on the cache entry — the caller asked a one-shot
+  question. Reactive callers (Reagent views, tools holding the
+  reaction) should use subscribe."
   ([query-v] (subscribe-value :rf/default query-v))
   ([frame-id query-v]
-   (let [reaction (subscribe frame-id query-v)]
-     (when reaction @reaction))))
+   (let [reaction (subscribe frame-id query-v)
+         v        (when reaction @reaction)]
+     (unsubscribe frame-id query-v)
+     v)))
+
+(defn unsubscribe
+  "Decrement the ref-count on the cached subscription for query-v.
+  When ref-count reaches 0, dispose the reaction and remove the
+  cache slot. Per Spec 006 §Reference counting and disposal.
+
+  Reagent views auto-dispose via the reaction lifecycle and don't
+  need to call this explicitly. Tests, REPL sessions, and tools that
+  subscribe imperatively should call unsubscribe when they're done
+  to release the cache slot."
+  ([query-v] (unsubscribe :rf/default query-v))
+  ([frame-id query-v]
+   (when-let [cache (:sub-cache (frame/frame frame-id))]
+     (let [k                   (cache-key query-v)
+           reaction-to-dispose (atom nil)]
+       (swap! cache
+              (fn [m]
+                (if-let [entry (get m k)]
+                  (let [n (dec (or (:ref-count entry) 1))]
+                    (if (<= n 0)
+                      (do (reset! reaction-to-dispose (:reaction entry))
+                          (dissoc m k))
+                      (assoc-in m [k :ref-count] n)))
+                  m)))
+       (when-let [r @reaction-to-dispose]
+         (try (interop/dispose! r)
+              (catch #?(:clj Throwable :cljs :default) _ nil)))
+       nil))))
 
 (defn clear-subscription-cache!
   "Dispose every cached entry and clear the cache. Test fixtures use this."

@@ -55,6 +55,7 @@
 (def dispatch-sync  router/dispatch-sync!)
 (def subscribe      subs/subscribe)
 (def subscribe-value subs/subscribe-value)
+(def unsubscribe    subs/unsubscribe)
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
 ;; reg-view, frame-provider, h, with-frame live in re-frame-2.views.cljs;

@@ -83,6 +83,27 @@
       (is (= {:k "v" :n 7} @seen)
           "handler should receive the payload map as :event"))))
 
+(deftest sub-cache-ref-counting
+  (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed])
+    (let [cache (:sub-cache (frame/frame :rf/default))]
+      ;; Two subscriptions to the same query share a single cache slot.
+      (let [r1 (rf/subscribe [:n])
+            r2 (rf/subscribe [:n])]
+        (is (identical? r1 r2) "cache hit returns the same reaction")
+        (is (contains? @cache [:n]))
+        (is (= 2 (get-in @cache [[:n] :ref-count]))))
+      ;; First unsubscribe drops to 1, slot still present.
+      (rf/unsubscribe [:n])
+      (is (contains? @cache [:n]))
+      (is (= 1 (get-in @cache [[:n] :ref-count])))
+      ;; Second unsubscribe drops to 0, slot evicted.
+      (rf/unsubscribe [:n])
+      (is (not (contains? @cache [:n]))
+          "cache slot is removed when ref-count reaches zero"))))
+
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
