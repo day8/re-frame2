@@ -22,7 +22,7 @@ re-frame2 is AI-first from **three distinct perspectives**:
 
 **1. One-shot-able.** The spec in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe even in a variety of host languages.
 
-The implication: **if you don't like this specification, change it, and one-shot your own framework.** The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that.
+The implication: **if you don't like this specification, change it, and one-shot your own framework.** Roll your own. The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that. What a time to be alive.
 
 The further implication is that value has moved up the chain. The value of code is now $0. All the value is in the specification.
 
