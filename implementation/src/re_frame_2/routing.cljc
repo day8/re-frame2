@@ -162,6 +162,15 @@
 
 ;; ---- path-pattern compilation ---------------------------------------------
 
+(defn- regex-escape
+  "Quote a single character for use as a regex literal. Portable across
+  JVM (java.util.regex.Pattern/quote) and CLJS (manual escape table)."
+  [s]
+  #?(:clj  (java.util.regex.Pattern/quote s)
+     :cljs (clojure.string/replace s
+                                   #"[\\^$.|?*+()\[\]{}]"
+                                   #(str "\\" %))))
+
 (defn- compile-pattern
   "Compile a Spec 012 path-pattern into a regex with capture groups.
   Recognises:
@@ -176,28 +185,24 @@
   left-to-right in the pattern. :names is the vector of those param
   keywords; absent params (optional group not matched) yield nil."
   [pattern]
-  (let [;; Walk character-by-character, emitting regex fragments and
-        ;; collecting param names in order. We build two pieces in
-        ;; parallel: the regex source and the names vector.
-        ;;
-        ;; Token boundaries: "/", "{", "}", ":", "*", "?".
-        n         (count pattern)
-        sb        (StringBuilder.)
-        names     (atom [])
-        i         (atom 0)]
-    (.append sb "^/?")
-    ;; Skip leading '/'
+  (let [n      (count pattern)
+        ;; Build the regex source as a vector of fragments; (apply str)
+        ;; at the end. Vector accumulator works on JVM and CLJS without
+        ;; the StringBuilder portability tax.
+        parts  (atom ["^/?"])
+        names  (atom [])
+        i      (atom 0)
+        emit   (fn [s] (swap! parts conj s))]
+    ;; Skip leading '/'.
     (when (and (pos? n) (= \/ (.charAt pattern 0)))
       (swap! i inc))
     (loop []
       (when (< @i n)
         (let [ch (.charAt pattern @i)]
           (cond
-            ;; literal '/'
             (= ch \/)
-            (do (.append sb "/") (swap! i inc))
+            (do (emit "/") (swap! i inc))
 
-            ;; named param ':name'
             (= ch \:)
             (let [start (inc @i)
                   end   (loop [j start]
@@ -208,12 +213,11 @@
                                 (= \} (.charAt pattern j))
                                 (= \? (.charAt pattern j))) j
                             :else (recur (inc j))))
-                  name  (subs pattern start end)]
-              (.append sb "([^/]+)")
-              (swap! names conj name)
+                  nm    (subs pattern start end)]
+              (emit "([^/]+)")
+              (swap! names conj nm)
               (reset! i end))
 
-            ;; splat '*name'
             (= ch \*)
             (let [start (inc @i)
                   end   (loop [j start]
@@ -224,35 +228,30 @@
                                 (= \} (.charAt pattern j))
                                 (= \? (.charAt pattern j))) j
                             :else (recur (inc j))))
-                  name  (subs pattern start end)]
-              (.append sb "(.+)")
-              (swap! names conj name)
+                  nm    (subs pattern start end)]
+              (emit "(.+)")
+              (swap! names conj nm)
               (reset! i end))
 
-            ;; optional group '{...}?'
             (= ch \{)
-            (do (.append sb "(?:")
-                (swap! i inc))
+            (do (emit "(?:") (swap! i inc))
 
             (= ch \})
-            (do (.append sb ")")
+            (do (emit ")")
                 (swap! i inc)
-                ;; consume trailing '?' marker — required by the grammar.
                 (when (and (< @i n) (= \? (.charAt pattern @i)))
-                  (.append sb "?")
+                  (emit "?")
                   (swap! i inc)))
 
-            ;; literal char
             :else
-            (do (.append sb (java.util.regex.Pattern/quote (str ch)))
+            (do (emit (regex-escape (str ch)))
                 (swap! i inc))))
         (recur)))
-    (.append sb "$")
-    (let [regex-str (.toString sb)]
-      {:regex    #?(:clj  (java.util.regex.Pattern/compile regex-str)
-                    :cljs (re-pattern regex-str))
-       :names    @names
-       :pattern  pattern})))
+    (emit "$")
+    (let [regex-str (apply str @parts)]
+      {:regex   (re-pattern regex-str)
+       :names   @names
+       :pattern pattern})))
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
@@ -285,7 +284,11 @@
                       (and entry (= 3 (count entry))) (last entry)
                       :else                            nil)]
       (case type-form
-        :int     (try (Long/parseLong v) (catch Throwable _ v))
+        :int     (try
+                   #?(:clj  (Long/parseLong v)
+                      :cljs (let [n (js/parseInt v 10)]
+                              (if (js/isNaN n) v n)))
+                   (catch #?(:clj Throwable :cljs :default) _ v))
         :keyword (keyword v)
         :boolean (case v "true" true "false" false v)
         v))))
@@ -387,9 +390,10 @@
          pattern (:path meta)
          _ (when (nil? pattern)
              (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
-         n  (count pattern)
-         sb (StringBuilder.)
-         i  (atom 0)]
+         n     (count pattern)
+         parts (atom [])
+         i     (atom 0)
+         emit  (fn [x] (swap! parts conj x))]
      (loop []
        (when (< @i n)
          (let [ch (.charAt pattern @i)]
@@ -398,7 +402,6 @@
              (let [[after-end inner-names] (collect-param-names-in-group pattern (inc @i))
                    all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
                (if all-present?
-                 ;; Emit the group's contents (without the braces / '?').
                  (do (reset! i (inc @i))
                      (loop []
                        (let [c2 (.charAt pattern @i)]
@@ -420,7 +423,7 @@
                                                    (= \? (.charAt pattern m))) m
                                                :else (recur (inc m))))
                                      k     (keyword (subs pattern start end))]
-                                 (.append sb (str (get path-params k)))
+                                 (emit (str (get path-params k)))
                                  (reset! i end))
 
                                (= c2 \*)
@@ -434,13 +437,12 @@
                                                    (= \? (.charAt pattern m))) m
                                                :else (recur (inc m))))
                                      k     (keyword (subs pattern start end))]
-                                 (.append sb (str (get path-params k)))
+                                 (emit (str (get path-params k)))
                                  (reset! i end))
 
                                :else
-                               (do (.append sb c2) (swap! i inc)))
+                               (do (emit (str c2)) (swap! i inc)))
                              (recur))))))
-                 ;; group elided
                  (reset! i after-end)))
 
              (= ch \:)
@@ -454,9 +456,9 @@
                                  (= \? (.charAt pattern m))) m
                              :else (recur (inc m))))
                    k     (keyword (subs pattern start end))]
-               (.append sb (str (or (get path-params k)
-                                    (throw (ex-info ":rf.error/missing-route-param"
-                                                    {:param k :route-id route-id})))))
+               (emit (str (or (get path-params k)
+                              (throw (ex-info ":rf.error/missing-route-param"
+                                              {:param k :route-id route-id})))))
                (reset! i end))
 
              (= ch \*)
@@ -470,15 +472,15 @@
                                  (= \? (.charAt pattern m))) m
                              :else (recur (inc m))))
                    k     (keyword (subs pattern start end))]
-               (.append sb (str (or (get path-params k)
-                                    (throw (ex-info ":rf.error/missing-route-param"
-                                                    {:param k :route-id route-id})))))
+               (emit (str (or (get path-params k)
+                              (throw (ex-info ":rf.error/missing-route-param"
+                                              {:param k :route-id route-id})))))
                (reset! i end))
 
              :else
-             (do (.append sb ch) (swap! i inc))))
+             (do (emit (str ch)) (swap! i inc))))
          (recur)))
-     (let [path-out (.toString sb)
+     (let [path-out (apply str @parts)
            qs (when (seq query-params)
                 (str "?"
                      (clojure.string/join "&"

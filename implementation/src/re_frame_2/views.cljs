@@ -12,13 +12,14 @@
   by default); the Var is the canonical call-site reference. Bare
   `[:keyword args]` in raw hiccup is post-v1; the (h [...]) macro
   rewrites keyword references at compile time as the v1 escape hatch."
-  (:require [reagent.core :as r]
+  (:require ["react"        :as React]
+            [reagent.core   :as r]
             [re-frame-2.registrar :as registrar]))
 
 ;; ---- the React context for frame propagation -----------------------------
 
 (defonce ^:private frame-context
-  (.createContext js/React :rf/default))
+  (.createContext React :rf/default))
 
 (defn build-frame-provider
   "Used by re-frame-2.substrate.reagent/register-context-provider. Returns

@@ -150,15 +150,16 @@
       (str "<!DOCTYPE html>" body)
       body)))
 
-;; Bind into the substrate adapter dynamic var so plain-atom adapter's
-;; render-to-string can dispatch through us.
-(try
-  (when-let [pa-ns #?(:clj (the-ns 're-frame-2.substrate.plain-atom)
-                      :cljs nil)]
-    (alter-var-root #?(:clj (resolve 're-frame-2.substrate.plain-atom/*hiccup-emitter*)
-                       :cljs nil)
-                    (constantly render-to-string)))
-  (catch #?(:clj Throwable :cljs :default) _ nil))
+;; Wire our render-to-string into the plain-atom adapter so callers using
+;; rf/render-to-string (which delegates through the substrate adapter) get
+;; this implementation on the JVM. CLJS apps install a Reagent adapter
+;; instead and don't go through plain-atom.
+#?(:clj
+   (try
+     (require 're-frame-2.substrate.plain-atom)
+     ((requiring-resolve 're-frame-2.substrate.plain-atom/set-hiccup-emitter!)
+      render-to-string)
+     (catch Throwable _ nil)))
 
 ;; ---- hydrate event --------------------------------------------------------
 

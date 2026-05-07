@@ -15,18 +15,32 @@
 (defn- malli-validate*
   [schema value]
   ;; Defensive: if Malli isn't loaded, treat as 'pass'. Real builds will
-  ;; have Malli on the path.
-  (try
-    (let [validate (requiring-resolve 'malli.core/validate)]
-      (validate schema value))
-    (catch #?(:clj Throwable :cljs :default) _ true)))
+  ;; have Malli on the path. Uses requiring-resolve on JVM (lazy load);
+  ;; on CLJS we require malli.core directly via :require so the var is
+  ;; reachable through resolve.
+  #?(:clj
+     (try
+       (let [validate (requiring-resolve 'malli.core/validate)]
+         (validate schema value))
+       (catch Throwable _ true))
+     :cljs
+     (try
+       (let [validate (resolve 'malli.core/validate)]
+         (if validate (validate schema value) true))
+       (catch :default _ true))))
 
 (defn- malli-explain*
   [schema value]
-  (try
-    (let [explain (requiring-resolve 'malli.core/explain)]
-      (explain schema value))
-    (catch #?(:clj Throwable :cljs :default) _ nil)))
+  #?(:clj
+     (try
+       (let [explain (requiring-resolve 'malli.core/explain)]
+         (explain schema value))
+       (catch Throwable _ nil))
+     :cljs
+     (try
+       (let [explain (resolve 'malli.core/explain)]
+         (when explain (explain schema value)))
+       (catch :default _ nil))))
 
 ;; ---- app-db schema registration -------------------------------------------
 

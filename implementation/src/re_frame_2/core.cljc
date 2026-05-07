@@ -56,14 +56,17 @@
 
 (defn render-to-string
   "Render a hiccup tree to an HTML string. Per Spec 011 §The render-tree
-  → HTML emitter. The plain-atom adapter dispatches through to
-  re-frame-2.ssr/render-to-string. opts may carry :doctype? to prepend
-  '<!DOCTYPE html>'."
+  → HTML emitter. Delegates to the installed substrate adapter's
+  :render-to-string slot — for the plain-atom adapter (JVM/SSR) that
+  routes through re-frame-2.ssr; for Reagent it can route through
+  reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'."
   ([render-tree] (render-to-string render-tree {}))
   ([render-tree opts]
-   ;; Lazy-resolve so the SSR ns isn't required up-front.
-   (let [r2s (requiring-resolve 're-frame-2.ssr/render-to-string)]
-     (when r2s ((deref r2s) render-tree opts)))))
+   ;; On JVM the plain-atom adapter's :render-to-string requires that
+   ;; re-frame-2.ssr has been loaded so it can bind *hiccup-emitter*.
+   ;; Force the load lazily — otherwise the adapter throws a clear error.
+   #?(:clj (try (require 're-frame-2.ssr) (catch Throwable _ nil)))
+   (adapter/render-to-string render-tree opts)))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)

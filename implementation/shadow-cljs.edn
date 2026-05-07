@@ -1,0 +1,10 @@
+{:source-paths ["src" "test"]
+ :dependencies [[reagent       "1.2.0"]
+                [metosin/malli "0.13.0"]]
+
+ :builds
+ {:node-test
+  {:target    :node-test
+   :output-to "out/node-test.js"
+   :ns-regexp "cljs-test$"
+   :compiler-options {:warnings {:redef false}}}}}

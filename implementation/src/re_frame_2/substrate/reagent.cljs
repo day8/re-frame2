@@ -38,16 +38,21 @@
       (rdc/render        mount-point render-tree))
     (fn unmount [] (rdc/unmount mount-point))))
 
-(declare ^:dynamic *hiccup-emitter*)
+(defonce ^:private hiccup-emitter (atom nil))
+
+(defn set-hiccup-emitter!
+  "Install the hiccup → HTML fn used by render-to-string. Idempotent."
+  [f]
+  (reset! hiccup-emitter f))
 
 (defn- render-to-string [render-tree opts]
   ;; Reagent ships server-side rendering via reagent.dom.server — but in
-  ;; CLJS browser builds we don't typically render-to-string. Bind
-  ;; *hiccup-emitter* from the SSR namespace if you need this in CLJS.
-  (if (bound? #'*hiccup-emitter*)
-    (*hiccup-emitter* render-tree opts)
+  ;; CLJS browser builds we don't typically render-to-string. Install
+  ;; the emitter via set-hiccup-emitter! if you need this in CLJS.
+  (if-let [emit @hiccup-emitter]
+    (emit render-tree opts)
     (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "use the plain-atom adapter on the JVM for SSR, or bind *hiccup-emitter*"
+                    {:reason "use the plain-atom adapter on the JVM for SSR, or install via set-hiccup-emitter!"
                      :render-tree render-tree}))))
 
 ;; ---- context provider -----------------------------------------------------

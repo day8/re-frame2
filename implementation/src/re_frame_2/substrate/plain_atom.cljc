@@ -36,13 +36,23 @@
   (throw (ex-info ":rf.error/render-on-headless-adapter"
                   {:reason "render is not supported on the plain-atom adapter; use render-to-string"})))
 
-(declare ^:dynamic *hiccup-emitter*)
+;; The hiccup emitter is set by re-frame-2.ssr at namespace-load time
+;; via set-hiccup-emitter!. Stored in an atom so the lookup works on
+;; both JVM and CLJS (CLJS lacks JVM's Var-bound? semantics for
+;; ^:dynamic vars).
+(defonce ^:private hiccup-emitter (atom nil))
+
+(defn set-hiccup-emitter!
+  "Install the hiccup → HTML fn used by render-to-string. Idempotent.
+  Called by re-frame-2.ssr on its namespace load."
+  [f]
+  (reset! hiccup-emitter f))
 
 (defn- render-to-string [render-tree opts]
-  (if (bound? #'*hiccup-emitter*)
-    (*hiccup-emitter* render-tree opts)
+  (if-let [emit @hiccup-emitter]
+    (emit render-tree opts)
     (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "the SSR namespace must bind *hiccup-emitter* before calling render-to-string"
+                    {:reason "the SSR namespace must call set-hiccup-emitter! before render-to-string"
                      :render-tree render-tree}))))
 
 (defn- register-context-provider [_frame-keyword]
