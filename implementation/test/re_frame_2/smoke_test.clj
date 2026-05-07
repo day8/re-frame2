@@ -143,3 +143,29 @@
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))
     (is (= "/users/42" (rf/route-url :user/show {:id 42})))))
+
+;; ---- SSR emitter ----------------------------------------------------------
+
+(deftest ssr-render-to-string-basics
+  (testing "basic hiccup → HTML"
+    (require 're-frame-2.ssr)
+    (let [r2s @(resolve 're-frame-2.ssr/render-to-string)]
+      (is (= "<div>hi</div>"
+             (r2s [:div "hi"] {})))
+      (is (= "<div class=\"a\">hi</div>"
+             (r2s [:div {:class "a"} "hi"] {})))
+      ;; class on tag-name + class in attrs merges
+      (is (= "<div id=\"main\" class=\"col bold\">x</div>"
+             (r2s [:div#main.col {:class "bold"} "x"] {})))
+      ;; void elements self-close
+      (is (= "<br />"   (r2s [:br] {})))
+      (is (= "<input type=\"text\" />"
+             (r2s [:input {:type "text"}] {})))
+      ;; boolean attribute
+      (is (= "<input disabled />"
+             (r2s [:input {:disabled true}] {})))
+      ;; HTML-escape text
+      (is (clojure.string/includes? (r2s [:p "a < b & c > d"] {}) "&lt;"))
+      ;; doctype
+      (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
+                                       "<!DOCTYPE html>")))))
