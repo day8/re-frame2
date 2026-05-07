@@ -60,19 +60,6 @@ Coming from v1 of re-frame? Here's what's new.
 
 What re-frame2 *keeps*: the same six dominoes, the same single source of truth, the same preference for data over APIs over syntax. If you've used re-frame v1, re-frame2 code reads on the first pass.
 
-## The three layers of AI-amenable surface
-
-The three AI-first perspectives above ship across **three concrete layers**:
-
-1. **AI-targeted documentation** ([`docs/specification/`](docs/specification/)) — Specs, Construction Prompts, Spec-Schemas, conformance corpus, [MIGRATION](docs/specification/MIGRATION.md). The substrate for **perspective 1** (one-shot implementation) and **perspective 3** (AI-driven v1 → v2 migration).
-2. **Runtime pair tool** (planned library) — nREPL-attached AI/REPL companion that watches a running app. Equivalent of [re-frame-pair](https://github.com/day8/re-frame-pair). The substrate for **perspective 2** (pair-programming a running application).
-3. **Pair-improver skill** ([`skills/`](skills/)) — Claude skill that reviews pair sessions and surfaces improvements to the pair tool itself. Equivalent of [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver). Closes the feedback loop on **perspective 2**.
-
-## Documentation
-
-- **For humans (the guide).** Start at [`docs/guide/`](docs/guide/) — narrative chapters that build the argument and walk a counter end-to-end.
-- **For AI agents and implementors (the specification).** Start at [`docs/specification/`](docs/specification/) — load-bearing decisions in [000-Vision](docs/specification/000-Vision.md), per-area Specs in 001–013, plus the conformance corpus.
-- **Worked examples.** [`examples/`](examples/README.md) — pedagogical sketches ([counter](examples/counter/), [login](examples/login/), [routing](examples/routing/), [SSR](examples/ssr/)); benchmarks ([7GUIs](examples/7guis/README.md), [nine-states](examples/nine-states/README.md)); the [RealWorld (Conduit)](examples/realworld/README.md) worked scaffold. Maturity tagging on each — see [examples/README.md](examples/README.md). Note: written against the imagined v2 API; they won't run until the reference implementation lands.
 
 ## Reading paths
 
