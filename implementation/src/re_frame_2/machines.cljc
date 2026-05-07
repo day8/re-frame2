@@ -21,13 +21,27 @@
 
 ;; ---- pure machine-transition ----------------------------------------------
 
+(defn- chase-ref
+  "Follow a keyword reference chain through the machine's named-bindings
+  map until it hits a fn (or fails). Tolerates one level of indirection
+  like {:short-name :registered-id} where :registered-id resolves to a fn."
+  [registry ref]
+  (loop [r ref seen #{}]
+    (cond
+      (fn? r)              r
+      (contains? seen r)   nil
+      (keyword? r)         (if-let [nxt (get registry r)]
+                             (recur nxt (conj seen r))
+                             nil)
+      :else                nil)))
+
 (defn- resolve-guard
-  "Look up a guard reference. If keyword, it must appear in the machine's
+  "Look up a guard reference. If keyword, follow the chain in the machine's
   :guards map. If a fn, use directly."
   [machine guard]
   (cond
     (fn? guard)      guard
-    (keyword? guard) (or (get-in machine [:guards guard])
+    (keyword? guard) (or (chase-ref (:guards machine) guard)
                          (throw (ex-info ":rf.error/machine-unresolved-guard"
                                          {:guard guard :machine-id (:id machine)})))
     (nil? guard)     (constantly true)
@@ -38,7 +52,7 @@
   [machine action]
   (cond
     (fn? action)      action
-    (keyword? action) (or (get-in machine [:actions action])
+    (keyword? action) (or (chase-ref (:actions machine) action)
                           (throw (ex-info ":rf.error/machine-unresolved-action"
                                           {:action action :machine-id (:id machine)})))
     (nil? action)     (constantly nil)
@@ -183,16 +197,24 @@
           ;; Step 3: drain :raise.
           [snap-after-raise fx-after-raise]
           (drain-raises machine snap-after-event fx-after-event raise-limit)]
-      ;; Step 4: :always microstep loop.
-      (loop [snap snap-after-raise
-             fx   fx-after-raise
-             depth 0]
+      ;; Step 4: :always microstep loop. We track the visited :state path
+      ;; so that, on depth-limit abort, we can report it AND fully roll
+      ;; back to the original input snapshot per Spec 005 §Bounded depth
+      ;; (the macrostep is atomic — if microsteps explode, nothing commits).
+      (loop [snap   snap-after-raise
+             fx     fx-after-raise
+             depth  0
+             visited [(:state snap-after-raise)]]
         (cond
-          (> depth always-limit)
+          (>= depth always-limit)
           (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                 {:machine-id (:id machine) :depth depth
-                                  :recovery :no-recovery})
-              [snap fx])
+                                 {:machine-id (:id machine)
+                                  :depth      depth
+                                  :path       visited
+                                  :recovery   :no-recovery})
+              ;; Roll back to the ORIGINAL input snapshot; discard event-
+              ;; transition and any microstep fx.
+              [snapshot []])
 
           :else
           (let [state-node (get states-map (:state snap))
@@ -205,7 +227,10 @@
                                   machine snap nil always-t
                                   states-map state-node)
                     [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
-                (recur snap3 (vec (concat fx fx3)) (inc depth))))))))))
+                (recur snap3
+                       (vec (concat fx fx3))
+                       (inc depth)
+                       (conj visited (:state snap3)))))))))))
 
 ;; ---- create-machine-handler -----------------------------------------------
 

@@ -30,32 +30,97 @@
 
 ;; ---- path-pattern compilation ---------------------------------------------
 
-(defn- segment->regex
-  "Compile one path segment to [name regex] where name is the param name
-  (or nil for literals). Recognises named (`:foo`), splat (`*rest`), and
-  literal segments."
-  [seg]
-  (cond
-    (and (string? seg) (.startsWith seg ":"))
-    [(subs seg 1) "([^/]+)"]      ;; named param
+(defn- compile-pattern
+  "Compile a Spec 012 path-pattern into a regex with capture groups.
+  Recognises:
+    /literal          -> literal
+    /:name            -> ([^/]+)        named param
+    /*name            -> (.+)           splat — greedy across /
+    /{...}?           -> (?: ... )?     optional group; inside the
+                                        group, /:name is treated like
+                                        a normal named param.
 
-    (and (string? seg) (.startsWith seg "*"))
-    [(subs seg 1) "(.+)"]         ;; splat — greedy, captures across /
+  The capture-group ordering matches the order that param names appear
+  left-to-right in the pattern. :names is the vector of those param
+  keywords; absent params (optional group not matched) yield nil."
+  [pattern]
+  (let [;; Walk character-by-character, emitting regex fragments and
+        ;; collecting param names in order. We build two pieces in
+        ;; parallel: the regex source and the names vector.
+        ;;
+        ;; Token boundaries: "/", "{", "}", ":", "*", "?".
+        n         (count pattern)
+        sb        (StringBuilder.)
+        names     (atom [])
+        i         (atom 0)]
+    (.append sb "^/?")
+    ;; Skip leading '/'
+    (when (and (pos? n) (= \/ (.charAt pattern 0)))
+      (swap! i inc))
+    (loop []
+      (when (< @i n)
+        (let [ch (.charAt pattern @i)]
+          (cond
+            ;; literal '/'
+            (= ch \/)
+            (do (.append sb "/") (swap! i inc))
 
-    :else
-    [nil (java.util.regex.Pattern/quote seg)]))
+            ;; named param ':name'
+            (= ch \:)
+            (let [start (inc @i)
+                  end   (loop [j start]
+                          (cond
+                            (>= j n) j
+                            (or (= \/ (.charAt pattern j))
+                                (= \{ (.charAt pattern j))
+                                (= \} (.charAt pattern j))
+                                (= \? (.charAt pattern j))) j
+                            :else (recur (inc j))))
+                  name  (subs pattern start end)]
+              (.append sb "([^/]+)")
+              (swap! names conj name)
+              (reset! i end))
 
-(defn- compile-pattern [pattern]
-  (let [segs (rest (clojure.string/split pattern #"/"))
-        compiled (mapv segment->regex segs)
-        names    (vec (keep first compiled))
-        regex-parts (map second compiled)
-        regex-str (str "^/?" (clojure.string/join "/" regex-parts) "$")]
-    {:regex    #?(:clj  (java.util.regex.Pattern/compile regex-str)
-                  :cljs (re-pattern regex-str))
-     :names    names
-     :segments segs
-     :pattern  pattern}))
+            ;; splat '*name'
+            (= ch \*)
+            (let [start (inc @i)
+                  end   (loop [j start]
+                          (cond
+                            (>= j n) j
+                            (or (= \/ (.charAt pattern j))
+                                (= \{ (.charAt pattern j))
+                                (= \} (.charAt pattern j))
+                                (= \? (.charAt pattern j))) j
+                            :else (recur (inc j))))
+                  name  (subs pattern start end)]
+              (.append sb "(.+)")
+              (swap! names conj name)
+              (reset! i end))
+
+            ;; optional group '{...}?'
+            (= ch \{)
+            (do (.append sb "(?:")
+                (swap! i inc))
+
+            (= ch \})
+            (do (.append sb ")")
+                (swap! i inc)
+                ;; consume trailing '?' marker — required by the grammar.
+                (when (and (< @i n) (= \? (.charAt pattern @i)))
+                  (.append sb "?")
+                  (swap! i inc)))
+
+            ;; literal char
+            :else
+            (do (.append sb (java.util.regex.Pattern/quote (str ch)))
+                (swap! i inc))))
+        (recur)))
+    (.append sb "$")
+    (let [regex-str (.toString sb)]
+      {:regex    #?(:clj  (java.util.regex.Pattern/compile regex-str)
+                    :cljs (re-pattern regex-str))
+       :names    @names
+       :pattern  pattern})))
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
@@ -67,63 +132,217 @@
       (let [groups (if (sequential? m) (rest m) [])]
         (zipmap (map keyword names) groups)))))
 
+(defn- coerce-query-value
+  "Per Spec 012 §Query-string coercion: when a route declares :query as
+  a Malli vector schema, look up the per-key type and coerce. First-pass
+  recognises :int / :keyword / :boolean — strings pass through.
+
+  schema is the Malli :map vector or nil; k is the keyword key whose
+  value we're coercing; v is the raw string from the URL."
+  [schema k v]
+  (if-not (and schema (vector? schema))
+    v
+    (let [;; Walk top-level [:map [k type-or-opts] ...] entries to find k.
+          entry (some (fn [e]
+                        (cond
+                          (and (vector? e) (= k (first e))) e
+                          :else nil))
+                      (rest schema))
+          type-form (cond
+                      (and entry (= 2 (count entry))) (second entry)
+                      (and entry (= 3 (count entry))) (last entry)
+                      :else                            nil)]
+      (case type-form
+        :int     (try (Long/parseLong v) (catch Throwable _ v))
+        :keyword (keyword v)
+        :boolean (case v "true" true "false" false v)
+        v))))
+
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
   pattern against url; return {:route-id :params :query :validation-failed?}
-  for the first match, or nil if no route matches."
+  for the first match, or nil if no route matches.
+
+  Query string coercion: if the route declares a :query Malli schema,
+  string values are coerced per key type. :query-defaults populate
+  absent keys."
   [url]
   ;; Strip query string for pattern matching; parse query separately.
+  ;; Uses array-map to preserve the URL's left-to-right key order so
+  ;; round-trip URLs come back byte-identical.
   (let [[path query-str] (clojure.string/split url #"\?" 2)
-        query-params (when query-str
-                       (into {}
-                             (map (fn [pair]
-                                    (let [[k v] (clojure.string/split pair #"=" 2)]
-                                      [(keyword k) (or v "")])))
+        raw-query        (when query-str
+                           (reduce
+                             (fn [m pair]
+                               (let [[k v] (clojure.string/split pair #"=" 2)]
+                                 (assoc m (keyword k) (or v ""))))
+                             (array-map)
                              (clojure.string/split query-str #"&")))]
     (some
       (fn [[id meta]]
         (when-let [compiled (some-> (:path meta) compile-pattern)]
           (when-let [params (match-against compiled path)]
-            {:route-id id
-             :params   params
-             :query    (or query-params {})
-             :validation-failed? false})))
+            (let [schema     (:query meta)
+                  defaults   (:query-defaults meta {})
+                  coerced    (when raw-query
+                               (reduce-kv
+                                 (fn [m k v]
+                                   (assoc m k (coerce-query-value schema k v)))
+                                 (array-map)
+                                 raw-query))
+                  ;; Preserve raw-query's URL order; only fill defaults that
+                  ;; aren't already supplied. Round-trip identity depends on
+                  ;; this — see routing/match-url's :round-trip cases.
+                  with-defaults (reduce-kv
+                                  (fn [m k v] (if (contains? m k) m (assoc m k v)))
+                                  (or coerced (array-map))
+                                  defaults)]
+              {:route-id           id
+               :params             params
+               :query              with-defaults
+               :validation-failed? false}))))
       (registrar/handlers :route))))
+
+(defn- collect-param-names-in-group
+  "Walk a pattern starting at `start` (just past the opening '{'), return
+  [end-after-closing-?, param-names-vec] for the group's contents."
+  [pattern start]
+  (let [n (count pattern)]
+    (loop [j     start
+           names []]
+      (cond
+        (>= j n)
+        [j names]   ;; unterminated; let later parsing catch it.
+
+        (= \} (.charAt pattern j))
+        ;; closing brace; consume the trailing '?' if present.
+        (let [k (inc j)]
+          [(if (and (< k n) (= \? (.charAt pattern k))) (inc k) k) names])
+
+        (or (= \: (.charAt pattern j)) (= \* (.charAt pattern j)))
+        (let [start (inc j)
+              end   (loop [m start]
+                      (cond
+                        (>= m n) m
+                        (or (= \/ (.charAt pattern m))
+                            (= \{ (.charAt pattern m))
+                            (= \} (.charAt pattern m))
+                            (= \? (.charAt pattern m))) m
+                        :else (recur (inc m))))]
+          (recur end (conj names (subs pattern start end))))
+
+        :else
+        (recur (inc j) names)))))
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
-  route-id + path-params. Inverse of match-url."
+  route-id + path-params. Inverse of match-url.
+
+  Optional groups ({...}?) are emitted only when ALL their inner params
+  are supplied in path-params; otherwise the group is silently elided."
   ([route-id path-params] (route-url route-id path-params {}))
   ([route-id path-params query-params]
    (let [meta    (registrar/lookup :route route-id)
          pattern (:path meta)
          _ (when (nil? pattern)
              (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
-         segs    (rest (clojure.string/split pattern #"/"))
-         resolved (mapv (fn [seg]
-                          (cond
-                            (and (string? seg) (.startsWith seg ":"))
-                            (let [k (keyword (subs seg 1))]
-                              (str (or (get path-params k)
-                                       (throw (ex-info ":rf.error/missing-route-param"
-                                                       {:param k :route-id route-id})))))
+         n  (count pattern)
+         sb (StringBuilder.)
+         i  (atom 0)]
+     (loop []
+       (when (< @i n)
+         (let [ch (.charAt pattern @i)]
+           (cond
+             (= ch \{)
+             (let [[after-end inner-names] (collect-param-names-in-group pattern (inc @i))
+                   all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
+               (if all-present?
+                 ;; Emit the group's contents (without the braces / '?').
+                 (do (reset! i (inc @i))
+                     (loop []
+                       (let [c2 (.charAt pattern @i)]
+                         (cond
+                           (= c2 \})
+                           (let [k (inc @i)]
+                             (reset! i (if (and (< k n) (= \? (.charAt pattern k))) (inc k) k)))
+                           :else
+                           (do
+                             (cond
+                               (= c2 \:)
+                               (let [start (inc @i)
+                                     end   (loop [m start]
+                                             (cond
+                                               (>= m n) m
+                                               (or (= \/ (.charAt pattern m))
+                                                   (= \{ (.charAt pattern m))
+                                                   (= \} (.charAt pattern m))
+                                                   (= \? (.charAt pattern m))) m
+                                               :else (recur (inc m))))
+                                     k     (keyword (subs pattern start end))]
+                                 (.append sb (str (get path-params k)))
+                                 (reset! i end))
 
-                            (and (string? seg) (.startsWith seg "*"))
-                            ;; splat — value already contains internal '/' so
-                            ;; emit it verbatim (don't double-quote).
-                            (let [k (keyword (subs seg 1))]
-                              (str (or (get path-params k)
-                                       (throw (ex-info ":rf.error/missing-route-param"
-                                                       {:param k :route-id route-id})))))
+                               (= c2 \*)
+                               (let [start (inc @i)
+                                     end   (loop [m start]
+                                             (cond
+                                               (>= m n) m
+                                               (or (= \/ (.charAt pattern m))
+                                                   (= \{ (.charAt pattern m))
+                                                   (= \} (.charAt pattern m))
+                                                   (= \? (.charAt pattern m))) m
+                                               :else (recur (inc m))))
+                                     k     (keyword (subs pattern start end))]
+                                 (.append sb (str (get path-params k)))
+                                 (reset! i end))
 
-                            :else seg))
-                        segs)
-         path-out (str "/" (clojure.string/join "/" resolved))
-         qs (when (seq query-params)
-              (str "?"
-                   (clojure.string/join "&"
-                     (map (fn [[k v]] (str (name k) "=" v)) query-params))))]
-     (str path-out qs))))
+                               :else
+                               (do (.append sb c2) (swap! i inc)))
+                             (recur))))))
+                 ;; group elided
+                 (reset! i after-end)))
+
+             (= ch \:)
+             (let [start (inc @i)
+                   end   (loop [m start]
+                           (cond
+                             (>= m n) m
+                             (or (= \/ (.charAt pattern m))
+                                 (= \{ (.charAt pattern m))
+                                 (= \} (.charAt pattern m))
+                                 (= \? (.charAt pattern m))) m
+                             :else (recur (inc m))))
+                   k     (keyword (subs pattern start end))]
+               (.append sb (str (or (get path-params k)
+                                    (throw (ex-info ":rf.error/missing-route-param"
+                                                    {:param k :route-id route-id})))))
+               (reset! i end))
+
+             (= ch \*)
+             (let [start (inc @i)
+                   end   (loop [m start]
+                           (cond
+                             (>= m n) m
+                             (or (= \/ (.charAt pattern m))
+                                 (= \{ (.charAt pattern m))
+                                 (= \} (.charAt pattern m))
+                                 (= \? (.charAt pattern m))) m
+                             :else (recur (inc m))))
+                   k     (keyword (subs pattern start end))]
+               (.append sb (str (or (get path-params k)
+                                    (throw (ex-info ":rf.error/missing-route-param"
+                                                    {:param k :route-id route-id})))))
+               (reset! i end))
+
+             :else
+             (do (.append sb ch) (swap! i inc))))
+         (recur)))
+     (let [path-out (.toString sb)
+           qs (when (seq query-params)
+                (str "?"
+                     (clojure.string/join "&"
+                       (map (fn [[k v]] (str (name k) "=" v)) query-params))))]
+       (str path-out qs)))))
 
 ;; ---- standard handlers ----------------------------------------------------
 

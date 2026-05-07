@@ -32,6 +32,7 @@
     :core/fx
     :core/error
     :fsm/flat
+    :fsm/eventless-always
     :routing/match-url})
 
 ;; ---- fixture loader -------------------------------------------------------
@@ -169,6 +170,7 @@
   reflection's value."
   [fixture]
   (let [handlers-map (or (:fixture/handlers fixture) {})
+        eval-value (requiring-resolve 're-frame-2.conformance/eval-value*)
         actions-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
@@ -179,8 +181,7 @@
                                         :set    (let [[_ path v] step]
                                                   (assoc ctx :data
                                                          (assoc-in data path
-                                                                   ((requiring-resolve 're-frame-2.conformance/resolve-value*)
-                                                                    v ctx))))
+                                                                   (eval-value v ctx))))
                                         :fx     (let [[_ a b] step]
                                                   (update ctx :fx (fnil conj [])
                                                           [a b]))
@@ -197,8 +198,7 @@
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
-                            ((requiring-resolve 're-frame-2.conformance/resolve-value*)
-                             step {:data (:data snap) :event event})))))]))]
+                            (eval-value step {:data (:data snap) :event event})))))]))]
     {:actions actions-by-id :guards guards-by-id}))
 
 (defn- run-call
@@ -245,11 +245,15 @@
     ;; pure machine-transition call (used by fsm fixtures).
     :machine-transition
     (let [machine-transition (requiring-resolve 're-frame-2.machines/machine-transition)
-          ;; Inject realised actions/guards into the definition so the
-          ;; machine's keyword references resolve to fns.
-          definition  (-> (:definition call)
-                          (assoc :actions (or (:actions fixture-machines) {})
-                                 :guards  (or (:guards fixture-machines) {})))
+          actions-by-id (or (:actions fixture-machines) {})
+          guards-by-id  (or (:guards fixture-machines) {})
+          ;; Merge fixture-registered handlers into the def's named-binding
+          ;; maps. The fixture's bindings live alongside any short-names the
+          ;; def already declared. Machines/chase-ref follows
+          ;; short-name → registered-id → fn through this combined map.
+          definition    (-> (:definition call)
+                            (update :actions #(merge actions-by-id %))
+                            (update :guards  #(merge guards-by-id %)))
           [snap-out fx-out]
           (try (machine-transition definition (:snapshot call) (:event call))
                (catch Throwable e [nil [:error (.getMessage e)]]))

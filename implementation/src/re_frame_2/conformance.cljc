@@ -42,6 +42,15 @@
     :-         -
     :*         *
     :/         /
+    :>=        >=
+    :<=        <=
+    :>         >
+    :<         <
+    :=         =
+    :not=      not=
+    :and       (fn [& xs] (every? identity xs))
+    :or        (fn [& xs] (boolean (some identity xs)))
+    :not       not
     :identity  identity
     :conj      conj
     :assoc     assoc
@@ -97,6 +106,13 @@
       :db-get       (let [[_ path default] form
                           v (get-in (:db ctx) path)]
                       (if (and (nil? v) (>= (count form) 3)) default v))
+      :get          (let [[_ path] form]
+                      ;; Read from :data when present (machine bodies),
+                      ;; else from :db (event bodies). The two contexts
+                      ;; share the same shorthand.
+                      (cond
+                        (contains? ctx :data) (get-in (:data ctx) path)
+                        :else                 (get-in (:db ctx) path)))
       :fn           (resolve-fn-form form ctx)
       :cofx-key     (get (:cofx ctx) (second form))
       :cofx-without (let [excluded (set (rest form))]
@@ -115,6 +131,22 @@
   test runner for machine-handler realisation."
   [form ctx]
   (resolve-value form ctx))
+
+(defn eval-value*
+  "For machine action/guard bodies: evaluate [:fn :k a b ...] as
+  '(f a b ...)' rather than as a partial fn awaiting one runtime arg.
+
+  Resolves nested forms and then applies the builtin to the resolved
+  args. For non-:fn forms, falls back to resolve-value."
+  [form ctx]
+  (cond
+    (and (vector? form) (= :fn (first form)))
+    (let [[_ k & extra-args] form
+          f (#'re-frame-2.conformance/builtin k)
+          resolved (mapv #(resolve-value % ctx) extra-args)]
+      (apply f resolved))
+
+    :else (resolve-value form ctx)))
 
 ;; ---- event-db / event-fx interpreter -------------------------------------
 
