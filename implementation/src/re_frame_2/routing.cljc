@@ -519,9 +519,22 @@
       [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
 
 (defonce ^:private nav-token-counter (atom 0))
+(defonce ^:private pending-nav-counter (atom 0))
 
 (defn- alloc-nav-token []
   (str "nav-" (swap! nav-token-counter inc)))
+
+(defn- alloc-pending-nav-id []
+  (str "pn-" (swap! pending-nav-counter inc)))
+
+(defn reset-counters!
+  "Reset the nav-token / pending-nav / route-registration counters to
+  zero. Test-time helper so allocated ids are stable across fixture
+  runs."
+  []
+  (reset! nav-token-counter 0)
+  (reset! pending-nav-counter 0)
+  (reset! reg-counter 0))
 
 ;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
 ;;
@@ -532,11 +545,6 @@
 ;; :rf.route/navigation-blocked trace fires, and no URL push happens.
 ;; The user's app then dispatches :rf.route/continue (resume) or
 ;; :rf.route/cancel (drop).
-
-(defonce ^:private pending-nav-counter (atom 0))
-
-(defn- alloc-pending-nav-id []
-  (str "pn-" (swap! pending-nav-counter inc)))
 
 (defn- can-leave?
   "Resolve and call the route's :can-leave sub against the live frame."
@@ -576,6 +584,38 @@
 (events/reg-event-fx :rf.route/cancel
   (fn [{:keys [db]} [_ _pn-id]]
     {:db (dissoc db :rf/pending-navigation)}))
+
+;; ---- nav-token stale suppression ------------------------------------------
+;;
+;; Per Spec 012 §Navigation tokens — stale-result suppression. The runtime
+;; allocates a fresh nav-token on every full navigation. Async handlers
+;; (typically :http :on-success) capture the token at request time and
+;; thread it back when their response arrives. The runtime checks the
+;; carried token against the current :route.:nav-token; mismatch means
+;; the navigation has moved on and the response is stale — suppress.
+;;
+;; :rf.test/simulate-http-resolution is a test-only event the conformance
+;; fixtures use to simulate an http :on-success arriving with a captured
+;; nav-token. Real client code uses :rf.route/with-nav-token at the fx
+;; layer to wrap the actual response dispatch.
+
+(events/reg-event-fx :rf.test/simulate-http-resolution
+  (fn [{:keys [db]} [_ {:keys [on-success-event carried-nav-token]}]]
+    (let [current (get-in db [:route :nav-token])]
+      (cond
+        (= carried-nav-token current)
+        ;; Token matches — dispatch the continuation.
+        {:fx [[:dispatch on-success-event]]}
+
+        :else
+        ;; Stale — suppress.
+        (do (trace/emit-error! :route.nav-token/stale-suppressed
+                               {:carried-token carried-nav-token
+                                :current-token current
+                                :event-id      (when (vector? on-success-event)
+                                                 (first on-success-event))
+                                :recovery      :replaced-with-default})
+            {})))))
 
 (events/reg-event-fx :rf/url-changed
   (fn [{:keys [db]} [_ url]]

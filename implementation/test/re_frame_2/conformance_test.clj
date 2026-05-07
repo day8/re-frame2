@@ -43,7 +43,8 @@
     :schemas/runtime
     :routing/ranking
     :routing/fragment
-    :routing/blocking})
+    :routing/blocking
+    :routing/nav-token})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -86,7 +87,11 @@
    (requiring-resolve 're-frame-2.routing/route-sub-fn))
   ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
   (require 're-frame-2.routing :reload)
-  (require 're-frame-2.ssr :reload))
+  (require 're-frame-2.ssr :reload)
+  ;; Reset id-allocators so nav-token / pending-nav / rank-reg ids are
+  ;; stable across runs (the routing fixtures assert against literal
+  ;; "nav-1" / "nav-2" strings).
+  ((requiring-resolve 're-frame-2.routing/reset-counters!)))
 
 ;; ---- fixture execution ----------------------------------------------------
 
