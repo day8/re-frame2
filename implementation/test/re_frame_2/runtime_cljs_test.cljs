@@ -7,6 +7,7 @@
             [re-frame-2.frame :as frame]
             [re-frame-2.registrar :as registrar]
             [re-frame-2.flows :as flows]
+            [re-frame-2.machines :as machines]
             [re-frame-2.substrate.adapter :as adapter]
             [re-frame-2.substrate.reagent :as reagent-adapter]
             [re-frame-2.views])
@@ -171,3 +172,55 @@
       (is (= :user/show (:route-id m)))
       (is (= "42"       (:id (:params m)))))
     (is (= "/users/42" (rf/route-url :user/show {:id 42})))))
+
+;; ---- machines (pure machine-transition) -----------------------------------
+
+(deftest machine-transition-cljs
+  (testing "pure machine-transition runs on CLJS"
+    (let [m {:initial :red
+             :data    {}
+             :states
+             {:red    {:on {:tick {:target :green}}}
+              :green  {:on {:tick {:target :yellow}}}
+              :yellow {:on {:tick {:target :red}}}}}
+          [s _] (machines/machine-transition m {:state :red :data {}} [:tick])]
+      (is (= :green (:state s))))))
+
+;; ---- error paths ----------------------------------------------------------
+
+(deftest sub-exception-recovers-to-nil
+  (testing "a sub whose body throws emits :rf.error/sub-exception and resolves to nil"
+    (rf/reg-event-db :init (fn [_ _] {:items "broken"}))
+    (rf/reg-sub :items (fn [db _] (:items db)))
+    (rf/reg-sub :items-count :<- [:items]
+      (fn [items _]
+        ;; Throws on a string.
+        (count (.something items))))
+    (rf/dispatch-sync [:init])
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (let [v (rf/subscribe-value [:items-count])]
+        (is (nil? v)
+            "the sub returns nil under :replaced-with-default recovery"))
+      (rf/remove-trace-cb! ::sub-err)
+      (is (some (fn [ev]
+                  (= :rf.error/sub-exception (:operation ev)))
+                @traces)
+          "expected :rf.error/sub-exception trace"))))
+
+(deftest dispatch-sync-in-handler-errors-cljs
+  (testing "calling dispatch-sync from inside a handler raises a structured error"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::dsih (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
+      (rf/reg-event-fx :nested
+        (fn [_ _]
+          (rf/dispatch-sync [:outer])
+          {}))
+      (rf/dispatch-sync [:nested])
+      (rf/remove-trace-cb! ::dsih)
+      (is (some (fn [ev]
+                  (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                       (= :error (:op-type ev))))
+                @traces)
+          "expected :rf.error/dispatch-sync-in-handler trace"))))
