@@ -153,6 +153,23 @@
                 @traces)
           "expected :rf.registry/handler-replaced trace"))))
 
+(deftest subscriber-captures-frame
+  (testing "subscriber closes over the current frame so closures don't need to thread it"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    ;; Seed each frame synchronously so the assertions are deterministic.
+    (rf/dispatch-sync [:seed 7]  {:frame :left})
+    (rf/dispatch-sync [:seed 99] {:frame :right})
+    ;; Capture frame-bound subscribers via with-frame.
+    (let [sl (rf/with-frame :left  (fn [] (rf/subscriber)))
+          sr (rf/with-frame :right (fn [] (rf/subscriber)))]
+      (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
+      (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
+      ;; And :rf/default is unaffected.
+      (is (nil? (rf/subscribe-value :rf/default [:n]))))))
+
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]

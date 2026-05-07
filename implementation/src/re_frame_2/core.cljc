@@ -57,6 +57,64 @@
 (def subscribe-value subs/subscribe-value)
 (def unsubscribe    subs/unsubscribe)
 
+;; ---- frame-aware closures (runtime side) ---------------------------------
+;;
+;; Per Spec 002 §View ergonomics and Spec 004 §Affordance for plain fns.
+;; *current-frame* is the JVM-and-CLJS-shared dynamic var that with-frame
+;; binds. CLJS adds a React-context bridge in re-frame-2.views; this lets
+;; plain fns (tests, JVM SSR, REPL) capture-and-bind a frame without
+;; Reagent.
+
+(def ^:dynamic *current-frame* nil)
+
+(defn current-frame
+  "Return the active frame keyword. Resolution: dynamic var → :rf/default.
+  CLJS extends this with a React-context lookup; the JVM stops at the
+  dynamic var."
+  []
+  (or *current-frame* :rf/default))
+
+(defn dispatcher
+  "Return a fn that dispatches an event under the current frame.
+  Captures the frame at call time, so closures do not need to thread it.
+
+  Per Spec 004 §Affordance for plain fns:
+    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])"
+  []
+  (let [frame (current-frame)]
+    (fn dispatch-fn
+      ([event] (dispatch event {:frame frame}))
+      ([event opts] (dispatch event (assoc opts :frame frame))))))
+
+(defn subscriber
+  "Return a fn that subscribes under the current frame. Captures the
+  frame at call time. The returned fn delegates to subscribe."
+  []
+  (let [frame (current-frame)]
+    (fn subscribe-fn
+      [query-v]
+      (subscribe frame query-v))))
+
+(defn with-frame
+  "Run `thunk` with *current-frame* bound to `frame-id`. The macro form
+  in re-frame-2.views wraps an expression in a thunk; this fn variant
+  is JVM-friendly for tests / SSR / REPL."
+  [frame-id thunk]
+  (binding [*current-frame* frame-id]
+    (thunk)))
+
+(defn bound-dispatcher
+  "Capture the current frame and return a frame-bound dispatch fn that
+  is safe to call from async callbacks where dynamic-var binding is no
+  longer in scope. Per Spec 002 §bound-fn / bound-dispatcher."
+  []
+  (dispatcher))
+
+(defn bound-subscriber
+  "As bound-dispatcher, for subscribe."
+  []
+  (subscriber))
+
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
 ;; reg-view, frame-provider, h, with-frame live in re-frame-2.views.cljs;
 ;; users `:require [re-frame-2.views :as v]` for those.
