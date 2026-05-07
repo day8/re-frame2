@@ -123,7 +123,15 @@
               (let [container (frame/get-frame-db frame)]
                 (adapter/replace-container! container (:db effects)))
               (trace/emit! :event :event/db-changed
-                           {:event-id event-id :event event :frame frame}))
+                           {:event-id event-id :event event :frame frame})
+              ;; Per Spec 010: validate app-db against registered schemas
+              ;; after each commit. Failures emit
+              ;; :rf.error/schema-validation-failure but don't roll back
+              ;; (recovery is :no-recovery by default).
+              (when-let [validate (resolve 're-frame-2.schemas/validate-app-db!)]
+                (try
+                  ((deref validate) (:db effects) event-id)
+                  (catch #?(:clj Throwable :cljs :default) _ nil))))
             ;; Run flows (per Spec 013 §Drain integration: after :db
             ;; commits and before :fx walks).
             (when-let [run-flows! (resolve 're-frame-2.flows/run-flows!)]

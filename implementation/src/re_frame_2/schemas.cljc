@@ -17,15 +17,15 @@
   ;; Defensive: if Malli isn't loaded, treat as 'pass'. Real builds will
   ;; have Malli on the path.
   (try
-    (let [m (requiring-resolve 'malli.core/validate)]
-      ((m) schema value))
+    (let [validate (requiring-resolve 'malli.core/validate)]
+      (validate schema value))
     (catch #?(:clj Throwable :cljs :default) _ true)))
 
 (defn- malli-explain*
   [schema value]
   (try
-    (let [e (requiring-resolve 'malli.core/explain)]
-      ((e) schema value))
+    (let [explain (requiring-resolve 'malli.core/explain)]
+      (explain schema value))
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 ;; ---- app-db schema registration -------------------------------------------
@@ -46,22 +46,49 @@
 
 ;; ---- validation entry points ----------------------------------------------
 
+(defn- type-of-value [v]
+  (cond
+    (string? v)  "string"
+    (integer? v) "integer"
+    (number? v)  "number"
+    (boolean? v) "boolean"
+    (keyword? v) "keyword"
+    (map? v)     "map"
+    (vector? v)  "vector"
+    (nil? v)     "nil"
+    :else        (str (type v))))
+
 (defn validate-app-db!
   "After a handler commits :db, walk every registered app-schema and
   validate the post-state. Failures trace as
-  :rf.error/schema-validation-failure with a Malli explanation."
-  [db]
-  (when interop/debug-enabled?
-    (doseq [[path meta] (registrar/handlers :app-schema)]
-      (let [val-at (get-in db path)
-            schema (:schema meta)]
-        (when-not (malli-validate* schema val-at)
-          (trace/emit-error! :rf.error/schema-validation-failure
-                             {:where    :app-db
-                              :path     path
-                              :value    val-at
-                              :explain  (malli-explain* schema val-at)
-                              :recovery :no-recovery}))))))
+  :rf.error/schema-validation-failure with a Malli explanation.
+
+  event-id (optional) names the handler whose commit prompted the
+  failure — surfaced as :failing-id in the error tags."
+  ([db] (validate-app-db! db nil))
+  ([db event-id]
+   (when interop/debug-enabled?
+     (doseq [[path meta] (registrar/handlers :app-schema)]
+       (let [val-at (get-in db path)
+             schema (:schema meta)]
+         (when-not (malli-validate* schema val-at)
+           (trace/emit-error! :rf.error/schema-validation-failure
+                              (cond-> {:where    :app-db
+                                       :path     path
+                                       :value    val-at
+                                       :explain  (malli-explain* schema val-at)
+                                       :reason   (str "App-db at path " path
+                                                      " failed schema " schema
+                                                      ": expected "
+                                                      (cond
+                                                        (and (vector? schema)
+                                                             (= 1 (count schema))
+                                                             (keyword? (first schema)))
+                                                        (first schema)
+                                                        :else schema)
+                                                      ", got " (type-of-value val-at) ".")
+                                       :recovery :no-recovery}
+                                event-id (assoc :failing-id event-id)))))))))
 
 (defn validate-event!
   "Before an event handler runs, validate the event vector against any

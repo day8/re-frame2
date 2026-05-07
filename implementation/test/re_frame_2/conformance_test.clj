@@ -39,7 +39,8 @@
     :ssr/hydration
     :ssr/response-contract
     :ssr/head-contract
-    :ssr/error-projection})
+    :ssr/error-projection
+    :schemas/runtime})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -48,7 +49,15 @@
 
 (defn- load-fixture [file]
   (try
-    (edn/read-string (slurp file))
+    ;; A handful of fixtures use `::name` (auto-resolved keyword) which
+    ;; pure clojure.edn cannot read without a *reader-resolver*. The
+    ;; corpus's only use of `::` is for runtime-internal timer events
+    ;; (e.g. ::after-elapsed); we rewrite to a stable namespace so the
+    ;; fixture loads. Tracked as rf2-lu3f.
+    (let [raw (slurp file)
+          fixed (clojure.string/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
+                                        ":rf.machine.timer/$1")]
+      (edn/read-string fixed))
     (catch Throwable e
       {:fixture/load-error (.getMessage e)
        :fixture/file       (.getName file)})))
@@ -130,7 +139,12 @@
     (doseq [[id steps] (get handlers-map :view)]
       ((requiring-resolve 're-frame-2.registrar/register!)
        :view id
-       {:handler-fn (conformance/realise-view-handler steps)}))))
+       {:handler-fn (conformance/realise-view-handler steps)}))
+    ;; app-schema registrations — fixture's :fixture/registry :app-schema
+    ;; is a {path schema} map. Per Spec 010, validation runs after each
+    ;; :db commit.
+    (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
+      (rf/reg-app-schema path schema))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
