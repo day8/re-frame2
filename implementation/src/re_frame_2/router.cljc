@@ -72,11 +72,18 @@
         (cond
           (nil? handler-meta)
           (trace/emit-error! :rf.error/no-such-handler
-                             {:event-id event-id :event event :frame frame})
+                             {:event-id event-id
+                              :event    event
+                              :frame    frame
+                              :kind     :event
+                              :recovery :replaced-with-default})
 
           :else
-          (let [_ (trace/emit! :event :event/run-start
-                               {:event-id event-id :event event :frame frame})
+          (let [_ (trace/emit! :event :event
+                               {:event-id event-id
+                                :event    event
+                                :frame    frame
+                                :phase    :run-start})
                 {:keys [extra-interceptors]} (apply-overrides envelope frame-record)
                 base-chain   (:interceptors handler-meta)
                 full-chain   (vec (concat extra-interceptors base-chain))
@@ -113,8 +120,11 @@
             ;; Walk :fx in source order.
             (when-let [fx-vec (:fx effects)]
               (fx/do-fx frame fx-vec interop/platform))
-            (trace/emit! :event :event/run-end
-                         {:event-id event-id :event event :frame frame})))))))
+            (trace/emit! :event :event
+                         {:event-id event-id
+                          :event    event
+                          :frame    frame
+                          :phase    :run-end})))))))
 
 ;; ---- outer drain ----------------------------------------------------------
 
@@ -181,11 +191,20 @@
 
 (defn dispatch-sync!
   "Bypass the queue scheduler and process this single event end-to-end
-  immediately. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
+  immediately, then drain any synchronously-enqueued events to fixed
+  point. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
   callers (test setup, REPL). Calling from inside a handler raises
-  :rf.error/dispatch-sync-in-handler."
+  :rf.error/dispatch-sync-in-handler.
+
+  After the seed event runs, the drain loop processes anything that
+  landed in the queue via :fx [[:dispatch ev]] — so chained dispatches
+  settle synchronously."
   ([event] (dispatch-sync! event {}))
   ([event opts]
    (let [envelope (build-envelope event opts)]
      (process-event! envelope)
+     ;; Drain anything that the handler's :fx put on the router queue
+     ;; (e.g. chained :dispatch fx). Per run-to-completion, we settle
+     ;; before returning.
+     (drain! (:frame envelope))
      nil)))

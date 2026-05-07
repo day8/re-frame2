@@ -106,13 +106,24 @@
                    inputs
                    (fn [& in-vals]
                      (when body-fn
-                       (if (empty? input-signals)
-                         (body-fn (first in-vals) query-v)
-                         ;; Layer-2+: deliver inputs as a coll if many,
-                         ;; or singleton when only one chain entry.
-                         (if (= 1 (count input-signals))
+                       (try
+                         (if (empty? input-signals)
                            (body-fn (first in-vals) query-v)
-                           (body-fn (vec in-vals) query-v))))))
+                           ;; Layer-2+: deliver inputs as a coll if many,
+                           ;; or singleton when only one chain entry.
+                           (if (= 1 (count input-signals))
+                             (body-fn (first in-vals) query-v)
+                             (body-fn (vec in-vals) query-v)))
+                         (catch #?(:clj Throwable :cljs :default) e
+                           (trace/emit-error!
+                             :rf.error/sub-exception
+                             {:sub-id    query-id
+                              :sub-query query-v
+                              :exception e
+                              :recovery  :replaced-with-default})
+                           ;; Per Spec 009 §Error contract: replaced-with-default
+                           ;; means return nil.
+                           nil)))))
         cache (:sub-cache (frame/frame frame-id))
         k     (cache-key query-v)]
     (when cache
