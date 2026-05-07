@@ -1,20 +1,26 @@
 (ns re-frame-2.machines
   "State machines. Per Spec 005.
 
-  This is a FIRST-PASS implementation covering the v1 core grammar:
+  Implements the v1 grammar:
     - Transition tables with :on, :entry, :exit, :guard, :action.
-    - Flat states. Hierarchical states are TODO (filed as a bead).
+    - Flat states (single keyword) AND hierarchical states (vector path)
+      with deepest-wins resolution and LCA exit/entry cascade.
+    - :always microsteps with bounded depth and atomic rollback on
+      depth-exceeded.
+    - :after delayed transitions with per-machine :rf/after-epoch
+      tracking; the synthetic :rf.machine.timer/after-elapsed event
+      fires the transition only when the carried epoch matches.
+    - Declarative :invoke that desugars into [:spawn args] on entry
+      and [:destroy-machine actor-id] on exit; deterministic actor ids
+      via a per-process counter.
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - Snapshot at [:rf/machines <id>] in app-db.
-    - Pure machine-transition fn (JVM-runnable, deterministic).
+    - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
-  TODO (filed as beads):
-    - Hierarchical compound states with LCA exit/entry cascade.
-    - :always microsteps with depth-limit.
-    - :after delayed transitions with epoch-based stale detection.
-    - :invoke declarative actor spawn / destroy.
-    - :spawn dynamic actor lifecycle.
-    - sub-machine for reading snapshots reactively."
+  Conformance fixtures cover all of the above (machine-transition,
+  hierarchical-{compound,cross-level,parent-fallthrough}-transition,
+  always-{single-microstep,depth-exceeded}, after-{single-delay,
+  stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit)."
   (:require [re-frame-2.registrar :as registrar]
             [re-frame-2.events :as events]
             [re-frame-2.trace :as trace]))

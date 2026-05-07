@@ -1,22 +1,28 @@
 (ns re-frame-2.ssr
   "Server-side rendering and hydration. Per Spec 011.
 
-  This is a STUB first pass. The pure hiccup → HTML emitter, the
-  hydration payload protocol, the head/meta contract, the structural
-  hash mismatch detection, the server error projection — all are
-  filed as beads.
+  Implements:
+    - Pure hiccup → HTML emitter (HTML5: void elements self-close
+      bare, doctype prefix on demand, full attr/text escaping,
+      :tag#id.cls keyword parsing, registered-view resolution via
+      the :view registry).
+    - :rf/hydrate event with :replace-app-db semantics — the server-
+      supplied payload's :rf/app-db replaces the client app-db. The
+      conformance harness simulates a hydration-mismatch by feeding a
+      :simulated-client-render-hash; the runtime compares against the
+      payload's :rf/render-hash and emits :rf.ssr/hydration-mismatch
+      with :recovery :warned-and-replaced.
+    - :rf.server/* response-shape fx (:rf.server/set-status,
+      :rf.server/redirect, :rf.server/set-cookie) gated by
+      :platforms #{:server} via the per-frame :platform predicate.
+    - Default error projector (:rf.ssr/default-error-projector)
+      mapping :rf.error/no-such-handler / no-such-route to the
+      Spec-011 public-error shape.
 
-  Currently implemented:
-    - render-to-string-stub: a minimal hiccup → string walker (no
-      attribute escaping, no void-element handling, no doctype).
-
-  TODO (filed as beads):
-    - Pure hiccup → HTML emitter with attr/text escaping, void elements.
-    - :rf/hydrate event with :replace-app-db semantics.
-    - hydration-mismatch detection (FNV-1a hash of canonical-EDN).
-    - :rf/head model + head-mismatch detection.
-    - :rf.server/* response-shape fx (set-status, set-cookie, redirect).
-    - error projection (server boundary sanitisation)."
+  Conformance fixtures cover all of the above (ssr/render-to-string,
+  ssr/hydrate, ssr/hydration-mismatch, ssr/head-emits, ssr/head-hydration,
+  ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
+  ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame-2.frame :as frame]
             [re-frame-2.registrar :as registrar]
             [re-frame-2.events :as events]))

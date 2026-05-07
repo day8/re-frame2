@@ -2,18 +2,35 @@
   "Routing as state. Per Spec 012.
 
   Routes are registry entries (kind :route) keyed by user route-id.
-  Navigation is an event (`:rf.route/navigate`); URL changes are events
-  (`:rf.route/url-changed`); the :route slice in app-db carries
+  Navigation is an event (:rf.route/navigate); URL changes are events
+  (:rf/url-changed). The :route slice in app-db carries
   {:id :params :query :fragment :transition :error :nav-token}.
 
-  This first pass implements the core: reg-route, match-url, route-url,
-  the :rf.route/navigate event, the :route slice. Stale-nav-token
-  suppression, can-leave guards, scroll restoration, fragments are
-  TODO (filed as beads).
+  Path-pattern grammar (per Spec 012):
+    /literal      literal segment
+    /:name        named param (one segment)
+    /*rest        splat — greedy across /
+    /{...}?       optional group; inner /:name is treated as a normal
+                  named param and is elided in route-url output when
+                  the param is absent from path-params.
 
-  Path-pattern grammar (per Spec 012): segments delimited by /, with
-  named params `:foo` matching one segment. Catch-all `*rest` and
-  optional segments are TODO."
+  Match resolution: structural rank tuple computed at registration time
+  per Spec 012 §Route ranking algorithm (6-rule cascade: static-count,
+  length, splat-count, catch-all, optional-count, registration order).
+  When a new route's structural rank equals an existing one,
+  :rf.warning/route-shadowed-by-equal-score fires at registration.
+
+  Query strings: per-key coercion via the route's :query Malli schema
+  (:int / :keyword / :boolean); :query-defaults populate absent keys;
+  URL key order is preserved for round-trip identity.
+
+  Events:
+    :rf/url-changed                     full / fragment-only nav
+    :rf/url-requested                   user-initiated; can-leave guard
+    :rf.route/navigate                  programmatic
+    :rf.route/handle-url-change         pop-state / initial / SSR
+    :rf.route/continue / cancel         pending-nav protocol
+    :rf.test/simulate-http-resolution   test-only nav-token check"
   (:require [re-frame-2.registrar :as registrar]
             [re-frame-2.events :as events]
             [re-frame-2.fx :as fx]
