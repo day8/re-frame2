@@ -8,6 +8,8 @@
 
 It is the firstborn of [re-frame](https://github.com/day8/re-frame).
 
+It is a library for building web apps (specifically SPAs).
+
 ## Status
 
 Still very much a **work in progress**. Call it pre-alpha. Call it aspirational. Call me crazy.
