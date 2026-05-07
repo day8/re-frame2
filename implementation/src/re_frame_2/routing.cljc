@@ -125,21 +125,26 @@
 
 (defonce ^:private reg-counter (atom 0))
 
+(declare compile-pattern)
+
 (defn reg-route
   "Register a route. metadata carries the route's :path pattern and any
   :on-match / :params / :scroll / :can-leave keys (see Spec 012).
 
-  Computes :rf.route/rank at registration time so match-url can sort
-  candidates by rank without re-parsing on each call. If a previously-
-  registered route has an equal structural rank, emits
-  :rf.warning/route-shadowed-by-equal-score (per Spec 012 §Route ranking
-  algorithm — rule 6) so tooling can flag the conflict."
+  Computes :rf.route/rank AND a :rf.route/compiled regex at registration
+  time so match-url can sort candidates by rank and match without
+  re-parsing on each call. If a previously-registered route has an
+  equal structural rank, emits :rf.warning/route-shadowed-by-equal-score
+  (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
+  the conflict."
   [id metadata]
-  (let [pattern (:path metadata)
-        rank    (when pattern (compute-rank pattern))
-        idx     (swap! reg-counter inc)
-        meta'   (cond-> metadata
-                  rank (assoc :rf.route/rank (conj rank (- idx))))]
+  (let [pattern  (:path metadata)
+        rank     (when pattern (compute-rank pattern))
+        compiled (when pattern (compile-pattern pattern))
+        idx      (swap! reg-counter inc)
+        meta'    (cond-> metadata
+                   rank     (assoc :rf.route/rank (conj rank (- idx)))
+                   compiled (assoc :rf.route/compiled compiled))]
     ;; Spec 012 rule-6 warning: scan existing routes for one whose structural
     ;; rank (i.e. the rank tuple SANS the reg-index final element) equals ours.
     (when rank
@@ -310,7 +315,11 @@
         candidates
         (keep
           (fn [[id meta]]
-            (when-let [compiled (some-> (:path meta) compile-pattern)]
+            ;; Use the pre-compiled pattern from registration; fall back
+            ;; to ad-hoc compile only if metadata didn't carry one
+            ;; (defensive — shouldn't happen).
+            (when-let [compiled (or (:rf.route/compiled meta)
+                                    (some-> (:path meta) compile-pattern))]
               (when-let [params (match-against compiled path)]
                 (let [schema     (:query meta)
                       defaults   (:query-defaults meta {})
