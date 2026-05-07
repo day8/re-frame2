@@ -133,10 +133,13 @@
                   (trace/emit-error! :rf.error/flow-eval-exception
                                      {:frame frame :event event :exception e}))))
             ;; Walk :fx in source order, threading fx-overrides through so
-            ;; per-frame / per-call overrides take effect.
+            ;; per-frame / per-call overrides take effect. Per-frame
+            ;; :platform overrides interop/platform when set.
             (when-let [fx-vec (:fx effects)]
-              (fx/do-fx frame fx-vec interop/platform
-                        (or (:rf/fx-overrides initial-ctx) {})))
+              (let [active-platform (or (get-in frame-record [:config :platform])
+                                        interop/platform)]
+                (fx/do-fx frame fx-vec active-platform
+                          (or (:rf/fx-overrides initial-ctx) {}))))
             (trace/emit! :event :event
                          {:event-id event-id
                           :event    event

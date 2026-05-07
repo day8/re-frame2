@@ -36,7 +36,8 @@
     :fsm/hierarchical
     :routing/match-url
     :ssr/render-to-string
-    :ssr/hydration})
+    :ssr/hydration
+    :ssr/response-contract})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -88,6 +89,11 @@
                           (concat (interleave (repeat :<-) inputs) [body])))))
     ;; fx handlers — DSL bodies. May :throw, :noop, mutate the frame's
     ;; app-db, or :dispatch a follow-up event (e.g. http stubs).
+    ;;
+    ;; Two sources combine: :fixture/handlers :fx (bodies) and
+    ;; :fixture/registry :fx (metadata, including :platforms / :spec).
+    ;; A registry-only entry registers as a no-op so fx that the fixture
+    ;; merely declares but doesn't body still resolve at do-fx time.
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
                         (frame/frame-app-db-value frame-id))
@@ -96,10 +102,15 @@
                           ((requiring-resolve 're-frame-2.substrate.adapter/replace-container!)
                            container new-db)))
            :dispatch! (fn [event frame-id]
-                        (rf/dispatch event {:frame frame-id}))}]
-      (doseq [[id steps] (get handlers-map :fx)]
-        (let [handler (conformance/realise-fx-handler id steps adapter-helpers)]
-          (rf/reg-fx id handler))))
+                        (rf/dispatch event {:frame frame-id}))}
+          fx-bodies   (get handlers-map :fx)
+          fx-registry (get-in fixture [:fixture/registry :fx] {})
+          all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
+      (doseq [id all-fx-ids]
+        (let [body  (get fx-bodies id [[:noop]])
+              meta  (get fx-registry id {})
+              handler (conformance/realise-fx-handler id body adapter-helpers)]
+          (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
     ;; route registrations
     (doseq [[id meta] (get handlers-map :route)]
       (rf/reg-route id meta))

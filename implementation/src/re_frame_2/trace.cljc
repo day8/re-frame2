@@ -61,16 +61,19 @@
   Tags retain everything else."
   [op operation tags]
   (when interop/debug-enabled?
-    (let [source (:source tags)
-          ;; :source is mirrored at the top level (per Spec 009 §Core
-          ;; fields) AND retained in :tags so consumers that read either
-          ;; shape see it. Different fixtures expect different shapes.
-          event  (cond-> {:operation operation
-                          :op-type   op
-                          :id        (next-event-id)
-                          :time      (interop/now-ms)
-                          :tags      tags}
-                   source (assoc :source source))]
+    (let [source   (:source tags)
+          recovery (:recovery tags)
+          ;; :source and :recovery are mirrored at the top level (per
+          ;; Spec 009 §Core fields) AND retained in :tags so consumers
+          ;; using either shape see them. Different fixtures expect
+          ;; different shapes.
+          event    (cond-> {:operation operation
+                            :op-type   op
+                            :id        (next-event-id)
+                            :time      (interop/now-ms)
+                            :tags      tags}
+                     source   (assoc :source source)
+                     recovery (assoc :recovery recovery))]
       (doseq [[_ f] @listeners]
         (try
           (f event)

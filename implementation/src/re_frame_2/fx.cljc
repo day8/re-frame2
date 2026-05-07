@@ -121,10 +121,12 @@
                                   :exception-message msg
                                   :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
                                   :recovery          :no-recovery}))))
-        (trace/emit! :fx :rf.fx/skipped-on-platform
-                     {:fx-id fx-id :frame frame-id
-                      :platform active-platform
-                      :registered-platforms (:platforms meta)}))
+        (trace/emit! :warning :rf.fx/skipped-on-platform
+                     {:fx-id                fx-id
+                      :frame                frame-id
+                      :platform             active-platform
+                      :registered-platforms (:platforms meta)
+                      :recovery             :skipped}))
       (trace/emit-error! :rf.error/no-such-fx
                          {:fx-id fx-id :frame frame-id
                           :recovery :no-recovery})))))
