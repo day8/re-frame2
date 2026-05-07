@@ -59,6 +59,30 @@
     :else             (throw (ex-info ":rf.error/machine-bad-action-form"
                                       {:action action}))))
 
+;; ---- spawn counter --------------------------------------------------------
+;;
+;; Per Spec 005 §Declarative :invoke (sugar over spawn): on entry to an
+;; :invoke-bearing state the runtime emits a :spawn fx and assigns the
+;; spawned actor a deterministic id of the form `<machine-id>#<n>`. The
+;; counter is per machine-id so independent invokes don't cross-contaminate.
+
+(defonce ^:private spawn-counter
+  (atom {}))   ;; machine-id → int
+
+(defn- next-spawn-id
+  [machine-id]
+  (let [k machine-id
+        n (-> (swap! spawn-counter update k (fnil inc 0))
+              (get k))]
+    (keyword (namespace machine-id)
+             (str (name machine-id) "#" n))))
+
+(defn reset-counters!
+  "Reset the spawn-counter (and other test-mode counters) so id
+  allocation is stable across fixture runs."
+  []
+  (reset! spawn-counter {}))
+
 ;; ---- state-path helpers (hierarchical) ------------------------------------
 ;;
 ;; Per Spec 005 §State paths and §Entry/exit cascading along the LCA, the
@@ -355,7 +379,44 @@
             (doseq [[delay _target] after-map]
               (trace/emit! :machine :rf.machine.timer/scheduled
                            {:state leaf-state :delay delay :epoch epoch}))))))
-    [snap-final fx]))
+    ;; Per Spec 005 §Declarative :invoke (sugar over spawn): nodes being
+    ;; EXITED with :invoke emit :destroy-machine (reading the recorded
+    ;; actor id from :data.:pending — the conventional slot the user's
+    ;; :on-spawn writes); nodes being ENTERED with :invoke emit :spawn,
+    ;; allocate a deterministic actor id, and run :on-spawn to give the
+    ;; user a chance to record the id in :data.
+    (let [destroy-fx
+          (when-not internal?
+            (vec
+              (mapcat
+                (fn [n]
+                  (when-let [_inv (:invoke n)]
+                    (let [actor-id (get-in snapshot [:data :pending])]
+                      (when actor-id
+                        [[:destroy-machine actor-id]]))))
+                exited-nodes)))
+          [snap-after-spawns spawn-fx]
+          (if internal?
+            [snap-final []]
+            (reduce
+              (fn [[s acc-fx] n]
+                (if-let [inv (:invoke n)]
+                  (let [machine-id  (:machine-id inv)
+                        spawned-id  (next-spawn-id machine-id)
+                        spawn-args  (-> inv (assoc :id-prefix machine-id))
+                        on-spawn-fn (let [aref (:on-spawn inv)]
+                                      (when aref
+                                        (or (chase-ref (:on-spawn-actions machine) aref)
+                                            (chase-ref (:actions machine) aref))))
+                        s'          (if on-spawn-fn
+                                      (or (on-spawn-fn s spawned-id) s)
+                                      s)]
+                    [s' (conj acc-fx [:spawn spawn-args])])
+                  [s acc-fx]))
+              [snap-final []]
+              entered-nodes))
+          all-fx (vec (concat fx (or destroy-fx []) spawn-fx))]
+      [snap-after-spawns all-fx])))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root

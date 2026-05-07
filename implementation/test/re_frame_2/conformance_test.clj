@@ -45,7 +45,9 @@
     :routing/ranking
     :routing/fragment
     :routing/blocking
-    :routing/nav-token})
+    :routing/nav-token
+    :actor/spawn
+    :actor/invoke})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -89,10 +91,11 @@
   ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
   (require 're-frame-2.routing :reload)
   (require 're-frame-2.ssr :reload)
-  ;; Reset id-allocators so nav-token / pending-nav / rank-reg ids are
-  ;; stable across runs (the routing fixtures assert against literal
-  ;; "nav-1" / "nav-2" strings).
-  ((requiring-resolve 're-frame-2.routing/reset-counters!)))
+  ;; Reset id-allocators so nav-token / pending-nav / rank-reg / spawn ids
+  ;; are stable across runs (the routing/machine fixtures assert against
+  ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
+  ((requiring-resolve 're-frame-2.routing/reset-counters!))
+  ((requiring-resolve 're-frame-2.machines/reset-counters!)))
 
 ;; ---- fixture execution ----------------------------------------------------
 
@@ -274,8 +277,16 @@
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
-                            (eval-value step {:data (:data snap) :event event})))))]))]
-    {:actions actions-by-id :guards guards-by-id}))
+                            (eval-value step {:data (:data snap) :event event})))))]))
+        ;; Same machine-action steps, but realised as on-spawn callbacks
+        ;; (snapshot-relative :set paths) for use in :invoke desugaring.
+        on-spawn-by-id
+        (into {}
+              (for [[id steps] (:machine-action handlers-map)]
+                [id (conformance/realise-on-spawn-handler steps)]))]
+    {:actions    actions-by-id
+     :guards     guards-by-id
+     :on-spawn-actions on-spawn-by-id}))
 
 (defn- run-call
   "Dispatch a :fixture/calls entry. Returns {:passed? bool :detail ...}.
@@ -347,13 +358,15 @@
     (let [machine-transition (requiring-resolve 're-frame-2.machines/machine-transition)
           actions-by-id (or (:actions fixture-machines) {})
           guards-by-id  (or (:guards fixture-machines) {})
+          on-spawn-by-id (or (:on-spawn-actions fixture-machines) {})
           ;; Merge fixture-registered handlers into the def's named-binding
           ;; maps. The fixture's bindings live alongside any short-names the
           ;; def already declared. Machines/chase-ref follows
           ;; short-name → registered-id → fn through this combined map.
           definition    (-> (:definition call)
                             (update :actions #(merge actions-by-id %))
-                            (update :guards  #(merge guards-by-id %)))
+                            (update :guards  #(merge guards-by-id %))
+                            (update :on-spawn-actions #(merge on-spawn-by-id %)))
           [snap-out fx-out]
           (try (machine-transition definition (:snapshot call) (:event call))
                (catch Throwable e [nil [:error (.getMessage e)]]))

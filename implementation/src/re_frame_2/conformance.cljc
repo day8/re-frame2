@@ -279,6 +279,29 @@
           ctx         {:event (vec args) :db nil}]
       (when tree (walk-hiccup tree ctx)))))
 
+(defn realise-on-spawn-handler
+  "DSL → an on-spawn callback fn. Signature: (snap, spawned-id) → new-snap.
+
+  Per Spec 005 §Declarative :invoke (sugar over spawn): the on-spawn
+  callback receives the snapshot and the just-allocated actor id; it
+  returns an updated snapshot. The body's :set path is treated as
+  SNAPSHOT-relative (not data-relative), so [:set [:data :pending] x]
+  sets snap.:data.:pending = x — matching the conformance corpus's
+  convention for recording the actor id under a user-chosen slot."
+  [steps]
+  (fn [snap spawned-id]
+    (let [synthetic-event [::on-spawn spawned-id]]
+      (reduce
+        (fn [s step]
+          (case (first step)
+            :set (let [[_ path v] step
+                       resolved (resolve-value v {:event synthetic-event
+                                                  :db (:data s)})]
+                   (if (empty? path) resolved (assoc-in s path resolved)))
+            s))
+        snap
+        steps))))
+
 (defn realise-fx-handler
   "DSL → an fx handler fn. fx handlers receive ({:frame frame-id} args).
 
