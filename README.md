@@ -64,32 +64,15 @@ The corpus has two audiences and they each get their own docs.
 
 It is probably worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort.
 
-[`docs/guide/`](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
+[The guide](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
 
-1. [01 — Why re-frame2](docs/guide/01-why-re-frame2.md) — the dynamic-model argument; the five things this buys you; the objections.
-2. [02 — Your first app](docs/guide/02-your-first-app.md) — counter walkthrough.
-3. [03 — Events and the state cycle](docs/guide/03-events-state-cycle.md), [04 — Views and frames](docs/guide/04-views-and-frames.md), [05 — State machines](docs/guide/05-state-machines.md), [06 — Server-side](docs/guide/06-server-side.md) — the whole pattern in narrative.
-4. [07 — From re-frame v1](docs/guide/07-from-re-frame-v1.md) — what changed and why, for v1 users.
-5. [08 — The dynamic-model story](docs/guide/08-the-dynamic-model.md) — the long-form essay on why less-powerful-is-more.
+After that, browse the aspirational [examples](examples/README.md). Note: all written against the imagined v2 API and won't run until the [reference implementation](#status) lands.
 
-After the guide, **read code** — the [`examples/`](examples/README.md) directory has the pattern in worked form. Examples are tagged by maturity: pedagogical sketches ([counter](examples/counter/), [login](examples/login/), [routing](examples/routing/), [SSR](examples/ssr/)) for one-mechanism-at-a-time learning; benchmarks ([7GUIs](examples/7guis/README.md), [nine-states](examples/nine-states/README.md)) for breadth; and the [RealWorld (Conduit)](examples/realworld/README.md) worked scaffold for substantial-app shape. They're the bridge between the narrative and the spec — same shape humans saw in the guide, written the way you'd actually write it. Note: written against the imagined v2 API and won't run until the [reference implementation](#status) lands.
-
-After the examples, the **system-understanding bridge** — two specification companion docs that read precisely (the AI track uses them) but accessibly (the human track can too):
-
-- [Runtime-Architecture](docs/specification/Runtime-Architecture.md) — bird's-eye view of the runtime as eight components plus the interop layer. ASCII data-flow diagram. The "what's running underneath?" answer.
-- [Cross-Spec-Interactions](docs/specification/Cross-Spec-Interactions.md) — twenty edge cases at the boundaries between Specs. The "if I do X while Y is happening?" reference.
+Maybe then glance at some of [the specification](docs/specification/README.md).
 
 ### For AIs
 
-Because re-frame2 is AI-oriented, **the main body of the documentation is the [specification](docs/specification/)** — written for AI agents to read, scaffold against, and one-shot implementations from. Humans can read it too; but they may lose focus.
-
-1. [`docs/specification/000-Vision.md`](docs/specification/000-Vision.md) — goals, the pattern's minimal core, CLJS reference choices.
-2. [`docs/specification/Principles.md`](docs/specification/Principles.md) — the 9 AI-first practical principles.
-3. The rationale docs in re-frame's existing v1 doc set ([on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/)) — *why* the pattern has this shape.
-4. [`docs/specification/002-Frames.md`](docs/specification/002-Frames.md) — the foundation.
-5. The capability Specs (004–013) in numeric order. Each is independent.
-6. [`docs/specification/conformance/`](docs/specification/conformance/) — the fixture corpus an AI verifies against.
-7. [`examples/`](examples/) — see the pattern in working code (once the reference implementation lands).
+Because re-frame2 is AI-oriented, **the main body of the documentation is the [specification](docs/specification/)**. Humans can read it too, but you may lose focus.
 
 ## Project layout
 
