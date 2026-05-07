@@ -37,7 +37,9 @@
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration
-    :ssr/response-contract})
+    :ssr/response-contract
+    :ssr/head-contract
+    :ssr/error-projection})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -63,7 +65,16 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
-  (rf/init!))
+  (rf/init!)
+  ;; Framework events / fx are registered at namespace-load time in
+  ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
+  ;; registrations so :rf.route/navigate, :rf.route/handle-url-change,
+  ;; :rf/hydrate, :rf.nav/push-url, :rf.nav/replace-url all resolve.
+  ((requiring-resolve 're-frame-2.core/reg-sub) :rf/route
+   (requiring-resolve 're-frame-2.routing/route-sub-fn))
+  ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
+  (require 're-frame-2.routing :reload)
+  (require 're-frame-2.ssr :reload))
 
 ;; ---- fixture execution ----------------------------------------------------
 

@@ -378,19 +378,26 @@
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db]} [_ url]]
-    (let [m (match-url url)
-          route-id   (or (:route-id m) :rf.route/not-found)
-          params     (or (:params m) {:url url})
-          query      (or (:query m) {})
-          route-meta (registrar/lookup :route route-id)
-          on-match-vec (vec (or (:on-match route-meta) []))]
-      {:db (assoc db :rf/route
-                  {:id         route-id
-                   :params     params
-                   :query      query
-                   :transition (if (seq on-match-vec) :loading :idle)
-                   :error      nil})
-       :fx (vec (mapv (fn [ev] [:dispatch ev]) on-match-vec))})))
+    (let [m (match-url url)]
+      (when (nil? m)
+        ;; Unmatched URL — fixture corpus calls this :rf.error/no-such-handler
+        ;; in the routing context. The default error projector maps it to a
+        ;; public-facing 404. Per Spec 011 §Default projector.
+        (trace/emit-error! :rf.error/no-such-handler
+                           {:url url
+                            :recovery :replaced-with-default}))
+      (let [route-id   (or (:route-id m) :rf.route/not-found)
+            params     (or (:params m) {:url url})
+            query      (or (:query m) {})
+            route-meta (registrar/lookup :route route-id)
+            on-match-vec (vec (or (:on-match route-meta) []))]
+        {:db (assoc db :rf/route
+                    {:id         route-id
+                     :params     params
+                     :query      query
+                     :transition (if (seq on-match-vec) :loading :idle)
+                     :error      nil})
+         :fx (vec (mapv (fn [ev] [:dispatch ev]) on-match-vec))}))))
 
 ;; ---- standard navigation fx ----------------------------------------------
 
