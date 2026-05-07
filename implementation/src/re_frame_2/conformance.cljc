@@ -110,6 +110,12 @@
 
     :else form))
 
+(defn resolve-value*
+  "Public alias for the private resolve-value, used by the conformance
+  test runner for machine-handler realisation."
+  [form ctx]
+  (resolve-value form ctx))
+
 ;; ---- event-db / event-fx interpreter -------------------------------------
 
 (defn- apply-step

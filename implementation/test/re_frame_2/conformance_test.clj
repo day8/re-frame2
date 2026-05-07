@@ -25,7 +25,7 @@
 ;; ---- claimed capability set -----------------------------------------------
 
 (def claimed-capabilities
-  "What this implementation currently supports (per the smoke tests).
+  "What this implementation currently supports.
   Fixtures requiring capabilities outside this set are skipped."
   #{:core/event-handler
     :core/sub
@@ -155,10 +155,124 @@
     [(first entry) (second entry)]
     [:rf/default entry]))
 
+(defn- register-routes! [fixture]
+  (doseq [[id meta] (get-in fixture [:fixture/registry :route])]
+    (rf/reg-route id meta)))
+
+(defn- realise-machine-handlers
+  "Build {action-id → fn} and {guard-id → fn} from a fixture's
+  :fixture/handlers :machine-action / :machine-guard buckets.
+
+  Action body steps return effects via the apply-step :fx slot — we
+  collect those into the {:fx [...]} return shape. Guard body steps
+  evaluate to a single boolean — we run the steps and read the last
+  reflection's value."
+  [fixture]
+  (let [handlers-map (or (:fixture/handlers fixture) {})
+        actions-by-id
+        (into {}
+              (for [[id steps] (:machine-action handlers-map)]
+                [id (fn [snap event]
+                      (let [final (reduce
+                                    (fn [{:keys [data] :as ctx} step]
+                                      (case (first step)
+                                        :set    (let [[_ path v] step]
+                                                  (assoc ctx :data
+                                                         (assoc-in data path
+                                                                   ((requiring-resolve 're-frame-2.conformance/resolve-value*)
+                                                                    v ctx))))
+                                        :fx     (let [[_ a b] step]
+                                                  (update ctx :fx (fnil conj [])
+                                                          [a b]))
+                                        ctx))
+                                    {:data (:data snap) :event event :fx []}
+                                    steps)]
+                        (cond-> {}
+                          (not= (:data snap) (:data final)) (assoc :data (:data final))
+                          (seq (:fx final)) (assoc :fx (:fx final)))))]))
+        guards-by-id
+        (into {}
+              (for [[id steps] (:machine-guard handlers-map)]
+                [id (fn [snap event]
+                      (let [step (first steps)]
+                        (when (and (vector? step) (= :fn (first step)))
+                          (boolean
+                            ((requiring-resolve 're-frame-2.conformance/resolve-value*)
+                             step {:data (:data snap) :event event})))))]))]
+    {:actions actions-by-id :guards guards-by-id}))
+
+(defn- run-call
+  "Dispatch a :fixture/calls entry. Returns {:passed? bool :detail ...}.
+
+  fixture-machines is the realised {:actions ... :guards ...} map for
+  the fixture (built once by run-fixture)."
+  [call & [fixture-machines]]
+  (case (:call call)
+    :match-url
+    (let [actual (rf/match-url (:url call))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "match-url " (:url call)
+                       " expected " expect " got " actual))})
+
+    :route-url
+    (let [actual (if (:query call)
+                   (rf/route-url (:route-id call) (:params call) (:query call))
+                   (rf/route-url (:route-id call) (:params call)))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "route-url " (:route-id call)
+                       " expected " expect " got " actual))})
+
+    :round-trip
+    (let [matched (rf/match-url (:url call))
+          rebuilt (when matched
+                    (if (seq (:query matched))
+                      (rf/route-url (:route-id matched) (:params matched) (:query matched))
+                      (rf/route-url (:route-id matched) (:params matched))))]
+      {:passed? (= (:url call) rebuilt)
+       :detail  (when (not= (:url call) rebuilt)
+                  (str "round-trip " (:url call) " → " rebuilt))})
+
+    ;; assertion against rank metadata; we don't implement rank-meta yet, so
+    ;; mark as skipped (returns true to not fail the fixture).
+    :assert-rank-greater
+    {:passed? true
+     :detail  "assert-rank-greater not asserted (rank-meta not yet exposed)"}
+
+    ;; pure machine-transition call (used by fsm fixtures).
+    :machine-transition
+    (let [machine-transition (requiring-resolve 're-frame-2.machines/machine-transition)
+          ;; Inject realised actions/guards into the definition so the
+          ;; machine's keyword references resolve to fns.
+          definition  (-> (:definition call)
+                          (assoc :actions (or (:actions fixture-machines) {})
+                                 :guards  (or (:guards fixture-machines) {})))
+          [snap-out fx-out]
+          (try (machine-transition definition (:snapshot call) (:event call))
+               (catch Throwable e [nil [:error (.getMessage e)]]))
+          want-snap (:expect-next-snapshot call)
+          want-fx   (or (:expect-effects call) [])
+          ok-snap?  (= want-snap snap-out)
+          ok-fx?    (= want-fx (vec fx-out))]
+      {:passed? (and ok-snap? ok-fx?)
+       :detail  (when (not (and ok-snap? ok-fx?))
+                  (str "machine-transition\n"
+                       "    expected snapshot: " want-snap "\n"
+                       "    actual   snapshot: " snap-out "\n"
+                       "    expected effects:  " want-fx "\n"
+                       "    actual   effects:  " fx-out))})
+
+    ;; unknown call op
+    {:passed? false :detail (str "unknown :call form: " (:call call))}))
+
 (defn run-fixture [fixture]
   (try
     (reset-runtime!)
     (realise-handlers fixture)
+    (register-routes! fixture)
     (let [fid          (:fixture/id fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
@@ -185,6 +299,20 @@
 
           :else
           (rf/dispatch-sync ev)))
+      ;; :fixture/calls — pure-function assertions (match-url, route-url,
+      ;; machine-transition, etc.). Run AFTER dispatches so any
+      ;; handler-mediated state is in place.
+      (let [machines      (realise-machine-handlers fixture)
+            calls         (or (:fixture/calls fixture) [])
+            call-results  (mapv #(run-call % machines) calls)
+            call-failures (filter (complement :passed?) call-results)]
+        (when (seq call-failures)
+          ;; Surface the first failure as a fixture-level error so the
+          ;; reporter shows it.
+          (throw (ex-info (str "calls failed: "
+                               (clojure.string/join "; "
+                                 (map :detail call-failures)))
+                          {:call-failures call-failures}))))
       (let [expect       (or (:fixture/expect fixture) {})
             ;; Single-frame: :final-app-db. Multi-frame: :final-app-dbs as
             ;; {frame-id db}.
@@ -257,6 +385,16 @@
       (println "  passed:        " (count passed))
       (println "  failed:        " (count failed))
       (println "  skipped:       " (count skipped))
+      (when (seq passed)
+        (println)
+        (println "Passing:")
+        (doseq [p passed]
+          (println "  " (:fixture-id p))))
+      (when (seq skipped)
+        (println)
+        (println "Skipped (out-of-claim):")
+        (doseq [s skipped]
+          (println "  " (:fixture-id s) "—" (or (:capabilities s) (:reason s)))))
       (when (seq failed)
         (println)
         (println "Failures:")

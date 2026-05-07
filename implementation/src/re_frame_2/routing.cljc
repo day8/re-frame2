@@ -30,10 +30,17 @@
 
 ;; ---- path-pattern compilation ---------------------------------------------
 
-(defn- segment->regex [seg]
+(defn- segment->regex
+  "Compile one path segment to [name regex] where name is the param name
+  (or nil for literals). Recognises named (`:foo`), splat (`*rest`), and
+  literal segments."
+  [seg]
   (cond
     (and (string? seg) (.startsWith seg ":"))
     [(subs seg 1) "([^/]+)"]      ;; named param
+
+    (and (string? seg) (.startsWith seg "*"))
+    [(subs seg 1) "(.+)"]         ;; splat — greedy, captures across /
 
     :else
     [nil (java.util.regex.Pattern/quote seg)]))
@@ -44,10 +51,11 @@
         names    (vec (keep first compiled))
         regex-parts (map second compiled)
         regex-str (str "^/?" (clojure.string/join "/" regex-parts) "$")]
-    {:regex   #?(:clj  (java.util.regex.Pattern/compile regex-str)
-                 :cljs (re-pattern regex-str))
-     :names   names
-     :pattern pattern}))
+    {:regex    #?(:clj  (java.util.regex.Pattern/compile regex-str)
+                  :cljs (re-pattern regex-str))
+     :names    names
+     :segments segs
+     :pattern  pattern}))
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
@@ -93,12 +101,22 @@
              (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
          segs    (rest (clojure.string/split pattern #"/"))
          resolved (mapv (fn [seg]
-                          (if (and (string? seg) (.startsWith seg ":"))
+                          (cond
+                            (and (string? seg) (.startsWith seg ":"))
                             (let [k (keyword (subs seg 1))]
                               (str (or (get path-params k)
                                        (throw (ex-info ":rf.error/missing-route-param"
                                                        {:param k :route-id route-id})))))
-                            seg))
+
+                            (and (string? seg) (.startsWith seg "*"))
+                            ;; splat — value already contains internal '/' so
+                            ;; emit it verbatim (don't double-quote).
+                            (let [k (keyword (subs seg 1))]
+                              (str (or (get path-params k)
+                                       (throw (ex-info ":rf.error/missing-route-param"
+                                                       {:param k :route-id route-id})))))
+
+                            :else seg))
                         segs)
          path-out (str "/" (clojure.string/join "/" resolved))
          qs (when (seq query-params)
