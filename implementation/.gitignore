@@ -1,0 +1,7 @@
+.cpcache/
+.shadow-cljs/
+target/
+out/
+*.iml
+.lsp/
+.clj-kondo/

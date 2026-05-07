@@ -95,9 +95,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:w! 3])
     (rf/dispatch-sync [:h! 4])
-    ;; After the events apply, run-flows! is called by the drain. But our
-    ;; first-pass router doesn't call run-flows! yet — file as bead.
-    (flows/run-flows! :rf/default)
+    ;; The drain calls run-flows! after :db commit per Spec 013.
     (is (= 12 (:area (rf/get-frame-db :rf/default))))))
 
 ;; ---- routing --------------------------------------------------------------

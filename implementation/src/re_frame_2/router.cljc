@@ -102,6 +102,14 @@
                 (adapter/replace-container! container (:db effects)))
               (trace/emit! :event :event/db-changed
                            {:event-id event-id :event event :frame frame}))
+            ;; Run flows (per Spec 013 §Drain integration: after :db
+            ;; commits and before :fx walks).
+            (when-let [run-flows! (resolve 're-frame-2.flows/run-flows!)]
+              (try
+                ((deref run-flows!) frame)
+                (catch #?(:clj Throwable :cljs :default) e
+                  (trace/emit-error! :rf.error/flow-eval-exception
+                                     {:frame frame :event event :exception e}))))
             ;; Walk :fx in source order.
             (when-let [fx-vec (:fx effects)]
               (fx/do-fx frame fx-vec interop/platform))
