@@ -40,7 +40,8 @@
     :ssr/response-contract
     :ssr/head-contract
     :ssr/error-projection
-    :schemas/runtime})
+    :schemas/runtime
+    :routing/ranking})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -202,7 +203,12 @@
     [:rf/default entry]))
 
 (defn- register-routes! [fixture]
-  (doseq [[id meta] (get-in fixture [:fixture/registry :route])]
+  ;; EDN maps don't preserve insertion order beyond ~8 entries. Routes
+  ;; with structurally-equal rank tuples emit a warning at registration
+  ;; whose tags depend on which side registered second, so we register
+  ;; in deterministic lex order on the route-id.
+  (doseq [[id meta] (sort-by (comp str key)
+                             (get-in fixture [:fixture/registry :route]))]
     (rf/reg-route id meta)))
 
 (defn- realise-machine-handlers
@@ -281,11 +287,21 @@
        :detail  (when (not= (:url call) rebuilt)
                   (str "round-trip " (:url call) " → " rebuilt))})
 
-    ;; assertion against rank metadata; we don't implement rank-meta yet, so
-    ;; mark as skipped (returns true to not fail the fixture).
+    ;; rank-vs-rank assertion: both winner and loser exist; winner's rank
+    ;; tuple compares greater than loser's via lex compare.
     :assert-rank-greater
-    {:passed? true
-     :detail  "assert-rank-greater not asserted (rank-meta not yet exposed)"}
+    (let [meta-fn (requiring-resolve 're-frame-2.registrar/lookup)
+          w-meta  (meta-fn :route (:winner call))
+          l-meta  (meta-fn :route (:loser  call))
+          w-rank  (:rf.route/rank w-meta)
+          l-rank  (:rf.route/rank l-meta)
+          ok?     (and w-rank l-rank (pos? (compare w-rank l-rank)))]
+      {:passed? ok?
+       :detail  (when-not ok?
+                  (str "assert-rank-greater " (:winner call)
+                       " > " (:loser call)
+                       " — winner-rank " w-rank
+                       " loser-rank " l-rank))})
 
     ;; SSR pure render: input is hiccup or [:view-id args ...]; opts may
     ;; carry :doctype?.
@@ -334,9 +350,13 @@
 (defn run-fixture [fixture]
   (try
     (reset-runtime!)
-    (realise-handlers fixture)
-    (register-routes! fixture)
     (let [fid          (:fixture/id fixture)
+          ;; Register the trace listener FIRST so registration-time warnings
+          ;; (e.g. :rf.warning/route-shadowed-by-equal-score from reg-route)
+          ;; are captured. realise-handlers and register-routes! run after.
+          traces       (collect-traces fid)
+          _            (realise-handlers fixture)
+          _            (register-routes! fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
           ;; reset-runtime! already created :rf/default WITHOUT an :on-create.
@@ -344,8 +364,6 @@
           ;; re-fire :on-create per Spec 002. We destroy first so :on-create
           ;; fires when re-registered with the fixture's config.
           _            (rf/destroy-frame :rf/default)
-          ;; Listener BEFORE the frame is created so :on-create events trace.
-          traces       (collect-traces fid)
           _            (cond
                          (seq frames-spec)
                          ;; Multi-frame fixture: register each declared frame.

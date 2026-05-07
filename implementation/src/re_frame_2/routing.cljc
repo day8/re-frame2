@@ -20,13 +20,140 @@
             [re-frame-2.trace :as trace]))
 
 ;; ---- registration ---------------------------------------------------------
+;;
+;; Per Spec 012 §Route ranking algorithm: each registration computes a
+;; structural rank tuple that match-url consults to pick the winner among
+;; overlapping matches.
+
+(defn- pattern-shape
+  "Walk a path pattern and tally segment shapes used by the rank tuple.
+  Counts non-optional segments only (rule 2 vs rule 5); the per-pattern
+  optional-group count is tracked separately. Catch-all detection: the
+  whole pattern is a single splat (/*name)."
+  [pattern]
+  (let [n           (count pattern)
+        i           (atom 0)
+        depth       (atom 0)        ;; inside-optional-group depth
+        seen        (atom {:static 0 :named 0 :splat 0 :optional 0 :total 0})
+        bump        (fn [k] (swap! seen update k inc))]
+    ;; Walk char-by-char like compile-pattern. At each segment-start we
+    ;; classify the segment kind.
+    (loop []
+      (when (< @i n)
+        (let [ch (.charAt pattern @i)]
+          (cond
+            (= ch \{)
+            (do (bump :optional) (swap! depth inc) (swap! i inc))
+
+            (= ch \})
+            (do (swap! depth dec) (swap! i inc)
+                (when (and (< @i n) (= \? (.charAt pattern @i)))
+                  (swap! i inc)))
+
+            (= ch \:)
+            (do (when (zero? @depth)
+                  (bump :named)
+                  (bump :total))
+                (swap! i (fn [j]
+                           (let [k (loop [m (inc j)]
+                                     (cond
+                                       (>= m n) m
+                                       (or (= \/ (.charAt pattern m))
+                                           (= \{ (.charAt pattern m))
+                                           (= \} (.charAt pattern m))
+                                           (= \? (.charAt pattern m))) m
+                                       :else (recur (inc m))))]
+                             k))))
+
+            (= ch \*)
+            (do (when (zero? @depth)
+                  (bump :splat)
+                  (bump :total))
+                (swap! i (fn [j]
+                           (loop [m (inc j)]
+                             (cond
+                               (>= m n) m
+                               (or (= \/ (.charAt pattern m))
+                                   (= \{ (.charAt pattern m))
+                                   (= \} (.charAt pattern m))
+                                   (= \? (.charAt pattern m))) m
+                               :else (recur (inc m)))))))
+
+            (= ch \/)
+            (swap! i inc)
+
+            :else
+            (do (when (zero? @depth)
+                  (bump :static)
+                  (bump :total))
+                (swap! i (fn [j]
+                           (loop [m (inc j)]
+                             (cond
+                               (>= m n) m
+                               (or (= \/ (.charAt pattern m))
+                                   (= \{ (.charAt pattern m))
+                                   (= \} (.charAt pattern m))) m
+                               :else (recur (inc m)))))))))
+        (recur)))
+    (let [s @seen
+          catch-all? (and (= 1 (:total s))
+                          (= 1 (:splat s))
+                          (zero? (:static s))
+                          (zero? (:named s))
+                          (zero? (:optional s)))]
+      (assoc s :catch-all? catch-all?))))
+
+(defn- compute-rank
+  "Per Spec 012 §Route ranking algorithm. Returns a tuple sorted descending —
+  the first element that distinguishes two patterns wins.
+
+  Tuple positions, in priority order:
+    [static-count
+     non-optional-total-length
+     (- splat-count)              ;; fewer splats win (rule 3)
+     (if catch-all? 0 1)          ;; non-catch-all wins (rule 4)
+     (- optional-count)           ;; fewer optional groups win (rule 5)
+     (- reg-index)]               ;; earlier registration wins (rule 6)
+  reg-index is added at registration time."
+  [pattern]
+  (let [{:keys [static total splat catch-all? optional]} (pattern-shape pattern)]
+    [static
+     total
+     (- splat)
+     (if catch-all? 0 1)
+     (- optional)]))
+
+(defonce ^:private reg-counter (atom 0))
 
 (defn reg-route
   "Register a route. metadata carries the route's :path pattern and any
-  :on-match / :params / :scroll / :can-leave keys (see Spec 012)."
+  :on-match / :params / :scroll / :can-leave keys (see Spec 012).
+
+  Computes :rf.route/rank at registration time so match-url can sort
+  candidates by rank without re-parsing on each call. If a previously-
+  registered route has an equal structural rank, emits
+  :rf.warning/route-shadowed-by-equal-score (per Spec 012 §Route ranking
+  algorithm — rule 6) so tooling can flag the conflict."
   [id metadata]
-  (registrar/register! :route id metadata)
-  id)
+  (let [pattern (:path metadata)
+        rank    (when pattern (compute-rank pattern))
+        idx     (swap! reg-counter inc)
+        meta'   (cond-> metadata
+                  rank (assoc :rf.route/rank (conj rank (- idx))))]
+    ;; Spec 012 rule-6 warning: scan existing routes for one whose structural
+    ;; rank (i.e. the rank tuple SANS the reg-index final element) equals ours.
+    (when rank
+      (when-let [shadowed
+                 (some (fn [[other-id other-meta]]
+                         (when-let [other-rank (:rf.route/rank other-meta)]
+                           (when (and (not= other-id id)
+                                      (= rank (vec (drop-last other-rank))))
+                             other-id)))
+                       (registrar/handlers :route))]
+        (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
+                     {:route-id id :shadowed shadowed})))
+    (registrar/register! :route id meta')
+    id))
 
 ;; ---- path-pattern compilation ---------------------------------------------
 
@@ -177,31 +304,36 @@
                                (let [[k v] (clojure.string/split pair #"=" 2)]
                                  (assoc m (keyword k) (or v ""))))
                              (array-map)
-                             (clojure.string/split query-str #"&")))]
-    (some
-      (fn [[id meta]]
-        (when-let [compiled (some-> (:path meta) compile-pattern)]
-          (when-let [params (match-against compiled path)]
-            (let [schema     (:query meta)
-                  defaults   (:query-defaults meta {})
-                  coerced    (when raw-query
-                               (reduce-kv
-                                 (fn [m k v]
-                                   (assoc m k (coerce-query-value schema k v)))
-                                 (array-map)
-                                 raw-query))
-                  ;; Preserve raw-query's URL order; only fill defaults that
-                  ;; aren't already supplied. Round-trip identity depends on
-                  ;; this — see routing/match-url's :round-trip cases.
-                  with-defaults (reduce-kv
-                                  (fn [m k v] (if (contains? m k) m (assoc m k v)))
-                                  (or coerced (array-map))
-                                  defaults)]
-              {:route-id           id
-               :params             params
-               :query              with-defaults
-               :validation-failed? false}))))
-      (registrar/handlers :route))))
+                             (clojure.string/split query-str #"&")))
+        ;; Find every route whose pattern matches; sort by rank descending
+        ;; (Spec 012 §Route ranking algorithm); the highest-ranked wins.
+        candidates
+        (keep
+          (fn [[id meta]]
+            (when-let [compiled (some-> (:path meta) compile-pattern)]
+              (when-let [params (match-against compiled path)]
+                (let [schema     (:query meta)
+                      defaults   (:query-defaults meta {})
+                      coerced    (when raw-query
+                                   (reduce-kv
+                                     (fn [m k v]
+                                       (assoc m k (coerce-query-value schema k v)))
+                                     (array-map)
+                                     raw-query))
+                      with-defaults (reduce-kv
+                                      (fn [m k v]
+                                        (if (contains? m k) m (assoc m k v)))
+                                      (or coerced (array-map))
+                                      defaults)]
+                  {:route-id           id
+                   :rank               (or (:rf.route/rank meta)
+                                           [0 0 0 0 0 0])
+                   :params             params
+                   :query              with-defaults
+                   :validation-failed? false}))))
+          (registrar/handlers :route))
+        winner (->> candidates (sort-by :rank #(compare %2 %1)) first)]
+    (when winner (dissoc winner :rank))))
 
 (defn- collect-param-names-in-group
   "Walk a pattern starting at `start` (just past the opening '{'), return
