@@ -115,12 +115,18 @@
                              (body-fn (first in-vals) query-v)
                              (body-fn (vec in-vals) query-v)))
                          (catch #?(:clj Throwable :cljs :default) e
-                           (trace/emit-error!
-                             :rf.error/sub-exception
-                             {:sub-id    query-id
-                              :sub-query query-v
-                              :exception e
-                              :recovery  :replaced-with-default})
+                           (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
+                             (trace/emit-error!
+                               :rf.error/sub-exception
+                               {:failing-id        query-id
+                                :sub-id            query-id
+                                :sub-query         query-v
+                                :exception         e
+                                :exception-message msg
+                                :reason            (str "Subscription `" query-id
+                                                        "` threw while computing: "
+                                                        msg ". Returning nil.")
+                                :recovery          :replaced-with-default}))
                            ;; Per Spec 009 §Error contract: replaced-with-default
                            ;; means return nil.
                            nil)))))

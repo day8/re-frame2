@@ -48,13 +48,42 @@
 
 (declare dispatch-fx-handler)
 
+(defn- resolve-fx-with-overrides
+  "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.
+  If the override target is registered, use it. If not, emit
+  :rf.error/override-fallthrough and fall back to the original fx-id.
+  Returns the resolved fx-id."
+  [original-fx-id overrides]
+  (if-let [override-target (get overrides original-fx-id)]
+    (if (registrar/lookup :fx override-target)
+      (do
+        (trace/emit! :fx :rf.fx/override-applied
+                     {:from original-fx-id :to override-target})
+        override-target)
+      (do
+        (trace/emit-error! :rf.error/override-fallthrough
+                           {:failing-id     original-fx-id
+                            :overrides-map  overrides
+                            :looked-up-id   override-target
+                            :reason         (str "Override redirected `"
+                                                 original-fx-id
+                                                 "` to `"
+                                                 override-target
+                                                 "`, which is not registered. Using the registered `"
+                                                 original-fx-id
+                                                 "` instead.")
+                            :recovery       :replaced-with-default})
+        original-fx-id))
+    original-fx-id))
+
 (defn- handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
    1. Reserved fx-id with runtime handling (:dispatch, :dispatch-later, :rf.fx/...).
    2. User-registered fx looked up via registrar.
    3. Unknown fx-id — emit :rf.error/no-such-fx and continue."
-  [frame-id [fx-id args] active-platform]
-  (case fx-id
+  [frame-id [original-fx-id args] active-platform overrides]
+  (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)]
+   (case fx-id
     :dispatch
     ;; Append to back of the frame's router queue.
     (when-let [dispatch! (resolve 're-frame-2.router/dispatch!)]
@@ -82,21 +111,37 @@
         (try
           ((:handler-fn meta) {:frame frame-id} args)
           (catch #?(:clj Throwable :cljs :default) e
-            (trace/emit-error! :rf.error/fx-handler-exception
-                               {:fx-id fx-id :frame frame-id :exception e})))
+            (let [msg (#?(:clj .getMessage :cljs .-message) e)]
+              (trace/emit-error! :rf.error/fx-handler-exception
+                                 {:failing-id        fx-id
+                                  :fx-id             fx-id
+                                  :fx-args           args
+                                  :frame             frame-id
+                                  :exception         e
+                                  :exception-message msg
+                                  :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
+                                  :recovery          :no-recovery}))))
         (trace/emit! :fx :rf.fx/skipped-on-platform
                      {:fx-id fx-id :frame frame-id
                       :platform active-platform
                       :registered-platforms (:platforms meta)}))
       (trace/emit-error! :rf.error/no-such-fx
-                         {:fx-id fx-id :frame frame-id}))))
+                         {:fx-id fx-id :frame frame-id
+                          :recovery :no-recovery})))))
 
 (defn do-fx
   "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
   each entry's handler returns synchronously before the next begins.
   Errors trace independently and the walk continues (rule 4: one bad
-  fx does not halt the rest)."
-  [frame-id fx-vec active-platform]
-  (doseq [pair fx-vec]
-    (when (and (vector? pair) (seq pair))
-      (handle-one-fx frame-id pair active-platform))))
+  fx does not halt the rest).
+
+  Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
+  may be provided. Each [fx-id args] is rewritten through that map
+  before lookup."
+  ([frame-id fx-vec active-platform]
+   (do-fx frame-id fx-vec active-platform {}))
+  ([frame-id fx-vec active-platform overrides]
+   (doseq [pair fx-vec]
+     (when (and (vector? pair) (seq pair))
+       (handle-one-fx frame-id pair active-platform overrides)))
+   (trace/emit! :event :event/do-fx {:frame frame-id})))

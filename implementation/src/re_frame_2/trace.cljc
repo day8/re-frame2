@@ -54,14 +54,20 @@
 
   In dev / JVM: builds the envelope and delivers to all registered
   listeners. Delivery is synchronous — listeners SHOULD be fast; per
-  Spec 009 §Listener invocation rules, batching is the listener's choice."
+  Spec 009 §Listener invocation rules, batching is the listener's choice.
+
+  Per Spec 009 §Core fields: :source is hoisted to the top level of the
+  envelope (origin of the trigger — :ui :timer :http :repl :machine).
+  Tags retain everything else."
   [op operation tags]
   (when interop/debug-enabled?
-    (let [event {:operation operation
-                 :op-type   op
-                 :id        (next-event-id)
-                 :time      (interop/now-ms)
-                 :tags      tags}]
+    (let [source (:source tags)
+          event  (cond-> {:operation operation
+                          :op-type   op
+                          :id        (next-event-id)
+                          :time      (interop/now-ms)
+                          :tags      (dissoc tags :source)}
+                   source (assoc :source source))]
       (doseq [[_ f] @listeners]
         (try
           (f event)

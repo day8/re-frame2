@@ -128,14 +128,16 @@
         (nil? existing)
         (let [f (new-frame-record id config)]
           (swap! frames assoc id f)
-          (trace/emit! :rf.frame/lifecycle :rf.frame/registered
-                       {:frame-id id :config config})
-          ;; Run :on-create events synchronously. The router/dispatch
-          ;; namespace handles this; we forward via require to avoid
-          ;; cyclic dep at compile time.
+          ;; Run :on-create events synchronously BEFORE emitting :frame/created.
+          ;; Per Spec 002 §Frame creation: on-create completes first, then
+          ;; the frame is observable to listeners. The router/dispatch
+          ;; namespace handles dispatch-sync; we forward via require to avoid
+          ;; a cyclic dep at compile time.
           (when-let [on-create (:on-create config)]
             (when-let [dispatch-sync (resolve 're-frame-2.router/dispatch-sync!)]
               ((deref dispatch-sync) on-create {:frame id})))
+          (trace/emit! :frame :frame/created
+                       {:frame id :config config})
           id)
 
         ;; Re-registration: surgical update of replaceable slots only.
@@ -143,8 +145,8 @@
         :else
         (do
           (swap! frames update id assoc :config config)
-          (trace/emit! :rf.frame/lifecycle :rf.frame/re-registered
-                       {:frame-id id :config config})
+          (trace/emit! :frame :frame/re-registered
+                       {:frame id :config config})
           id)))))
 
 (defn make-frame
@@ -177,8 +179,8 @@
           (try (interop/dispose! r)
                (catch #?(:clj Throwable :cljs :default) _ nil))))
       (reset! cache {}))
-    (trace/emit! :rf.frame/lifecycle :rf.frame/destroyed
-                 {:frame-id id})
+    (trace/emit! :frame :frame/destroyed
+                 {:frame id})
     (swap! frames dissoc id)
     nil))
 

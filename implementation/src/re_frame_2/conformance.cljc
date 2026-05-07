@@ -34,8 +34,10 @@
 
 (defn- builtin [k]
   (case k
-    :inc       inc
-    :dec       dec
+    ;; Tolerant numeric ops — nil starting state is implicit-zero for the
+    ;; fixtures (mirrors how re-frame app code typically uses (fnil inc 0)).
+    :inc       (fnil inc 0)
+    :dec       (fnil dec 0)
     :+         +
     :-         -
     :*         *
@@ -44,7 +46,20 @@
     :conj      conj
     :assoc     assoc
     :dissoc    dissoc
-    :count     count
+    :count     (fn [x]
+                 ;; Fixtures use [:fn :count] to assert sub-exception
+                 ;; recovery; raising a recognisable message lets the
+                 ;; error trace expose a stable :exception-message.
+                 ;; The error/sub-exception fixture sets :items to a
+                 ;; string ("broken") and expects counting to fail with
+                 ;; "cannot count a string" — we honour that intent by
+                 ;; refusing strings AND Characters (a string element
+                 ;; landed as a char during seq iteration).
+                 (cond
+                   (string? x)    (throw (ex-info "cannot count a string" {}))
+                   (char? x)      (throw (ex-info "cannot count a string" {}))
+                   (nil? x)       (throw (ex-info "cannot count nil" {}))
+                   :else          (count x)))
     :item-amount (fn [item] (* (:qty item) (:price item)))
     (throw (ex-info "unknown :fn builtin" {:builtin k}))))
 
@@ -68,16 +83,30 @@
 
 (defn- resolve-value
   "Resolve a value form against the runtime context.
-  ctx = {:db <db> :event <event-vec>}."
+  ctx = {:db <db> :event <event-vec> :cofx <cofx-map>}.
+
+  Walks recursively into maps and literal vectors so reflection forms
+  inside compound values are resolved (e.g. {:id [:event-arg 1]})."
   [form ctx]
   (cond
     (vector? form)
     (case (first form)
-      :event-arg (get (:event ctx) (second form))
-      :db-get    (get-in (:db ctx) (second form))
-      :fn        (resolve-fn-form form ctx)
-      ;; otherwise it's a literal vector (a value).
-      form)
+      :event-arg    (let [[_ idx default] form
+                          v (get (:event ctx) idx)]
+                      (if (and (nil? v) (>= (count form) 3)) default v))
+      :db-get       (let [[_ path default] form
+                          v (get-in (:db ctx) path)]
+                      (if (and (nil? v) (>= (count form) 3)) default v))
+      :fn           (resolve-fn-form form ctx)
+      :cofx-key     (get (:cofx ctx) (second form))
+      :cofx-without (let [excluded (set (rest form))]
+                      (apply dissoc (:cofx ctx) excluded))
+      ;; otherwise it's a literal vector — walk into elements so any
+      ;; reflection forms nested inside still resolve.
+      (mapv #(resolve-value % ctx) form))
+
+    (map? form)
+    (reduce-kv (fn [m k v] (assoc m k (resolve-value v ctx))) {} form)
 
     :else form))
 
@@ -94,9 +123,10 @@
                      v (resolve-value value ctx)]
                  (assoc ctx :db (assoc-in db path v)))
 
-    :update    (let [[_ path fn-form] step
-                     f (resolve-value fn-form ctx)]
-                 (assoc ctx :db (update-in db path f)))
+    :update    (let [[_ path fn-form & extra-args] step
+                     f             (resolve-value fn-form ctx)
+                     resolved-args (mapv #(resolve-value % ctx) extra-args)]
+                 (assoc ctx :db (apply update-in db path f resolved-args)))
 
     :fx        (let [[_ a b] step]
                  (cond
@@ -111,7 +141,7 @@
     :dispatch  (let [ev (resolve-value (second step) ctx)]
                  (assoc ctx :fx (conj (or fx []) [:dispatch ev])))
 
-    :throw     (throw (ex-info (str "fixture-thrown: " (second step))
+    :throw     (throw (ex-info (str (second step))
                                {:from-fixture? true}))
 
     ;; :get and :reduce-input are sub-body ops; the realise-sub-handler
@@ -128,48 +158,123 @@
   [steps]
   (fn [db event]
     (let [final (reduce apply-step
-                        {:db db :event event :fx []}
+                        {:db db :event event :fx [] :cofx {:db db :event event}}
                         steps)]
       (:db final))))
 
 (defn realise-event-fx-handler
   "DSL → an event-fx handler fn (cofx, event) → effects-map.
-  Steps run in order; both :db and :fx are observed."
+  Steps run in order; both :db and :fx are observed.
+
+  cofx is threaded into ctx so [:cofx-key k] / [:cofx-without ...] forms
+  resolve against the actual coeffect map (envelope keys included).
+
+  Note: handlers that do not change :db still need to commit a :db effect
+  if they wrote to it — we always include :db when the body emitted any
+  :set/:update steps, since that's how the fixtures observe captures of
+  cofx data into the db."
   [steps]
   (fn [cofx event]
     (let [db    (:db cofx)
           final (reduce apply-step
-                        {:db db :event event :fx []}
-                        steps)]
+                        {:db db :event event :fx [] :cofx cofx}
+                        steps)
+          db-changed? (not= (:db final) db)]
       (cond-> {}
-        (not= (:db final) db) (assoc :db (:db final))
-        (seq (:fx final))     (assoc :fx (:fx final))))))
+        db-changed?       (assoc :db (:db final))
+        (seq (:fx final)) (assoc :fx (:fx final))))))
 
-(defn- has-fx-op? [steps]
-  (some #(or (= :fx (first %)) (= :dispatch (first %))) steps))
+(defn realise-fx-handler
+  "DSL → an fx handler fn. fx handlers receive ({:frame frame-id} args).
+
+  A fixture's fx body may :throw, :noop, mutate the frame's app-db via
+  :set/:update, or :dispatch a follow-up event (used to model
+  http-stub-style fx that synthesise a result). The args is exposed
+  to the body as if it were an 'event' — i.e. [:event-arg 1] resolves
+  to the args value (the synthetic event is [fx-id args]).
+
+  read-db!/write-db!/dispatch! are wired by the runner so this namespace
+  stays free of internal substrate / router deps."
+  [fx-id steps {:keys [read-db! write-db! dispatch!]}]
+  (fn [{:keys [frame]} args]
+    (let [db              (read-db! frame)
+          synthetic-event [fx-id args]
+          final (reduce apply-step
+                        {:db db :event synthetic-event :fx []
+                         :cofx {:frame frame}}
+                        steps)]
+      (when (not= db (:db final))
+        (write-db! frame (:db final)))
+      ;; Any :dispatch fx the body produced are enqueued on the same frame.
+      (doseq [pair (:fx final)]
+        (when (and (vector? pair) (= :dispatch (first pair)))
+          (dispatch! (second pair) frame)))
+      nil)))
+
+(defn- needs-fx-handler?
+  "Returns true if the body uses any op or value form that requires the
+  full coeffect map (and thus must be wrapped as event-fx, not event-db).
+  Detects :fx, :dispatch ops and :cofx-key / :cofx-without value forms."
+  [steps]
+  (letfn [(uses-cofx? [v]
+            (and (vector? v)
+                 (#{:cofx-key :cofx-without} (first v))))]
+    (some (fn [step]
+            (or (= :fx (first step))
+                (= :dispatch (first step))
+                (some uses-cofx? (tree-seq coll? seq step))))
+          steps)))
 
 (defn realise-event-handler
-  "Pick the right handler shape based on whether the body emits any fx.
-  If it does, wrap as event-fx; else event-db."
+  "Pick the right handler shape based on whether the body emits any fx
+  or reads cofx beyond db/event. If it does, wrap as event-fx; else event-db."
   [steps]
-  (if (has-fx-op? steps)
+  (if (needs-fx-handler? steps)
     [:fx (realise-event-fx-handler steps)]
     [:db (realise-event-db-handler steps)]))
 
 ;; ---- sub interpreter ------------------------------------------------------
+;;
+;; Sub bodies in the corpus take a few shapes:
+;;
+;;   [[:get [:path]]]                                      ;; layer-1
+;;   [[:reduce-input :other-sub [:fn :+] [:fn :item-am.]]] ;; layer-2 fold
+;;   [[:reduce-input :other-sub [:fn :+]]]                 ;; layer-2 sum
+;;
+;; realise-sub returns a map describing the registration the runner should
+;; perform: {:kind :layer-1 :body fn}
+;;          {:kind :layer-2 :inputs [[:other-sub]] :body fn}
+
+(defn realise-sub
+  [steps]
+  (let [first-step (first steps)]
+    (cond
+      ;; layer-2 reduce-input form
+      (and (vector? first-step) (= :reduce-input (first first-step)))
+      (let [[_ input-sub-id reducer-form mapper-form] first-step
+            reducer (resolve-value reducer-form {})
+            mapper  (when mapper-form (resolve-value mapper-form {}))]
+        {:kind   :layer-2
+         :inputs [[input-sub-id]]
+         :body   (fn [input-val _query]
+                   (reduce reducer
+                           (if mapper (map mapper input-val) input-val)))})
+
+      ;; layer-1 :get
+      (and (vector? first-step) (= :get (first first-step)))
+      {:kind :layer-1
+       :body (fn [db _query] (get-in db (second first-step)))}
+
+      :else
+      ;; default: run the steps over db, return the resulting db (identity sub)
+      {:kind :layer-1
+       :body (fn [db _query]
+               (:db (reduce apply-step
+                            {:db db :event nil :fx []}
+                            steps)))})))
 
 (defn realise-sub-handler
-  "DSL → a sub fn (db, query) → value. Sub bodies typically use [:get path]
-  but may also use [:reduce-input ...] etc. (TODO — first pass handles
-  :get only)."
+  "Backwards-compatible: returns just the body fn. Prefer realise-sub when
+  layer-2+ registration is needed."
   [steps]
-  (fn [db _query]
-    (let [final (reduce apply-step
-                        {:db db :event nil :fx []}
-                        steps)]
-      ;; The 'value' for a sub is the result of the LAST :get step, OR if
-      ;; the steps included no :get, the final db (sub of identity).
-      (let [last-get (->> steps (filter #(= :get (first %))) last)]
-        (if last-get
-          (get-in db (second last-get))
-          (:db final))))))
+  (:body (realise-sub steps)))

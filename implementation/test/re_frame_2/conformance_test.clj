@@ -77,8 +77,28 @@
           :db (rf/reg-event-db id handler)
           :fx (rf/reg-event-fx id handler))))
     (doseq [[id steps] (get handlers-map :sub)]
-      (let [handler (conformance/realise-sub-handler steps)]
-        (rf/reg-sub id handler)))))
+      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)]
+        (case kind
+          :layer-1 (rf/reg-sub id body)
+          :layer-2 (apply rf/reg-sub id
+                          (concat (interleave (repeat :<-) inputs) [body])))))
+    ;; fx handlers — DSL bodies. May :throw, :noop, mutate the frame's
+    ;; app-db, or :dispatch a follow-up event (e.g. http stubs).
+    (let [adapter-helpers
+          {:read-db!  (fn [frame-id]
+                        (frame/frame-app-db-value frame-id))
+           :write-db! (fn [frame-id new-db]
+                        (let [container (frame/get-frame-db frame-id)]
+                          ((requiring-resolve 're-frame-2.substrate.adapter/replace-container!)
+                           container new-db)))
+           :dispatch! (fn [event frame-id]
+                        (rf/dispatch event {:frame frame-id}))}]
+      (doseq [[id steps] (get handlers-map :fx)]
+        (let [handler (conformance/realise-fx-handler id steps adapter-helpers)]
+          (rf/reg-fx id handler))))
+    ;; route registrations
+    (doseq [[id meta] (get handlers-map :route)]
+      (rf/reg-route id meta))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -123,42 +143,80 @@
                  (conj failures (str "expected trace not seen: "
                                      (pr-str exp)))))))))
 
+(defn- resolve-sub
+  "A sub query in :sub-values may be either:
+    [query-v]                 — implicit :rf/default frame
+    [frame-id [query-v]]      — explicit frame
+  Returns [frame-id query-v]."
+  [entry]
+  (if (and (vector? entry)
+           (= 2 (count entry))
+           (vector? (second entry)))
+    [(first entry) (second entry)]
+    [:rf/default entry]))
+
 (defn run-fixture [fixture]
   (try
     (reset-runtime!)
     (realise-handlers fixture)
-    (let [fid             (:fixture/id fixture)
-          frame-config    (or (:fixture/frame-config fixture) {})
-          ;; reset-runtime! already created :rf/default WITHOUT an
-          ;; :on-create. reg-frame against an existing id is a surgical
-          ;; update that doesn't re-fire :on-create per Spec 002. We
-          ;; therefore destroy and re-register so :on-create fires.
-          _               (rf/destroy-frame :rf/default)
-          ;; Listener BEFORE the frame is created so the :on-create
-          ;; event's trace is captured.
-          traces          (collect-traces fid)
-          _               (rf/reg-frame :rf/default frame-config)
-          dispatches      (or (:fixture/dispatches fixture) [])]
+    (let [fid          (:fixture/id fixture)
+          frame-config (or (:fixture/frame-config fixture) {})
+          frames-spec  (:fixture/frames fixture)
+          ;; reset-runtime! already created :rf/default WITHOUT an :on-create.
+          ;; reg-frame against an existing id is a surgical update that doesn't
+          ;; re-fire :on-create per Spec 002. We destroy first so :on-create
+          ;; fires when re-registered with the fixture's config.
+          _            (rf/destroy-frame :rf/default)
+          ;; Listener BEFORE the frame is created so :on-create events trace.
+          traces       (collect-traces fid)
+          _            (cond
+                         (seq frames-spec)
+                         ;; Multi-frame fixture: register each declared frame.
+                         (doseq [f frames-spec]
+                           (rf/reg-frame (:id f) (dissoc f :id)))
+                         :else
+                         (rf/reg-frame :rf/default frame-config))
+          dispatches   (or (:fixture/dispatches fixture) [])]
       (doseq [ev dispatches]
-        (rf/dispatch-sync ev))
-      (let [final-db    (rf/get-frame-db :rf/default)
-            expect      (or (:fixture/expect fixture) {})
-            expected-db (:final-app-db expect)
-            ;; Run sub-values check.
+        (cond
+          (map? ev)
+          (let [{event :event :as opts} ev]
+            (rf/dispatch-sync event (dissoc opts :event)))
+
+          :else
+          (rf/dispatch-sync ev)))
+      (let [expect       (or (:fixture/expect fixture) {})
+            ;; Single-frame: :final-app-db. Multi-frame: :final-app-dbs as
+            ;; {frame-id db}.
+            expected-db  (:final-app-db expect)
+            expected-dbs (:final-app-dbs expect)
+            final-db     (rf/get-frame-db :rf/default)
+            final-dbs    (when expected-dbs
+                           (into {}
+                                 (for [[fid _] expected-dbs]
+                                   [fid (rf/get-frame-db fid)])))
+            ;; Realise sub-checks BEFORE trace-failures: subscribing computes
+            ;; the reaction body, which may emit :rf.error/sub-exception traces
+            ;; that the trace-emissions check expects to see.
             sub-checks
-            (for [[query-v expected-val] (or (:sub-values expect) {})]
-              {:query   query-v
-               :expected expected-val
-               :actual   (rf/subscribe-value :rf/default query-v)})
+            (doall
+              (for [[query-v expected-val] (or (:sub-values expect) {})]
+                (let [[frame-id qv] (resolve-sub query-v)]
+                  {:query    query-v
+                   :expected expected-val
+                   :actual   (rf/subscribe-value frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))]
         (trace/clear-trace-cbs!)
-        {:fixture-id  fid
-         :passed?     (and (or (nil? expected-db) (= expected-db final-db))
-                           (every? #(= (:expected %) (:actual %)) sub-checks)
-                           (empty? trace-failures))
-         :final-db    final-db
-         :expected-db expected-db
-         :sub-checks  sub-checks
+        {:fixture-id   fid
+         :passed?      (and (or (nil? expected-db) (= expected-db final-db))
+                            (or (nil? expected-dbs) (= expected-dbs final-dbs))
+                            (every? #(= (:expected %) (:actual %)) sub-checks)
+                            (empty? trace-failures))
+         :final-db     final-db
+         :final-dbs    final-dbs
+         :expected-db  expected-db
+         :expected-dbs expected-dbs
+         :sub-checks   sub-checks
          :trace-failures trace-failures}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
@@ -210,6 +268,10 @@
             (when (not= td (:final-db f))
               (println "    expected app-db:" td)
               (println "    actual   app-db:" (:final-db f))))
+          (when-let [tds (:expected-dbs f)]
+            (when (not= tds (:final-dbs f))
+              (println "    expected app-dbs:" tds)
+              (println "    actual   app-dbs:" (:final-dbs f))))
           (doseq [sc (:sub-checks f)]
             (when (not= (:expected sc) (:actual sc))
               (println "    sub" (:query sc) "expected:" (:expected sc) "actual:" (:actual sc))))

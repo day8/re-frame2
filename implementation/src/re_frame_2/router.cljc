@@ -83,26 +83,41 @@
                                {:event-id event-id
                                 :event    event
                                 :frame    frame
+                                :source   (:source envelope)
+                                :trace-id (:trace-id envelope)
                                 :phase    :run-start})
-                {:keys [extra-interceptors]} (apply-overrides envelope frame-record)
+                {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
                 base-chain   (:interceptors handler-meta)
                 full-chain   (vec (concat extra-interceptors base-chain))
                 ;; Build the initial context per the standard shape.
+                ;; Envelope keys (:source :trace-id) are surfaced as cofx
+                ;; entries so handler bodies can read them. Per Spec 002
+                ;; §Routing — the dispatch envelope.
                 db-value     (frame/frame-app-db-value frame)
-                initial-ctx  {:coeffects {:db    db-value
-                                          :event event
-                                          :frame frame
-                                          :original-event event}
-                              :effects {}}
+                initial-ctx  {:coeffects (cond-> {:db    db-value
+                                                  :event event
+                                                  :frame frame}
+                                          (:source envelope)   (assoc :source (:source envelope))
+                                          (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
+                              :effects {}
+                              :rf/fx-overrides fx-overrides}
                 final-ctx    (interceptor/execute-chain full-chain initial-ctx)
                 effects      (:effects final-ctx)
                 error        (:rf/interceptor-error final-ctx)]
             (when error
-              (trace/emit-error! :rf.error/handler-exception
-                                 {:event-id event-id :event event :frame frame
-                                  :phase   (:phase error)
-                                  :exception (:exception error)
-                                  :recovery :no-recovery}))
+              (let [e (:exception error)
+                    msg #?(:clj (.getMessage e) :cljs (.-message e))]
+                (trace/emit-error! :rf.error/handler-exception
+                                   {:event-id          event-id
+                                    :event             event
+                                    :frame             frame
+                                    :failing-id        event-id
+                                    :handler-id        event-id
+                                    :phase             (:phase error)
+                                    :exception         e
+                                    :exception-message msg
+                                    :reason            "Event handler threw."
+                                    :recovery          :no-recovery})))
             ;; Apply :db atomically.
             (when (contains? effects :db)
               (let [container (frame/get-frame-db frame)]
@@ -117,9 +132,11 @@
                 (catch #?(:clj Throwable :cljs :default) e
                   (trace/emit-error! :rf.error/flow-eval-exception
                                      {:frame frame :event event :exception e}))))
-            ;; Walk :fx in source order.
+            ;; Walk :fx in source order, threading fx-overrides through so
+            ;; per-frame / per-call overrides take effect.
             (when-let [fx-vec (:fx effects)]
-              (fx/do-fx frame fx-vec interop/platform))
+              (fx/do-fx frame fx-vec interop/platform
+                        (or (:rf/fx-overrides initial-ctx) {})))
             (trace/emit! :event :event
                          {:event-id event-id
                           :event    event
@@ -133,25 +150,35 @@
 (defn- drain!
   "Outer drain loop for a single frame. Repeatedly dequeue and process
   until the queue is empty. Bounded by :drain-depth (default 100; per
-  Spec 002 §Run-to-completion §Rules)."
+  Spec 002 §Run-to-completion §Rules).
+
+  When the depth limit is hit, emit :rf.error/drain-depth-exceeded with
+  :depth, :queue-size, and :last-event tags, then halt (the remaining
+  queued events are discarded)."
   [frame-id]
   (let [frame-record (frame/frame frame-id)]
     (when frame-record
       (let [router       (:router frame-record)
-            drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)]
+            drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)
+            last-event-a (atom nil)]
         (loop [depth 0]
           (cond
-            (> depth drain-depth)
-            (do (trace/emit-error! :rf.error/drain-depth-exceeded
-                                   {:frame frame-id :depth depth
-                                    :recovery :no-recovery})
-                (swap! router assoc :scheduled? false))
+            (>= depth drain-depth)
+            (let [{:keys [queue]} @router]
+              (trace/emit-error! :rf.error/drain-depth-exceeded
+                                 {:frame      frame-id
+                                  :depth      depth
+                                  :queue-size (count queue)
+                                  :last-event @last-event-a
+                                  :recovery   :no-recovery})
+              (swap! router assoc :queue interop/empty-queue :scheduled? false))
 
             :else
             (let [{:keys [queue]} @router]
               (if (empty? queue)
                 (swap! router assoc :scheduled? false)
                 (let [envelope (peek queue)]
+                  (reset! last-event-a (:event envelope))
                   (swap! router update :queue pop)
                   (process-event! envelope)
                   (recur (inc depth)))))))))))
@@ -196,15 +223,27 @@
   callers (test setup, REPL). Calling from inside a handler raises
   :rf.error/dispatch-sync-in-handler.
 
-  After the seed event runs, the drain loop processes anything that
-  landed in the queue via :fx [[:dispatch ev]] — so chained dispatches
-  settle synchronously."
+  Implementation: the seed event is pushed at the FRONT of the queue
+  and then the drain loop runs. Because the scheduled? flag is set to
+  true before draining, any dispatch! calls inside the seed handler's
+  :fx vector enqueue without scheduling an async drain — the sync drain
+  picks them up. Counting the seed event as drain depth 0 keeps drain-
+  depth limits behaving uniformly across sync and async dispatch."
   ([event] (dispatch-sync! event {}))
   ([event opts]
-   (let [envelope (build-envelope event opts)]
-     (process-event! envelope)
-     ;; Drain anything that the handler's :fx put on the router queue
-     ;; (e.g. chained :dispatch fx). Per run-to-completion, we settle
-     ;; before returning.
-     (drain! (:frame envelope))
+   (let [envelope     (build-envelope event opts)
+         frame-record (frame/frame (:frame envelope))]
+     (when frame-record
+       (let [router (:router frame-record)]
+         ;; Put the seed at the front and mark scheduled to suppress async.
+         (swap! router (fn [{:keys [queue] :as r}]
+                         (assoc r
+                                :queue (into interop/empty-queue
+                                             (cons envelope queue))
+                                :scheduled? true)))
+         (try
+           (drain! (:frame envelope))
+           (catch #?(:clj Throwable :cljs :default) e
+             (swap! router assoc :scheduled? false)
+             (throw e)))))
      nil)))
