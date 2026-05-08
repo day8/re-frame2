@@ -18,7 +18,7 @@
   :view  {:root {:doc "Root view; greeting + count."}}}
 
  :fixture/handlers
- {:event {:rf/hydrate   [[:set [] [:event-arg 1 :rf/app-db]]]      ;; replace app-db with payload's :rf/app-db
+ {:event {:rf/hydrate   [[:set [] [:get-event-arg 1 :rf/app-db]]]  ;; replace app-db with payload's :rf/app-db
           :counter/init [[:set [] {:count 0 :greeting "Hello, client!"}]]}
   :sub   {:count    [[:get [:count]]]
           :greeting [[:get [:greeting]]]}}

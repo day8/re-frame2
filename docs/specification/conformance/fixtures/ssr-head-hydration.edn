@@ -14,7 +14,7 @@
   :head  {:head/article {:doc "Article-page head model."}}}
 
  :fixture/handlers
- {:event {:rf/hydrate [[:set [] [:event-arg 1 :rf/app-db]]]}
+ {:event {:rf/hydrate [[:set [] [:get-event-arg 1 :rf/app-db]]]}
   :head  {:head/article
           [[:return-head
             {:title "Article: re-frame2 SSR — Example"
