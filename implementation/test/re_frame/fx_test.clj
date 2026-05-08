@@ -254,19 +254,18 @@
 
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
-;; Per docs/specification/MIGRATION.md §M-8 the effect map is closed:
-;; only :db and :fx live at the top level. A handler returning a legacy
-;; v1 key (e.g. :dispatch / :dispatch-later / :dispatch-n / :http at the
-;; top level) should raise a structured trace per Spec 009 — the runtime
-;; should NOT silently drop or silently route the legacy key.
+;; Per docs/specification/MIGRATION.md §M-8 and Spec-Schemas.md §:rf/effect-map,
+;; the effect map is CLOSED: only :db and :fx live at the top level. A handler
+;; returning a legacy v1 key (e.g. :dispatch / :dispatch-later / :dispatch-n /
+;; :http at the top level) MUST raise a structured trace per Spec 009 §Error
+;; contract; the runtime does NOT silently drop and does NOT silently route
+;; the legacy key through the fx machinery.
 ;;
-;; Status: M-8 enforcement is not yet implemented in the fx interpreter
-;; (tracked as bead rf2-ooc5). The runtime today merges any non-:db /
-;; non-:fx top-level effect into the :effects map and never re-reads it,
-;; so the legacy effect is silently dropped — neither raised nor
-;; performed. The assertion below is intentionally lenient:
-;; (is (or trace ...)) — it will pass today (flagging the gap via
-;; rf2-ooc5) and tighten automatically once enforcement lands.
+;; Enforcement landed in rf2-ooc5: re-frame.events/fx-handler->interceptor
+;; calls re-frame.events/police-effect-map-shape! on every effect-map
+;; returned, emitting :rf.error/effect-map-shape per offending top-level key
+;; with :recovery :logged-and-skipped. The offending keys are dropped from
+;; the threaded effects map.
 
 (deftest legacy-effect-map-key-is-policed
   (testing "a handler returning {:dispatch ...} (legacy v1 top-level key) is policed"
@@ -283,28 +282,54 @@
           {:dispatch [:fx-test/sentinel]}))
       (rf/dispatch-sync [:fx-test/legacy-dispatch])
       (rf/remove-trace-cb! ::shape)
-      ;; Behaviour today: legacy top-level :dispatch is silently dropped
-      ;; (no error trace, sentinel not fired). When M-8 enforcement
-      ;; lands the trace will appear and the silent-drop asserts below
-      ;; tighten naturally.
-      (let [shape-trace
-            (some (fn [ev]
-                    (when (and (= :error (:op-type ev))
-                               (#{:rf.error/invalid-effect-map
-                                  :rf.error/legacy-effect-key
-                                  :rf.error/effect-map-shape
-                                  :rf.error/effects-map-shape}
-                                (:operation ev)))
-                      ev))
-                  @traces)]
-        ;; rf2-ooc5: enforcement is not yet implemented. Until then the
-        ;; assertion is "either the runtime raises (post-rf2-ooc5) OR
-        ;; the legacy key is at minimum NOT silently performed (the
-        ;; current safer-than-routing-it behaviour)". This keeps the
-        ;; suite green while flagging the gap.
-        (is (or (some? shape-trace)
-                (false? @fired?))
-            (str "Per Spec migration M-8 the runtime should raise a "
-                 "structured :rf.error/* trace on a top-level legacy "
-                 "key. Tracked as rf2-ooc5. Current behaviour at "
-                 "minimum must not silently dispatch the event."))))))
+      ;; The legacy top-level :dispatch is NOT performed (silently
+      ;; routing it would defeat the M-8 migration).
+      (is (false? @fired?)
+          "the legacy top-level :dispatch must NOT silently dispatch the event")
+      ;; A structured :rf.error/effect-map-shape trace is emitted (Spec
+      ;; 009 §Error contract).
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace was emitted")
+        (let [t (first shape-traces)]
+          (is (= :error (:op-type t)))
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :dispatch (get-in t [:tags :offending-key]))
+              ":offending-key carries the legacy top-level key")
+          (is (= :fx-test/legacy-dispatch (get-in t [:tags :event-id]))
+              ":event-id carries the dispatching event id")
+          (is (= [:fx-test/sentinel] (get-in t [:tags :value]))
+              ":value carries the offending key's value")
+          (is (string? (get-in t [:tags :reason]))
+              ":reason is a one-sentence human-facing description"))))))
+
+(deftest multiple-legacy-effect-map-keys-each-emit-a-trace
+  (testing "an effect map with several legacy top-level keys traces each one and still applies :db / :fx"
+    (let [traces (collect-traces! ::shape-multi)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/sibling
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/multi-legacy
+        (fn [{:keys [db]} _]
+          ;; Mixed: legal :db and :fx alongside two legacy keys.
+          {:db (assoc db :seeded? true)
+           :fx [[:fx-test/sibling {:k :legit}]]
+           :dispatch [:fx-test/never-runs]
+           :http {:url "/api"}}))
+      (rf/dispatch-sync [:fx-test/multi-legacy])
+      (rf/remove-trace-cb! ::shape-multi)
+      ;; The legitimate :fx entry still ran — policing didn't halt the cascade.
+      (is (= [{:k :legit}] @fired)
+          "the legal :fx entry still fires after policing rejects sibling top-level keys")
+      ;; The legitimate :db still committed.
+      (is (= true (:seeded? (rf/get-frame-db :rf/default)))
+          ":db still committed alongside policed top-level keys")
+      ;; One trace per offending key.
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)
+            offending    (set (map #(get-in % [:tags :offending-key]) shape-traces))]
+        (is (= 2 (count shape-traces))
+            "one :rf.error/effect-map-shape trace per offending top-level key")
+        (is (= #{:dispatch :http} offending)
+            "both legacy keys are flagged")))))
