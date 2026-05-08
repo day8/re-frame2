@@ -188,7 +188,7 @@
   ;;      gated emit — is reachable code, not just declared-but-dead.
   (rf/reg-view* :probe/render-key
     (fn render-probe [] [:span "probe"]))
-  (let [wrapper (rf/get-view :probe/render-key)]
+  (let [wrapper (rf/view :probe/render-key)]
     (when wrapper (wrapper)))
   ;; Also touch the public mint / current-render-key entry points so
   ;; their bodies stay in the reachability graph (DCE only proves the
