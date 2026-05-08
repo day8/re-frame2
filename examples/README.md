@@ -39,8 +39,11 @@ If you've finished the guide and want to see code:
 5. **Then [`seven_guis/`](seven_guis/)** — survey of the pattern across many UI shapes.
 6. **Then [`realworld/`](realworld/)** — substantial-app shape across the widest surface in the repo.
 
+## End-to-end verification
+
+Every example listed above is verified end-to-end by a Playwright spec — each spec navigates a real browser to the example's URL, asserts the initial render, drives at least one interaction, and asserts the post-interaction user-visible state. The orchestrator at [`implementation/scripts/serve-and-run-examples-tests.cjs`](../implementation/scripts/serve-and-run-examples-tests.cjs) compiles every example, stages its `index.html`, serves the output over HTTP, and runs the spec runner at [`implementation/scripts/run-examples-tests.cjs`](../implementation/scripts/run-examples-tests.cjs). Specs sit alongside each example as `<name>.spec.cjs`. Run the full sweep with `npm run test:examples` from `implementation/`.
+
 ## What examples are *not*
 
-- **Not all immediately runnable end-to-end.** Some examples are aligned to the current implementation and some remain pedagogical sketches.
 - **Not a substitute for the [specification](../spec/).** Examples illustrate; the specification defines.
 - **Not all uniformly polished.** The Pedagogical-sketch examples are deliberately small. The Worked-scaffold (RealWorld) prioritises breadth of API coverage over production polish.
