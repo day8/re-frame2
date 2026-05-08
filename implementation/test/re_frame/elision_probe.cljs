@@ -21,14 +21,18 @@
     (Spec 009 §:op-type vocabulary — :rf.registry/*)
   - dispatch through `dispatch-sync` to walk the router → events → fx
     pipeline (Spec 009 §Where trace emission lives)
+  - `:rf.http/managed` Spec 014 trace ops (`:rf.http/retry-attempt`,
+    `:rf.warning/decode-defaulted`) — emitted only inside
+    `(when interop/debug-enabled? ...)` branches.
 
   Note the probe does NOT need to assert anything at runtime; it exists
   to root the dead-code-elimination graph at every surface. The grep
   test is the assertion."
-  (:require [re-frame.core      :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas   :as schemas]
-            [re-frame.trace     :as trace]))
+  (:require [re-frame.core         :as rf]
+            [re-frame.registrar    :as registrar]
+            [re-frame.schemas      :as schemas]
+            [re-frame.trace        :as trace]
+            [re-frame.http-managed :as http-managed]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -73,12 +77,46 @@
   (registrar/unregister!  :event :probe/inc)
   (registrar/clear-kind!  :sub))
 
+;; ---- Spec 014 :rf.http/managed surface (rf2-cfig) -------------------------
+
+(defn ^:export touch-http-managed! []
+  ;; Spec 014 — `:rf.http/managed` ships gated trace ops:
+  ;;
+  ;;   :rf.http/retry-attempt           (info trace, both transports)
+  ;;   :rf.warning/decode-defaulted     (warning trace, both transports)
+  ;;
+  ;; All emit sites are wrapped in `(when interop/debug-enabled? ...)`,
+  ;; so under :advanced + goog.DEBUG=false the branches DCE and the
+  ;; string sentinels (e.g. "rf.http/retry-attempt") should NOT appear
+  ;; in the production bundle.
+  ;;
+  ;; The probe roots the dependency graph by:
+  ;;   1. requiring re-frame.http-managed (forces its ns body to be
+  ;;      compiled into the bundle, which is where the gated branches
+  ;;      live);
+  ;;   2. referencing the public canned-stub fx via dispatch — pulls in
+  ;;      `dispatch-reply!`, `build-reply-event`, and the surrounding
+  ;;      retry / decode ctx so the gated emits sit in a reachable
+  ;;      module graph (DCE only eliminates branches it can prove dead;
+  ;;      reachability comes from the require + the dispatch path).
+  (rf/reg-event-fx :probe/http-touch
+    (fn [_ _]
+      {:fx [[:rf.http/managed-canned-success
+             {:request {:method :get :url "/probe"}
+              :on-success nil
+              :value   {:probed true}}]]}))
+  (rf/dispatch-sync [:probe/http-touch])
+  ;; Touch clear-all-in-flight! so the in-flight registry surface is
+  ;; reachable; the probe doesn't actually issue a real request.
+  (http-managed/clear-all-in-flight!))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)
+  (touch-http-managed!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
