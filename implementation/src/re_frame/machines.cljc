@@ -23,6 +23,7 @@
   stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit)."
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
+            [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
 ;; ---- pure machine-transition ----------------------------------------------
@@ -665,3 +666,16 @@
   (let [handler-fn (create-machine-handler machine)]
     (events/reg-event-fx machine-id handler-fn)
     machine-id))
+
+;; ---- framework-shipped sub -----------------------------------------------
+;;
+;; Per Spec 005 §Subscribing to machines via sub-machine: the framework
+;; ships :rf/machine as the canonical entry point. (rf/sub-machine id) in
+;; core.cljc is sugar over (subscribe [:rf/machine id]).
+;;
+;; Lives in this namespace (rather than core.cljc) so the smoke-test
+;; fixture's require :reload re-installs it after registrar/clear-all!.
+
+(subs/reg-sub :rf/machine
+  (fn [db [_ machine-id]]
+    (get-in db [:rf/machines machine-id])))
