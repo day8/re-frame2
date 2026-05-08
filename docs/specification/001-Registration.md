@@ -151,6 +151,19 @@ A handler's metadata exposes its sub-kind:
 
 Per [002-Frames §The public registrar query API](002-Frames.md#the-public-registrar-query-api), these queries are stable, public, and JVM-runnable.
 
+### `(re-frame.core/view id)` — runtime-lookup handle for registered views
+
+`(re-frame.core/view id)` is the runtime-lookup handle for a view registered under `id`. It returns the registered render fn (whatever shape — Form-1, Form-2 — produced by `reg-view` or `reg-view*`) or `nil` if no view is registered under that id.
+
+```clojure
+(rf/reg-view counter [label] [:button label])
+
+(rf/view :my.ns/counter)             ;; → render fn
+(rf/view :nope)                      ;; → nil
+```
+
+`view` is the canonical lookup handle because the registry is **id-keyed** while render trees consume **Vars** (see [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids)). The lookup is the bridge for callers that hold an id but no Var — typically `reg-view*` registrations (where there is no auto-defed Var) and tools/devtools that walk the registry by id. Returning `nil` for an unregistered id is a normal lookup miss (no error trace).
+
 ## Hot-reload semantics
 
 Re-registering the same id replaces the previous handler. This is intentional — figwheel/shadow-cljs save→re-eval is the canonical CLJS dev-loop, and re-registration is part of how that loop works. The system stays live during the reload window: dispatch is not paused, in-flight events finish, the user's `app-db` survives, the page does not blink.

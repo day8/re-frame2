@@ -165,6 +165,30 @@ The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callab
 
 The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
 
+## Calling a registered view
+
+Render trees invoke a registered view by **Var-reference**: `[my-view args]`. This is the native Reagent component-call shape and the only supported render-time form. Keyword vectors at render time are HTML elements (Reagent's existing semantics) — the runtime does **not** intercept `:keyword` vectors and dispatch via the views registry.
+
+The keyword id assigned to a view by `reg-view` (or `reg-view*`) is reserved for **runtime lookup and introspection**: trace events, devtools, error frames, `(rf/view id)` lookups, registry-only views without a Var binding.
+
+This is the family-asymmetry rule applied to views: **render trees use Vars; runtime lookups use ids.** `reg-view` bridges them — auto-defs the symbol AND auto-derives the registry id. See [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule) and [Cross-Spec-Interactions §21](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
+
+```clojure
+(rf/reg-view counter [label] [:button label])
+
+;; render tree — Var reference (canonical)
+[counter "Hello"]
+
+;; runtime lookup — id
+(rf/view :my.ns/counter)             ;; → the registered render fn
+
+;; bare [:my.ns/counter "Hello"] in a render tree is NOT a view call —
+;; it renders as a custom HTML element <my.ns:counter>...</my.ns:counter>
+;; (or whatever Reagent's hiccup interpretation produces for that tag).
+```
+
+For users who want hiccup to read as pure data (keyword-tagged trees), the opt-in `(rf/h ...)` macro performs a compile-time rewrite — see [§The `h` macro](#the-h-macro) below. `h` is a sugar layer over Var-references; it does not change the render-time contract.
+
 ## How registered views are used in hiccup
 
 v1 ships three forms for invoking a registered view. To honour the principle of "one obvious way", one of them is **canonical** and the others are **alternatives** with documented use cases.

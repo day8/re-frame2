@@ -97,6 +97,59 @@
     (is (fn? my-widget)
         "the macro defined the supplied symbol as a fn")))
 
+;; ---- (rf/view id) — runtime-lookup handle (rf2-yl9n) ----------------------
+;; Per Spec 001 §(re-frame.core/view id) and Spec 004 §Calling a registered
+;; view: render trees use Vars; runtime lookups use ids. (rf/view id) is the
+;; id-keyed lookup handle that returns the registered render fn (whatever
+;; shape) or nil if not registered.
+
+(deftest view-returns-registered-fn
+  (testing "(rf/view :id) returns the registered render fn after reg-view"
+    (reg-view ^{:rf/id :my.ns/my-view} my-view [] [:p "body"])
+    (let [f (rf/view :my.ns/my-view)]
+      (is (fn? f)
+          "(rf/view id) returns a fn for a registered view")
+      (is (= [:p "body"] (f))
+          "calling the looked-up fn yields the registered view's hiccup")))
+  (testing "(rf/view :nope) is nil for an unregistered id (no error)"
+    (is (nil? (rf/view :nope/not-registered)))))
+
+;; ---- keyword-head render tree is HTML, not a view dispatch (rf2-yl9n) ----
+;; Per Spec 004 §Calling a registered view: keyword vectors at render time
+;; are HTML elements (Reagent's existing semantics) — the runtime does NOT
+;; intercept :keyword vectors and dispatch via the views registry. This is
+;; the negative-regression test: even if a view is registered under :foo,
+;; bare [:foo args] in a render tree must NOT resolve to that view.
+
+(deftest keyword-head-does-not-dispatch-to-registered-view
+  (testing "[:my-view args] in a render tree is NOT intercepted by the views registry"
+    ;; Register a view with the same keyword id we are about to put into a
+    ;; bare hiccup head. If the runtime were intercepting :keyword heads,
+    ;; the render-tree-hash of [:foo/intercept-me 1] would somehow reflect
+    ;; the registered view's body. It does not: the keyword head is treated
+    ;; as a custom HTML element tag, no registry consultation happens.
+    (reg-view ^{:rf/id :foo/intercept-me} intercept-me-view [n]
+              [:span "view-body-" n])
+    (let [registered-body  ((rf/view :foo/intercept-me) 1)
+          ;; Hash the bare keyword form vs a structurally different
+          ;; keyword form. If the runtime were intercepting, both would
+          ;; render through the same registered fn and produce identical
+          ;; structure (the registered body); they wouldn't differ.
+          h-keyword-form   (ssr/render-tree-hash [:foo/intercept-me 1])
+          h-other-form     (ssr/render-tree-hash [:foo/some-other-tag 1])
+          h-via-var        (ssr/render-tree-hash registered-body)]
+      ;; Keyword-form hashes differ — they are HTML element tags,
+      ;; structurally distinct based on the tag keyword.
+      (is (not= h-keyword-form h-other-form)
+          "[:foo/intercept-me 1] and [:foo/some-other-tag 1] hash differently — the keyword IS the tag")
+      ;; And the bare keyword form does not collapse to the registered
+      ;; view's body — proving no interception happens.
+      (is (not= h-keyword-form h-via-var)
+          "[:foo/intercept-me 1] does not render as the registered view's body — no registry interception")
+      ;; Sanity — explicit Var-reference DOES produce the registered body.
+      (is (= [:span "view-body-" 1] (intercept-me-view 1))
+          "Var-reference resolves to the registered render fn"))))
+
 ;; ---- h macro ----------------------------------------------------------------
 
 (deftest h-rewrites-namespaced-view-keys
