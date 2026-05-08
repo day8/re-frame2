@@ -5,22 +5,26 @@
 
   The example registers its handlers / subs / views / machines at
   namespace-load time. CLJS has no runtime (require :reload), so this
-  test runs WITHOUT resetting the registrar — the registrations land
-  once when the example's ns is loaded by shadow-cljs and stay live
-  for the test run. Each test-state-N fixture inside the example uses
-  make-frame to spin up a fresh frame, so per-test isolation comes
-  from frame creation, not registry resets."
-  (:require [cljs.test :refer-macros [deftest is]]
-            [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as adapter]
+  test relies on those registrations staying live for the test run.
+  Each test-state-N fixture inside the example uses make-frame to spin
+  up a fresh frame, so per-test isolation comes from frame creation,
+  not registry resets.
+
+  Per rf2-am9d the fixture uses snapshot/restore via
+  re-frame.test-support so the contract is uniform across CLJS
+  fixtures — the snapshot captures the example's ns-load
+  registrations, and the restore on the way out leaves them intact for
+  any subsequent test ns."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.test-support :as test-support]
             [re-frame.views]
             [nine-states.core :as ns-core]))
 
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter}))
+
 (deftest nine-states-runs-end-to-end
-  ;; Ensure the Reagent adapter is installed (the example's tests use
-  ;; subscribe-value, which needs an adapter for derived values).
-  (when-not (adapter/current-adapter)
-    (rf/init! reagent-adapter/adapter))
   (is (= :ok (ns-core/run-all-tests))
       "nine-states.core/run-all-tests should walk all 9 UI states and return :ok"))

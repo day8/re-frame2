@@ -22,23 +22,20 @@
   §Multi-frame routing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.routing :as routing]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.reagent :as reagent-adapter]))
+            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.test-support :as test-support]))
 
-(defn install-adapter [test-fn]
-  ;; Ensure the Reagent adapter is installed for derived sub computation.
-  ;; We do NOT call (registrar/clear-all!) here — it would wipe routing's
-  ;; framework events (:rf.route/navigate, :rf/url-changed, ...) which
-  ;; were registered at routing.cljc's ns-load and CLJS cannot re-load
-  ;; namespaces at runtime to restore them.
-  (when-not (adapter/current-adapter)
-    (rf/init! reagent-adapter/adapter))
-  (routing/reset-counters!)
-  (test-fn))
-
-(use-fixtures :each install-adapter)
+;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
+;; call (registrar/clear-all!): it would wipe routing's framework events
+;; (:rf.route/navigate, :rf/url-changed, …) registered at routing.cljc's
+;; ns-load, and CLJS cannot re-load namespaces at runtime to restore
+;; them. routing/reset-counters! runs in :init-fn so per-test counter
+;; sequences (nav-token, pending-nav, …) start from zero.
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter
+     :init-fn routing/reset-counters!}))
 
 ;; ---- Spec 012 §URL changes are events / §Reading the route is a sub -----
 

@@ -10,38 +10,18 @@
   runtime_cljs_test.cljs; this file completes the matrix on CLJS."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.machines :as machines]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :as test-support]))
 
-(defn reset-runtime
-  "Per-test runtime reset for CLJS machines tests.
-
-  We deliberately do NOT call (registrar/clear-all!) here. CLJS has no
-  runtime (require :reload), so a clear-all! would wipe routing's
-  framework events (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll
-  fx, …) and machines.cljc's :rf/machine sub, which were registered at
-  ns-load time and CANNOT be re-registered without reloading the
-  defining ns. Subsequent CLJS test files (nine-states-cljs-test,
-  routing-cljs-test) depend on those registrations being intact —
-  rf2-coks tracked the cross-test pollution.
-
-  Each test in this file uses unique machine / event ids, so a registry
-  wipe is unnecessary for in-file isolation. Resetting frames, flows,
-  the adapter, the machine counters and trace cbs is enough."
-  [test-fn]
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (adapter/dispose-adapter!)
-  (rf/init! reagent-adapter/adapter)
-  (machines/reset-counters!)
-  (trace/clear-trace-cbs!)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
+;; call (registrar/clear-all!): CLJS has no runtime (require :reload), so
+;; wiping the registrar would permanently lose routing's framework events
+;; and machines.cljc's :rf/machine sub, which were registered at ns-load
+;; time. The reset-runtime-fixture also resets the machines spawn-counter
+;; and clears trace listeners, both of which these tests need.
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter}))
 
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."

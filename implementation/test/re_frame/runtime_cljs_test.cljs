@@ -5,25 +5,22 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.ssr :as ssr]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.views-macros :refer [with-frame bound-fn h reg-view]]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (adapter/dispose-adapter!)
-  (rf/init! reagent-adapter/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
+;; registrar with clear-all! is hostile to CLJS test isolation: framework
+;; events / subs registered at ns-load (re-frame.routing, re-frame.machines)
+;; and example apps (nine-states.core) cannot be re-loaded under CLJS, so
+;; once cleared they're gone for the rest of the test run. Snapshot/restore
+;; preserves them while still rolling back per-test registrations.
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter}))
 
 ;; ---- shared dispatch + sub --------------------------------------------------
 

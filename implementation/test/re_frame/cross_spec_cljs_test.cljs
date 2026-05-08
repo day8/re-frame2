@@ -10,35 +10,21 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.test-support :as test-support]
             [re-frame.views]))
 
-(defn- reset-runtime
-  "Per-test runtime reset for CLJS cross-spec tests.
-
-  We deliberately do NOT call (registrar/clear-all!) here. CLJS has no
-  runtime (require :reload), so a clear-all! would wipe routing's
-  framework events (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll
-  fx, …) and machines.cljc's :rf/machine sub, which were registered at
-  ns-load time and CANNOT be re-registered without reloading the
-  defining ns. Subsequent CLJS test files (nine-states-cljs-test,
-  routing-cljs-test) depend on those registrations being intact —
-  rf2-coks tracked the cross-test pollution.
-
-  Tests that re-register the same id (e.g. :test/m, :seed) rely on
-  registrar/register!'s replacement semantics — that's a supported
-  hot-reload path, not a leak. Resetting frames, flows and the adapter
-  is enough to isolate per-test state."
-  [test-fn]
-  (reset! frame/frames {})
-  (reset! flows/flows {})
-  (adapter/dispose-adapter!)
-  (rf/init! reagent-adapter/adapter)
-  (test-fn))
-
-(use-fixtures :each reset-runtime)
+;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
+;; call (registrar/clear-all!): CLJS has no runtime (require :reload), so
+;; wiping the registrar would permanently lose routing's framework events
+;; (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll fx, …) and
+;; machines.cljc's :rf/machine sub, which were registered at ns-load time.
+;; Snapshot/restore preserves those while rolling back the test's own
+;; registrations on the way out.
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter}))
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
