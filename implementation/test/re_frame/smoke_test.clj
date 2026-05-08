@@ -15,6 +15,14 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  ;; flows.cljc keeps a private last-inputs atom for dirty-checking
+  ;; (per Spec 013 §Dirty-check semantics). Without resetting it, an
+  ;; entry from a prior deftest can leak into a subsequent same-keyed
+  ;; flow registration and cause its first evaluation to no-op (the
+  ;; new-inputs would =-equal the stale last-inputs). Clear it here so
+  ;; cross-test order can't introduce hidden flakiness. See rf2-xsfj.
+  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
+    (reset! (deref li-var) {}))
   (rf/init!)
   ;; Framework events / fx / subs are registered at namespace-load time
   ;; in routing.cljc, ssr.cljc, and machines.cljc; clear-all! wiped them.
