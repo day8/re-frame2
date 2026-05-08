@@ -48,7 +48,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Read sub values** | `(rf/compute-sub query-v db-value)` runs a sub against an `app-db` value | [008](008-Testing.md) |
 | **Read registry** | `(rf/handlers kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
-| **Trace stream** | `(rf/register-trace-cb key callback)` plus structured trace events | [009](009-Instrumentation.md) |
+| **Trace stream** | `(rf/register-trace-cb! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
 | **Source coordinates** | `:ns`/`:line`/`:file` on every registration's metadata | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
@@ -128,7 +128,7 @@ The full attachment surface, from the tool's point of view:
 
 | Need | Surface | Spec |
 |---|---|---|
-| Receive live trace events | `(rf/register-trace-cb :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive live trace events | `(rf/register-trace-cb! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Receive per-drain assembled epoch records | `(rf/register-epoch-cb :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
@@ -152,7 +152,7 @@ The consumption pattern is therefore:
 
 > **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
 
-Two listener shapes coexist by design: `register-trace-cb` is the **raw** stream — every span the runtime emits, fine-grained — used by tools that need per-emit detail (live timing displays, Performance API consumers, custom recorders that must see in-flight events). `register-epoch-cb` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
+Two listener shapes coexist by design: `register-trace-cb!` is the **raw** stream — every event the runtime emits, fine-grained — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-cb` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
@@ -160,7 +160,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
 - **A future re-frame-10x v2** can be rewritten as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. 10x and pair share the substrate; one does not depend on the other.
-- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-cb` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
+- **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-cb!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.
 

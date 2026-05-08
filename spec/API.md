@@ -241,20 +241,17 @@ See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and
 
 ## Tracing
 
-All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics, listener delivery, and Performance API bridge.
+All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `register-trace-cb!` | Fn | `(register-trace-cb! key callback)` / `(register-trace-cb! key callback opts)` | v1 (preserved) | 009 |
-| `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` | v1 (preserved) | 009 |
+| `register-trace-cb!` | Fn | `(register-trace-cb! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
+| `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` → nil | v1 (dev-only) | 009 |
+| `emit-trace!` | Fn | `(emit-trace! op-type operation tags)` → nil | v1 (dev-only) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
-| `trace-api-version` | Fn | `(trace-api-version)` → integer | v1 | 009 |
 | `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | 009 |
 | `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | 009 |
 | `(rf/configure :trace-buffer {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | 009 |
-| `with-trace` | M | `(with-trace opts body)` | v1 (preserved, dev-only) | 009 |
-| `merge-trace!` | M | `(merge-trace! m)` | v1 (preserved, dev-only) | 009 |
-| `finish-trace` | M | `(finish-trace trace)` | v1 (preserved, dev-only) | 009 |
 
 ### Epoch history (per Tool-Pair)
 
@@ -444,7 +441,7 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
 | `:dom-source-annotations?` | boolean — emit `data-rf2-source-coord` on rendered DOM | `false` | v1 (dev-only) | Tool-Pair |
-| `:performance-api` | boolean — bridge trace events to the host's Performance API | `true` (when tracing is on) | v1 (dev-only) | 009 |
+| `:performance-api` | boolean — bridge trace events to the host's Performance API | `true` (when tracing is on) | planned (unimplemented at v1) | 009 |
 | `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
 | `:ssr` | `{:public-error-id :detect-mismatch? :on-mismatch :on-view-exception :dev-error-detail?}` (see [011](011-SSR.md) for each) | per [011](011-SSR.md) | v1 | 011 |
 
@@ -525,8 +522,11 @@ See [007-Stories.md](007-Stories.md).
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
 | `frame-dispatcher` (proposed earlier) | Renamed to `bound-dispatcher` | 002 |
-| `enable-performance-api-tracing!` (proposed earlier) | Bridge always active when tracing is on; production elides everything | 009 |
+| `enable-performance-api-tracing!` (proposed earlier) | Performance-API bridge is forward-looking and unimplemented at v1 (see [009 §Chrome Performance API integration](009-Instrumentation.md#chrome-performance-api-integration)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb!` / `remove-trace-cb!` | 009 |
+| `register-trace-cb` / `remove-trace-cb` (no-bang, proposed earlier) | Renamed to `register-trace-cb!` / `remove-trace-cb!` (bang form matches the side-effecting nature of listener registration) | 009 |
+| `with-trace` / `merge-trace!` / `finish-trace` (proposed earlier) | Span-style emission was not implemented; the runtime emits event-at-a-time via `re-frame.trace/emit!` (re-exported as `rf/emit-trace!`) | 009 |
+| `trace-api-version` (proposed earlier) | Not implemented; tools branch on the presence of `re-frame.core/register-trace-cb!` and the `:rf/epoch-record` schema instead | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id | 004 |
 | `h` macro (proposed earlier) | Removed (rf2-n4um). Use the Var form `[my-view "args"]` or `[(rf/view :my-view) "args"]` | 004 |
 | `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb!`. | MIGRATION M-17 |
@@ -546,6 +546,6 @@ See [007-Stories.md](007-Stories.md).
 - [005-StateMachines.md](005-StateMachines.md) — machine library design (post-v1)
 - [007-Stories.md](007-Stories.md) — story/variant/workspace library design (post-v1)
 - [008-Testing.md](008-Testing.md) — testing API and patterns
-- [009-Instrumentation.md](009-Instrumentation.md) — tracing, Performance API, 10x compatibility
+- [009-Instrumentation.md](009-Instrumentation.md) — trace event stream, listeners, error contract
 - [010-Schemas.md](010-Schemas.md) — Malli schemas
 - [MIGRATION.md](MIGRATION.md) — AI-driven migration spec

@@ -568,12 +568,12 @@ re-frame2 does not ship `reg-global-interceptor` or `clear-global-interceptor`. 
 
 - **Type B — multi-frame app.** Flag every `reg-global-interceptor` call for human review. Three rewrite paths; the user picks based on intent:
   1. **Apply to each frame.** If the interceptor genuinely needs to fire for every frame's events, add it to each `reg-frame` `:interceptors` vector explicitly. (Rare; usually an architectural smell.)
-  2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-trace-cb` per [009-Instrumentation](009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
+  2. **Convert to a trace listener.** If the interceptor is observer-shaped (audit logging, performance instrumentation, schema-validation-via-trace), it is the wrong tool — use `register-trace-cb!` per [009-Instrumentation](009-Instrumentation.md). The trace stream sees every dispatch across all frames without modifying behaviour.
   3. **Restrict to default frame only.** If "global" really meant "the default frame's events" (a common single-frame habit that shouldn't apply to test/story/SSR frames), add it to `:rf/default`'s `:interceptors` only.
 
 `clear-global-interceptor` has no v2 replacement: re-register `reg-frame` with an updated `:interceptors` vector — absent-key semantics on re-registration (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)) clear the previous binding.
 
-**Why:** see [002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events). Frame-as-isolated-actor is the substrate's primary commitment; process-wide interceptors firing regardless of frame violate it. The remaining cross-frame-observer use case is covered by `register-trace-cb`. The remaining cross-frame-behaviour-modifier use case is rare and the per-frame declaration makes the intent explicit.
+**Why:** see [002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events). Frame-as-isolated-actor is the substrate's primary commitment; process-wide interceptors firing regardless of frame violate it. The remaining cross-frame-observer use case is covered by `register-trace-cb!`. The remaining cross-frame-behaviour-modifier use case is rare and the per-frame declaration makes the intent explicit.
 
 ---
 
