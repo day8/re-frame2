@@ -27,6 +27,7 @@
       (catch :default _
         (sorted-map)))))
 
+;; localStorage is deliberate — see README. The Spec-014 :rf.http/managed demo lives with realworld.
 (rf/reg-cofx :todo.storage/todos
   {:doc "Inject the saved TodoMVC items from localStorage into coeffects."}
   (fn cofx-todo-storage-todos [ctx]
