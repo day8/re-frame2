@@ -706,10 +706,18 @@
 (defn reg-machine
   "Convenience: register a machine as an event handler under
   machine-id. Equivalent to
-  (reg-event-fx machine-id (create-machine-handler machine))."
+  (reg-event-fx machine-id (create-machine-handler machine)).
+
+  Per Spec 005 §Querying machines, the registration metadata is stamped
+  with :rf/machine? true and :rf/machine (the spec map). (rf/machines)
+  filters the :event registry by :rf/machine?; (rf/machine-meta id)
+  reads the spec back out via the standard registrar query API."
   [machine-id machine]
   (let [handler-fn (create-machine-handler machine)]
-    (events/reg-event-fx machine-id handler-fn)
+    (events/reg-event-fx machine-id
+                         {:rf/machine? true
+                          :rf/machine  machine}
+                         handler-fn)
     ;; Per Spec 009 §:op-type vocabulary: :rf.machine.lifecycle/created
     ;; fires when a machine instance is registered. Tools observe this
     ;; to track the machine population over hot reloads / boot.
@@ -717,6 +725,35 @@
                  {:machine-id machine-id
                   :initial    (:initial machine)})
     machine-id))
+
+;; ---- query API (Spec 005 §Querying machines) -----------------------------
+;;
+;; Two thin lookup fns over the existing event registry — derived views,
+;; not a new registry kind. (rf/machines) filters event handlers whose
+;; registration metadata carries :rf/machine? true; (rf/machine-meta id)
+;; returns the registered machine's spec map (the same map passed to
+;; reg-machine). Both are pure reads against the global registrar, so
+;; they're queryable across all frames (machine snapshots are per-frame;
+;; the registration is global).
+
+(defn machines
+  "Return a sequence of machine-ids — every event handler whose
+  registration metadata carries :rf/machine? true. Per Spec 005
+  §Querying machines."
+  []
+  (->> (registrar/handlers :event)
+       (keep (fn [[id m]] (when (:rf/machine? m) id)))
+       (vec)))
+
+(defn machine-meta
+  "Return the registered machine's spec map (:initial, :data, :guards,
+  :actions, :states, :doc, source coords) for machine-id, or nil if
+  no machine is registered under that id. Per Spec 005 §Querying
+  machines."
+  [machine-id]
+  (let [m (registrar/lookup :event machine-id)]
+    (when (:rf/machine? m)
+      (:rf/machine m))))
 
 ;; ---- framework-shipped sub -----------------------------------------------
 ;;

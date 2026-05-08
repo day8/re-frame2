@@ -206,6 +206,8 @@
 
 (def create-machine-handler machines/create-machine-handler)
 (def machine-transition     machines/machine-transition)
+(def machines               machines/machines)
+(def machine-meta           machines/machine-meta)
 
 (defn sub-machine
   "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
