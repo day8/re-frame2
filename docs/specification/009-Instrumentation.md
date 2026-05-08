@@ -41,6 +41,41 @@ The shape is documented below.
 
 These are top-level fields on every event for re-frame2-aware traces; tools written against pre-v2 traces ignore them.
 
+### Dispatch correlation: `:dispatch-id` / `:parent-dispatch-id`
+
+Pair-shaped tools and per-event diagnostics need to correlate the *cascade* a dispatch belongs to — "this `:event/dispatched` was emitted by an effect that ran inside the cascade started by *that* dispatch." The runtime stamps two fields onto every `:event/dispatched` trace event under the top-level `:tags`:
+
+```clojure
+{:tags {:dispatch-id        <uuid-or-counter>   ;; this dispatch's identity
+        :parent-dispatch-id <uuid-or-counter>}  ;; the dispatch that caused this one (if any)
+ ...}
+```
+
+Semantics:
+
+- **`:dispatch-id`** is allocated by the runtime when a dispatch is enqueued, before routing. Implementations may use a process-monotonic counter, a UUID, or any opaque value with the same uniqueness contract: distinct within a single process for the lifetime of the trace surface. Tools treat it as opaque.
+- **`:parent-dispatch-id`** is set when the dispatch was emitted as a side-effect of another event's processing — typically inside an `fx` handler. Concretely: when an `fx` handler running inside the do-fx phase of dispatch *D₁* invokes `(rf/dispatch ...)`, the runtime records the new dispatch's `:parent-dispatch-id` as *D₁*'s `:dispatch-id`. If the dispatch was initiated outside any in-flight event (a timer, a UI handler, the REPL, the SSR boot path), `:parent-dispatch-id` is absent.
+- **Top-level dispatch.** A dispatch with no `:parent-dispatch-id` is a *root* of a cascade. Pair-shaped tools draw cascade trees by following `:parent-dispatch-id` upward.
+- **Distinct from `:child-of`.** The existing `:child-of` field on every trace event correlates *spans* (an `:event` span's children include its `:event/do-fx` span, which in turn parents each fx call). `:dispatch-id` / `:parent-dispatch-id` correlate *dispatches* — events queued through the router. The two are orthogonal: `:child-of` chains span the lifecycle of one event's processing; `:parent-dispatch-id` chains cascading dispatches across events.
+- **Production elision.** Both fields ride the trace stream and are elided in production with the rest of the trace surface.
+
+Tools consume these two fields to build dispatch-cascade views: "show me all dispatches descended from `[:user/login ...]`" is a transitive walk over `:parent-dispatch-id`.
+
+### Origin tagging: `:origin`
+
+When a tool (the pair tool, a story runner, the REPL, the SSR boot path) needs its own dispatches distinguishable from application dispatches, it can tag them with an `:origin` opt at dispatch time (per [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging)). The runtime lifts the value onto every `:event/dispatched` trace event under `:tags :origin`:
+
+```clojure
+{:tags {:origin :pair        ;; tag set by the dispatching tool; default :app
+        :dispatch-id ...
+        ...}
+ ...}
+```
+
+`:origin` is unconstrained at the framework level — tools and applications agree on values (`:pair`, `:claude`, `:story`, `:test`, etc.). The default is `:app`. User application code typically omits the opt; tool surfaces set it so post-mortem filters like "show me only the dispatches I (the pair tool) issued during this session" become a one-key filter on the trace stream.
+
+`:origin` is **distinct from `:source`**: `:source` describes the *trigger kind* (`:ui` / `:timer` / `:http` / `:machine` / `:repl` / `:ssr-hydration`) and is essentially a "what woke the runtime?" axis; `:origin` describes the *actor identity* (which tool or app subsystem emitted the dispatch) and is used for filtering. Tools may set both.
+
 ### `:op-type` vocabulary
 
 Core values: `:event`, `:sub/run`, `:sub/create`, `:render`, `:raf`, `:event/do-fx`, `:reagent/quiescent`, `:sync`, `::fsm-trigger`.
@@ -100,6 +135,40 @@ The canonical listener API has one shape:
 ```
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc. The two-arity form is the typical case; the three-arity form opts out of batching (per [§Per-event delivery](#per-event-delivery--opt-out-of-batching) below).
+
+#### `register-epoch-cb` — assembled-epoch listener
+
+Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-trace-cb` delivers a debounced batch of raw spans, `register-epoch-cb` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
+
+```clojure
+(rf/register-epoch-cb key callback-fn)
+;; Subscribes callback-fn to receive assembled epoch records.
+;;
+;; Arguments:
+;;   key         — keyword identifying the listener (replaces same-key registration)
+;;   callback-fn — invoked with one :rf/epoch-record per drain-settle.
+;;                 Signature: (fn [epoch-record] ...)
+;;
+;; The record is the same shape the runtime appends to (rf/epoch-history frame-id):
+;; assembled :event-id / :trigger-event / :db-before / :db-after, plus the structured
+;; :sub-runs / :renders / :effects projections derived from the cascade's traces.
+
+(rf/remove-epoch-cb key)
+;; Unsubscribes the listener registered under key.
+```
+
+**Invocation rules** (mirrors `register-trace-cb`):
+
+- **Per drain-settle, not per event.** The callback fires once when the run-to-completion drain reaches an empty queue and the epoch record is committed; multi-event cascades produce one record (and one callback invocation), not one per event.
+- **Not batched.** Unlike `register-trace-cb`'s default debounce window, epoch records are delivered as they commit — a drain settling produces an immediate callback. The drain itself coalesces; no further batching is added on top.
+- **After commit.** The callback receives a fully-formed record with `:db-after`, `:sub-runs`, `:renders`, `:effects`, and any optional `:trace-events` populated. The record has already been appended to the frame's `epoch-history` ring buffer when the callback runs.
+- **Exception isolation.** An exception thrown by an epoch callback is caught, logged via `re-frame.loggers`, and does not propagate. One broken epoch listener cannot break the app or block other listeners (raw-trace or epoch).
+- **Listener ordering** is not contract.
+- **Production elision.** The epoch listener machinery is gated on the same `goog-define trace-enabled?` as the raw-trace surface. Production builds elide registration, dispatch, and the epoch ring-buffer all together.
+
+**When to use which.** `register-trace-cb` is the right shape for tools that need raw fine-grained spans (the Chrome Performance bridge, custom timing displays). `register-epoch-cb` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
+
+The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
 ### Listener invocation rules
 

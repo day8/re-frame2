@@ -327,7 +327,8 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :frame        :todo                   ;; resolved frame keyword
  :fx-overrides {:http stub-fn}         ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
- :source       :ui                     ;; e.g. :ui, :timer, :http, :repl, :machine
+ :source       :ui                     ;; e.g. :ui, :timer, :http, :repl, :machine — trigger kind
+ :origin       :pair                   ;; e.g. :app (default), :pair, :story, :test — actor identity
  :dispatched-at <ts>}
 ```
 
@@ -349,6 +350,20 @@ In priority order, where the frame keyword comes from:
 2. **Lexical `dispatch` injected by `reg-view`.** The closure carries the frame keyword resolved from React context at render. (See View Ergonomics, below.) Internally, the injected `dispatch` is `(fn [event] (dispatch event {:frame <captured>}))`.
 3. **Dynamic binding.** Inside `(with-frame :todo ...)` (test/REPL helper), a Clojure dynamic var carries the frame; the bare `(rf/dispatch [:foo])` in the body picks it up. This makes `(with-frame :todo (rf/dispatch [:foo]))` Just Work without an opts map.
 4. **Default.** `:rf/default`.
+
+### Dispatch origin tagging
+
+The dispatch opts map accepts an optional `:origin` key — a tag identifying the *actor* that issued the dispatch:
+
+```clojure
+(rf/dispatch [:user/login {:email e}] {:origin :pair})
+```
+
+`:origin` is unconstrained at the framework level — tools and applications agree on values (`:pair`, `:claude`, `:story`, `:test`, etc.). The value flows into the dispatch envelope and is lifted by the trace surface onto every `:event/dispatched` trace event under `:tags :origin` (per [009 §Origin tagging](009-Instrumentation.md#origin-tagging-origin)). The default when the opt is omitted is `:app`.
+
+Pair-shaped tools and other tooling surfaces set `:origin` to filter their own activity in post-mortem trace views — "show me only the dispatches the pair tool issued during this session" becomes a one-key filter on the trace stream. User application code typically omits the opt; framework code (the SSR boot path, the router, the machine timer) sets it to a runtime-reserved value (`:rf/router`, `:rf/ssr`, etc.) where the distinction is useful.
+
+`:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind (`:ui` / `:timer` / `:http` / `:machine` / `:repl` / `:ssr-hydration`) — what *woke* the runtime. `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:repl`.
 
 ## View ergonomics (the hard part)
 

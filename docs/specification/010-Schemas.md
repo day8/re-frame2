@@ -163,7 +163,12 @@ Schemas registered against handlers and `app-db` paths are queryable via the pub
 
 (rf/app-schemas)
 ;; → {[:user] UserSchema, [:todos] TodosSchema, [:auth] AuthSchema, [] WholeAppDbSchema}
+
+(rf/app-schemas frame-id)
+;; → same {path schema} map for the named frame; sugar for (rf/app-schemas {:frame frame-id})
 ```
+
+`(rf/app-schemas frame-id)` is the surface pair-shaped tools (per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)) call to reflect on the schemas registered against a given frame — the result is a `{path schema}` map of the `app-schema-at` declarations active for that frame, in the same shape `app-schemas-digest` hashes. The form is sugar for the `{:frame frame-id}`-opt arity: passing a bare keyword is the common pair-tool case; the opts-map arity is the configurable case (and the place future opts will land).
 
 Tools and agents read these to:
 

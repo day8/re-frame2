@@ -7,6 +7,8 @@
 
 **This Spec is** the *runtime contract* — the set of public capabilities re-frame2 exposes that pair-shaped tools rely on. It tells an implementer "ship these capabilities and a pair tool can be built against you."
 
+> **Audit lineage.** Several surfaces below (`register-epoch-cb`, the structured `:sub-runs` / `:renders` / `:effects` slots on `:rf/epoch-record`, `:dispatch-id` / `:parent-dispatch-id` correlation, the `:origin` dispatch opt, `app-schemas` introspection, and the §Source-mapping helper enumeration) were added to this Spec following a cross-reference audit against [day8/re-frame-pair](https://github.com/day8/re-frame-pair)'s actual source — the upstream tool consumed surfaces this contract had not yet committed to. The audit is single-sourced here; downstream Specs (009 / 010 / 002 / Spec-Schemas) carry the additive normative text without re-citing the audit.
+
 > **Source-of-truth note:** Tool-Pair.md is the **canonical surface contract** for the time-travel / epoch-history capabilities and the trace-stream consumption shape. [API.md](API.md) reproduces these signatures (under §Epoch history) for fast lookup, but the *normative* descriptions live here; if the two drift, this Spec wins. The `epoch-history`, `restore-epoch`, and `(rf/configure :epoch-history {:depth N})` surface, plus the `:rf.epoch/snapshotted` / `:rf.epoch/restored` / `:rf.registry/handler-replaced` trace events, are pinned here and referenced from API.md.
 
 **This Spec is not** the pair tool itself. The actual pair tool — the Claude integration, the prompt design, the nREPL middleware — lives outside the spec, in a separate repository (the upstream is [day8/re-frame-pair](https://github.com/day8/re-frame-pair)). re-frame2 ships *its half* of the contract; the tool ships its half.
@@ -50,6 +52,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
 | **Source coordinates** | `:ns`/`:line`/`:file` on every registration's metadata | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
+| **Inspect registered schemas** | `(rf/app-schemas frame-id)`, `(rf/app-schema-at path opts)`, `(rf/app-schemas-digest opts)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | **Errors** | Structured `:rf.error/*` trace events with category + tags | [009 §Error contract](009-Instrumentation.md#error-contract) |
 
 This much is **already specified**. A pair tool built against re-frame2 (and conforming with [day8/re-frame-pair](https://github.com/day8/re-frame-pair)) needs nothing more than these surfaces to do everything in the capability list above except time-travel.
@@ -60,7 +63,7 @@ The capability that requires *new* commitments is **time-travel**, addressed bel
 
 The runtime contract for time-travel:
 
-**Recording.** Every event-cascade settle (drain reaching empty queue) marks an epoch boundary. The runtime records, per frame, an `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) consisting of `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, and (optionally) `:trace-events`.
+**Recording.** Every event-cascade settle (drain reaching empty queue) marks an epoch boundary. The runtime records, per frame, an `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) consisting of `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, and (optionally) `:trace-events`, plus the structured per-epoch projections `:sub-runs`, `:renders`, and `:effects` (each pre-derived from `:trace-events`; see [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for shapes). Pair tools route diagnostics off the structured slots — cache-hit-vs-rerun analysis (`:sub-runs[*].:recomputed?`), render-tag attribution (`:renders[*].:triggered-by`), and fx cascade outcome (`:effects[*].:outcome`) — without re-folding the raw trace stream each epoch.
 
 **Ordering.** Epochs within a frame are totally ordered by drain-completion time. Across frames, ordering is per-frame only — there is no global epoch sequence.
 
@@ -104,6 +107,19 @@ The "which button is at `src/app/profile/view.cljs:84`?" capability requires eve
 
 The annotation is opt-in (configured at re-frame2 startup) because it has a small DOM-bytes cost. With it on, a pair tool can take a click position, read the nearest annotation, and resolve back to a source coordinate.
 
+### Where the DOM-to-source helpers live (re-frame2 vs tool)
+
+The audit found the upstream pair tool ships `dom/source-at`, `dom/find-by-src`, and `dom/fire-click-at-src` helpers (it currently parses re-com's `data-rc-src` attribute, but the shape is general). Pair-shaped tools need *some* DOM-to-source bridge; the question is whether the helpers themselves are part of re-frame2's contract or live in the consuming tool.
+
+**re-frame2's commitment is the attribute, not the helpers.** Specifically:
+
+- The runtime emits the `data-rf2-source-coord` attribute on rendered DOM nodes when source-annotation is enabled. The attribute's *value format* is the contract (an opaque string the tool parses to recover `:ns` / `:line` / `:file` — schema in [Spec-Schemas](Spec-Schemas.md)).
+- The framework does **not** ship `dom-source-at` / `find-by-src` / `fire-click-at-src` style helpers. These are tool-side: the pair tool reads the attribute via its own host's DOM access (`document.querySelector` in CLJS, `page.locator` in Playwright-driven flows, etc.) and resolves the source coordinate locally.
+
+**Why tool-side, not framework-side:** the helpers depend on host-specific DOM access that re-frame2 the framework does not assume — a pair tool driving a browser via CDP, a server-rendered diagnostic dump, or a static analyzer all want different "lookup the attribute" implementations. Pinning a single helper signature here would either over-constrain consumers or under-serve them. The framework commits to the attribute (stable, cross-host, parseable); the consuming tool ships the host-appropriate query primitives on top.
+
+A future re-frame2 minor version may introduce framework-side helpers if the ecosystem converges on a single shape; the attribute contract is forward-compatible with that addition.
+
 ## How AI tools attach
 
 The runtime contract above is **complete and self-contained.** A pair-shaped tool — re-frame-pair, a Claude integration, a custom debug panel, a story tool, a future pair-improver — attaches to a running re-frame2 application using only the framework primitives listed below. **No re-frame-10x dependency is required**, and none should be assumed.
@@ -113,10 +129,14 @@ The full attachment surface, from the tool's point of view:
 | Need | Surface | Spec |
 |---|---|---|
 | Receive live trace events | `(rf/register-trace-cb :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive per-drain assembled epoch records | `(rf/register-epoch-cb :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:depth N})` | [API.md](API.md) |
+| Inspect registered app-db schemas | `(rf/app-schemas frame-id)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
+| Tag dispatches by actor (e.g. tool vs app) | `:origin` opt on `(rf/dispatch event opts)` | [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) |
+| Correlate a dispatch cascade | `:dispatch-id` + `:parent-dispatch-id` on `:event/dispatched` traces | [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id) |
 | Enumerate frames | `(rf/frame-ids)`, `(rf/frame-meta id)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Read a frame's app-db | `(rf/get-frame-db frame-id)` / `(rf/snapshot-of path opts)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Inspect the registry | `(rf/handlers kind)`, `(rf/handler-meta kind id)` | [001](001-Registration.md), [002](002-Frames.md) |
@@ -130,7 +150,9 @@ The full attachment surface, from the tool's point of view:
 
 The consumption pattern is therefore:
 
-> **A pair-shaped tool registers as a trace listener, reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
+> **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
+
+Two listener shapes coexist by design: `register-trace-cb` is the **raw** stream — every span the runtime emits, fine-grained — used by tools that need per-emit detail (live timing displays, Performance API consumers, custom recorders that must see in-flight events). `register-epoch-cb` is the **assembled** stream — one fully-shaped `:rf/epoch-record` per drain-settle, with the structured `:sub-runs` / `:renders` / `:effects` projections already computed — used by tools that route diagnostics off "what just happened in this cascade" rather than reconstructing it from the raw trace each time. Pair-shaped tools typically prefer the assembled stream for routing and reach for the raw stream only when they need detail the projection drops.
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
