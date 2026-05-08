@@ -180,6 +180,52 @@ Standard cofx (server-only):
 
 ---
 
+## HTTP requests (Spec 014)
+
+`:rf.http/managed` is the canonical, optional HTTP-request fx — `v1 (optional capability)`. CLJS reference ships it on Fetch (browser) and `java.net.http.HttpClient` (JVM). Args, behaviours, decode pipeline, retry semantics, abort surface, failure taxonomy, and reply addressing are normatively defined in [014-HTTPRequests.md](014-HTTPRequests.md); the surface below is the API-level summary.
+
+| API | Kind | Signature / shape | Status | Spec |
+|---|---|---|---|---|
+| `:rf.http/managed` | fx | `[:rf.http/managed args-map]` — args per [014 §The args map](014-HTTPRequests.md#the-args-map) and `:rf.fx/managed-args` | v1 (optional capability) | 014 |
+| `:rf.http/managed-abort` | fx | `[:rf.http/managed-abort request-id]` — abort the in-flight request with the given `:request-id` | v1 (optional capability) | 014 |
+| `:rf.http/managed-canned-success` | fx | `[:rf.http/managed-canned-success {:value v}]` — synthesises the canonical success reply (per [014 §Testing](014-HTTPRequests.md#testing)) | v1 (optional capability, dev/test) | 014 |
+| `:rf.http/managed-canned-failure` | fx | `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` — synthesises the canonical failure reply | v1 (optional capability, dev/test) | 014 |
+| `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` — route-map `{[<method> <url>] {:reply ...}}` per [014 §Testing](014-HTTPRequests.md#testing) | v1 (optional capability, dev/test) | 014 |
+
+Public API surface in `re-frame.core` for ports that ship Spec 014. Ports that omit it MUST NOT register `:rf.http/*` for any other purpose (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+
+### Reply-payload shape
+
+Every reply lands as `{:rf/reply {:kind :success :value v}}` or `{:rf/reply {:kind :failure :failure {:kind <:rf.http/*> ...}}}`. Default reply addressing dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler; explicit `:on-success` / `:on-failure` targets append the reply payload as the last event-vector arg. Both shapes detailed in [014 §Reply addressing](014-HTTPRequests.md#reply-addressing).
+
+### Failure categories (closed set)
+
+The eight `:kind` values inside a failure reply, all reserved under `:rf.http/*` (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). See [014 §Failure categories](014-HTTPRequests.md#failure-categories-closed-set) for tags-by-kind:
+
+| `:kind` | Meaning |
+|---|---|
+| `:rf.http/transport` | Network / DNS / connection error pre-HTTP |
+| `:rf.http/cors` | CORS preflight rejected (CLJS-only) |
+| `:rf.http/timeout` | Per-attempt timeout fired |
+| `:rf.http/http-4xx` | Non-2xx 4xx response |
+| `:rf.http/http-5xx` | Non-2xx 5xx response |
+| `:rf.http/decode-failure` | 2xx response but decode rejected the body |
+| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}` |
+| `:rf.http/aborted` | Request aborted via `:request-id` or `:abort-signal` |
+
+### Trace events emitted by `:rf.http/managed`
+
+| `:operation` | `:op-type` | When |
+|---|---|---|
+| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`; carries `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` |
+| `:rf.warning/decode-defaulted` | `:warning` | The request relied on `:decode :auto` (default); informational, not an error |
+
+### Schema-reflection metadata
+
+Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event-fx` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — see [014 §Schema reflection](014-HTTPRequests.md#schema-reflection-optional-ergonomic).
+
+---
+
 ## Effect-map shape
 
 Closed: `:db` + `:fx` only. See [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map). Top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` from v1 migrate via [MIGRATION.md §M-8](MIGRATION.md).
@@ -196,6 +242,7 @@ Standard `:fx` entries:
 | `[:dispatch [event-id ...]]` | event vector | v1 | 002 | |
 | `[:dispatch-later {:ms ms :dispatch event-vec}]` | options map | v1 | 002 | |
 | `[:http args]` | impl-specific | — | — | user-registered via `reg-fx`. |
+| `[:rf.http/managed args-map]` | args per [014 §The args map](014-HTTPRequests.md#the-args-map) | v1 (optional capability) | 014 | Framework-provided when the implementation ships Spec 014. CLJS reference: ships on Fetch + JVM `HttpClient`. See also `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`. |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | |
 | `[:raise event-vec]` | event vector | v1 | 005 | *machine-only*: reserved fx-id recognised by the machine handler; routes the event back into the same machine, atomic and pre-commit. Outside a machine action's `:fx`, this fx-id is unbound. |
 | `[:spawn spawn-spec]` | spawn-spec map (per `:rf.fx/spawn-args`: `:machine-id`/`:definition`, `:id-prefix`, `:data`, `:on-spawn`, `:start`) | v1 | 005 | *machine-only*: reserved fx-id recognised by the machine handler; registers a new dynamic actor (whose snapshot lives at `[:rf/machines <gensym'd-id>]`) and (via `:on-spawn`) records its id into the parent's `:data`. Outside a machine action's `:fx`, this fx-id is unbound. |
@@ -354,6 +401,9 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx/nav/scroll-args` | Args of `:rf.nav/scroll` fx | 012 |
 | `:rf.fx/with-nav-token-args` | Args of `:rf.route/with-nav-token` fx wrapper | 012 |
 | `:rf.fx/spawn-args` | Args of `:spawn` fx (reserved fx-id inside a machine action's `:fx`) | 005 |
+| `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |
+| `:rf.fx/managed-abort-args` | Args of `:rf.http/managed-abort` fx (request-id) | 014 |
+| `:rf.http/reply` | Reply-payload envelope `{:kind :success :value v}` / `{:kind :failure :failure {:kind <:rf.http/*> ...}}` lands under `:rf/reply` | 014 |
 | `:rf/route-rank` | Structural-rank tuple for route-precedence sorting | 012 |
 | `:rf/pending-navigation` | Pending-navigation slot when `:can-leave` guard rejects | 012 |
 
@@ -548,4 +598,5 @@ See [007-Stories.md](007-Stories.md).
 - [008-Testing.md](008-Testing.md) — testing API and patterns
 - [009-Instrumentation.md](009-Instrumentation.md) — trace event stream, listeners, error contract
 - [010-Schemas.md](010-Schemas.md) — Malli schemas
+- [014-HTTPRequests.md](014-HTTPRequests.md) — `:rf.http/managed` request fx (optional capability)
 - [MIGRATION.md](MIGRATION.md) — AI-driven migration spec
