@@ -31,3 +31,5 @@ Thumbs.db
 /site/
 # spec/ is staged into docs/spec/ at build time; never commit the staged copy.
 /docs/spec/
+# Python bytecode from mkdocs_hooks.py (rf2-qvlf).
+/__pycache__/
