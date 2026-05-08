@@ -1262,7 +1262,7 @@ The desugaring is uniform — no special-casing for hierarchy. Whatever cascadin
 
 `:invoke` introduces **no new error categories**. Failures route through the existing `:rf.error/*` machinery:
 
-- If `:data` is a function and it throws, the error surfaces as `:rf.error/handler-exception` (the standard category for any user-supplied fn that throws during a machine action). The transition halts per the existing handler-exception cascade rules.
+- If `:data` is a function and it throws, the error surfaces as `:rf.error/machine-action-exception` (the standard category for any user-supplied fn that throws during a machine action — see [Cross-Spec-Interactions §11](Cross-Spec-Interactions.md#11-machine-action-throws)). The transition halts; the snapshot does not commit.
 - If `:machine-id` references an unregistered machine, the spawn fx itself errors per existing spawn semantics — no `:invoke`-specific category.
 - If the user supplies neither `:machine-id` nor `:definition`, `create-machine-handler` rejects the spec at registration time as a malformed transition table — the schema makes "exactly one of `:machine-id` or `:definition`" a registration-time constraint per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table).
 
@@ -1876,7 +1876,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
 - Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/raised`, etc.).
-- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, and `:rf.error/machine-unresolved-action` error categories.
+- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, and `:rf.error/machine-unresolved-action` error categories.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{ms-or-fn → transition-spec}`, epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` trace events.
