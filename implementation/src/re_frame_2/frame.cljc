@@ -175,19 +175,37 @@
 ;; ---- destruction ----------------------------------------------------------
 
 (defn destroy-frame!
-  "Tear down a frame. Active machines run their :exit cascades (per
-  Spec 005); pending :after timers are cancelled by epoch staleness;
-  the sub-cache disposes; the frame slot is removed. Subsequent dispatch
-  to a destroyed frame raises :rf.error/frame-destroyed.
+  "Tear down a frame. Per Spec 002 §Destroy:
+   1. Run the frame's :on-destroy event (if any) via dispatch-sync.
+   2. Emit :rf.machine/destroyed-on-frame-exit for each machine that
+      has an active snapshot under [:rf/machines ...] in app-db. This
+      is the lifecycle signal observers (telemetry, logging, hand-
+      written cleanup hooks) can react to — full automatic exit-
+      cascade would require storing every machine def in a registry,
+      which is out of scope for the v1 closed kind set.
+   3. Mark the frame :destroyed?, dispose every cached reaction in
+      the sub-cache, dissoc the frame from the registry.
 
-  Per Spec 002 §Destroy."
+   Subsequent dispatch / subscribe against a destroyed frame raises
+   :rf.error/frame-destroyed."
   [id]
   (when-let [f (frame id)]
+    ;; (1) fire the user-supplied :on-destroy event before mutating
+    ;; lifecycle state so handlers see a still-alive frame.
     (when-let [on-destroy (get-in f [:config :on-destroy])]
       (when-let [dispatch-sync (resolve 're-frame-2.router/dispatch-sync!)]
         ((deref dispatch-sync) on-destroy {:frame id})))
+    ;; (2) signal active-machine teardown so observers can hook in.
+    (let [container (get-frame-db id)
+          db        (when container (adapter/read-container container))
+          machines  (get db :rf/machines)]
+      (doseq [[machine-id snapshot] machines]
+        (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
+                     {:frame      id
+                      :machine-id machine-id
+                      :last-state (:state snapshot)})))
     (swap! frames update id assoc-in [:lifecycle :destroyed?] true)
-    ;; Sub-cache disposal: walk every entry and dispose.
+    ;; (3) sub-cache disposal: walk every entry and dispose.
     (when-let [cache (:sub-cache f)]
       (doseq [[_k entry] @cache]
         (when-let [r (:reaction entry)]

@@ -373,6 +373,31 @@
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
+(deftest destroy-frame-signals-active-machines
+  (testing "destroy-frame emits :rf.machine/destroyed-on-frame-exit per active machine"
+    (rf/reg-frame :tenant-a {:doc "tenant"})
+    ;; Seed a machine snapshot directly into app-db so we don't need to
+    ;; run a full machine through this test.
+    (rf/reg-event-db :seed-machines
+      (fn [db _]
+        (assoc db :rf/machines {:flow/login    {:state :authed   :data {}}
+                                :flow/checkout {:state :pending  :data {}}})))
+    (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::df (fn [ev] (swap! traces conj ev)))
+      (rf/destroy-frame :tenant-a)
+      (rf/remove-trace-cb! ::df)
+      (let [machine-traces (filter #(= :rf.machine/destroyed-on-frame-exit
+                                        (:operation %))
+                                   @traces)]
+        (is (= 2 (count machine-traces))
+            "one trace per active machine snapshot")
+        (is (every? #(= :tenant-a (:frame (:tags %))) machine-traces)
+            "all traces carry the destroyed frame's id")
+        (is (= #{:authed :pending}
+               (set (map #(:last-state (:tags %)) machine-traces)))
+            "each trace carries its machine's last-state")))))
+
 (deftest spawn-id-is-frame-scoped
   (testing "actor-id allocation is keyed on [frame-id machine-id], not just machine-id"
     (let [machine
