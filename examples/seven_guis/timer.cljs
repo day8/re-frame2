@@ -36,32 +36,46 @@
   [:map
    [:elapsed-ms :int]                  ;; how long since the last reset
    [:duration-ms :int]                  ;; the slider's current value
-   [:tick-active? :boolean]])           ;; whether a tick is in flight
+   [:tick-active? :boolean]             ;; whether a tick is in flight
+   [:tick-gen :int]])                   ;; generation token; bumped on Reset to retire stale ticks
 
 (rf/reg-app-schema [:timer] TimerState)
 
 ;; ============================================================================
 ;; EVENTS
 ;; ============================================================================
+;;
+;; The tick chain is driven by `:dispatch-later`, which has no cancel API.
+;; To avoid a race where Reset zeros :elapsed-ms but a previously-scheduled
+;; tick lands ~milliseconds later and re-increments it (causing the DOM to
+;; never observably show 0.0), each tick carries the :tick-gen value it was
+;; scheduled with. Reset bumps :tick-gen, so any in-flight tick from the
+;; previous generation no-ops when it eventually fires. Reset also schedules
+;; a fresh tick under the new generation, so the chain continues.
 
 (rf/reg-event-fx :timer/initialise
   {:doc "Seed the timer slice and start the periodic tick."}
   (fn handler-timer-initialise [{:keys [db]} _]
     {:db (assoc db :timer {:elapsed-ms   0
                            :duration-ms  10000
-                           :tick-active? true})
-     :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]]}))
+                           :tick-active? true
+                           :tick-gen     0})
+     :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick 0]}]]}))
 
 (rf/reg-event-fx :timer/tick
-  {:doc "Advance elapsed by one tick. Schedules the next tick if still ticking."}
-  (fn handler-timer-tick [{:keys [db]} _]
-    (let [{:keys [elapsed-ms duration-ms tick-active?]} (:timer db)
-          next-elapsed (min (+ elapsed-ms TICK-MS) duration-ms)
-          done?        (>= next-elapsed duration-ms)]
-      (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
-        ;; Continue ticking while not done and tick still active.
-        (and tick-active? (not done?))
-        (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]])))))
+  {:doc "Advance elapsed by one tick. Schedules the next tick if still ticking.
+         Stale ticks (gen != current :tick-gen) are dropped — see header note."}
+  (fn handler-timer-tick [{:keys [db]} [_ gen]]
+    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)]
+      (if (not= gen tick-gen)
+        ;; Stale tick from a retired generation (Reset bumped :tick-gen). Drop it.
+        {}
+        (let [next-elapsed (min (+ elapsed-ms TICK-MS) duration-ms)
+              done?        (>= next-elapsed duration-ms)]
+          (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
+            ;; Continue ticking while not done and tick still active.
+            (and tick-active? (not done?))
+            (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick gen]}]])))))))
 
 (rf/reg-event-db :timer/set-duration
   {:doc "User dragged the slider."
@@ -70,15 +84,15 @@
     (assoc-in db [:timer :duration-ms] ms)))
 
 (rf/reg-event-fx :timer/reset
-  {:doc "User clicked Reset. Zero elapsed and re-arm the tick if needed."}
+  {:doc "User clicked Reset. Zero elapsed, retire any in-flight tick by
+         bumping :tick-gen, and arm a fresh tick under the new generation."}
   (fn handler-timer-reset [{:keys [db]} _]
-    (let [tick-was-active? (get-in db [:timer :tick-active?])]
-      (cond-> {:db (-> db
-                       (assoc-in [:timer :elapsed-ms]   0)
-                       (assoc-in [:timer :tick-active?] true))}
-        ;; If the tick had previously stopped (because we hit duration), re-start it.
-        (not tick-was-active?)
-        (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]])))))
+    (let [next-gen (inc (get-in db [:timer :tick-gen]))]
+      {:db (-> db
+               (assoc-in [:timer :elapsed-ms]   0)
+               (assoc-in [:timer :tick-active?] true)
+               (assoc-in [:timer :tick-gen]     next-gen))
+       :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick next-gen]}]]})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -144,8 +158,10 @@
     (assert (= 10000 (rf/compute-sub [:timer/duration-ms] (rf/get-frame-db f))))
 
     ;; Manual ticks → elapsed advances; progress derives correctly.
+    ;; (Pass the current generation so the ticks aren't dropped as stale.)
     (dotimes [_ 50]
-      (rf/dispatch-sync [:timer/tick] {:frame f}))
+      (let [gen (get-in (rf/get-frame-db f) [:timer :tick-gen])]
+        (rf/dispatch-sync [:timer/tick gen] {:frame f})))
     (assert (= 5000 (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
     (assert (= 50.0 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
 
@@ -153,9 +169,15 @@
     (rf/dispatch-sync [:timer/set-duration 4000] {:frame f})
     (assert (= 100 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
 
-    ;; Reset → elapsed back to zero.
-    (rf/dispatch-sync [:timer/reset] {:frame f})
-    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))))
+    ;; Reset → elapsed back to zero, generation bumped.
+    (let [gen-before (get-in (rf/get-frame-db f) [:timer :tick-gen])]
+      (rf/dispatch-sync [:timer/reset] {:frame f})
+      (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
+      (assert (= (inc gen-before)
+                 (get-in (rf/get-frame-db f) [:timer :tick-gen])))
+      ;; A stale tick (old generation) is dropped — :elapsed-ms stays at 0.
+      (rf/dispatch-sync [:timer/tick gen-before] {:frame f})
+      (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f)))))))
 
 ;; ============================================================================
 ;; MOUNT
