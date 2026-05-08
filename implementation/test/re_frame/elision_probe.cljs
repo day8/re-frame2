@@ -28,6 +28,10 @@
     `register-epoch-cb`, `remove-epoch-cb`, `configure :epoch-history`,
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
     `restore-epoch` (rf2-gox8 follow-up to rf2-shjf).
+  - `re-frame.views` reg-view* wrapper — `:view/render` trace op
+    (Spec 004 §Render-tree primitives, rf2-piag / rf2-t5tx). The
+    instance-token mint, the `*render-key*` binding, and the late-
+    bind emit must elide.
 
   Note the probe does NOT need to assert anything at runtime; it exists
   to root the dead-code-elimination graph at every surface. The grep
@@ -37,7 +41,8 @@
             [re-frame.schemas      :as schemas]
             [re-frame.trace        :as trace]
             [re-frame.epoch        :as epoch]
-            [re-frame.http-managed :as http-managed]))
+            [re-frame.http-managed :as http-managed]
+            [re-frame.views        :as views]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -164,6 +169,34 @@
   (let [_cfg (epoch/current-config)]
     nil))
 
+;; ---- Spec 004 §Render-tree primitives — reg-view* wrapper (rf2-piag) -----
+
+(defn ^:export touch-views! []
+  ;; Per Spec 004 §Render-tree primitives (rf2-piag / rf2-t5tx Option C),
+  ;; the reg-view* wrapper emits a `:view/render` trace per render. The
+  ;; emit site sits inside `(when interop/debug-enabled? ...)`, along
+  ;; with the *render-key* binding and the late-bind lookup. Under
+  ;; :advanced + goog.DEBUG=false the body must DCE; the operation
+  ;; keyword's "view/render" string fragment must NOT survive.
+  ;;
+  ;; The probe roots reachability by:
+  ;;   1. requiring re-frame.views directly (forces the ns body and the
+  ;;      gated emit-render-trace! body into the bundle);
+  ;;   2. registering a view via reg-view* (the public surface that
+  ;;      installs the wrapping fn carrying the gated body);
+  ;;   3. invoking the wrapper so the wrapper's body — including the
+  ;;      gated emit — is reachable code, not just declared-but-dead.
+  (rf/reg-view* :probe/render-key
+    (fn render-probe [] [:span "probe"]))
+  (let [wrapper (rf/get-view :probe/render-key)]
+    (when wrapper (wrapper)))
+  ;; Also touch the public mint / current-render-key entry points so
+  ;; their bodies stay in the reachability graph (DCE only proves the
+  ;; gated branches dead; the public surface itself remains).
+  (let [_t (views/mint-instance-token!)
+        _k (views/current-render-key)]
+    nil))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -172,6 +205,7 @@
   (touch-registrar!)
   (touch-http-managed!)
   (touch-epoch!)
+  (touch-views!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
