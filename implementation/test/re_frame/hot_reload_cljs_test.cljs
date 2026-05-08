@@ -17,28 +17,24 @@
   observation crisp: pre-rereg renders bump the v1 counter; post-rereg
   renders bump the v2 counter.
 
-  Fixture note: runtime_cljs_test installs a `reset-runtime` fixture
-  that calls `registrar/clear-all!`. We deliberately do NOT do that
-  here — clearing the registrar in this file's fixture would wipe
-  example apps (notably nine-states.core) whose registrations land at
-  namespace-load time and CANNOT be re-loaded under CLJS. Each test
-  uses unique keywords so cross-test interference inside this file is
-  impossible without a global wipe."
+  Fixture: per rf2-am9d this file uses the shared
+  `re-frame.test-support/reset-runtime-fixture`, which snapshots the
+  registrar before each test and restores it after. Snapshot/restore
+  preserves ns-load-time framework / example registrations (notably
+  routing's framework events and nine-states.core's view set) — those
+  cannot be re-loaded under CLJS — while still rolling back this
+  file's per-test `reg-view` calls so the :rf.hot-reload-test/* slots
+  don't leak into other test ns runs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
-(defn ensure-adapter [test-fn]
-  ;; Don't wipe the registrar — see fixture note above. Just make sure
-  ;; the Reagent adapter is installed so reg-view's wrapping fns work.
-  (when-not (adapter/current-adapter)
-    (rf/init! reagent-adapter/adapter))
-  (test-fn))
-
-(use-fixtures :each ensure-adapter)
+(use-fixtures :each
+  (test-support/reset-runtime-fixture
+    {:adapter reagent-adapter/adapter}))
 
 ;; ---- (4) :view re-register flips the next render to the new body --------
 
