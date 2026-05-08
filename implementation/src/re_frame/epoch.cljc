@@ -404,35 +404,41 @@
      :cljs (try (resolve 'malli.core/validate)
                 (catch :default _ nil))))
 
-(defn- registered-app-schemas []
-  (registrar/handlers :app-schema))
+(defn- registered-app-schemas
+  "Return the {path → schema-meta} map registered against the named
+  frame, or {}. Per Spec 010 §Per-frame schemas the schema set is
+  frame-scoped; restore-epoch validates against the schemas registered
+  against the frame the epoch belongs to, not a process-global set."
+  [frame-id]
+  (if-let [entries (late-bind/get-fn :schemas/frame-schema-entries)]
+    (entries frame-id)
+    {}))
 
 (defn- schema-validate-ok?
-  "True when the recorded db validates against every currently-registered
-  app-schema. Defensive: when no schemas are registered or Malli is
-  not on the path, we consider the db valid (we can't disprove it)."
-  [db]
-  (let [schemas  (registered-app-schemas)
+  "True when the recorded db validates against every app-schema
+  registered against frame-id. Defensive: when no schemas are
+  registered or Malli is not on the path, we consider the db valid
+  (we can't disprove it)."
+  [frame-id db]
+  (let [schemas  (registered-app-schemas frame-id)
         validate (malli-validate-fn)]
     (or (empty? schemas)
         (nil? validate)
-        (every? (fn [[_path meta]]
+        (every? (fn [[path meta]]
                   (let [schema (:schema meta)
-                        path   (:path meta)
                         v      (get-in db path)]
                     (try (validate schema v)
                          (catch #?(:clj Throwable :cljs :default) _ true))))
                 schemas))))
 
-(defn- failing-paths-for [db]
-  (let [schemas  (registered-app-schemas)
+(defn- failing-paths-for [frame-id db]
+  (let [schemas  (registered-app-schemas frame-id)
         validate (malli-validate-fn)]
     (if (or (empty? schemas) (nil? validate))
       []
       (vec
-        (keep (fn [[_id meta]]
+        (keep (fn [[path meta]]
                 (let [schema (:schema meta)
-                      path   (:path meta)
                       v      (get-in db path)]
                   (when-not (try (validate schema v)
                                  (catch #?(:clj Throwable :cljs :default) _ true))
@@ -545,14 +551,14 @@
             (let [db-target (:db-after epoch)]
               (cond
                 ;; (4) Schema mismatch?
-                (not (schema-validate-ok? db-target))
+                (not (schema-validate-ok? frame-id db-target))
                 (do
                   (emit-restore-failure! :rf.epoch/restore-schema-mismatch
                                          {:frame                  frame-id
                                           :epoch-id               epoch-id
                                           :schema-digest-recorded nil
                                           :schema-digest-current  nil
-                                          :failing-paths          (failing-paths-for db-target)})
+                                          :failing-paths          (failing-paths-for frame-id db-target)})
                   false)
 
                 ;; (5) Missing handler referenced from db?
