@@ -23,6 +23,7 @@
      diffs server vs. client hashes after first render and emits
      :rf.ssr/hydration-mismatch on disagreement"
   (:require [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             #?(:cljs [reagent.dom.client :as rdc])))
 
 ;; ============================================================================
@@ -38,28 +39,12 @@
 ;; ============================================================================
 ;; FX
 ;; ============================================================================
-
-(rf/reg-fx :http/get
-  {:doc       "GET request. Returns to dispatch on success/error.
-                Thread the active frame through to dispatch so the
-                continuation lands in the right frame's app-db."
-   :platforms #{:server :client}}
-  (fn fx-http-get [{:keys [frame]} {:keys [url on-success on-error]}]
-    #?(:cljs (-> (js/fetch url)
-                 (.then  #(.json %))
-                 (.then  #(when on-success
-                            (rf/dispatch (conj on-success (js->clj % :keywordize-keys true))
-                                         {:frame frame})))
-                 (.catch #(when on-error
-                            (rf/dispatch (conj on-error %) {:frame frame}))))
-       :clj  (try
-               (let [resp (slurp url)
-                     data (clojure.edn/read-string resp)]
-                 (when on-success
-                   (rf/dispatch (conj on-success data) {:frame frame})))
-               (catch Exception e
-                 (when on-error
-                   (rf/dispatch (conj on-error e) {:frame frame})))))))
+;;
+;; HTTP requests go via the framework-shipped `:rf.http/managed` (Spec 014).
+;; The example deliberately doesn't register an HTTP-side fx of its own —
+;; the SSR test below uses the `:fx-overrides` seam to redirect
+;; `:rf.http/managed` to a per-frame canned-success stub so the JVM-side
+;; render exercises the full domino loop without real network traffic.
 
 (rf/reg-fx :auth.session/store
   {:doc       "Persist a session token in localStorage."
@@ -78,11 +63,14 @@
    :platforms #{:server}}
   (fn handler-rf-server-init [{:keys [db]} [_ request]]
     {:db (assoc db :route {:id :route/articles :params {}})
-     :fx [[:http/get {:url "/api/articles" :on-success [:articles/loaded]}]]}))
+     :fx [[:rf.http/managed
+           {:request    {:method :get :url "/api/articles"}
+            :decode     :json
+            :on-success [:articles/loaded]}]]}))
 
 (rf/reg-event-db :articles/loaded
-  (fn handler-articles-loaded [db [_ articles]]
-    (assoc db :articles articles)))
+  (fn handler-articles-loaded [db [_ {:keys [value]}]]
+    (assoc db :articles value)))
 
 ;; The runtime ships a default :rf/hydrate handler that uses the locked
 ;; :replace-app-db policy (per Spec 011 §The :rf/hydrate event): server is
@@ -130,7 +118,8 @@
 ;; The server flow:
 ;;   1. Accept request.
 ;;   2. make-frame; :on-create dispatches :rf/server-init with the request.
-;;   3. Drain settles (HTTP fetches resolve via the JVM-side :http/get).
+;;   3. Drain settles (HTTP fetches resolve via :rf.http/managed; the JVM
+;;      transport uses java.net.http.HttpClient under the hood).
 ;;   4. Render to string via the pure hiccup → HTML emitter.
 ;;   5. Serialise app-db; ship in the HTML.
 
@@ -216,22 +205,23 @@
      ;; Boot the runtime (idempotent) — installs the plain-atom adapter
      ;; and the :rf/default frame.
      (rf/init!)
-     ;; Stub :http/get so the test doesn't make real network calls. The
-     ;; per-frame :fx-overrides redirect :http/get to this canned stub.
-     ;; Note: fx handlers receive {:frame frame-id} as their first arg —
-     ;; thread it through to dispatch so the :on-success continuation
-     ;; lands in the right frame's app-db.
-     (rf/reg-fx :http/get.canned-articles
+     ;; Stub `:rf.http/managed` so the test doesn't make real network
+     ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`
+     ;; to a per-test stub that delegates to the framework-shipped
+     ;; `:rf.http/managed-canned-success` (Spec 014 §Testing) with a
+     ;; canned `:value` payload — the same reply shape a live request
+     ;; would produce.
+     (rf/reg-fx :ssr.http/canned-articles
        {:platforms #{:server :client}}
-       (fn [{:keys [frame]} {:keys [on-success]}]
-         (when on-success
-           (rf/dispatch (conj on-success
-                              [{:id "a" :title "Article A" :body "Body A"}
-                               {:id "b" :title "Article B" :body "Body B"}])
-                        {:frame frame}))))
+       (fn [frame-ctx args-map]
+         (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+           (stub frame-ctx
+                 (assoc args-map
+                        :value [{:id "a" :title "Article A" :body "Body A"}
+                                {:id "b" :title "Article B" :body "Body B"}])))))
 
      (let [f           (rf/make-frame {:on-create    [:rf/server-init {:uri "/articles"}]
-                                       :fx-overrides {:http/get :http/get.canned-articles}})
+                                       :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
            final-db    (rf/get-frame-db f)
            ;; The root view's body invokes the articles-page render fn,
            ;; which calls (rf/subscribe-value [:articles]). Both run

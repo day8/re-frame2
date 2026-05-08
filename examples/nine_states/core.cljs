@@ -48,6 +48,7 @@
   (:require [cljs.test :refer-macros [is]]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.views]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
@@ -121,29 +122,39 @@
 ;; FX  (test-friendly stubs)
 ;; ============================================================================
 ;;
-;; Real apps would register a single `:http` fx and override at test time via
-;; the id-valued seam (per Spec 002). For this self-contained example we
-;; ship two canned-success stubs that synthesise different list sizes so the
-;; control panel can drive the lifecycle into Empty / One / Some / Too Many
-;; without a server.
+;; Real apps would issue a single `:rf.http/managed` request (Spec 014) and
+;; override at test time via the id-valued seam (per Spec 002). For this
+;; self-contained example we ship two per-app stubs that delegate to the
+;; framework-shipped canned-success / canned-failure fxs (Spec 014 §Testing)
+;; so the control panel can drive the lifecycle into Empty / One / Some /
+;; Too Many without a server.
 
 (defn- gen-todos [n]
   (vec (for [i (range n)]
          {:id (random-uuid) :title (str "Todo #" (inc i)) :done? false})))
 
-(rf/reg-fx :http.canned-todos
-  {:doc       "Test stub: dispatches :on-success with a list of N synthetic todos."
+(rf/reg-fx :nine-states.http/managed-demo
+  {:doc       "Demo override for `:rf.http/managed`. Routes by URL:
+               `/api/todos` → success with N synthetic todos (N from
+               `:request :query :n`); `/api/todos/fail` → transport
+               failure. Delegates to the framework-shipped
+               `:rf.http/managed-canned-success` /
+               `:rf.http/managed-canned-failure` per Spec 014 §Testing
+               so the canonical reply shape is preserved."
    :platforms #{:client :server}}
-  (fn fx-http-canned-todos [{:keys [frame]} {:keys [n on-success]}]
-    (when on-success
-      (rf/dispatch (conj on-success (gen-todos n)) {:frame frame}))))
+  (fn fx-managed-demo [frame-ctx args-map]
+    (let [url (-> args-map :request :url str)]
+      (cond
+        (= url "/api/todos/fail")
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+          (stub frame-ctx (assoc args-map
+                                 :kind :rf.http/transport
+                                 :tags {:message "Network unreachable."})))
 
-(rf/reg-fx :http.canned-failure
-  {:doc       "Test stub: dispatches :on-error with a canned error message."
-   :platforms #{:client :server}}
-  (fn fx-http-canned-failure [{:keys [frame]} {:keys [on-error]}]
-    (when on-error
-      (rf/dispatch (conj on-error {:message "Network unreachable."}) {:frame frame}))))
+        :else
+        (let [n    (or (-> args-map :request :query :n) 0)
+              stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx (assoc args-map :value (gen-todos n))))))))
 
 ;; ============================================================================
 ;; EVENTS — Pattern-RemoteData lifecycle  (states 1-6)
@@ -158,15 +169,20 @@
 
 (rf/reg-event-fx :todos/load
   {:doc "Trigger a list load. Sets :loading (no prior data) or :fetching
-         (revalidate); dispatches :todos/loaded or :todos/load-failed."}
+         (revalidate); the `:rf.http/managed` reply lands as `:todos/loaded`."}
   (fn handler-todos-load [{:keys [db]} [_ {:keys [n]}]]
     (let [has-data? (some? (get-in db [:todos :data]))]
       {:db (-> db
                (assoc-in  [:todos :status]  (if has-data? :fetching :loading))
                (assoc-in  [:todos :error]   nil)
                (update-in [:todos :attempt] inc))
-       :fx [[:http.canned-todos {:n          (or n 0)
-                                 :on-success [:todos/loaded]}]]})))
+       :fx [[:rf.http/managed
+             {:request    {:method :get
+                           :url    "/api/todos"
+                           :query  {:n (or n 0)}}
+              :decode     :json
+              :on-success [:todos/loaded]
+              :on-failure [:todos/load-failed]}]]})))
 
 (rf/reg-event-fx :todos/load-with-failure
   {:doc "Trigger a load that always fails. Drives the slice into :error."}
@@ -174,23 +190,29 @@
     {:db (-> db
              (assoc-in  [:todos :status]  :loading)
              (update-in [:todos :attempt] inc))
-     :fx [[:http.canned-failure {:on-error [:todos/load-failed]}]]}))
+     :fx [[:rf.http/managed
+           {:request    {:method :get :url "/api/todos/fail"}
+            :decode     :json
+            :on-success [:todos/loaded]
+            :on-failure [:todos/load-failed]}]]}))
 
 (rf/reg-event-db :todos/loaded
-  {:doc "Successful fetch. Sets :status :loaded, :data, :loaded-at."}
-  (fn handler-todos-loaded [db [_ todos]]
+  {:doc "Successful fetch. Reads the list from the `:rf.http/managed`
+         reply payload's `:value`."}
+  (fn handler-todos-loaded [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:todos :status]    :loaded)
-        (assoc-in [:todos :data]      (vec todos))
+        (assoc-in [:todos :data]      (vec value))
         (assoc-in [:todos :error]     nil)
         (assoc-in [:todos :loaded-at] 0))))
 
 (rf/reg-event-db :todos/load-failed
-  {:doc "Fetch failed. Keeps any prior :data; sets :status :error and :error."}
-  (fn handler-todos-load-failed [db [_ err]]
+  {:doc "Fetch failed. Reads the failure category from the
+         `:rf.http/managed` reply payload's `:failure`."}
+  (fn handler-todos-load-failed [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:todos :status] :error)
-        (assoc-in [:todos :error]  err))))
+        (assoc-in [:todos :error]  failure))))
 
 (rf/reg-event-db :todos/reset
   {:doc "Reset to :idle. Drives the slice back to State 1 (Nothing)."}
@@ -561,27 +583,38 @@
   [frame state-sub]
   (rf/compute-sub [state-sub] (rf/get-frame-db frame)))
 
+(def ^:private demo-overrides
+  "Per-test :fx-overrides map that routes `:rf.http/managed` to the in-process
+   demo stub so tests run without a backend."
+  {:rf.http/managed :nine-states.http/managed-demo})
+
 (defn test-state-1-nothing []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (is (in-state? f :ui.state/nothing?))
     (is (not (in-state? f :ui.state/loading?)))
     (is (not (in-state? f :ui.state/empty?)))))
 
 (defn test-state-2-loading []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     ;; Set status directly to :loading (the actual stub resolves synchronously,
     ;; so we assert against an explicit pre-loaded shape).
-    (rf/dispatch-sync [:todos/loaded []] {:frame f}) ;; loaded with no data
+    (rf/dispatch-sync [:todos/loaded {:kind :success :value []}] {:frame f}) ;; loaded with no data
     (rf/dispatch-sync [:todos/reset]      {:frame f})
     (rf/dispatch-sync [:todos/load-with-failure] {:frame f})
-    ;; The failure stub fires :on-error synchronously, so :status ends in :error;
+    ;; The failure stub fires :on-failure synchronously, so :status ends in :error;
     ;; the `loading?` predicate is false at the *end* of the drain — which is
     ;; the correct semantic. We instead assert that the lifecycle visited
     ;; :loading by checking :attempt was bumped.
     (is (pos? (:attempt (rf/compute-sub [:todos] (rf/get-frame-db f)))))))
 
 (defn test-state-3-empty []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 0}] {:frame f})
     (is       (in-state? f :ui.state/empty?))
     (is (not (in-state? f :ui.state/one?)))
@@ -589,21 +622,27 @@
     (is (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-4-one []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 1}] {:frame f})
     (is       (in-state? f :ui.state/one?))
     (is (not (in-state? f :ui.state/empty?)))
     (is (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-5-some []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (is       (in-state? f :ui.state/some?))
     (is (not (in-state? f :ui.state/one?)))
     (is (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-6-too-many []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 25}] {:frame f})
     (is       (in-state? f :ui.state/too-many?))
     (is (not (in-state? f :ui.state/some?)))))
@@ -617,7 +656,9 @@
     (is (not (in-state? f :ui.state/correct?)))))
 
 (defn test-state-8-correct []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 0}]                  {:frame f})
     (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                    {:frame f})
@@ -626,7 +667,9 @@
     (is       (in-state? f :ui.state/one?))))    ;; correctness side-effect
 
 (defn test-state-9-done []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame
+                   {:on-create    [:app/initialise]
+                    :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (rf/dispatch-sync [:todos/editor [:todos.editor/archive {:now 1}]] {:frame f})
     ;; Snapshot lives at [:rf/machines :todos/editor].
@@ -665,6 +708,12 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
+  ;; Install the demo override so `:rf.http/managed` calls route to the
+  ;; in-process canned-stub fxs above. The example runs standalone — no
+  ;; backend required.
+  (rf/reg-frame :rf/default
+    {:doc          "Nine-states demo frame."
+     :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
   (rf/dispatch-sync [:app/initialise])
   (when react-root
     (rdc/render react-root [root-view])))

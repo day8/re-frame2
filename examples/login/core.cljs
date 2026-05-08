@@ -6,7 +6,10 @@
    - Schema attachment (CP-8)              — Malli schema for the machine snapshot
    - Event handlers (CP-1)                 — pure (state, event) → effects
    - Subscriptions (CP-2)                  — pure derivations, including a :<- chain
-   - Registered fx (CP-3)                  — :http with :platforms metadata
+   - Managed HTTP (Spec 014)                — :rf.http/managed plus a per-app
+                                                demo stub that resolves the
+                                                request locally so the example
+                                                runs without a backend.
    - Registered view (CP-4)                — Var reference (canonical), Form-1 only
    - State machine (CP-5)                  — login flow as a transition table
                                               read via [:rf/machines :auth.login/flow]
@@ -24,6 +27,7 @@
    Kept as a single file here for brevity."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
@@ -57,40 +61,21 @@
 (rf/reg-app-schema [:rf/machines :auth.login/flow] AuthLoginSnapshot)
 
 ;; ============================================================================
-;; FX  (CP-3)
+;; FX  (Spec 014 + per-app demo stub)
 ;; ============================================================================
 ;;
-;; :http is server-and-client; the :platforms metadata gates SSR per [011].
-;; :auth.session/store is client-only — localStorage is a browser API.
+;; HTTP requests go via the framework-shipped `:rf.http/managed` (Spec 014).
+;; The example demo would normally hit `/api/login`, which we don't ship —
+;; instead we register a per-app demo stub at `:rf.http/managed.login-demo`
+;; and override `:rf.http/managed` to it on the default frame in `run`. The
+;; stub inspects the request body's `:password` and synthesises either a
+;; success or failure reply via the framework-shipped canned-success /
+;; canned-failure fxs (Spec 014 §Testing) so the canonical reply shape is
+;; preserved end-to-end.
+;;
+;; `:auth.session/store` is client-only — localStorage is a browser API.
 
-;; The example demo runs against a canned in-process stub so it can be
-;; opened standalone (no backend required). Treat any login with a
-;; password matching :good-password as a success; anything else fails.
-;; The stub mirrors the shape a real :http effect would have.
 (def good-password "correct-horse")
-
-(rf/reg-fx :http
-  {:doc       "Demo stub of an HTTP request. In a real app this would issue a fetch;
-               here we synthesise a canned response so the example is runnable
-               standalone."
-   :platforms #{:server :client}}
-  (fn fx-http [{:keys [frame]} {:keys [body on-success on-error]}]
-    (let [success? (= good-password (:password body))]
-      ;; Simulate a small request latency so the :submitting state is
-      ;; observable in the UI before the response lands.
-      (js/setTimeout
-        (fn []
-          (cond
-            (and success? on-success)
-            (rf/dispatch (conj on-success {:user  {:id    (random-uuid)
-                                                   :email (:email body)}
-                                           :token "demo-token-123"})
-                         {:frame frame})
-
-            on-error
-            (rf/dispatch (conj on-error {:message "Invalid credentials."})
-                         {:frame frame})))
-        50))))
 
 (rf/reg-fx :auth.session/store
   {:doc       "Persist the session token in localStorage. Client only."
@@ -99,16 +84,50 @@
     (when-let [ls (.-localStorage js/globalThis)]
       (.setItem ls "auth/token" token))))
 
-;; Test stub — id-valued override, the canonical pattern-level form.
-(rf/reg-fx :http.canned-success
-  {:doc       "Test stub: every :http call resolves to a canned success response."
-   :platforms #{:client :server}}
-  (fn fx-http-canned-success [{:keys [frame]} {:keys [on-success]}]
-    (when on-success
-      (rf/dispatch (conj on-success {:user  {:id    (random-uuid)
-                                             :email "test@example.com"}
-                                     :token "test-token-123"})
-                   {:frame frame}))))
+(rf/reg-fx :rf.http/managed.login-demo
+  {:doc       "Demo override for `:rf.http/managed`: routes by URL +
+               request body to canned login responses so the example runs
+               standalone without a backend.
+
+               POST /api/login with `:password good-password` → success
+                 with `{:user {...} :token \"demo-token-123\"}`.
+               POST /api/login otherwise → 401 failure.
+               Anything else (e.g. /api/auth/lock) → empty success.
+
+               Delegates to the framework-shipped
+               `:rf.http/managed-canned-success` /
+               `:rf.http/managed-canned-failure` per Spec 014 §Testing,
+               so the reply shape (`{:kind :success :value ...}` /
+               `{:kind :failure :failure ...}`) lands at the inner
+               `:auth.login/success` / `:auth.login/failure` sub-events
+               via the explicit `:on-success` / `:on-failure` form."
+   :platforms #{:server :client}}
+  (fn fx-managed-login-demo [frame-ctx args-map]
+    (let [{:keys [url body]} (:request args-map)
+          login?    (= "/api/login" url)
+          success?  (and login? (= good-password (:password body)))
+          ok-stub   (registrar/handler :fx :rf.http/managed-canned-success)
+          fail-stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      ;; Simulate a small request latency so the :submitting state is
+      ;; observable in the UI before the response lands.
+      (js/setTimeout
+        (fn []
+          (cond
+            success?
+            (ok-stub frame-ctx (assoc args-map
+                                      :value {:user  {:id    (random-uuid)
+                                                      :email (:email body)}
+                                              :token "demo-token-123"}))
+
+            login?
+            (fail-stub frame-ctx (assoc args-map
+                                        :kind :rf.http/http-4xx
+                                        :tags {:status 401
+                                               :message "Invalid credentials."}))
+
+            :else
+            (ok-stub frame-ctx (assoc args-map :value {}))))
+        50))))
 
 ;; ============================================================================
 ;; STATE MACHINE  (CP-5)
@@ -141,29 +160,36 @@
 
       :issue-request
       ;; Issue the login HTTP request. Returns effects, not side-effects.
+      ;; Spec 014 reply: explicit :on-success / :on-failure events have the
+      ;; reply payload (`{:kind :success :value ...}` / `{:kind :failure
+      ;; :failure ...}`) appended as their last arg by the runtime.
       (fn [_data [_ creds]]
-        {:fx [[:http {:method     :post
-                      :url        "/api/login"
-                      :body       creds
-                      :on-success [:auth.login/flow [:auth.login/success]]
-                      :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+        {:fx [[:rf.http/managed
+               {:request    {:method :post
+                             :url    "/api/login"
+                             :body   creds
+                             :request-content-type :json}
+                :decode     :json
+                :on-success [:auth.login/flow [:auth.login/success]]
+                :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
       :record-error
       ;; Record the failure into :data and bump the attempt counter.
-      (fn [data [_ err]]
+      (fn [data [_ {:keys [failure]}]]
         {:data (-> data
                    (update :attempts inc)
-                   (assoc :error (or (:message err) "Login failed.")))})
+                   (assoc :error (or (:message failure) "Login failed.")))})
 
       :lock-account
       ;; Mark the account as locked after too many failed attempts.
       (fn [_data _event]
-        {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
+        {:fx [[:rf.http/managed
+               {:request {:method :post :url "/api/auth/lock"}}]]})
 
       :store-session
       ;; Persist the session token returned by a successful login.
-      (fn [_data [_ {:keys [token]}]]
-        {:fx [[:auth.session/store {:token token}]]})}
+      (fn [_data [_ {:keys [value]}]]
+        {:fx [[:auth.session/store {:token (:token value)}]]})}
 
      :states
      {:idle
@@ -283,15 +309,42 @@
 ;; ============================================================================
 ;;
 ;; Browserless. No DOM, no React. Drives the machine via dispatch-sync and
-;; asserts on app-db. Uses the id-valued override seam (:http →
-;; :http.canned-success) so the test doesn't issue real network requests.
-;; Because this file is .cljs, the test runs in a CLJS host (Node, browser
-;; without a DOM, shadow-cljs node-test target); to run it on the JVM, lift
-;; the events / subs / machine into a .cljc namespace.
+;; asserts on app-db. Uses the id-valued override seam (`:rf.http/managed`
+;; → per-test stub) so the test doesn't issue real network requests. The
+;; per-test stubs delegate to the framework-shipped
+;; `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
+;; fxs (Spec 014 §Testing), so the canonical reply shape (`{:kind :success
+;; :value ...}` / `{:kind :failure :failure ...}`) is preserved.
+;;
+;; Because this file is .cljs, the test runs in a CLJS host (Node,
+;; browser without a DOM, shadow-cljs node-test target); to run it on
+;; the JVM, lift the events / subs / machine into a .cljc namespace.
+
+(rf/reg-fx :auth.login/test-canned-success
+  {:doc "Test stub: every :rf.http/managed call resolves :success with a
+         canned user/token payload."
+   :platforms #{:client :server}}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+      (stub frame-ctx
+            (assoc args-map :value {:user  {:id    (random-uuid)
+                                            :email "test@example.com"}
+                                    :token "test-token-123"})))))
+
+(rf/reg-fx :auth.login/test-canned-failure
+  {:doc "Test stub: every :rf.http/managed call resolves :failure with a
+         401 reply."
+   :platforms #{:client :server}}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (stub frame-ctx (assoc args-map
+                             :kind :rf.http/http-4xx
+                             :tags {:status 401 :message "bad creds"})))))
 
 (defn login-feature-happy-path-test []
   ;; The machine self-initialises on first dispatch — no :on-create needed.
-  (with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
+  (with-frame [f (rf/make-frame
+                   {:fx-overrides {:rf.http/managed :auth.login/test-canned-success}})]
     ;; Submit credentials. Dispatches synchronously; drain settles before return.
     ;; Sub-events route via the machine id (per [005 §Registration]).
     (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
@@ -304,12 +357,8 @@
     (assert (rf/compute-sub [:auth.login/authenticated?] (rf/get-frame-db f)))))
 
 (defn login-feature-retry-then-lockout-test []
-  (rf/reg-fx :http.canned-failure
-    {:platforms #{:client :server}}
-    (fn [{:keys [frame]} {:keys [on-error]}]
-      (rf/dispatch (conj on-error {:message "bad creds"}) {:frame frame})))
-
-  (with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
+  (with-frame [f (rf/make-frame
+                   {:fx-overrides {:rf.http/managed :auth.login/test-canned-failure}})]
     ;; Three failures → locked-out.
     (dotimes [_ 3]
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
@@ -333,4 +382,10 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
+  ;; Install the demo override so `:rf.http/managed` calls route to the
+  ;; in-process login stub above. The example runs standalone — no
+  ;; backend required.
+  (rf/reg-frame :rf/default
+    {:doc          "Login demo frame."
+     :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})
   (rdc/render react-root [root-view]))
