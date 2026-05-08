@@ -8,8 +8,8 @@
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -55,38 +55,56 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :article/load
-  (fn [{:keys [db]} _]
-    (let [slug (get-in db [:route :params :slug])]
-      {:db (-> db
-               (assoc-in [:article :status]
-                         (if (get-in db [:article :data]) :fetching :loading))
-               (assoc-in [:article :error] nil)
-               (update-in [:article :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        (article-path slug)
-                    :auth?      false
-                    :on-success [:article/loaded]
-                    :on-error   [:article/load-failed]}]]})))
+  {:doc "Load the article matching `[:route :params :slug]`.
 
-(rf/reg-event-db :article/loaded
-  (fn [db [_ resp]]
-    (-> db
-        (assoc-in [:article :status] :loaded)
-        (assoc-in [:article :data] (:article resp))
-        (assoc-in [:article :error] nil)
-        (assoc-in [:article :loaded-at] (current-time-ms)))))
+         This handler demonstrates Spec 014's *default reply addressing*:
+         no `:on-success` / `:on-failure` is supplied, so the framework
+         re-dispatches the reply back to this same event id with
+         `:rf/reply` merged into the original message map. The handler
+         body branches on `(:rf/reply msg)` — one event id, two roles."
+   :rf.http/decode-schemas [schema/ArticleResponse]}
+  (fn [{:keys [db]} [_ msg]]
+    (if-let [reply (:rf/reply msg)]
+      ;; Reply branch — handle success or failure.
+      (case (:kind reply)
+        :success
+        {:db (-> db
+                 (assoc-in [:article :status] :loaded)
+                 (assoc-in [:article :data] (:article (:value reply)))
+                 (assoc-in [:article :error] nil)
+                 (assoc-in [:article :loaded-at] (current-time-ms)))}
 
-(rf/reg-event-db :article/load-failed
-  (fn [db [_ err]]
-    (-> db
-        (assoc-in [:article :status] :error)
-        (assoc-in [:article :error] err))))
+        :failure
+        {:db (-> db
+                 (assoc-in [:article :status] :error)
+                 (assoc-in [:article :error] (rh/failure->message (:failure reply))))})
+
+      ;; Initial dispatch — issue the managed request. Default reply
+      ;; addressing routes the reply back here.
+      (let [slug (get-in db [:route :params :slug])]
+        {:db (-> db
+                 (assoc-in [:article :status]
+                           (if (get-in db [:article :data]) :fetching :loading))
+                 (assoc-in [:article :error] nil)
+                 (update-in [:article :attempt] (fnil inc 0)))
+         :fx [[:rf.http/managed
+               (rh/request {:method     :get
+                            :path       (article-path slug)
+                            :auth?      false
+                            :decode     schema/ArticleResponse
+                            :retry      rh/data-fetch-retry
+                            :request-id [:article/load slug]})]]}))))
 
 ;; ============================================================================
 ;; COMMENTS
 ;; ============================================================================
 
 (rf/reg-event-fx :comments/load
+  {:doc "Load comments for the current article. Uses explicit success /
+         failure handlers (cf. :article/load above which uses default
+         reply addressing) — both shapes are valid Spec 014; pick whichever
+         reads best for the handler."
+   :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db]} _]
     (let [slug (get-in db [:route :params :slug])]
       {:db (-> db
@@ -94,25 +112,29 @@
                          (if (seq (get-in db [:comments :data])) :fetching :loading))
                (assoc-in [:comments :error] nil)
                (update-in [:comments :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        (comment-path slug)
-                    :auth?      false
-                    :on-success [:comments/loaded]
-                    :on-error   [:comments/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       (comment-path slug)
+                          :auth?      false
+                          :decode     schema/CommentsResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id [:comments/load slug]
+                          :on-success [:comments/loaded]
+                          :on-failure [:comments/load-failed]})]]})))
 
 (rf/reg-event-db :comments/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:comments :status] :loaded)
-        (assoc-in [:comments :data] (vec (:comments resp)))
+        (assoc-in [:comments :data] (vec (:comments value)))
         (assoc-in [:comments :error] nil)
         (assoc-in [:comments :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :comments/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:comments :status] :error)
-        (assoc-in [:comments :error] err))))
+        (assoc-in [:comments :error] (rh/failure->message failure)))))
 
 ;; ============================================================================
 ;; COMMENT FORM
@@ -125,6 +147,11 @@
         (update-in [:comment-form :touched] (fnil conj #{}) field))))
 
 (rf/reg-event-fx :comment-form/submit
+  {:doc "Optimistically post a new comment. NO retry — the user clicked
+         once. The temp-id correlates the optimistic UI card with the
+         eventual save / rollback (Spec 014 - explicit on-success/on-failure
+         where the partial event vector pre-populates correlation args)."
+   :rf.http/decode-schemas [schema/CommentResponse]}
   (fn [{:keys [db]} _]
     (let [slug      (get-in db [:route :params :slug])
           draft     (get-in db [:comment-form :draft])
@@ -149,15 +176,17 @@
                  (assoc-in [:comment-form :errors] {})
                  (assoc-in [:comment-form :submit-error] nil)
                  (update-in [:comments :data] (fnil conj []) temp-card))
-         :fx [[:http {:method     :post
-                      :url        (comment-path slug)
-                      :body       {:comment {:body body}}
-                      :on-success [:comment-form/submit-success temp-id]
-                      :on-error   [:comment-form/submit-error temp-id]}]]}))))
+         :fx [[:rf.http/managed
+               (rh/request {:method     :post
+                            :path       (comment-path slug)
+                            :body       {:comment {:body body}}
+                            :decode     schema/CommentResponse
+                            :on-success [:comment-form/submit-success temp-id]
+                            :on-failure [:comment-form/submit-error temp-id]})]]}))))
 
 (rf/reg-event-db :comment-form/submit-success
-  (fn [db [_ temp-id resp]]
-    (let [saved (:comment resp)]
+  (fn [db [_ temp-id {:keys [value]}]]
+    (let [saved (:comment value)]
       (-> db
           (assoc-in [:comment-form] (comment-form-defaults))
           (update-in [:comments :data]
@@ -168,18 +197,18 @@
                             vec)))))))
 
 (rf/reg-event-db :comment-form/submit-error
-  (fn [db [_ temp-id err]]
+  (fn [db [_ temp-id {:keys [failure]}]]
     (-> db
         (update-in [:comments :data]
                    (fn [comments]
                      (vec (remove #(= temp-id (:id %)) comments))))
         (assoc-in [:comment-form :status] :idle)
         (assoc-in [:comment-form :submit-error]
-                  (or (some-> err :errors :body first)
-                      (:message err)
-                      "Couldn't post comment.")))))
+                  (rh/failure->message failure)))))
 
 (rf/reg-event-fx :comment/delete
+  {:doc "Optimistically remove a comment, then DELETE. On failure, the
+         rollback handler re-inserts the comment at its original index."}
   (fn [{:keys [db]} [_ id]]
     (let [slug     (get-in db [:route :params :slug])
           comments (vec (get-in db [:comments :data]))
@@ -189,16 +218,18 @@
           prior    (when (some? index) {:index index :comment (nth comments index)})]
       {:db (update-in db [:comments :data]
                       (fn [xs] (vec (remove #(= id (:id %)) xs))))
-       :fx [[:http {:method     :delete
-                    :url        (str (comment-path slug) "/" id)
-                    :on-success [:comment/delete-success id]
-                    :on-error   [:comment/delete-rollback prior]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :delete
+                          :path       (str (comment-path slug) "/" id)
+                          :decode     :auto
+                          :on-success [:comment/delete-success id]
+                          :on-failure [:comment/delete-rollback prior]})]]})))
 
 (rf/reg-event-db :comment/delete-success
   (fn [db _] db))
 
 (rf/reg-event-db :comment/delete-rollback
-  (fn [db [_ {:keys [index comment]}]]
+  (fn [db [_ {:keys [index comment]} _failure-payload]]
     (if (and (some? index) comment)
       (update-in db [:comments :data]
                  (fn [xs]

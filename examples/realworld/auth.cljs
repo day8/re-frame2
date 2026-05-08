@@ -11,8 +11,8 @@
    the machine snapshot itself lives at [:rf/machines :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -62,7 +62,12 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :auth/flow
-  {:doc "The auth flow: idle → submitting/restoring → authed | error."}
+  {:doc "The auth flow: idle → submitting/restoring → authed | error.
+         HTTP requests go via :rf.http/managed (Spec 014). Login /
+         register / restore deliberately do NOT retry — the user's
+         intent is one submission per click; a transient error surfaces
+         in `:error` and the user retries themselves."
+   :rf.http/decode-schemas [schema/UserResponse]}
   (rf/create-machine-handler
     ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
     ;; the id is the surrounding reg-event-fx id.
@@ -80,46 +85,50 @@
       :begin-login
       (fn [_ [_ {:keys [email password]}]]
         {:data {:error nil}
-         :fx [[:http {:method     :post
-                      :url        "/users/login"
-                      :auth?      false
-                      :body       {:user {:email email :password password}}
-                      :on-success [:auth/flow [:auth/success]]
-                      :on-error   [:auth/flow [:auth/failure]]}]]})
+         :fx [[:rf.http/managed
+               (rh/request {:method     :post
+                            :path       "/users/login"
+                            :auth?      false
+                            :body       {:user {:email email :password password}}
+                            :decode     schema/UserResponse
+                            :on-success [:auth/flow [:auth/success]]
+                            :on-failure [:auth/flow [:auth/failure]]})]]})
 
       :begin-register
       (fn [_ [_ {:keys [username email password]}]]
         {:data {:error nil}
-         :fx [[:http {:method     :post
-                      :url        "/users"
-                      :auth?      false
-                      :body       {:user {:username username
-                                          :email email
-                                          :password password}}
-                      :on-success [:auth/flow [:auth/success]]
-                      :on-error   [:auth/flow [:auth/failure]]}]]})
+         :fx [[:rf.http/managed
+               (rh/request {:method     :post
+                            :path       "/users"
+                            :auth?      false
+                            :body       {:user {:username username
+                                                :email email
+                                                :password password}}
+                            :decode     schema/UserResponse
+                            :on-success [:auth/flow [:auth/success]]
+                            :on-failure [:auth/flow [:auth/failure]]})]]})
 
       :begin-restore
       (fn [_ _]
         {:data {:error nil}
-         :fx [[:http {:method     :get
-                      :url        "/user"
-                      :on-success [:auth/flow [:auth/success]]
-                      :on-error   [:auth/flow [:auth/restore-failed]]}]]})
+         :fx [[:rf.http/managed
+               (rh/request {:method     :get
+                            :path       "/user"
+                            :decode     schema/UserResponse
+                            :on-success [:auth/flow [:auth/success]]
+                            :on-failure [:auth/flow [:auth/restore-failed]]})]]})
 
       :store-session
-      (fn [_ [_ resp]]
-        (let [user (:user resp)]
+      (fn [_ [_ {:keys [value]}]]
+        (let [user (:user value)]
           {:data {:error nil}
            :fx [[:dispatch [:auth/store-session user]]
                 [:auth.session/store {:token (:token user)}]
                 [:dispatch [:rf.route/navigate :route/home]]]}))
 
       :record-error
-      (fn [_ [_ err]]
-        {:data {:error (or (some-> err :errors first)
-                           (:message err)
-                           "Authentication failed.")}})
+      (fn [_ [_ {:keys [failure]}]]
+        {:data {:error (rh/failure->message failure)}})
 
       :clear-session
       (fn [_ _]

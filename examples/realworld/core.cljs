@@ -18,10 +18,18 @@
      settings.cljs         — user settings page
      routing.cljs          — route registrations + router wiring
      schema.cljs           — Malli schemas for the example slices
-     http.cljs             — :http registered fx
-     ssr.cljc              — hydration payload helper for the RealWorld app"
-  (:require [reagent.dom.client :as rdc]
+     http.cljs             — request-builder + retry policy for :rf.http/managed
+     ssr.cljc              — hydration payload helper for the RealWorld app
+
+   This is the canonical Spec 014 (`:rf.http/managed`) demo per
+   rf2-kauy / rf2-o8t6. Every Conduit endpoint goes via the
+   framework-shipped managed-HTTP fx; the demo entry below installs a
+   canned-stub override so the headless smoke and Playwright run without
+   a network."
+  (:require [clojure.string :as str]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.reagent :as reagent-adapter]
             [realworld.schema]
             [realworld.http]
@@ -144,19 +152,25 @@
 ;; ----------------------------------------------------------------------------
 ;; DEMO STUBS
 ;;
-;; The realworld example would normally call out to https://api.realworld.io/api,
-;; which is unreliable for the headless smoke and slow for a demo. Override the
-;; :http effect with a small in-process stub that returns canned data for the
-;; routes the demo actually exercises (global feed, tags, profile). Anything
-;; not covered resolves to an empty-shape :on-success — enough for the app
-;; shell + main feed to render.
+;; The realworld example would normally hit https://api.realworld.io/api,
+;; which is unreliable for headless smoke and slow for a demo. Override
+;; :rf.http/managed with a small in-process stub that synthesises the
+;; canonical Spec 014 reply shape for the routes the demo actually
+;; exercises (global feed, tags, profile). Anything not covered resolves
+;; to an empty-payload success — enough for the app shell + main feed
+;; to render.
+;;
+;; The override uses :rf.http/managed-canned-success directly with a
+;; per-URL :value payload. This is the same shape Spec 014 §Testing
+;; documents — just routed by URL inspection in a wrapper fx so the
+;; demo doesn't have to know one URL ahead of time.
 ;; ----------------------------------------------------------------------------
 
 (def ^:private demo-articles
   [{:slug "hello-conduit"
     :title "Hello, Conduit"
     :description "A short greeting from the realworld stub."
-    :body "This article is served by the demo :http override."
+    :body "This article is served by the demo :rf.http/managed override."
     :tagList ["intro" "demo"]
     :createdAt "2026-01-01T00:00:00Z"
     :updatedAt "2026-01-01T00:00:00Z"
@@ -183,30 +197,46 @@
 (def ^:private demo-tags
   ["intro" "demo" "clojure" "re-frame"])
 
-(rf/reg-fx :http.demo-stub
-  {:doc       "Demo stub for realworld :http: routes URLs to canned responses
-               so the example runs standalone without a backend."
+(defn- demo-payload-for-url [url]
+  (let [u (str url)]
+    (cond
+      (str/includes? u "/articles/feed")
+      {:articles [] :articlesCount 0}
+
+      (re-find #"/articles/[^/]+/comments" u)
+      {:comments []}
+
+      (re-find #"/articles/[^/?]+$" u)
+      {:article (first demo-articles)}
+
+      (or (str/ends-with? u "/articles") (str/includes? u "/articles?"))
+      {:articles demo-articles :articlesCount (count demo-articles)}
+
+      (str/includes? u "/tags")
+      {:tags demo-tags}
+
+      (str/includes? u "/profiles/")
+      {:profile {:username "stub-bot" :bio "" :image "" :following false}}
+
+      :else {})))
+
+(rf/reg-fx :rf.http/managed.realworld-demo
+  {:doc       "Demo override for :rf.http/managed: routes by URL to canned
+               Conduit-shaped responses so the example runs standalone
+               without a backend. Delegates to :rf.http/managed-canned-success
+               with a synthesised :value per Spec 014 §Testing."
    :platforms #{:server :client}}
-  (fn fx-http-demo-stub [{:keys [frame]} {:keys [url on-success on-error]}]
-    (let [resp (cond
-                 (re-find #"/articles$|/articles\?" (str url))
-                 {:articles demo-articles :articlesCount (count demo-articles)}
-
-                 (re-find #"/articles/feed" (str url))
-                 {:articles [] :articlesCount 0}
-
-                 (re-find #"/tags" (str url))
-                 {:tags demo-tags}
-
-                 (re-find #"/profiles/" (str url))
-                 {:profile {:username "stub-bot" :bio "" :image "" :following false}}
-
-                 :else {})]
-      (js/setTimeout
-        (fn []
-          (when on-success
-            (rf/dispatch (conj on-success resp) {:frame frame})))
-        20))))
+  (fn fx-managed-demo-stub [frame-ctx args-map]
+    (let [url     (-> args-map :request :url)
+          payload (demo-payload-for-url url)
+          stub-fn (registrar/handler :fx :rf.http/managed-canned-success)]
+      ;; Drive the framework-shipped canned-success stub to get the
+      ;; correct reply shape (default reply addressing or explicit
+      ;; :on-success — Spec 014 §Reply addressing).
+      (when stub-fn
+        (js/setTimeout
+          (fn [] (stub-fn frame-ctx (assoc args-map :value payload)))
+          20)))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
 ;; the `root-view` reg-view above (rf2-562e). Gated on (exists? js/document)
@@ -217,10 +247,10 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  ;; Override :http on the default frame so all the realworld feature
-  ;; HTTP calls land on the demo stub (no real backend required).
+  ;; Override :rf.http/managed on the default frame so all the realworld
+  ;; feature HTTP calls land on the demo stub (no real backend required).
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
-                             :fx-overrides {:http :http.demo-stub}})
+                             :fx-overrides {:rf.http/managed :rf.http/managed.realworld-demo}})
   ;; The orchestrator serves this example at /realworld/; strip that
   ;; prefix before the route matcher sees the URL so :route/home (path "/")
   ;; matches.
