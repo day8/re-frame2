@@ -227,21 +227,16 @@
   Each :sub/run trace event surfaces as one entry with `:recomputed?
   true`. Per Spec-Schemas §`:rf/epoch-record`: a sub queried via the
   rf2-719e cache hit path does NOT emit `:sub/run` (the body fn does
-  not re-run), so cache-hit subs are absent from this projection.
-  `:result-changed?` is currently true when the sub recomputed (the
-  raw trace doesn't yet carry the prior value); tools requiring
-  fine-grained change-tracking should consume the raw trace stream
-  until rf2 wires post-compute equality back through the trace."
+  not re-run), so cache-hit subs are absent from this projection."
   [events]
   (into []
         (comp
           (filter (fn [ev] (= :sub/run (:operation ev))))
           (map (fn [ev]
                  (let [t (:tags ev)]
-                   {:sub-id          (:sub-id t)
-                    :query-v         (:query-v t)
-                    :recomputed?     true
-                    :result-changed? true}))))
+                   {:sub-id      (:sub-id t)
+                    :query-v     (:query-v t)
+                    :recomputed? true}))))
         events))
 
 (defn- project-renders
