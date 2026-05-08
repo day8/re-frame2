@@ -1,44 +1,44 @@
 # RealWorld (Conduit) in re-frame2
 
-A worked example based on the [RealWorld spec](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark for SPA frameworks. The reference implementations on the [RealWorld page](https://codebase.show/projects/realworld) cover dozens of frontend frameworks; reading any two side-by-side shows the differences in shape concretely.
+A worked example based on the [RealWorld spec](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark for SPA frameworks. The goal here is breadth: show how the current re-frame2 surface composes across auth, routing, remote data, forms, machines, optimistic updates, and SSR-related payload concerns.
 
-**Status: partially implemented.** This is a scaffolded worked example, not a finished Conduit clone. The auth flow, the article-list page, and the route table are wired end-to-end and headless-tested; the remaining pages (article detail, editor, profile, favorites, tag filter, SSR) are TODO stubs with docstrings describing what they should do. The "What's implemented" table below is the source of truth.
+**Status: worked sketch.** This is not presented as a polished production clone. It is a broad, current-API example set: every major RealWorld page now has a concrete namespace, and each namespace demonstrates the intended re-frame2 shape even where the implementation remains sketch-level.
 
-The implemented subset exercises re-frame2's locked surface like so:
+## What this example exercises
 
-- **Auth state machine** *(implemented)* — login, register, session-restore, logout as one machine.
-- **Pattern-RemoteData** *(implemented for `articles` and `tags`; rest TODO)* — async resources use the standard 5-key slice + four standard events.
-- **Routing** *(routes registered; subset exercised)* — every Conduit route is in the route table. The currently-exercised features are `reg-route` with the canonical path-pattern grammar, deterministic route ranking, `:on-match` data loading for the home page, the `:can-leave` registration shape (full editor-blocking flow lands with `article_editor.cljs`), and nav-token allocation. Fragment-aware scrolling, query-string round-tripping, and the full pending-nav UI exercise land with later TODO files.
-- **Pattern-Forms** *(implemented for login + register; rest TODO)* — login form and register form follow the standard form slice; comment form, editor, and settings forms are TODO.
-- **Schemas** *(implemented for the implemented slices)* — wire payloads and app-db slices used by the implemented files have Malli schemas attached via `reg-app-schema`.
-- **SSR** *(TODO)* — `ssr.cljs` is a stub. See `examples/ssr/core.cljc` for the minimal SSR worked example.
+- **Auth state machine** — login, register, session-restore, logout as one machine.
+- **Pattern-RemoteData** — global feed, your feed, article detail, comments, profile banner, authored articles, favorited articles, and tags all use the same lifecycle slice.
+- **Pattern-Forms** — login, register, comment post, article editor, and settings reuse the same draft/submission shape.
+- **Routing** — route table, path params, query params, auth gating, route-driven loads, and navigation blocking for the editor.
+- **Optimistic updates** — favorite toggle, comment delete, and follow/unfollow all show rollback-friendly event shapes.
+- **Schemas** — wire payloads and app-db slices are attached with `reg-app-schema`.
+- **SSR boundary** — the app-specific hydration payload helper lives alongside the generic SSR worked example in `examples/ssr/`.
 
-## What's implemented
+## Files
 
 | File | Status | Notes |
 |---|---|---|
-| `core.cljs` | implemented | Entry point, mount, app-shell, header/footer/root view. |
-| `schema.cljs` | implemented | Malli schemas for User, Profile, Article, Comment, Tag; the standard `RequestSlice`; per-slice schema registrations. |
-| `http.cljs` | implemented | `:http` fx with auto-injected Bearer token; canned-success test stub. |
-| `routing.cljs` | implemented (subset) | Every Conduit route registered. `:on-match` data loading wired for the home page; `:can-leave` editor guard registered (the full unsaved-changes flow lands with `article_editor.cljs`); pending-nav protocol scaffolding; route-link view. Several handlers are local re-statements of framework-shipped defaults — see the file's ownership-boundary docstring. |
-| `auth.cljs` | implemented | Auth state machine (`:auth/flow`); login + register form events; session restore via cofx + machine; views for login/register pages. |
-| `articles.cljs` | implemented | Article-list page with the canonical Pattern-RemoteData lifecycle; tags-list sidebar; home-page view. |
-| `article_editor.cljs` | TODO stub | Editor (create / edit / delete). See file's docstring for what's pending. |
-| `comments.cljs` | TODO stub | Comment list + post + delete. |
-| `profile.cljs` | TODO stub | Profile pages: own profile, view another user, follow/unfollow. |
-| `favorites.cljs` | TODO stub | Article favorite toggle (optimistic), 'Your Feed' tab. |
-| `tags.cljs` | TODO stub | Tag-as-filter on the home page (the tag *list* is loaded by `articles.cljs`). |
-| `ssr.cljs` | TODO stub | Server-side render + hydrate. |
-
-Each TODO file is a valid namespace with a docstring describing the scope of that feature, the API endpoints it consumes, and which Patterns / Specs it instantiates.
+| `core.cljs` | implemented | Entry point, app shell, route switch, mount. |
+| `schema.cljs` | implemented | Wire shapes plus app-db slice schemas used by the sketch. |
+| `http.cljs` | implemented | `:http` fx with auth token injection and canned test override. |
+| `routing.cljs` | implemented | Route table, auth guard, route-link helper, browser wiring. |
+| `auth.cljs` | implemented | Auth machine plus login/register forms. |
+| `articles.cljs` | implemented | Home page, global feed, popular tags, tag filter UI. |
+| `favorites.cljs` | implemented | Favorite toggle and followed-authors feed. |
+| `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete. |
+| `article_editor.cljs` | implemented | New/edit/delete article plus unsaved-change guard. |
+| `profile.cljs` | implemented | Profile banner, authored/favorited tabs, follow/unfollow. |
+| `settings.cljs` | implemented | User settings form and logout affordance. |
+| `tags.cljs` | implemented | Home-page query helpers (`?tag=` and `?feed=your`). |
+| `ssr.cljc` | implemented | RealWorld-specific hydration payload helper; pairs with `../ssr/core.cljc`. |
 
 ## Architecture references
 
-- [`docs/specification/Pattern-RemoteData.md`](../../docs/specification/Pattern-RemoteData.md) — RealWorld's `articles`, `tags`, `profile`, `comments` slices each instantiate this pattern.
-- [`docs/specification/Pattern-Forms.md`](../../docs/specification/Pattern-Forms.md) — RealWorld's login, register, and (when implemented) comment, editor, and settings forms each instantiate this pattern.
-- [`docs/specification/012-Routing.md`](../../docs/specification/012-Routing.md) — every routing locked feature is exercised here.
-- [`docs/specification/005-StateMachines.md`](../../docs/specification/005-StateMachines.md) — auth flow.
-- [`docs/specification/011-SSR.md`](../../docs/specification/011-SSR.md) — to be exercised by `ssr.cljs`.
+- [`docs/specification/Pattern-RemoteData.md`](../../docs/specification/Pattern-RemoteData.md)
+- [`docs/specification/Pattern-Forms.md`](../../docs/specification/Pattern-Forms.md)
+- [`docs/specification/012-Routing.md`](../../docs/specification/012-Routing.md)
+- [`docs/specification/005-StateMachines.md`](../../docs/specification/005-StateMachines.md)
+- [`docs/specification/011-SSR.md`](../../docs/specification/011-SSR.md)
 
 ## How to run
 
@@ -52,31 +52,24 @@ shadow-cljs watch realworld
 # then open the served HTML and click around
 ```
 
-The included headless tests are browserless (no DOM, no React) and assert the implemented behaviour. Because the example files are `.cljs`, the tests run in a CLJS host (Node, shadow-cljs `node-test` target, etc.). To run on the JVM, port the testable parts of each file to `.cljc`:
+The included headless tests are browserless sketches. Because most files are `.cljs`, run them in a CLJS host (Node, a `node-test` target, or a browser build without mounting the DOM-facing entrypoint):
 
 ```clojure
 (example.realworld.auth/login-happy-path-test)
-(example.realworld.auth/login-failure-test)
 (example.realworld.articles/articles-load-test)
-(example.realworld.articles/articles-load-failure-test)
+(example.realworld.comments/comments-load-test)
+(example.realworld.article-editor/editor-create-test)
+(example.realworld.profile/profile-load-test)
+(example.realworld.favorites/favorite-toggle-test)
+(example.realworld.tags/tag-query-test)
+(example.realworld.settings/settings-test)
 (example.realworld.routing/routing-tests)
 (example.realworld.core/app-smoke-test)
 ```
 
 ## Why RealWorld
 
-- **Cross-framework comparability.** The same app exists in React, Vue, Svelte, Solid, Elm, etc. Diff with the [re-frame v1 RealWorld](https://github.com/jacekschae/conduit) to see what changes (or doesn't) in re-frame2.
-- **Larger than 7GUIs.** 7GUIs nails the primitives; RealWorld is the "real app" benchmark.
-- **End-to-end pattern exercise.** Auth flow (machine), routing (every locked feature), forms (every form-shaped UI), remote data (every async resource), schemas (every wire payload), SSR (server-rendered article pages).
-- **AI-amenable.** The spec is unambiguous; the scaffolded shape here makes it cheap for an AI to fill in the TODO stubs one feature at a time.
-
-## Next steps (if filling in stubs)
-
-The TODO files are intentionally independent — each can be implemented and tested without touching the others. Suggested order:
-
-1. `comments.cljs` — smallest; reuses Pattern-RemoteData and Pattern-Forms.
-2. `profile.cljs` — exercises multiple slices for one page.
-3. `favorites.cljs` — exercises optimistic-update with rollback.
-4. `article_editor.cljs` — exercises `:can-leave` (the navigation-blocking flow is half-wired by `routing.cljs` already).
-5. `tags.cljs` — exercises `:query` and `:query-retain` on a route.
-6. `ssr.cljs` — convert to `.cljc`, add the JVM `:http` implementation, exercise `:rf/server-init` + `:rf/hydrate`.
+- **Cross-framework comparability.** The same app exists in React, Vue, Svelte, Solid, Elm, and many more.
+- **Larger than 7GUIs.** 7GUIs nails the primitives; RealWorld shows how they combine into a recognisable product shape.
+- **Pattern coverage.** This is where the routing, machine, forms, remote-data, and optimistic-update stories meet each other.
+- **AI-friendly breadth.** The code is intentionally direct, repetitive where useful, and split by feature so individual flows stay easy to follow.

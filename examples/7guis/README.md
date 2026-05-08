@@ -12,7 +12,7 @@
 | 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`06_circle_drawer.cljs`](06_circle_drawer.cljs) |
 | 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`07_cells.cljs`](07_cells.cljs) |
 
-Each example is single-file (no shadow-cljs.edn, no package.json, no HTML scaffolding) and demonstrates the imagined re-frame2 API. Together they exercise the construction prompts (CP-1..CP-9) and validate that the pattern's primitives compose into real UI work.
+Each example is single-file (no shadow-cljs.edn, no package.json, no HTML scaffolding) and demonstrates the current re-frame2 API. Together they exercise the construction prompts (CP-1..CP-9) and validate that the pattern's primitives compose into real UI work.
 
 ## How these compare to the original 7GUIs reference
 

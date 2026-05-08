@@ -6,9 +6,9 @@
 
 ## What Is It?
 
-It is the firstborn of [re-frame](https://github.com/day8/re-frame).
+It is the firstborn child of [re-frame](https://github.com/day8/re-frame) and AI.
 
-It is a library for building web apps (specifically SPAs), probably in ClojureScript.
+It is a pattern for building web apps (specifically SPAs), probably in ClojureScript.
 
 ## Status
 
