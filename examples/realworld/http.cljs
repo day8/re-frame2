@@ -69,19 +69,3 @@
                     (when on-error
                       (rf/dispatch (conj on-error {:errors {:body [(str err)]}}) {:frame frame}))))))))
 
-;; ============================================================================
-;; TEST STUB — id-valued override per Spec 002 §override seam
-;; ============================================================================
-;;
-;; Tests bind :http -> :http.canned-success in :fx-overrides on make-frame so
-;; no real network calls happen. Per-test stubs (:http.canned-failure, etc.)
-;; are typically registered inside the test that needs them.
-
-(rf/reg-fx :http.canned-success
-  {:doc       "Test stub: every :http call resolves :on-success with an
-               empty map. Tests register a richer canned response when they
-               need specific payloads."
-   :platforms #{:client :server}}
-  (fn fx-http-canned-success [{:keys [frame]} {:keys [on-success]}]
-    (when on-success
-      (rf/dispatch (conj on-success {}) {:frame frame}))))

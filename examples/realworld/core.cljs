@@ -34,7 +34,7 @@
             [realworld.favorites]
             [realworld.tags]
             [realworld.settings :as settings])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; ============================================================================
 ;; INITIALISATION
@@ -138,21 +138,6 @@
    [footer]])
 
 ;; ============================================================================
-;; HEADLESS TESTS  (top-level smoke)
-;; ============================================================================
-
-(defn app-smoke-test []
-  (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                    :fx-overrides {:http :http.canned-success
-                                                   :auth.session/store :rf/no-op
-                                                   :auth.session/clear :rf/no-op}})]
-    ;; After init: auth, articles, and tags slices are present.
-    (let [db (rf/get-frame-db f)]
-      (assert (contains? db :auth))
-      (assert (contains? db :articles))
-      (assert (contains? db :tags)))))
-
-;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
@@ -224,9 +209,11 @@
         20))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
-;; the `root-view` reg-view above (rf2-562e).
+;; the `root-view` reg-view above (rf2-562e). Gated on (exists? js/document)
+;; so the ns is safe to require under :node-test (rf2-4v73).
 (defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+  (when (exists? js/document)
+    (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)

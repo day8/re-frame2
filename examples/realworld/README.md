@@ -20,7 +20,7 @@ A worked example based on the [RealWorld spec](https://github.com/gothinkster/re
 |---|---|---|
 | `core.cljs` | implemented | Entry point, app shell, route switch, mount. |
 | `schema.cljs` | implemented | Wire shapes plus app-db slice schemas used by the sketch. |
-| `http.cljs` | implemented | `:http` fx with auth token injection and canned test override. |
+| `http.cljs` | implemented | `:http` fx with auth token injection. |
 | `routing.cljs` | implemented | Route table, auth guard, route-link helper, browser wiring. |
 | `auth.cljs` | implemented | Auth machine plus login/register forms. |
 | `articles.cljs` | implemented | Home page, global feed, popular tags, tag filter UI. |
@@ -52,19 +52,44 @@ shadow-cljs watch realworld
 # then open the served HTML and click around
 ```
 
-The included headless tests are browserless sketches. Because most files are `.cljs`, run them in a CLJS host (Node, a `node-test` target, or a browser build without mounting the DOM-facing entrypoint):
+## Headless tests
+
+The headless tests are browserless sketches. They live alongside the
+sources at `test/realworld/<feature>_test.cljs`, mirroring the source
+namespaces:
+
+| Source ns | Test ns |
+|---|---|
+| `realworld.auth` | `realworld.auth-test` |
+| `realworld.articles` | `realworld.articles-test` |
+| `realworld.article-editor` | `realworld.article-editor-test` |
+| `realworld.comments` | `realworld.comments-test` |
+| `realworld.favorites` | `realworld.favorites-test` |
+| `realworld.profile` | `realworld.profile-test` |
+| `realworld.settings` | `realworld.settings-test` |
+| `realworld.tags` | `realworld.tags-test` |
+| `realworld.routing` | `realworld.routing-test` |
+| `realworld.ssr` | `realworld.ssr-test` |
+| `realworld.core` | `realworld.core-test` |
+
+Each test fn is a plain zero-arg `defn`; failures throw via `assert`. The
+shadow-cljs `node-test` build picks them up via the integration wrapper
+at `implementation/test/re_frame/realworld_cljs_test.cljs` (run with
+`npm run test:cljs` from the `implementation/` directory). Because most
+files are `.cljs`, you can also call them directly from a REPL in a CLJS
+host (Node or a browser build without the DOM-facing entrypoint):
 
 ```clojure
-(realworld.auth/login-happy-path-test)
-(realworld.articles/articles-load-test)
-(realworld.comments/comments-load-test)
-(realworld.article-editor/editor-create-test)
-(realworld.profile/profile-load-test)
-(realworld.favorites/favorite-toggle-test)
-(realworld.tags/tag-query-test)
-(realworld.settings/settings-test)
-(realworld.routing/routing-tests)
-(realworld.core/app-smoke-test)
+(realworld.auth-test/login-happy-path-test)
+(realworld.articles-test/articles-load-test)
+(realworld.comments-test/comments-load-test)
+(realworld.article-editor-test/editor-create-test)
+(realworld.profile-test/profile-load-test)
+(realworld.favorites-test/favorite-toggle-test)
+(realworld.tags-test/tag-query-test)
+(realworld.settings-test/settings-test)
+(realworld.routing-test/routing-tests)
+(realworld.core-test/app-smoke-test)
 ```
 
 ## Why RealWorld
