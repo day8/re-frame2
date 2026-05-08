@@ -1,0 +1,63 @@
+;; Conformance fixture: dsl/event-arg-vs-get-event-arg
+;; Per rf2-xb5o (resolves rf2-pz9f): the conformance handler-body DSL
+;; distinguishes:
+;;
+;;   [:event-arg n]                  — n-th event arg (verbatim)
+;;   [:event-arg n default-val]      — n-th event arg, default-val if nil
+;;                                     (UNCONDITIONAL: default-val is NEVER
+;;                                     interpreted as a key into the value)
+;;   [:get-event-arg n :key]         — key-access into the n-th arg (a map)
+;;   [:get-event-arg n :key default] — key-access with default if missing/nil
+;;
+;; This fixture exercises both forms in event handlers and asserts the
+;; observable result in app-db. The interesting case is when the runtime
+;; arg IS a map AND the 3rd element of [:event-arg ...] is a keyword:
+;; pre-rf2-xb5o, that triggered key-access; post-rf2-xb5o, the keyword
+;; is a default-for-nil that is NOT used (because the arg is non-nil).
+
+{:fixture/id           :dsl/event-arg-vs-get-event-arg
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
+ :fixture/doc          "Splits :event-arg (default-for-nil only) from :get-event-arg (key-access). Pre-rf2-xb5o, [:event-arg 1 :foo] with a map arg meant 'extract :foo'; post-rf2-xb5o, the map is returned verbatim and the keyword is unused."
+
+ :fixture/registry
+ {:event {:dsl/init                {:doc "Seed."}
+          :dsl/store-event-arg     {:doc "Store [:event-arg 1 :foo] at [:via-event-arg]."}
+          :dsl/store-get-event-arg {:doc "Store [:get-event-arg 1 :foo] at [:via-get-event-arg]."}
+          :dsl/store-default-fires {:doc "[:event-arg 1 :default-fires] when arg is nil — default-val returned."}}
+  :sub   {:via-event-arg     {:doc "Reads [:via-event-arg]."}
+          :via-get-event-arg {:doc "Reads [:via-get-event-arg]."}
+          :default-fires     {:doc "Reads [:default-fires]."}}}
+
+ :fixture/handlers
+ {:event {:dsl/init                [[:set [] {}]]
+          ;; The arg is the map {:foo 42}. With key-access overload, this
+          ;; would write 42; without (post-rf2-xb5o), the whole map writes.
+          :dsl/store-event-arg     [[:set [:via-event-arg]     [:event-arg 1 :foo]]]
+          ;; Explicit key-access: writes 42.
+          :dsl/store-get-event-arg [[:set [:via-get-event-arg] [:get-event-arg 1 :foo]]]
+          ;; Dispatched with NO 1st arg, so [:event-arg 1] is nil → default
+          ;; (the keyword) is returned.
+          :dsl/store-default-fires [[:set [:default-fires]     [:event-arg 1 :default-fires]]]}
+  :sub   {:via-event-arg     [[:get [:via-event-arg]]]
+          :via-get-event-arg [[:get [:via-get-event-arg]]]
+          :default-fires     [[:get [:default-fires]]]}}
+
+ :fixture/frame-config
+ {:on-create [:dsl/init]}
+
+ :fixture/dispatches
+ [[:dsl/store-event-arg     {:foo 42}]
+  [:dsl/store-get-event-arg {:foo 42}]
+  [:dsl/store-default-fires]]
+
+ :fixture/expect
+ {:final-app-db
+  {:via-event-arg     {:foo 42}        ;; whole map — no key-access
+   :via-get-event-arg 42               ;; key-access via :get-event-arg
+   :default-fires     :default-fires}  ;; nil arg → keyword default returned
+
+  :sub-values
+  {[:via-event-arg]     {:foo 42}
+   [:via-get-event-arg] 42
+   [:default-fires]     :default-fires}}}
