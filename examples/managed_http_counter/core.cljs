@@ -163,31 +163,27 @@
 
 ;; -- Views -------------------------------------------------------------------
 
-(reg-view :counter-view
-  (fn []
-    (let [d (rf/dispatcher)
-          s (rf/subscriber)
-          count  @(s [:count])
-          status @(s [:status])
-          error  @(s [:error])]
-      [:div {:style {:font-family "sans-serif" :padding "1em"}}
-       [:h1 "Managed HTTP counter"]
-       [:p "Count: " [:span {:data-testid "count"} count]]
-       [:p "Status: " [:span {:data-testid "status"} (name status)]]
-       (when error
-         [:p {:data-testid "error"
-              :style       {:color "crimson"}}
-          "Error kind: " (str (:kind error))])
-       [:div {:style {:display :flex :gap "0.5em"}}
-        [:button {:on-click #(d [:counter/+1])}              "+1"]
-        [:button {:on-click #(d [:counter/fail])}            "Fail"]
-        [:button {:on-click #(d [:counter/retry-recover])}   "Retry-recover"]
-        [:button {:on-click #(d [:counter/start-long])}      "Start long"]
-        [:button {:on-click #(d [:counter/cancel])}          "Cancel"]]])))
+(reg-view counter-view []
+  (let [count  @(subscribe [:count])
+        status @(subscribe [:status])
+        error  @(subscribe [:error])]
+    [:div {:style {:font-family "sans-serif" :padding "1em"}}
+     [:h1 "Managed HTTP counter"]
+     [:p "Count: " [:span {:data-testid "count"} count]]
+     [:p "Status: " [:span {:data-testid "status"} (name status)]]
+     (when error
+       [:p {:data-testid "error"
+            :style       {:color "crimson"}}
+        "Error kind: " (str (:kind error))])
+     [:div {:style {:display :flex :gap "0.5em"}}
+      [:button {:on-click #(dispatch [:counter/+1])}              "+1"]
+      [:button {:on-click #(dispatch [:counter/fail])}            "Fail"]
+      [:button {:on-click #(dispatch [:counter/retry-recover])}   "Retry-recover"]
+      [:button {:on-click #(dispatch [:counter/start-long])}      "Start long"]
+      [:button {:on-click #(dispatch [:counter/cancel])}          "Cancel"]]]))
 
-(reg-view :counter-app
-  (fn []
-    [counter-view]))
+(reg-view counter-app []
+  [counter-view])
 
 ;; -- Mount -------------------------------------------------------------------
 

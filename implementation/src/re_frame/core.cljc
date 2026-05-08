@@ -66,7 +66,11 @@
      :file captured at this call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -82,7 +86,11 @@
      :file captured at this call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -98,7 +106,11 @@
      this call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -114,7 +126,11 @@
      call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -130,7 +146,11 @@
      call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -146,7 +166,11 @@
      this call site."
      [id & args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -162,7 +186,11 @@
      site."
      [id metadata]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -249,8 +277,11 @@
      ;; both this surface and the legacy
      ;; `:require-macros [re-frame.views-macros :refer [reg-view]]`
      ;; emit identical expansions.
+     ;; Construct a fresh metadata-free symbol; (ns-name *ns*) carries the
+     ;; consumer namespace's :doc metadata in CLJS macro context, which
+     ;; would otherwise serialise into the bundle and defeat elision.
      ((requiring-resolve 're-frame.views-macros/expand-reg-view)
-      (meta &form) (ns-name *ns*) *file* sym more)))
+      (meta &form) (symbol (str (ns-name *ns*))) *file* sym more)))
 
 (defn get-view
   "Return the render fn for a registered view by id, or nil if not
@@ -298,7 +329,11 @@
      site."
      [& args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -314,7 +349,11 @@
      site."
      [id metadata]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -330,7 +369,11 @@
      :file captured at this call site."
      [path schema]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -351,7 +394,11 @@
      :file captured at this call site."
      [machine-id machine]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
@@ -397,7 +444,11 @@
      call site."
      [& args]
      (let [m       (meta &form)
-           ns-sym  (ns-name *ns*)
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
+           ;; the ns-symbol but in CLJS macro context that symbol may carry
+           ;; the consumer namespace's :doc metadata, which would then get
+           ;; serialised into the bundle and defeat production elision.
+           ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
