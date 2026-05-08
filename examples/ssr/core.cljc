@@ -21,10 +21,19 @@
      :replace-app-db policy
    - data-rf-render-hash structural marker on the root element; the runtime
      diffs server vs. client hashes after first render and emits
-     :rf.ssr/hydration-mismatch on disagreement"
+     :rf.ssr/hydration-mismatch on disagreement
+
+   Runnable form (rf2-vq2s): the hand-written `index.html` next to this
+   file ships with pre-rendered HTML inside `<div id='app'>` and a pre-
+   baked `<script id='__rf_payload'>` — exactly the shape `handle-request`
+   below would emit if a real Clojure server were sitting in front. The
+   browser-side `run` reads the payload, dispatches `:rf/hydrate`, and
+   renders against the now-seeded app-db."
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            #?(:cljs [reagent.dom.client :as rdc])))
+            #?(:cljs [cljs.reader])
+            #?(:cljs [reagent.dom.client :as rdc])
+            #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -88,24 +97,56 @@
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 
 ;; ============================================================================
+;; CLIENT-SIDE INTERACTIVITY EVENTS  (rf2-vq2s)
+;; ============================================================================
+;;
+;; A small interactive surface so we can verify that hydration left the
+;; client fully reactive — clicking "Hide bodies" must toggle the body
+;; paragraphs in/out without a full re-render. The slice has no server
+;; correspondent, so it lives outside the SSR payload's authoritative
+;; slice and starts at its default value on the client.
+
+(rf/reg-event-db :articles/toggle-bodies
+  (fn [db _] (update db :articles/show-bodies? (fnil not true))))
+
+;; ============================================================================
 ;; SUBSCRIPTIONS / VIEWS
 ;; ============================================================================
 
 (rf/reg-sub :articles (fn [db _] (:articles db)))
 
+(rf/reg-sub :articles/show-bodies?
+  (fn [db _]
+    ;; Default is true so the SSR pass renders bodies; the client can hide
+    ;; them post-hydration.
+    (let [v (:articles/show-bodies? db)]
+      (if (nil? v) true v))))
+
 ;; reg-view (defn-shape per Spec 004 §reg-view) auto-defs the symbol and
 ;; registers under (keyword *ns* sym) — overridden here via
 ;; ^{:rf/id ...} so the legacy :pages/articles / :app/root ids stay
 ;; intact for the view callers below.
+;;
+;; Server-side (JVM) the auto-injected `subscribe` in `reg-view` is a
+;; macro-time concept that resolves to (rf/subscriber) — a frame-bound
+;; subscribe fn — at runtime. On the JVM render path, deref of a
+;; subscription yields its current value; on the client, deref tracks
+;; the reaction so re-renders fire on app-db changes. Same code, both
+;; sides — that's the SSR/CLJS parity Spec 011 promises.
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  (let [arts (rf/subscribe-value [:articles])]
+  (let [arts         @(subscribe [:articles])
+        show-bodies? @(subscribe [:articles/show-bodies?])]
     [:div.page
      [:h1 "Recent articles"]
+     [:button.toggle-bodies
+      {:on-click #(dispatch [:articles/toggle-bodies])}
+      (if show-bodies? "Hide bodies" "Show bodies")]
      (if (seq arts)
        (into [:ul]
              (for [{:keys [id title body]} arts]
                ^{:key id}
-               [:li [:h3 title] [:p body]]))
+               [:li [:h3 title]
+                (when show-bodies? [:p.body body])]))
        [:p "No articles."])]))
 
 (rf/reg-view ^{:rf/id :app/root} root-view []
@@ -178,23 +219,29 @@
      (when-let [el (.getElementById js/document "__rf_payload")]
        (cljs.reader/read-string (.-textContent el)))))
 
-#?(:cljs
-   (defonce client-frame
-     (rf/reg-frame :app/main {:on-create [:rf/client-bootstrap]})))
-
 (rf/reg-event-db :rf/client-bootstrap
   {:doc "Client-side init that runs even if the server didn't render this page."}
   (fn [db _] db))
 
 #?(:cljs
-   (defonce root
+   (defonce react-root
      (rdc/create-root (js/document.getElementById "app"))))
 
 #?(:cljs
    (defn ^:export run []
-     (when-let [payload (read-server-payload)]
-       (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-     (rdc/render root [(rf/view :app/root)])))
+     ;; Boot the runtime against the Reagent substrate. Idempotent — the
+     ;; first call installs the adapter and creates :rf/default; subsequent
+     ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
+     (rf/init! reagent-adapter/adapter)
+     ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
+     ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
+     ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
+     ;; payload script), :rf/client-bootstrap runs as a no-op and the page
+     ;; renders the empty-articles fallback.
+     (if-let [payload (read-server-payload)]
+       (rf/dispatch-sync [:rf/hydrate payload])
+       (rf/dispatch-sync [:rf/client-bootstrap]))
+     (rdc/render react-root [(rf/view :app/root)])))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (JVM-runnable; exercises the server flow)

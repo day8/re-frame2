@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>re-frame2 example: SSR + hydration</title>
+  <style>
+    body { font-family: sans-serif; margin: 2em; }
+    .page { max-width: 600px; }
+    .toggle-bodies { margin: 0.5em 0 1em; padding: 6px 12px; }
+    h1 { margin-top: 0; }
+    li { margin-bottom: 1em; }
+    h3 { margin: 0 0 0.25em; }
+    p.body { margin: 0; }
+  </style>
+</head>
+<body>
+  <!--
+    The contents of <div id="app"> below were "produced server-side" — this
+    static index.html is the runnable companion to ssr/core.cljc and stands
+    in for what `handle-request` (in core.cljc, :clj branch) would emit if a
+    real Clojure server were sitting in front. The corresponding
+    `<script id="__rf_payload">` block immediately below carries the
+    serialised app-db; the client `run` reads it, dispatches `:rf/hydrate`
+    (replace-app-db semantics, Spec 011), and renders against the now-seeded
+    state.
+
+    The data-rf-render-hash attribute would normally be emitted by
+    render-to-string with :emit-hash? true; we omit it from the static page
+    because we don't recompute the FNV-1a hash here. That side of Spec 011
+    is exercised by the JVM-side ssr-tests fn in core.cljc (and by the
+    re-frame.ssr conformance suite) — out of scope for the browser smoke test.
+  -->
+  <div id="app">
+    <div class="page">
+      <h1>Recent articles</h1>
+      <button class="toggle-bodies">Hide bodies</button>
+      <ul>
+        <li><h3>Article A</h3><p class="body">Body A</p></li>
+        <li><h3>Article B</h3><p class="body">Body B</p></li>
+      </ul>
+    </div>
+  </div>
+  <script id="__rf_payload" type="application/edn">
+{:rf/version 1
+ :rf/app-db {:articles [{:id "a" :title "Article A" :body "Body A"}
+                        {:id "b" :title "Article B" :body "Body B"}]
+             :route {:id :route/articles :params {}}}
+ :rf/render-hash "deadbeef"}
+  </script>
+  <script src="main.js"></script>
+</body>
+</html>

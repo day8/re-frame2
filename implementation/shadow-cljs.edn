@@ -164,4 +164,15 @@
   {:target     :browser
    :output-dir "out/examples/state-machine-walkthrough"
    :asset-path "."
-   :modules    {:main {:init-fn state-machine-walkthrough.views/run}}}}}
+   :modules    {:main {:init-fn state-machine-walkthrough.views/run}}}
+
+  ;; SSR + hydration walkthrough (rf2-vq2s). The static index.html
+  ;; ships with pre-rendered HTML and a baked `<script id="__rf_payload">`,
+  ;; standing in for what core.cljc's :clj-side `handle-request` would
+  ;; emit. The CLJS branch reads the payload, dispatches `:rf/hydrate`,
+  ;; and renders against the seeded app-db.
+  :examples/ssr
+  {:target     :browser
+   :output-dir "out/examples/ssr"
+   :asset-path "."
+   :modules    {:main {:init-fn ssr.core/run}}}}}

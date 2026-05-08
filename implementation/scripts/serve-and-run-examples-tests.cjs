@@ -127,6 +127,12 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'state_machine_walkthrough', 'index.html'),
     outDir: path.join(OUT_ROOT, 'state-machine-walkthrough'),
   },
+  // rf2-vq2s — SSR + hydration walkthrough.
+  {
+    build: 'examples/ssr',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'ssr', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'ssr'),
+  },
 ];
 
 function compileAll() {
