@@ -8,7 +8,7 @@
   The node-test runner has no DOM, so we don't mount through React.
   Instead we exercise the contract at the layer the substrate cares
   about: registry lookup of the wrapped render fn. After re-register,
-  re-frame.core/get-view (the lookup the substrate's render-cycle uses
+  re-frame.core/view (the lookup the substrate's render-cycle uses
   to resolve a view by id) returns the new render fn — the next render
   cycle invokes that, which is exactly what Reagent does on a mounted
   view when the captured render fn changes via hot-reload.
@@ -57,7 +57,7 @@
       ;; mechanics what matters is that the registrar's :view slot gets
       ;; replaced — exactly what reg-view* does.
       (rf/reg-view* :rf.hot-reload-test/widget v1-fn)
-      (let [render-v1 (rf/get-view :rf.hot-reload-test/widget)]
+      (let [render-v1 (rf/view :rf.hot-reload-test/widget)]
         ;; First render uses v1.
         (is (= [:span.v1 "v1-" 7] (render-v1 7))
             "v1 render fn produces v1 hiccup")
@@ -67,9 +67,9 @@
         (rf/reg-view* :rf.hot-reload-test/widget v2-fn)
         ;; The registry's :view slot now resolves to v2's wrapped fn.
         ;; Reagent's render cycle re-resolves the head on each render
-        ;; (the captured Var or the get-view return), so the next render
+        ;; (the captured Var or the view return), so the next render
         ;; uses v2.
-        (let [render-v2 (rf/get-view :rf.hot-reload-test/widget)]
+        (let [render-v2 (rf/view :rf.hot-reload-test/widget)]
           (is (= [:strong.v2 "v2-" 7] (render-v2 7))
               "post-rereg lookup returns v2's render fn")
           (is (= 1 @v1-renders)
@@ -88,10 +88,10 @@
         (fn []
           (reset! observed :body-v1)
           [:p "v1"]))
-      ;; Simulate the substrate's render cycle: resolve via get-view
-      ;; (this is what re-frame.views/get-view does and what the h macro
-      ;; rewrites to) and invoke. After the call, observed reflects v1.
-      ((rf/get-view :rf.hot-reload-test/probe))
+      ;; Simulate the substrate's render cycle: resolve via view
+      ;; (this is the canonical id-keyed lookup) and invoke.
+      ;; After the call, observed reflects v1.
+      ((rf/view :rf.hot-reload-test/probe))
       (is (= :body-v1 @observed))
       ;; Re-register with a DIFFERENT body.
       (rf/reg-view* :rf.hot-reload-test/probe
@@ -99,7 +99,7 @@
           (reset! observed :body-v2)
           [:p "v2"]))
       ;; Next "render" — fresh registry resolution — runs v2.
-      ((rf/get-view :rf.hot-reload-test/probe))
+      ((rf/view :rf.hot-reload-test/probe))
       (is (= :body-v2 @observed)
           "after re-registration, the next render mutates observed to v2"))))
 
@@ -121,11 +121,11 @@
       (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner [t]
         (reset! observed [:m1 t])
         [:h1.m1 t])
-      ((rf/get-view :rf.hot-reload-test/banner) "hello")
+      ((rf/view :rf.hot-reload-test/banner) "hello")
       (is (= [:m1 "hello"] @observed))
       (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner [t]
         (reset! observed [:m2 t])
         [:h2.m2 t])
-      ((rf/get-view :rf.hot-reload-test/banner) "world")
+      ((rf/view :rf.hot-reload-test/banner) "world")
       (is (= [:m2 "world"] @observed)
           "post-rereg lookup invokes the new macro-installed body"))))

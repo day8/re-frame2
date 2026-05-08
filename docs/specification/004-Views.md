@@ -119,7 +119,7 @@ Pattern-RemoteData's `:status` field is the canonical home for loading state. Pa
 ```
 
 - **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
-- **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/get-view :id)` results — both resolve to the same wrapped fn.
+- **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/view :id)` results — both resolve to the same wrapped fn.
 - **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically.
 
 ```clojure
@@ -206,16 +206,16 @@ v1 ships three forms for invoking a registered view. To honour the principle of 
 
 `reg-view` *defs* the symbol you supply. There is no separate `(def counter (reg-view …))` step — the macro is the one form that registers + binds. The id is auto-derived from `*ns*` + symbol; override via `^{:rf/id :explicit/id}` metadata on the symbol.
 
-### `get-view` — the canonical post-registration lookup
+### `view` — the canonical post-registration lookup
 
-Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. The other call-site forms are sugar over `get-view`.
+Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. The other call-site forms are sugar over `view`.
 
 ```clojure
-(rf/get-view :counter)               ;; → wrapped fn
-((rf/get-view :counter) "label")     ;; identical observably to: [counter "label"]
+(rf/view :counter)               ;; → wrapped fn
+((rf/view :counter) "label")     ;; identical observably to: [counter "label"]
 ```
 
-`get-view` returning `nil` for an unregistered keyword is a normal lookup miss (no error trace).
+`view` returning `nil` for an unregistered keyword is a normal lookup miss (no error trace).
 
 ### Alternative form (use only when the canonical form is awkward)
 
@@ -224,9 +224,9 @@ Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup
 ;;        - the view id is computed at runtime (dynamic dispatch);
 ;;        - the calling code doesn't have access to the Var (e.g., across module boundaries
 ;;          where the Var isn't exported but the registration is);
-;;        - hot-reload semantics matter — `get-view` re-resolves on every call, so
+;;        - hot-reload semantics matter — `view` re-resolves on every call, so
 ;;          re-registration is picked up without re-evaluating the call site.
-[(rf/get-view :counter) "Hello"]
+[(rf/view :counter) "Hello"]
 ```
 
 **Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
@@ -362,7 +362,7 @@ Registered views referenced from hiccup inherit the surrounding frame from React
 ```clojure
 (rf/reg-view outer []
   [:div
-   [counter "Inner"]                  ;; or [(rf/get-view :counter) "Inner"] for late-binding by id
+   [counter "Inner"]                  ;; or [(rf/view :counter) "Inner"] for late-binding by id
    [rf/frame-provider {:frame :other}
     [counter "Other-frame inner"]]])  ;; nested provider re-points
 ```
@@ -411,7 +411,7 @@ For the rare case where the user wants no Var binding (e.g. views generated prog
 
 ### `h` macro dropped (rf2-n4um)
 
-An earlier draft of this spec included an `h` macro that walked hiccup at compile time and rewrote namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/get-view :my-app/widget)` lookups. It has been removed from the v1 surface. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/get-view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
+An earlier draft of this spec included an `h` macro that walked hiccup at compile time and rewrote namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/view :my-app/widget)` lookups. It has been removed from the v1 surface. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
 
 ### Form-3 (`reagent.core/create-class`) — out of scope for the macro
 
@@ -429,6 +429,6 @@ Inside a Form-3 body, the user captures frame-bound dispatch/subscribe explicitl
 
 ### Hot-reload behaviour for re-registered views
 
-Re-registering a view replaces the registry entry; `(get-view :id)` re-resolves on every render, so mounted components pick up the new render fn on next render with no further action. Reagent's component cache keys on the wrapper fn the macro emits; because that wrapper delegates to `(get-view view-id)` on each call, the cache hit returns the *new* render fn body once the registry is updated. No explicit invalidation needed.
+Re-registering a view replaces the registry entry; `(view :id)` re-resolves on every render, so mounted components pick up the new render fn on next render with no further action. Reagent's component cache keys on the wrapper fn the macro emits; because that wrapper delegates to `(view view-id)` on each call, the cache hit returns the *new* render fn body once the registry is updated. No explicit invalidation needed.
 
 The runtime emits `:rf.registry/handler-replaced` (per [009](009-Instrumentation.md)) when re-registration overwrites an existing view; tools branch on the trace event to refresh their UI.

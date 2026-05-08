@@ -45,7 +45,7 @@
     ;; which for this test file is `re-frame.views-macros-test` —
     ;; matched literally here rather than via runtime *ns* (the test
     ;; runner's *ns* is the test-runner ns, not the test file's ns).
-    (is (some? (rf/get-view :re-frame.views-macros-test/widget-a))
+    (is (some? (rf/view :re-frame.views-macros-test/widget-a))
         "the view is registered under (keyword 'this-ns' 'sym)")))
 
 ;; ---- auto-id derivation --------------------------------------------------
@@ -54,7 +54,7 @@
   (testing "the registered id is (keyword (str *ns*) (str sym)) when no
             metadata override is present"
     (rf/reg-view widget-b [_n] [:p "b"])
-    (is (some? (rf/get-view :re-frame.views-macros-test/widget-b))
+    (is (some? (rf/view :re-frame.views-macros-test/widget-b))
         "the registered id matches (keyword *ns* sym)")))
 
 ;; ---- ^{:rf/id ...} metadata override -------------------------------------
@@ -62,9 +62,9 @@
 (deftest reg-view-metadata-override-takes-precedence
   (testing "^{:rf/id :explicit/id} on the symbol wins over the auto-derived id"
     (rf/reg-view ^{:rf/id :explicit/widget} widget-c [_n] [:p "c"])
-    (is (some? (rf/get-view :explicit/widget))
+    (is (some? (rf/view :explicit/widget))
         "the registered id is the metadata override")
-    (is (nil? (rf/get-view :re-frame.views-macros-test/widget-c))
+    (is (nil? (rf/view :re-frame.views-macros-test/widget-c))
         "the auto-derived id is NOT registered when the override is present")))
 
 ;; ---- compile-error contract ----------------------------------------------

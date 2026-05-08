@@ -876,11 +876,11 @@ The per-kind registration macros, `reg-flow`, `reg-route`, and the vector-form `
 
 ---
 
-### M-24. `h` macro removed — rewrite call sites to Var or `(get-view :id)`
+### M-24. `h` macro removed — rewrite call sites to Var or `(view :id)`
 
 **Type A** (mechanical).
 
-Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped from the v1 surface. The Var idiom (`reg-view counter [...] ...` defs `counter`; users write `[counter "Hello"]`) is the canonical call-site form; `(rf/get-view :id)` is the documented escape hatch for late-binding by id. Two call-site forms, no compile-time hiccup walker.
+Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped from the v1 surface. The Var idiom (`reg-view counter [...] ...` defs `counter`; users write `[counter "Hello"]`) is the canonical call-site form; `(rf/view :id)` is the documented escape hatch for late-binding by id. Two call-site forms, no compile-time hiccup walker.
 
 **What to look for** in the codebase:
 
@@ -901,8 +901,8 @@ Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped fro
 ;; before — call site genuinely needs late-binding by id (cross-module reference,
 ;; runtime-computed id, or hot-reload-sensitive call site)
 (rf/h [:my-app/widget arg])
-;; after — explicit get-view in function position
-[(rf/get-view :my-app/widget) arg]
+;; after — explicit view lookup in function position
+[(rf/view :my-app/widget) arg]
 
 ;; before — h wrapper around HTML-only hiccup
 (rf/h [:div [:p "hello"]])
@@ -910,9 +910,9 @@ Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped fro
 [:div [:p "hello"]]
 ```
 
-The agent rewrites mechanically. For the Var-ref form (the common case), the namespaced keyword's local-name becomes a symbol reference to the Var defed by `reg-view`. If the call-site context indicates late-binding intent (a comment to that effect, or the symbol isn't in scope at the call site), the agent emits the `[(rf/view :id) args]` form instead. Ambiguous sites default to Var-ref — the reverse migration to `get-view` is a one-line edit if the user later decides hot-reload semantics matter.
+The agent rewrites mechanically. For the Var-ref form (the common case), the namespaced keyword's local-name becomes a symbol reference to the Var defed by `reg-view`. If the call-site context indicates late-binding intent (a comment to that effect, or the symbol isn't in scope at the call site), the agent emits the `[(rf/view :id) args]` form instead. Ambiguous sites default to Var-ref — the reverse migration to `view` is a one-line edit if the user later decides hot-reload semantics matter.
 
-**Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-get-view-id-for-late-binding)). Same surface-shrinking principle as rf2-7cb2 (drop alpha) and rf2-iyzm (Var-ref canonical for views): when two surfaces cover every case the third was solving, the third is excess.
+**Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-view-id-for-late-binding)). Same surface-shrinking principle as rf2-7cb2 (drop alpha) and rf2-iyzm (Var-ref canonical for views): when two surfaces cover every case the third was solving, the third is excess.
 
 ---
 

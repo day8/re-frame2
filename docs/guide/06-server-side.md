@@ -47,7 +47,7 @@ The re-frame2 approach: the server **serialises the final state** and ships it d
 ```clojure
 ;; Server side
 (let [final-db @(rf/get-frame-db request-frame)
-      hiccup   ((rf/get-view :app/root))
+      hiccup   ((rf/view :app/root))
       html     (rf/render-to-string hiccup {:frame request-frame})
       payload  {:rf/version    "1.0"
                 :rf/frame-id   :app/main
@@ -61,7 +61,7 @@ The re-frame2 approach: the server **serialises the final state** and ships it d
   (let [payload (read-server-payload)]
     (when payload
       (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-    (rdc/render root [(rf/get-view :app/root)])))
+    (rdc/render root [(rf/view :app/root)])))
 ```
 
 The framework's default `:rf/hydrate` handler is **`:replace-app-db`**: the server's serialised slice replaces whatever the client bootstrap had pre-seeded. This is locked. The reasoning: the server is authoritative for the initial app-db, and a defaulting merge policy would leave subtle ordering bugs (which slice wins?) under the rug.
@@ -195,7 +195,7 @@ A server handling concurrent requests can't have one global frame — each reque
                                       :on-create [:rf/server-init request]})]
       ;; with-frame creates the frame, runs the body, destroys the frame at end
       (let [final-db @(rf/get-frame-db f)
-            hiccup   ((rf/get-view :app/root))
+            hiccup   ((rf/view :app/root))
             html     (rf/render-to-string hiccup {:frame f})]
         {:status  200
          :headers {"Content-Type" "text/html"}

@@ -71,7 +71,7 @@ The canonical way to use a registered view in hiccup is to `def` a var from the 
 
 This reads exactly like Reagent. There's nothing to learn. It just happens to work for the multi-frame case because of the registration that's also happening.
 
-An alternative form exists — `(rf/get-view :greeting)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `get-view` is the escape hatch for those specific cases.
+An alternative form exists — `(rf/view :greeting)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `view` is the escape hatch for those specific cases.
 
 ## Frames
 

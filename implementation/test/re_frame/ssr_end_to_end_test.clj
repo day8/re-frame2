@@ -74,7 +74,7 @@
   (rf/with-frame frame-id
     (fn []
       (let [head (first render-tree)]
-        (if-let [view-fn (rf/get-view head)]
+        (if-let [view-fn (rf/view head)]
           (apply view-fn (rest render-tree))
           render-tree)))))
 
