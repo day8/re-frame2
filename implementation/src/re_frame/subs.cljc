@@ -359,6 +359,37 @@
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
 
+(defn sub-cache-snapshot
+  "Public read-only snapshot of a frame's sub-cache, projected to a
+  Tool-Pair-friendly shape: `{query-v {:value v :ref-count n}}`.
+
+  CLJS-only — on the JVM the cache exists for ref-counting purposes but
+  the cached reactions are not deref-able, so this fn returns `nil`. Per
+  Spec 002 §The public registrar query API and Tool-Pair §How AI tools
+  attach.
+
+  Dev-only on CLJS too — the body is gated on `interop/debug-enabled?`
+  (the `goog.DEBUG` mirror) so production builds elide both the cache
+  walk and the deref-and-collect machinery. Pair tools that attach in
+  production explicitly opt in by toggling the gate.
+
+  Returns `nil` for missing or destroyed frames, and `nil` in
+  production builds."
+  [frame-id]
+  #?(:cljs
+     (when interop/debug-enabled?
+       (when-let [cache (:sub-cache (frame/frame frame-id))]
+         (reduce-kv
+           (fn [acc query-v entry]
+             (assoc acc query-v
+                    {:value     (when-let [r (:reaction entry)]
+                                  (try @r (catch :default _ nil)))
+                     :ref-count (or (:ref-count entry) 0)}))
+           {}
+           @cache)))
+     :clj
+     nil))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; re-frame.routing needs to call subscribe-value but cannot `:require`
