@@ -45,6 +45,7 @@
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
+            [re-frame.schemas :as schemas]
             [re-frame.trace :as trace]
             [re-frame.substrate.adapter :as adapter]))
 
@@ -110,7 +111,8 @@
     1. Captures the current registrar (so user-test registrations can be
        rolled back without losing ns-load-time framework / example
        registrations).
-    2. Resets `frame/frames` and `flows/flows` to `{}`.
+    2. Resets `frame/frames`, `flows/flows`, and `schemas/schemas-by-frame`
+       to `{}`.
     3. Disposes the currently-installed substrate adapter.
     4. Resets the machines spawn-counter.
     5. Clears trace listeners.
@@ -123,7 +125,8 @@
        `(routing/reset-counters!)`.
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
-   10. Resets `frame/frames` and `flows/flows` back to `{}` for symmetry.
+   10. Resets `frame/frames`, `flows/flows`, and
+       `schemas/schemas-by-frame` back to `{}` for symmetry.
 
   Steps 9–10 run in a `finally` block so they fire even on test
   exceptions.
@@ -166,10 +169,12 @@
   ([] (reset-runtime-fixture {}))
   ([{:keys [adapter init-fn clear-kinds]}]
    (fn [test-fn]
-     (let [snap (snapshot-registrar)]
+     (let [snap          (snapshot-registrar)
+           schemas-snap  @schemas/schemas-by-frame]
        (try
          (reset! frame/frames {})
          (reset! flows/flows {})
+         (reset! schemas/schemas-by-frame {})
          (adapter/dispose-adapter!)
          (machines/reset-counters!)
          (trace/clear-trace-cbs!)
@@ -177,10 +182,15 @@
            (adapter/install-adapter! adapter)
            (frame/ensure-default-frame!))
          (doseq [k clear-kinds]
-           (registrar/clear-kind! k))
+           (registrar/clear-kind! k)
+           ;; Per-frame schema map is the authoritative store; clear it
+           ;; in lockstep when the caller asks for an :app-schema reset.
+           (when (= k :app-schema)
+             (reset! schemas/schemas-by-frame {})))
          (when init-fn (init-fn))
          (test-fn)
          (finally
            (restore-registrar! snap)
+           (reset! schemas/schemas-by-frame schemas-snap)
            (reset! frame/frames {})
            (reset! flows/flows {})))))))

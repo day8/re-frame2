@@ -371,21 +371,29 @@
    (defmacro reg-app-schema
      "Register a Malli schema at a path inside app-db. Per Spec 001 the
      metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site."
-     [path schema]
+     :file captured at this call site.
+
+     Per Spec 010 §Per-frame schemas this registration is frame-scoped.
+     The frame to register against comes from the optional `opts`
+     map's `:frame` key; default is `(re-frame.frame/current-frame)` —
+     usually `:rf/default` unless called inside `(with-frame ...)`."
+     {:arglists '([path schema] [path schema opts])}
+     [path schema & [opts]]
      (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
+           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*)
+           ;; returns the ns-symbol but in CLJS macro context that
+           ;; symbol may carry the consumer namespace's :doc metadata,
+           ;; which would then get serialised into the bundle and
+           ;; defeat production elision.
            ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
+           file    *file*
+           opts'   (or opts {})]
        `(binding [source-coords/*pending-coords*
                   (cond-> {:ns '~ns-sym}
                     ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
-          (schemas/reg-app-schema ~path ~schema)))))
+          (schemas/reg-app-schema ~path ~schema ~opts')))))
 
 ;; Schema introspection — pure fn aliases (no source-coord capture
 ;; needed, these are read-only public queries).

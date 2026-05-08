@@ -185,9 +185,13 @@
               ;; after each commit. Failures emit
               ;; :rf.error/schema-validation-failure but don't roll back
               ;; (recovery is :no-recovery by default).
+              ;;
+              ;; Per Spec 010 §Per-frame schemas the validation walks
+              ;; the schemas registered against THIS dispatch's frame
+              ;; only — sibling frames' schemas don't fire here.
               (when-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
                 (try
-                  (validate (:db effects) event-id)
+                  (validate (:db effects) event-id frame)
                   (catch #?(:clj Throwable :cljs :default) _ nil))))
             ;; Run flows (per Spec 013 §Drain integration: after :db
             ;; commits and before :fx walks).
