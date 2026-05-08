@@ -78,6 +78,38 @@
     (is (some? (rf/get-view :greet))
         "the view is registered under the :view kind")))
 
+(deftest reg-view-macro-double-def-investigation
+  ;; The example apps wrap reg-view in an outer (def some-name ...) like:
+  ;;   (def login-form (reg-view :auth/form metadata render-fn))
+  ;; The reg-view macro itself emits (def form (reg-view* ...)). What
+  ;; does the outer-def actually see? Does login-form end up usable as
+  ;; a hiccup head, or as a var-of-var?
+  (testing "outer (def x (reg-view :foo …)) — what does x become?"
+    (let [outer-def-result
+          (do
+            ;; Simulate the example pattern. The macro defs `widget`
+            ;; AND the def below binds my-widget to whatever the macro
+            ;; returns.
+            (def my-widget
+              (reg-view :ns/widget (fn [n] [:span "w-" n])))
+            my-widget)]
+      ;; The registered view is fine.
+      (is (some? (rf/get-view :ns/widget))
+          ":ns/widget is in the :view registry")
+      ;; The keyword-derived local exists too.
+      (is (some? widget)
+          "the macro defined the keyword-derived local symbol")
+      ;; What did my-widget land as? In CLJS, def's return value is the
+      ;; var when used at top level via a let-bound capture? Let's see.
+      (println :outer-def-result-type (type outer-def-result))
+      ;; Whatever shape, we should be able to call it as a hiccup head.
+      ;; Reagent passes the head through React's createElement as a
+      ;; component fn.
+      (is (or (fn? outer-def-result)
+              (and (var? outer-def-result)
+                   (fn? @outer-def-result)))
+          "the outer-def value is invokable as a fn (or a var that derefs to one)"))))
+
 ;; ---- h macro ----------------------------------------------------------------
 
 (deftest h-rewrites-namespaced-view-keys
