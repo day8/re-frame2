@@ -17,7 +17,7 @@ Here's the file, in full, with the surrounding ceremony removed:
 ```clojure
 (ns counter.core
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf]))
 
 ;; Frame
 (rf/reg-frame :rf/default
@@ -101,8 +101,9 @@ Because pure handlers are *the easiest possible thing to test* — pass in a sta
 
 ```clojure
 (deftest counter-inc-test
-  (let [before {:count 5}
-        after  ((rf/get-event-handler :counter/inc) before [:counter/inc])]
+  (let [handler (:handler-fn (rf/handler-meta :event :counter/inc))
+        before  {:count 5}
+        after   (handler before [:counter/inc])]
     (is (= 6 (:count after)))))
 ```
 
@@ -210,7 +211,7 @@ That's the entire dynamic story. Five steps, all named, no surprises.
     (is (= 4 (rf/compute-sub [:count] @(rf/get-frame-db f))))))
 ```
 
-That test runs on the JVM. There's no browser. There's no React. There's no setup or teardown beyond the `with-frame` block, which creates a fresh frame, runs the body, and destroys the frame. Tests like this run in milliseconds and you can have thousands of them.
+That test runs on the JVM. There's no browser. There's no React. The `with-frame` block creates a fresh frame, binds it as the current frame for the body, and the test asserts against its `app-db`. Tests like this run in milliseconds and you can have thousands of them. (Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; the framework's testing helpers in [Spec 008](../specification/008-Testing.md) wire that up for you.)
 
 ## What the example covered
 

@@ -138,12 +138,14 @@ This matters because the call site now declares its intent — "this is a test f
 
 ### Targeting a specific frame
 
-Every dispatch and every subscribe accepts a `:frame` opt:
+Every dispatch and every subscribe takes a frame argument when targeting a specific frame from outside a registered view:
 
 ```clojure
-(rf/dispatch [:counter/inc] {:frame :left})
-(rf/subscribe [:count]      {:frame :right})
+(rf/dispatch [:counter/inc] {:frame :left})   ;; dispatch — opts map
+(rf/subscribe :right [:count])                 ;; subscribe — frame-id positional
 ```
+
+The shapes differ for historical reasons: `dispatch` carries opts beyond `:frame` (e.g. `:fx-overrides` for tests), while `subscribe`'s only out-of-view callers are tooling-shaped, where a positional frame-id is enough.
 
 This is the **explicit-frame addressing** form. It's the canonical way to target a frame from outside a registered view — REPL sessions, test code, event-handler effects (fx).
 
