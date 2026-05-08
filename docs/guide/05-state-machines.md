@@ -67,23 +67,52 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
 
 ```clojure
 (def login-flow
-  {:id      :auth.login/flow
-   :initial :idle
-   :context {:attempts 0 :error nil}
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+
+   :guards
+   {:under-retry-limit
+    (fn [data _event] (< (:attempts data) 3))}
+
+   :actions
+   {:clear-error
+    (fn [_ _] {:data {:error nil}})
+
+    :issue-request
+    (fn [_data [_ creds]]
+      {:fx [[:http {:method     :post
+                    :url        "/api/login"
+                    :body       creds
+                    :on-success [:auth.login/flow [:auth.login/success]]
+                    :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+
+    :record-error
+    (fn [data [_ err]]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc :error (or (:message err) "Login failed.")))})
+
+    :lock-account
+    (fn [_ _] {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
+
+    :store-session
+    (fn [_data [_ {:keys [token]}]]
+      {:fx [[:auth.session/store {:token token}]]})}
+
    :states
    {:idle
-    {:on {:auth.login/submit {:target  :submitting
-                              :actions [:auth.login/clear-error]}}}
+    {:on {:auth.login/submit {:target :submitting
+                              :action :clear-error}}}
 
     :submitting
-    {:entry [:auth.login/issue-request]
-     :on    {:auth.login/success {:target  :authed
-                                  :actions [:auth.login/store-session]}
-             :auth.login/failure [{:target  :error-shown
-                                   :cond    :auth.login/under-retry-limit
-                                   :actions [:auth.login/record-error]}
-                                  {:target  :locked-out
-                                   :actions [:auth.login/lock-account]}]}}
+    {:entry :issue-request
+     :on    {:auth.login/success {:target :authed
+                                  :action :store-session}
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out
+                                   :action :lock-account}]}}
 
     :error-shown
     {:on {:auth.login/dismiss {:target :idle}
@@ -99,26 +128,27 @@ This is a **transition table**. It's pure data. You can read it top to bottom an
 - The starting state is `:idle`.
 - From `:idle`, the event `:auth.login/submit` takes us to `:submitting`.
 - From `:submitting`, the event `:auth.login/success` takes us to `:authed`.
-- From `:submitting`, the event `:auth.login/failure` takes us to `:error-shown` if the guard `:auth.login/under-retry-limit` is true, otherwise to `:locked-out`.
-- The actions on each transition (`:auth.login/clear-error`, `:auth.login/issue-request`, `:auth.login/record-error`, `:auth.login/lock-account`, `:auth.login/store-session`) are referenced by id. They're registered separately.
+- From `:submitting`, the event `:auth.login/failure` takes us to `:error-shown` if the guard `:under-retry-limit` passes, otherwise to `:locked-out`.
+- Each transition's `:action` and each state's `:entry` are referenced by id; the named guard / action lives in the spec's `:guards` / `:actions` map and runs when the runtime applies the transition.
 
 The whole flow is in one piece of data. You can pretty-print it. You can render it to a graph. You can check it against a schema. You can hand it to an AI and say "here's the auth flow, add a two-factor state between submitting and authed" — the AI has the whole context in front of it.
 
-The runtime takes this data, plus the registered guards/actions, plus the snapshot of the machine's current state, and applies the transition rules. The runtime — not the developer — is responsible for "if we're in :submitting and a :failure arrives, check the guard, fire the action, transition to the right next state." The developer is responsible only for *describing the transitions as data*.
+The runtime takes this data, plus the snapshot of the machine's current state, and applies the transition rules. The runtime — not the developer — is responsible for "if we're in `:submitting` and a `:failure` arrives, check the guard, fire the action, transition to the right next state." The developer is responsible only for *describing the transitions as data*.
 
 ## What's in a transition
 
 The grammar is borrowed (with adaptation) from [xstate](https://xstate.js.org/), which is the canonical state-machine library in the JavaScript world. Specifically:
 
 - **`:initial`** — the starting state.
-- **`:context`** — extended state that lives alongside the discrete state. Counters, error messages, transient data.
+- **`:data`** — extended state that lives alongside the discrete state. Counters, error messages, transient data. (xstate calls this slot "context"; we use `:data` to avoid the existing "context" overloading in re-frame's interceptor pipeline and React-context idioms.)
 - **`:states`** — the state nodes, keyed by name.
 - **`:on`** — for a state, the events it responds to and where they go.
 - **`:target`** — the next state name.
-- **`:cond`** — a guard: a predicate that must return true for the transition to fire.
-- **`:actions`** — registered actions that fire on this transition.
-- **`:entry`/`:exit`** — actions that fire when entering or leaving a state, regardless of which event triggered the transition.
+- **`:guard`** — a predicate that must return true for the transition to fire. A keyword references the spec's `:guards` map; an inline `(fn [data event] ...)` is fine for a one-liner.
+- **`:action`** — fires on this transition. Same shape as `:guard`: keyword reference into `:actions`, or inline fn.
+- **`:entry` / `:exit`** — actions that fire when entering or leaving a state, regardless of which event triggered the transition. Same shape — keyword or inline fn.
 - **`:meta`** — arbitrary user-defined annotations (e.g. `:terminal?`).
+- **`:guards` / `:actions`** (top-level on the spec) — the machine's own named guard / action implementations. Resolution is machine-local; there's no global registry.
 
 xstate users will recognise all of this. We deliberately stay close to xstate's vocabulary because (a) it's well-thought-out and (b) AIs already know it. When you ask an AI "give me the state machine for a login flow," it produces something that's already nearly correct in re-frame2's grammar.
 
@@ -126,32 +156,146 @@ What we adapt:
 
 - **Machines are event handlers, not actor objects.** xstate has explicit `ActorRef` runtime objects with their own mailboxes. re-frame2 doesn't. A machine is "an event handler whose body interprets a transition table." All events to that machine flow through `dispatch` like any other event; there's no separate sending mechanism.
 - **Effects are returned as data.** xstate's actions can directly call out to the world. re-frame2's actions return effect maps which the runtime interprets — same shape as event handlers.
-- **The actor-system boundary is the frame.** Multiple machines composed within a frame share that frame's drain, ensuring run-to-completion behaviour. Cross-frame communication is async dispatch, not in-process message passing.
+- **The snapshot lives in `app-db`.** Every machine's runtime state — its `:state` and `:data` — sits at `[:rf/machines <id>]` in the frame's `app-db`. Not in a parallel registry, not in a per-machine atom. Undo, time-travel, persistence, SSR hydration all extend to machines for free, because their state is in the db.
+- **Guards and actions live with the machine.** Each `create-machine-handler` spec carries its own `:guards` and `:actions` maps. Cross-machine reuse is via Clojure vars, not a global registry. A machine is a self-contained piece of data; reading its spec tells you everything its guards and actions do.
 
-These adaptations keep the pattern consistent with the rest of re-frame2. A state machine, in this codebase, is *the same kind of thing as an event handler*, just with more structure.
+These adaptations keep the pattern consistent with the rest of re-frame2.
 
-## What the substrate covers
+## Wiring a machine into the rest of re-frame
 
-The shape above — flat states, plain `:on` transitions, `:entry`/`:exit` actions — is enough for many machines. When the flow gets richer, the substrate has more to offer without changing the model. A flavour:
+Once the transition table is defined, registering it as an event handler is one line:
 
-- **Hierarchical states.** A compound state contains sub-states; entering the parent cascades to its declared `:initial` child; transitions from a deep state can target a sibling or an ancestor and the runtime computes the LCA. Useful when the auth flow has an `:authenticated` super-state with `:cart` / `:browsing` sub-states under it.
-- **Eventless `:always` transitions.** A state can fire a transition on entry (or after every event) when a guard becomes true — no event needed. Useful for "drain a queue, transition when empty" or "advance through derived states." Bounded depth, microstep-loop semantics, defined trace events.
-- **Delayed `:after` transitions.** A state can declare "if no event arrives within N ms, transition to this state." Useful for retry-after-backoff, idle timeouts, debounce-shaped flows. Carries an epoch so cancelled timers don't fire late.
-- **Declarative `:invoke`.** A state can spawn a child machine on entry and destroy it on exit, declared as data rather than as `:entry [:spawn ...]` / `:exit [:destroy-machine ...]`. The child's lifecycle is bound to the parent state.
-- **Machine-scoped `:guards` and `:actions` maps.** Guards and actions referenced by keyword resolve into a machine-local map — `(get-in spec [:guards :under-retry-limit?])`. Named compound logic is more inspectable than inline lambdas, and it lives where the machine lives, not in the global registry.
+```clojure
+(rf/reg-event-fx :auth.login/flow
+  {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
+  (rf/create-machine-handler login-flow))
+```
 
-Each of these is opt-in — implementations declare which capabilities they support, and the conformance corpus grades against the claimed set. The full grammar is in [Spec 005](../specification/005-StateMachines.md). The point of mentioning them here is that the model scales: when your machine grows, the substrate has well-named answers ready, and you don't end up smuggling state-machine logic into ordinary event handlers.
+The machine's id is the surrounding `reg-event-fx` id (`:auth.login/flow`). The snapshot lives at `[:rf/machines :auth.login/flow]` in `app-db`; the runtime reads / writes it there. **You don't pick a path — there is one canonical path.**
+
+`(rf/create-machine-handler spec)` returns a regular `reg-event-fx`-shaped handler. It does the work of "look up the snapshot, call `machine-transition`, write the new snapshot, return the action effects." `machine-transition` is pure, so all the testing and tooling guarantees of regular events apply to machines.
+
+If you don't need any other registration metadata (no `:doc`, no `:interceptors`), there's a one-step convenience:
+
+```clojure
+(rf/reg-machine :auth.login/flow login-flow)
+```
+
+This is exactly `(reg-event-fx machine-id (create-machine-handler machine))` — same effect, less ceremony.
+
+## Dispatching to a machine
+
+Sub-events route via the machine's id and an inner event vector:
+
+```clojure
+(rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
+(rf/dispatch [:auth.login/flow [:auth.login/dismiss]])
+```
+
+The outer keyword is the machine; the inner vector is the event the machine sees. The runtime resolves the inner event against the current state's `:on` map, runs the guard, fires the action, and writes the new snapshot back to `[:rf/machines :auth.login/flow]`.
+
+For HTTP / async callbacks, the convention "build a 2-element template, conj the result on resolve" works as in any other re-frame fx:
+
+```clojure
+;; The :issue-request action returns this fx vector:
+[:http {:url        "/api/login"
+        :on-success [:auth.login/flow [:auth.login/success]]   ;; 2-element template
+        :on-error   [:auth.login/flow [:auth.login/failure]]}]
+
+;; The :http fx implementation does (rf/dispatch (conj on-success response)),
+;; producing [:auth.login/flow [:auth.login/success] response].
+;; The runtime folds the trailing response onto the inner event so the action
+;; sees [:auth.login/success response].
+```
+
+This "extras-fold" makes the standard fx-callback convention work without ceremony — every async callback ships a value into the machine the same way.
+
+## Guards and actions
+
+Guards are predicates. They live in the spec's `:guards` map and are referenced from transitions by keyword:
+
+```clojure
+:guards
+{:under-retry-limit
+ (fn [data _event] (< (:attempts data) 3))}
+```
+
+A guard sees `(fn [data event] boolean)` — `data` is the snapshot's `:data` slot directly. Returning truthy lets the transition fire; returning falsy makes the runtime walk to the next candidate (or fall through to the parent state, if any).
+
+Actions are functions that produce data updates and / or effects. They live in `:actions`:
+
+```clojure
+:actions
+{:record-error
+ (fn [data [_ err]]
+   {:data (-> data
+              (update :attempts inc)
+              (assoc :error (or (:message err) "Login failed.")))})
+
+ :issue-request
+ (fn [_data [_ creds]]
+   {:fx [[:http {:method     :post
+                 :url        "/api/login"
+                 :body       creds
+                 :on-success [:auth.login/flow [:auth.login/success]]
+                 :on-error   [:auth.login/flow [:auth.login/failure]]}]]})}
+```
+
+An action sees `(fn [data event] effects)` and returns either:
+
+- `:data` — a map merged into the existing data slot (last write wins on key collision; explicit `nil` clears a key).
+- `:fx` — effects to fire (HTTP, navigation, follow-up dispatches).
+- both, or `nil` for no effects.
+
+Just like ordinary `reg-event-fx` returns. The contract is consistent.
+
+> **Why `:data` is the parameter, not a destructure key.** Most guards and actions only care about the machine's own data — not about its discrete state, not about its meta. Passing `:data` directly keeps the 99% case monomorphic and stops `(fn [{:keys [data]} _] ...)` boilerplate from spreading through your codebase. The body reads `(:attempts data)`, not `(get-in snapshot [:data :attempts])`.
+
+### When a guard or action needs the discrete state
+
+The 3-arity escape hatch — `(fn [data event {:keys [state meta]}] ...)` — is opt-in. Declaring a third parameter signals to the runtime that this fn wants the introspection slot. `state` is the snapshot's discrete state; `meta` is any user `:meta`.
+
+```clojure
+(fn capture-browsing-position [_data _event {:keys [state]}]
+  {:data {:last-browsing-state state}})        ;; the FSM keyword
+```
+
+Unless your guard or action needs to branch on the current state name (genuinely rare), stay with 2-arity. The 3-arity is the explicit signal "I'm doing introspection." The runtime arity-detects on the fn itself — no metadata, no flag.
 
 ## Reading a machine: `sub-machine`
 
 Views that need to read a machine's current state read it through a sub:
 
 ```clojure
-@(rf/sub-machine :auth.login/event-handler)
+@(rf/sub-machine :auth.login/flow)
 ;; → {:state :submitting :data {:attempts 1 :error nil}}
 ```
 
 `sub-machine` is sugar over the framework-shipped `:rf/machine` sub. It returns the snapshot — `{:state :data}` — or `nil` if the machine hasn't been created yet. Views typically destructure the `:state` and switch on it; complex UIs read the `:data` slot too. This is the single supported read path; there's no separate "actor reference" object to thread around.
+
+For convenience, you can build named reg-subs over `[:rf/machine machine-id]` to project the bits you care about:
+
+```clojure
+(rf/reg-sub :auth.login/state
+  (fn [db _] (get-in db [:rf/machines :auth.login/flow :state])))
+
+(rf/reg-sub :auth.login/submitting?
+  :<- [:auth.login/state]
+  (fn [state _] (= :submitting state)))
+```
+
+These read the machine's snapshot through normal sub plumbing — Reagent reactions fire on the slice you actually subscribed to.
+
+## What the substrate covers
+
+The shape above — flat states, plain `:on` transitions, `:entry` / `:exit` actions, machine-local `:guards` / `:actions` — is enough for many machines. When the flow gets richer, the substrate has more to offer without changing the model. A flavour:
+
+- **Hierarchical states.** A compound state contains sub-states; entering the parent cascades to its declared `:initial` child; transitions from a deep state can target a sibling or an ancestor and the runtime computes the LCA. Useful when the auth flow has an `:authenticated` super-state with `:cart` / `:browsing` sub-states under it.
+- **Eventless `:always` transitions.** A state can fire a transition on entry (or after every event) when a guard becomes true — no event needed. Useful for "drain a queue, transition when empty" or "advance through derived states." Bounded depth, microstep-loop semantics, defined trace events.
+- **Delayed `:after` transitions.** A state can declare "if no event arrives within N ms, transition to this state." Useful for retry-after-backoff, idle timeouts, debounce-shaped flows. Carries an epoch so cancelled timers don't fire late.
+- **Declarative `:invoke`.** A state can spawn a child machine on entry and destroy it on exit, declared as data rather than as `:entry [:spawn ...]` / `:exit [:destroy-machine ...]`. The child's lifecycle is bound to the parent state.
+
+Each of these is opt-in — implementations declare which capabilities they support, and the conformance corpus grades against the claimed set. The full grammar is in [Spec 005](../specification/005-StateMachines.md). The point of mentioning them here is that the model scales: when your machine grows, the substrate has well-named answers ready, and you don't end up smuggling state-machine logic into ordinary event handlers.
 
 ## Patterns that bottom out in machines
 
@@ -161,56 +305,6 @@ Two of the recurring shapes from [chapter 03](03-events-state-cycle.md) end up b
 - [Pattern-Boot](../specification/Pattern-Boot.md) — multi-step initialisation with sequential dependencies, visible progress, fail-fatal points, and recoverable retry. For trivial boots a chained event sequence works; for non-trivial boots the canonical answer is a boot machine.
 
 Both are pattern docs (convention), not Specs (contract). When the shape of a feature you're building is one of these, read the pattern doc and copy the shape.
-
-## Wiring a machine into the rest of re-frame
-
-Once the transition table is defined, registering it as an event handler is one line:
-
-```clojure
-(rf/reg-event-fx :auth.login/event-handler
-  {:doc          "All :auth.login/* events route through here, interpreted as a machine."
-   :machine-path [:auth :login]}
-  (rf/machine-handler [:auth :login] login-flow))
-```
-
-The `:machine-path` is where in `app-db` the machine's snapshot lives. The snapshot is a small map: `{:state :submitting :context {:attempts 1 :error nil}}`. The runtime reads/writes this snapshot at that path; the machine doesn't manage its own state separately.
-
-`(rf/machine-handler path definition)` is a helper that returns a regular `reg-event-fx`-shaped handler. It does the work of "look up the snapshot, call `machine-transition`, write the new snapshot, return the action effects." The handler is pure (`machine-transition` is pure), so all the testing and tooling guarantees of regular events apply to machines.
-
-## Guards and actions
-
-Guards are predicates. Registered separately, by id:
-
-```clojure
-(rf/reg-machine-guard :auth.login/under-retry-limit
-  {:doc "True if fewer than 3 prior attempts."}
-  (fn [{:keys [context]} _event]
-    (< (:attempts context) 3)))
-```
-
-Actions are functions that produce context updates and/or effects. Also registered:
-
-```clojure
-(rf/reg-machine-action :auth.login/issue-request
-  {:doc "Fire the login HTTP request."}
-  (fn [_snapshot [_ creds]]
-    {:fx [[:http {:method :post :url "/api/login" :body creds
-                  :on-success [:auth.login/success]
-                  :on-error   [:auth.login/failure]}]]}))
-
-(rf/reg-machine-action :auth.login/record-error
-  (fn [{:keys [context]} [_ err]]
-    {:context (-> context
-                  (update :attempts inc)
-                  (assoc :error (:message err)))}))
-```
-
-Actions can return:
-
-- `:context` — updates to the extended state.
-- `:fx` — effects to fire (HTTP, navigation, follow-up dispatches).
-
-Just like ordinary `reg-event-fx` returns. The contract is consistent.
 
 ## When to reach for a machine, and when not to
 
@@ -230,27 +324,28 @@ Don't reach for a machine when:
 
 ## Headless testing
 
-Because `machine-transition` is pure — and because actions/guards are registered functions — you can test a machine without dispatching anything:
+Because `machine-transition` is pure — and because guards and actions are inline-or-named-in-the-spec functions — you can test a machine without dispatching anything:
 
 ```clojure
 (deftest login-flow-happy-path
-  (let [snapshot {:state :idle :context {:attempts 0 :error nil}}]
-    (let [[s1 _fx] (rf/machine-transition login-flow snapshot
-                                          [:auth.login/submit {:email "a@b.com"
-                                                               :password "..."}])]
-      (is (= :submitting (:state s1))))
+  (let [s0 {:state :idle :data {:attempts 0 :error nil}}
+        [s1 _fx] (rf/machine-transition login-flow s0
+                                        [:auth.login/submit {:email "a@b.com"
+                                                             :password "..."}])]
+    (is (= :submitting (:state s1)))
 
     (let [[s2 _fx] (rf/machine-transition login-flow
-                                          {:state :submitting :context {:attempts 0}}
+                                          {:state :submitting :data {:attempts 0}}
                                           [:auth.login/success {:user {:id 1}}])]
       (is (= :authed (:state s2))))))
 
 (deftest login-flow-lockout
-  (let [snapshot {:state :submitting :context {:attempts 2}}]
-    (let [[s _fx] (rf/machine-transition login-flow snapshot
-                                         [:auth.login/failure {:message "wrong creds"}])]
-      ;; 2 prior + 1 current = 3, hits the guard, transitions to :locked-out
-      (is (= :locked-out (:state s))))))
+  (let [snapshot {:state :submitting :data {:attempts 3}}
+        [s _fx] (rf/machine-transition login-flow snapshot
+                                       [:auth.login/failure {:message "wrong creds"}])]
+    ;; attempts has already hit the retry limit; the :under-retry-limit guard
+    ;; rejects the first clause, the second clause's :locked-out wins.
+    (is (= :locked-out (:state s)))))
 ```
 
 These tests run on the JVM. No browser. No network. No mocks. Each one runs in microseconds. You can have hundreds.
@@ -259,11 +354,15 @@ This is the testing experience for *flows that are non-trivial* — exactly the 
 
 ## Composing machines
 
-Real apps have more than one machine: an auth machine, a checkout-wizard machine, a websocket-connection machine. They coexist within a frame, each at its own `:machine-path`.
+Real apps have more than one machine: an auth machine, a checkout-wizard machine, a websocket-connection machine. They coexist within a frame, each at its own `[:rf/machines <id>]`.
 
 When machines need to talk to each other, they do so through dispatch — the auth machine's `:auth.login/success` action might dispatch `[:user/load-profile]`, which is handled by a regular `reg-event-fx` handler that updates the user-profile slice. There's no special inter-machine messaging. It's all events, all going through the same queue, all running to completion.
 
 The drain semantics matter here. If an action dispatches a child event, that child event runs *before* subscriptions update. So if a state machine moves through `:idle → :submitting → :authed → :loading-profile → :ready` in a single user click, the view sees only `:idle` (before) and `:ready` (after) — never any in-between flicker. The pattern's commitment to atomic state changes pays off most strongly in flows like this.
+
+## A runnable example
+
+The complete login flow from this chapter — including the runnable smoke tests — lives at [`examples/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/state_machine_walkthrough) and is exercised on every JVM test run via `re-frame.examples-test/state-machine-walkthrough-runs-headless`. Drop it in front of you while reading; tweak the transition table and watch the smoke tests adapt.
 
 ## The deeper claim
 
@@ -271,7 +370,7 @@ State machines are a small example of the broader thesis [chapter 08](08-the-dyn
 
 A finite state machine has, by construction, a small set of reachable states. You can enumerate them. You can prove things about transitions. You can render the whole flow as a diagram. You can ask "from this state, what can happen?" and the answer is bounded.
 
-A pile of `if`/`cond` clauses spread across event handlers has none of these properties. The reachable states are implicit. The transitions are scattered. There's no diagram. The answer to "from this state, what can happen?" requires reading every handler that touches the state field.
+A pile of `if` / `cond` clauses spread across event handlers has none of these properties. The reachable states are implicit. The transitions are scattered. There's no diagram. The answer to "from this state, what can happen?" requires reading every handler that touches the state field.
 
 The choice between them isn't a matter of style. It's a matter of which dynamic model you can hold in your head. Machines are smaller models. Smaller models are easier to debug, refactor, extend, and reason about.
 
