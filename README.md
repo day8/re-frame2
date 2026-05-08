@@ -8,19 +8,21 @@
 
 It is the firstborn of [re-frame](https://github.com/day8/re-frame).
 
-It is a library for building web apps (specifically SPAs).
+It is a library for building web apps (specifically SPAs), probably in ClojureScript.
 
 ## Status
 
-Still very much a **work in progress**. Call it pre-alpha. Call it aspirational. Call me crazy.
+Still very much a **work in progress**. Call it pre-alpha. Call it aspirational. 
 
-None of the primary claims/goals have yet been verified and **there is no working implementation yet**. But the specification itself is almost complete and you can most certainly see where this is going.
+None of the primary claims/goals are yet verified and **there is no working implementation yet**. But the specification itself is almost complete and you can most certainly see where this is going.
 
 I'm interested in constructive feedback if you have the time.
 
-## AI First?
+## AI First
 
-re-frame2 is AI-first from **three distinct perspectives**:
+re-frame2 is AI-first and that decision permeates. Now, the artisanal craftsman in you might find this offensive, and as someone who has agonised endlessly over the human ergonomics of my code and UIs, I get it. But that time has passed. All that matters now is AI ergonomics.
+
+This manifests in various ways, for example: 
 
 **1. One-shot-able.** The spec in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe even in a variety of host languages.
 
@@ -28,9 +30,11 @@ The implication: **if you don't like this specification, change it, and one-shot
 
 The further implication is that value has moved up the chain. The value of code is now $0. All the value is in the specification.
 
-**2. re-frame2 applications are highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time**, so the AI doesn't just get to work with static code. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
+**2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
 **3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a [migration prompt](docs/specification/MIGRATION.md) — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent.
+
+
 
 ## Why re-frame2?
 
