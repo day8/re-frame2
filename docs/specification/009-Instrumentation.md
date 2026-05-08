@@ -538,6 +538,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:operation` / category | Meaning | Category-specific `:tags` |
 |---|---|---|
 | `:rf.error/handler-exception` | An event handler threw | `:event` (vector), `:handler-id`, `:exception-message`, `:exception-data?` |
+| `:rf.error/machine-action-exception` | A machine action body threw during a transition (per [005 §Errors](005-StateMachines.md#errors) and [Cross-Spec-Interactions §11](Cross-Spec-Interactions.md#11-machine-action-throws)). Distinct from `:rf.error/handler-exception`: the machine layer catches the throw and emits the machine-scoped category instead, so consumers see exactly one error per failure with full machine context | `:machine-id`, `:action-id`, `:state-path`, `:transition`, `:event`, `:exception-message`, `:exception-data?` |
 | `:rf.error/fx-handler-exception` | A registered fx threw during effect resolution | `:fx-id`, `:fx-args`, `:exception-message` |
 | `:rf.error/sub-exception` | A subscription's computation threw | `:sub-query`, `:sub-id`, `:exception-message` |
 | `:rf.error/no-such-sub` | A subscription's `:<-` input refers to an unregistered sub | `:sub-id`, `:unresolved-input`, `:resolved-inputs` |
@@ -653,6 +654,7 @@ Only **one** error-handler is registered at a time per process. Replacing it rep
 | Category | Default `:recovery` | Notes |
 |---|---|---|
 | `:rf.error/handler-exception` | `:no-recovery` | The exception propagates; the cascade halts. |
+| `:rf.error/machine-action-exception` | `:no-recovery` | The machine cascade halts atomically: the snapshot does not commit (pre-action `[:rf/machines <id>]` slice is preserved), accumulated `:fx` from earlier slots in the same Level-2 cascade is dropped, and the `:always` microstep does not fire on the failed cascade. |
 | `:rf.error/fx-handler-exception` | `:no-recovery` | The fx is skipped; cascade continues if other fx independent. |
 | `:rf.error/sub-exception` | `:replaced-with-default` | The sub returns `nil`; views see no value. |
 | `:rf.error/no-such-sub` | `:replaced-with-default` | The unresolved input is substituted with `nil`; the sub's body still runs. Strict mode (`:strict-subs` config) escalates to a thrown exception. |
