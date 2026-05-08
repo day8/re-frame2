@@ -146,7 +146,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Outputs.** Side-effects. New `app-db` value committed to the frame container. `:fx` entries dispatched to `do-fx`. Trace events emitted at every phase boundary.
 
-**Invariants — the four Levels** (the drain-loop pseudocode itself is tracked separately and will land as a section in 002):
+**Invariants — the four Levels** (the drain-loop pseudocode itself lives in [002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)):
 
 | Level | Scope | Locked by |
 |---|---|---|
@@ -180,7 +180,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 
 ### 6. Sub-cache
 
-**Role.** Per-frame memoised derivation graph. Each `(subscribe q)` call returns a value; if the underlying `app-db` slice changes, dependents recompute on the next deref. The full contract — invalidation algorithm, ref-counting, layer-1/2/3 sub semantics, disposal — is tracked separately and will be locked in [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
+**Role.** Per-frame memoised derivation graph. Each `(subscribe q)` call returns a value; if the underlying `app-db` slice changes, dependents recompute on the next deref. The full contract — invalidation algorithm, ref-counting, layer-1/2/3 sub semantics, disposal — is locked in [006 §Subscription cache — contract and operational semantics](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
 
 **Inputs.** Sub registrations from the registrar (`reg-sub`). `replace-container!` calls from the drain loop (cache-invalidation hook). `subscribe` calls from views.
 
@@ -205,7 +205,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 - One adapter per process ([006 §Single adapter per process](006-ReactiveSubstrate.md#single-adapter-per-process)).
 - The adapter is replaceable. The CLJS reference ships Reagent-default; SSR uses a plain-atom adapter; tests use headless.
 
-The Reagent-specific bridging pseudocode — which Reagent primitive realises which contract function — is tracked separately and will land as a Reference-adapter appendix in [006-ReactiveSubstrate](006-ReactiveSubstrate.md).
+The Reagent-specific bridging pseudocode — which Reagent primitive realises which contract function — lives in [006 §CLJS reference: Reagent as default adapter](006-ReactiveSubstrate.md#cljs-reference-reagent-as-default-adapter).
 
 ### 8. Trace bus
 
