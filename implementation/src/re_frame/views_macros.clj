@@ -167,7 +167,10 @@
   surfaces emit the same expansion."
   {:arglists '([sym args body+] [sym docstring args body+])}
   [sym & more]
-  (expand-reg-view (meta &form) (ns-name *ns*) *file* sym more))
+  ;; Construct a fresh metadata-free symbol; see re-frame.core/reg-view for
+  ;; the rationale (CLJS macro context leaks :doc metadata via the ns-name
+  ;; symbol, which defeats production elision).
+  (expand-reg-view (meta &form) (symbol (str (ns-name *ns*))) *file* sym more))
 
 ;; ---- h --------------------------------------------------------------------
 ;;
