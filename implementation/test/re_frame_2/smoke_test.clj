@@ -398,6 +398,14 @@
                (set (map #(:last-state (:tags %)) machine-traces)))
             "each trace carries its machine's last-state")))))
 
+(deftest create-machine-handler-requires-id
+  (testing "missing :id on the machine def throws — silent-bug guard"
+    (try
+      (rf/create-machine-handler {:initial :idle :states {:idle {}}})
+      (is false "create-machine-handler should have thrown")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= ":rf.error/machine-missing-id" (.getMessage e)))))))
+
 (deftest spawn-id-is-frame-scoped
   (testing "actor-id allocation is keyed on [frame-id machine-id], not just machine-id"
     (let [machine

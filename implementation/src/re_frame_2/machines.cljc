@@ -593,9 +593,17 @@
   runs machine-transition, writes the new snapshot back, and returns
   the resulting effects map for the standard fx pipeline.
 
-  Per Spec 005 §Registration — the machine IS the event handler."
+  Per Spec 005 §Registration — the machine IS the event handler.
+  The machine def MUST carry :id; without it the snapshot path would
+  resolve to [:rf/machines nil], silently dropping all reads/writes
+  and producing the appearance that no transition fired. We surface
+  the misuse early instead of debugging a silent run-to-completion."
   [machine]
   (let [machine-id (:id machine)
+        _ (when (nil? machine-id)
+            (throw (ex-info ":rf.error/machine-missing-id"
+                            {:machine machine
+                             :reason  "create-machine-handler requires the machine def to carry :id; the snapshot path is computed as [:rf/machines (:id machine)] and a missing :id silently disables the machine."})))
         ;; Validate guard/action references at registration time.
         _ (doseq [[s state-node] (:states machine)]
             (let [transitions (mapcat
