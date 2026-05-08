@@ -80,11 +80,30 @@
         original-fx-id))
     original-fx-id))
 
+(defn- emit-handled!
+  "Emit a `:rf.fx/handled` success trace for a dispatched fx. Per Spec-Schemas
+  §`:rf/epoch-record` `:effects` projection: every dispatched fx surfaces
+  one entry, with `:outcome :ok` for the success path. The epoch projection
+  consumes this trace; pair tools route off it without re-folding the raw
+  trace stream."
+  [fx-id args frame-id]
+  (trace/emit! :fx :rf.fx/handled
+               {:fx-id   fx-id
+                :fx-args args
+                :frame   frame-id}))
+
 (defn- handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
    1. Reserved fx-id with runtime handling (:dispatch, :dispatch-later, :rf.fx/...).
    2. User-registered fx looked up via registrar.
    3. Unknown fx-id — emit :rf.error/no-such-fx and continue.
+
+  Successful dispatches emit `:rf.fx/handled` so the epoch `:effects`
+  projection records one entry per dispatched fx (per Spec-Schemas
+  §`:rf/epoch-record`). Warning and error paths emit their existing
+  traces (`:rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`,
+  `:rf.error/no-such-fx`) and do NOT additionally emit `:rf.fx/handled`,
+  so the projection stays one-entry-per-fx.
 
   `origin-event` (when supplied) is the originating event vector, threaded
   through to the user-registered fx handler's ctx so handlers like
@@ -94,9 +113,11 @@
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)]
    (case fx-id
     :dispatch
-    ;; Append to back of the frame's router queue.
-    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-      (dispatch! args {:frame frame-id}))
+    (do
+      ;; Append to back of the frame's router queue.
+      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        (dispatch! args {:frame frame-id}))
+      (emit-handled! fx-id args frame-id))
 
     :dispatch-later
     (let [{:keys [ms event]} args]
@@ -104,17 +125,22 @@
         (fn []
           (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
             (dispatch! event {:frame frame-id})))
-        ms))
+        ms)
+      (emit-handled! fx-id args frame-id))
 
     :rf.fx/reg-flow
     ;; Per Spec 013 — flows are frame-scoped. The flow registers against
     ;; the dispatching frame.
-    (when-let [reg-flow! (late-bind/get-fn :flows/reg-flow-fx!)]
-      (reg-flow! args {:frame frame-id}))
+    (do
+      (when-let [reg-flow! (late-bind/get-fn :flows/reg-flow-fx!)]
+        (reg-flow! args {:frame frame-id}))
+      (emit-handled! fx-id args frame-id))
 
     :rf.fx/clear-flow
-    (when-let [clear-flow! (late-bind/get-fn :flows/clear-flow-fx!)]
-      (clear-flow! args {:frame frame-id}))
+    (do
+      (when-let [clear-flow! (late-bind/get-fn :flows/clear-flow-fx!)]
+        (clear-flow! args {:frame frame-id}))
+      (emit-handled! fx-id args frame-id))
 
     :spawn
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn): emitted by
@@ -122,45 +148,56 @@
     ;; layer here just emits a trace so observers see the spawn intent;
     ;; full actor lifecycle (auto-start, message routing, supervision)
     ;; is the user's responsibility for now.
-    (trace/emit! :machine :rf.machine/spawned
-                 {:frame frame-id
-                  :machine-id (:machine-id args)
-                  :id-prefix  (:id-prefix args)
-                  :start      (:start args)
-                  :on-spawn   (:on-spawn args)})
+    (do
+      (trace/emit! :machine :rf.machine/spawned
+                   {:frame frame-id
+                    :machine-id (:machine-id args)
+                    :id-prefix  (:id-prefix args)
+                    :start      (:start args)
+                    :on-spawn   (:on-spawn args)})
+      (emit-handled! fx-id args frame-id))
 
     :destroy-machine
     ;; Per Spec 005: emitted on exit from an :invoke-bearing state.
-    (trace/emit! :machine :rf.machine/destroyed
-                 {:frame    frame-id
-                  :actor-id args})
+    (do
+      (trace/emit! :machine :rf.machine/destroyed
+                   {:frame    frame-id
+                    :actor-id args})
+      (emit-handled! fx-id args frame-id))
 
     ;; Default: user-registered fx.
     (if-let [meta (registrar/lookup :fx fx-id)]
       (if (fx-runs-on-platform? meta active-platform)
-        (try
-          ((:handler-fn meta) (cond-> {:frame frame-id}
-                                origin-event (assoc :event origin-event))
-                              args)
-          (catch #?(:clj Throwable :cljs :default) e
-            (let [msg (#?(:clj .getMessage :cljs .-message) e)]
-              (trace/emit-error! :rf.error/fx-handler-exception
-                                 {:failing-id        fx-id
-                                  :fx-id             fx-id
-                                  :fx-args           args
-                                  :frame             frame-id
-                                  :exception         e
-                                  :exception-message msg
-                                  :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
-                                  :recovery          :no-recovery}))))
+        (let [ok? (try
+                    ((:handler-fn meta) (cond-> {:frame frame-id}
+                                          origin-event (assoc :event origin-event))
+                                        args)
+                    true
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (let [msg (#?(:clj .getMessage :cljs .-message) e)]
+                        (trace/emit-error! :rf.error/fx-handler-exception
+                                           {:failing-id        fx-id
+                                            :fx-id             fx-id
+                                            :fx-args           args
+                                            :frame             frame-id
+                                            :exception         e
+                                            :exception-message msg
+                                            :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
+                                            :recovery          :no-recovery}))
+                      false))]
+          (when ok?
+            (emit-handled! fx-id args frame-id)))
         (trace/emit! :warning :rf.fx/skipped-on-platform
                      {:fx-id                fx-id
                       :frame                frame-id
+                      :fx-args              args
                       :platform             active-platform
                       :registered-platforms (:platforms meta)
                       :recovery             :skipped}))
       (trace/emit-error! :rf.error/no-such-fx
-                         {:fx-id fx-id :frame frame-id
+                         {:fx-id    fx-id
+                          :fx-args  args
+                          :frame    frame-id
                           :recovery :no-recovery})))))
 
 (defn do-fx
