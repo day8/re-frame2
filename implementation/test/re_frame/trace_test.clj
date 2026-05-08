@@ -27,6 +27,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.trace :as trace]))
 
@@ -36,6 +37,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
   (rf/init!)
   ;; Framework events / fx are registered at namespace-load time in

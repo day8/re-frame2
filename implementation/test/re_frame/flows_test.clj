@@ -20,6 +20,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 
 ;; ---- per-test reset -------------------------------------------------------
@@ -34,6 +35,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). The smoke-test fixture
   ;; doesn't reset it; left alone, an entry from this namespace's tests
@@ -353,6 +355,7 @@
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})
     (is (contains? (get @flows/flows :rf/default) :one))
     (reset! flows/flows {})
+    (reset! schemas/schemas-by-frame {})
     (is (empty? (get @flows/flows :rf/default))
         "per-frame map is empty after reset")
     (rf/reg-flow {:id :one :inputs [[:a]] :output identity :path [:slots :one]})

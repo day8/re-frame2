@@ -7,6 +7,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.routing :as routing]))
@@ -15,6 +16,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). Without resetting it, an
   ;; entry from a prior deftest can leak into a subsequent same-keyed

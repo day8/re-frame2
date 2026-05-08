@@ -20,6 +20,7 @@
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]))
 
@@ -29,6 +30,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
@@ -320,7 +322,10 @@
     (rf/dispatch-sync [:seed]    {:frame :test/main})
 
     ;; Now register a schema that the bad-record's :db-after fails.
-    (rf/reg-app-schema [:n] [:int])
+    ;; Per Spec 010 §Per-frame schemas reg-app-schema is frame-scoped;
+    ;; restore-epoch runs on :test/main so the schema must register
+    ;; against that frame, not the (current-frame)-default :rf/default.
+    (rf/reg-app-schema [:n] [:int] {:frame :test/main})
 
     (let [pre      (rf/get-frame-db :test/main)
           history  (rf/epoch-history :test/main)

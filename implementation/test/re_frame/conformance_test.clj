@@ -20,6 +20,7 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
+            [re-frame.schemas :as schemas]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]
             [re-frame.conformance :as conformance]
@@ -102,6 +103,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those

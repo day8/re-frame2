@@ -22,6 +22,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -29,6 +30,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those

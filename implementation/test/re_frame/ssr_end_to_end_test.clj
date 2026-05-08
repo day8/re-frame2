@@ -32,6 +32,7 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]))
 
@@ -39,6 +40,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; Framework registrations happen at namespace-load time in
   ;; routing.cljc / ssr.cljc / machines.cljc; clear-all! wiped them, so
