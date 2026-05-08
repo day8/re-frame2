@@ -134,19 +134,32 @@
     @out))
 
 (defn- realise-cofx-handler
-  "DSL → a cofx handler fn (ctx) → ctx. The body's first :set step
-  declares the value to inject; the runner places that value at
+  "DSL → a cofx handler fn (ctx) → ctx. The body's :set steps
+  declare the value to inject; the runner places that value at
   [:coeffects cofx-id] (canonical convention — the cofx-id is the
   slot key per Spec 010 §Where schemas attach §On every reg-*).
 
-  Per rf2-g25p (the conformance-runner gap for cofx body realisation)
-  this is a minimal first-pass interpreter — sufficient for the
-  schemas/cofx fixture which only uses literal :set steps."
+  Per rf2-g25p, the body is realised against the inject-cofx ctx —
+  values pass through `eval-value` so reflection forms (e.g.
+  [:cofx-key K], [:fn :k a b]) resolve against the inbound coeffects
+  /event the same way they do in event handler bodies. Multiple :set
+  steps run in order; the final `:set` step wins (last-write semantics
+  matching the canonical single-injection convention)."
   [cofx-id steps]
   (fn [ctx]
-    (let [first-set (some (fn [s] (when (= :set (first s)) s)) steps)
-          value     (when first-set (nth first-set 2 nil))]
-      (assoc-in ctx [:coeffects cofx-id] value))))
+    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
+          dsl-ctx    {:db    (get-in ctx [:coeffects :db])
+                      :event (get-in ctx [:coeffects :event])
+                      :cofx  (:coeffects ctx)}]
+      (reduce (fn [c step]
+                (case (first step)
+                  :set  (let [[_ _path value] step
+                              v (eval-value value dsl-ctx)]
+                          (assoc-in c [:coeffects cofx-id] v))
+                  :noop c
+                  c))
+              ctx
+              steps))))
 
 (defn- realise-handlers [fixture]
   ;; Walk :fixture/handlers and register each.
@@ -377,9 +390,15 @@
                                                   (assoc ctx :data
                                                          (assoc-in data path
                                                                    (eval-value v ctx))))
+                                        ;; Per rf2-8vo0: pass :fx args through
+                                        ;; eval-value so reflection forms (e.g.
+                                        ;; [:get [:child-id]]) resolve against
+                                        ;; the snapshot's :data, mirroring how
+                                        ;; :set / :dispatch already eval their
+                                        ;; values.
                                         :fx     (let [[_ a b] step]
                                                   (update ctx :fx (fnil conj [])
-                                                          [a b]))
+                                                          [a (eval-value b ctx)]))
                                         ctx))
                                     {:data (:data snap) :event event :fx []}
                                     steps)]
