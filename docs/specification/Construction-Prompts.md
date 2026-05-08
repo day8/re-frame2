@@ -276,34 +276,32 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Template — Form-1 (simple render fn):**
 
 ```clojure
-(rf/reg-view :feature/component-name
-  {:doc  "One-sentence what-and-why."
-   :spec [:cat :string :int]}                 ;; optional Malli schema for the props vector (after the view id)
-  (fn render-feature-component-name [label count-prop]
-    (let [items @(subscribe [:feature/items])]    ;; frame-bound; resolves on the surrounding frame
-      [:div.feature
-       [:h3 label]
-       [:p (str "Count: " count-prop)]
-       (for [item items]
-         ^{:key (:id item)}
-         [:div.item
-          [:span (:label item)]
-          [:button {:on-click #(dispatch [:feature/select (:id item)])} "Select"]])])))
+(rf/reg-view ^{:doc  "One-sentence what-and-why."
+               :spec [:cat :string :int]}    ;; optional Malli schema for the props vector
+             component-name [label count-prop]
+  (let [items @(subscribe [:feature/items])]   ;; frame-bound; resolves on the surrounding frame
+    [:div.feature
+     [:h3 label]
+     [:p (str "Count: " count-prop)]
+     (for [item items]
+       ^{:key (:id item)}
+       [:div.item
+        [:span (:label item)]
+        [:button {:on-click #(dispatch [:feature/select (:id item)])} "Select"]])]))
 ```
 
 **Template — Form-2 (closure for once-on-mount setup):**
 
 ```clojure
-(rf/reg-view :feature/component-name
-  (fn outer-feature-component-name [label]
-    ;; Outer fn: runs once on mount. Use for setup that should fire once per
-    ;; component lifecycle (e.g., dispatching an :on-create-style init event,
-    ;; registering a frame, opening a websocket).
-    (dispatch [:feature/component-mounted])
-    (fn render-feature-component-name [label]
-      ;; Render fn: runs every render.
-      (let [n @(subscribe [:feature/count])]
-        [:div label ": " n]))))
+(rf/reg-view component-name [label]
+  ;; Outer body: runs once on mount. Use for setup that should fire once per
+  ;; component lifecycle (e.g., dispatching an :on-create-style init event,
+  ;; registering a frame, opening a websocket).
+  (dispatch [:feature/component-mounted])
+  (fn render-feature-component-name [label]
+    ;; Inner render fn: runs every render.
+    (let [n @(subscribe [:feature/count])]
+      [:div label ": " n])))
 ```
 
 **Pattern-level discipline (per [004](004-Views.md) and [011](011-SSR.md)):**
@@ -318,7 +316,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ```clojure
 (deftest feature-component-name-renders
   (rf/with-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
-    (let [hiccup ((rf/view :feature/component-name) "test-label" 42)
+    (let [hiccup [component-name "test-label" 42]
           html   (rf/render-to-string hiccup {:frame f})]
       (is (str/includes? html "test-label"))
       (is (str/includes? html "Count: 42")))))
@@ -336,15 +334,13 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Example — full worked artefact:**
 
 ```clojure
-(rf/reg-view :cart/summary
-  {:doc "Total cost and item count for the current cart."}
-  (fn render-cart-summary []
-    (let [items @(subscribe [:cart/items])
-          total @(subscribe [:cart/total])]
-      [:div.cart-summary
-       [:span (str (count items) " items")]
-       [:span (str "$" (format "%.2f" total))]
-       [:button {:on-click #(dispatch [:cart/checkout])} "Checkout"]])))
+(rf/reg-view ^{:doc "Total cost and item count for the current cart."} summary []
+  (let [items @(subscribe [:cart/items])
+        total @(subscribe [:cart/total])]
+    [:div.cart-summary
+     [:span (str (count items) " items")]
+     [:span (str "$" (format "%.2f" total))]
+     [:button {:on-click #(dispatch [:cart/checkout])} "Checkout"]]))
 ```
 
 ### CP-5. Scaffold a state machine
@@ -557,20 +553,19 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 The framework-registered `:rf/machine` sub returns the snapshot for any machine; the wrapper `sub-machine` is the canonical user-facing form:
 
 ```clojure
-(rf/reg-view :auth.login/form
-  (fn render-auth-login-form []
-    (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
-      [:form
-       (case state
-         :idle        [submit-button]
-         :submitting  [spinner]
-         :error-shown [:<>
-                       [:p (str "Error: " (:error data))]
-                       [:button {:on-click #(rf/dispatch [:auth.login/flow [:dismiss]])}
-                        "Try again"]]
-         :authed      [:p "Welcome!"]
-         :locked-out  [:p "Account locked."]
-         nil          [:p "Loading..."])])))           ;; nil before initialisation
+(rf/reg-view login-form []
+  (let [{:keys [state data]} @(rf/sub-machine :auth.login/flow)]
+    [:form
+     (case state
+       :idle        [submit-button]
+       :submitting  [spinner]
+       :error-shown [:<>
+                     [:p (str "Error: " (:error data))]
+                     [:button {:on-click #(rf/dispatch [:auth.login/flow [:dismiss]])}
+                      "Try again"]]
+       :authed      [:p "Welcome!"]
+       :locked-out  [:p "Account locked."]
+       nil          [:p "Loading..."])]))             ;; nil before initialisation
 ```
 
 For projections, compose against `:rf/machine` via `:<-`:
@@ -697,8 +692,8 @@ test/my_app/
     (reduce + (map #(* (:qty %) (:price %)) items))))
 
 ;; my-app/cart/views.cljs
-(rf/reg-view :cart/summary {…})              ;; via CP-4
-(rf/reg-view :cart/item-list {…})
+(rf/reg-view summary [] …)                   ;; via CP-4 (registers :my-app.cart.views/summary)
+(rf/reg-view item-list [] …)
 
 ;; on app boot
 (rf/reg-app-schema [:cart] cs/CartState)
@@ -803,20 +798,18 @@ The handler reads `(:route db)` for any path/query params it needs — the `:rou
 **Template — route-aware root view:**
 
 ```clojure
-(def root-view
-  (rf/reg-view :app/root
-    (fn render-app-root []
-      (let [route-id   @(subscribe [:rf.route/id])
-            transition @(subscribe [:rf.route/transition])]
-        [:div
-         (when (= transition :loading) [progress-bar])
-         (case route-id
-           :route/home              [home-page]
-           :route/cart              [cart-page]
-           :route/cart.item-detail  [cart-item-detail-page]
-           :route/search            [search-page]
-           :rf.route/not-found         [not-found-page]
-           [not-found-page])]))))
+(rf/reg-view root-view []
+  (let [route-id   @(subscribe [:rf.route/id])
+        transition @(subscribe [:rf.route/transition])]
+    [:div
+     (when (= transition :loading) [progress-bar])
+     (case route-id
+       :route/home              [home-page]
+       :route/cart              [cart-page]
+       :route/cart.item-detail  [cart-item-detail-page]
+       :route/search            [search-page]
+       :rf.route/not-found         [not-found-page]
+       [not-found-page])]))
 ```
 
 **Template — links (use the registered `route-link` view):**

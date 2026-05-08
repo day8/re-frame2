@@ -226,11 +226,10 @@ Control types map to common widgets: `:text`, `:textarea`, `:number`, `:boolean`
 Args are passed to the view as data. By default the view renders with the current args:
 
 ```clojure
-(rf/reg-view :login-form
-  (fn [args]                                   ;; receives the current args
-    [:form
-     [:input {:placeholder (:placeholder args)}]
-     [:button (:submit-label args)]]))
+(rf/reg-view login-form [args]                ;; receives the current args
+  [:form
+   [:input {:placeholder (:placeholder args)}]
+   [:button (:submit-label args)]])
 ```
 
 When a control mutates an arg, the story tool dispatches `[:story/set-arg <story-id> <arg-key> <new-value>]` into the variant's frame; the view re-renders with the new args.

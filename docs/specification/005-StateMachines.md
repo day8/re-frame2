@@ -1654,41 +1654,40 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; VIEW
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-view :drawer/main
-  (fn []
-    (let [circles                @(rf/subscribe [:drawer/circles-with-preview])
-          ;; sub-machine returns the whole snapshot; inline-destructure it.
-          {state :state ed :data} @(rf/sub-machine :drawer/editor)
-          editing?               (= state :editing)
-          can-undo?              @(rf/subscribe [:drawer/can-undo?])
-          can-redo?              @(rf/subscribe [:drawer/can-redo?])]
-      [:div.drawer
-       [:div.row
-        [:button {:on-click #(rf/dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
-        [:button {:on-click #(rf/dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
-       [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
-              :on-click (fn [e]
-                          (when-not editing?
-                            (let [r (.. e -currentTarget getBoundingClientRect)
-                                  x (- (.. e -clientX) (.-left r))
-                                  y (- (.. e -clientY) (.-top r))]
-                              (rf/dispatch [:drawer/add-circle x y]))))}
-        (for [{:keys [id x y radius]} circles]
-          ^{:key id}
-          [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
-                    :on-context-menu (fn [e] (.preventDefault e)
-                                       ;; pass radius in the event payload — machine cannot read :db
-                                       (rf/dispatch [:drawer/editor [:right-click-circle id radius]]))}])]
-       (when editing?
-         [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
-          [:p (str "Adjust diameter of circle " (:circle-id ed))]
-          [:input {:type "range" :min 5 :max 100 :step 1
-                   :value (:preview-radius ed)
-                   :on-change #(rf/dispatch [:drawer/editor [:drag-slider
-                                                             (js/parseInt (.. % -target -value))]])}]
-          [:div.row
-           [:button {:on-click #(rf/dispatch [:drawer/editor [:close-dialog]])}  "Commit"]
-           [:button {:on-click #(rf/dispatch [:drawer/editor [:cancel-dialog]])} "Cancel"]]])])))
+(rf/reg-view main []
+  (let [circles                @(rf/subscribe [:drawer/circles-with-preview])
+        ;; sub-machine returns the whole snapshot; inline-destructure it.
+        {state :state ed :data} @(rf/sub-machine :drawer/editor)
+        editing?               (= state :editing)
+        can-undo?              @(rf/subscribe [:drawer/can-undo?])
+        can-redo?              @(rf/subscribe [:drawer/can-redo?])]
+    [:div.drawer
+     [:div.row
+      [:button {:on-click #(rf/dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
+      [:button {:on-click #(rf/dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
+     [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
+            :on-click (fn [e]
+                        (when-not editing?
+                          (let [r (.. e -currentTarget getBoundingClientRect)
+                                x (- (.. e -clientX) (.-left r))
+                                y (- (.. e -clientY) (.-top r))]
+                            (rf/dispatch [:drawer/add-circle x y]))))}
+      (for [{:keys [id x y radius]} circles]
+        ^{:key id}
+        [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
+                  :on-context-menu (fn [e] (.preventDefault e)
+                                     ;; pass radius in the event payload — machine cannot read :db
+                                     (rf/dispatch [:drawer/editor [:right-click-circle id radius]]))}])]
+     (when editing?
+       [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
+        [:p (str "Adjust diameter of circle " (:circle-id ed))]
+        [:input {:type "range" :min 5 :max 100 :step 1
+                 :value (:preview-radius ed)
+                 :on-change #(rf/dispatch [:drawer/editor [:drag-slider
+                                                           (js/parseInt (.. % -target -value))]])}]
+        [:div.row
+         [:button {:on-click #(rf/dispatch [:drawer/editor [:close-dialog]])}  "Commit"]
+         [:button {:on-click #(rf/dispatch [:drawer/editor [:cancel-dialog]])} "Cancel"]]])]))
 ```
 
 **Modeling rule the example illustrates:** preview is *display* state, not domain state. The drag never persists into `:circles`; instead the `:drawer/circles-with-preview` sub merges `:preview-radius` from the editor's `:data` into the rendered circles at read time. Cancel is therefore a no-op on domain state — there is nothing to revert because nothing was persisted.

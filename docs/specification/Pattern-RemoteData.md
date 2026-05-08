@@ -185,18 +185,17 @@ Convenience subs per slice (the `:loading?` / `:fetching?` split is the load-bea
 Views read the convenience subs:
 
 ```clojure
-(rf/reg-view :pages/articles
-  (fn []
-    (cond
-      @(subscribe [:articles/loading?])
-      [:p "Loading…"]
+(rf/reg-view articles []
+  (cond
+    @(subscribe [:articles/loading?])
+    [:p "Loading…"]
 
-      @(subscribe [:articles/error])
-      [:p.error (str "Couldn't load: " @(subscribe [:articles/error]))]
+    @(subscribe [:articles/error])
+    [:p.error (str "Couldn't load: " @(subscribe [:articles/error]))]
 
-      :else
-      [:ul (for [a @(subscribe [:articles/data])]
-             ^{:key (:id a)} [:li (:title a)])])))
+    :else
+    [:ul (for [a @(subscribe [:articles/data])]
+           ^{:key (:id a)} [:li (:title a)])]))
 ```
 
 ## Variations

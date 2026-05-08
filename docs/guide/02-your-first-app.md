@@ -38,19 +38,18 @@ Here's the file, in full, with the surrounding ceremony removed:
   (fn [db _query] (:count db)))
 
 ;; View
-(rf/reg-view :counter
-  (fn []
-    [:div
-     [:button {:on-click #(dispatch [:counter/dec])} "-"]
-     [:span @(subscribe [:count])]
-     [:button {:on-click #(dispatch [:counter/inc])} "+"]]))
+(rf/reg-view counter []
+  [:div
+   [:button {:on-click #(dispatch [:counter/dec])} "-"]
+   [:span @(subscribe [:count])]
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
 ;; Mount
 (defonce root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [(rf/view :counter)]))
+  (rdc/render root [counter]))
 ```
 
 That's everything. Forty lines. Let's take it apart.
@@ -139,17 +138,16 @@ The `:<-` is the input declaration. The framework builds a dependency graph from
 ## The view
 
 ```clojure
-(rf/reg-view :counter
-  (fn []
-    [:div
-     [:button {:on-click #(dispatch [:counter/dec])} "-"]
-     [:span @(subscribe [:count])]
-     [:button {:on-click #(dispatch [:counter/inc])} "+"]]))
+(rf/reg-view counter []
+  [:div
+   [:button {:on-click #(dispatch [:counter/dec])} "-"]
+   [:span @(subscribe [:count])]
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
 This is the only piece with substantive shape. Let's look at it carefully.
 
-`reg-view` registers a render function under the keyword `:counter`. The render function returns **hiccup** — a Clojure data structure that describes a DOM tree. `[:div ...]` is a `<div>`. `[:button {:on-click ...} "-"]` is a `<button>` with a click handler and the text `"-"`.
+`reg-view` is a defn-shape macro. It registers a render function (under the auto-derived id `(keyword *ns* "counter")`) and defs the symbol `counter` in the current namespace, bound to the wrapped fn. Hiccup elsewhere can reference it as `[counter]`. The render function returns **hiccup** — a Clojure data structure that describes a DOM tree. `[:div ...]` is a `<div>`. `[:button {:on-click ...} "-"]` is a `<button>` with a click handler and the text `"-"`.
 
 Inside the body, two names are available that you didn't define:
 
@@ -177,10 +175,10 @@ There's a tradeoff: plain Reagent functions also work, but they don't get frame-
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [(rf/view :counter)]))
+  (rdc/render root [counter]))
 ```
 
-This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `(rf/view :counter)` looks up the registered render function and hands it back; `rdc/render` mounts it.
+This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `[counter]` is hiccup referencing the Var that `reg-view` defed; `rdc/render` mounts it.
 
 ## What just happened
 
@@ -188,7 +186,7 @@ When the page loads, here's what runs:
 
 1. `reg-frame :rf/default` registers (and creates) the default frame. The `:on-create` event `[:counter/initialise]` fires synchronously. The handler returns `{:count 5}`. The frame's `app-db` is now `{:count 5}`.
 
-2. `run` is called. It mounts the `:counter` view at the root.
+2. `run` is called. It mounts the `counter` view at the root.
 
 3. The view's body runs. `@(subscribe [:count])` returns `5`. The hiccup tree is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent renders that as DOM.
 

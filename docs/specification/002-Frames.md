@@ -33,7 +33,7 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
 ;; View ergonomics
 [rf/frame-provider {:frame :todo}       ;; React context: keyword in, not value
  [todo-list]]
-(rf/reg-view :counter {,,,} (fn [label] ,,,))   ;; injects frame-bound `dispatch`/`subscribe`
+(rf/reg-view counter [label] ,,,)               ;; defn-shape; injects frame-bound `dispatch`/`subscribe`
 
 ;; Plain (non-view) APIs — frame-aware variants
 (rf/dispatch      [:foo])                          ;; defaults to :rf/default
@@ -397,12 +397,10 @@ So the CLJS reference has to **convert render-time frame knowledge into a closur
 `reg-view` is the registered, frame-aware view abstraction. Inside a registered view's body, `dispatch` and `subscribe` are **lexically bound locals** — closures pre-bound to the frame resolved from React context at render time. Callbacks that close over these locals automatically carry the frame.
 
 ```clojure
-(rf/reg-view :counter
-  {:doc "A counter widget with isolated state."}
-  (fn [label]
-    (let [n @(subscribe [:count])]                  ;; frame-bound subscribe
-      [:button {:on-click #(dispatch [:inc])}        ;; frame-bound dispatch closed over
-       (str label ": " n)])))
+(rf/reg-view ^{:doc "A counter widget with isolated state."} counter [label]
+  (let [n @(subscribe [:count])]                  ;; frame-bound subscribe
+    [:button {:on-click #(dispatch [:inc])}        ;; frame-bound dispatch closed over
+     (str label ": " n)]))
 ```
 
 Naming convention: **unqualified `dispatch`/`subscribe` inside `reg-view` are the frame-bound locals.** Qualified `re-frame.core/dispatch` continues to refer to the global function (defaults to `:rf/default`, also useful at the REPL).
