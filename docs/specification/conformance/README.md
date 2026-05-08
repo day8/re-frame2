@@ -116,6 +116,9 @@ The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-
 | Form | Meaning |
 |---|---|
 | `[:event-arg n]` | The n-th element of the event vector (0-based). `[:event-arg 1]` is typical for the first user-supplied arg. |
+| `[:event-arg n default-val]` | The n-th element of the event vector; `default-val` if the n-th element is `nil`. The 3rd element is **always** a default-for-nil — it is never type-dispatched, even when it's a keyword and the resolved value happens to be a map. For key-access into a map argument, use `:get-event-arg`. |
+| `[:get-event-arg n :key]` | `:key`-access into the n-th element of the event vector — equivalent to `(get (nth event n) :key)`. The n-th element is expected to be a map. |
+| `[:get-event-arg n :key default-val]` | Same as above with a default if `:key` is missing or its value is `nil`. |
 | `[:fn :keyword]` | Reference a host-builtin function by keyword. |
 | `[:fn :keyword arg1 arg2 ...]` | Partial application: `[:fn :conj :should-not-fire]` is `(fn [x] (conj x :should-not-fire))`. |
 

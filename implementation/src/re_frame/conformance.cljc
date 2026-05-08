@@ -23,6 +23,9 @@
 
   Reflection (used as args to data ops):
     [:event-arg n]                  the n-th element of event (0-based)
+    [:event-arg n default-val]      n-th element of event; default-val if nil
+    [:get-event-arg n :key]         (get (nth event n) :key)  -- key-access
+    [:get-event-arg n :key default] key-access with default if missing/nil
     [:db-get path]                  read db at path
     [:fn :keyword]                  reference a builtin
     [:fn :keyword arg1 ...]         partial application of a builtin
@@ -100,23 +103,23 @@
   (cond
     (vector? form)
     (case (first form)
-      :event-arg    (let [[_ idx maybe] form
+      :event-arg    (let [[_ idx default-val] form
                           v (get (:event ctx) idx)]
-                      ;; Two shapes overload the third element:
-                      ;;   [:event-arg n default-for-nil]
-                      ;;   [:event-arg n key-into-value]   (when value is a map
-                      ;;                                    and 3rd is keyword)
-                      ;; Disambiguate by the type of the third element.
-                      (cond
-                        (and (>= (count form) 3)
-                             (keyword? maybe)
-                             (map? v))             (get v maybe)
-                        (and (>= (count form) 3)
-                             (nil? v))             maybe
-                        :else                      v))
-      :get-event-arg (let [[_ idx k] form
-                           m (get (:event ctx) idx)]
-                       (get m k))
+                      ;; The 3rd element is unconditionally a default-for-nil.
+                      ;; Per rf2-xb5o (resolves rf2-pz9f): no type-dispatch on
+                      ;; the 3rd element. For map-value key-access, use the
+                      ;; explicit [:get-event-arg n :key] form below.
+                      (if (and (>= (count form) 3) (nil? v))
+                        default-val
+                        v))
+      :get-event-arg (let [[_ idx k default-val] form
+                           m (get (:event ctx) idx)
+                           v (get m k)]
+                       ;; [:get-event-arg n :key]            -- (get (nth event n) :key)
+                       ;; [:get-event-arg n :key default]    -- with default if missing/nil
+                       (if (and (>= (count form) 4) (nil? v))
+                         default-val
+                         v))
       :db-get       (let [[_ path default] form
                           v (get-in (:db ctx) path)]
                       (if (and (nil? v) (>= (count form) 3)) default v))
