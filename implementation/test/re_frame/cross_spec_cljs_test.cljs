@@ -11,13 +11,27 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.views]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
+(defn- reset-runtime
+  "Per-test runtime reset for CLJS cross-spec tests.
+
+  We deliberately do NOT call (registrar/clear-all!) here. CLJS has no
+  runtime (require :reload), so a clear-all! would wipe routing's
+  framework events (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll
+  fx, …) and machines.cljc's :rf/machine sub, which were registered at
+  ns-load time and CANNOT be re-registered without reloading the
+  defining ns. Subsequent CLJS test files (nine-states-cljs-test,
+  routing-cljs-test) depend on those registrations being intact —
+  rf2-coks tracked the cross-test pollution.
+
+  Tests that re-register the same id (e.g. :test/m, :seed) rely on
+  registrar/register!'s replacement semantics — that's a supported
+  hot-reload path, not a leak. Resetting frames, flows and the adapter
+  is enough to isolate per-test state."
+  [test-fn]
   (reset! frame/frames {})
   (reset! flows/flows {})
   (adapter/dispose-adapter!)

@@ -11,15 +11,28 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.trace :as trace]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
+(defn reset-runtime
+  "Per-test runtime reset for CLJS machines tests.
+
+  We deliberately do NOT call (registrar/clear-all!) here. CLJS has no
+  runtime (require :reload), so a clear-all! would wipe routing's
+  framework events (:rf/url-changed, :rf.route/navigate, :rf.nav/scroll
+  fx, …) and machines.cljc's :rf/machine sub, which were registered at
+  ns-load time and CANNOT be re-registered without reloading the
+  defining ns. Subsequent CLJS test files (nine-states-cljs-test,
+  routing-cljs-test) depend on those registrations being intact —
+  rf2-coks tracked the cross-test pollution.
+
+  Each test in this file uses unique machine / event ids, so a registry
+  wipe is unnecessary for in-file isolation. Resetting frames, flows,
+  the adapter, the machine counters and trace cbs is enough."
+  [test-fn]
   (reset! frame/frames {})
   (reset! flows/flows {})
   (adapter/dispose-adapter!)
