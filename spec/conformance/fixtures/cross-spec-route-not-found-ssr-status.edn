@@ -1,0 +1,87 @@
+;; Conformance fixture: cross-spec/route-not-found-ssr-status
+;;
+;; Cross-Spec Interaction #7 (Routing × SSR), per
+;; [Cross-Spec-Interactions §7 — Route-not-found under SSR](../../Cross-Spec-Interactions.md#7-route-not-found-under-ssr).
+;;
+;; Specs that meet: [012-Routing §Route-not-found](../../012-Routing.md),
+;;                  [011-SSR §Server error projection](../../011-SSR.md).
+;;
+;; Scenario: A request URL on the server matches no registered route.
+;;
+;; Behaviour: The standard route-not-found path runs (Spec 012),
+;; populating app-db with the not-found marker; the route's :on-match
+;; events fire just like any other route. The runtime's default error
+;; projector maps :rf.error/no-such-handler in the routing context to a
+;; locked {:status 404 :code :not-found ...} public-error and stamps
+;; :status 404 onto the per-request response accumulator. The HTTP
+;; response status conveys the response semantics; the trace surface
+;; carries the structured error.
+;;
+;; This fixture composes #6 (server-platform routing) with the existing
+;; :ssr/error-known-mapping behaviour and pins the cross-spec rule that
+;; route-not-found on the server lands at status 404 via the projector,
+;; while the route's :on-match events still run.
+
+{:fixture/id           :cross-spec/route-not-found-ssr-status
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/error :ssr/error-projection}
+ :fixture/doc          "Cross-Spec #7 Route-not-found under SSR. An unmatched URL on a :server frame routes to :rf.route/not-found; :on-match fires; the default error projector writes :status 404 to the response accumulator. The structured error trace records :rf.error/no-such-handler with the URL and the routing context."
+
+ :fixture/registry
+ {:event {:rf/server-init     {:platforms #{:server}}
+          :analytics/log-404  {:doc "Logs the 404 hit (would-be on-match for the not-found route)."
+                               :platforms #{:server}}}
+  :route {:route/home         {:path "/"}
+          :rf.route/not-found {:path     "/404"
+                               :on-match [[:analytics/log-404]]}}
+  :error-projector
+  {:rf.ssr/default-error-projector
+   {:doc "The runtime's default error projector — maps routing :no-such-handler to a 404 public-error."}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init    [[:fx [[:dispatch [:rf.route/handle-url-change "/missing"]]]]]
+          :analytics/log-404 [[:set [:analytics :last-404] true]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init]
+                        :platform  :server
+                        :ssr {:public-error-id   :rf.ssr/default-error-projector
+                              :dev-error-detail? false}}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; Submap match: the :route slice carries the not-found marker, the
+ ;; on-match analytics ran, and :rf/response carries the projector's
+ ;; locked 404 status.
+ {:final-app-db
+  {:route       {:id     :rf.route/not-found
+                 :params {:url "/missing"}
+                 :query  {}
+                 :error  nil}
+   :analytics   {:last-404 true}
+   :rf/response {:status   404
+                 :redirect nil}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :rf.route/handle-url-change}}
+   ;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
+   ;; (Per Spec 012 §Route-not-found, route-not-found IS treated as an error
+   ;; on the wire — it surfaces an :rf.error/no-such-handler trace and the
+   ;; default projector maps it to a 404 public-error. See bead rf2-bhhu
+   ;; for the cross-spec doc reconciliation against the prose claim that
+   ;; "the projector does not fire — route-not-found is normal control
+   ;; flow"; this fixture pins the runtime-observable behaviour.)
+   {:operation :rf.error/no-such-handler
+    :op-type   :error
+    :recovery  :replaced-with-default
+    :tags      {:url "/missing"}}
+   ;; The not-found route's :on-match still fires.
+   {:operation :event :tags {:event-id :analytics/log-404}}]
+
+  ;; The default projector's public-error shape.
+  :ssr/public-error
+  {:status     404
+   :code       :not-found
+   :message    "Page not found"
+   :retryable? false}}}

@@ -1,0 +1,82 @@
+;; Conformance fixture: cross-spec/routing-in-ssr
+;;
+;; Cross-Spec Interaction #6 (Routing × SSR), per
+;; [Cross-Spec-Interactions §6 — Routing in SSR](../../Cross-Spec-Interactions.md#6-routing-in-ssr).
+;;
+;; Specs that meet: [012-Routing](../../012-Routing.md),
+;;                  [011-SSR](../../011-SSR.md).
+;;
+;; Scenario: A server-side render handles a request for `/articles/intro`;
+;; the route matches a registered route handler that produces the initial
+;; state and dispatches `:rf.route/navigate`.
+;;
+;; Behaviour: The route slice is populated; navigation effects
+;; (:rf.nav/push-url, :rf.nav/replace-url) are NO-OPS on the server because
+;; both fx declare :platforms #{:client} (see re-frame.routing). The runtime
+;; emits :rf.fx/skipped-on-platform when the platform-gated fx is dropped.
+;; The :route slice still updates so the resolved route is part of the
+;; hydration payload.
+;;
+;; Reason: Routing-as-state means the route is just an app-db slice. SSR
+;; populates it; the client hydrates it. Navigation effects are device-side
+;; concerns that don't survive to the server.
+
+{:fixture/id           :cross-spec/routing-in-ssr
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx :ssr/response-contract}
+ :fixture/doc          "Cross-Spec #6 Routing × SSR. A server-side dispatch of :rf.route/navigate populates the :route slice but the :rf.nav/push-url fx is gated to :client and skipped on :server with a :rf.fx/skipped-on-platform trace. The route remains part of app-db for the hydration payload."
+
+ :fixture/registry
+ {:event {:rf/server-init    {:doc       "Per-request server-side init."
+                              :platforms #{:server}}
+          :rf.route/navigate {:doc "Built-in: dispatched here on the server."}}
+  :sub   {:route {:doc "The resolved route slice (would survive into the hydration payload)."}}
+  :route {:route/articles      {:path "/articles"}
+          :route/article-detail {:path "/articles/:id"
+                                 :params [:map [:id :string]]}}
+  ;; :rf.nav/push-url is registered by re-frame.routing with
+  ;; :platforms #{:client}; declaring it here would shadow that with a
+  ;; no-op stub, defeating the test. The fixture relies on the runtime's
+  ;; built-in registration.
+  }
+
+ :fixture/handlers
+ {:event {:rf/server-init [[:fx [[:dispatch [:rf.route/navigate :route/article-detail {:id "intro"}]]]]]}
+  :sub   {:route [[:get [:route]]]}}
+
+ ;; :platform :server simulates an SSR request frame; the platform-gated
+ ;; :rf.nav/push-url fx will be skipped per Spec 002 §:platforms gating.
+ :fixture/frame-config {:on-create [:rf/server-init]
+                        :platform  :server}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; The :route slice IS populated (server-side state survives into the
+ ;; hydration payload). The navigation fx was attempted but skipped — it
+ ;; does NOT appear in :effects-routed (the runtime never invoked the
+ ;; handler).
+ {:final-app-db
+  {:route {:id     :route/article-detail
+           :params {:id "intro"}}}
+
+  :sub-values
+  {[:route] {:id         :route/article-detail
+             :params     {:id "intro"}
+             :query      {}
+             :transition :idle
+             :error      nil}}
+
+  ;; The navigation fx was skipped on the server; nothing routed.
+  :effects-routed []
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :rf.route/navigate}}
+   ;; The platform-gated :rf.nav/push-url fx is skipped on :server.
+   {:operation :rf.fx/skipped-on-platform
+    :op-type   :warning
+    :tags      {:fx-id                :rf.nav/push-url
+                :platform             :server
+                :registered-platforms #{:client}}
+    :recovery  :skipped}]}}

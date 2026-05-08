@@ -1,0 +1,84 @@
+;; Conformance fixture: cross-spec/portable-story-fx-override
+;;
+;; Cross-Spec Interaction #19 (Stories × Testing), per
+;; [Cross-Spec-Interactions §19 — Story decorators that override fx](../../Cross-Spec-Interactions.md#19-story-decorators-that-override-fx).
+;;
+;; Specs that meet: [007-Stories](../../007-Stories.md),
+;;                  [008-Testing](../../008-Testing.md),
+;;                  [002-Frames §Per-frame and per-call overrides](../../002-Frames.md#per-frame-and-per-call-overrides).
+;;
+;; Scenario: A story registers a frame with :fx-overrides
+;; {:http :http.canned-200} and a portable-stories-as-test runs the same
+;; story under the test framework.
+;;
+;; Behaviour: The id-valued override resolves identically in both
+;; contexts: :http.canned-200 is a registered fx, the canned fx runs in
+;; place of the real :http. No function-valued lambda is needed; the
+;; override is portable across the wire.
+;;
+;; Reason: Pattern-level overrides are id-valued precisely so they survive
+;; the story → test transition. Function-valued overrides are CLJS-only
+;; ergonomic sugar.
+;;
+;; This fixture is a cross-spec landing-site for the rule. The mechanism
+;; itself (id-valued :fx-overrides redirecting one fx-id to another) is
+;; pinned by :fx/override-by-id; this fixture composes it with the story-
+;; vs-test invariant: the SAME fixture data is what a portable story
+;; would use unmodified — proving the override survives the transition.
+
+{:fixture/id           :cross-spec/portable-story-fx-override
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx}
+ :fixture/doc          "Cross-Spec #19 Stories × Testing. A frame's :fx-overrides carries an ID-valued mapping ({:http :http.canned-200}); the override resolves to the registered canned fx the same way under a story decorator and under a portable-stories-as-test. The fixture data is itself host-agnostic — whatever wire format ships the story carries this same map."
+
+ :fixture/registry
+ {:event {:user/load   {:doc "Trigger a user load."}
+          :user/loaded {:doc "Receive the user payload."}}
+  :sub   {:user {:doc "The current user."}}
+  :fx    {:http             {:doc       "HTTP request — would hit the network in production."
+                             :platforms #{:client :server}}
+          :http.canned-200  {:doc       "Canned-success stub registered alongside :http; selectable via :fx-overrides."
+                             :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:user/load   [[:fx :http {:method :get :url "/api/me" :on-success [:user/loaded]}]]
+          :user/loaded [[:set [:user] [:event-arg 1]]]}
+  :sub   {:user [[:get [:user]]]}
+  :fx    {;; Default :http stub: in a real test we never want network IO.
+          ;; The override below redirects this stub away anyway.
+          :http             [[:noop]]
+          ;; Canned fx — synthesises the success callback as if the
+          ;; request had returned 200 with the recorded payload. This is
+          ;; the same shape a story decorator would use to keep stories
+          ;; self-contained.
+          :http.canned-200  [[:dispatch [:user/loaded {:id "u-1" :name "Story User"}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  ;; ID-VALUED override — portable across the story → test transition
+  ;; per Spec 002 §Per-frame and per-call overrides §pattern-level vs
+  ;; CLJS reference. A function-valued lambda would NOT survive the wire.
+  :fx-overrides {:http :http.canned-200}}
+
+ :fixture/dispatches
+ [[:user/load]]
+
+ :fixture/expect
+ {:final-app-db {:user {:id "u-1" :name "Story User"}}
+
+  :sub-values   {[:user] {:id "u-1" :name "Story User"}}
+
+  ;; The override redirected :http to :http.canned-200 — no real :http
+  ;; ran. Both story-host and test-host see the same routing.
+  :effects-routed
+  [{:fx-id :http.canned-200
+    :args  {:method :get :url "/api/me" :on-success [:user/loaded]}}]
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :user/load}}
+   ;; The override-applied trace fires regardless of the host context —
+   ;; this is what makes the override observably the same in stories and
+   ;; tests.
+   {:operation :rf.fx/override-applied
+    :tags      {:from :http :to :http.canned-200}}
+   {:operation :event :tags {:event-id :user/loaded}}]}}

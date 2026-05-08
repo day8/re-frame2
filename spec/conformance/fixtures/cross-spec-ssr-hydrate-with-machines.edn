@@ -1,0 +1,82 @@
+;; Conformance fixture: cross-spec/ssr-hydrate-with-machines
+;;
+;; Cross-Spec Interaction #5 (Machines × SSR), per
+;; [Cross-Spec-Interactions §5 — Hydration with machine snapshots](../../Cross-Spec-Interactions.md#5-hydration-with-machine-snapshots).
+;;
+;; Specs that meet: [005-StateMachines §Where snapshots live](../../005-StateMachines.md#where-snapshots-live),
+;;                  [011-SSR §Hydration payload](../../011-SSR.md).
+;;
+;; Scenario: The server rendered a page that ran machines to completion
+;; of the SSR-eligible drain; the hydration payload carries app-db with
+;; machine snapshots at [:rf/machines <id>] (per Conventions §Reserved
+;; app-db keys). The client hydrates and continues from the server's
+;; settled state.
+;;
+;; Behaviour: Machine snapshots live INSIDE app-db, so the hydration
+;; payload (which is app-db itself) carries them transparently. After
+;; :rf/hydrate, dispatching events that read [:rf/machines <id>] sees
+;; the server's settled snapshot. No separate machine-state channel is
+;; required — Goal 3 (revertibility) of the architecture pays for
+;; trivial hydration here.
+;;
+;; The pure-data observable: a hydrate payload containing
+;; {:rf/machines {:auth.session/abc {:state :authenticated :data {...}}}}
+;; results in those snapshots living at the canonical path after hydrate
+;; settles, queryable by subsequent dispatches and subs.
+
+{:fixture/id           :cross-spec/ssr-hydrate-with-machines
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/hydration :core/event-handler :core/sub}
+ :fixture/doc          "Cross-Spec #5 Hydration with machine snapshots. The hydration payload's :rf/app-db carries machine snapshots at the conventional [:rf/machines <id>] location. After :rf/hydrate seeds app-db, subsequent dispatches and subs read the server's settled snapshot — no separate machine-state channel."
+
+ :fixture/registry
+ {:event {:rf/hydrate    {:doc "Standard hydrate: replace app-db with payload's :rf/app-db."}
+          :auth/poll-status {:doc "Reads the hydrated machine snapshot's state and stashes it for assertion."}}
+  :sub   {:auth-state {:doc "Returns the hydrated machine snapshot's :state."}
+          :auth-user  {:doc "Returns the hydrated machine snapshot's :data.:user."}}}
+
+ :fixture/handlers
+ {:event {:rf/hydrate       [[:set [] [:get-event-arg 1 :rf/app-db]]]
+          ;; A "regular" event reads the machine snapshot exactly the way
+          ;; user code would after hydration — by path. This is the test:
+          ;; the snapshot is reachable AT the conventional location.
+          :auth/poll-status [[:set [:observed-status]
+                              [:get [:rf/machines :auth.session/abc :state]]]]}
+  :sub   {:auth-state [[:get [:rf/machines :auth.session/abc :state]]]
+          :auth-user  [[:get [:rf/machines :auth.session/abc :data :user]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ ;; Hydrate carries a server-settled app-db that already contains a machine
+ ;; snapshot at the conventional path. Note no machine-state side-channel —
+ ;; the hydration payload IS app-db.
+ [[:rf/hydrate {:rf/version    "1.0"
+                :rf/frame-id   :rf/default
+                :rf/app-db     {:page :dashboard
+                                :rf/machines
+                                {:auth.session/abc
+                                 {:state :authenticated
+                                  :data  {:user {:id "u-1" :name "Server-Settled"}
+                                          :rf/after-epoch 3}}}}
+                :rf/render-hash "h1"}]
+  ;; A regular event after hydrate reads the machine snapshot.
+  [:auth/poll-status]]
+
+ :fixture/expect
+ {:final-app-db
+  {:page :dashboard
+   :observed-status :authenticated
+   :rf/machines
+   {:auth.session/abc
+    {:state :authenticated
+     :data  {:user {:id "u-1" :name "Server-Settled"}
+             :rf/after-epoch 3}}}}
+
+  :sub-values
+  {[:auth-state] :authenticated
+   [:auth-user]  {:id "u-1" :name "Server-Settled"}}
+
+  :trace-emissions
+  [{:operation :event :source :ssr-hydration :tags {:event-id :rf/hydrate}}
+   {:operation :event :tags {:event-id :auth/poll-status}}]}}
