@@ -235,9 +235,16 @@
   refuses (regardless of whether the outer drain came from
   dispatch-sync or async dispatch).
 
-  When the depth limit is hit, emit :rf.error/drain-depth-exceeded with
-  :depth, :queue-size, and :last-event tags, then halt (the remaining
-  queued events are discarded).
+  When the depth limit is hit, restore `app-db` to the pre-drain
+  snapshot (atomic rollback per Spec 002 §Run-to-completion §Rules
+  rule 3), then emit :rf.error/drain-depth-exceeded with :depth,
+  :queue-size, and :last-event tags, then halt (the remaining queued
+  events are discarded). Rationale: re-frame's general 'events are
+  atomic' principle extends to the drain — a depth-exceeded drain
+  composes many events whose collective effect on `:db` is a partial
+  cascade; preserving that partial cascade leaves callers observing a
+  state no single event produced. Rolling back to `db-before` is the
+  same discipline applied to the partial-drain boundary.
 
   Per Tool-Pair §Time-travel: every drain-settle (queue empty) appends
   an `:rf/epoch-record` to the frame's epoch history. Atomic — partial
@@ -254,7 +261,9 @@
             ;; Per Tool-Pair §Time-travel: snapshot `:db-before` at the
             ;; instant the drain begins so the eventual `:rf/epoch-record`
             ;; can carry the pre-cascade state regardless of how many
-            ;; intermediate handlers commit `:db`.
+            ;; intermediate handlers commit `:db`. Per Spec 002 §Run-to-
+            ;; completion §Rules rule 3, the same snapshot is the
+            ;; rollback target if the drain trips the depth limit.
             db-before    (frame/frame-app-db-value frame-id)]
         (swap! router assoc :in-drain? true)
         (try
@@ -262,11 +271,20 @@
             (cond
               (>= depth drain-depth)
               (let [{:keys [queue]} @router]
+                ;; Atomic rollback: restore the pre-drain `:db` BEFORE
+                ;; emitting the error so any trace listener that reads
+                ;; app-db sees the rolled-back value, not a misleading
+                ;; partial cascade. Per Spec 002 §Run-to-completion
+                ;; §Rules rule 3.
+                (let [container (frame/get-frame-db frame-id)]
+                  (when container
+                    (adapter/replace-container! container db-before)))
                 (trace/emit-error! :rf.error/drain-depth-exceeded
                                    {:frame      frame-id
                                     :depth      depth
                                     :queue-size (count queue)
                                     :last-event @last-event-a
+                                    :rollback?  true
                                     :recovery   :no-recovery})
                 (swap! router assoc :queue interop/empty-queue :scheduled? false)
                 ;; Per Tool-Pair §Time-travel: a depth-exceeded drain is
