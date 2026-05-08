@@ -1,0 +1,65 @@
+;; Conformance fixture: schemas/app-db-slice-validates
+;; Per Spec 010 §Validation order step 4 — :app-db path schemas validate
+;; the slice at the registered path AFTER the handler's :db effect commits.
+;; A handler that violates the slice's shape triggers
+;; :rf.error/schema-validation-failure with :where :app-db and the
+;; offending :path. Recovery defaults to :no-recovery in dev (the bad
+;; commit is observable) — production switches to :replaced-with-default.
+;;
+;; This fixture pairs with error-schema-failure.edn (same surface, different
+;; framing): error-schema-failure focuses on the error trace shape; this
+;; fixture focuses on the slice-validates contract — well-typed payloads
+;; pass, malformed payloads fail.
+;;
+;; Dynamic-host only — statically typed hosts catch shape violations at
+;; compile time and produce no runtime trace.
+
+{:fixture/id           :schemas/app-db-slice-validates
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/error :schemas/runtime}
+ :fixture/doc          "An :app-schema-at registered at [:user] validates the slice after every :db commit. A well-typed value passes silently; a malformed value emits :rf.error/schema-validation-failure with :where :app-db."
+ :fixture/dynamic-host-only? true
+
+ :fixture/registry
+ {:event {:user/init     {:doc "Seed a well-typed user."}
+          :user/set-good {:doc "Sets :user to a well-typed map (passes)."}
+          :user/set-bad  {:doc "Sets :user to a value violating the schema."}}
+  :sub   {:user {:doc "Current user slice."}}
+  :app-schema
+  {[:user] [:map [:id :int] [:email :string]]}}
+
+ :fixture/handlers
+ {:event {:user/init     [[:set [:user] {:id 1 :email "alice@example.com"}]]
+          :user/set-good [[:set [:user] {:id 2 :email "bob@example.com"}]]
+          :user/set-bad  [[:set [:user] {:id "not-an-int" :email "carol@example.com"}]]}
+  :sub   {:user [[:get [:user]]]}}
+
+ :fixture/frame-config {:on-create [:user/init]}
+
+ :fixture/dispatches
+ ;; First the well-typed payload (no error trace), then the malformed one
+ ;; (raises :rf.error/schema-validation-failure).
+ [[:user/set-good]
+  [:user/set-bad]]
+
+ :fixture/expect
+ ;; Final app-db reflects the bad commit — recovery is :no-recovery, so the
+ ;; offending :db effect IS still applied; the trace records the violation.
+ {:final-app-db {:user {:id "not-an-int" :email "carol@example.com"}}
+
+  :sub-values   {[:user] {:id "not-an-int" :email "carol@example.com"}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :user/init}}
+   {:operation :event :tags {:event-id :user/set-good}}
+   ;; No schema-validation-failure between :user/set-good (well-typed) and
+   ;; :user/set-bad — the runner asserts the order of NEW emissions; absent
+   ;; emissions in between are fine.
+   {:operation :event :tags {:event-id :user/set-bad}}
+   {:operation :rf.error/schema-validation-failure
+    :op-type   :error
+    :tags      {:category   :rf.error/schema-validation-failure
+                :failing-id :user/set-bad
+                :where      :app-db
+                :path       [:user]}
+    :recovery  :no-recovery}]}}
