@@ -461,3 +461,105 @@
         (is (= [:seed :inc] (mapv :event-id history)))
         (is (= {:n 1} (:db-after (last history))))
         (is (= 2 (count @seen)) "register-epoch-cb fired per-cascade")))))
+
+;; ---- frame-provider (rf2-sixo) -------------------------------------------
+;;
+;; rf/frame-provider is a Reagent component that scopes a frame keyword to
+;; its subtree via React context. Per Spec 002 §What `frame-provider` is.
+;;
+;; These tests verify the component-shape contract — the hiccup the wrapper
+;; emits and how it composes with build-frame-provider. The runtime
+;; React-context resolution path (which is currently broken under
+;; Reagent 1.2 + React 18 — tracked by rf2-kdwc) is exercised in the
+;; browser-test target where a real DOM is available; node-test cannot
+;; mount a component, so these tests stop at the hiccup-emission level.
+
+(deftest frame-provider-emits-provider-hiccup
+  (testing "[rf/frame-provider {:frame :a} child] emits a Provider element with :a"
+    (let [child       [:span "hi"]
+          tree        (rf/frame-provider {:frame :a} child)
+          [head value & rest] tree]
+      ;; The wrapper composes the Reagent component returned by
+      ;; build-frame-provider as the head, with the frame keyword threaded
+      ;; through as the first arg so the inner fn closes over it.
+      (is (fn? head)
+          "head is a fn (the Reagent component)")
+      (is (= :a value)
+          "the frame keyword is the first arg passed to the component")
+      (is (= [child] rest)
+          "children follow the frame keyword unchanged")
+      ;; Invoke the head with the value + child to verify it produces the
+      ;; React Provider element. The hiccup [:>  ProviderClass {:value :a} child]
+      ;; structure round-trips back through Reagent.
+      (let [provider-tree (apply head value rest)
+            [marker provider-class props & inner] provider-tree]
+        (is (= :> marker)
+            "Reagent's interop marker for native React components")
+        (is (some? provider-class)
+            "the React Context Provider class is in head position")
+        (is (= {:value :a} props)
+            "the Provider's :value carries the frame keyword")
+        (is (= [child] inner)
+            "children pass through unchanged")))))
+
+(deftest frame-provider-default-fallback-no-frame-key
+  (testing "frame-provider with no :frame key falls through to :rf/default"
+    (let [tree (rf/frame-provider {} [:span "x"])
+          [_ value & _] tree]
+      (is (= :rf/default value)
+          "missing :frame falls through to :rf/default — matches the no-provider case")))
+  (testing "frame-provider with explicit nil :frame falls through to :rf/default"
+    (let [tree (rf/frame-provider {:frame nil} [:span "x"])
+          [_ value & _] tree]
+      (is (= :rf/default value)
+          "nil :frame falls through to :rf/default"))))
+
+(deftest frame-provider-variadic-children
+  (testing "frame-provider accepts zero, one, or many children"
+    ;; Zero children — the wrapper still renders the Provider element with
+    ;; no inner content. React-side that's a valid empty subtree.
+    (let [tree (rf/frame-provider {:frame :z})]
+      (is (= :z (second tree))
+          "frame keyword threaded through with no children")
+      (is (= [] (drop 2 tree))
+          "no extra children when none were passed"))
+    ;; One child.
+    (let [tree (rf/frame-provider {:frame :one} [:p "alone"])]
+      (is (= [[:p "alone"]] (drop 2 tree))
+          "single child passes through"))
+    ;; Many children — the variadic & captures them all in declaration order.
+    (let [tree (rf/frame-provider {:frame :many}
+                                  [:header]
+                                  [:main]
+                                  [:footer])]
+      (is (= [[:header] [:main] [:footer]] (drop 2 tree))
+          "all children present in source order"))))
+
+(deftest frame-provider-keyword-frame
+  (testing "frame-provider only handles keyword frame ids (per Spec 002 §Frame ids)"
+    ;; The component itself doesn't validate — that's the runtime's job —
+    ;; but it threads whatever keyword the user supplies.
+    (let [tree (rf/frame-provider {:frame :rf.frame/anonymous-1} [:p])]
+      (is (= :rf.frame/anonymous-1 (second tree))
+          "namespaced gensym'd frame keyword threads through unchanged"))))
+
+(deftest frame-provider-build-frame-provider-substrate
+  (testing "build-frame-provider remains the lower-level substrate"
+    ;; Per the bead: build-frame-provider stays in re-frame.views as
+    ;; substrate. The user-facing API is rf/frame-provider; the substrate
+    ;; hook into re-frame.substrate.reagent/register-context-provider is
+    ;; build-frame-provider. Both are callable; both produce the same
+    ;; final hiccup shape when invoked with a frame keyword.
+    (let [provider     (re-frame.views/build-frame-provider :ignored)
+          substrate-tree (provider :hello [:span "x"])
+          wrapper-tree   (rf/frame-provider {:frame :hello} [:span "x"])
+          ;; The wrapper invokes (build-frame-provider frame-kw) per call;
+          ;; the substrate-side returns a fresh component instance. Compare
+          ;; the inner Provider hiccup produced by each.
+          unwrap         (fn [tree] (apply (first tree) (rest tree)))
+          a              (unwrap wrapper-tree)
+          b              substrate-tree]
+      ;; Both produce `[:> Provider {:value :hello} [:span "x"]]`.
+      (is (= (first a) (first b)) "both emit the :> Reagent native marker")
+      (is (= (nth a 2) (nth b 2)) "both emit {:value :hello} as the props")
+      (is (= (drop 3 a) (drop 3 b)) "both emit the same children"))))
