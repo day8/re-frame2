@@ -1,0 +1,66 @@
+;; Conformance fixture: routing/can-leave-blocks
+;;
+;; Complements route-navigation-blocked: this fixture drives the full
+;; pending-nav protocol — block, then *cancel*. After cancel, the slot
+;; clears and the original route remains active (no URL change). The
+;; canonical "continue" path is covered by the older fixture; this one
+;; locks down the cancel branch so both arms are conformance-checked.
+;;
+;; Per [012 §Navigation blocking — pending-nav protocol]
+;; (../../012-Routing.md#navigation-blocking--pending-nav-protocol).
+
+{:fixture/id           :routing/can-leave-blocks
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/blocking}
+ :fixture/doc          "A :can-leave guard rejects an outbound navigation; :rf/pending-navigation is set; :rf.route/navigation-blocked trace fires; the URL does not change. User dispatches :rf.route/cancel — the slot clears and the original route is still active."
+
+ :fixture/registry
+ {:route
+  {:editor/article {:path      "/editor/articles/:id"
+                    :params    [:map [:id :string]]
+                    :can-leave :editor/can-leave?}
+   :route/cart     {:path "/cart"}}
+
+  :event
+  {:editor/set-dirty {:doc "Mark the form dirty."}}
+
+  :sub
+  {:editor/dirty?     {:doc "Whether the editor form has unsaved changes."}
+   :editor/can-leave? {:doc "True when the form is clean."}}}
+
+ :fixture/handlers
+ {:event
+  {:editor/set-dirty [[:set [:editor :dirty?] true]]}
+
+  :sub
+  {:editor/dirty?     [[:get [:editor :dirty?]]]
+   :editor/can-leave? [[:get [:editor :dirty?]]
+                       [:fn :not]]}}
+
+ :fixture/dispatches
+ [;; Step 1: Land on :editor/article id=A.
+  [:rf/url-changed "/editor/articles/A"]
+
+  ;; Step 2: Dirty the form. :can-leave? now returns false.
+  [:editor/set-dirty]
+
+  ;; Step 3: Try to leave. Guard rejects; :rf/pending-navigation is set.
+  [:rf/url-requested {:url "/cart"}]
+
+  ;; Step 4: User chooses Stay — :rf.route/cancel clears the slot.
+  [:rf.route/cancel "pn-1"]]
+
+ :fixture/expect
+ {:final-app-db
+  ;; Original route is still active; no slice change. Pending-nav cleared.
+  {:route                 {:id :editor/article :params {:id "A"}
+                           :query {} :fragment nil
+                           :transition :idle :error nil}
+   :editor                {:dirty? true}
+   :rf/pending-navigation nil}
+
+  :trace-emissions
+  [;; Block fires when the guard rejects.
+   {:operation :rf.route/navigation-blocked
+    :tags      {:requested-url   "/cart"
+                :rejecting-route :editor/article}}]}}

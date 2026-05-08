@@ -1,0 +1,55 @@
+;; Conformance fixture: routing/on-match-fires
+;;
+;; A route's :on-match events fire — in order — when the route becomes active
+;; via :rf/url-changed (URL-driven navigation) or :rf.route/navigate
+;; (programmatic). Each :on-match dispatches as an ordinary event, so the
+;; events' handlers populate app-db like any other handler would.
+;;
+;; Per [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading).
+
+{:fixture/id           :routing/on-match-fires
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "When a route declares :on-match [[:e1] [:e2]], navigating to that route dispatches :e1 then :e2 in order. URL-driven (via :rf/url-changed) and programmatic (via :rf.route/navigate) both fire the loaders."
+
+ :fixture/registry
+ {:route
+  {:route/cart {:path     "/cart"
+                :on-match [[:cart/load-items]
+                           [:user/load-prefs]]}}
+
+  :event
+  {:rf/init          {:doc "Seed."}
+   :cart/load-items  {:doc "Load cart items."}
+   :user/load-prefs  {:doc "Load user prefs."}}}
+
+ :fixture/handlers
+ {:event
+  ;; Each loader appends a marker to a vector so we can verify on-match
+  ;; dispatch order. The :rf/init handler seeds an empty vector — `conj`
+  ;; against the default nil produces a list (which prepends), defeating
+  ;; the order check.
+  {:rf/init        [[:set [:load-log] []]]
+   :cart/load-items [[:update [:load-log] [:fn :conj] :cart/load-items]]
+   :user/load-prefs [[:update [:load-log] [:fn :conj] :user/load-prefs]]}}
+
+ :fixture/frame-config {:on-create [:rf/init]}
+
+ :fixture/dispatches
+ ;; URL-driven navigation: :rf/url-changed dispatches the on-match events.
+ [[:rf/url-changed "/cart"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route    {:id :route/cart :params {} :query {} :fragment nil
+              :transition :idle :error nil}
+   :load-log [:cart/load-items :user/load-prefs]}
+
+  :trace-emissions
+  [;; Token allocated when the route becomes active.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/cart}}
+
+   ;; The two on-match events fire in declaration order.
+   {:operation :event :tags {:event-id :cart/load-items}}
+   {:operation :event :tags {:event-id :user/load-prefs}}]}}

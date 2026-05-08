@@ -1,0 +1,44 @@
+;; Conformance fixture: routing/multi-frame
+;;
+;; Each frame has its own :route slice — the same registered routes can
+;; be navigated independently in two frames. The default frame is
+;; URL-bound; non-default frames update only their own slice.
+;;
+;; Per [012 §Multi-frame routing](../../012-Routing.md#multi-frame-routing).
+
+{:fixture/id           :routing/multi-frame
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "Two frames navigate the same registered routes independently. Each frame's :route slice carries its own id/params; the registry is shared but the slice is per-frame."
+
+ :fixture/registry
+ {:route
+  {:route/home          {:path "/"}
+   :route/articles      {:path "/articles"}
+   :route/article       {:path   "/articles/:id"
+                         :params [:map [:id :string]]}}}
+
+ :fixture/frames
+ [{:id :tab.left  :doc "Left tab — independent route."}
+  {:id :tab.right :doc "Right tab — independent route."}]
+
+ :fixture/dispatches
+ [;; Left tab navigates to /articles.
+  {:event [:rf/url-changed "/articles"] :frame :tab.left}
+
+  ;; Right tab independently navigates to /articles/intro.
+  {:event [:rf/url-changed "/articles/intro"] :frame :tab.right}
+
+  ;; Left tab navigates again to a different route.
+  {:event [:rf/url-changed "/"] :frame :tab.left}]
+
+ :fixture/expect
+ ;; Slices are partial-matched per :final-app-dbs (submap semantics) so the
+ ;; runtime-allocated :nav-token (per-navigation epoch) is not asserted —
+ ;; the route ids and params are. This isolates the multi-frame property
+ ;; from per-fixture nav-token allocation order.
+ {:final-app-dbs
+  {:tab.left  {:route {:id :route/home :params {} :query {} :fragment nil
+                       :transition :idle :error nil}}
+   :tab.right {:route {:id :route/article :params {:id "intro"} :query {}
+                       :fragment nil :transition :idle :error nil}}}}}

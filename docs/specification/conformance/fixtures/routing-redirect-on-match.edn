@@ -1,0 +1,51 @@
+;; Conformance fixture: routing/redirect-on-match
+;;
+;; A route's :on-match event short-circuits to a different route by
+;; dispatching :rf.route/navigate. This is the pattern Spec 012 §Redirects
+;; and guards canonicalises: redirects are interceptors-or-events that
+;; replace the navigation target rather than a special :redirect-on-match
+;; route-metadata key.
+;;
+;; Per [012 §Redirects and guards](../../012-Routing.md#redirects-and-guards)
+;; and [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading).
+
+{:fixture/id           :routing/redirect-on-match
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
+ :fixture/doc          "A legacy URL whose :on-match dispatches :rf.route/navigate to the canonical destination. The :route slice ends on the canonical route. The legacy nav-token is allocated first; the redirect dispatches :rf.route/navigate which replaces the slice."
+
+ :fixture/registry
+ {:route
+  {:route/legacy-cart {:path     "/old/cart"
+                       :on-match [[:rf.route/navigate :route/cart]]}
+   :route/cart        {:path "/cart"}}
+
+  :event
+  {:rf.route/navigate {:doc "Navigate to a registered route."}}
+
+  :fx
+  {:rf.nav/push-url    {:platforms #{:client}}
+   :rf.nav/replace-url {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:fx {:rf.nav/push-url    [[:noop]]
+       :rf.nav/replace-url [[:noop]]}}
+
+ :fixture/dispatches
+ ;; Visiting /old/cart triggers the legacy route's :on-match, which
+ ;; dispatches :rf.route/navigate to the canonical :route/cart.
+ [[:rf/url-changed "/old/cart"]]
+
+ :fixture/expect
+ ;; Slice ends up on :route/cart (the redirect target). :rf.route/navigate
+ ;; overwrites the slice with the destination's id and params.
+ {:final-app-db
+  {:route {:id :route/cart :params {} :query {} :error nil}}
+
+  :trace-emissions
+  [;; Token allocated for the legacy route (:rf/url-changed branch).
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/legacy-cart}}
+
+   ;; The redirect: :rf.route/navigate fires the canonical destination.
+   {:operation :event :tags {:event-id :rf.route/navigate}}]}}
