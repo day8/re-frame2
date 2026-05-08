@@ -291,6 +291,15 @@
   (when-let [meta (registrar/lookup :view id)]
     (:handler-fn meta)))
 
+(defn view
+  "Runtime-lookup handle for a registered view. Returns the registered
+  render fn (whatever shape — Form-1, Form-2 — produced by `reg-view`
+  or `reg-view*`) or nil if not registered. Per Spec 001 §`(re-frame.core/view id)`
+  and Spec 004 §Calling a registered view: render trees use Vars;
+  runtime lookups use ids; this is the id-keyed lookup."
+  [id]
+  (get-view id))
+
 (defn render-to-string
   "Render a hiccup tree to an HTML string. Per Spec 011 §The render-tree
   → HTML emitter. Delegates to the installed substrate adapter's

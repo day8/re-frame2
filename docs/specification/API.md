@@ -77,6 +77,7 @@
 | `dispatcher` | Fn | `(dispatcher)` (called during render) → frame-bound dispatch fn | v1 | 004 |
 | `subscriber` | Fn | `(subscriber)` (called during render) → frame-bound subscribe fn | v1 | 004 |
 | `get-view` | Fn | `(get-view view-id)` → render-fn | v1 | 004 |
+| `view` | Fn | `(view view-id)` → render-fn (runtime-lookup handle; alias of `get-view`) | v1 | 001, 004 |
 | `h` | M | `(h hiccup-form)` | v1 | 004 |
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).

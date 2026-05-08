@@ -149,6 +149,25 @@ This matches Clojure's `defn` Var-naming idiom: the symbol is the source of trut
 
 The metadata-override syntax is the single supported way to set a non-auto-derived id at the macro surface. Other slot metadata (e.g. `:doc`) lives on the same metadata map: `^{:doc "..." :rf/id :widget/x}`. For computed ids, drop to `re-frame.core/reg-view*`.
 
+## Render-tree shape vs runtime lookup — Vars and ids
+
+Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto-defs the symbol AND auto-derives the registry id. The same render/lookup split applies to `reg-view*`: it registers a fn under an id without a Var def; consumers retrieve it via `(rf/view id)` and inline it into render trees.
+
+```clojure
+;; reg-view: auto-defs the symbol AND registers under an auto-derived id
+(rf/reg-view counter [label] [:button label])
+
+[counter "Hello"]                    ;; render tree — Var reference
+(rf/view :my.ns/counter)             ;; runtime lookup — id
+
+;; reg-view*: registers under an id, no Var binding
+(rf/reg-view* :feature/widget (fn [args] [:span args]))
+
+[(rf/view :feature/widget) "x"]      ;; render tree — splice the looked-up fn
+```
+
+A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
+
 ## Cross-references
 
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.
