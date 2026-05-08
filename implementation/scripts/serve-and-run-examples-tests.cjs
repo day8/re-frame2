@@ -81,6 +81,20 @@ const EXAMPLES = [
       },
     ],
   },
+  // Spec 014 — managed HTTP counter (rf2-cfig). Stages a static
+  // /api/inc.json for the +1 button to fetch; a missing /api/does-not-exist
+  // path naturally produces a 404 from http-server for the Fail button.
+  {
+    build: 'examples/managed-http-counter',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'managed_http_counter', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'managed-http-counter'),
+    extraFiles: [
+      {
+        src: path.join(REPO_ROOT, 'examples', 'managed_http_counter', 'api', 'inc.json'),
+        dest: path.join('api', 'inc.json'),
+      },
+    ],
+  },
 ];
 
 function compileAll() {
