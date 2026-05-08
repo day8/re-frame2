@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > The standard request-lifecycle convention built on the framework's primitives (registered fx with `:platforms`; events; subs; schemas). Convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 > **Pattern-RemoteData is the specific case of [Pattern-AsyncEffect](Pattern-AsyncEffect.md) for HTTP requests** with the standard 5-key lifecycle slice (`:status` / `:data` / `:error` / `:loaded-at` / `:attempt`). Pattern-AsyncEffect names the generic six-step shape (register fx → return `:fx` → post work → reply → dispatch → commit); this pattern adds the canonical request-lifecycle convention layered on top.
 
 ## Role

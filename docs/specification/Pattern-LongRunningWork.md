@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > Modernised guidance for handling CPU-intensive work without freezing the UI. Successor to the v1 article *"Solve the CPU hog problem."*
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## The problem
 
 A handler with significant CPU-bound work — iterating over a large dataset, encoding / decoding, indexing, parsing, simulation steps — blocks the dispatch loop and freezes the UI. The browser repaints once per ~16 ms; if a single handler holds the thread longer, animations stutter, click handlers queue up, and the app appears hung.

@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > The cross-cutting epoch idiom re-frame2 uses to silently ignore async results from a superseded state. Convention-and-architecture; not its own Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 > **Composition note.** Stale-detection composes with [Pattern-AsyncEffect](Pattern-AsyncEffect.md) for in-flight async work superseded by state changes — when the dispatcher of an async-effect interaction may have moved on by the time the reply arrives, carry an epoch on the dispatched reply event and suppress on mismatch. Same idiom, different host substrate. See also [Pattern-WebSocket](Pattern-WebSocket.md), which uses this pattern for connection-epoch staleness.
 
 ## Role

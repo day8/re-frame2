@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > The canonical "external work + dispatched reply" shape every async-effecting feature follows. Convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## Role
 
 A **named pattern**, not a Spec. Re-frame2 implicitly relies on a single generic async-effect shape: register an fx, the fx posts work to an external system, the external system replies asynchronously, a listener dispatches a re-frame event with the result, the event handler updates state. This doc names that shape so per-feature Specs and per-host instances cite a single canonical description rather than re-deriving the rationale.

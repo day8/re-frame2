@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > Application boot as a chained-async sequence — the canonical state-machine form for "read config → authenticate → load profile → hydrate → resolve route → ready". Convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## Role
 
 A **named pattern**, not a Spec. Real SPAs have a multi-step initialisation sequence with dependencies: read config, authenticate / restore session, load user profile or feature flags, hydrate from `localStorage`, resolve routing, connect real-time services, mount UI. Each step depends on the previous; failure at any step is usually fatal or specifically recoverable; the user wants to see progress.

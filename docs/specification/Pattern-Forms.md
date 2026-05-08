@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > The standard form-lifecycle convention built on the framework's primitives (events, subs, schemas, machines). Convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## Role
 
 A **convention**, not a Spec. The pattern's canonical content is the **form-slice shape**, the **status-enum semantics**, the **per-field touched/error treatment**, and the **seven-event lifecycle structure**. Specific event names (e.g. `:form.login/edit-field`) are illustrative; project code adapts them.

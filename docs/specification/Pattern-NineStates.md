@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > A page-level convention for making common UI states explicit: blank, loading, cardinality variants, validation failure, success, and terminal/frozen. Built from existing re-frame2 primitives; convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## Role
 
 This is a **named pattern**, not a Spec. It does not introduce a runtime feature. It names a disciplined way to build a page or panel so the common UI states are:

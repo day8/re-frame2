@@ -3,6 +3,8 @@
 > **Type:** Pattern
 > Long-lived connection lifecycle — WebSocket / SSE / WebRTC peer — modelled as a state machine that owns the socket. Convention, not Spec.
 
+> **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
+
 ## Role
 
 A **named pattern**, not a Spec. WebSockets do not fit [Pattern-AsyncEffect](Pattern-AsyncEffect.md): they are state-machine-shaped — a long-lived connection with retry, exponential backoff, server-pushed events, heartbeat, subscription management, message correlation, queued sends when disconnected, and re-auth on reconnect. The natural canonical answer is a **state machine that owns the connection lifecycle**.
