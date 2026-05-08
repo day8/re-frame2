@@ -21,11 +21,11 @@ The runtime is eight components plus a host-side **interop layer** that the CLJS
 | 3 | **Router** | Per-frame FIFO event queue. Decides which event drains next. | [002-Frames §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics) |
 | 4 | **Drain loop** | The execution engine: dequeue → run interceptor chain → apply effects → settle machines → invalidate sub-cache. The four Levels in [005 §Drain semantics](005-StateMachines.md#drain-semantics). | [002-Frames](002-Frames.md), [005-StateMachines](005-StateMachines.md) |
 | 5 | **Effect interpreter (`do-fx`)** | Walks the `:fx` vector in source order, dispatching each entry to its registered fx handler. | [002-Frames §`:fx` ordering](002-Frames.md#fx-ordering-and-atomicity-guarantees) |
-| 6 | **Sub-cache** | Per-frame derivation graph + memoised values. Invalidates on `app-db` change; disposes on frame destroy. | [006-ReactiveSubstrate §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics) |
+| 6 | **Sub-cache** | Per-frame derivation graph + memoised values. Invalidates on `app-db` change; disposes on frame destroy. | [006-ReactiveSubstrate §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | 7 | **Reactive substrate adapter** | Bridges the core to a reactivity library (Reagent in CLJS reference). Turns container reads into view re-renders. | [006-ReactiveSubstrate](006-ReactiveSubstrate.md) |
 | 8 | **Trace bus** | Per-process event stream; listeners notified after debounce window. Carries every dispatch, fx, machine transition, error, and registry mutation. | [009-Instrumentation](009-Instrumentation.md) |
 
-The **interop layer** (`re-frame.interop` in the CLJS reference) is not a runtime component — it is the host-abstraction surface the components call into for `next-tick`, `after-render`, mutable references, host-clock `now-ms`. Other hosts implement it natively; the interface stays small (per [Spec 005 §Interop layer](005-StateMachines.md#interop-layer--clock-primitives--see-spec-005)).
+The **interop layer** (`re-frame.interop` in the CLJS reference) is not a runtime component — it is the host-abstraction surface the components call into for `next-tick`, `after-render`, mutable references, host-clock `now-ms`. Other hosts implement it natively; the interface stays small (per [Spec 002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)).
 
 ## Data flow
 
@@ -120,7 +120,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 **Invariants.**
 - The `app-db` reactive container is opaque to the core; the [substrate adapter](006-ReactiveSubstrate.md) decides what it is (Reagent ratom in CLJS reference; plain atom for JVM/SSR/headless).
 - The frame's full state is reconstructible from its `app-db` *value* — adapter-internal state (Reagent reactions, React fibers, etc.) is not part of the frame value (load-bearing for [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) per [006 §Revertibility constraints](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters)).
-- `:rf/default` is always present; user code that omits a frame on dispatch lands here ([002 §`:rf/default`](002-Frames.md#re-framedefault)).
+- `:rf/default` is always present; user code that omits a frame on dispatch lands here ([002 §`:rf/default`](002-Frames.md#rfdefault)).
 - Reserved `app-db` keys (`:rf/machines`, `:route`) are owned by the runtime ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)).
 
 ### 3. Router (per-frame FIFO)
@@ -180,7 +180,7 @@ If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Erro
 
 ### 6. Sub-cache
 
-**Role.** Per-frame memoised derivation graph. Each `(subscribe q)` call returns a value; if the underlying `app-db` slice changes, dependents recompute on the next deref. The full contract — invalidation algorithm, ref-counting, layer-1/2/3 sub semantics, disposal — is tracked separately and will be locked in [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics).
+**Role.** Per-frame memoised derivation graph. Each `(subscribe q)` call returns a value; if the underlying `app-db` slice changes, dependents recompute on the next deref. The full contract — invalidation algorithm, ref-counting, layer-1/2/3 sub semantics, disposal — is tracked separately and will be locked in [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics).
 
 **Inputs.** Sub registrations from the registrar (`reg-sub`). `replace-container!` calls from the drain loop (cache-invalidation hook). `subscribe` calls from views.
 
@@ -280,7 +280,7 @@ Most of these components have v1 ancestors. The CLJS-reference implementor can l
 | Sub-cache | Layer-1/2/3 caching algorithm; invalidation on app-db change | Per-frame caches (v1 is global), explicit disposal-on-frame-destroy, derived-container contract on the substrate adapter |
 | Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the closed nine-fn contract, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
 | Trace bus | Trace-event idea, listener registration | Closed core fields, structured error contract, `reg-event-error-handler`, server error projection, `:platforms` on advisories |
-| Interop layer | Most of `re-frame.interop` carries over | Extended slightly for machine-clock primitives ([005 §Interop layer](005-StateMachines.md#interop-layer--clock-primitives--see-spec-005)) |
+| Interop layer | Most of `re-frame.interop` carries over | Extended slightly for machine-clock primitives ([002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)) |
 
 For a non-CLJS implementor: the components are the same shape, but **the boundaries between them are the load-bearing ones**. Implement each component as an independent module that talks to its neighbours through the surfaces named here; do not fuse the substrate adapter into the drain loop, do not put sub-cache invalidation behind a substrate primitive, do not let the trace bus see the registrar's internal map. The decoupling is what makes the reference adapter swappable, the testing infrastructure JVM-runnable, and Goal 3 (revertibility) achievable.
 

@@ -80,7 +80,7 @@ Three observations:
 
 Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states.
 
-This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations-provisional), [§Per-instance frames](#per-instance-frames--anonymous-make-frame) — refer to the keys defined here; they do not re-define them.
+This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--anonymous-make-frame) — refer to the keys defined here; they do not re-define them.
 
 `reg-frame` accepts a metadata map mirroring other registrations:
 
@@ -941,8 +941,8 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 
 | Phase | Interacts with |
 |---|---|
-| `process-event!` step 1 | [Registrar](Runtime-Architecture.md#1-registrar) — handler resolution; [001-Registration §Registry kind taxonomy](001-Registration.md#registry-kind-taxonomy) |
-| `process-event!` step 2 | [Substrate adapter §replace-container!](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value--nil); [Sub-cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics) |
+| `process-event!` step 1 | [Registrar](Runtime-Architecture.md#1-registrar) — handler resolution; [001-Registration §Registry kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set) |
+| `process-event!` step 2 | [Substrate adapter §replace-container!](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value--nil); [Sub-cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
 | Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
 | Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); `reg-event-error-handler` fires the user-defined projector |
@@ -1132,7 +1132,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 Most queries are JVM-runnable because they read from the registrar (which is data) and from `app-db` (which is data). One query is not, and the table marks it: `sub-cache` reads runtime state from the reactive substrate (currently Reagent-specific). Static topology and snapshot reads stay pure-data.
 
-The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [001 §Registration grammar](001-Registration.md#registration-grammar) for handler metadata, and [§reg-frame is atomic](#reg-frame-is-atomic) above for frame metadata. Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
+The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [001 §Registration grammar](001-Registration.md#registration-grammar) for handler metadata, and [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) above for frame metadata. Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
 
 ### Per-frame and trace surface
 
@@ -1183,7 +1183,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Decision | Pointer |
 |---|---|
 | `reg-frame` re-registration is a surgical update by default; `reset-frame` is the opt-in full replace; `destroy-frame` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame — full replace, opt-in](#reset-frame--full-replace-opt-in) |
-| `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame-is-atomic) |
+| `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |
 | Plain Reagent fns under a non-default frame fire a one-shot warning per `(component-id, frame-id)`, elided in production | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-with-a-loud-footgun-warning) |

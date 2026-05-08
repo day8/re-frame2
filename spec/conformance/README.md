@@ -79,13 +79,13 @@ The convention:
  :counter/inc        [[:update [:count] [:fn :inc]]]}         ;; updates db's :count via :inc
 ```
 
-The harness in each host implements a small interpreter for this DSL — `[:set path value]`, `[:update path fn]`, `[:dispatch event]`, etc. A complete interpreter is ~50 lines per host. The DSL is itself versioned and described by `:rf/fixture-handler-body` in [Spec-Schemas](../Spec-Schemas.md#rffixture-file-and-rffixture-handler-body).
+The harness in each host implements a small interpreter for this DSL — `[:set path value]`, `[:update path fn]`, `[:dispatch event]`, etc. A complete interpreter is ~50 lines per host. The DSL is itself versioned and described by `:rf/fixture-handler-body` in [Spec-Schemas](../Spec-Schemas.md#rffixture-file).
 
 This keeps the corpus pure data; no host-specific code ships in the fixtures.
 
 ### Handler-body DSL ops
 
-The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-handler-body`](../Spec-Schemas.md#rffixture-file-and-rffixture-handler-body); below is the operator reference.
+The complete DSL operator set. The schemas live in [Spec-Schemas §`:rf/fixture-handler-body`](../Spec-Schemas.md#rffixture-file); below is the operator reference.
 
 **Data ops** (mutate or read `db`):
 

@@ -70,7 +70,7 @@ Every substrate adapter implements the surface below. The contract is **closed f
 
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](MIGRATION.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
 
-The v1 adapter surface is **six required functions, two optional functions, and one lifecycle function** — nine entries in total. The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache-invalidation--operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
+The v1 adapter surface is **six required functions, two optional functions, and one lifecycle function** — nine entries in total. The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
 
 ### Normative contract
 
@@ -246,7 +246,7 @@ These would all violate revertibility and are prohibited by the adapter contract
 
 - Maintain a *separate* "previous values" history outside the frame's epoch buffer — any history-of-state lives in the framework's epoch-history (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)), not inside the adapter.
 - Hold an adapter-private mutable cell that view code can read or write through a side channel — every view-visible value must come through `read-container` (transitively, through `make-derived-value` / `subscribe-container`), so that reverting the container reverts what views see.
-- Cache derived values keyed on identity rather than value — caches must invalidate on `=`-equality of inputs (per [§Subscription cache invalidation](#subscription-cache-invalidation--operational-semantics)) so that a revert to a prior `=`-equal state surfaces the prior derived values.
+- Cache derived values keyed on identity rather than value — caches must invalidate on `=`-equality of inputs (per [§Subscription cache invalidation](#subscription-cache--contract-and-operational-semantics)) so that a revert to a prior `=`-equal state surfaces the prior derived values.
 - Persist any internal state across `dispose-adapter!` / `install-adapter!`. Disposal is total.
 
 ### Verifying compliance
@@ -578,7 +578,7 @@ This section is the **bridging pseudocode** for both. For each contract function
 
 ### Sub-cache wiring (Reagent realisation)
 
-The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-cache-invalidation--operational-semantics)) is the bridge between `reg-sub` and a Reagent reaction. v1's working algorithm in `re-frame.subs` is the reference. The CLJS-reference v2 wiring:
+The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-cache--contract-and-operational-semantics)) is the bridge between `reg-sub` and a Reagent reaction. v1's working algorithm in `re-frame.subs` is the reference. The CLJS-reference v2 wiring:
 
 ```clojure
 ;; The cache is per-frame: keyed by [query-vector], stored on the frame.
@@ -732,7 +732,7 @@ In CLJS dev-mode tests, you often want sub computation without tracking: `(compu
 
 Per [011](011-SSR.md), the server-side render path doesn't use the adapter's reactivity machinery at all. The flow:
 
-1. Server creates a frame (per [002 §reg-frame](002-Frames.md#reg-frame-is-atomic)).
+1. Server creates a frame (per [002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
 2. The frame's `app-db` is a plain atom (the **core's plain-atom adapter**, not the Reagent adapter).
 3. `:on-create` events run; the drain settles.
 4. The view fn is called as a *plain function* against the now-stable `app-db` value.
@@ -785,7 +785,7 @@ Other-language ports follow the same pattern: a default per build target, explic
 
 Tools (10x, re-frame-pair) use this to branch on host capabilities — for instance, the time-travel UI is meaningful in browser-Reagent but not in plain-atom.
 
-The keyword is informational. Behaviour-affecting decisions should be based on `:platforms` metadata (per [011 §S-3](011-SSR.md#s-3-effect-handling-on-the-server--resolved)) or on explicit configuration, not on which adapter is loaded.
+The keyword is informational. Behaviour-affecting decisions should be based on `:platforms` metadata (per [011 §S-3](011-SSR.md#effect-handling-on-the-server)) or on explicit configuration, not on which adapter is loaded.
 
 ### Single adapter per process
 

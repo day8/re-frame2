@@ -363,8 +363,8 @@ Cross-references: [005 §Capability matrix](005-StateMachines.md#capability-matr
 
 The parts of re-frame worth retaining:
 
-- **The simple dynamic model** — the deepest source of re-frame's value. Discrete events, FSM-like domino pipeline, pure functions within each stage, declarative data DSLs, single state store updated transactionally. (See [on-dynamics](https://day8.github.io/re-frame/on-dynamics/).) AI-first amenability is the inheritance of this. The five-layer dampening argument lives in [Principles.md §A simple dynamic model](Principles.md#a-simple-dynamic-model--the-layered-constraint).
-- **Data-oriented design** — the application as a virtual machine over a developer-designed DSL; events, effects, hiccup, transition tables, schemas, sub queries are all data interpreted by the runtime. (See [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/) and [Principles.md §Data is code](Principles.md#data-is-code--the-application-as-a-virtual-machine).)
+- **The simple dynamic model** — the deepest source of re-frame's value. Discrete events, FSM-like domino pipeline, pure functions within each stage, declarative data DSLs, single state store updated transactionally. (See [on-dynamics](https://day8.github.io/re-frame/on-dynamics/).) AI-first amenability is the inheritance of this. The five-layer dampening argument lives in [Principles.md §A simple dynamic model](Principles.md#a-simple-dynamic-model).
+- **Data-oriented design** — the application as a virtual machine over a developer-designed DSL; events, effects, hiccup, transition tables, schemas, sub queries are all data interpreted by the runtime. (See [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/) and [Principles.md §Data is code](Principles.md#data-is-code).)
 - **Event-driven application logic.**
 - **Effect maps instead of arbitrary effectful code.**
 - **Derived reads from state.**
@@ -513,7 +513,7 @@ The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was a
 - Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: deferred ref-counting with a configurable grace-period (default 50ms); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
 - `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
 
-Migration entries land at [MIGRATION §M-22](MIGRATION.md#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+Migration entries land at [MIGRATION §M-23](MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 
 ### Plain Reagent fns under non-default frames
 
