@@ -1,0 +1,75 @@
+# Builds and publishes the re-frame2 docs site (rf2-h09k).
+#
+# Source: docs/guide/ (narrative) + spec/ (normative) + spec/API.md (reference).
+# Sink:   https://day8.github.io/re-frame2/
+#
+# PREREQUISITE: the repository's Pages source must be set to "GitHub Actions"
+# (Settings → Pages → Build and deployment → Source). If it is still set to
+# "Deploy from a branch" the deploy-pages step below will fail.
+#
+# This workflow only triggers on push to `main` or via manual dispatch. The
+# first publish is a deliberate manual step (run via the Actions tab once
+# Pages is configured) — see PR description for rf2-h09k.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow only one concurrent Pages deployment, but do not cancel an
+# in-progress run so it can finish before the next starts.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: MkDocs build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f  # v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install MkDocs + plugins
+        run: pip install -r requirements.txt
+
+      # Stage the spec/ tree under docs/spec/ so MkDocs (which requires
+      # docs_dir to be a child of the config file) can see it. The local
+      # equivalent is `cp -r spec docs/spec` before `mkdocs build`. The
+      # staged copy is .gitignored — never commit it.
+      - name: Stage spec/ into docs/spec/
+        run: |
+          rm -rf docs/spec
+          cp -r spec docs/spec
+
+      - name: Build site
+        run: mkdocs build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa  # v3
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e  # v4
