@@ -77,69 +77,65 @@
 (rf/reg-sub :settings/submit-error
   (fn [db _] (get-in db [:settings :submit-error])))
 
-(def settings-page
-  (reg-view :pages/settings
-    (fn render-settings-page []
-      (let [d            (rf/dispatcher)
-            s            (rf/subscriber)
-            draft        @(s [:settings/draft])
-            submitting?  @(s [:settings/submitting?])
-            submit-error @(s [:settings/submit-error])]
-        [:div.settings-page
-         [:div.container.page
-          [:div.row
-           [:div.col-md-6.offset-md-3.col-xs-12
-            [:h1.text-xs-center "Your Settings"]
-            (when submit-error
-              [:ul.error-messages [:li submit-error]])
-            [:form
-             {:on-submit (fn [e]
-                           (.preventDefault e)
-                           (d [:settings/submit]))}
-             [:fieldset
-              [:fieldset.form-group
-               [:input.form-control
-                {:type "text"
-                 :placeholder "URL of profile picture"
-                 :value (:image draft)
-                 :disabled submitting?
-                 :on-change #(d [:settings/edit-field :image (.. % -target -value)])}]]
-              [:fieldset.form-group
-               [:input.form-control.form-control-lg
-                {:type "text"
-                 :placeholder "Username"
-                 :value (:username draft)
-                 :disabled submitting?
-                 :on-change #(d [:settings/edit-field :username (.. % -target -value)])}]]
-              [:fieldset.form-group
-               [:textarea.form-control.form-control-lg
-                {:rows 8
-                 :placeholder "Short bio about you"
-                 :value (:bio draft)
-                 :disabled submitting?
-                 :on-change #(d [:settings/edit-field :bio (.. % -target -value)])}]]
-              [:fieldset.form-group
-               [:input.form-control.form-control-lg
-                {:type "email"
-                 :placeholder "Email"
-                 :value (:email draft)
-                 :disabled submitting?
-                 :on-change #(d [:settings/edit-field :email (.. % -target -value)])}]]
-              [:fieldset.form-group
-               [:input.form-control.form-control-lg
-                {:type "password"
-                 :placeholder "New Password"
-                 :value (:password draft)
-                 :disabled submitting?
-                 :on-change #(d [:settings/edit-field :password (.. % -target -value)])}]]
-              [:button.btn.btn-lg.btn-primary.pull-xs-right
-               {:type "submit" :disabled submitting?}
-               (if submitting? "Updating…" "Update Settings")]]]
-            [:hr]
-            [:button.btn.btn-outline-danger
-             {:type "button"
-              :on-click #(d [:auth/flow [:auth/logout]])}
-             "Or click here to logout"]]]]]))))
+(reg-view settings-page []
+  (let [draft        @(subscribe [:settings/draft])
+        submitting?  @(subscribe [:settings/submitting?])
+        submit-error @(subscribe [:settings/submit-error])]
+    [:div.settings-page
+     [:div.container.page
+      [:div.row
+       [:div.col-md-6.offset-md-3.col-xs-12
+        [:h1.text-xs-center "Your Settings"]
+        (when submit-error
+          [:ul.error-messages [:li submit-error]])
+        [:form
+         {:on-submit (fn [e]
+                       (.preventDefault e)
+                       (dispatch [:settings/submit]))}
+         [:fieldset
+          [:fieldset.form-group
+           [:input.form-control
+            {:type "text"
+             :placeholder "URL of profile picture"
+             :value (:image draft)
+             :disabled submitting?
+             :on-change #(dispatch [:settings/edit-field :image (.. % -target -value)])}]]
+          [:fieldset.form-group
+           [:input.form-control.form-control-lg
+            {:type "text"
+             :placeholder "Username"
+             :value (:username draft)
+             :disabled submitting?
+             :on-change #(dispatch [:settings/edit-field :username (.. % -target -value)])}]]
+          [:fieldset.form-group
+           [:textarea.form-control.form-control-lg
+            {:rows 8
+             :placeholder "Short bio about you"
+             :value (:bio draft)
+             :disabled submitting?
+             :on-change #(dispatch [:settings/edit-field :bio (.. % -target -value)])}]]
+          [:fieldset.form-group
+           [:input.form-control.form-control-lg
+            {:type "email"
+             :placeholder "Email"
+             :value (:email draft)
+             :disabled submitting?
+             :on-change #(dispatch [:settings/edit-field :email (.. % -target -value)])}]]
+          [:fieldset.form-group
+           [:input.form-control.form-control-lg
+            {:type "password"
+             :placeholder "New Password"
+             :value (:password draft)
+             :disabled submitting?
+             :on-change #(dispatch [:settings/edit-field :password (.. % -target -value)])}]]
+          [:button.btn.btn-lg.btn-primary.pull-xs-right
+           {:type "submit" :disabled submitting?}
+           (if submitting? "Updating…" "Update Settings")]]]
+        [:hr]
+        [:button.btn.btn-outline-danger
+         {:type "button"
+          :on-click #(dispatch [:auth/flow [:auth/logout]])}
+         "Or click here to logout"]]]]]))
 
 (defn settings-test []
   (rf/reg-fx :http.canned-settings-save

@@ -127,117 +127,110 @@
 ;; VIEWS
 ;; ============================================================================
 
-(def article-preview
-  (reg-view :articles/preview
-    {:doc "A single article card used across the home page and profile pages."}
-    (fn render-article-preview [{:keys [article]}]
-      (let [d (rf/dispatcher)
-            {:keys [slug title description createdAt favoritesCount author tagList]} article]
-        [:div.article-preview
-         [:div.article-meta
-          [routing/route-link {:to     :route/profile
-                               :params {:username (:username author)}}
-           [:img {:src (:image author)}]]
-          [:div.info
-           [routing/route-link {:to     :route/profile
-                                :params {:username (:username author)}
-                                :class  "author"}
-            (:username author)]
-           [:span.date createdAt]]
-          [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
-           {:type "button"
-            :on-click #(d [:article/toggle-favorite slug])}
-           [:i.ion-heart] " " favoritesCount]]
-         [routing/route-link {:to :route/article :params {:slug slug} :class "preview-link"}
-          [:h1 title]
-          [:p description]
-          [:span "Read more..."]
-          [:ul.tag-list
-           (for [tag tagList]
-             ^{:key tag}
-             [:li.tag-default.tag-pill.tag-outline tag])]]]))))
+(reg-view ^{:doc "A single article card used across the home page and profile pages."}
+          article-preview [{:keys [article]}]
+  (let [{:keys [slug title description createdAt favoritesCount author tagList]} article]
+    [:div.article-preview
+     [:div.article-meta
+      [routing/route-link {:to     :route/profile
+                           :params {:username (:username author)}}
+       [:img {:src (:image author)}]]
+      [:div.info
+       [routing/route-link {:to     :route/profile
+                            :params {:username (:username author)}
+                            :class  "author"}
+        (:username author)]
+       [:span.date createdAt]]
+      [:button.btn.btn-outline-primary.btn-sm.pull-xs-right
+       {:type "button"
+        :on-click #(dispatch [:article/toggle-favorite slug])}
+       [:i.ion-heart] " " favoritesCount]]
+     [routing/route-link {:to :route/article :params {:slug slug} :class "preview-link"}
+      [:h1 title]
+      [:p description]
+      [:span "Read more..."]
+      [:ul.tag-list
+       (for [tag tagList]
+         ^{:key tag}
+         [:li.tag-default.tag-pill.tag-outline tag])]]]))
 
-(def home-page
-  (reg-view :pages/home
-    {:doc "Global feed / your feed / tag-filtered home page."}
-    (fn render-home []
-      (let [d              (rf/dispatcher)
-            s              (rf/subscriber)
-            authed?        @(s [:auth/authenticated?])
-            feed-kind      @(s [:home/feed-kind])
-            selected-tag   @(s [:home/selected-tag])
-            global-loading? @(s [:articles/loading?])
-            global-fetching? @(s [:articles/fetching?])
-            global-error   @(s [:articles/error])
-            global-articles @(s [:articles/data])
-            feed-loading?  @(s [:feed/loading?])
-            feed-error     @(s [:feed/error])
-            your-feed      @(s [:feed/data])
-            tags           @(s [:tags/data])
-            [loading? fetching? err articles]
-            (if (= feed-kind :your)
-              [feed-loading? false feed-error your-feed]
-              [global-loading? global-fetching? global-error global-articles])]
-        [:div.home-page
-         [:div.banner
-          [:div.container
-           [:h1.logo-font "conduit"]
-           [:p "A place to share your knowledge."]]]
-         [:div.container.page
-          [:div.row
-           [:div.col-md-9
-            [:div.feed-toggle
-             [:ul.nav.nav-pills.outline-active
-              (when authed?
-                [:li.nav-item
-                 [:a.nav-link
-                  {:href "#"
-                   :class (when (= feed-kind :your) "active")
-                   :on-click #(do (.preventDefault %)
-                                  (d [:home/show-your-feed]))}
-                  "Your Feed"]])
-              [:li.nav-item
-               [:a.nav-link
-                {:href "#"
-                 :class (when (= feed-kind :global) "active")
-                 :on-click #(do (.preventDefault %)
-                                (d [:home/show-global-feed]))}
-                "Global Feed"]]
-              (when selected-tag
-                [:li.nav-item
-                 [:a.nav-link.active
-                  {:href "#"
-                   :on-click #(do (.preventDefault %)
-                                  (d [:tags/clear-filter]))}
-                  [:i.ion-pound] " " selected-tag]])]]
-            (cond
-              loading?
-              [:div.article-preview "Loading articles…"]
+(reg-view ^{:doc "Global feed / your feed / tag-filtered home page."}
+          home-page []
+  (let [authed?         @(subscribe [:auth/authenticated?])
+        feed-kind       @(subscribe [:home/feed-kind])
+        selected-tag    @(subscribe [:home/selected-tag])
+        global-loading?  @(subscribe [:articles/loading?])
+        global-fetching? @(subscribe [:articles/fetching?])
+        global-error    @(subscribe [:articles/error])
+        global-articles @(subscribe [:articles/data])
+        feed-loading?   @(subscribe [:feed/loading?])
+        feed-error      @(subscribe [:feed/error])
+        your-feed       @(subscribe [:feed/data])
+        tags            @(subscribe [:tags/data])
+        [loading? fetching? err articles]
+        (if (= feed-kind :your)
+          [feed-loading? false feed-error your-feed]
+          [global-loading? global-fetching? global-error global-articles])]
+    [:div.home-page
+     [:div.banner
+      [:div.container
+       [:h1.logo-font "conduit"]
+       [:p "A place to share your knowledge."]]]
+     [:div.container.page
+      [:div.row
+       [:div.col-md-9
+        [:div.feed-toggle
+         [:ul.nav.nav-pills.outline-active
+          (when authed?
+            [:li.nav-item
+             [:a.nav-link
+              {:href "#"
+               :class (when (= feed-kind :your) "active")
+               :on-click #(do (.preventDefault %)
+                              (dispatch [:home/show-your-feed]))}
+              "Your Feed"]])
+          [:li.nav-item
+           [:a.nav-link
+            {:href "#"
+             :class (when (= feed-kind :global) "active")
+             :on-click #(do (.preventDefault %)
+                            (dispatch [:home/show-global-feed]))}
+            "Global Feed"]]
+          (when selected-tag
+            [:li.nav-item
+             [:a.nav-link.active
+              {:href "#"
+               :on-click #(do (.preventDefault %)
+                              (dispatch [:tags/clear-filter]))}
+              [:i.ion-pound] " " selected-tag]])]]
+        (cond
+          loading?
+          [:div.article-preview "Loading articles…"]
 
-              err
-              [:div.article-preview.error
-               (str "Couldn't load articles: " (pr-str err))]
+          err
+          [:div.article-preview.error
+           (str "Couldn't load articles: " (pr-str err))]
 
-              (empty? articles)
-              [:div.article-preview "No articles are here… yet."]
+          (empty? articles)
+          [:div.article-preview "No articles are here… yet."]
 
-              :else
-              [:<>
-               (when fetching? [:div.refresh-indicator "Refreshing…"])
-               (for [article articles]
-                 ^{:key (:slug article)}
-                 [article-preview {:article article}])])]
-           [:div.col-md-3
-            [:div.sidebar
-             [:p "Popular Tags"]
-             [:div.tag-list
-              (for [tag tags]
-                ^{:key tag}
-                [:a.tag-pill.tag-default
-                 {:href "#"
-                  :on-click #(do (.preventDefault %)
-                                 (d [:tags/apply-filter tag]))}
-                 tag])]]]]]]))))
+          :else
+          [:<>
+           (when fetching? [:div.refresh-indicator "Refreshing…"])
+           (for [article articles]
+             ^{:key (:slug article)}
+             [article-preview {:article article}])])]
+       [:div.col-md-3
+        [:div.sidebar
+         [:p "Popular Tags"]
+         [:div.tag-list
+          (for [tag tags]
+            ^{:key tag}
+            [:a.tag-pill.tag-default
+             {:href "#"
+              :on-click #(do (.preventDefault %)
+                             (dispatch [:tags/apply-filter tag]))}
+             tag])]]]]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

@@ -118,32 +118,28 @@
 ;; VIEW
 ;; ============================================================================
 
-(def timer-view
-  (reg-view :timer/timer
-    (fn render-timer []
-      (let [d        (rf/dispatcher)
-            s        (rf/subscriber)
-            progress @(s [:timer/progress-pct])
-            seconds  @(s [:timer/elapsed-seconds])
-            duration @(s [:timer/duration-ms])]
-        [:div.timer
-         [:div.row
-          [:label "Elapsed time:"]
-          [:div.bar {:style {:width "300px" :background "#ddd"}}
-           [:div.fill {:style {:width  (str progress "%")
-                               :height "20px"
-                               :background "#4a9"}}]]]
-         [:div.row [:label seconds " s"]]
-         [:div.row
-          [:label "Duration: "]
-          [:input {:type      "range"
-                   :min       0 :max 30000 :step 100
-                   :value     duration
-                   :on-change #(d [:timer/set-duration
-                                   (js/parseInt (.. % -target -value))])}]
-          [:span (.toFixed (/ duration 1000.0) 1) " s"]]
-         [:div.row
-          [:button {:on-click #(d [:timer/reset])} "Reset"]]]))))
+(reg-view timer-view []
+  (let [progress @(subscribe [:timer/progress-pct])
+        seconds  @(subscribe [:timer/elapsed-seconds])
+        duration @(subscribe [:timer/duration-ms])]
+    [:div.timer
+     [:div.row
+      [:label "Elapsed time:"]
+      [:div.bar {:style {:width "300px" :background "#ddd"}}
+       [:div.fill {:style {:width  (str progress "%")
+                           :height "20px"
+                           :background "#4a9"}}]]]
+     [:div.row [:label seconds " s"]]
+     [:div.row
+      [:label "Duration: "]
+      [:input {:type      "range"
+               :min       0 :max 30000 :step 100
+               :value     duration
+               :on-change #(dispatch [:timer/set-duration
+                                      (js/parseInt (.. % -target -value))])}]
+      [:span (.toFixed (/ duration 1000.0) 1) " s"]]
+     [:div.row
+      [:button {:on-click #(dispatch [:timer/reset])} "Reset"]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (scheduling-light; we don't drive real time, just verify

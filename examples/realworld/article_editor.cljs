@@ -187,73 +187,69 @@
 ;; VIEWS
 ;; ============================================================================
 
-(def editor-page
-  (reg-view :pages/editor
-    (fn render-editor-page []
-      (let [d            (rf/dispatcher)
-            s            (rf/subscriber)
-            draft        @(s [:editor/draft])
-            errors       @(s [:editor/errors])
-            submitting?  @(s [:editor/submitting?])
-            submit-error @(s [:editor/submit-error])
-            mode         @(s [:editor/mode])]
-        [:div.editor-page
-         [:div.container.page
-          [:div.row
-           [:div.col-md-10.offset-md-1.col-xs-12
-            (when submit-error
-              [:ul.error-messages [:li submit-error]])
-            [:form
-             {:on-submit (fn [e]
-                           (.preventDefault e)
-                           (d [:editor/submit]))}
-             [:fieldset
-              [:fieldset.form-group
-               [:input.form-control.form-control-lg
-                {:type        "text"
-                 :placeholder "Article Title"
-                 :value       (:title draft)
-                 :disabled    submitting?
-                 :on-blur     #(d [:editor/blur-field :title])
-                 :on-change   #(d [:editor/edit-field :title (.. % -target -value)])}]
-               (when-let [err (:title errors)]
-                 [:div.error-messages err])]
-              [:fieldset.form-group
-               [:input.form-control
-                {:type        "text"
-                 :placeholder "What's this article about?"
-                 :value       (:description draft)
-                 :disabled    submitting?
-                 :on-blur     #(d [:editor/blur-field :description])
-                 :on-change   #(d [:editor/edit-field :description (.. % -target -value)])}]
-               (when-let [err (:description errors)]
-                 [:div.error-messages err])]
-              [:fieldset.form-group
-               [:textarea.form-control
-                {:rows        8
-                 :placeholder "Write your article (in markdown)"
-                 :value       (:body draft)
-                 :disabled    submitting?
-                 :on-blur     #(d [:editor/blur-field :body])
-                 :on-change   #(d [:editor/edit-field :body (.. % -target -value)])}]
-               (when-let [err (:body errors)]
-                 [:div.error-messages err])]
-              [:fieldset.form-group
-               [:input.form-control
-                {:type        "text"
-                 :placeholder "Enter tags"
-                 :value       (:tagList draft)
-                 :disabled    submitting?
-                 :on-change   #(d [:editor/edit-field :tagList (.. % -target -value)])}]]
-              [:button.btn.btn-lg.pull-xs-right.btn-primary
-               {:type "submit" :disabled submitting?}
-               (if (= mode :edit) "Update Article" "Publish Article")]
-              (when (= mode :edit)
-                [:button.btn.btn-outline-danger
-                 {:type "button"
-                  :disabled submitting?
-                  :on-click #(d [:editor/delete])}
-                 "Delete Article"])]]]]]])))
+(reg-view editor-page []
+  (let [draft        @(subscribe [:editor/draft])
+        errors       @(subscribe [:editor/errors])
+        submitting?  @(subscribe [:editor/submitting?])
+        submit-error @(subscribe [:editor/submit-error])
+        mode         @(subscribe [:editor/mode])]
+    [:div.editor-page
+     [:div.container.page
+      [:div.row
+       [:div.col-md-10.offset-md-1.col-xs-12
+        (when submit-error
+          [:ul.error-messages [:li submit-error]])
+        [:form
+         {:on-submit (fn [e]
+                       (.preventDefault e)
+                       (dispatch [:editor/submit]))}
+         [:fieldset
+          [:fieldset.form-group
+           [:input.form-control.form-control-lg
+            {:type        "text"
+             :placeholder "Article Title"
+             :value       (:title draft)
+             :disabled    submitting?
+             :on-blur     #(dispatch [:editor/blur-field :title])
+             :on-change   #(dispatch [:editor/edit-field :title (.. % -target -value)])}]
+           (when-let [err (:title errors)]
+             [:div.error-messages err])]
+          [:fieldset.form-group
+           [:input.form-control
+            {:type        "text"
+             :placeholder "What's this article about?"
+             :value       (:description draft)
+             :disabled    submitting?
+             :on-blur     #(dispatch [:editor/blur-field :description])
+             :on-change   #(dispatch [:editor/edit-field :description (.. % -target -value)])}]
+           (when-let [err (:description errors)]
+             [:div.error-messages err])]
+          [:fieldset.form-group
+           [:textarea.form-control
+            {:rows        8
+             :placeholder "Write your article (in markdown)"
+             :value       (:body draft)
+             :disabled    submitting?
+             :on-blur     #(dispatch [:editor/blur-field :body])
+             :on-change   #(dispatch [:editor/edit-field :body (.. % -target -value)])}]
+           (when-let [err (:body errors)]
+             [:div.error-messages err])]
+          [:fieldset.form-group
+           [:input.form-control
+            {:type        "text"
+             :placeholder "Enter tags"
+             :value       (:tagList draft)
+             :disabled    submitting?
+             :on-change   #(dispatch [:editor/edit-field :tagList (.. % -target -value)])}]]
+          [:button.btn.btn-lg.pull-xs-right.btn-primary
+           {:type "submit" :disabled submitting?}
+           (if (= mode :edit) "Update Article" "Publish Article")]
+          (when (= mode :edit)
+            [:button.btn.btn-outline-danger
+             {:type "button"
+              :disabled submitting?
+              :on-click #(dispatch [:editor/delete])}
+             "Delete Article"])]]]]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

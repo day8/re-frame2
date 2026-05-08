@@ -58,99 +58,83 @@
 ;; APP-SHELL VIEWS
 ;; ============================================================================
 
-(def header
-  (reg-view :app/header
-    {:doc "The site header. Shows different links based on auth state."}
-    (fn render-header []
-      (let [d       (rf/dispatcher)
-            s       (rf/subscriber)
-            authed? @(s [:auth/authenticated?])
-            user    @(s [:auth/user])]
-        [:nav.navbar.navbar-light
-         [:div.container
-          [routing/route-link {:to :route/home :class "navbar-brand"} "conduit"]
-          [:ul.nav.navbar-nav.pull-xs-right
-           [:li.nav-item
-            [routing/route-link {:to :route/home :class "nav-link"} "Home"]]
-           (if authed?
-             [:<>
-              [:li.nav-item
-               [routing/route-link {:to :route/editor :class "nav-link"}
-                [:i.ion-compose] " New Article"]]
-              [:li.nav-item
-               [routing/route-link {:to :route/settings :class "nav-link"}
-                [:i.ion-gear-a] " Settings"]]
-              [:li.nav-item
-               [routing/route-link {:to :route/profile
-                                    :params {:username (:username user)}
-                                    :class "nav-link"}
-                (:username user)]]
-              [:li.nav-item
-               [:a.nav-link {:href "#"
-                             :on-click #(do (.preventDefault %)
-                                            (d [:auth/flow [:auth/logout]]))}
-                "Logout"]]]
-             [:<>
-              [:li.nav-item
-               [routing/route-link {:to :route/login :class "nav-link"} "Sign in"]]
-              [:li.nav-item
-               [routing/route-link {:to :route/register :class "nav-link"} "Sign up"]]])]]]))))
+(reg-view ^{:doc "The site header. Shows different links based on auth state."}
+          header []
+  (let [authed? @(subscribe [:auth/authenticated?])
+        user    @(subscribe [:auth/user])]
+    [:nav.navbar.navbar-light
+     [:div.container
+      [routing/route-link {:to :route/home :class "navbar-brand"} "conduit"]
+      [:ul.nav.navbar-nav.pull-xs-right
+       [:li.nav-item
+        [routing/route-link {:to :route/home :class "nav-link"} "Home"]]
+       (if authed?
+         [:<>
+          [:li.nav-item
+           [routing/route-link {:to :route/editor :class "nav-link"}
+            [:i.ion-compose] " New Article"]]
+          [:li.nav-item
+           [routing/route-link {:to :route/settings :class "nav-link"}
+            [:i.ion-gear-a] " Settings"]]
+          [:li.nav-item
+           [routing/route-link {:to :route/profile
+                                :params {:username (:username user)}
+                                :class "nav-link"}
+            (:username user)]]
+          [:li.nav-item
+           [:a.nav-link {:href "#"
+                         :on-click #(do (.preventDefault %)
+                                        (dispatch [:auth/flow [:auth/logout]]))}
+            "Logout"]]]
+         [:<>
+          [:li.nav-item
+           [routing/route-link {:to :route/login :class "nav-link"} "Sign in"]]
+          [:li.nav-item
+           [routing/route-link {:to :route/register :class "nav-link"} "Sign up"]]])]]]))
 
-(def footer
-  (reg-view :app/footer
-    (fn render-footer []
-      [:footer
-       [:div.container
-        [routing/route-link {:to :route/home :class "logo-font"} "conduit"]
-        [:span.attribution "An interactive learning project from Thinkster."
-         " Code & design licensed under MIT."]]])))
+(reg-view footer []
+  [:footer
+   [:div.container
+    [routing/route-link {:to :route/home :class "logo-font"} "conduit"]
+    [:span.attribution "An interactive learning project from Thinkster."
+     " Code & design licensed under MIT."]]])
 
-(def pending-nav-dialog
-  (reg-view :app/pending-nav-dialog
-    {:doc "Renders a confirm dialog when navigation is blocked by a
-           :can-leave guard. Reads the :rf/pending-navigation slot."}
-    (fn render-pending-nav-dialog []
-      (let [d (rf/dispatcher)
-            s (rf/subscriber)]
-        (when-let [pending @(s [:rf/pending-navigation])]
-          [:div.pending-nav-overlay
-           [:div.pending-nav-dialog
-            [:p (or (:reason pending) "You have unsaved changes. Leave anyway?")]
-            [:button {:on-click #(d [:rf.route/continue (:id pending)])}
-             "Discard changes"]
-            [:button {:on-click #(d [:rf.route/cancel (:id pending)])}
-             "Stay"]]])))))
+(reg-view ^{:doc "Renders a confirm dialog when navigation is blocked by a
+                  :can-leave guard. Reads the :rf/pending-navigation slot."}
+          pending-nav-dialog []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
+    [:div.pending-nav-overlay
+     [:div.pending-nav-dialog
+      [:p (or (:reason pending) "You have unsaved changes. Leave anyway?")]
+      [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])}
+       "Discard changes"]
+      [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])}
+       "Stay"]]]))
 
-(def not-found-page
-  (reg-view :pages/not-found
-    (fn render-not-found []
-      (let [s   (rf/subscriber)
-            url (:url @(s [:rf.route/params]))]
-        [:div.not-found-page
-         [:h1 "Page not found"]
-         (when url [:p (str "No route matches: " url)])
-         [routing/route-link {:to :route/home} "Home"]]))))
+(reg-view not-found-page []
+  (let [url (:url @(subscribe [:rf.route/params]))]
+    [:div.not-found-page
+     [:h1 "Page not found"]
+     (when url [:p (str "No route matches: " url)])
+     [routing/route-link {:to :route/home} "Home"]]))
 
-(def root-view
-  (reg-view :app/root
-    {:doc "App-level root. Switches on :rf.route/id to render the active page."}
-    (fn render-root []
-      (let [s (rf/subscriber)]
-        [:div.app
-         [header]
-         [pending-nav-dialog]
-         (case @(s [:rf.route/id])
-           :route/home              [articles/home-page]
-           :route/login             [auth/login-page]
-           :route/register          [auth/register-page]
-           :route/article           [comments/article-page]
-           :route/editor            [editor/editor-page]
-           :route/editor.edit       [editor/editor-page]
-           :route/profile           [profile/profile-page]
-           :route/profile.favorites [profile/profile-page]
-           :route/settings          [settings/settings-page]
-           [not-found-page])
-         [footer]]))))
+(reg-view ^{:doc "App-level root. Switches on :rf.route/id to render the active page."}
+          root-view []
+  [:div.app
+   [header]
+   [pending-nav-dialog]
+   (case @(subscribe [:rf.route/id])
+     :route/home              [articles/home-page]
+     :route/login             [auth/login-page]
+     :route/register          [auth/register-page]
+     :route/article           [comments/article-page]
+     :route/editor            [editor/editor-page]
+     :route/editor.edit       [editor/editor-page]
+     :route/profile           [profile/profile-page]
+     :route/profile.favorites [profile/profile-page]
+     :route/settings          [settings/settings-page]
+     [not-found-page])
+   [footer]])
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (top-level smoke)

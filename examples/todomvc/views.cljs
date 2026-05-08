@@ -115,25 +115,29 @@
          :on-click #(dispatch [:todo/clear-completed])}
         "Clear completed"])]))
 
-(def root-view
-  (reg-view :todo.app/root-view
-    (fn render-root-view []
-      (let [dispatch  (rf/dispatcher)
-            subscribe (rf/subscriber)
-            todos     @(subscribe [:todos])]
-        [:<>
-         [:section.todoapp
-          [task-entry dispatch]
-          (when (seq todos)
-            [task-list dispatch subscribe])
-          (when (seq todos)
-            [footer-controls dispatch subscribe])]
-         [:footer.info
-          [:p "Double-click to edit a todo"]
-          [:p
-           "Inspired by "
-           [:a {:href "https://github.com/day8/re-frame/tree/master/examples/todomvc"}
-            "the original re-frame TodoMVC example"]]
-          [:p
-           "Part of "
-           [:a {:href "https://todomvc.com/"} "TodoMVC"]]]]))))
+;; Sub-views (task-entry, task-list, todo-item, footer-controls) above
+;; are plain Reagent fns. Per Spec 004 §reg-view auto-inject, the
+;; capture-and-pass threading PR #51 introduced is no longer needed —
+;; sub-views can read `dispatch` / `subscribe` directly from the
+;; surrounding reg-view scope. We keep them as plain fns here (rather
+;; than reg-view'ing each sub-piece) because they're internal helpers
+;; with no need for their own registry slot or auto-defed Var; that
+;; gives the cleanest read in this example.
+(reg-view root-view []
+  (let [todos @(subscribe [:todos])]
+    [:<>
+     [:section.todoapp
+      [task-entry dispatch]
+      (when (seq todos)
+        [task-list dispatch subscribe])
+      (when (seq todos)
+        [footer-controls dispatch subscribe])]
+     [:footer.info
+      [:p "Double-click to edit a todo"]
+      [:p
+       "Inspired by "
+       [:a {:href "https://github.com/day8/re-frame/tree/master/examples/todomvc"}
+        "the original re-frame TodoMVC example"]]
+      [:p
+       "Part of "
+       [:a {:href "https://todomvc.com/"} "TodoMVC"]]]]))

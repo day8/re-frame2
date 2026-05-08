@@ -405,182 +405,146 @@
 ;; the editor's :archived (state 9) wins over everything; otherwise we fall
 ;; through the lifecycle.
 
-(def view-nothing
-  (reg-view :ui.view/nothing
-    {:doc "State 1 — Nothing: blank slate with a 'Get started' CTA."}
-    (fn render-nothing []
-      (let [d (rf/dispatcher)]
-        [:div.state.state-nothing
-         [:h2 "Welcome"]
-         [:p "You haven't loaded any todos yet."]
-         [:button {:on-click #(d [:todos/load {:n 0}])} "Get started"]]))))
+(reg-view ^{:doc "State 1 — Nothing: blank slate with a 'Get started' CTA."}
+          view-nothing []
+  [:div.state.state-nothing
+   [:h2 "Welcome"]
+   [:p "You haven't loaded any todos yet."]
+   [:button {:on-click #(dispatch [:todos/load {:n 0}])} "Get started"]])
 
-(def view-loading
-  (reg-view :ui.view/loading
-    {:doc "State 2 — Loading: spinner / skeleton. NEVER blank the page on revalidation."}
-    (fn render-loading []
-      [:div.state.state-loading
-       [:p "Loading todos…"]])))
+(reg-view ^{:doc "State 2 — Loading: spinner / skeleton. NEVER blank the page on revalidation."}
+          view-loading []
+  [:div.state.state-loading
+   [:p "Loading todos…"]])
 
-(def view-empty
-  (reg-view :ui.view/empty
-    {:doc "State 3 — Empty: 'No todos yet' + CTA to add one."}
-    (fn render-empty []
-      [:div.state.state-empty
-       [:h2 "No todos yet"]
-       [:p "Add your first todo using the form below."]])))
+(reg-view ^{:doc "State 3 — Empty: 'No todos yet' + CTA to add one."}
+          view-empty []
+  [:div.state.state-empty
+   [:h2 "No todos yet"]
+   [:p "Add your first todo using the form below."]])
 
-(def view-one
-  (reg-view :ui.view/one
-    {:doc "State 4 — One: focused single-item layout."}
-    (fn render-one []
-      (let [s    (rf/subscriber)
-            todo (first @(s [:todos/data]))]
-        [:div.state.state-one
-         [:h2 "Your todo"]
-         [:p.title (:title todo)]]))))
+(reg-view ^{:doc "State 4 — One: focused single-item layout."}
+          view-one []
+  (let [todo (first @(subscribe [:todos/data]))]
+    [:div.state.state-one
+     [:h2 "Your todo"]
+     [:p.title (:title todo)]]))
 
-(def view-some
-  (reg-view :ui.view/some
-    {:doc "State 5 — Some: standard list."}
-    (fn render-some []
-      (let [s     (rf/subscriber)
-            todos @(s [:todos/data])]
-        [:div.state.state-some
-         [:h2 (str (count todos) " todos")]
-         [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))))
+(reg-view ^{:doc "State 5 — Some: standard list."}
+          view-some []
+  (let [todos @(subscribe [:todos/data])]
+    [:div.state.state-some
+     [:h2 (str (count todos) " todos")]
+     [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))
 
-(def view-too-many
-  (reg-view :ui.view/too-many
-    {:doc "State 6 — Too Many: search + truncation."}
-    (fn render-too-many []
-      (let [s        (rf/subscriber)
-            todos    @(s [:todos/data])
-            shown    (take too-many-threshold todos)
-            overflow (- (count todos) too-many-threshold)]
-        [:div.state.state-too-many
-         [:h2 (str (count todos) " todos (showing first " too-many-threshold ")")]
-         [:input {:type "search" :placeholder "Search todos…"}]
-         [:ul (for [t shown] ^{:key (:id t)} [:li (:title t)])]
-         (when (pos? overflow)
-           [:p.overflow (str "…and " overflow " more.")])]))))
+(reg-view ^{:doc "State 6 — Too Many: search + truncation."}
+          view-too-many []
+  (let [todos    @(subscribe [:todos/data])
+        shown    (take too-many-threshold todos)
+        overflow (- (count todos) too-many-threshold)]
+    [:div.state.state-too-many
+     [:h2 (str (count todos) " todos (showing first " too-many-threshold ")")]
+     [:input {:type "search" :placeholder "Search todos…"}]
+     [:ul (for [t shown] ^{:key (:id t)} [:li (:title t)])]
+     (when (pos? overflow)
+       [:p.overflow (str "…and " overflow " more.")])]))
 
-(def view-incorrect
-  (reg-view :ui.view/incorrect
-    {:doc "State 7 — Incorrect: per-field validation error + recovery path."}
-    (fn render-incorrect []
-      (let [s   (rf/subscriber)
-            err @(s [:new-todo/field-error :title])]
-        [:div.state.state-incorrect
-         [:p.error (str "We can't add that todo: " err)]
-         [:p "Please fix the title field below and submit again."]]))))
+(reg-view ^{:doc "State 7 — Incorrect: per-field validation error + recovery path."}
+          view-incorrect []
+  (let [err @(subscribe [:new-todo/field-error :title])]
+    [:div.state.state-incorrect
+     [:p.error (str "We can't add that todo: " err)]
+     [:p "Please fix the title field below and submit again."]]))
 
-(def view-correct
-  (reg-view :ui.view/correct
-    {:doc "State 8 — Correct: success feedback (toast / checkmark)."}
-    (fn render-correct []
-      [:div.state.state-correct
-       [:p.success "✓ Todo added."]])))
+(reg-view ^{:doc "State 8 — Correct: success feedback (toast / checkmark)."}
+          view-correct []
+  [:div.state.state-correct
+   [:p.success "✓ Todo added."]])
 
-(def view-done
-  (reg-view :ui.view/done
-    {:doc "State 9 — Done/Frozen: archived list. Read-only."}
-    (fn render-done []
-      (let [s     (rf/subscriber)
-            todos @(s [:todos/data])]
-        [:div.state.state-done
-         [:h2 "Archived"]
-         [:p "This list has been archived. It is read-only."]
-         [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))))
+(reg-view ^{:doc "State 9 — Done/Frozen: archived list. Read-only."}
+          view-done []
+  (let [todos @(subscribe [:todos/data])]
+    [:div.state.state-done
+     [:h2 "Archived"]
+     [:p "This list has been archived. It is read-only."]
+     [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))
 
 ;; ============================================================================
 ;; VIEWS — control panel + form + root
 ;; ============================================================================
 
-(def new-todo-form
-  (reg-view :ui.view/new-todo-form
-    {:doc "Form for adding a todo. Drives the Forms slice (states 7 & 8)."}
-    (fn render-new-todo-form []
-      (let [d           (rf/dispatcher)
-            s           (rf/subscriber)
-            draft       @(s [:new-todo/draft])
-            field-err   @(s [:new-todo/field-error :title])
-            done?       @(s [:ui.state/done?])]
-        [:form.new-todo
-         {:on-submit (fn [e]
-                       (.preventDefault e)
-                       (d [:new-todo/submit]))}
-         [:input {:type        "text"
-                  :placeholder "What needs doing?"
-                  :value       (:title draft)
-                  :disabled    done?
-                  :on-change   #(d [:new-todo/edit-field :title
-                                    (.. % -target -value)])}]
-         [:button {:type "submit" :disabled done?} "Add"]
-         (when field-err [:p.error field-err])]))))
+(reg-view ^{:doc "Form for adding a todo. Drives the Forms slice (states 7 & 8)."}
+          new-todo-form []
+  (let [draft     @(subscribe [:new-todo/draft])
+        field-err @(subscribe [:new-todo/field-error :title])
+        done?     @(subscribe [:ui.state/done?])]
+    [:form.new-todo
+     {:on-submit (fn [e]
+                   (.preventDefault e)
+                   (dispatch [:new-todo/submit]))}
+     [:input {:type        "text"
+              :placeholder "What needs doing?"
+              :value       (:title draft)
+              :disabled    done?
+              :on-change   #(dispatch [:new-todo/edit-field :title
+                                       (.. % -target -value)])}]
+     [:button {:type "submit" :disabled done?} "Add"]
+     (when field-err [:p.error field-err])]))
 
-(def control-panel
-  (reg-view :ui.view/control-panel
-    {:doc "Buttons to drive the app into each of the nine states."}
-    (fn render-control-panel []
-      (let [d     (rf/dispatcher)
-            s     (rf/subscriber)
-            done? @(s [:ui.state/done?])]
-        [:div.control-panel
-         [:h3 "Drive the demo"]
-         [:button {:on-click #(d [:app/initialise])
-                   :disabled done?} "1. Nothing"]
-         [:button {:on-click #(d [:todos/load-with-failure])
-                   :disabled done?} "Trigger error"]
-         [:button {:on-click #(d [:todos/load {:n 0}])
-                   :disabled done?} "3. Empty"]
-         [:button {:on-click #(d [:todos/load {:n 1}])
-                   :disabled done?} "4. One"]
-         [:button {:on-click #(d [:todos/load {:n 4}])
-                   :disabled done?} "5. Some"]
-         [:button {:on-click #(d [:todos/load {:n 25}])
-                   :disabled done?} "6. Too Many"]
-         [:button {:on-click #(d [:todos/editor [:todos.editor/archive {}]])
-                   :disabled done?} "9. Archive (Done)"]]))))
+(reg-view ^{:doc "Buttons to drive the app into each of the nine states."}
+          control-panel []
+  (let [done? @(subscribe [:ui.state/done?])]
+    [:div.control-panel
+     [:h3 "Drive the demo"]
+     [:button {:on-click #(dispatch [:app/initialise])
+               :disabled done?} "1. Nothing"]
+     [:button {:on-click #(dispatch [:todos/load-with-failure])
+               :disabled done?} "Trigger error"]
+     [:button {:on-click #(dispatch [:todos/load {:n 0}])
+               :disabled done?} "3. Empty"]
+     [:button {:on-click #(dispatch [:todos/load {:n 1}])
+               :disabled done?} "4. One"]
+     [:button {:on-click #(dispatch [:todos/load {:n 4}])
+               :disabled done?} "5. Some"]
+     [:button {:on-click #(dispatch [:todos/load {:n 25}])
+               :disabled done?} "6. Too Many"]
+     [:button {:on-click #(dispatch [:todos/editor [:todos.editor/archive {}]])
+               :disabled done?} "9. Archive (Done)"]]))
 
-(def root-view
-  (reg-view :ui.view/root
-    {:doc "Root view: pick exactly one of the nine state views, plus form
-           and control panel."}
-    (fn render-root []
-      (let [d          (rf/dispatcher)
-            s          (rf/subscriber)
-            done?      @(s [:ui.state/done?])
-            correct?   @(s [:ui.state/correct?])
-            incorrect? @(s [:ui.state/incorrect?])
-            nothing?   @(s [:ui.state/nothing?])
-            loading?   @(s [:ui.state/loading?])
-            empty?     @(s [:ui.state/empty?])
-            one?       @(s [:ui.state/one?])
-            some?*     @(s [:ui.state/some?])
-            too-many?  @(s [:ui.state/too-many?])
-            error      @(s [:todos/error])]
-        [:div.app
-         [:h1 "Nine States of UI — todos"]
-         [control-panel]
-         [:hr]
-         (cond
-           done?      [view-done]
-           incorrect? [view-incorrect]
-           correct?   [view-correct]
-           nothing?   [view-nothing]
-           loading?   [view-loading]
-           error      [:div.state.state-error
-                       [:p.error (str "Couldn't load: " (:message error))]
-                       [:button {:on-click #(d [:todos/load {:n 4}])}
-                        "Retry"]]
-           empty?     [view-empty]
-           one?       [view-one]
-           some?*     [view-some]
-           too-many?  [view-too-many]
-           :else      [:p "(unrecognised state)"])
-         [:hr]
-         [new-todo-form]]))))
+(reg-view ^{:doc "Root view: pick exactly one of the nine state views, plus form
+                  and control panel."}
+          root-view []
+  (let [done?      @(subscribe [:ui.state/done?])
+        correct?   @(subscribe [:ui.state/correct?])
+        incorrect? @(subscribe [:ui.state/incorrect?])
+        nothing?   @(subscribe [:ui.state/nothing?])
+        loading?   @(subscribe [:ui.state/loading?])
+        empty?     @(subscribe [:ui.state/empty?])
+        one?       @(subscribe [:ui.state/one?])
+        some?*     @(subscribe [:ui.state/some?])
+        too-many?  @(subscribe [:ui.state/too-many?])
+        error      @(subscribe [:todos/error])]
+    [:div.app
+     [:h1 "Nine States of UI — todos"]
+     [control-panel]
+     [:hr]
+     (cond
+       done?      [view-done]
+       incorrect? [view-incorrect]
+       correct?   [view-correct]
+       nothing?   [view-nothing]
+       loading?   [view-loading]
+       error      [:div.state.state-error
+                   [:p.error (str "Couldn't load: " (:message error))]
+                   [:button {:on-click #(dispatch [:todos/load {:n 4}])}
+                    "Retry"]]
+       empty?     [view-empty]
+       one?       [view-one]
+       some?*     [view-some]
+       too-many?  [view-too-many]
+       :else      [:p "(unrecognised state)"])
+     [:hr]
+     [new-todo-form]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS
@@ -693,10 +657,8 @@
 ;; CLJS host without touching React.
 
 ;; The React root is named `react-root` (not `root`) so it does NOT
-;; collide with the local Var `root` that `reg-view :ui.view/root`
-;; auto-defs. (`(name :ui.view/root)` is "root" — without renaming the
-;; mount point, the latter `def` overwrites the React root with the
-;; view fn, and at run time `root.render` is undefined.)
+;; collide with anything else in this ns; reg-view defs `root-view`,
+;; which is what we render.
 (defonce react-root
   (when (exists? js/document)
     (rdc/create-root (js/document.getElementById "app"))))
