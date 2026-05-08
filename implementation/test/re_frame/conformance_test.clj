@@ -70,6 +70,22 @@
     ;; Spec 014 — :rf.http/managed (rf2-z1mw)
     :rf.http/managed})
 
+;; ---- claimed fixture spec version(s) -------------------------------------
+;;
+;; Per `spec/conformance/README.md` §Versioning: "When the spec changes shape
+;; (new required key in `:rf/dispatch-envelope`, new error category), affected
+;; fixtures bump their `:spec-version` and the corpus's harness check rejects
+;; implementations that haven't moved with the spec."
+;;
+;; A fixture whose `:fixture/spec-version` is NOT in this set is reported as
+;; skipped (with an explicit reason). The fixture is neither failed nor
+;; passed — the harness simply does not claim conformance against that
+;; version. Implementations advance this set when they move with the spec.
+
+(def claimed-spec-versions
+  "Fixture spec versions this implementation claims to conform against."
+  #{"1.0"})
+
 ;; ---- fixture loader -------------------------------------------------------
 
 (def fixtures-dir
@@ -133,6 +149,19 @@
   [fixture]
   (let [caps (or (:fixture/capabilities fixture) #{})]
     (every? claimed-capabilities caps)))
+
+(defn- spec-version-claimed?
+  "True if the fixture targets a spec version this build claims.
+  A fixture without an explicit :fixture/spec-version is treated as
+  unversioned and accepted (legacy fixtures pre-versioning).
+
+  Per `spec/conformance/README.md` §Versioning — when the spec changes
+  shape, fixtures bump `:spec-version` and implementations that haven't
+  moved with the spec must reject those fixtures rather than running them
+  against an outdated runtime."
+  [fixture]
+  (let [v (:fixture/spec-version fixture)]
+    (or (nil? v) (contains? claimed-spec-versions v))))
 
 (defn- collect-cofx-keys
   "Walk steps and pull every cofx-id referenced via [:cofx-key K]. Used
@@ -331,6 +360,82 @@
             expected)
 
     :else (= expected actual)))
+
+(defn- normalise-effects-routed
+  "Fixtures express `:effects-routed` entries in two forms:
+
+    {:fx-id F :args A}                 ;; map form
+    [F A]                              ;; pair form
+
+  Normalise to `{:fx-id F :fx-args A}` so they can be matched against the
+  trace-derived actual list (which uses the runtime's `:fx-args` key)."
+  [entries]
+  (mapv (fn [e]
+          (cond
+            (and (map? e) (contains? e :fx-id))
+            {:fx-id (:fx-id e) :fx-args (:args e)}
+
+            (and (vector? e) (= 2 (count e)))
+            {:fx-id (first e) :fx-args (second e)}
+
+            :else
+            (throw (ex-info "unrecognised :effects-routed entry"
+                            {:entry e}))))
+        entries))
+
+(defn- effects-routed-from-traces
+  "Derive the actual list of fx routings from the trace stream.
+
+  Per `re-frame.fx/handle-one-fx`: every successful routing emits a
+  `:rf.fx/handled` trace with `:fx-id` (post-override) and `:fx-args`. A
+  handler-throw emits `:rf.error/fx-handler-exception` with the same
+  `:fx-id`/`:fx-args` shape — that's still a routing for the purposes of
+  the fixture contract (the runtime did attempt the handler).
+
+  The order in this returned vector is the order the runtime attempted
+  to process the effects, which is what `:effects-routed` asserts (per
+  `spec/conformance/README.md` §Handler-body DSL ops and §Fixture
+  lifecycle: \"effects routed\")."
+  [traces]
+  (->> traces
+       (filter (fn [t]
+                 (let [op (:operation t)]
+                   (or (= op :rf.fx/handled)
+                       (= op :rf.error/fx-handler-exception)))))
+       (mapv (fn [t]
+               {:fx-id   (get-in t [:tags :fx-id])
+                :fx-args (get-in t [:tags :fx-args])}))))
+
+(defn- check-effects-routed
+  "Order-preserving subset match — every expected entry must appear in
+  `actual` in declaration order. Returns a vector of failure messages,
+  empty when all expected entries matched.
+
+  Mirrors the trace-emissions matcher: extras in `actual` are tolerated
+  (the runtime may have routed bookkeeping fx the fixture doesn't care
+  about), but missing or out-of-order expected entries are failures."
+  [actual expected]
+  (loop [actual    actual
+         expected  expected
+         failures  []]
+    (cond
+      (empty? expected) failures
+
+      (empty? actual)
+      (conj failures (str "expected effect not routed: "
+                          (pr-str (first expected))))
+
+      :else
+      (let [exp        (first expected)
+            match-idx  (->> actual
+                            (map-indexed vector)
+                            (some (fn [[i a]]
+                                    (when (= exp a) i))))]
+        (if match-idx
+          (recur (drop (inc match-idx) actual) (rest expected) failures)
+          (recur actual (rest expected)
+                 (conj failures (str "expected effect not routed: "
+                                     (pr-str exp)))))))))
 
 (defn- check-trace-emissions
   "Per the conformance README §Fixture lifecycle: trace-emissions partial-
@@ -659,6 +764,18 @@
                    :expected expected-val
                    :actual   (rf/subscribe-value frame-id qv)})))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
+            ;; :effects-routed — per `spec/conformance/README.md` §Fixture
+            ;; lifecycle: every fixture MAY assert the fx pairs that the
+            ;; runtime routed. The runtime emits `:rf.fx/handled` (and
+            ;; `:rf.error/fx-handler-exception` on throw) carrying the
+            ;; resolved (post-override) fx-id and the fx-args; we derive
+            ;; the actual routings from those and order-preserving subset-
+            ;; match against the fixture's expectation.
+            actual-effects (effects-routed-from-traces @traces)
+            expected-effects (when (contains? expect :effects-routed)
+                               (normalise-effects-routed (:effects-routed expect)))
+            effects-failures (when expected-effects
+                               (check-effects-routed actual-effects expected-effects))
             ;; SSR error-projection contract — Spec 011 §Server error
             ;; projection. Find the most recent :error trace and project
             ;; it via the active projector for :rf/default; assert the
@@ -685,6 +802,7 @@
                                         expected-dbs))
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
+                            (empty? effects-failures)
                             (or (nil? public-error-check)
                                 (:passed? public-error-check)))
          :final-db     final-db
@@ -693,6 +811,9 @@
          :expected-dbs expected-dbs
          :sub-checks   sub-checks
          :trace-failures trace-failures
+         :effects-failures   effects-failures
+         :actual-effects     actual-effects
+         :expected-effects   expected-effects
          :public-error-check public-error-check}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
@@ -711,6 +832,16 @@
                              :skipped? true
                              :reason "load error"
                              :error (:fixture/load-error fixture)})
+
+        ;; Spec-version compatibility — per `spec/conformance/README.md`
+        ;; §Versioning. A fixture targeting a spec version this build
+        ;; doesn't claim is skipped with an explicit signal rather than
+        ;; run against an outdated runtime.
+        (not (spec-version-claimed? fixture))
+        (swap! results conj {:fixture-id   (:fixture/id fixture)
+                             :skipped?     true
+                             :reason       "spec-version not in claimed set"
+                             :spec-version (:fixture/spec-version fixture)})
 
         (not (runnable? fixture))
         (swap! results conj {:fixture-id (:fixture/id fixture)
@@ -742,7 +873,8 @@
         (println)
         (println "Skipped (out-of-claim):")
         (doseq [s skipped]
-          (println "  " (:fixture-id s) "—" (or (:capabilities s) (:reason s)))))
+          (println "  " (:fixture-id s) "—"
+                   (or (:capabilities s) (:spec-version s) (:reason s)))))
       (when (seq failed)
         (println)
         (println "Failures:")
@@ -764,11 +896,22 @@
           (when (seq (:trace-failures f))
             (doseq [tf (:trace-failures f)]
               (println "    trace:" tf)))
+          (when (seq (:effects-failures f))
+            (doseq [ef (:effects-failures f)]
+              (println "    fx:" ef))
+            (println "    actual effects routed:")
+            (doseq [a (:actual-effects f)]
+              (println "      " (pr-str a))))
           (when-let [pec (:public-error-check f)]
             (when-not (:passed? pec)
               (println "    public-error expected:" (:expected pec))
               (println "    public-error actual:  " (:actual pec))))))
-      ;; The test asserts that AT LEAST one fixture passes.
-      ;; Stricter assertions land as more capabilities come online.
-      (is (pos? (count passed))
-          "At least one conformance fixture should pass"))))
+      ;; Per rf2-3xt7: the corpus is the verification mechanism for this
+      ;; build's claimed capability set. The suite fails unless EVERY
+      ;; claimed-applicable fixture passes. Skipped fixtures (out-of-claim
+      ;; capabilities, or fixtures targeting a spec version we don't
+      ;; claim) do not count toward pass/fail — they are explicitly
+      ;; reported but neither claim conformance nor block it.
+      (is (zero? (count failed))
+          (str "All claimed-applicable conformance fixtures must pass; "
+               (count failed) " failed.")))))
