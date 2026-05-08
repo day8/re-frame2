@@ -34,6 +34,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.fx :as fx]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 ;; ---- url encoding / decoding ---------------------------------------------
@@ -706,8 +707,8 @@
   "Resolve and call the route's :can-leave sub against the live frame."
   [frame route-meta]
   (if-let [sub-id (:can-leave route-meta)]
-    (when-let [subscribe-value (resolve 're-frame.subs/subscribe-value)]
-      (boolean ((deref subscribe-value) frame [sub-id])))
+    (when-let [subscribe-value (late-bind/get-fn :subs/subscribe-value)]
+      (boolean (subscribe-value frame [sub-id])))
     true))
 
 (events/reg-event-fx :rf/url-requested

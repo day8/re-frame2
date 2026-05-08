@@ -10,18 +10,20 @@
   Use inject-cofx in an event handler's interceptor list to ingest a
   registered cofx into the context."
   (:require [re-frame.registrar :as registrar]
-            [re-frame.interceptor :as interceptor]))
+            [re-frame.interceptor :as interceptor]
+            [re-frame.late-bind :as late-bind]))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
   injects, validate its value against the cofx's :spec metadata.
 
-  We resolve schemas/validate-cofx! lazily so this namespace stays
-  decoupled from re-frame.schemas (avoids a require cycle). Returns
-  the (possibly mutated) context — sets :rf/skip-handler? when
-  validation fails so the handler-as-interceptor short-circuits."
+  We look up schemas/validate-cofx! through the late-bind registry so
+  this namespace stays decoupled from re-frame.schemas (avoids a
+  require cycle). Returns the (possibly mutated) context — sets
+  :rf/skip-handler? when validation fails so the handler-as-interceptor
+  short-circuits."
   [ctx cofx-id cofx-meta]
-  (if-let [validate (resolve 're-frame.schemas/validate-cofx!)]
+  (if-let [validate (late-bind/get-fn :schemas/validate-cofx!)]
     (let [event    (interceptor/get-coeffect ctx :event)
           event-id (first event)
           ;; The cofx's injected value is whatever it just stashed under
@@ -31,7 +33,7 @@
           ;; declared, so users opt in by registering against the same
           ;; key they inject under.
           value    (get (:coeffects ctx) cofx-id)
-          ok?      (try ((deref validate) cofx-id event-id value cofx-meta)
+          ok?      (try (validate cofx-id event-id value cofx-meta)
                         (catch #?(:clj Throwable :cljs :default) _ true))]
       (if ok?
         ctx

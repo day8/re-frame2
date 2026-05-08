@@ -12,6 +12,7 @@
   / inspector reasons."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
@@ -248,3 +249,13 @@
             (let [flow (flow-map (first remaining))
                   [new-db dirty?] (evaluate-flow! frame-id db flow)]
               (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.fx and re-frame.router need to call into flows but cannot
+;; `:require` this namespace without a cyclic load order. Publish entry
+;; points through the late-bind hook registry. See re-frame.late-bind.
+
+(late-bind/set-fn! :flows/reg-flow-fx!    reg-flow-fx!)
+(late-bind/set-fn! :flows/clear-flow-fx!  clear-flow-fx!)
+(late-bind/set-fn! :flows/run-flows!      run-flows!)

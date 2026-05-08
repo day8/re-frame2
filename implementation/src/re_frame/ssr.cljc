@@ -30,6 +30,7 @@
   ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.substrate.adapter :as adapter]
@@ -296,17 +297,16 @@
   populate that slot (e.g. fixture-overridden handlers)."
   ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
   ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
-   (let [adapter     (resolve 're-frame.frame/frame-app-db-value)
-         db          (when adapter ((deref adapter) frame-id))
+   (let [db          (frame/frame-app-db-value frame-id)
          server-hash (or server-hash
                          (get-in db [:rf/hydration :server-hash]))
          client-hash (cond
                        (string? tree-or-hash) tree-or-hash
                        tree-or-hash           (render-tree-hash tree-or-hash))]
      (when (and server-hash client-hash (not= server-hash client-hash))
-       (let [trace-fn (resolve 're-frame.trace/emit-error!)]
+       (let [trace-fn (late-bind/get-fn :trace/emit-error!)]
          (when trace-fn
-           ((deref trace-fn) :rf.ssr/hydration-mismatch
+           (trace-fn :rf.ssr/hydration-mismatch
             (cond-> {:server-hash server-hash
                      :client-hash client-hash
                      :frame       frame-id
@@ -523,3 +523,13 @@ response with no body."
   [frame-id]
   (-> (response-of frame-id)
       (dissoc status-writes-key redirect-writes-key)))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.core/render-tree-hash forwards to this ns's render-tree-hash
+;; but cannot `:require` re-frame.ssr without a cyclic load order
+;; (re-frame.core is the user-facing namespace; re-frame.ssr requires
+;; re-frame.events and re-frame.frame which are also re-required by
+;; core). Publish the entry point through the late-bind hook registry.
+
+(late-bind/set-fn! :ssr/render-tree-hash render-tree-hash)
