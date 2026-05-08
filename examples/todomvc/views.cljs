@@ -1,13 +1,9 @@
 (ns todomvc.views
   (:require [clojure.string :as str]
-            [goog.object :as gobj]
             [reagent.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.views])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
-
-(def enter-key "Enter")
-(def escape-key "Escape")
 
 (defn- hash-for-filter [filter-kw]
   (case filter-kw
@@ -27,27 +23,12 @@
                          (stop))
         handle-keydown
         (fn [event]
-          (let [key (.-key event)]
-            (cond
-              (= key enter-key)
-              (do (.preventDefault event)
-                  (save))
-
-              (= key escape-key)
-              (do (.preventDefault event)
-                  (reset! suppress-blur true)
-                  (stop))
-
-              :else nil)))
-        bind-node
-        (fn [node]
-          (when-let [prev @input-node]
-            (when-let [handler (gobj/get prev "__todomvcKeyHandler")]
-              (.removeEventListener prev "keydown" handler)))
-          (reset! input-node node)
-          (when node
-            (.addEventListener node "keydown" handle-keydown)
-            (gobj/set node "__todomvcKeyHandler" handle-keydown)))]
+          (case (.-key event)
+            "Enter"  (do (.preventDefault event) (save))
+            "Escape" (do (.preventDefault event)
+                         (reset! suppress-blur true)
+                         (stop))
+            nil))]
     (fn [props]
       [:input
        (merge
@@ -55,7 +36,8 @@
          {:type "text"
           :default-value (or title "")
           :autoFocus true
-          :ref bind-node
+          :ref #(reset! input-node %)
+          :on-key-down handle-keydown
           :on-blur
           (fn [_]
             (if @suppress-blur
@@ -63,12 +45,14 @@
               (save)))})])))
 
 (defn todo-item []
+  ;; editing? is local component state by design — matches v1 TodoMVC; not in app-db so it isn't persisted/inspected (TodoMVC tradeoff).
   (let [editing? (reagent/atom false)]
     (fn [{:keys [id title completed]}]
       [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
                                  @editing? (conj "editing")))}
        [:div.view
+        ;; React's controlled-checkbox pattern: :on-click mutates app-db, :readOnly silences React's onChange warning, :checked reads from app-db.
         [:input.toggle
          {:type "checkbox"
           :checked completed
