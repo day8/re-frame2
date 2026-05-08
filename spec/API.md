@@ -45,7 +45,6 @@
 | `clear-event` | Fn | `(clear-event)` / `(clear-event id)` | v1 (preserved) |
 | `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) |
 | `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) |
-| `clear-cofx` | Fn | `(clear-cofx)` / `(clear-cofx id)` | v1 (preserved) |
 | `clear-flow` | Fn | `(clear-flow)` / `(clear-flow id)` | v1 |
 | `destroy-frame` | Fn | `(destroy-frame frame-id)` | v1 |
 | `reset-frame` | Fn | `(reset-frame frame-id)` | v1 |
@@ -417,7 +416,6 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 | `assoc-coeffect` | Fn | `(assoc-coeffect ctx key value)` | v1 (preserved) |
 | `get-effect` | Fn | `(get-effect ctx)` / `(get-effect ctx key)` / `(get-effect ctx key not-found)` | v1 (preserved) |
 | `assoc-effect` | Fn | `(assoc-effect ctx key value)` | v1 (preserved) |
-| `enqueue` | Fn | `(enqueue ctx interceptors)` | v1 (preserved) |
 
 ---
 
@@ -429,8 +427,6 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 | `add-post-event-callback` | Fn | `(add-post-event-callback f)` / `(add-post-event-callback id f)` / `(add-post-event-callback frame-id id f)` | v1 (preserved + extended) | 002 |
 | `remove-post-event-callback` | Fn | `(remove-post-event-callback id)` / `(remove-post-event-callback frame-id id)` | v1 (preserved + extended) | 002 |
 | `purge-event-queue` | Fn | `(purge-event-queue)` / `(purge-event-queue frame-id)` | v1 (preserved + extended) | 002 |
-| `set-loggers!` | Fn | `(set-loggers! new-loggers)` | v1 (preserved) | — |
-| `console` | Fn | `(console level & args)` | v1 (preserved) | — |
 | `install-adapter!` | Fn | `(install-adapter! adapter-or-keyword)` — must be called before any frame is created | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
 | `init-platform` | Fn | `(init-platform :server \| :client)` — sets the active platform; defaults from build target | v1 | 011 |
@@ -517,7 +513,6 @@ See [007-Stories.md](007-Stories.md).
 | `variants-with-tags` | Fn | `(variants-with-tags tag-set)` → seq of variant ids | post-v1 lib | 007 |
 | `snapshot-identity` | Fn | `(snapshot-identity variant-id)` → `{:variant-id ... :content-hash "..."}` | post-v1 lib | 007 |
 | `story-view` | Fn | `(story-view variant-id)` → hiccup | post-v1 lib | 007 |
-| `frame-doc` | Fn | `(frame-doc frame-id)` | v1 | 002 / 007 |
 
 ---
 
