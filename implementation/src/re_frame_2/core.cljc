@@ -103,6 +103,7 @@
 (def subscribe      subs/subscribe)
 (def subscribe-value subs/subscribe-value)
 (def unsubscribe    subs/unsubscribe)
+(def compute-sub    subs/compute-sub)
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
 ;;

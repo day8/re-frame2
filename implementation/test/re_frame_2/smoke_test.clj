@@ -83,6 +83,21 @@
       (is (= {:k "v" :n 7} @seen)
           "handler should receive the payload map as :event"))))
 
+(deftest compute-sub-against-supplied-db
+  (testing "compute-sub evaluates a sub against a supplied db value"
+    (rf/reg-sub :n     (fn [db _] (:n db)))
+    (rf/reg-sub :m     (fn [db _] (:m db)))
+    (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 n)))
+    (rf/reg-sub :n+m   :<- [:n] :<- [:m] (fn [[n m] _] (+ n m)))
+    ;; Layer-1 read.
+    (is (= 7 (rf/compute-sub [:n] {:n 7})))
+    ;; Layer-2 single :<-.
+    (is (= 14 (rf/compute-sub [:n*2] {:n 7})))
+    ;; Layer-2 multi :<-.
+    (is (= 10 (rf/compute-sub [:n+m] {:n 7 :m 3})))
+    ;; Unknown sub returns nil instead of throwing.
+    (is (nil? (rf/compute-sub [:no-such-sub] {})))))
+
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))

@@ -180,6 +180,32 @@
      (unsubscribe frame-id query-v)
      v)))
 
+(defn compute-sub
+  "Compute a subscription's value against a supplied db, bypassing the
+  reactive cache. Useful in tests that want to inspect what a sub
+  WOULD compute given a snapshot of state without going through the
+  per-frame cache. Supports the same :<- chain shape as subscribe.
+
+  Per Spec 008 §Testing — pure compute-sub form."
+  [query-v db]
+  (let [query-id (first query-v)
+        meta     (registrar/lookup :sub query-id)]
+    (when meta
+      (let [body-fn (:handler-fn meta)
+            inputs  (:input-signals meta)]
+        (try
+          (cond
+            (empty? inputs)
+            (body-fn db query-v)
+
+            (= 1 (count inputs))
+            (body-fn (compute-sub (first inputs) db) query-v)
+
+            :else
+            (body-fn (mapv #(compute-sub % db) inputs) query-v))
+          (catch #?(:clj Throwable :cljs :default) _
+            nil))))))
+
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
   When ref-count reaches 0, dispose the reaction and remove the
