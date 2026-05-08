@@ -840,13 +840,49 @@ The agent rewrites mechanically: the keyword's local-name becomes the auto-defed
 
 ---
 
-**Reporting M-12 through M-22.** These eleven rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing eleven separate preambles.
+### M-23. `re-frame.alpha` is removed (rf2-7cb2 / rf2-s9dn)
+
+**Type A** (mechanical for the registration / subscribe shapes; **Type B** for any code that depended on a specific lifecycle policy — flag and request human review).
+
+The v1 `re-frame.alpha` namespace is dissolved before v1 ships. Three surfaces are removed along with their supporting plumbing:
+
+- `re-frame.alpha/reg` — the generalised registration entry (`(reg :event-fx :id ...)` / `(reg :sub :id ...)` etc.).
+- `re-frame.alpha/sub` — the generalised subscribe accepting a query-map (`(sub {:re-frame/q ::id :param 1})`).
+- `re-frame.alpha/reg-sub-lifecycle` — the user-extension hook for adding new lifecycle policies.
+
+The four built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) and the `:re-frame/lifecycle` slot in cache keys are removed. The v2 sub-cache has a single algorithm — **deferred ref-counting with a grace-period** — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). The grace-period is configurable via `(rf/configure :sub-cache {:grace-period-ms N})`; default 50ms.
+
+**What to do:**
+
+| Old usage | Replace with |
+|---|---|
+| `(reg :event-fx :id ...)` | `(reg-event-fx :id ...)` and the per-kind family |
+| `(reg :event-db :id ...)` | `(reg-event-db :id ...)` |
+| `(reg :event-ctx :id ...)` | `(reg-event-ctx :id ...)` |
+| `(reg :sub :id ...)` | `(reg-sub :id ...)` |
+| `(reg :fx :id ...)` | `(reg-fx :id ...)` |
+| `(reg :cofx :id ...)` | `(reg-cofx :id ...)` |
+| `(reg :flow :id ...)` | `(reg-flow ...)` |
+| `(sub {:re-frame/q ::id :param 1})` | `(subscribe [::id 1])` |
+| `(sub <vector>)` | `(subscribe <vector>)` (alpha/sub already accepts vectors; just switch the namespace) |
+| `:re-frame/lifecycle <policy>` annotation | **Drop.** The v2 sub-cache handles disposal automatically via deferred ref-counting (Spec 006). For specific edge cases that genuinely need `:no-cache` / `:forever` semantics (e.g. one-shot queries; never-disposed values), **file a follow-up bead** naming the actual use case — don't paper over by inventing an API. |
+| `(reg-sub-lifecycle :my-lifecycle ...)` | **Drop.** No replacement — the lifecycle-policy extension surface is gone. File a bead if a real need surfaces. |
+
+The per-kind registration macros, `reg-flow`, `reg-route`, and the vector-form `subscribe` were always available in `re-frame.core`; this migration is mostly find-and-replace.
+
+**Why:** the alpha namespace was an experiment that did not graduate. Its central idea (one generalised registration entry across kinds) lost out to the per-kind macros, which are friendlier to source-coord capture and to per-kind metadata grammars. The lifecycle-policy mechanism shipped with no real-world use cases that the default policy didn't handle, while complicating the cache implementation. Pre-v1 is the right time to cut the dead code.
+
+**Reporting:** alongside the M-23 migration count, the agent surfaces any `:re-frame/lifecycle` annotation it dropped. If the user explicitly wanted a non-default lifecycle, that information is in the codebase and should land in a follow-up bead, not in a silent rewrite.
+
+---
+
+**Reporting M-12 through M-23.** These twelve rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twelve separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**.
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**.
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1025,12 +1061,12 @@ A non-exhaustive list of public API surface that is **preserved unchanged** in r
 - **`dispatch` and `dispatch-sync`.** Same names; the optional second `opts` arg is a new addition that doesn't affect single-arg calls.
 - **`subscribe`.** Same. Optional second `opts` arg.
 - **`@(subscribe [...])`.** The deref-to-read pattern is the documented contract and stays valid.
-- **Subscription composition.** `:<-`, `reg-sub`'s sugar variants, query-vector and (alpha) query-map shapes — all preserved. (`reg-sub-raw` is removed per M-18.)
+- **Subscription composition.** `:<-` and `reg-sub`'s sugar variants are preserved. The query-vector shape is the canonical subscribe argument; the alpha-namespace query-map shape (`(sub {:re-frame/q ::id ...})`) is removed per [M-22](#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn). (`reg-sub-raw` is removed per M-18.)
 - **Standard interceptors.** `path`, `unwrap`, `inject-cofx` — preserved (plus `->interceptor` as the primitive for custom before/after work). **Removed in v2:** `debug`, `trim-v`, `on-changes`, `enrich`, `after` (per [M-21](#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)).
 - **The `:fx` slot in effect maps.** The `[[fx-id args] ...]` form for the `:fx` slot is preserved unchanged. (The wider effect-map shape is *consolidated* under **M-8** — `:dispatch`, `:dispatch-later`, `:dispatch-n`, and other top-level keys move into `:fx`. That migration is mechanical; see M-8. Listed here to be unambiguous: the `:fx` slot itself is preserved; the *outer* shape changes.)
 - **`make-restore-fn`.** Test-runner helper; preserved (with multi-frame extensions in v1.x).
 - **`reg-fx` / `reg-cofx` without `:platforms`.** These default to **universal** (`#{:server :client}`) — same effective behaviour as re-frame v1, where fx ran wherever you dispatched them. New code that needs to gate fx to client-only adds `:platforms #{:client}` explicitly (see [011 §`:platforms` metadata](011-SSR.md#platforms-metadata-on-reg-fx)). Migrating apps don't need to touch existing `reg-fx` registrations.
-- **Alpha API features.** `reg :sub-lifecycle`, query maps, `reg-flow`, `flow<-`, `clear-flow` — preserved with their existing semantics.
+- **Flow features.** `reg-flow`, `flow<-`, `clear-flow` are preserved as canonical surfaces in `re-frame.core` (per [Spec 013](013-Flows.md)). The `re-frame.alpha` namespace itself — including `reg :sub-lifecycle` and the `:re-frame/q` query-map shape — is removed; see [M-22](#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 - **`re-frame.std-interceptors`** namespace — public, preserved.
 - **`dispatch-and-settle`** (master) — preserved; same API including `:overrides` opt (internal mechanism changes per M-4).
 - **JVM interop layer.** `re-frame.interop` (separate `.clj` and `.cljs` implementations) is preserved; tests continue to run on the JVM.

@@ -7,12 +7,13 @@
 
 - **Status** — exactly one base value, optionally combined with a single qualifier:
   - Base values: `v1` (ships in v1), `v1 (preserved)` (exists in current re-frame; preserved unchanged), `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour), `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
-  - Qualifiers (combined as `<base>, <qualifier>` — comma-separated): `alpha` (lives in `re-frame.alpha`), `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
-  - Examples: `v1`, `v1 (preserved)`, `v1 (preserved, alpha)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
+  - Qualifier: `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
+  - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
+  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test`, `re-frame.views-macros`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
-- All APIs live in `re-frame.core` unless otherwise noted. APIs in `re-frame.alpha` carry the `, alpha` qualifier and are also catalogued in [§Alpha namespace](#alpha-namespace-re-framealpha).
+- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test`, `re-frame.views-macros`).
 
 ---
 
@@ -31,7 +32,7 @@
 | `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
 | `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
 | `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
-| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 (preserved, alpha) | — | |
+| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
 | `reg-event-error-handler` | Fn | `(reg-event-error-handler handler-fn)` | v1 (preserved + extended) | 009 | Single-slot policy mechanism. |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
@@ -45,7 +46,7 @@
 | `clear-sub` | Fn | `(clear-sub)` / `(clear-sub id)` | v1 (preserved) |
 | `clear-fx` | Fn | `(clear-fx)` / `(clear-fx id)` | v1 (preserved) |
 | `clear-cofx` | Fn | `(clear-cofx)` / `(clear-cofx id)` | v1 (preserved) |
-| `clear-flow` | Fn | `(clear-flow)` / `(clear-flow id)` | v1 (preserved, alpha) |
+| `clear-flow` | Fn | `(clear-flow)` / `(clear-flow id)` | v1 |
 | `destroy-frame` | Fn | `(destroy-frame frame-id)` | v1 |
 | `reset-frame` | Fn | `(reset-frame frame-id)` | v1 |
 | `clear-subscription-cache!` | Fn | `(clear-subscription-cache! frame-id?)` | v1 (preserved) |
@@ -444,6 +445,7 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 |---|---|---|---|---|
 | `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
+| `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
 | `:dom-source-annotations?` | boolean — emit `data-rf2-source-coord` on rendered DOM | `false` | v1 (dev-only) | Tool-Pair |
 | `:performance-api` | boolean — bridge trace events to the host's Performance API | `true` (when tracing is on) | v1 (dev-only) | 009 |
 | `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
@@ -460,24 +462,6 @@ Detail for `:ssr`:
 | `:on-view-exception` | `:project` / `:throw` | What to do when a view body throws during SSR. |
 
 The configure-keys vocabulary is fixed-and-additive (Spec-ulation): existing keys cannot be renamed or removed; new keys are added by extending the table. User code that wraps `configure` should pattern-match on known keys and ignore unknown ones.
-
----
-
-## Alpha namespace (`re-frame.alpha`)
-
-Preserved with existing semantics. Alpha APIs are catalogued with the same five-column shape used for the main reference (a `Status` column carrying the `, alpha` qualifier; a `Spec` column when applicable).
-
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `reg :sub` / `reg :legacy-sub` / `reg :sub-lifecycle` | Fn | `(reg :sub id metadata? handler)` and the lifecycle/legacy variants | v1 (preserved, alpha) | 002 |
-| `sub` | Fn | `(sub query-map)` / `(sub query-v)` | v1 (preserved, alpha) | 002 |
-| `subscribe` | Fn | Alias for `sub` | v1 (preserved, alpha) | 002 |
-| `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 (preserved, alpha) | — |
-| `flow<-` | Fn | `(flow<- id)` — sub that reads a flow's current value | v1 (preserved, alpha) | — |
-| `clear-flow` | Fn | `(clear-flow)` / `(clear-flow id)` | v1 (preserved, alpha) | — |
-| `get-flow` | Fn | `(get-flow id)` — direct value read | v1 (preserved, alpha) | — |
-| `:flow` (registered sub) | — | `(subscribe [:flow id])` reads a flow value | v1 (preserved, alpha) | — |
-| `:live?` (registered sub) | — | `(subscribe [:live? id])` reads a flow's liveness | v1 (preserved, alpha) | — |
 
 ---
 
@@ -551,6 +535,9 @@ See [007-Stories.md](007-Stories.md).
 | `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb`. | MIGRATION M-17 |
 | `clear-global-interceptor` | No replacement needed — re-register `reg-frame` with an updated `:interceptors` vector (absent-key semantics clear it). | MIGRATION M-17 |
 | `reg-sub-raw` | Use `reg-sub` (app-db reads), Pattern-AsyncEffect (non-app-db sources), state machines (lifecycle), or the [006](006-ReactiveSubstrate.md) adapter contract (bridging external reactivity). | MIGRATION M-18 |
+| `re-frame.alpha/reg` | Per-kind macros: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`. | MIGRATION M-22 |
+| `re-frame.alpha/sub` | Vector-form `(rf/subscribe [::id arg])`. | MIGRATION M-22 |
+| `re-frame.alpha/reg-sub-lifecycle` and built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) | Sub-cache uses a single algorithm — deferred ref-counting with grace-period, per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For specific edge cases file a follow-up bead. | MIGRATION M-22 |
 
 ---
 

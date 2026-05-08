@@ -284,6 +284,7 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
   :inputs            [[q1] [q2]] ;; resolved :<- chain (vector of query-vectors)
   :ref-count         n          ;; how many readers currently hold a reference
   :on-dispose        [...]      ;; callbacks that fire when ref-count drops to 0
+  :pending-dispose   <handle>   ;; opaque timer-handle iff disposal is scheduled (rf2-s9dn)
   :registered-at     <ts>}}     ;; for trace correlation
 ```
 
@@ -315,7 +316,7 @@ Lookup [query-v] in frame F:
 
 Two properties this guarantees:
 
-1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector; v1's `re-frame.subs/cache-key` shape is the reference (composite key with `:re-frame/q` and `:re-frame/lifecycle`).
+1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (deferred ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)); the v1-era composite key with `:re-frame/q` and `:re-frame/lifecycle` is gone (rf2-7cb2 / rf2-s9dn — the `re-frame.alpha` namespace and its lifecycle policies were dissolved before v1 ship).
 2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over `app-db` directly.
 
 ### Invalidation algorithm
@@ -376,25 +377,57 @@ Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them al
 
 ### Reference counting and disposal
 
-The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away.
+The cache is **not** strong-referenced from the frame for the lifetime of the frame; entries dispose when their last reader goes away. The disposal algorithm is **deferred ref-counting with a grace-period** — a single algorithm. There are no pluggable lifecycle policies; the v1 alpha namespace's `:safe`, `:no-cache`, `:reactive`, and `:forever` lifecycles are not part of v2 (rf2-7cb2 / rf2-s9dn).
+
+When the last subscriber drops, the entry is **scheduled** for disposal after the configured grace-period elapses. If a new subscriber arrives within that window, the scheduled disposal is **cancelled** and the cached value is reused.
 
 ```
 On subscriber detach (view unmounts, tool disconnects):
   entry.ref-count -= 1
   If entry.ref-count == 0:
-    For each dispose-fn in entry.on-dispose:
-      dispose-fn()
-    F.sub-cache.dissoc(k)
-    trace! :sub/disposed {:query-v k :frame F.id}
+    handle ← schedule-after grace-period-ms:
+               (when entry.ref-count == 0:
+                  for each dispose-fn in entry.on-dispose: dispose-fn()
+                  F.sub-cache.dissoc(k)
+                  trace! :sub/disposed {:query-v k :frame F.id})
+    entry.pending-dispose ← handle
+
+On subscriber attach (cache HIT; the slot already exists):
+  entry.ref-count += 1
+  if entry.pending-dispose is not nil:
+    cancel entry.pending-dispose
+    entry.pending-dispose ← nil
 ```
 
-The `on-dispose` hook lets the substrate adapter release substrate-specific resources (a Reagent reaction, a Solid signal, a Vue computed) before the cache slot is removed. The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
+#### Disposal guarantees
 
-Three subtleties:
+- **Zero-subscriber → grace-period elapses → disposed.** When `ref-count` reaches 0 and no resubscribe arrives within `grace-period-ms`, the on-dispose callbacks fire, the cache slot is removed, and a `:sub/disposed` trace event is emitted.
+- **Resubscribe within grace-period → disposal cancelled, value reused.** If a new subscriber arrives before the timer fires, the timer is cancelled and the existing reaction (and its cached value) is returned. The new subscriber observes no recomputation; the underlying substrate-specific container is the same one previously cached.
+- **Synchronous disposal when `grace-period-ms = 0`.** Setting the grace-period to 0 yields the v1-style "ref-count → 0 → dispose immediately" semantic. Useful for tests, REPL sessions, and any context that wants deterministic teardown without timer-driven races.
+- **Hot-reload preserves the contract.** Re-registering a sub disposes every cached slot for that query (regardless of ref-count) and cancels any pending grace-period timers — the next subscribe builds afresh against the new body.
+- **Frame teardown preserves the contract.** Destroying a frame disposes every cached slot and cancels every pending grace-period timer; see [§Lifetime contract — frame disposal](#lifetime-contract--frame-disposal).
 
-1. **A sub can become live again after disposal.** A view unmounts (ref-count → 0, slot disposed); later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will equal what was disposed (same body, same `app-db`); no observable difference.
+#### The grace-period parameter
+
+The grace-period is a per-runtime configuration knob:
+
+| Knob | Default | Configure |
+|---|---|---|
+| `grace-period-ms` | **50ms** | `(rf/configure :sub-cache {:grace-period-ms N})` |
+
+The default of **50ms** is chosen empirically: long enough to bridge React re-render churn (where a Reagent component briefly unmounts then re-renders with the same subscription), short enough that genuine disposal is observable promptly and memory does not accumulate under load. Implementations targeting non-React substrates may pick a different default but should document it.
+
+`N` is a non-negative integer; `0` selects synchronous disposal.
+
+#### On-dispose hooks
+
+The `on-dispose` hook lets the substrate adapter release substrate-specific resources (a Reagent reaction, a Solid signal, a Vue computed) before the cache slot is removed. Hooks fire **after** the grace-period elapses (or synchronously when `grace-period-ms = 0`). The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
+
+#### Three subtleties
+
+1. **A sub can become live again after disposal.** A view unmounts; if no resubscribe arrives within the grace-period, the slot disposes. Later, the same view re-mounts (cache miss, fresh computation). This is correct — the cache is performance, not state. The recomputed value will equal what was disposed (same body, same `app-db`); no observable difference.
 2. **Eager subs.** A future `:reg-sub-by-path` (post-v1) might keep its cache slot live regardless of ref-count, for performance. v1 has no eager subs; if added, the contract surface is `entry.eager? = true` and the disposal path skips the slot.
-3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each; if they were held only by that layer-2 sub, they also dispose. The cascade is automatic via `on-dispose` and ref-counts.
+3. **Disposal cascades.** When a layer-2 sub disposes, its layer-1 inputs lose one reader each; if they were held only by that layer-2 sub, they enter their own grace-period. Cascading disposals each pay the grace-period independently, but the timers run concurrently — total wall-clock disposal time is one grace-period regardless of chain depth.
 
 ### Lifetime contract — frame disposal
 

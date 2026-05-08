@@ -123,7 +123,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | React context as the frame-routing mechanism for views | — | yes (CLJS optimisation) | yes — explicit-frame-id is the portable form; React context is one realisation | yes |
 | `re-frame-10x` epoch buffer integration | — | yes | yes — equivalent dev tool per host | yes |
 | Chrome Performance Timeline bridge (per [009](009-Instrumentation.md)) | — | yes | yes — equivalent profiler integration | yes |
-| `re-frame.alpha` namespace | — | TBD | — | yes |
+| ~~`re-frame.alpha` namespace~~ — *dissolved (rf2-7cb2 / rf2-s9dn); not shipped in v2* | — | — | — | — |
 | DOM source annotations for view-to-source navigation | — | yes (CLJS optimisation) | yes — host equivalent | yes |
 | Function-valued overrides (`:fx-overrides {:http stub-fn}`) | — | yes | yes — id-valued overrides are the portable form; function values are a CLJS convenience | the *function-valued* form |
 | `route-link` view + `:rf.nav/push-url` registered fx (per [012](012-Routing.md)) | yes (substrate) | yes | host registers the platform-appropriate fx; `route-link` per host's view idiom | — |
@@ -496,28 +496,24 @@ These remain open at 000. Per-Spec documents track narrower open questions in th
 
 Hot-reloading the same handler under the same id is normal and expected (figwheel/shadow-cljs save). But re-registering with a *different* function — accidentally, e.g. two namespaces colliding on `:save` — is silent last-write-wins. Open: how loud should re-frame2 warn at registration time, and is the warning on by default? Linked: [002 §Open questions — Event-id collisions on re-registration](002-Frames.md#event-id-collisions-on-re-registration).
 
-### Audit the `re-frame.alpha` namespace
+### ~~Audit the `re-frame.alpha` namespace~~ — *resolved by [§re-frame.alpha is dissolved](#re-framealpha-is-dissolved-rf2-7cb2--rf2-s9dn) below.*
 
-Walk through every public symbol in `re-frame.alpha` (current re-frame's experimental namespace) and decide what to do with each in re-frame2 — promote to stable, keep alpha, deprecate, or drop. Surface includes:
-
-- `reg :sub` / `reg :legacy-sub` / `reg :sub-lifecycle` — the generalised registration API; query-map subscriptions.
-- `sub` / `subscribe` (alpha) — query-map-shaped subscribe; alpha returns `:safe`-lifecycle reactions by default vs. `re-frame.core/subscribe`'s `:reactive` default.
-- `reg-flow`, `flow<-`, `clear-flow`, `get-flow` — the flow API.
-- `:flow` and `:live?` registered subs.
-- The compatibility shims (vector ↔ map query, `:re-frame/query-v` / `:re-frame/query-m` metadata).
-
-Decisions per item:
-
-1. **Promote to stable** in `re-frame.core` if the surface has stabilised in practice.
-2. **Keep in `re-frame.alpha`** if it's still experimental but worth preserving.
-3. **Deprecate** with a migration rule if v1 has a better way to do the same thing.
-4. **Drop** if subsumed by a v1 primitive.
-
-Inputs to the decision: real-world usage, overlap with v1 primitives (frames, drain, machines, schemas), compatibility with the v1 frame model. Audit must land before v1 ships; until then the migration story preserves existing semantics by default.
+The audit landed; the disposition is dissolution rather than promotion. See [Resolved decisions §re-frame.alpha is dissolved](#re-framealpha-is-dissolved-rf2-7cb2--rf2-s9dn) below for what each of the surveyed symbols mapped to.
 
 ## Resolved decisions
 
 Decisions taken at 000-level. Each resolution is summarised here; the load-bearing prose lives in the per-Spec documents linked below.
+
+### `re-frame.alpha` is dissolved (rf2-7cb2 / rf2-s9dn)
+
+The `re-frame.alpha` namespace is **not part of v2**. The alpha experiment was an audit candidate at 000-Vision; the audit decision is **drop** for the experimental surface and **promote to canonical core** for the parts that earned their keep. Specifically:
+
+- `re-frame.alpha/reg`, `re-frame.alpha/sub`, `re-frame.alpha/reg-sub-lifecycle` and the four built-in lifecycle policies (`:safe`, `:no-cache`, `:reactive`, `:forever`) — **dropped**. The per-kind `reg-*` macros (already in `re-frame.core`) and vector-form `subscribe` are the canonical surfaces.
+- The query-map `:re-frame/q` shape — **dropped**. Subscriptions take a vector.
+- Lifecycle-policy plumbing in the per-frame sub-cache — **dropped**. The cache uses a single algorithm: deferred ref-counting with a configurable grace-period (default 50ms); see [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal).
+- `reg-flow`, `flow<-`, `clear-flow`, `get-flow`, the `:flow` and `:live?` registered subs — **promoted to `re-frame.core`** under the `flow` family per [Spec 013](013-Flows.md). The migration is a namespace switch.
+
+Migration entries land at [MIGRATION §M-22](MIGRATION.md#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 
 ### Plain Reagent fns under non-default frames
 
