@@ -1,42 +1,296 @@
 (ns example.realworld.article-editor
-  "Article editor — create or edit an article.
+  "Article editor for the RealWorld (Conduit) example.
 
-   STATUS: stub. The full implementation is pending and tracked under
-   bead rf2-kq2z. See examples/realworld/README.md for the scope of this
-   feature.
+   This sketch shows the current re-frame2 shape for:
+   - a Pattern-Forms slice with draft / touched / submit status
+   - route-driven create-vs-edit branching
+   - unsaved-change blocking via the route's `:can-leave` subscription
+   - ordinary HTTP effects for create / update / delete"
+  (:require [clojure.string :as str]
+            [re-frame-2.core :as rf]
+            [example.realworld.schema]
+            [example.realworld.http]
+            [example.realworld.routing :as routing])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
-   TODO — full implementation:
-   - :editor slice with the Pattern-Forms shape (:draft, :status, :errors,
-     :touched, :submit-error). Draft fields: title, description, body,
-     tagList (a delimited string in the input, parsed to a vector on submit).
-   - :editor/initialise event — seeds the slice for a new article.
-   - :editor/load-article event — for the /editor/:slug route; fetches the
-     existing article (POST/GET /articles/:slug), seeds :draft from it.
-   - :editor/edit-field, :editor/blur-field events.
-   - :editor/submit event — validates draft via the Article schema, dispatches
-     POST /articles (new) or PUT /articles/:slug (edit).
-   - :editor/submit-success event — navigates to the new article's
-     /article/:slug.
-   - :editor/submit-error event.
-   - :editor/delete event — DELETE /articles/:slug, navigate home on success.
-   - :editor/can-leave? sub — returns false when :editor.dirty? is true.
-     Wired to the routes via :can-leave; the pending-nav protocol shows
-     the confirm dialog (per Spec 012 §Navigation blocking).
-   - editor-page view rendering the form.
-   - Headless tests covering: new-article happy path; load-then-edit
-     happy path; navigation blocked on dirty; navigation continues on
-     :route/continue.
+(def blank-draft
+  {:title "" :description "" :body "" :tagList ""})
 
-   Pattern references:
-   - docs/specification/Pattern-Forms.md   — form slice & seven events
-   - docs/specification/012-Routing.md     — navigation blocking
-   - docs/specification/Pattern-RemoteData.md — for the load step
+(defn draft-from-article [article]
+  {:title       (:title article)
+   :description (:description article)
+   :body        (:body article)
+   :tagList     (str/join ", " (:tagList article))})
 
-   API endpoints (from the RealWorld spec):
-   - GET    /articles/:slug      — fetch one
-   - POST   /articles            — create   (body: {:article {...}})
-   - PUT    /articles/:slug      — update
-   - DELETE /articles/:slug      — delete")
+(defn parse-tag-list [s]
+  (->> (str/split (or s "") #",")
+       (map str/trim)
+       (remove str/blank?)
+       vec))
 
-;; Marker for tooling: this namespace is intentionally otherwise empty.
-(def ^:private stub :stub)
+(defn editor-slice
+  ([] (editor-slice :create nil blank-draft))
+  ([mode slug baseline]
+   {:mode         mode
+    :slug         slug
+    :draft        baseline
+    :baseline     baseline
+    :submitted    nil
+    :status       :idle
+    :errors       {}
+    :touched      #{}
+    :submit-error nil}))
+
+(defn validate-draft [{:keys [title description body]}]
+  (cond-> {}
+    (str/blank? title)       (assoc :title "Title is required.")
+    (str/blank? description) (assoc :description "Description is required.")
+    (str/blank? body)        (assoc :body "Body is required.")))
+
+(defn article-body [draft]
+  {:article {:title       (:title draft)
+             :description (:description draft)
+             :body        (:body draft)
+             :tagList     (parse-tag-list (:tagList draft))}})
+
+;; ============================================================================
+;; EVENTS
+;; ============================================================================
+
+(rf/reg-event-db :editor/initialise
+  (fn [db _]
+    (assoc db :editor (editor-slice))))
+
+(rf/reg-event-fx :editor/load-article
+  (fn [{:keys [db]} _]
+    (let [slug (get-in db [:route :params :slug])]
+      {:db (-> db
+               (assoc :editor (assoc (editor-slice :edit slug blank-draft)
+                                     :status :loading)))
+       :fx [[:http {:method     :get
+                    :url        (str "/articles/" slug)
+                    :on-success [:editor/loaded]
+                    :on-error   [:editor/load-failed]}]]})))
+
+(rf/reg-event-db :editor/loaded
+  (fn [db [_ resp]]
+    (let [article  (:article resp)
+          draft    (draft-from-article article)]
+      (assoc db :editor (editor-slice :edit (:slug article) draft)))))
+
+(rf/reg-event-db :editor/load-failed
+  (fn [db [_ err]]
+    (-> db
+        (assoc-in [:editor :status] :error)
+        (assoc-in [:editor :submit-error]
+                  (or (some-> err :errors :body first)
+                      (:message err)
+                      "Couldn't load article.")))))
+
+(rf/reg-event-db :editor/edit-field
+  (fn [db [_ field value]]
+    (-> db
+        (assoc-in [:editor :draft field] value)
+        (update-in [:editor :touched] (fnil conj #{}) field))))
+
+(rf/reg-event-db :editor/blur-field
+  (fn [db [_ field]]
+    (update-in db [:editor :touched] (fnil conj #{}) field)))
+
+(rf/reg-event-fx :editor/submit
+  (fn [{:keys [db]} _]
+    (let [{:keys [mode slug draft]} (:editor db)
+          errors (validate-draft draft)]
+      (if (seq errors)
+        {:db (-> db
+                 (assoc-in [:editor :errors] errors)
+                 (assoc-in [:editor :submit-error] "Please fix the highlighted fields."))}
+        {:db (-> db
+                 (assoc-in [:editor :status] :submitting)
+                 (assoc-in [:editor :submitted] draft)
+                 (assoc-in [:editor :errors] {})
+                 (assoc-in [:editor :submit-error] nil))
+         :fx [[:http {:method     (if (= mode :edit) :put :post)
+                      :url        (if (= mode :edit)
+                                    (str "/articles/" slug)
+                                    "/articles")
+                      :body       (article-body draft)
+                      :on-success [:editor/submit-success]
+                      :on-error   [:editor/submit-error]}]]}))))
+
+(rf/reg-event-fx :editor/submit-success
+  (fn [{:keys [db]} [_ resp]]
+    (let [article (:article resp)
+          draft   (draft-from-article article)]
+      {:db (assoc db :editor (assoc (editor-slice :edit (:slug article) draft)
+                                    :status :saved))
+       :fx [[:dispatch [:rf.route/navigate :route/article {:slug (:slug article)}]]]})))
+
+(rf/reg-event-db :editor/submit-error
+  (fn [db [_ err]]
+    (-> db
+        (assoc-in [:editor :status] :idle)
+        (assoc-in [:editor :submit-error]
+                  (or (some-> err :errors :body first)
+                      (:message err)
+                      "Couldn't save article.")))))
+
+(rf/reg-event-fx :editor/delete
+  (fn [{:keys [db]} _]
+    (let [slug (get-in db [:editor :slug])]
+      {:db (assoc-in db [:editor :status] :submitting)
+       :fx [[:http {:method     :delete
+                    :url        (str "/articles/" slug)
+                    :on-success [:editor/delete-success]
+                    :on-error   [:editor/delete-error]}]]})))
+
+(rf/reg-event-fx :editor/delete-success
+  (fn [{:keys [db]} _]
+    {:db (assoc db :editor (editor-slice))
+     :fx [[:dispatch [:rf.route/navigate :route/home]]]}))
+
+(rf/reg-event-db :editor/delete-error
+  (fn [db [_ err]]
+    (-> db
+        (assoc-in [:editor :status] :idle)
+        (assoc-in [:editor :submit-error]
+                  (or (some-> err :errors :body first)
+                      (:message err)
+                      "Couldn't delete article.")))))
+
+;; ============================================================================
+;; SUBSCRIPTIONS
+;; ============================================================================
+
+(rf/reg-sub :editor
+  (fn [db _] (:editor db)))
+
+(rf/reg-sub :editor/draft :<- [:editor] (fn [editor _] (:draft editor)))
+(rf/reg-sub :editor/errors :<- [:editor] (fn [editor _] (:errors editor)))
+(rf/reg-sub :editor/status :<- [:editor] (fn [editor _] (:status editor)))
+(rf/reg-sub :editor/mode :<- [:editor] (fn [editor _] (:mode editor)))
+(rf/reg-sub :editor/submitting? :<- [:editor/status]
+  (fn [status _] (or (= status :submitting) (= status :loading))))
+(rf/reg-sub :editor/submit-error :<- [:editor]
+  (fn [editor _] (:submit-error editor)))
+(rf/reg-sub :editor/dirty?
+  :<- [:editor]
+  (fn [editor _]
+    (not= (:draft editor) (:baseline editor))))
+
+(rf/reg-sub :editor/can-leave?
+  :<- [:editor/dirty?]
+  (fn [dirty? _]
+    (not dirty?)))
+
+;; ============================================================================
+;; VIEWS
+;; ============================================================================
+
+(def editor-page
+  (reg-view :pages/editor
+    (fn render-editor-page []
+      (let [d            (rf/dispatcher)
+            s            (rf/subscriber)
+            draft        @(s [:editor/draft])
+            errors       @(s [:editor/errors])
+            submitting?  @(s [:editor/submitting?])
+            submit-error @(s [:editor/submit-error])
+            mode         @(s [:editor/mode])]
+        [:div.editor-page
+         [:div.container.page
+          [:div.row
+           [:div.col-md-10.offset-md-1.col-xs-12
+            (when submit-error
+              [:ul.error-messages [:li submit-error]])
+            [:form
+             {:on-submit (fn [e]
+                           (.preventDefault e)
+                           (d [:editor/submit]))}
+             [:fieldset
+              [:fieldset.form-group
+               [:input.form-control.form-control-lg
+                {:type        "text"
+                 :placeholder "Article Title"
+                 :value       (:title draft)
+                 :disabled    submitting?
+                 :on-blur     #(d [:editor/blur-field :title])
+                 :on-change   #(d [:editor/edit-field :title (.. % -target -value)])}]
+               (when-let [err (:title errors)]
+                 [:div.error-messages err])]
+              [:fieldset.form-group
+               [:input.form-control
+                {:type        "text"
+                 :placeholder "What's this article about?"
+                 :value       (:description draft)
+                 :disabled    submitting?
+                 :on-blur     #(d [:editor/blur-field :description])
+                 :on-change   #(d [:editor/edit-field :description (.. % -target -value)])}]
+               (when-let [err (:description errors)]
+                 [:div.error-messages err])]
+              [:fieldset.form-group
+               [:textarea.form-control
+                {:rows        8
+                 :placeholder "Write your article (in markdown)"
+                 :value       (:body draft)
+                 :disabled    submitting?
+                 :on-blur     #(d [:editor/blur-field :body])
+                 :on-change   #(d [:editor/edit-field :body (.. % -target -value)])}]
+               (when-let [err (:body errors)]
+                 [:div.error-messages err])]
+              [:fieldset.form-group
+               [:input.form-control
+                {:type        "text"
+                 :placeholder "Enter tags"
+                 :value       (:tagList draft)
+                 :disabled    submitting?
+                 :on-change   #(d [:editor/edit-field :tagList (.. % -target -value)])}]]
+              [:button.btn.btn-lg.pull-xs-right.btn-primary
+               {:type "submit" :disabled submitting?}
+               (if (= mode :edit) "Update Article" "Publish Article")]
+              (when (= mode :edit)
+                [:button.btn.btn-outline-danger
+                 {:type "button"
+                  :disabled submitting?
+                  :on-click #(d [:editor/delete])}
+                 "Delete Article"])]]]]]])))
+
+;; ============================================================================
+;; HEADLESS TESTS
+;; ============================================================================
+
+(defn editor-create-test []
+  (rf/reg-fx :http.canned-editor-save
+    {:platforms #{:client :server}}
+    (fn [{:keys [frame]} {:keys [on-success]}]
+      (when on-success
+        (rf/dispatch
+          (conj on-success
+                {:article {:slug "hello-world"
+                           :title "Hello"
+                           :description "Short"
+                           :body "Body"
+                           :tagList ["demo"]
+                           :createdAt "2026-05-01"
+                           :updatedAt "2026-05-01"
+                           :favorited false
+                           :favoritesCount 0
+                           :author {:username "alice" :bio nil :image nil :following false}}})
+          {:frame frame}))))
+
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:http :http.canned-editor-save}})]
+    (rf/dispatch-sync [:editor/initialise] {:frame f})
+    (rf/dispatch-sync [:editor/edit-field :title "Hello"] {:frame f})
+    (rf/dispatch-sync [:editor/edit-field :description "Short"] {:frame f})
+    (rf/dispatch-sync [:editor/edit-field :body "Body"] {:frame f})
+    (rf/dispatch-sync [:editor/submit] {:frame f})
+    (assert (= :saved (rf/compute-sub [:editor/status] (rf/get-frame-db f))))
+    (assert (false? (rf/compute-sub [:editor/dirty?] (rf/get-frame-db f))))))
+
+(defn editor-can-leave-test []
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:editor/initialise] {:frame f})
+    (assert (true? (rf/compute-sub [:editor/can-leave?] (rf/get-frame-db f))))
+    (rf/dispatch-sync [:editor/edit-field :title "Changed"] {:frame f})
+    (assert (false? (rf/compute-sub [:editor/can-leave?] (rf/get-frame-db f))))))    

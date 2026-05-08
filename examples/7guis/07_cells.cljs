@@ -24,8 +24,9 @@
    Excel-style infix is left for a future iteration; the shape of the
    solution doesn't change."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+            [re-frame-2.core :as rf]
             [clojure.string :as str]))
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 (def COLS 26)
 (def ROWS 100)
@@ -214,12 +215,14 @@
 ;; ============================================================================
 
 (def cell-view
-  (rf/reg-view :cells/cell
+  (reg-view :cells/cell
     (fn render-cell [id]
-      (let [editing-id @(subscribe [:cells/editing-id])
+      (let [d          (rf/dispatcher)
+            s          (rf/subscriber)
+            editing-id @(s [:cells/editing-id])
             editing?   (= editing-id id)
-            raw        @(subscribe [:cells/raw   id])
-            value      @(subscribe [:cells/value id])
+            raw        @(s [:cells/raw   id])
+            value      @(s [:cells/value id])
             display    (cond
                          editing?                  raw
                          (= value :error/parse)    "#PARSE"
@@ -227,18 +230,18 @@
                          (= value :error/eval)     "#EVAL"
                          (= value :error/div-by-zero) "#DIV/0"
                          :else                     (str value))]
-        [:td.cell {:on-click #(dispatch [:cells/start-editing id])}
+        [:td.cell {:on-click #(d [:cells/start-editing id])}
          (if editing?
            [:input {:type      "text"
                     :auto-focus true
                     :default-value raw
-                    :on-blur    #(dispatch [:cells/commit id (.. % -target -value)])
+                    :on-blur    #(d [:cells/commit id (.. % -target -value)])
                     :on-key-down #(when (= "Enter" (.-key %))
-                                    (dispatch [:cells/commit id (.. % -target -value)]))}]
+                                    (d [:cells/commit id (.. % -target -value)]))}]
            display)]))))
 
 (def cells-grid
-  (rf/reg-view :cells/grid
+  (reg-view :cells/grid
     (fn render-grid []
       [:table.cells-grid
        [:thead [:tr [:th] (for [c (range COLS)] ^{:key c} [:th (char (+ 65 c))])]]
@@ -255,30 +258,30 @@
 ;; ============================================================================
 
 (defn cells-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create [:cells/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:cells/initialise]})]
     ;; Plain literal.
     (rf/dispatch-sync [:cells/commit "A1" "5"] {:frame f})
-    (assert (= 5 (rf/compute-sub [:cells/value "A1"] @(rf/get-frame-db f))))
+    (assert (= 5 (rf/compute-sub [:cells/value "A1"] (rf/get-frame-db f))))
 
     ;; Formula referencing A1.
     (rf/dispatch-sync [:cells/commit "B1" "=(+ A1 10)"] {:frame f})
-    (assert (= 15 (rf/compute-sub [:cells/value "B1"] @(rf/get-frame-db f))))
+    (assert (= 15 (rf/compute-sub [:cells/value "B1"] (rf/get-frame-db f))))
 
     ;; Updating A1 propagates through B1's subscription.
     (rf/dispatch-sync [:cells/commit "A1" "100"] {:frame f})
-    (assert (= 110 (rf/compute-sub [:cells/value "B1"] @(rf/get-frame-db f))))
+    (assert (= 110 (rf/compute-sub [:cells/value "B1"] (rf/get-frame-db f))))
 
     ;; Cycle detection: A1 = B1, B1 = A1.
     (rf/dispatch-sync [:cells/commit "A1" "=B1"] {:frame f})
     (rf/dispatch-sync [:cells/commit "B1" "=A1"] {:frame f})
-    (assert (= :error/cycle (rf/compute-sub [:cells/value "A1"] @(rf/get-frame-db f))))
+    (assert (= :error/cycle (rf/compute-sub [:cells/value "A1"] (rf/get-frame-db f))))
 
     ;; Parse error.
     (rf/dispatch-sync [:cells/commit "C1" "=)bad"] {:frame f})
-    (assert (= :error/parse (rf/compute-sub [:cells/value "C1"] @(rf/get-frame-db f))))
+    (assert (= :error/parse (rf/compute-sub [:cells/value "C1"] (rf/get-frame-db f))))
 
     ;; Empty cells are zero.
-    (assert (= 0 (rf/compute-sub [:cells/value "Z99"] @(rf/get-frame-db f))))))
+    (assert (= 0 (rf/compute-sub [:cells/value "Z99"] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT

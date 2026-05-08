@@ -18,7 +18,8 @@
    - Derived filtered list                                 (CP-2 with :<-)
    - Schema-bound entity                                   (CP-8)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -138,22 +139,24 @@
 ;; ============================================================================
 
 (def crud-view
-  (rf/reg-view :crud/main
+  (reg-view :crud/main
     (fn render-crud []
-      (let [people      @(subscribe [:crud/filtered-people])
-            selected-id @(subscribe [:crud/selected-id])
-            d-name      @(subscribe [:crud/draft-name])
-            d-surname   @(subscribe [:crud/draft-surname])
-            can-update? @(subscribe [:crud/can-update?])]
+      (let [d           (rf/dispatcher)
+            s           (rf/subscriber)
+            people      @(s [:crud/filtered-people])
+            selected-id @(s [:crud/selected-id])
+            d-name      @(s [:crud/draft-name])
+            d-surname   @(s [:crud/draft-surname])
+            can-update? @(s [:crud/can-update?])]
         [:div.crud
          [:div.row
           [:label "Filter prefix: "]
           [:input {:type      "text"
-                   :on-change #(dispatch [:crud/set-filter (.. % -target -value)])}]]
+                   :on-change #(d [:crud/set-filter (.. % -target -value)])}]]
          [:div.row
           [:select.list {:size      6
                          :value     (or selected-id "")
-                         :on-change #(dispatch [:crud/select (uuid (.. % -target -value))])}
+                         :on-change #(d [:crud/select (uuid (.. % -target -value))])}
            (for [{:keys [id name surname]} people]
              ^{:key id}
              [:option {:value id} (str surname ", " name)])]
@@ -162,49 +165,49 @@
            [:div [:label "Name: "]
             [:input {:type      "text"
                      :value     d-name
-                     :on-change #(dispatch [:crud/edit-name (.. % -target -value)])}]]
+                     :on-change #(d [:crud/edit-name (.. % -target -value)])}]]
            [:div [:label "Surname: "]
             [:input {:type      "text"
                      :value     d-surname
-                     :on-change #(dispatch [:crud/edit-surname (.. % -target -value)])}]]]]
+                     :on-change #(d [:crud/edit-surname (.. % -target -value)])}]]]]
          [:div.row.buttons
-          [:button {:on-click #(dispatch [:crud/create])} "Create"]
-          [:button {:on-click #(dispatch [:crud/update]) :disabled (not can-update?)} "Update"]
-          [:button {:on-click #(dispatch [:crud/delete]) :disabled (not can-update?)} "Delete"]]]))))
+          [:button {:on-click #(d [:crud/create])} "Create"]
+          [:button {:on-click #(d [:crud/update]) :disabled (not can-update?)} "Update"]
+          [:button {:on-click #(d [:crud/delete]) :disabled (not can-update?)} "Delete"]]]))))
 
 ;; ============================================================================
 ;; HEADLESS TESTS
 ;; ============================================================================
 
 (defn crud-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create [:crud/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:crud/initialise]})]
     ;; Initial seed: 3 people.
-    (assert (= 3 (count (rf/compute-sub [:crud/people] @(rf/get-frame-db f)))))
+    (assert (= 3 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f)))))
 
     ;; Filter: "M" matches Mustermann only.
     (rf/dispatch-sync [:crud/set-filter "M"] {:frame f})
-    (assert (= 1 (count (rf/compute-sub [:crud/filtered-people] @(rf/get-frame-db f)))))
+    (assert (= 1 (count (rf/compute-sub [:crud/filtered-people] (rf/get-frame-db f)))))
 
     ;; Create: edit draft, click Create, list grows by 1.
     (rf/dispatch-sync [:crud/set-filter "" ] {:frame f})
     (rf/dispatch-sync [:crud/edit-name    "Anna"]    {:frame f})
     (rf/dispatch-sync [:crud/edit-surname "Sonnen"] {:frame f})
     (rf/dispatch-sync [:crud/create]                 {:frame f})
-    (assert (= 4 (count (rf/compute-sub [:crud/people] @(rf/get-frame-db f)))))
+    (assert (= 4 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f)))))
 
     ;; Update: select Anna, change surname, list reflects.
-    (let [anna-id (->> (rf/compute-sub [:crud/people] @(rf/get-frame-db f))
+    (let [anna-id (->> (rf/compute-sub [:crud/people] (rf/get-frame-db f))
                        (filter #(= "Anna" (:name %))) first :id)]
       (rf/dispatch-sync [:crud/select anna-id]              {:frame f})
       (rf/dispatch-sync [:crud/edit-surname "Sunnybaum"]    {:frame f})
       (rf/dispatch-sync [:crud/update]                      {:frame f})
-      (let [updated (->> (rf/compute-sub [:crud/people] @(rf/get-frame-db f))
+      (let [updated (->> (rf/compute-sub [:crud/people] (rf/get-frame-db f))
                          (filter #(= anna-id (:id %))) first)]
         (assert (= "Sunnybaum" (:surname updated))))
 
       ;; Delete: list shrinks by 1.
       (rf/dispatch-sync [:crud/delete] {:frame f})
-      (assert (= 3 (count (rf/compute-sub [:crud/people] @(rf/get-frame-db f))))))))
+      (assert (= 3 (count (rf/compute-sub [:crud/people] (rf/get-frame-db f))))))))
 
 ;; ============================================================================
 ;; MOUNT

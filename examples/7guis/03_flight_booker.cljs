@@ -21,7 +21,8 @@
    - Conditional UI driven by sub return values           (CP-4)
    - Smoke test exercising the constraint surface         (CP-1 checklist)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -136,36 +137,38 @@
 ;; ============================================================================
 
 (def flight-booker
-  (rf/reg-view :flight/booker
+  (reg-view :flight/booker
     (fn render-flight-booker []
-      (let [trip-type        @(subscribe [:flight/trip-type])
-            start-text       @(subscribe [:flight/start-text])
-            return-text      @(subscribe [:flight/return-text])
-            return-enabled?  @(subscribe [:flight/return-enabled?])
-            start-valid?     @(subscribe [:flight/start-valid?])
-            return-valid?    @(subscribe [:flight/return-valid?])
-            book-enabled?    @(subscribe [:flight/book-enabled?])
+      (let [d                (rf/dispatcher)
+            s                (rf/subscriber)
+            trip-type        @(s [:flight/trip-type])
+            start-text       @(s [:flight/start-text])
+            return-text      @(s [:flight/return-text])
+            return-enabled?  @(s [:flight/return-enabled?])
+            start-valid?     @(s [:flight/start-valid?])
+            return-valid?    @(s [:flight/return-valid?])
+            book-enabled?    @(s [:flight/book-enabled?])
             invalid-style    {:background "#fdd"}]
         [:div.flight-booker
          [:select {:value     (name trip-type)
-                   :on-change #(dispatch [:flight/set-trip-type
-                                          (keyword (.. % -target -value))])}
+                   :on-change #(d [:flight/set-trip-type
+                                   (keyword (.. % -target -value))])}
           [:option {:value "one-way"} "one-way flight"]
           [:option {:value "return"}  "return flight"]]
 
          [:input {:type      "text"
                   :value     start-text
                   :style     (when-not start-valid? invalid-style)
-                  :on-change #(dispatch [:flight/set-start (.. % -target -value)])}]
+                  :on-change #(d [:flight/set-start (.. % -target -value)])}]
 
          [:input {:type      "text"
                   :value     return-text
                   :disabled  (not return-enabled?)
                   :style     (when (and return-enabled? (not return-valid?)) invalid-style)
-                  :on-change #(dispatch [:flight/set-return (.. % -target -value)])}]
+                  :on-change #(d [:flight/set-return (.. % -target -value)])}]
 
          [:button {:disabled (not book-enabled?)
-                   :on-click #(dispatch [:flight/book])}
+                   :on-click #(d [:flight/book])}
           "Book"]]))))
 
 ;; ============================================================================
@@ -173,25 +176,25 @@
 ;; ============================================================================
 
 (defn flight-booker-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create [:flight/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:flight/initialise]})]
     ;; one-way: book is enabled when start parses
     (rf/dispatch-sync [:flight/set-trip-type :one-way] {:frame f})
     (rf/dispatch-sync [:flight/set-start "2026-05-06"] {:frame f})
-    (assert       (rf/compute-sub [:flight/book-enabled?] @(rf/get-frame-db f)))
+    (assert       (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f)))
 
     ;; one-way: bad start disables book
     (rf/dispatch-sync [:flight/set-start "not-a-date"] {:frame f})
-    (assert (not (rf/compute-sub [:flight/book-enabled?] @(rf/get-frame-db f))))
+    (assert (not (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f))))
 
     ;; return: book disabled when return < start
     (rf/dispatch-sync [:flight/set-trip-type :return]   {:frame f})
     (rf/dispatch-sync [:flight/set-start  "2026-05-06"] {:frame f})
     (rf/dispatch-sync [:flight/set-return "2026-05-01"] {:frame f})
-    (assert (not (rf/compute-sub [:flight/book-enabled?] @(rf/get-frame-db f))))
+    (assert (not (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f))))
 
     ;; return: book enabled when return ≥ start
     (rf/dispatch-sync [:flight/set-return "2026-05-10"] {:frame f})
-    (assert (rf/compute-sub [:flight/book-enabled?] @(rf/get-frame-db f)))))
+    (assert (rf/compute-sub [:flight/book-enabled?] (rf/get-frame-db f)))))
 
 ;; ============================================================================
 ;; MOUNT

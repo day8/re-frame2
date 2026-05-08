@@ -1,5 +1,5 @@
 (ns login.core
-  "Worked end-to-end example: a login feature using the imagined re-frame2 API.
+  "Worked end-to-end example: a login feature using the current re-frame2 API.
 
    Demonstrates:
    - Feature scaffold (CP-6)              — the :auth.login/* registry slice
@@ -23,7 +23,8 @@
 
    Kept as a single file here for brevity."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMAS  (CP-8)
@@ -74,16 +75,18 @@
   {:doc       "Persist the session token in localStorage. Client only."
    :platforms #{:client}}
   (fn fx-auth-session-store [_m {:keys [token]}]
-    (.setItem js/localStorage "auth/token" token)))
+    (when-let [ls (.-localStorage js/globalThis)]
+      (.setItem ls "auth/token" token))))
 
 ;; Test stub — id-valued override, the canonical pattern-level form.
 (rf/reg-fx :http.canned-success
   {:doc       "Test stub: every :http call resolves to a canned success response."
    :platforms #{:client :server}}
-  (fn fx-http-canned-success [_m {:keys [on-success]}]
+  (fn fx-http-canned-success [{:keys [frame]} {:keys [on-success]}]
     (when on-success
       (rf/dispatch (conj on-success {:user {:id (random-uuid) :email "test@example.com"}
-                                     :token "test-token-123"})))))
+                                     :token "test-token-123"}})
+                   {:frame frame}))))
 
 ;; ============================================================================
 ;; STATE MACHINE  (CP-5)
@@ -97,7 +100,8 @@
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
   (rf/create-machine-handler
-    {:initial :idle
+    {:id      :auth.login/flow
+     :initial :idle
      :data    {:attempts 0 :error nil}
 
      :guards
@@ -179,8 +183,8 @@
 ;; SUBSCRIPTIONS  (CP-2)
 ;; ============================================================================
 
-;; The machine snapshot is read via `sub-machine` (per [005 §Reading the
-;; snapshot]); these named subs project out the convenient pieces.
+;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
+;; Spec 005). These named subs project out the convenient pieces.
 
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
@@ -209,45 +213,48 @@
 ;; ============================================================================
 ;;
 ;; Var-reference style (canonical per [004 §How registered views are used in
-;; hiccup]). Form-1 only. dispatch/subscribe inside a reg-view body are the
-;; frame-bound locals injected by reg-view.
+;; hiccup]). The current API uses `rf/dispatcher` / `rf/subscriber` for
+;; frame-bound access inside views.
 
 (def login-form
-  (rf/reg-view :auth.login/form
+  (reg-view :auth.login/form
     {:doc "The login form view: email + password + submit button + error display."}
     (fn render-auth-login-form []
-      (let [submitting? @(subscribe [:auth.login/submitting?])
-            err         @(subscribe [:auth.login/error])
-            state       (atom {:email "" :password ""})]
+      (let [d     (rf/dispatcher)
+            s     (rf/subscriber)
+            state (atom {:email "" :password ""})]
         (fn []
-          [:form.login-form
-           {:on-submit (fn [e]
-                         (.preventDefault e)
-                         (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
-           [:input  {:type        "email"
-                     :placeholder "Email"
-                     :disabled    submitting?
-                     :on-change   #(swap! state assoc :email (.. % -target -value))}]
-           [:input  {:type        "password"
-                     :placeholder "Password"
-                     :disabled    submitting?
-                     :on-change   #(swap! state assoc :password (.. % -target -value))}]
-           [:button {:type "submit" :disabled submitting?}
-            (if submitting? "Signing in…" "Sign in")]
-           (when err [:p.error err])])))))
+          (let [submitting? @(s [:auth.login/submitting?])
+                err         @(s [:auth.login/error])]
+            [:form.login-form
+             {:on-submit (fn [e]
+                           (.preventDefault e)
+                           (d [:auth.login/flow [:auth.login/submit @state]]))}
+             [:input  {:type        "email"
+                       :placeholder "Email"
+                       :disabled    submitting?
+                       :on-change   #(swap! state assoc :email (.. % -target -value))}]
+             [:input  {:type        "password"
+                       :placeholder "Password"
+                       :disabled    submitting?
+                       :on-change   #(swap! state assoc :password (.. % -target -value))}]
+             [:button {:type "submit" :disabled submitting?}
+              (if submitting? "Signing in…" "Sign in")]
+             (when err [:p.error err])]))))))
 
 (def login-banner
-  (rf/reg-view :auth.login/banner
+  (reg-view :auth.login/banner
     {:doc "Shows the user's logged-in state and a sign-out button."}
     (fn render-auth-login-banner []
-      (let [authed? @(subscribe [:auth.login/authenticated?])]
+      (let [s       (rf/subscriber)
+            authed? @(s [:auth.login/authenticated?])]
         [:div.banner
          (if authed?
            [:span "Welcome!"]
            [login-form])]))))
 
 (def root-view
-  (rf/reg-view :auth.login/root
+  (reg-view :auth.login/root
     (fn render-auth-login-root []
       [:div.app
        [:h1 "Sign in"]
@@ -266,7 +273,7 @@
 
 (defn login-feature-happy-path-test []
   ;; The machine self-initialises on first dispatch — no :on-create needed.
-  (rf/with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
+  (with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
     ;; Submit credentials. Dispatches synchronously; drain settles before return.
     ;; Sub-events route via the machine id (per [005 §Registration]).
     (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
@@ -275,15 +282,16 @@
                       {:frame f})
 
     ;; After drain: machine has transitioned :idle → :submitting → :authed.
-    (assert (= :authed (rf/compute-sub [:auth.login/state] @(rf/get-frame-db f))))
-    (assert @(rf/compute-sub [:auth.login/authenticated?] @(rf/get-frame-db f)))))
+    (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))))
+    (assert (rf/compute-sub [:auth.login/authenticated?] (rf/get-frame-db f)))))
 
 (defn login-feature-retry-then-lockout-test []
   (rf/reg-fx :http.canned-failure
     {:platforms #{:client :server}}
-    (fn [_m {:keys [on-error]}] (rf/dispatch (conj on-error {:message "bad creds"}))))
+    (fn [{:keys [frame]} {:keys [on-error]}]
+      (rf/dispatch (conj on-error {:message "bad creds"}) {:frame frame})))
 
-  (rf/with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
+  (with-frame [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
     ;; Three failures → locked-out.
     (dotimes [_ 3]
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
@@ -294,7 +302,7 @@
     (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                          {:email "x@y.z" :password "wrongpass"}]]
                       {:frame f})
-    (assert (= :locked-out (rf/compute-sub [:auth.login/state] @(rf/get-frame-db f))))))
+    (assert (= :locked-out (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)

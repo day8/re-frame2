@@ -21,7 +21,8 @@
    - Layered subs for derived progress %                   (CP-2)
    - Controlled-input slider via dispatch on change       (CP-4)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 (def TICK-MS 100)
 
@@ -102,11 +103,13 @@
 ;; ============================================================================
 
 (def timer-view
-  (rf/reg-view :timer/timer
+  (reg-view :timer/timer
     (fn render-timer []
-      (let [progress @(subscribe [:timer/progress-pct])
-            seconds  @(subscribe [:timer/elapsed-seconds])
-            duration @(subscribe [:timer/duration-ms])]
+      (let [d        (rf/dispatcher)
+            s        (rf/subscriber)
+            progress @(s [:timer/progress-pct])
+            seconds  @(s [:timer/elapsed-seconds])
+            duration @(s [:timer/duration-ms])]
         [:div.timer
          [:div.row
           [:label "Elapsed time:"]
@@ -120,11 +123,11 @@
           [:input {:type      "range"
                    :min       0 :max 30000 :step 100
                    :value     duration
-                   :on-change #(dispatch [:timer/set-duration
-                                          (js/parseInt (.. % -target -value))])}]
+                   :on-change #(d [:timer/set-duration
+                                   (js/parseInt (.. % -target -value))])}]
           [:span (.toFixed (/ duration 1000.0) 1) " s"]]
          [:div.row
-          [:button {:on-click #(dispatch [:timer/reset])} "Reset"]]]))))
+          [:button {:on-click #(d [:timer/reset])} "Reset"]]]))))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (scheduling-light; we don't drive real time, just verify
@@ -132,25 +135,25 @@
 ;; ============================================================================
 
 (defn timer-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create    [:timer/initialise]
+  (with-frame [f (rf/make-frame {:on-create    [:timer/initialise]
                                     :fx-overrides {:dispatch-later nil}})]   ;; suppress real timers
     ;; Initial state.
-    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] @(rf/get-frame-db f))))
-    (assert (= 10000 (rf/compute-sub [:timer/duration-ms] @(rf/get-frame-db f))))
+    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
+    (assert (= 10000 (rf/compute-sub [:timer/duration-ms] (rf/get-frame-db f))))
 
     ;; Manual ticks → elapsed advances; progress derives correctly.
     (dotimes [_ 50]
       (rf/dispatch-sync [:timer/tick] {:frame f}))
-    (assert (= 5000 (rf/compute-sub [:timer/elapsed-ms] @(rf/get-frame-db f))))
-    (assert (= 50.0 (rf/compute-sub [:timer/progress-pct] @(rf/get-frame-db f))))
+    (assert (= 5000 (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))
+    (assert (= 50.0 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
 
     ;; Shrinking duration below elapsed → progress clamps to 100, ticks stop on next tick.
     (rf/dispatch-sync [:timer/set-duration 4000] {:frame f})
-    (assert (= 100 (rf/compute-sub [:timer/progress-pct] @(rf/get-frame-db f))))
+    (assert (= 100 (rf/compute-sub [:timer/progress-pct] (rf/get-frame-db f))))
 
     ;; Reset → elapsed back to zero.
     (rf/dispatch-sync [:timer/reset] {:frame f})
-    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] @(rf/get-frame-db f))))))
+    (assert (zero? (rf/compute-sub [:timer/elapsed-ms] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT

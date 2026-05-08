@@ -1,35 +1,55 @@
 (ns example.realworld.tags
-  "Tag-based article filtering.
+  "Home-page query helpers for tag filtering and feed selection.
 
-   The popular-tags *list* in the home page sidebar is loaded by
-   articles.cljs (it shares the home page's :on-match). This file is for
-   the *filter* feature: clicking a tag on the home page activates a
-   per-tag filtered view of articles.
+   The popular-tags list itself is loaded by `articles.cljs`. This file
+   owns the route-query driven part of the home page:
+   - `?tag=<name>` filters the global articles list
+   - `?feed=your` switches the home page to the authenticated feed
+   - navigation is always expressed as `:rf.route/navigate` events"
+  (:require [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [with-frame]]))
 
-   STATUS: stub. The full implementation is pending and tracked under
-   bead rf2-kq2z. See examples/realworld/README.md for the scope of this
-   feature.
+(defn home-query [db]
+  (get-in db [:route :query] {}))
 
-   TODO — full implementation:
-   - Tag-as-filter UI on the home page — clicking a tag adds it to the
-     URL as a query parameter; the home tab list shows a 'Tag: <name>'
-     pill which can be cleared.
-   - :route/home extended with :query [:map [:tag {:optional true} :string]]
-     so /?tag=clojure activates the filtered view; via :query-retain the
-     selected tag persists across in-app navigations.
-   - :articles/load reads :route/query :tag — when present, calls
-     GET /articles?tag=<tag>; when absent, GET /articles.
-   - The articles slice does not need to be sharded by tag — re-fetching
-     :articles when the filter changes via :on-match's params/query
-     re-fire (per Spec 012 §Per-route data loading) does the right thing.
-   - Headless tests: navigate to /?tag=foo asserts the slice reloads with
-     the tag-filtered URL; clear the tag and assert it reloads without it.
+(rf/reg-event-fx :home/load
+  (fn [{:keys [db]} _]
+    (let [{:keys [feed]} (home-query db)]
+      {:fx (cond-> [[:dispatch [:tags/load]]]
+             (= "your" feed) (conj [:dispatch [:feed/load]])
+             (not= "your" feed) (conj [:dispatch [:articles/load]]))})))
 
-   Pattern references:
-   - docs/specification/012-Routing.md          — :query, :query-retain
-   - docs/specification/Pattern-RemoteData.md   — :articles slice
+(rf/reg-event-fx :home/show-global-feed
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {}}]]]}))
 
-   API endpoint (from the RealWorld spec):
-   - GET /articles?tag=<tag>     — tag-filtered articles list")
+(rf/reg-event-fx :home/show-your-feed
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {:feed "your"}}]]]}))
 
-(def ^:private stub :stub)
+(rf/reg-event-fx :tags/apply-filter
+  (fn [_ [_ tag]]
+    {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query {:tag tag}}]]]}))
+
+(rf/reg-event-fx :tags/clear-filter
+  (fn [{:keys [db]} _]
+    (let [query (dissoc (home-query db) :tag)]
+      {:fx [[:dispatch [:rf.route/navigate :route/home {} {:query query}]]]})))
+
+(rf/reg-sub :home/query
+  (fn [db _] (home-query db)))
+
+(rf/reg-sub :home/selected-tag
+  :<- [:home/query]
+  (fn [query _] (:tag query)))
+
+(rf/reg-sub :home/feed-kind
+  :<- [:home/query]
+  (fn [query _] (if (= "your" (:feed query)) :your :global)))
+
+(defn tag-query-test []
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
+    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))
+    (rf/dispatch-sync [:home/show-your-feed] {:frame f})
+    (assert (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))))

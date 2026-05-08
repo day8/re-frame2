@@ -19,7 +19,8 @@
    - Pure derivation in subs (Celsius ↔ Fahrenheit)        (CP-2)
    - Schema-bound app-db slice                            (CP-8)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -118,19 +119,21 @@
 ;; ============================================================================
 
 (def temperature-converter
-  (rf/reg-view :temp/converter
+  (reg-view :temp/converter
     {:doc "Two-input temperature converter."}
     (fn render-temp-converter []
-      (let [c-text @(subscribe [:temp/celsius-text])
-            f-text @(subscribe [:temp/fahrenheit-text])]
+      (let [d      (rf/dispatcher)
+            s      (rf/subscriber)
+            c-text @(s [:temp/celsius-text])
+            f-text @(s [:temp/fahrenheit-text])]
         [:div.temperature
          [:input {:type      "text"
                   :value     (or c-text "")
-                  :on-change #(dispatch [:temp/edit-celsius (.. % -target -value)])}]
+                  :on-change #(d [:temp/edit-celsius (.. % -target -value)])}]
          [:label " °C  =  "]
          [:input {:type      "text"
                   :value     (or f-text "")
-                  :on-change #(dispatch [:temp/edit-fahrenheit (.. % -target -value)])}]
+                  :on-change #(d [:temp/edit-fahrenheit (.. % -target -value)])}]
          [:label " °F"]]))))
 
 ;; ============================================================================
@@ -138,26 +141,26 @@
 ;; ============================================================================
 
 (defn temperature-converter-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:temp/initialise]})]
     ;; Edit Celsius → Fahrenheit derives.
     (rf/dispatch-sync [:temp/edit-celsius "100"] {:frame f})
-    (assert (= "100"   (rf/compute-sub [:temp/celsius-text]    @(rf/get-frame-db f))))
-    (assert (= "212.00" (rf/compute-sub [:temp/fahrenheit-text] @(rf/get-frame-db f))))
+    (assert (= "100"   (rf/compute-sub [:temp/celsius-text]    (rf/get-frame-db f))))
+    (assert (= "212.00" (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))
 
     ;; Edit Fahrenheit → Celsius derives.
     (rf/dispatch-sync [:temp/edit-fahrenheit "32"] {:frame f})
-    (assert (= "32"   (rf/compute-sub [:temp/fahrenheit-text] @(rf/get-frame-db f))))
-    (assert (= "0.00" (rf/compute-sub [:temp/celsius-text]    @(rf/get-frame-db f))))
+    (assert (= "32"   (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))
+    (assert (= "0.00" (rf/compute-sub [:temp/celsius-text]    (rf/get-frame-db f))))
 
     ;; Partial input doesn't jitter — typing "1." in Celsius shows literally
     ;; "1." in the active field, not "1.00".
     (rf/dispatch-sync [:temp/edit-celsius "1."] {:frame f})
-    (assert (= "1." (rf/compute-sub [:temp/celsius-text] @(rf/get-frame-db f))))
+    (assert (= "1." (rf/compute-sub [:temp/celsius-text] (rf/get-frame-db f))))
 
     ;; Garbage input clears the conversion but preserves the literal text.
     (rf/dispatch-sync [:temp/edit-celsius "abc"] {:frame f})
-    (assert (= "abc" (rf/compute-sub [:temp/celsius-text] @(rf/get-frame-db f))))
-    (assert (nil?    (rf/compute-sub [:temp/fahrenheit-text] @(rf/get-frame-db f))))))
+    (assert (= "abc" (rf/compute-sub [:temp/celsius-text] (rf/get-frame-db f))))
+    (assert (nil?    (rf/compute-sub [:temp/fahrenheit-text] (rf/get-frame-db f))))))
 
 ;; ============================================================================
 ;; MOUNT

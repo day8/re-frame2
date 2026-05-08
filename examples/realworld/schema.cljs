@@ -16,7 +16,7 @@
    - Datetimes are ISO-8601 strings.
    - Authentication tokens are JWT strings, returned as the `:token` field
      of the `User` payload after login or registration."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame-2.core :as rf]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the RealWorld API returns
@@ -84,15 +84,47 @@
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice
-  "The auth slice. The :flow sub-slice is the snapshot of the auth state
-   machine; :user holds the current :User payload (or nil); :token is
-   the JWT (or nil)."
+  "The auth slice. :user holds the current :User payload (or nil);
+   :token is the JWT (or nil). The auth machine snapshot itself lives at
+   [:rf/machines :auth/flow]."
   [:map
    [:user  [:maybe User]]
-   [:token [:maybe :string]]
-   [:flow  [:map
-            [:state   [:enum :idle :submitting :authed :error :restoring]]
-            [:context :map]]]])
+   [:token [:maybe :string]]])
+
+(def AuthFlowSnapshot
+  [:map
+   [:state [:enum :idle :submitting :authed :error :restoring]]
+   [:data  [:map
+            [:error [:maybe :string]]]]])
+
+(def FormSlice
+  [:map
+   [:draft :any]
+   [:submitted [:maybe :any]]
+   [:status :keyword]
+   [:errors :map]
+   [:touched [:set :keyword]]
+   [:submit-error [:maybe :string]]])
+
+(def EditorSlice
+  [:map
+   [:mode [:enum :create :edit]]
+   [:slug [:maybe :string]]
+   [:draft [:map
+            [:title :string]
+            [:description :string]
+            [:body :string]
+            [:tagList :string]]]
+   [:baseline [:map
+               [:title :string]
+               [:description :string]
+               [:body :string]
+               [:tagList :string]]]
+   [:submitted [:maybe :any]]
+   [:status :keyword]
+   [:errors :map]
+   [:touched [:set :keyword]]
+   [:submit-error [:maybe :string]]])
 
 ;; ============================================================================
 ;; SCHEMA REGISTRATION
@@ -102,10 +134,22 @@
 ;; to these paths in development.
 
 (rf/reg-app-schema [:auth]                     AuthSlice)
+(rf/reg-app-schema [:rf/machines :auth/flow]   AuthFlowSnapshot)
 (rf/reg-app-schema [:articles]                 RequestSlice)
 (rf/reg-app-schema [:articles :data]           [:vector Article])
+(rf/reg-app-schema [:article]                  RequestSlice)
+(rf/reg-app-schema [:article :data]            [:maybe Article])
 (rf/reg-app-schema [:tags]                     RequestSlice)
 (rf/reg-app-schema [:profile]                  RequestSlice)
+(rf/reg-app-schema [:profile :data]            [:maybe Profile])
+(rf/reg-app-schema [:profile.articles]         RequestSlice)
+(rf/reg-app-schema [:profile.articles :data]   [:vector Article])
+(rf/reg-app-schema [:profile.favorites]        RequestSlice)
+(rf/reg-app-schema [:profile.favorites :data]  [:vector Article])
 (rf/reg-app-schema [:comments]                 RequestSlice)
-;; TODO — schemas for editor/, favorites/, follows/ slices land with their
-;; corresponding feature implementations.
+(rf/reg-app-schema [:comments :data]           [:vector Comment])
+(rf/reg-app-schema [:feed]                     RequestSlice)
+(rf/reg-app-schema [:feed :data]               [:vector Article])
+(rf/reg-app-schema [:comment-form]             FormSlice)
+(rf/reg-app-schema [:editor]                   EditorSlice)
+(rf/reg-app-schema [:settings]                 FormSlice)

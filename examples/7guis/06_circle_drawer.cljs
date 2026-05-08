@@ -22,7 +22,8 @@
    This example shows the canonical primitive pattern; productionising it is
    library work, not framework work."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -161,28 +162,30 @@
 ;; ============================================================================
 
 (def drawer-view
-  (rf/reg-view :drawer/main
+  (reg-view :drawer/main
     (fn render-drawer []
-      (let [circles    @(subscribe [:drawer/circles])
-            dialog     @(subscribe [:drawer/dialog])
-            can-undo?  @(subscribe [:drawer/can-undo?])
-            can-redo?  @(subscribe [:drawer/can-redo?])]
+      (let [d          (rf/dispatcher)
+            s          (rf/subscriber)
+            circles    @(s [:drawer/circles])
+            dialog     @(s [:drawer/dialog])
+            can-undo?  @(s [:drawer/can-undo?])
+            can-redo?  @(s [:drawer/can-redo?])]
         [:div.drawer
          [:div.row
-          [:button {:on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
-          [:button {:on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
+          [:button {:on-click #(d [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
+          [:button {:on-click #(d [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
          [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
                 :on-click (fn [e]
                             (let [rect (.. e -currentTarget getBoundingClientRect)
                                   x    (- (.. e -clientX) (.-left rect))
                                   y    (- (.. e -clientY) (.-top rect))]
-                              (dispatch [:drawer/add-circle x y])))}
+                              (d [:drawer/add-circle x y])))}
           (for [{:keys [id x y radius]} circles]
             ^{:key id}
             [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
                       :on-context-menu (fn [e]
                                          (.preventDefault e)
-                                         (dispatch [:drawer/open-dialog id]))}])]
+                                         (d [:drawer/open-dialog id]))}])]
 
          (when dialog
            [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
@@ -190,32 +193,32 @@
             [:input {:type      "range"
                      :min       5 :max 100 :step 1
                      :value     (:draft-radius dialog)
-                     :on-change #(dispatch [:drawer/dialog-drag
-                                            (js/parseInt (.. % -target -value))])}]
-            [:button {:on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))))
+                     :on-change #(d [:drawer/dialog-drag
+                                     (js/parseInt (.. % -target -value))])}]
+            [:button {:on-click #(d [:drawer/close-dialog])} "Close"]])]))))
 
 ;; ============================================================================
 ;; HEADLESS TESTS
 ;; ============================================================================
 
 (defn drawer-tests []
-  (rf/with-frame [f (rf/make-frame {:on-create [:drawer/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:drawer/initialise]})]
     ;; Add three circles; undo stack grows.
     (rf/dispatch-sync [:drawer/add-circle 100 100] {:frame f})
     (rf/dispatch-sync [:drawer/add-circle 200 200] {:frame f})
     (rf/dispatch-sync [:drawer/add-circle 300 300] {:frame f})
-    (assert (= 3 (count (rf/compute-sub [:drawer/circles] @(rf/get-frame-db f)))))
-    (assert       (rf/compute-sub [:drawer/can-undo?] @(rf/get-frame-db f)))
+    (assert (= 3 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))
+    (assert       (rf/compute-sub [:drawer/can-undo?] (rf/get-frame-db f)))
 
     ;; Two undos → one circle.
     (rf/dispatch-sync [:drawer/undo] {:frame f})
     (rf/dispatch-sync [:drawer/undo] {:frame f})
-    (assert (= 1 (count (rf/compute-sub [:drawer/circles] @(rf/get-frame-db f)))))
-    (assert (rf/compute-sub [:drawer/can-redo?] @(rf/get-frame-db f)))
+    (assert (= 1 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))
+    (assert (rf/compute-sub [:drawer/can-redo?] (rf/get-frame-db f)))
 
     ;; Redo restores.
     (rf/dispatch-sync [:drawer/redo] {:frame f})
-    (assert (= 2 (count (rf/compute-sub [:drawer/circles] @(rf/get-frame-db f)))))))
+    (assert (= 2 (count (rf/compute-sub [:drawer/circles] (rf/get-frame-db f)))))))
 
 ;; ============================================================================
 ;; MOUNT

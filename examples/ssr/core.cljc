@@ -65,7 +65,8 @@
   {:doc       "Persist a session token in localStorage."
    :platforms #{:client}}              ;; client-only — server SSR skips this
   (fn fx-auth-session-store [_m {:keys [token]}]
-    #?(:cljs (.setItem js/localStorage "auth/token" token))))
+    #?(:cljs (when-let [ls (.-localStorage js/globalThis)]
+               (.setItem ls "auth/token" token)))))
 
 ;; ============================================================================
 ;; EVENTS
@@ -207,7 +208,7 @@
    (defn ^:export run []
      (when-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-     (rdc/render root [root-view])))
+     (rdc/render root [(rf/get-view :app/root)])))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (JVM-runnable; exercises the server flow)
