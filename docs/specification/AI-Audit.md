@@ -71,7 +71,7 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ◐ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has *three* (`get-view` / Var / `h` macro) — that's drifty. CP-4 should specify when each is canonical. |
+| P1 Regularity | ✓ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has two forms (`get-view` / Var) — the `h` macro was dropped (rf2-n4um). |
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `handlers`, `frame-meta`, `frame-ids`, `get-frame-db`, `snapshot-of`, `sub-topology` all in. |
@@ -269,9 +269,9 @@ Pattern contract is id-based (per recent edits), but the CLJS reference accepts 
 
 Plain Reagent fns rendered inside a non-default frame silently route to `:rf/default`. This violates P8 (hidden context). Either remove the footgun (mandate `reg-view`) or make it loud (runtime warning).
 
-### G-E. View invocation has three forms (P1 violation)
+### G-E. View invocation has two forms — Var canonical, `(get-view :id)` for late-binding
 
-`(get-view :id)`, Var reference, `h` macro. Pick a canonical for primary use; treat the others as alternatives with documented use cases.
+The Var reference (`[counter "Hello"]`) is the canonical call-site form: `reg-view` defs the symbol, hiccup picks it up directly. `(get-view :id)` is the documented escape hatch for late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites). The earlier `h` macro draft has been dropped (rf2-n4um); two forms is the v1 surface.
 
 ### G-F. Form-1 / Form-2 / Form-3 component shapes
 

@@ -184,7 +184,7 @@ v1 ships three forms for invoking a registered view. To honour the principle of 
 
 ### `get-view` — the canonical post-registration lookup
 
-Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. `h` and the other call-site forms are sugar over `get-view`.
+Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. The other call-site forms are sugar over `get-view`.
 
 ```clojure
 (rf/get-view :counter)               ;; → wrapped fn
@@ -193,47 +193,19 @@ Whatever the call-site shape, `(rf/get-view :counter)` is the **canonical lookup
 
 `get-view` returning `nil` for an unregistered keyword is a normal lookup miss (no error trace).
 
-### Alternative forms (use only when the canonical form is awkward)
+### Alternative form (use only when the canonical form is awkward)
 
 ```clojure
-;; Alt 1 — Explicit function-position lookup. Use when:
+;; Explicit function-position lookup. Use when:
 ;;        - the view id is computed at runtime (dynamic dispatch);
 ;;        - the calling code doesn't have access to the Var (e.g., across module boundaries
-;;          where the Var isn't exported but the registration is).
+;;          where the Var isn't exported but the registration is);
+;;        - hot-reload semantics matter — `get-view` re-resolves on every call, so
+;;          re-registration is picked up without re-evaluating the call site.
 [(rf/get-view :counter) "Hello"]
-
-;; Alt 2 — h macro. Walks hiccup at compile time, substitutes registered keywords.
-;;        Use when:
-;;        - you want hiccup to read as pure data (highest data-orientation, P3);
-;;        - the view set is known at compile time;
-;;        - you don't mind opting into the h wrapper at every call site.
-(rf/h [:counter "Hello"])
 ```
 
-**Bare `[:counter "Hello"]` in raw hiccup** (without an `h` wrapper, where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
-
-### The `h` macro
-
-`(rf/h hiccup-form)` walks the hiccup at compile time, substituting `[:registered-keyword args ...]` with `[(rf/get-view :registered-keyword) args ...]` for every keyword present in the view registry at expansion time. Unregistered keywords pass through unchanged (so DOM tags like `:div` are untouched).
-
-```clojure
-;; user writes
-(rf/h
-  [:div.page
-   [:counter "Left"]
-   [:counter "Right"]
-   [:label "Hello"]])              ;; :label is a DOM tag; passes through
-
-;; expands to
-[:div.page
- [(rf/get-view :counter) "Left"]
- [(rf/get-view :counter) "Right"]
- [:label "Hello"]]
-```
-
-Compile-time expansion means the registry must be populated when the macro fires — typically at REPL or build time, after `reg-view` calls have run. For dynamic dispatch (where the keyword isn't known at compile time), use form (1) directly.
-
-`h` is opt-in: hiccup outside `(rf/h ...)` retains today's Reagent semantics (DOM tags + Var references + anonymous fns).
+**Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
 
 ## Plain Reagent fns: staged adoption (with a loud footgun warning)
 
@@ -366,7 +338,7 @@ Registered views referenced from hiccup inherit the surrounding frame from React
 ```clojure
 (rf/reg-view outer []
   [:div
-   [counter "Inner"]                  ;; or [:counter "Inner"] under the `h` macro
+   [counter "Inner"]                  ;; or [(rf/get-view :counter) "Inner"] for late-binding by id
    [rf/frame-provider {:frame :other}
     [counter "Other-frame inner"]]])  ;; nested provider re-points
 ```
@@ -381,10 +353,6 @@ Reusable-component concerns are addressed by:
 2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — [002's `frame-provider`](002-Frames.md#what-frame-provider-is-cljs-reference) plus user-defined React contexts for non-frame state.
 
 ## Open questions
-
-### `h` macro and dynamic keyword tags
-
-`(rf/h [first-tag-var label])` where `first-tag-var` is a runtime-resolved keyword — does the macro fall through gracefully (treating the keyword as a DOM tag) or error? Recommendation: fall through; runtime substitution is the user's responsibility.
 
 The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and is out of scope for v1; it is deferred to the substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md).
 
@@ -417,21 +385,9 @@ For the rare case where the user wants no Var binding (e.g. views generated prog
     (fn [_props] ...)))
 ```
 
-### The `h` macro's expansion strategy
+### `h` macro dropped (rf2-n4um)
 
-Recursive walk + runtime lookup, with the keyword set frozen at compile time.
-
-(a) **Recursive walk.** `h` walks the entire hiccup tree, not only the top level. Substitution happens wherever a vector starts with a keyword that was registered as a `:view` *at expansion time*. This matches author intent: AIs and humans write `(h [:layout [:counter] [:counter]])` and expect both `:counter` references to substitute.
-
-(b) **Runtime lookup with a compile-time keyword set.** At expansion, `h` consults the registrar to enumerate the set of keywords currently registered as `:view`. Each match in the hiccup expands to `[(rf/get-view :keyword) args ...]` — a *runtime* registry lookup. This gives:
-
-- **Determinism at expansion** — the keyword set is captured when the form is compiled. A view registered after expansion does not magically activate inside an already-compiled form. The user can re-evaluate the form to pick it up.
-- **Hot-reload friendliness** — `(get-view :counter)` re-resolves on every render, so re-registering `:counter` (developer saves a file) takes effect without re-expanding `h`.
-- **Aligns with `reg-view`'s auto-def form** — `(reg-view :counter ...)` produces a callable Var; `(h [:counter])` produces `[(get-view :counter)]`. The two are observably equivalent at the call-site.
-
-A keyword *not* registered as a view at expansion time passes through unchanged. DOM tags (`:div`, `:span`, …) and unregistered keywords are untouched. The dynamic-keyword-tag case (`[some-keyword-var ...]`) falls through to runtime — `h` does not attempt to rewrite it; the runtime treats it as a DOM tag.
-
-**Edge case — re-registration shadowing a DOM tag.** A user must not `(reg-view :div ...)`. The runtime emits a warning at registration time; `h` honours the registry (the registered fn wins). Documented as a footgun, not policed.
+An earlier draft of this spec included an `h` macro that walked hiccup at compile time and rewrote namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/get-view :my-app/widget)` lookups. It has been removed from the v1 surface. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/get-view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
 
 ### Form-3 (`reagent.core/create-class`) — out of scope for the macro
 

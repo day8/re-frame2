@@ -488,7 +488,7 @@
   (subscriber))
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
-;; reg-view, frame-provider, h, with-frame live in re-frame.views.cljs;
+;; reg-view, frame-provider, with-frame live in re-frame.views.cljs;
 ;; users `:require [re-frame.views :as v]` for those.
 
 ;; ---- routing helpers ------------------------------------------------------

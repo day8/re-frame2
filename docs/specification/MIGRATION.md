@@ -840,13 +840,53 @@ The agent rewrites mechanically: the keyword's local-name becomes the auto-defed
 
 ---
 
-**Reporting M-12 through M-22.** These eleven rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing eleven separate preambles.
+### M-23. `h` macro removed — rewrite call sites to Var or `(get-view :id)`
+
+**Type A** (mechanical).
+
+Per rf2-n4um / rf2-u33b: the `h` compile-time hiccup walker has been dropped from the v1 surface. The Var idiom (`reg-view counter [...] ...` defs `counter`; users write `[counter "Hello"]`) is the canonical call-site form; `(rf/get-view :id)` is the documented escape hatch for late-binding by id. Two call-site forms, no compile-time hiccup walker.
+
+**What to look for** in the codebase:
+
+```clojure
+(rf/h [:div [:my-app/widget arg]])
+(rf/h [:my-app/widget arg])
+(rf/h [:div [:p "hello"]])
+```
+
+**What to do:**
+
+```clojure
+;; before — namespaced view keyword nested in hiccup (the most common case)
+(rf/h [:div [:my-app/widget arg]])
+;; after — Var-ref form. The reg-view macro defed the Var; reach for it directly.
+[:div [my-app/widget arg]]
+
+;; before — call site genuinely needs late-binding by id (cross-module reference,
+;; runtime-computed id, or hot-reload-sensitive call site)
+(rf/h [:my-app/widget arg])
+;; after — explicit get-view in function position
+[(rf/get-view :my-app/widget) arg]
+
+;; before — h wrapper around HTML-only hiccup
+(rf/h [:div [:p "hello"]])
+;; after — drop the wrapper entirely
+[:div [:p "hello"]]
+```
+
+The agent rewrites mechanically. For the Var-ref form (the common case), the namespaced keyword's local-name becomes a symbol reference to the Var defed by `reg-view`. If the call-site context indicates late-binding intent (a comment to that effect, or the symbol isn't in scope at the call site), the agent emits the `[(rf/view :id) args]` form instead. Ambiguous sites default to Var-ref — the reverse migration to `get-view` is a one-line edit if the user later decides hot-reload semantics matter.
+
+**Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-get-view-id-for-late-binding)). Same surface-shrinking principle as rf2-7cb2 (drop alpha) and rf2-iyzm (Var-ref canonical for views): when two surfaces cover every case the third was solving, the third is excess.
+
+---
+
+**Reporting M-12 through M-23.** These twelve rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twelve separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**.
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22** (`reg-view` defn-shape rewrite), **M-23** (`h` macro removal).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
