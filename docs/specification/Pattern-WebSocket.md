@@ -83,11 +83,11 @@ The connection machine composes the locked substrate:
 
      :guards
      {:max-retries-exceeded?
-      (fn [{:keys [data]} _]
+      (fn [data _]
         (>= (:retries data) (:max-retries data)))
 
       :has-queued-messages?
-      (fn [{:keys [data]} _]
+      (fn [data _]
         (seq (:queue data)))}
 
      :actions
@@ -96,33 +96,33 @@ The connection machine composes the locked substrate:
       ;;   (rf/dispatch [:ws/connection [:ws/connect {:url        "wss://api.example.com/ws"
       ;;                                              :auth-token (some-token)}]])
       ;; The opts land in :data; subsequent reconnect attempts reuse them.
-      (fn [{:keys [data]} [_ {:keys [url auth-token]}]]
+      (fn [data [_ {:keys [url auth-token]}]]
         {:data (assoc data :url url :auth-token auth-token)})
 
       :bump-retry
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:data (-> data
                    (update :retries inc)
                    (update :backoff-ms #(min (* 2 %) (:max-backoff data))))})
 
       :reset-retry
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:data (assoc data :retries 0 :backoff-ms 1000)})
 
       :record-token
       ;; Used when the running app refreshes the auth token without a full reconnect.
-      (fn [{:keys [data]} [_ token]]
+      (fn [data [_ token]]
         {:data (assoc data :auth-token token)})
 
       :send-auth
       ;; The socket actor accepts a [:send msg] event; route into it.
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:fx [[:dispatch [(:socket-id data) [:send {:type  :auth
                                                     :token (:auth-token data)}]]]]})
 
       :resubscribe
       ;; On (re)connect, re-issue subscriptions tracked in :data.
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:fx (mapv (fn [topic]
                      [:dispatch [(:socket-id data)
                                  [:send {:type :subscribe :topic topic}]]])
@@ -130,18 +130,18 @@ The connection machine composes the locked substrate:
 
       :flush-queue
       ;; Send any messages buffered while disconnected; clear the queue.
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:data (assoc data :queue [])
          :fx   (mapv (fn [msg] [:dispatch [(:socket-id data) [:send msg]]])
                      (:queue data))})
 
       :enqueue-message
       ;; Buffer a send while disconnected.
-      (fn [{:keys [data]} [_ msg]]
+      (fn [data [_ msg]]
         {:data (update data :queue conj msg)})
 
       :record-error
-      (fn [{:keys [data]} [_ err]]
+      (fn [data [_ err]]
         {:data (assoc data :error err)})}
 
      :states
@@ -184,7 +184,7 @@ The connection machine composes the locked substrate:
                                         ;; named dispatched event; the running-app
                                         ;; handlers commit it.
                                         {:fx [[:dispatch [:ws/handle-message msg]]]})}
-                :ws/send     {:action (fn [{:keys [data]} [_ msg]]
+                :ws/send     {:action (fn [data [_ msg]]
                                         {:fx [[:dispatch [(:socket-id data)
                                                           [:send msg]]]]})}}
        :initial :idle
@@ -228,7 +228,7 @@ To subscribe / unsubscribe at runtime, dispatch a sub/unsub event into the conne
 ```clojure
 ;; Subscribe to a topic — pure :data update + send.
 :ws/subscribe
-{:action (fn [{:keys [data]} [_ topic]]
+{:action (fn [data [_ topic]]
            {:data (update data :subscriptions conj topic)
             :fx   [[:dispatch [(:socket-id data) [:send {:type :subscribe :topic topic}]]]]})}
 ```
@@ -241,7 +241,7 @@ Some WebSocket protocols are request-reply with a correlation id. The pattern: t
 
 ```clojure
 :ws/request
-{:action (fn [{:keys [data]} [_ {:keys [reply] :as msg}]]
+{:action (fn [data [_ {:keys [reply] :as msg}]]
            (let [id (random-uuid)]
              {:data (assoc-in data [:in-flight id] reply)
               :fx   [[:dispatch [(:socket-id data) [:send (assoc msg :id id)]]]]}))}

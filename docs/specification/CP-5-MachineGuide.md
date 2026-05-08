@@ -13,13 +13,13 @@ Acceptable inline cases (single non-branching expression):
 
 ```clojure
 ;; Trivial guard — single non-branching expression.
-:guard (fn [{:keys [data]} _] (some? (:circle-id data)))
+:guard (fn [data _] (some? (:circle-id data)))
 
 ;; Trivial action — pure data update, single non-branching expression.
 :action (fn [_ [_ new-r]] {:data {:preview-radius new-r}})
 
 ;; Trivial action — single :fx entry, no branching.
-:action (fn [{:keys [data]} _]
+:action (fn [data _]
           {:fx [[:dispatch [:drawer/apply-radius
                             (:circle-id data)
                             (:preview-radius data)]]]})
@@ -29,22 +29,22 @@ Cases that should be named in `:guards` / `:actions` instead (branching, composi
 
 ```clojure
 ;; Branching → name it.
-:action (fn [{:keys [data]} ev]
+:action (fn [data ev]
           (if (over-quota? data)
             {:data {:error :quota}}
             {:data {:attempts (inc (:attempts data))}
              :fx   [[:dispatch [:audit/recorded ev]]]}))
 
 ;; Composed → name the composition.
-:action (fn [snap ev]
-          (let [a (record-attempt snap ev) b (clear-error snap ev)]
+:action (fn [data ev]
+          (let [a (record-attempt data ev) b (clear-error data ev)]
             {:data (merge (:data a) (:data b))
              :fx   (into (:fx a []) (:fx b []))}))
 
 ;; Multi-fx + branching → name it.
-:guard (fn [snap ev]
-         (and (under-quota? snap ev)
-              (not (locked-out? snap ev))
+:guard (fn [data ev]
+         (and (under-quota? data ev)
+              (not (locked-out? data ev))
               (some? (:credentials (second ev)))))
 ```
 
@@ -162,12 +162,14 @@ xstate needs history states because its runtime lacks first-class snapshot-as-va
   {:actions
    {:capture-browsing-position
     ;; Stash the current browsing-state into :data so we can restore it later.
-    (fn [{:keys [state data]} _]
+    ;; This is an opt-in 3-arity body — the third arg unlocks the :state slot;
+    ;; the canonical 2-arity form (fn [data event] ...) only sees :data.
+    (fn [_data _event {:keys [state]}]
       {:data {:last-browsing-state state}})                 ;; the FSM keyword
 
     :restore-browsing-position
     ;; Re-enter at the previously-captured state.
-    (fn [{:keys [data]} _]
+    (fn [data _]
       {:fx [[:raise [:flow/jump-to (:last-browsing-state data)]]]})}
    :states
    {:browsing

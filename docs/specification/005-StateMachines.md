@@ -30,6 +30,8 @@ The snapshot is `{:state :data}`:
 
 The pair `{:state :data}` reads as the natural English idiom and matches a vocabulary that's well-represented in AI training corpora. We use `:data` to avoid the existing "context" overloading in re-frame's interceptor pipeline and React-context affordances.
 
+> **`:data` is the parameter name passed to guards and actions, not a destructure key.** Per [§Guards](#guards) / [§Actions](#actions), guards and actions receive `(fn [data event] ...)` — `data` is the snapshot's `:data` slot directly, a plain map. Bodies that read individual fields write `(:circle-id data)`, not `(get-in snapshot [:data :circle-id])`. The 3-arity opt-in `(fn [data event {:state :meta}] ...)` adds the introspection slot when needed; users that don't declare it never see the snapshot wrapper.
+
 ## Snapshot shape
 
 ```clojure
@@ -224,35 +226,50 @@ Internal transitions are how to update `:data` without re-running entry/exit mac
 
 ### Guards
 
-A guard is `(fn [snapshot event] boolean)`. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
+A guard is **`(fn [data event] boolean)`** — 2-arity is canonical. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
+
+`data` is the snapshot's `:data` slot directly (a map). The fn never sees the snapshot wrapper; pulling `:data` from a snapshot is the runtime's job, not the user's. This keeps the 99% case monomorphic and stops `:keys [data]` boilerplate from spreading through the corpus.
 
 ```clojure
-;; inline fn
-:guard (fn [{:keys [data]} [_ id]]
+;; inline fn — data is the snapshot's :data slot, passed directly
+:guard (fn [data [_ id]]
          (some? (:circle-id data)))
 
 ;; keyword reference — resolves to (get-in spec [:guards :circle-exists?])
 :guard :circle-exists?
 
 ;; compound logic — write the fn
-:guard (fn [snap ev] (and (active? snap ev) (under-quota? snap ev)))
+:guard (fn [data ev] (and (active? data ev) (under-quota? data ev)))
 
 ;; even better — declare a named compound in the machine's :guards map
 (rf/create-machine-handler
   {:guards {:active-and-under-quota?
-            (fn [snap ev] (and (active? snap ev) (under-quota? snap ev)))}
+            (fn [data ev] (and (active? data ev) (under-quota? data ev)))}
    :states {... :on {... {:guard :active-and-under-quota?}}}})
 ;; the name carries semantic meaning that visualisers / AIs read.
 ```
+
+#### 3-arity escape hatch — `:state` / `:meta` introspection
+
+The 3-arity overload is **opt-in** by declaring a third parameter:
+
+```clojure
+:guard (fn [data event {:keys [state meta]}]
+         ...)
+```
+
+`{:state :meta}` is the snapshot's introspection slot — the discrete state and any user `:meta`. Use it for the rare guard or action that needs to branch on the current state name (e.g. dispatch on `:state` itself rather than `:data`). The vast majority of guards and actions are state-blind and don't need the third arg; declaring it is the explicit signal to the runtime that introspection is wanted.
+
+Implementations arity-detect the fn at call time: a fn that declares a fixed 3-arg invocation is called with `[data event {:state :meta}]`; everything else (the canonical 2-arity, plus variadic helpers like `(constantly true)`) is called with `[data event]`. The detection is structural — no metadata needed on the fn — so inline `(fn [data ev ctx] ...)` vs `(fn [data ev] ...)` is the only declaration the user makes.
 
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
 
 ### Actions
 
-An action is `(fn [snapshot event] effects)` returning the `{:data :fx}` shape (or `nil`). **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
+An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (or `nil`). 2-arity is canonical; 3-arity opt-in is the same `[data event {:state :meta}]` escape hatch as for guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
 
 ```clojure
-;; inline
+;; inline — data is the snapshot's :data slot, passed directly
 :action (fn [_ [_ id radius]]
           {:data {:circle-id id :initial-radius radius :preview-radius radius}})
 
@@ -270,9 +287,9 @@ An action is `(fn [snapshot event] effects)` returning the `{:data :fx}` shape (
 Multiple steps in one action are **fn composition**, not a vector:
 
 ```clojure
-:action (fn [snap ev]
-          (let [a (action-clear snap ev)
-                b (action-record-attempt snap ev)]
+:action (fn [data ev]
+          (let [a (action-clear data ev)
+                b (action-record-attempt data ev)]
             {:data (merge (:data a) (:data b))
              :fx   (into (:fx a []) (:fx b []))}))
 ```
@@ -281,7 +298,7 @@ If the composition is reused, name it in the machine's `:actions` map:
 
 ```clojure
 (rf/create-machine-handler
-  {:actions {:clear-and-record (fn [snap ev] ...)}
+  {:actions {:clear-and-record (fn [data ev] ...)}
    :states {... :on {... {:action :clear-and-record}}}})
 ```
 
@@ -336,9 +353,9 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 
 > **Why this is locked.** Strict encapsulation is one of the named consequences of [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility). If actions could read or write `app-db` outside `[:rf/machines <id>]`, machine logic would create state changes that don't show up in any machine snapshot and don't roll back when the surrounding machine snapshot does. The whole machine's state has to live inside the frame's persistent value to revert with it; encapsulation is what stops machines from leaking state into parts of the value that aren't theirs.
 
-- **Action signature:** `(fn [snapshot event] effects)`.
-- **Guard signature:** `(fn [snapshot event] boolean)`.
-- **Snapshot:** `{:state :data}` only — no `:db`, no cofx.
+- **Action signature:** `(fn [data event] effects)` — 2-arity canonical; 3-arity opt-in is `(fn [data event {:state :meta}] effects)`.
+- **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `(fn [data event {:state :meta}] boolean)`.
+- **What the fn sees:** the snapshot's `:data` slot directly (a map). The full `{:state :data :meta}` snapshot is reachable only via the 3-arity opt-in. Never `app-db`; never cofx.
 
 The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `create-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
 
@@ -355,7 +372,7 @@ Whoever fires the event has the data; they pass it. The machine never reaches ou
 ```clojure
 :close-dialog
 {:target :idle
- :action (fn [{:keys [data]} _]
+ :action (fn [data _]
            {:fx   [[:dispatch [:drawer/apply-radius
                                (:circle-id data)
                                (:preview-radius data)]]]
@@ -378,7 +395,7 @@ A machine is registered as **one event handler** via `reg-event-fx` whose body c
   (rf/create-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
-     :guards  {:circle-exists? (fn [{:keys [data]} _] (some? (:circle-id data)))}
+     :guards  {:circle-exists? (fn [data _] (some? (:circle-id data)))}
      :actions {:clear-error    (fn [_ _] {:data {:error nil}})}
      :states  { ... }}))
 ```
@@ -397,7 +414,7 @@ Reference resolution:
 **Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a Clojure var and reference the var from each machine's `:guards` / `:actions` map:
 
 ```clojure
-(defn user-authenticated? [{:keys [data]} _]
+(defn user-authenticated? [data _]
   (some? (:user-id data)))
 
 (rf/reg-event-fx :auth/login {}
@@ -475,7 +492,7 @@ Applied to machines: the transition table is a data DSL because it describes nam
 
 ## Inspectability bias
 
-> **Inspectability bias.** Machine tables should prefer **named guards and actions declared in the machine's `:guards` / `:actions` maps** over inline fns. The id (`:under-quota?`) carries semantic meaning that visualisers, AIs, and humans all read; an inline `(fn [snap ev] ...)` is opaque to inspection. Inline fns are escape hatches for trivial logic (one-liners with no branching), not the default form.
+> **Inspectability bias.** Machine tables should prefer **named guards and actions declared in the machine's `:guards` / `:actions` maps** over inline fns. The id (`:under-quota?`) carries semantic meaning that visualisers, AIs, and humans all read; an inline `(fn [data ev] ...)` is opaque to inspection. Inline fns are escape hatches for trivial logic (one-liners with no branching), not the default form.
 
 The id is the meaning at the call site; the inline fn is opaque to readers. The machine-scoped resolution mechanics — how keyword references in transition slots resolve against the machine's `:guards` / `:actions` maps, and how cross-machine reuse via Clojure vars works — are specified once in [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler).
 
@@ -485,11 +502,11 @@ Why the bias:
 
 - **Visualisers read ids, not fn bodies.** A diagram exporter that renders the transition table can label an arrow with `:under-quota?` and have it mean something. An inline fn becomes "[fn]" — a hole in the rendered diagram.
 - **AIs read ids, not fn bodies.** When an AI reasons about a machine — generating tests, proposing changes, explaining behaviour — a keyword reference is a stable name it can resolve against the machine's `:guards` / `:actions` map (visible via `(machine-meta <id>)`). An inline fn is a closure with no public name.
-- **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [snap ev] ...)` they have to read the body to find out.
+- **Humans read ids, not fn bodies.** A reviewer scanning a transition table sees `:guard :under-quota?` and knows what gates the transition; with `:guard (fn [data ev] ...)` they have to read the body to find out.
 - **Tests read ids.** Level-1 (`machine-transition`) and Level-2 tests can stub or assert against named guards/actions by id — re-define the spec's `:guards` / `:actions` entry with a deterministic stand-in. Inline fns can only be replaced by re-writing the entire transition table.
 - **Conformance fixtures read ids.** A fixture's expected `:fx` vector can name `[:dispatch [:audit/login-ok]]` against the action `:record-success` declared in the machine's `:actions` map; inline-fn equivalents are not addressable.
 
-Inline fns remain acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [{:keys [data]} _] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
+Inline fns remain acceptable for **trivial bodies that don't add meaning by being named** — e.g. `:guard (fn [data _] (some? (:circle-id data)))` is fine; naming it as `:has-circle?` may add no information beyond what the body already shows. The test is whether the fn body is a single non-branching expression: yes → inline is OK; no → name it in `:guards` / `:actions`.
 
 Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaffolding guidance.
 
@@ -858,7 +875,7 @@ Guards in `:always` resolve against the **machine's `:guards` map** (per [§Regi
 
 ```clojure
 {:initial :asking
- :guards  {:enough-correct? (fn [{:keys [data]} _] (>= (:correct-count data) 10))}
+ :guards  {:enough-correct? (fn [data _] (>= (:correct-count data) 10))}
  :actions {:count-correct   (fn [_ _] {:data {:correct-count inc}})
            :count-wrong     (fn [_ _] {:data {:wrong-count inc}})}
  :states
@@ -996,7 +1013,7 @@ Tools subscribe to whichever granularity they need: `:scheduled` for timeline vi
 
 ```clojure
 {:initial :idle
- :guards  {:still-loading? (fn [{:keys [data]} _] (:loading? data))}
+ :guards  {:still-loading? (fn [data _] (:loading? data))}
  :states
  {:idle    {:on {:fetch :loading}}
 
@@ -1175,13 +1192,13 @@ Before / after:
 
 ;; create-machine-handler rewrites to (runtime sees this):
 {:loading
- {:entry (fn [{:keys [data] :as snap} ev]
+ {:entry (fn [data _ev]
            {:fx [[:spawn {:machine-id :request/protocol
                           :id-prefix  :request/protocol
                           :data       {:url (:endpoint data)}
                           :on-spawn   (fn [d id] (assoc d :pending id))
                           :start      [:begin]}]]})
-  :exit  (fn [{:keys [data]} _]
+  :exit  (fn [data _]
            {:fx [[:destroy-machine (:pending data)]]})
   :on    {:succeeded :loaded
           :failed    :error}}}
@@ -1510,7 +1527,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 
       :commit
       ;; Persist the previewed radius via :drawer/apply-radius and clear :data.
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:fx   [[:dispatch [:drawer/apply-radius
                             (:circle-id data)
                             (:preview-radius data)]]]
