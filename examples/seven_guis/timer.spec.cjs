@@ -10,7 +10,7 @@
  * - Reset: elapsed back to "0.0 s".
  */
 
-const { expectTextEquals, expectVisible } = require('./_helpers.cjs');
+const { expectTextEquals, expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
 
 async function readElapsed(page) {
   // The view renders elapsed seconds inside a <label>, e.g. "1.5 s".

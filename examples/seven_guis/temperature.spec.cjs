@@ -12,7 +12,7 @@
  * dispatch-sync in `run` before mounting.
  */
 
-const { expectInputValue } = require('./_helpers.cjs');
+const { expectInputValue } = require('../../implementation/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'temperature (7guis #2)',

@@ -16,7 +16,7 @@
  * menu intervening.
  */
 
-const { expectVisible, expectAttribute } = require('./_helpers.cjs');
+const { expectVisible, expectAttribute } = require('../../implementation/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'circle-drawer (7guis #6)',

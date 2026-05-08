@@ -13,7 +13,7 @@
  *   - dispatch round-trips re-rendering through the React substrate.
  */
 
-const { expectTextEquals } = require('./_helpers.cjs');
+const { expectTextEquals } = require('../../implementation/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'counter',
