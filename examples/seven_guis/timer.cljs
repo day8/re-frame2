@@ -52,6 +52,13 @@
 ;; scheduled with. Reset bumps :tick-gen, so any in-flight tick from the
 ;; previous generation no-ops when it eventually fires. Reset also schedules
 ;; a fresh tick under the new generation, so the chain continues.
+;;
+;; The Reset *click handler* (see view) calls `dispatch-sync`, not
+;; `dispatch`. Under Reagent 2 (flushSync render), this guarantees the
+;; app-db update and DOM commit complete before the next scheduled tick
+;; (or before a polling test observer reads the DOM), so the brief 0.0
+;; reading is observable. The :tick-gen guard above and the synchronous
+;; commit here address two distinct races and are both required.
 
 (rf/reg-event-fx :timer/initialise
   {:doc "Seed the timer slice and start the periodic tick."}
@@ -139,7 +146,13 @@
                                       (js/parseInt (.. % -target -value))])}]
       [:span (.toFixed (/ duration 1000.0) 1) " s"]]
      [:div.row
-      [:button {:on-click #(dispatch [:timer/reset])} "Reset"]]]))
+      ;; dispatch-sync (not dispatch): under Reagent 2's flushSync render
+      ;; model, this guarantees app-db is updated and the DOM commits the
+      ;; 0.0 reading before control returns to the browser — and crucially
+      ;; before the next scheduled :timer/tick can fire. With async dispatch
+      ;; the post-Reset DOM commit could lag the next tick (and the test's
+      ;; 50ms poll), causing the brief 0.0 window to be missed.
+      [:button {:on-click #(rf/dispatch-sync [:timer/reset])} "Reset"]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (scheduling-light; we don't drive real time, just verify
