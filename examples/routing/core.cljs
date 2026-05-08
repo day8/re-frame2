@@ -43,7 +43,7 @@
 ;; APP DATA
 ;; ============================================================================
 
-(rf/reg-event-db :app/initialise
+(rf/reg-event-db :routing.app/initialise
   (fn [_ _]
     {:articles [{:id "intro" :title "Intro to re-frame2" :body "..."}
                 {:id "ssr"   :title "Server rendering"  :body "..."}]}))
@@ -137,7 +137,7 @@
 ;; ============================================================================
 
 (defn routing-tests []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:routing.app/initialise]})]
     (rf/dispatch-sync [:rf.route/navigate :route/articles] {:frame f})
     (assert (= :route/articles (rf/compute-sub [:rf.route/id] (rf/get-frame-db f))))
 
@@ -162,6 +162,6 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
-  (rf/dispatch-sync [:app/initialise])
+  (rf/dispatch-sync [:routing.app/initialise])
   (install-router!)
   (rdc/render react-root [root-view]))
