@@ -1,0 +1,67 @@
+;; Conformance fixture: machine/cross-actor-send
+;;
+;; Cross-actor send via :fx. Per [005 §Capability matrix §Actor-model axis,
+;; "Cross-actor send via :fx"](../../005-StateMachines.md#capability-matrix):
+;; one machine sends to another by emitting a [:dispatch [other-actor-id
+;; [:event ...]]] fx from its action. Falls out of standard :dispatch fx;
+;; no new mechanism. The sender's transition produces the dispatch fx; the
+;; receiver, when fed the inner event via its own machine-transition, then
+;; transitions accordingly.
+;;
+;; The fixture exercises both halves:
+;;   1. Sender's action returns :fx [[:dispatch [:receiver [:ping]]]] —
+;;      verify the dispatch fx is emitted with the receiver-targeted shape.
+;;   2. Independently, drive the receiver's machine-transition with the
+;;      [:ping] inner event — verify it transitions :waiting → :received.
+;;
+;; The two calls in concert demonstrate that cross-actor messaging is
+;; just a :dispatch fx with a [actor-id [inner-event]] envelope: nothing
+;; about the substrate needs to special-case it.
+
+{:fixture/id           :machine/cross-actor-send
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/doc          "Cross-actor send via :fx. The sender's action returns a [:dispatch [:receiver [:ping]]] fx; verified by inspecting the sender's fx vector. The receiver's pure machine-transition for the inner [:ping] event produces the :received state — confirming the round-trip works as ordinary dispatch with no special substrate."
+
+ :fixture/registry
+ {:machine-action
+  {:sender/send-ping     {:doc "Sender's action — emits a cross-actor :dispatch fx targeting :receiver."}
+   :receiver/mark-pinged {:doc "Receiver's action — records the ping in :data."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; Sender's :dispatch fx envelope is [actor-id [inner-event]] — the
+  ;; same shape ordinary user code uses to message a registered machine.
+  ;; Receiver's action records the ping under :data.:pinged? (the action
+  ;; DSL's :set path is data-relative, so the leading key targets :data).
+  {:sender/send-ping     [[:fx :dispatch [:receiver [:ping]]]]
+   :receiver/mark-pinged [[:set [:pinged?] true]]}}
+
+ :fixture/calls
+ ;; ---- (1) Sender: :idle on :trigger transitions to :sent and emits the
+ ;;          cross-actor :dispatch fx targeting :receiver.
+ [{:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle {:on {:trigger {:target :sent
+                                                  :action :sender/send-ping}}}
+                            :sent {}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:trigger]
+   :expect-next-snapshot {:state :sent :data {}}
+   :expect-effects       [[:dispatch [:receiver [:ping]]]]}
+
+  ;; ---- (2) Receiver: :waiting on :ping transitions to :received and
+  ;;          marks the ping in :data. This is the inner event the sender
+  ;;          dispatched, which the runtime would route into the receiver's
+  ;;          registered machine handler in a real run.
+  {:call         :machine-transition
+   :definition   {:initial :waiting
+                  :data    {}
+                  :states  {:waiting  {:on {:ping {:target :received
+                                                   :action :receiver/mark-pinged}}}
+                            :received {}}}
+   :snapshot     {:state :waiting :data {}}
+   :event        [:ping]
+   :expect-next-snapshot {:state :received :data {:pinged? true}}
+   :expect-effects       []}]}
