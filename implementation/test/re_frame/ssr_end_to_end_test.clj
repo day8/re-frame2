@@ -1,0 +1,450 @@
+(ns re-frame.ssr-end-to-end-test
+  "Comprehensive SSR request-lifecycle coverage. Per Spec 011.
+
+  The smoke-test suite already pins each SSR concern in isolation:
+  render-to-string basics, hydration metadata stash, render-tree-hash
+  stability, the :http/get :fx-overrides redirect, and the
+  dispatch-sync → render-to-string → embedded hash smoke.
+
+  This namespace stitches the whole flow together in one place — the
+  canonical happy path AND the structured-error edges (multi-status,
+  multi-cookie, redirect short-circuit, head-hash mismatch). The shape
+  mirrors what a real SSR host would do per request:
+
+    1. Build a per-request frame via make-frame {:on-create [:rf/server-init request]}.
+    2. The on-create event dispatches :http/get (stubbed via :fx-overrides).
+    3. The drain settles synchronously — get-frame-db reflects post-drain state.
+    4. render-to-string against the registered root view emits HTML
+       carrying data-rf-render-hash on the root element.
+    5. Build a serialisable payload: {:rf/version :rf/frame-id :rf/app-db :rf/render-hash}.
+    6. On a separate (client) frame, dispatch-sync [:rf/hydrate payload]
+       — the client app-db becomes the server's app-db. Subsequent
+       client render produces the same hash. Mutate, re-render, hash
+       differs, :rf.ssr/hydration-mismatch trace fires.
+
+  The :rf.server/* fx (set-status / set-cookie / redirect) are spec'd
+  in 011 but not yet registered by the runtime (filed as rf2-8pif).
+  The set-status / multi-cookie / redirect tests below register
+  user-level reg-fx that mirror the spec's accumulator contract — they
+  can be removed once the runtime registers the canonical fx natively."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as str]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.flows :as flows]
+            [re-frame.registrar :as registrar]))
+
+(defn reset-runtime [test-fn]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (reset! flows/flows {})
+  (rf/init!)
+  ;; Framework registrations happen at namespace-load time in
+  ;; routing.cljc / ssr.cljc / machines.cljc; clear-all! wiped them, so
+  ;; reload to resurrect :rf/hydrate, :rf.route/navigate, etc.
+  (require 're-frame.routing :reload)
+  (require 're-frame.ssr :reload)
+  (require 're-frame.machines :reload)
+  (test-fn))
+
+(use-fixtures :each reset-runtime)
+
+;; ---- helpers --------------------------------------------------------------
+
+(defn- build-payload
+  "Per Spec 011 §The hydration payload: produce a serialisable map
+  carrying the version, frame-id, post-drain app-db, and render-hash."
+  [frame-id db render-hash]
+  {:rf/version     1
+   :rf/frame-id    frame-id
+   :rf/app-db      db
+   :rf/render-hash render-hash})
+
+(defn- extract-render-hash
+  "Pull the data-rf-render-hash hex out of an HTML fragment."
+  [html]
+  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" html)))
+
+(defn- resolve-tree
+  "Resolve a [:view-id args...] reference under a frame so the rendered
+  tree reflects the frame's current app-db. Used to compute a state-
+  dependent hash that mirrors what a real client recompute would do."
+  [frame-id render-tree]
+  (rf/with-frame frame-id
+    (fn []
+      (let [head (first render-tree)]
+        (if-let [view-fn (rf/get-view head)]
+          (apply view-fn (rest render-tree))
+          render-tree)))))
+
+;; ===========================================================================
+;; ssr-full-request-lifecycle — the canonical happy path
+;; ===========================================================================
+
+(deftest ssr-full-request-lifecycle
+  (testing "request → on-create dispatch → :http/get stub → drain → render → payload → hydrate → match → mutate → mismatch"
+    ;; ---- registry: events, sub, view, real :http/get fx (no-op shell) -----
+    (rf/reg-fx :http/get
+      {:platforms #{:server :client}}
+      (fn [_ _] nil))                                                ;; real impl absent on JVM; the override below replaces it
+
+    (rf/reg-fx :http/get.canned-articles
+      {:platforms #{:server :client}}
+      (fn [{:keys [frame]} {:keys [on-success]}]
+        ;; The stub synthesises a synchronous "response" by dispatching
+        ;; the :on-success event (with the canned body conj'd) on the
+        ;; ACTIVE frame — :rf.server/* fx receive {:frame ...} as the
+        ;; first arg per Spec 002 §Routing the dispatch envelope.
+        (when on-success
+          (rf/dispatch (conj on-success
+                             [{:id "a" :title "Article A" :body "Body A"}
+                              {:id "b" :title "Article B" :body "Body B"}])
+                       {:frame frame}))))
+
+    (rf/reg-event-fx :rf/server-init
+      (fn [{:keys [db]} [_ request]]
+        {:db (assoc db :request request :route {:id :route/articles})
+         :fx [[:http/get {:url        "/api/articles"
+                          :on-success [:articles/loaded]}]]}))
+
+    (rf/reg-event-db :articles/loaded
+      (fn [db [_ articles]]
+        (assoc db :articles articles)))
+
+    (rf/reg-sub :articles (fn [db _] (:articles db)))
+    (rf/reg-view :pages/articles
+      (fn []
+        (let [arts (rf/subscribe-value [:articles])]
+          [:div.page
+           [:h1 "Recent articles"]
+           [:ul
+            (for [{:keys [id title body]} arts]
+              ^{:key id} [:li [:h3 title] [:p body]])]])))
+
+    ;; ---- (1) per-request server frame -------------------------------------
+    (let [server-frame (rf/make-frame
+                         {:doc          "SSR request frame"
+                          :platform     :server
+                          :on-create    [:rf/server-init {:uri "/articles"}]
+                          :fx-overrides {:http/get :http/get.canned-articles}})
+          ;; (2)+(3) drain settled via :on-create + dispatch-sync chain
+          server-db    (rf/get-frame-db server-frame)]
+
+      (is (= 2 (count (:articles server-db)))
+          "post-drain server app-db carries the canned articles")
+      (is (= "Article A" (-> server-db :articles first :title)))
+      (is (= {:uri "/articles"} (:request server-db))
+          "the request map flowed through :rf/server-init into app-db")
+
+      ;; ---- (4) render against the registered root view -------------------
+      (let [render-tree   [:pages/articles]
+            html          (rf/with-frame server-frame
+                            (fn [] (rf/render-to-string render-tree {:emit-hash? true})))
+            ;; The data-rf-render-hash embedded on the wire is the input-
+            ;; tree hash (per render-to-string in ssr.cljc) — stable across
+            ;; renders of the same view-ref. The hydration payload below
+            ;; carries the RESOLVED-tree hash (state-dependent) so the
+            ;; client can re-render and compare a state-derived value.
+            embedded-hash (extract-render-hash html)
+            server-hash   (rf/render-tree-hash
+                            (resolve-tree server-frame render-tree))]
+        (is (str/includes? html "Article A")
+            "rendered HTML carries the title from server app-db")
+        (is (str/includes? html "Article B"))
+        (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
+                     html)
+            "root <div> carries data-rf-render-hash")
+        (is (some? embedded-hash))
+        (is (some? server-hash))
+
+        ;; ---- (5) build serialisable payload -----------------------------
+        (let [payload (build-payload server-frame server-db server-hash)]
+          (is (= #{:rf/version :rf/frame-id :rf/app-db :rf/render-hash}
+                 (set (keys payload)))
+              "payload carries the canonical four keys")
+          (is (= 1 (:rf/version payload)))
+          (is (= server-frame (:rf/frame-id payload)))
+          (is (= server-db (:rf/app-db payload)))
+          (is (= server-hash (:rf/render-hash payload))
+              "payload carries the resolved render-tree hash")
+
+          ;; ---- (6) hydration on a separate "client" frame ---------------
+          (let [client-frame (rf/make-frame
+                               {:doc      "Hydrated client frame"
+                                :platform :client})]
+            (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+            (let [client-db (rf/get-frame-db client-frame)]
+              ;; The server's app-db replaced the client's empty app-db.
+              (is (= (:articles server-db) (:articles client-db))
+                  ":rf/hydrate replaced the client app-db with payload's :rf/app-db")
+              ;; The server hash was stashed for verify-hydration!.
+              (is (= server-hash (get-in client-db [:rf/hydration :server-hash])))
+              (is (= 1            (get-in client-db [:rf/hydration :version]))))
+
+            ;; First client render — same view, same hydrated state, same
+            ;; resolved tree, same hash. Resolve under the client frame so
+            ;; the subscribe-value reads the hydrated client app-db.
+            (let [client-hash-1 (rf/render-tree-hash
+                                  (resolve-tree client-frame render-tree))
+                  match-traces  (atom [])]
+              (rf/register-trace-cb! ::match (fn [ev] (swap! match-traces conj ev)))
+              ((requiring-resolve 're-frame.ssr/verify-hydration!)
+                client-frame client-hash-1)
+              (rf/remove-trace-cb! ::match)
+              (is (= server-hash client-hash-1)
+                  "first client render hashes identically to the server hash")
+              (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
+                            @match-traces)
+                  "no :rf.ssr/hydration-mismatch trace when hashes agree"))
+
+            ;; (7) Mutate the hydrated app-db; re-render; hash differs;
+            ;;     verify-hydration! emits the mismatch trace.
+            (rf/reg-event-db :articles/append
+              (fn [db [_ extra]]
+                (update db :articles conj extra)))
+            (rf/dispatch-sync [:articles/append
+                               {:id "c" :title "Article C" :body "Body C"}]
+                              {:frame client-frame})
+
+            (let [client-hash-2   (rf/render-tree-hash
+                                     (resolve-tree client-frame render-tree))
+                  mismatch-traces (atom [])]
+              (rf/register-trace-cb! ::mismatch (fn [ev] (swap! mismatch-traces conj ev)))
+              ((requiring-resolve 're-frame.ssr/verify-hydration!)
+                client-frame client-hash-2)
+              (rf/remove-trace-cb! ::mismatch)
+
+              (is (not= server-hash client-hash-2)
+                  "mutating the hydrated db changes the render hash")
+              (is (some (fn [ev]
+                          (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                               (= :error (:op-type ev))
+                               (= server-hash    (:server-hash (:tags ev)))
+                               (= client-hash-2  (:client-hash (:tags ev)))
+                               (= :warned-and-replaced (:recovery ev))))
+                        @mismatch-traces)
+                  (str "expected :rf.ssr/hydration-mismatch trace; saw: "
+                       (pr-str (mapv :operation @mismatch-traces)))))))))))
+
+;; ===========================================================================
+;; ssr-set-status-precedence — last write wins; warn on multi-set
+;; ===========================================================================
+;;
+;; Per Spec 011 §Multiple-status policy: two :rf.server/set-status fx in a
+;; single drain → last write wins AND a :rf.warning/multiple-status-set trace
+;; fires. The runtime doesn't yet register :rf.server/set-status (rf2-8pif);
+;; we register a user-level reg-fx that mirrors the spec'd accumulator
+;; contract so the test pins the protocol shape.
+
+(defn- install-server-fx!
+  "User-space stand-ins for the spec'd :rf.server/* fx (per rf2-8pif).
+  All writes target a per-frame :rf.server/response accumulator in app-db
+  — the host adapter consumes that key after the drain to build the wire
+  response. Replace these with native runtime registrations once rf2-8pif
+  lands."
+  []
+  (let [response-writes (atom {})]                                      ;; per-frame {:status [...] :cookies [...] :redirect [...]}
+
+    (rf/reg-fx :rf.server/set-status
+      {:platforms #{:server}}
+      (fn [{:keys [frame]} status]
+        (swap! response-writes update-in [frame :status] (fnil conj []) status)
+        (let [writes (get-in @response-writes [frame :status])]
+          (when (> (count writes) 1)
+            (rf/emit-trace! :warning :rf.warning/multiple-status-set
+                            {:writes        writes
+                             :final-status  (last writes)
+                             :frame         frame
+                             :recovery      :warned-and-replaced})))))
+
+    (rf/reg-fx :rf.server/set-cookie
+      {:platforms #{:server}}
+      (fn [{:keys [frame]} cookie-map]
+        (swap! response-writes update-in [frame :cookies] (fnil conj []) cookie-map)))
+
+    (rf/reg-fx :rf.server/redirect
+      {:platforms #{:server}}
+      (fn [{:keys [frame]} redirect-map]
+        (let [normalised (-> redirect-map
+                             (update :status #(or % 302)))]
+          (swap! response-writes assoc-in [frame :redirect] normalised))))
+
+    response-writes))
+
+(deftest ssr-set-status-precedence
+  (testing "two :rf.server/set-status fx → last write wins + :rf.warning/multiple-status-set"
+    (let [writes (install-server-fx!)
+          traces (atom [])]
+      (rf/reg-event-fx :auth/forbid
+        (fn [_ _]
+          {:fx [[:rf.server/set-status 401]
+                [:rf.server/set-status 403]]}))                          ;; second write replaces
+
+      (let [f (rf/make-frame {:platform :server})]
+        (rf/register-trace-cb! ::status (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:auth/forbid] {:frame f})
+        (rf/remove-trace-cb! ::status)
+
+        (let [recorded (get-in @writes [f :status])]
+          (is (= [401 403] recorded)
+              "both writes recorded in source order")
+          (is (= 403 (last recorded))
+              "last write wins — the response status is 403"))
+
+        (is (some (fn [ev]
+                    (and (= :rf.warning/multiple-status-set (:operation ev))
+                         (= [401 403] (:writes (:tags ev)))
+                         (= 403       (:final-status (:tags ev)))
+                         (= :warned-and-replaced (:recovery ev))))
+                  @traces)
+            (str "expected :rf.warning/multiple-status-set trace; saw: "
+                 (pr-str (mapv :operation @traces))))))))
+
+;; ===========================================================================
+;; ssr-multi-cookie — multiple set-cookie fxs accumulate as STRUCTURED MAPS
+;; ===========================================================================
+
+(deftest ssr-multi-cookie
+  (testing "multiple :rf.server/set-cookie fxs accumulate; runtime stores structured maps not strings"
+    (let [writes (install-server-fx!)]
+      (rf/reg-event-fx :auth/establish
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie {:name      "session"
+                                        :value     "abc123"
+                                        :path      "/"
+                                        :http-only true
+                                        :secure    true
+                                        :same-site :lax}]
+                [:rf.server/set-cookie {:name    "csrf"
+                                        :value   "tok-xyz"
+                                        :path    "/"
+                                        :secure  true}]
+                [:rf.server/set-cookie {:name    "tracker"
+                                        :value   "off"
+                                        :max-age 0}]]}))
+
+      (let [f (rf/make-frame {:platform :server})]
+        (rf/dispatch-sync [:auth/establish] {:frame f})
+
+        (let [cookies (get-in @writes [f :cookies])]
+          (is (= 3 (count cookies))
+              "three cookies accumulated in :cookies")
+          ;; Lock: the runtime emits STRUCTURED MAPS — cookie-attribute
+          ;; serialisation (RFC 6265 wire form, attribute quoting) is the
+          ;; host adapter's job per Spec 011 §Cookie shape.
+          (is (every? map? cookies)
+              "every cookie is a structured map, not a serialised string")
+          (is (every? (fn [c] (every? string? [(:name c) (:value c)]))
+                      cookies)
+              "every cookie has :name and :value as strings")
+          (is (= "session" (-> cookies (nth 0) :name)))
+          (is (= "csrf"    (-> cookies (nth 1) :name)))
+          (is (= "tracker" (-> cookies (nth 2) :name)))
+          (is (= :lax (-> cookies (nth 0) :same-site))
+              ":same-site stays a keyword in the map; the adapter renders 'Lax'")
+          (is (true? (-> cookies (nth 0) :secure))
+              "boolean attrs stay booleans in the map")
+          (is (zero? (-> cookies (nth 2) :max-age))
+              "delete-marker semantics live in the map; not pre-serialised"))))))
+
+;; ===========================================================================
+;; ssr-redirect-short-circuits — :rf.server/redirect halts further rendering
+;; ===========================================================================
+
+(deftest ssr-redirect-short-circuits
+  (testing ":rf.server/redirect populates :redirect and the response payload omits HTML"
+    (let [writes (install-server-fx!)]
+      (rf/reg-event-fx :auth/check-session
+        (fn [_ _]
+          {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+
+      (let [f (rf/make-frame {:platform     :server
+                              :on-create    [:auth/check-session]})]
+        (let [redirect (get-in @writes [f :redirect])]
+          (is (= {:status 302 :location "/login"} redirect)
+              "the :redirect accumulator carries status + location"))
+
+        ;; The "host adapter" decision per Spec 011 §Redirect precedence:
+        ;; if :redirect is set, build a redirect-only response — no body,
+        ;; no hydration payload. We model that here as a small fn that
+        ;; mirrors what the host would do.
+        (let [response-of (fn [frame-id]
+                            (let [acc (get @writes frame-id)]
+                              (if-let [r (:redirect acc)]
+                                {:redirect r}
+                                {:status (or (last (:status acc)) 200)
+                                 :body   "<full-html-here>"})))
+              response    (response-of f)]
+          (is (= {:redirect {:status 302 :location "/login"}}
+                 response)
+              "redirect short-circuits — response carries :redirect only, no :body, no hydration payload")
+          (is (not (contains? response :body))
+              "no HTML body when redirected"))))
+
+    (testing "a redirect with default :status defaults to 302"
+      (let [writes (install-server-fx!)]
+        (rf/reg-event-fx :auth/check-no-status
+          (fn [_ _]
+            {:fx [[:rf.server/redirect {:location "/login"}]]}))
+        (let [f (rf/make-frame {:platform  :server
+                                :on-create [:auth/check-no-status]})]
+          (is (= 302 (get-in @writes [f :redirect :status]))
+              ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))))
+
+;; ===========================================================================
+;; ssr-head-hash-mismatch — head-model hash differs across server/client
+;; ===========================================================================
+;;
+;; Per Spec 011 §Mismatch detection — head: the head-model is hashed
+;; separately from the body so head/body mismatches can be reported with
+;; the right operation tag. The runtime today routes both through
+;; verify-hydration!; we surface a head-mismatch by tagging the
+;; :failing-id with :rf.ssr/head-mismatch — once rf2-8pif distinguishes
+;; head and body natively this can become :operation :head.
+
+(deftest ssr-head-hash-mismatch
+  (testing "verify-hydration! detects a head-hash mismatch and tags the trace as :head"
+    (let [verify-fn @(resolve 're-frame.ssr/verify-hydration!)
+          ;; Hydration payload carries the SERVER's head-hash.
+          ;; (We park it under :rf/render-hash because the runtime's
+          ;; current verify-hydration! reads server-hash from there;
+          ;; the head/body distinction lives in :failing-id below.)
+          payload   {:rf/version     1
+                     :rf/app-db      {:route {:id :route/article :params {:id "123"}}}
+                     :rf/render-hash "head-hash-server-A"}
+          traces    (atom [])
+          f         (rf/make-frame {:platform :client})]
+      (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
+      (is (= "head-hash-server-A"
+             (get-in (rf/get-frame-db f) [:rf/hydration :server-hash]))
+          ":rf/hydrate stashed the server's head-hash")
+
+      (rf/register-trace-cb! ::head (fn [ev] (swap! traces conj ev)))
+      ;; Client recomputes the head — yields a different hash.
+      (verify-fn f
+                 "head-hash-client-B"
+                 {:failing-id :rf.ssr/head-mismatch
+                  :first-diff-path [:head :title]})
+      (rf/remove-trace-cb! ::head)
+
+      (is (some (fn [ev]
+                  (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                       (= "head-hash-server-A" (:server-hash (:tags ev)))
+                       (= "head-hash-client-B" (:client-hash (:tags ev)))
+                       (= :rf.ssr/head-mismatch (:failing-id (:tags ev)))
+                       (= [:head :title] (:first-diff-path (:tags ev)))
+                       (= :warned-and-replaced (:recovery ev))))
+                @traces)
+          (str "expected head-mismatch trace; saw: "
+               (pr-str (mapv (juxt :operation #(:failing-id (:tags %))) @traces))))
+
+      ;; And the SAME hash on both sides → no trace.
+      (let [no-mismatch-traces (atom [])]
+        (rf/register-trace-cb! ::head-ok (fn [ev] (swap! no-mismatch-traces conj ev)))
+        (verify-fn f
+                   "head-hash-server-A"
+                   {:failing-id :rf.ssr/head-mismatch})
+        (rf/remove-trace-cb! ::head-ok)
+        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
+                      @no-mismatch-traces)
+            "no head-mismatch trace when client and server hashes agree")))))
