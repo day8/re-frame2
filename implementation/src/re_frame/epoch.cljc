@@ -271,31 +271,36 @@
 (defn- project-effects
   "Walk the captured trace events and build the `:effects` vector.
 
-  The runtime emits a per-fx trace only on warning/error paths
-  (skipped-on-platform / fx-handler-exception / no-such-fx). Successful
-  fx execution is observable only as the wrapper :event/do-fx trace.
-  This projection therefore captures the *visible* outcomes:
+  Per Spec-Schemas §`:rf/epoch-record` `:effects`: every dispatched fx
+  surfaces one entry, regardless of outcome:
 
+    :fx :rf.fx/handled                    → :outcome :ok
     :warning :rf.fx/skipped-on-platform   → :outcome :skipped-on-platform
     :error :rf.error/fx-handler-exception → :outcome :error
     :error :rf.error/no-such-fx           → :outcome :error
 
-  `:ok` outcomes are not emitted as separate per-fx traces by the
-  runtime today; tools needing successful-fx attribution should
-  consume the raw trace stream alongside this projection. Documented
-  asymmetry; closing this gap is a parallel bead."
+  The runtime emits exactly one of these per dispatched fx (see
+  `re-frame.fx/handle-one-fx`), so the projection is one-entry-per-fx
+  with no double-counting. `:error-trace` (when present) references
+  the corresponding error trace event by `:id`."
   [events]
   (into []
         (comp
           (filter (fn [ev]
                     (let [op (:operation ev)]
-                      (or (= :rf.fx/skipped-on-platform op)
+                      (or (= :rf.fx/handled op)
+                          (= :rf.fx/skipped-on-platform op)
                           (= :rf.error/fx-handler-exception op)
                           (= :rf.error/no-such-fx op)))))
           (map (fn [ev]
                  (let [op (:operation ev)
                        t  (:tags ev)]
                    (cond
+                     (= :rf.fx/handled op)
+                     {:fx-id   (:fx-id t)
+                      :args    (:fx-args t)
+                      :outcome :ok}
+
                      (= :rf.fx/skipped-on-platform op)
                      {:fx-id   (:fx-id t)
                       :args    (:fx-args t)
