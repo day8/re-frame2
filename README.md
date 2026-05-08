@@ -6,9 +6,7 @@
 
 ## What Is It?
 
-It is the firstborn child of [re-frame](https://github.com/day8/re-frame) and AI.
-
-It is a pattern for building web apps (specifically SPAs), probably in ClojureScript.
+It is a **[re-frame](https://github.com/day8/re-frame) first** and **AI first** pattern for building web apps (specifically SPAs), probably in ClojureScript.
 
 ## Status
 
@@ -20,31 +18,33 @@ I'm interested in constructive feedback if you have the time.
 
 ## AI First
 
-re-frame2 is AI-first and that decision permeates. Now, the artisanal craftsman in you might find this offensive, and as someone who has agonised endlessly over the human ergonomics of my code and UIs, I get it. But that time has passed. All that matters now is AI ergonomics.
+re-frame2 is AI-first and that permeates every decision. Now, the artisanal craftsman in you might find this offensive, and as someone who has agonised endlessly over the human ergonomics of my code and UIs, I get it. But that time has passed. All that matters now is AI ergonomics.
 
-This manifests in various ways, for example: 
+Some of the ways this manifests: 
 
-**1. One-shot-able.** The spec in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe even in a variety of host languages.
+**1. One-shot-able.** The pattern specification in this repo is intended to be **sufficiently complete that an AI can one-shot the implementation** — and maybe even in a variety of host languages.
 
-The implication: **if you don't like this specification, change it, and one-shot your own framework.** Roll your own. The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that. What a time to be alive.
+The implication: **if you don't like this specification, change it, and one-shot your own framework.** Roll your own. The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that.
 
 The further implication is that value has moved up the chain. The value of code is now $0. All the value is in the specification.
 
 **2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
-**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a [migration prompt](docs/specification/MIGRATION.md) — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent.
+**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a complete [migration prompt](docs/specification/MIGRATION.md) which you can use to convert your code base — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent. And to the Clojureists reading, I apologise for the breakage - it hurts my soul too. Please, please don't tell Mr Hickey.
 
 
 
-## Why re-frame2?
+## re-frame First
 
-**Because its computational model is so simple**. A 6 domino cascade. Everything is data driven. Events are causal. Effects are isolated. Views are purely reactive and they stay where they belong: at the end of the data flow, not at its centre. All state in the one place — immutable.
+re-frame was created in late 2014 and I believe, over 10 years later, that it is still a state-of-the-art pattern for SPA development.  
 
-There are no side channels, no async backdoors, no hooks dependency-array decisions. The computational model is small enough to fit in your head — and the things that don't fit (state machines, async effects, SSR) inherit the same shape rather than escaping it.
+Why?  **Because it embodies a very simple computational model that scales**. A 6 domino cascade. Everything is data driven. Data is immutable. Events are causal. Effects are isolated. Views are purely reactive and, critically, they stay where they belong: at the end of the data flow, not at its centre. And, all state in the one place. 
 
-**~10 years of staying still on purpose.** The original re-frame has powered production ClojureScript SPAs since 2015. Across that span, half a dozen "new" state-management patterns have churned through the JS world — Redux, MobX, Zustand, Recoil, Jotai, signals, server components — and each iteration has crept toward the ground re-frame already stood on. (The notable exception is xstate, from which we have drawn inspiration.) Imagine your team's productivity if you didn't have to contend with technical churn, and have new magic burn your fingers every two years.
+I can't tell you what an advantage it is to have a boringly predictable, data oriented, simple computational model. re-frame has no side channels, no async backdoors, no hooks dependency-array decisions. The computational model is deliberately trivial. My language might be Turing complete, but I don't want my library to be Turing complete. And every higher order concept (state machines, async effects, SSR) inherit the same shape rather than escaping it.
 
-**Lisp's quiet advantage.** Alan Kay once described Lisp as "Maxwell's equations of software." Paul Graham described how Lisp was a competitive advantage at Viaweb. re-frame leverages 50 years of foliated excellence from the very best minds available, and a thriving ClojureScript community alongside it.
+**~10 years of staying still on purpose.** Across the last 10 years, half a dozen "new" state-management patterns have churned through the JS world — Redux, MobX, Zustand, Recoil, Jotai, signals, server components — and each iteration has crept toward the ground re-frame already stands on. (The notable exception is xstate, from which I have drawn inspiration.) Imagine your team's productivity if you didn't have to contend with technical churn, and have new magic burn your fingers every two years.
+
+**Lisp's quiet advantage.** re-frame was born out of Clojure's ethos, and Clojure is a Modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software." Paul Graham described how Lisp was a competitive advantage. re-frame leverages 50 years of foliated excellence from the very best minds available, and a thriving ClojureScript community alongside it.
 
 ## What's New?
 
@@ -52,12 +52,11 @@ Coming from v1 of re-frame? Here's what's new. There's quite a bit.
 
 | Addition | What it is | Owning Spec |
 |---|---|---|
-| **Frames** | Multi-instance support — same handlers, isolated state. Devcards, story tools, per-request SSR, multi-window UIs. | [002-Frames](docs/specification/002-Frames.md) |
+| **Frames** | Multi-instance support — same handlers, isolated state. Unit tests, Story tooling, per-request SSR, multi-window UIs. | [002-Frames](docs/specification/002-Frames.md) |
 | **State machines** | Transition-table grammar, hierarchical states, `:always` microsteps, declarative `:invoke`. xstate-flavoured but headlessly testable. | [005-StateMachines](docs/specification/005-StateMachines.md) |
-| **AI-first stance** | Every registration carries metadata; the registry is queryable; errors are structured; the spec ships with construction prompts and a conformance corpus. | [Construction-Prompts](docs/specification/Construction-Prompts.md), [Spec-Schemas](docs/specification/Spec-Schemas.md), [conformance/](docs/specification/conformance/) |
 | **First-class SSR** | Server frame lifecycle, pure hiccup → HTML emitter (JVM-runnable), hydration with structural hash mismatch detection. | [011-SSR](docs/specification/011-SSR.md) |
 | **Routing as state** | URL ↔ frame state contract. Routes are registry entries; navigation is an event; `:route` is a sub. Same handler runs server- and client-side. | [012-Routing](docs/specification/012-Routing.md) |
-| **AI-oriented instrumentation and tracing** | Every dispatch, render, fx, error, and machine transition emits a structured trace event — data, not log strings. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely. | [009-Instrumentation](docs/specification/009-Instrumentation.md) |
+| **Deep instrumentation and tracing** | Every dispatch, render, fx, error, and machine transition emits a structured trace event — data, not log strings. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely. | [009-Instrumentation](docs/specification/009-Instrumentation.md) |
 
 What re-frame2 *keeps*: the same six dominoes, the same single source of truth, the same preference for data over APIs over syntax. If you've used re-frame v1, re-frame2 code reads on the first pass.
 
