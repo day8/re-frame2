@@ -23,6 +23,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
+            [re-frame.http-managed :as http-managed]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -522,6 +523,22 @@
 (def restore-epoch     epoch/restore-epoch)
 (def register-epoch-cb epoch/register-epoch-cb!)
 (def remove-epoch-cb   epoch/remove-epoch-cb!)
+
+;; ---- Spec 014 — :rf.http/managed -----------------------------------------
+;;
+;; The `:rf.http/managed` family is registered at re-frame.http-managed
+;; ns-load time (per Spec 014 §Implementation status). User code reaches
+;; the test-time helpers through this ns.
+
+(def install-managed-request-stubs!   http-managed/install-managed-request-stubs!)
+(def uninstall-managed-request-stubs! http-managed/uninstall-managed-request-stubs!)
+(def with-managed-request-stubs*      http-managed/with-managed-request-stubs*)
+#?(:clj
+   (defmacro with-managed-request-stubs
+     "Spec 014 §Testing — install stubs, run body, uninstall. `stubs` is
+     `{[method url] {:reply <:ok|:failure>}}`."
+     [stubs & body]
+     `(http-managed/with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
 (defn configure
   "Configure a runtime knob. Closed v1 keys (additive across versions

@@ -1,0 +1,65 @@
+;; Conformance fixture: rf.http.managed/post-json
+;;
+;; Per Spec 014 §Body encoding and §Request envelope. A POST with a Clojure
+;; collection body and `:request-content-type :json` — the fx serialises the
+;; body and sets `Content-Type: application/json`. The reply, synthesised by
+;; the canned-success stub, lands at the explicit `:on-success` target.
+
+{:fixture/id           :rf.http.managed/post-json
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "POST /auth/login with a Clojure-map body and :request-content-type :json. The :rf.http/managed args are routed to the canned-success stub by :fx-overrides; the synthesised reply dispatches :auth/login-success."
+
+ :fixture/registry
+ {:event {:auth/login         {:doc "Issue the POST."}
+          :auth/login-success {:doc "Receive the success payload."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:auth/login
+   [[:fx [[:rf.http/managed
+           {:request {:method :post
+                      :url    "/auth/login"
+                      :body   {:user "alice" :password "wonderland"}
+                      :request-content-type :json}
+            :decode  :json
+            :on-success [:auth/login-success]}]]]]
+
+   :auth/login-success
+   [[:set [:auth] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-success
+   [[:dispatch [:auth/login-success {:kind  :success
+                                     :value {:token "tok-1" :user-id "u-1"}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:auth/login]]
+
+ :fixture/expect
+ {:final-app-db
+  {:auth {:kind  :success
+          :value {:token "tok-1" :user-id "u-1"}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :auth/login}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-success}}
+   {:operation :event :tags {:event-id :auth/login-success}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-success
+    :args  {:request    {:method :post
+                         :url    "/auth/login"
+                         :body   {:user "alice" :password "wonderland"}
+                         :request-content-type :json}
+            :decode     :json
+            :on-success [:auth/login-success]}}]}}

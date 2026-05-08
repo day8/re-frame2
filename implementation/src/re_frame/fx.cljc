@@ -84,8 +84,13 @@
   "Process one [fx-id args] pair. Falls into one of three buckets:
    1. Reserved fx-id with runtime handling (:dispatch, :dispatch-later, :rf.fx/...).
    2. User-registered fx looked up via registrar.
-   3. Unknown fx-id — emit :rf.error/no-such-fx and continue."
-  [frame-id [original-fx-id args] active-platform overrides]
+   3. Unknown fx-id — emit :rf.error/no-such-fx and continue.
+
+  `origin-event` (when supplied) is the originating event vector, threaded
+  through to the user-registered fx handler's ctx so handlers like
+  `:rf.http/managed` (Spec 014 §Reply addressing) can address replies back
+  to the originator without a separate cofx-injection step."
+  [frame-id [original-fx-id args] active-platform overrides origin-event]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)]
    (case fx-id
     :dispatch
@@ -134,7 +139,9 @@
     (if-let [meta (registrar/lookup :fx fx-id)]
       (if (fx-runs-on-platform? meta active-platform)
         (try
-          ((:handler-fn meta) {:frame frame-id} args)
+          ((:handler-fn meta) (cond-> {:frame frame-id}
+                                origin-event (assoc :event origin-event))
+                              args)
           (catch #?(:clj Throwable :cljs :default) e
             (let [msg (#?(:clj .getMessage :cljs .-message) e)]
               (trace/emit-error! :rf.error/fx-handler-exception
@@ -164,11 +171,18 @@
 
   Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
   may be provided. Each [fx-id args] is rewritten through that map
-  before lookup."
+  before lookup.
+
+  The optional 5-arity passes the originating event vector through to
+  user-registered fx handlers as `:event` on their ctx — needed by Spec
+  014 §Reply addressing (the fx captures the originating event-id from
+  the dispatch envelope's cofx)."
   ([frame-id fx-vec active-platform]
-   (do-fx frame-id fx-vec active-platform {}))
+   (do-fx frame-id fx-vec active-platform {} nil))
   ([frame-id fx-vec active-platform overrides]
+   (do-fx frame-id fx-vec active-platform overrides nil))
+  ([frame-id fx-vec active-platform overrides origin-event]
    (doseq [pair fx-vec]
      (when (and (vector? pair) (seq pair))
-       (handle-one-fx frame-id pair active-platform overrides)))
+       (handle-one-fx frame-id pair active-platform overrides origin-event)))
    (trace/emit! :event :event/do-fx {:frame frame-id})))

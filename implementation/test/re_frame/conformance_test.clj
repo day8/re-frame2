@@ -22,7 +22,13 @@
             [re-frame.flows :as flows]
             [re-frame.subs :as subs]
             [re-frame.trace :as trace]
-            [re-frame.conformance :as conformance]))
+            [re-frame.conformance :as conformance]
+            ;; Spec 014 — :rf.http/managed registers at ns-load time. The
+            ;; fixture corpus references the fx (often via :fx-overrides
+            ;; redirecting to its canned stubs); requiring here gives the
+            ;; runner access to the fx without each fixture re-registering
+            ;; it itself.
+            [re-frame.http-managed]))
 
 ;; ---- claimed capability set -----------------------------------------------
 
@@ -60,7 +66,9 @@
     :flow/topo
     :flow/dirty-check
     :flow/toggle
-    :flow/hot-reload})
+    :flow/hot-reload
+    ;; Spec 014 — :rf.http/managed (rf2-z1mw)
+    :rf.http/managed})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -108,11 +116,15 @@
   ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
+  ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
+  (require 're-frame.http-managed :reload)
   ;; Reset id-allocators so nav-token / pending-nav / rank-reg / spawn ids
   ;; are stable across runs (the routing/machine fixtures assert against
   ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
   ((requiring-resolve 're-frame.routing/reset-counters!))
-  ((requiring-resolve 're-frame.machines/reset-counters!)))
+  ((requiring-resolve 're-frame.machines/reset-counters!))
+  ;; Spec 014 — drop the in-flight request registry between fixtures.
+  ((requiring-resolve 're-frame.http-managed/clear-all-in-flight!)))
 
 ;; ---- fixture execution ----------------------------------------------------
 
