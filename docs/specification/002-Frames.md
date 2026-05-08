@@ -624,6 +624,8 @@ Implementation skeleton (Reagent flavour):
 
 A missing or `nil` `:frame` falls through to `:rf/default` — matches the no-provider case (defensive default). An explicit `(rf/frame-provider {} ...)` is therefore equivalent to no provider at all; tooling-generated trees that elide the prop don't blow up.
 
+`rf/frame-provider` is the canonical user-facing API (rf2-41la); the lower-level `re-frame.views/build-frame-provider` factory remains as the **substrate hook** (per [Spec 006 §`(register-context-provider frame-keyword)`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)) — adapter implementors register a context-provider component through it, and `rf/frame-provider` delegates to whatever the active adapter returned.
+
 Other rendering substrates (UIx, Helix) use the same shape with their context primitive — adapter-style. Other-language ports realise this differently: a hooks-style `useFrame()` in TS, an explicit `Frame` parameter in Python, dependency injection in Kotlin. The *contract* — every view targets a specific frame — survives all of these; the *mechanism* is host-specific. See [000-Vision §The pattern](000-Vision.md#the-pattern-language-agnostic) and the View Ergonomics top-of-section banner above.
 
 ## REPL and test ergonomics
