@@ -10,7 +10,7 @@
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
-  (:require-macros [re-frame.views-macros :refer [with-frame bound-fn h reg-view]]))
+  (:require-macros [re-frame.views-macros :refer [with-frame bound-fn reg-view]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework
@@ -96,21 +96,6 @@
     ;; The defn-shape sym is bound to a fn — usable as a hiccup head.
     (is (fn? my-widget)
         "the macro defined the supplied symbol as a fn")))
-
-;; ---- h macro ----------------------------------------------------------------
-
-(deftest h-rewrites-namespaced-view-keys
-  (testing "h rewrites [:my-ns/widget args] but leaves DOM tags alone"
-    ;; Bare keyword heads (DOM tags) pass through unchanged.
-    (is (= [:div [:p "hi"]] (h [:div [:p "hi"]]))
-        "DOM tag heads pass through unchanged")
-    ;; A keyword in a namespace IS treated as a view reference.
-    (reg-view ^{:rf/id :my-ns/widget} h-test-widget [n] [:span "w-" n])
-    (let [tree (h [:my-ns/widget 7])]
-      (is (fn? (first tree))
-          "namespaced keyword head was rewritten to a fn")
-      (is (= [:span "w-" 7] ((first tree) 7))
-          "the rewritten fn produces the registered view's output"))))
 
 ;; ---- frame isolation ------------------------------------------------------
 
