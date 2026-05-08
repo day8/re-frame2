@@ -1,7 +1,7 @@
 # Implementor's Checklist
 
 > **Type:** Reference / Companion
-> A consolidated decision list for porting re-frame2 to a new host language. The checklist is the structured form of [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone): an AI armed with `/docs/specification/` plus this checklist plus the [conformance corpus](conformance/README.md) should be able to produce a working v1 implementation in any host without consulting outside sources.
+> A consolidated decision list for porting re-frame2 to a new host language. The checklist is the structured form of [Goal 2 — AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone): an AI armed with `/spec/` plus this checklist plus the [conformance corpus](conformance/README.md) should be able to produce a working v1 implementation in any host without consulting outside sources.
 
 The checklist is in three parts:
 

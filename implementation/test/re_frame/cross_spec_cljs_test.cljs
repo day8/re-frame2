@@ -1,6 +1,6 @@
 (ns re-frame.cross-spec-cljs-test
   "Cross-Spec interaction edge cases. One deftest per documented case in
-  docs/specification/Cross-Spec-Interactions.md.
+  spec/Cross-Spec-Interactions.md.
 
   Each deftest's docstring carries the section anchor from the doc; if a
   case requires a real DOM / browser harness it is left as a placeholder
@@ -36,7 +36,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 1 — Frame disposal with active machine instances
-;; docs/specification/Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances
+;; spec/Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances
 ;; ---------------------------------------------------------------------------
 
 (deftest frame-destroy-with-active-machines
@@ -66,7 +66,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 2 — Sub-cache hit inside a machine microstep
-;; docs/specification/Cross-Spec-Interactions.md#2-sub-cache-hit-inside-a-machine-microstep
+;; spec/Cross-Spec-Interactions.md#2-sub-cache-hit-inside-a-machine-microstep
 ;; ---------------------------------------------------------------------------
 
 (deftest machine-microstep-subscribe
@@ -96,7 +96,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 3 — Machine spawn at boot before substrate adapter ready
-;; docs/specification/Cross-Spec-Interactions.md#3-machine-spawn-at-boot-before-substrate-adapter-ready
+;; spec/Cross-Spec-Interactions.md#3-machine-spawn-at-boot-before-substrate-adapter-ready
 ;; ---------------------------------------------------------------------------
 
 (deftest boot-order-adapter-ready
@@ -115,7 +115,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 4 — Machines under SSR (allowed-subset)
-;; docs/specification/Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset
+;; spec/Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset
 ;; ---------------------------------------------------------------------------
 
 (deftest after-noop-shape-under-ssr-server-preset
@@ -134,7 +134,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 5 — Hydration with machine snapshots
-;; docs/specification/Cross-Spec-Interactions.md#5-hydration-with-machine-snapshots
+;; spec/Cross-Spec-Interactions.md#5-hydration-with-machine-snapshots
 ;; ---------------------------------------------------------------------------
 
 (deftest ssr-hydrate-with-machines
@@ -158,7 +158,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 6 — Routing in SSR
-;; docs/specification/Cross-Spec-Interactions.md#6-routing-in-ssr
+;; spec/Cross-Spec-Interactions.md#6-routing-in-ssr
 ;; ---------------------------------------------------------------------------
 
 (deftest routing-in-ssr-nav-fx-skipped-on-server
@@ -190,7 +190,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 7 — Route-not-found under SSR
-;; docs/specification/Cross-Spec-Interactions.md#7-route-not-found-under-ssr
+;; spec/Cross-Spec-Interactions.md#7-route-not-found-under-ssr
 ;; ---------------------------------------------------------------------------
 
 (deftest route-not-found-ssr-status
@@ -212,7 +212,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 8 — Frame disposal during render
-;; docs/specification/Cross-Spec-Interactions.md#8-frame-disposal-during-render
+;; spec/Cross-Spec-Interactions.md#8-frame-disposal-during-render
 ;; ---------------------------------------------------------------------------
 
 (deftest frame-destroy-during-render-placeholder
@@ -225,7 +225,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 9 — Reactive substrate without React-context
-;; docs/specification/Cross-Spec-Interactions.md#9-reactive-substrate-without-react-context
+;; spec/Cross-Spec-Interactions.md#9-reactive-substrate-without-react-context
 ;; ---------------------------------------------------------------------------
 
 (deftest headless-explicit-frame-resolution-chain
@@ -247,7 +247,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 10 — Plain Reagent fn under a non-default frame
-;; docs/specification/Cross-Spec-Interactions.md#10-plain-reagent-fn-under-a-non-default-frame
+;; spec/Cross-Spec-Interactions.md#10-plain-reagent-fn-under-a-non-default-frame
 ;; ---------------------------------------------------------------------------
 
 (deftest plain-fn-under-non-default-frame-placeholder
@@ -261,7 +261,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 11 — Machine action throws
-;; docs/specification/Cross-Spec-Interactions.md#11-machine-action-throws
+;; spec/Cross-Spec-Interactions.md#11-machine-action-throws
 ;; ---------------------------------------------------------------------------
 
 (deftest machine-action-throws
@@ -302,7 +302,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 12 — Effect handler throws inside a machine action's :fx
-;; docs/specification/Cross-Spec-Interactions.md#12-effect-handler-throws-inside-a-machine-actions-fx
+;; spec/Cross-Spec-Interactions.md#12-effect-handler-throws-inside-a-machine-actions-fx
 ;; ---------------------------------------------------------------------------
 
 (deftest machine-fx-handler-throws
@@ -336,7 +336,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 13 — Hot-reload of a machine action while instance is running
-;; docs/specification/Cross-Spec-Interactions.md#13-hot-reload-of-a-machine-action-while-instance-is-running
+;; spec/Cross-Spec-Interactions.md#13-hot-reload-of-a-machine-action-while-instance-is-running
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-machine-action
@@ -368,7 +368,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 14 — Re-entrant dispatch from inside a render
-;; docs/specification/Cross-Spec-Interactions.md#14-re-entrant-dispatch-from-inside-a-render
+;; spec/Cross-Spec-Interactions.md#14-re-entrant-dispatch-from-inside-a-render
 ;; ---------------------------------------------------------------------------
 
 (deftest dispatch-sync-from-handler-raises
@@ -392,7 +392,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 15 — Re-spawning a machine instance via Tool-Pair
-;; docs/specification/Cross-Spec-Interactions.md#15-re-spawning-a-machine-instance-via-tool-pair
+;; spec/Cross-Spec-Interactions.md#15-re-spawning-a-machine-instance-via-tool-pair
 ;; ---------------------------------------------------------------------------
 
 (deftest time-travel-revert
@@ -427,7 +427,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 16 — Error projection on the server
-;; docs/specification/Cross-Spec-Interactions.md#16-error-projection-on-the-server
+;; spec/Cross-Spec-Interactions.md#16-error-projection-on-the-server
 ;; ---------------------------------------------------------------------------
 
 (deftest server-error-projection-shape
@@ -453,7 +453,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 17 — Machine error inside SSR
-;; docs/specification/Cross-Spec-Interactions.md#17-machine-error-inside-ssr
+;; spec/Cross-Spec-Interactions.md#17-machine-error-inside-ssr
 ;; ---------------------------------------------------------------------------
 
 (deftest ssr-machine-error
@@ -490,7 +490,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 18 — Re-registering a sub mid-cascade
-;; docs/specification/Cross-Spec-Interactions.md#18-re-registering-a-sub-mid-cascade
+;; spec/Cross-Spec-Interactions.md#18-re-registering-a-sub-mid-cascade
 ;; ---------------------------------------------------------------------------
 
 (deftest hot-reload-sub-mid-cascade
@@ -513,7 +513,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 19 — Story decorators that override fx
-;; docs/specification/Cross-Spec-Interactions.md#19-story-decorators-that-override-fx
+;; spec/Cross-Spec-Interactions.md#19-story-decorators-that-override-fx
 ;; ---------------------------------------------------------------------------
 
 (deftest portable-story-fx-override
@@ -532,7 +532,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 20 — Adapter swap mid-process is forbidden
-;; docs/specification/Cross-Spec-Interactions.md#20-adapter-swap-mid-process-is-forbidden
+;; spec/Cross-Spec-Interactions.md#20-adapter-swap-mid-process-is-forbidden
 ;; ---------------------------------------------------------------------------
 
 (deftest adapter-already-installed

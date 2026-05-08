@@ -5,7 +5,7 @@
 
 ## Scope
 
-This audit grades every artefact in `docs/specification/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
+This audit grades every artefact in `spec/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
 
 - **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications. Specs 001 (Registration), 006 (ReactiveSubstrate), and 007 (Stories) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
 - **Spec-Schemas** — the spec's own runtime-shape catalogue.
@@ -200,7 +200,7 @@ Worked-example check: `examples/realworld/auth.cljs` (test fixture frames) shoul
 
 ## Cross-cutting goal: AI-implementable from the spec alone
 
-[000-Vision §AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone) (Goal 2) is the meta-property that grades the spec corpus's *completeness* — can an AI build v1 from `/docs/specification/` alone? Audit dimension: **spec self-containedness** — every spec must be readable without consulting re-frame v1 source, and every shape on the wire must be schema'd.
+[000-Vision §AI-implementable from the spec alone](000-Vision.md#ai-implementable-from-the-spec-alone) (Goal 2) is the meta-property that grades the spec corpus's *completeness* — can an AI build v1 from `/spec/` alone? Audit dimension: **spec self-containedness** — every spec must be readable without consulting re-frame v1 source, and every shape on the wire must be schema'd.
 
 | Spec | Score | Notes |
 |---|---|---|

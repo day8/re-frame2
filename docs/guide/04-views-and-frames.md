@@ -129,7 +129,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :app/main            {:preset :default})  ;; same as omitting :preset
 ```
 
-Each preset expands at registration time into a fixed bundle — `:test` adds `:platforms #{:test}` and trace-collection options; `:story` adds `:platforms #{:story :client}` and the story-instrumentation hooks; `:ssr-server` flips `:platforms` to `#{:server}` and locks down browser-only fxs. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../specification/002-Frames.md#frame-presets--capability-bundles-for-common-configurations).
+Each preset expands at registration time into a fixed bundle — `:test` adds `:platforms #{:test}` and trace-collection options; `:story` adds `:platforms #{:story :client}` and the story-instrumentation hooks; `:ssr-server` flips `:platforms` to `#{:server}` and locks down browser-only fxs. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets--capability-bundles-for-common-configurations).
 
 This matters because the call site now declares its intent — "this is a test frame" — and tooling (test runners, story runners, SSR adapters) reads that declaration without inferring it from the surrounding code.
 
@@ -184,7 +184,7 @@ A top-level key per *feature*. Each feature owns its own slice. No feature reach
 
 This **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...` and `:cart.item/...`; subs that read the cart's slice live under `:cart/items`, `:cart/total`; views live under `:cart/summary`. The whole feature is identifiable by its prefix. Adding or removing a feature is a `git mv` away from being a single coherent unit.
 
-For complex schemas, [Spec 010](../specification/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev. We'll see this in [chapter 06](06-server-side.md) when SSR enters the picture.
+For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev. We'll see this in [chapter 06](06-server-side.md) when SSR enters the picture.
 
 ### Computed values as state — the flow escape hatch
 
@@ -206,13 +206,13 @@ That's what **flows** are for. A flow is a registered rule: "when these `app-db`
    :path   [:area]})
 ```
 
-Flows are deliberately a **niche convenience**, not a sub replacement. Most derived values are still subs — flows pay an `app-db` write per recomputation, and they're only worth that cost when the derived value is genuinely part of the application's state. A typical re-frame2 app has dozens of subs and one or two flows. Full contract: [Spec 013](../specification/013-Flows.md).
+Flows are deliberately a **niche convenience**, not a sub replacement. Most derived values are still subs — flows pay an `app-db` write per recomputation, and they're only worth that cost when the derived value is genuinely part of the application's state. A typical re-frame2 app has dozens of subs and one or two flows. Full contract: [Spec 013](../../spec/013-Flows.md).
 
 ### Routing as state
 
 A specific case of "feature-as-slice" worth flagging: **routing**. The current route lives in `app-db` at `:route` — a small map of `{:id :params :query :fragment :transition :nav-token}`. Navigation is an event (`:rf.route/navigate`); URL changes are events (`:rf.route/handle-url-change`); the active route is a sub. There's no separate routing runtime, no route-aware components, no "route context" — it's just data that happens to be reflected in the address bar.
 
-The substrate gives you a few things you'd otherwise hand-roll: a deterministic ranking algorithm (so `/users/me` and `/users/:id` always agree on which one wins), per-navigation tokens that ride through async work and let stale results suppress themselves cleanly, fragments as a first-class part of the route slice, and `:can-leave` guards that pause navigation through `:rf/pending-navigation` so the user can confirm or cancel an "unsaved changes?" prompt. The full contract is in [Spec 012](../specification/012-Routing.md). For this chapter, the load-bearing fact is just: routing is one more slice of `app-db`, not a parallel system.
+The substrate gives you a few things you'd otherwise hand-roll: a deterministic ranking algorithm (so `/users/me` and `/users/:id` always agree on which one wins), per-navigation tokens that ride through async work and let stale results suppress themselves cleanly, fragments as a first-class part of the route slice, and `:can-leave` guards that pause navigation through `:rf/pending-navigation` so the user can confirm or cancel an "unsaved changes?" prompt. The full contract is in [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is just: routing is one more slice of `app-db`, not a parallel system.
 
 ## A small example: split counter
 

@@ -197,19 +197,19 @@ Once you've internalised events-as-data and effects-as-data, you start noticing 
 
 Each of these has been distilled into a **Pattern** doc — convention, not Spec, but canonical naming so codebases and AI scaffolds converge on one answer rather than re-deriving:
 
-- [Pattern-AsyncEffect](../specification/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
-- [Pattern-RemoteData](../specification/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice.
-- [Pattern-Forms](../specification/Pattern-Forms.md) — draft/submitted/status/errors as a standard slice.
-- [Pattern-Boot](../specification/Pattern-Boot.md) — chained init, progress UI, fail-fatal points.
-- [Pattern-WebSocket](../specification/Pattern-WebSocket.md) — long-lived connection as a state machine.
-- [Pattern-LongRunningWork](../specification/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
-- [Pattern-StaleDetection](../specification/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
+- [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
+- [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice.
+- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft/submitted/status/errors as a standard slice.
+- [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init, progress UI, fail-fatal points.
+- [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection as a state machine.
+- [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
+- [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
 
 The pattern docs are themselves human-readable — closer in voice to this guide than to the Specs. When the shape of a feature you're building matches one of them, read the pattern doc and copy the shape; don't invent a new one.
 
 ## A note on revertibility
 
-One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 2](../specification/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
+One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 2](../../spec/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
 
 ## A note on naming
 

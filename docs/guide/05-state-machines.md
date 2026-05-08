@@ -295,14 +295,14 @@ The shape above — flat states, plain `:on` transitions, `:entry` / `:exit` act
 - **Delayed `:after` transitions.** A state can declare "if no event arrives within N ms, transition to this state." Useful for retry-after-backoff, idle timeouts, debounce-shaped flows. Carries an epoch so cancelled timers don't fire late.
 - **Declarative `:invoke`.** A state can spawn a child machine on entry and destroy it on exit, declared as data rather than as `:entry [:spawn ...]` / `:exit [:destroy-machine ...]`. The child's lifecycle is bound to the parent state.
 
-Each of these is opt-in — implementations declare which capabilities they support, and the conformance corpus grades against the claimed set. The full grammar is in [Spec 005](../specification/005-StateMachines.md). The point of mentioning them here is that the model scales: when your machine grows, the substrate has well-named answers ready, and you don't end up smuggling state-machine logic into ordinary event handlers.
+Each of these is opt-in — implementations declare which capabilities they support, and the conformance corpus grades against the claimed set. The full grammar is in [Spec 005](../../spec/005-StateMachines.md). The point of mentioning them here is that the model scales: when your machine grows, the substrate has well-named answers ready, and you don't end up smuggling state-machine logic into ordinary event handlers.
 
 ## Patterns that bottom out in machines
 
 Two of the recurring shapes from [chapter 03](03-events-state-cycle.md) end up being state machines underneath:
 
-- [Pattern-WebSocket](../specification/Pattern-WebSocket.md) — a long-lived connection has phases (`:disconnected`, `:connecting`, `:connected`, `:reconnecting`, `:failed`), retry-with-backoff via `:after`, queued sends while disconnected, server-pushed events. The whole connection lifecycle is naturally a machine; messages flowing over an open connection are ordinary async-effect interactions.
-- [Pattern-Boot](../specification/Pattern-Boot.md) — multi-step initialisation with sequential dependencies, visible progress, fail-fatal points, and recoverable retry. For trivial boots a chained event sequence works; for non-trivial boots the canonical answer is a boot machine.
+- [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — a long-lived connection has phases (`:disconnected`, `:connecting`, `:connected`, `:reconnecting`, `:failed`), retry-with-backoff via `:after`, queued sends while disconnected, server-pushed events. The whole connection lifecycle is naturally a machine; messages flowing over an open connection are ordinary async-effect interactions.
+- [Pattern-Boot](../../spec/Pattern-Boot.md) — multi-step initialisation with sequential dependencies, visible progress, fail-fatal points, and recoverable retry. For trivial boots a chained event sequence works; for non-trivial boots the canonical answer is a boot machine.
 
 Both are pattern docs (convention), not Specs (contract). When the shape of a feature you're building is one of these, read the pattern doc and copy the shape.
 

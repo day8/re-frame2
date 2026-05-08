@@ -778,7 +778,7 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
    :path "/404"})
 ```
 
-**No need to register `:rf.route/navigate` or `:rf.route/handle-url-change` yourself** — the runtime ships them. Re-register only to override behaviour (e.g. add a guard interceptor; see [012 §Redirects and guards](../specification/012-Routing.md#redirects-and-guards)).
+**No need to register `:rf.route/navigate` or `:rf.route/handle-url-change` yourself** — the runtime ships them. Re-register only to override behaviour (e.g. add a guard interceptor; see [012 §Redirects and guards](012-Routing.md#redirects-and-guards)).
 
 **Template — `:on-match` data-loading event:**
 

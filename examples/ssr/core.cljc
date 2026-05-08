@@ -4,7 +4,7 @@
    server renders a 'recent articles' page; client hydrates and remains
    interactive.
 
-   Per [011-SSR.md](../../docs/specification/011-SSR.md): SSR is part of the target
+   Per [011-SSR.md](../../spec/011-SSR.md): SSR is part of the target
    architecture, not a future concession. View pure-fn requirement,
    id-valued override seam, hydration via :rf/hydrate.
 

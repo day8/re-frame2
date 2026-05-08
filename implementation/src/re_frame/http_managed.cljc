@@ -3,7 +3,7 @@
 
   A first-class managed HTTP request fx with built-in decoding,
   retry-with-backoff, abort, schema-driven decode, and reply-to-origin
-  dispatch. Per docs/specification/014-HTTPRequests.md.
+  dispatch. Per spec/014-HTTPRequests.md.
 
   ## Public surface (registered at ns-load)
 

@@ -1,5 +1,5 @@
 (ns re-frame.core
-  "Public API surface for re-frame2. Per docs/specification/API.md.
+  "Public API surface for re-frame2. Per spec/API.md.
 
   Users `(:require [re-frame.core :as rf])` and call `rf/dispatch`,
   `rf/reg-event-fx`, etc. Internal namespaces are not part of the

@@ -113,7 +113,7 @@ If you've used re-frame v1, the pattern above is mostly familiar. What re-frame2
 - **Schema-attached contracts** — Malli-backed path and payload schemas for events, routes, hydration payloads, and app-db slices. Better runtime diagnostics, migration safety, and stronger AI/tooling guidance.
 - **Deep instrumentation** — every dispatch, render, fx, error, and machine transition emits a structured trace event. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely.
 - **AI-first stance** — every registration carries metadata; the registry is queryable; errors are structured; the spec ships with construction prompts and a conformance corpus an AI can use.
-- **A specification** that's implementable in any language. The pattern stops being "a CLJS thing" and starts being "a thing you can have in TypeScript or Python or Kotlin too." The [Implementor's Checklist](../specification/Implementor-Checklist.md) is the structured port guide — it walks an implementor through the optional-capability declarations, the host-discretion choices (which PDS library, which scheduler, which trace sink), and the conformance-corpus subset that grades the result.
+- **A specification** that's implementable in any language. The pattern stops being "a CLJS thing" and starts being "a thing you can have in TypeScript or Python or Kotlin too." The [Implementor's Checklist](../../spec/Implementor-Checklist.md) is the structured port guide — it walks an implementor through the optional-capability declarations, the host-discretion choices (which PDS library, which scheduler, which trace sink), and the conformance-corpus subset that grades the result.
 
 ## What re-frame2 keeps from the original re-frame
 
@@ -125,4 +125,4 @@ If the argument lands, the next chapter ([02 — Your first app](02-your-first-a
 
 If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [08 — The dynamic-model story](08-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
-If you want the precise contracts before the prose, the [specification](../specification/) is one click away.
+If you want the precise contracts before the prose, the [specification](../../spec/) is one click away.

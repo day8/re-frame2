@@ -209,7 +209,7 @@ That's the entire dynamic story. Five steps, all named, no surprises.
     (is (= 4 (rf/compute-sub [:count] @(rf/get-frame-db f))))))
 ```
 
-That test runs on the JVM. There's no browser. There's no React. The `with-frame` block creates a fresh frame, binds it as the current frame for the body, and the test asserts against its `app-db`. Tests like this run in milliseconds and you can have thousands of them. (Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; the framework's testing helpers in [Spec 008](../specification/008-Testing.md) wire that up for you.)
+That test runs on the JVM. There's no browser. There's no React. The `with-frame` block creates a fresh frame, binds it as the current frame for the body, and the test asserts against its `app-db`. Tests like this run in milliseconds and you can have thousands of them. (Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; the framework's testing helpers in [Spec 008](../../spec/008-Testing.md) wire that up for you.)
 
 ## What the example covered
 

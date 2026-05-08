@@ -3,7 +3,7 @@
   features under the Reagent reactive substrate. Per rf2-pc82.
 
   These tests mirror the conformance fixtures in
-  ../docs/specification/conformance/fixtures/{hierarchical-*,always-*,
+  ../spec/conformance/fixtures/{hierarchical-*,always-*,
   after-*,invoke-*}.edn but exercise the runtime through reg-machine /
   dispatch-sync — the same surface real apps use. The flat-machine
   case is already covered by `machine-transition-cljs` in

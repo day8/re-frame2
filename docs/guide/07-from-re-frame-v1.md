@@ -168,11 +168,11 @@ The xstate-flavoured pattern in [chapter 05](05-state-machines.md). Entirely opt
 
 ### Schemas everywhere (CLJS reference)
 
-`:spec` metadata on every registration. Optional — apps without schemas continue to work — but recommended. See [Spec 010](../specification/010-Schemas.md).
+`:spec` metadata on every registration. Optional — apps without schemas continue to work — but recommended. See [Spec 010](../../spec/010-Schemas.md).
 
 ### Construction prompts
 
-A new artefact ([Construction Prompts](../specification/Construction-Prompts.md)) that AI agents use to scaffold new code. For human readers, it's a handy reference for "how do I add an X?" with idiomatic answers. For AI assistants in your codebase, it's the convention they read to produce code that fits your codebase's style.
+A new artefact ([Construction Prompts](../../spec/Construction-Prompts.md)) that AI agents use to scaffold new code. For human readers, it's a handy reference for "how do I add an X?" with idiomatic answers. For AI assistants in your codebase, it's the convention they read to produce code that fits your codebase's style.
 
 ### Flows — the `on-changes` interceptor, registered and toggleable
 
@@ -188,11 +188,11 @@ If you used v1's `on-changes` interceptor — "when these in-paths change, compu
 
 A flow is what `on-changes` always pointed at — but as a first-class registered concept rather than an interceptor wired into a specific event's chain. Toggle it on with `[:rf.fx/reg-flow {...}]` from any event handler; toggle it off with `[:rf.fx/clear-flow id]`. Wizard steps that need a derivation only when active, feature gates that turn computations on for some users, advanced-mode-only state — all the cases `on-changes` couldn't reach because interceptors are statically wired.
 
-Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 04 §Computed values as state](04-views-and-frames.md#computed-values-as-state--the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../specification/013-Flows.md).
+Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 04 §Computed values as state](04-views-and-frames.md#computed-values-as-state--the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../../spec/013-Flows.md).
 
 ### Three v1 surfaces removed (plus a few interceptors)
 
-re-frame2 drops three large v1 surfaces, plus several smaller interceptor helpers. Each removal has a defined replacement; the migration agent ([MIGRATION.md](../specification/MIGRATION.md)) handles the mechanical cases and flags the judgment-call ones.
+re-frame2 drops three large v1 surfaces, plus several smaller interceptor helpers. Each removal has a defined replacement; the migration agent ([MIGRATION.md](../../spec/MIGRATION.md)) handles the mechanical cases and flags the judgment-call ones.
 
 **`^:flush-dom` event-vector metadata** is gone. v1 supported a reader-tag on dispatched event vectors that forced a DOM repaint between handlers — used for "show modal, then run a synchronous block." The modern equivalent is `:dispatch-later {:ms 0 :dispatch <event-vec>}`, which schedules through the host clock and yields one render tick before the next handler. Mechanical rewrite (M-16 in the migration rules).
 
@@ -206,7 +206,7 @@ If your code uses any of these, the migration agent will find them and either re
 
 ### The structured error contract
 
-[Spec 009 §Error contract](../specification/009-Instrumentation.md) defines structured error trace events: `:rf.error/handler-exception`, `:rf.error/schema-validation-failure`, etc. These ride the same trace stream that 10x and re-frame-pair already consume. You can register an error-handler that decides recovery policy:
+[Spec 009 §Error contract](../../spec/009-Instrumentation.md) defines structured error trace events: `:rf.error/handler-exception`, `:rf.error/schema-validation-failure`, etc. These ride the same trace stream that 10x and re-frame-pair already consume. You can register an error-handler that decides recovery policy:
 
 ```clojure
 (rf/reg-event-error-handler
@@ -223,13 +223,13 @@ You have three options.
 
 ### Option 1: Just upgrade
 
-Change the dependency. Run your tests. *Most things work*. The handful of breakages will surface as failing tests or runtime errors; fix them per the migration rules in [MIGRATION.md](../specification/MIGRATION.md).
+Change the dependency. Run your tests. *Most things work*. The handful of breakages will surface as failing tests or runtime errors; fix them per the migration rules in [MIGRATION.md](../../spec/MIGRATION.md).
 
 This is the recommended path for most apps. The migration story is designed to be small. Real-world re-frame v1 codebases have, in our experience, a single-digit number of fixes per ~10k lines of code, all minor.
 
 ### Option 2: Run the migration agent
 
-[MIGRATION.md](../specification/MIGRATION.md) is structured as an AI-agent prompt. Hand it to an AI coding assistant in your codebase, point at your project, and it will:
+[MIGRATION.md](../../spec/MIGRATION.md) is structured as an AI-agent prompt. Hand it to an AI coding assistant in your codebase, point at your project, and it will:
 
 1. Identify all locations that need migration.
 2. Apply the mechanical rules (Type A — automatic).
@@ -258,7 +258,7 @@ If you migrate, here's what you keep doing exactly as before:
 
 - **REPL-driven development.** Hot reload still works the same way. Re-evaluating a `reg-event-db` form still replaces the registered handler.
 - **`re-frame-10x` for debugging.** Same panel, same trace stream. New trace events show up automatically (machine transitions, structured errors, hydration events) without you needing to teach 10x about them.
-- **Testing with `re-frame-test` or your own helpers.** `run-test-sync` is preserved as a compatibility wrapper. For new tests, the v1 testing API ([Spec 008](../specification/008-Testing.md)) is shaped for re-frame2 directly: `with-frame`, `dispatch-sync`, `compute-sub`, etc.
+- **Testing with `re-frame-test` or your own helpers.** `run-test-sync` is preserved as a compatibility wrapper. For new tests, the v1 testing API ([Spec 008](../../spec/008-Testing.md)) is shaped for re-frame2 directly: `with-frame`, `dispatch-sync`, `compute-sub`, etc.
 - **Your build setup.** shadow-cljs, figwheel, lein-cljsbuild — they all still work. re-frame2 is dependency-bumpable.
 - **Your team's conventions.** The dynamic story is unchanged. Code reviews still ask the same questions. Onboarding still uses the same mental model.
 
