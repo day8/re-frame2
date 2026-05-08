@@ -65,10 +65,12 @@
      metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (events/reg-event-db ~id ~@args)))))
@@ -79,10 +81,12 @@
      the metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (events/reg-event-fx ~id ~@args)))))
@@ -93,10 +97,12 @@
      onto the registry slot includes :ns / :line / :file captured at
      this call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (events/reg-event-ctx ~id ~@args)))))
@@ -107,10 +113,12 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (subs/reg-sub ~id ~@args)))))
@@ -121,10 +129,12 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (fx/reg-fx ~id ~@args)))))
@@ -135,10 +145,12 @@
      onto the registry slot includes :ns / :line / :file captured at
      this call site."
      [id & args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (cofx/reg-cofx ~id ~@args)))))
@@ -149,10 +161,12 @@
      registry slot includes :ns / :line / :file captured at this call
      site."
      [id metadata]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (frame/reg-frame ~id ~metadata)))))
@@ -236,7 +250,7 @@
      ;; `:require-macros [re-frame.views-macros :refer [reg-view]]`
      ;; emit identical expansions.
      ((requiring-resolve 're-frame.views-macros/expand-reg-view)
-      (meta &form) (ns-name *ns*) sym more)))
+      (meta &form) (ns-name *ns*) *file* sym more)))
 
 (defn get-view
   "Return the render fn for a registered view by id, or nil if not
@@ -283,10 +297,12 @@
      registry slot includes :ns / :line / :file captured at this call
      site."
      [& args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (flows/reg-flow ~@args)))))
@@ -297,10 +313,12 @@
      registry slot includes :ns / :line / :file captured at this call
      site."
      [id metadata]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (routing/reg-route ~id ~metadata)))))
@@ -311,10 +329,12 @@
      metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [path schema]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (schemas/reg-app-schema ~path ~schema)))))
@@ -330,10 +350,12 @@
      metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [machine-id machine]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (machines/reg-machine ~machine-id ~machine)))))
@@ -374,10 +396,12 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [& args]
-     (let [m (meta &form)]
+     (let [m       (meta &form)
+           ns-sym  (ns-name *ns*)
+           file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
+                  (cond-> {:ns '~ns-sym}
+                    ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
           (-reg-error-projector ~@args)))))

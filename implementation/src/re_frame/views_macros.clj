@@ -101,8 +101,12 @@
   "Build the expansion form for a reg-view macro call. Used by both
   re-frame.core/reg-view and re-frame.views-macros/reg-view. `form-meta`
   is `(meta &form)` from the calling macro; `current-ns-sym` is
-  `(ns-name *ns*)` at expansion time."
-  [form-meta current-ns-sym sym more]
+  `(ns-name *ns*)` at expansion time; `current-file` is `*file*` at
+  expansion time. Both are captured in the expansion as literals so
+  the emitted form does not reference `*ns*` / `*file*` at runtime —
+  necessary for the CLJS path, where `cljs.core/*ns*` is nil at
+  runtime."
+  [form-meta current-ns-sym current-file sym more]
   (let [parsed   (parse-reg-view-args more)
         sym-meta (or (meta sym) {})
         id-meta  (:rf/id sym-meta)
@@ -128,10 +132,10 @@
                            docstring (assoc :doc docstring))]
       `(do
          (binding [re-frame.source-coords/*pending-coords*
-                   (cond-> {:ns (ns-name *ns*)}
-                     *file* (assoc :file *file*)
-                     ~line  (assoc :line ~line)
-                     ~col   (assoc :column ~col))]
+                   (cond-> {:ns '~current-ns-sym}
+                     ~current-file (assoc :file ~current-file)
+                     ~line         (assoc :line ~line)
+                     ~col          (assoc :column ~col))]
            (re-frame.core/reg-view* ~id
              ~full-slot-meta
              (fn ~sym ~args
@@ -163,7 +167,7 @@
   surfaces emit the same expansion."
   {:arglists '([sym args body+] [sym docstring args body+])}
   [sym & more]
-  (expand-reg-view (meta &form) (ns-name *ns*) sym more))
+  (expand-reg-view (meta &form) (ns-name *ns*) *file* sym more))
 
 ;; ---- h --------------------------------------------------------------------
 ;;
