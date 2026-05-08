@@ -45,7 +45,8 @@
    and `examples/7guis/06_circle_drawer.cljs`. In a real codebase this
    would split per CP-6 conventions across schema / events / subs /
    views / machines / tests files."
-  (:require [reagent.dom.client :as rdc]
+  (:require [cljs.test :refer-macros [is]]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
@@ -596,9 +597,9 @@
 
 (defn test-state-1-nothing []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
-    (assert (in-state? f :ui.state/nothing?))
-    (assert (not (in-state? f :ui.state/loading?)))
-    (assert (not (in-state? f :ui.state/empty?)))))
+    (is (in-state? f :ui.state/nothing?))
+    (is (not (in-state? f :ui.state/loading?)))
+    (is (not (in-state? f :ui.state/empty?)))))
 
 (defn test-state-2-loading []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
@@ -611,52 +612,52 @@
     ;; the `loading?` predicate is false at the *end* of the drain — which is
     ;; the correct semantic. We instead assert that the lifecycle visited
     ;; :loading by checking :attempt was bumped.
-    (assert (pos? (:attempt (rf/compute-sub [:todos] (rf/get-frame-db f)))))))
+    (is (pos? (:attempt (rf/compute-sub [:todos] (rf/get-frame-db f)))))))
 
 (defn test-state-3-empty []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 0}] {:frame f})
-    (assert       (in-state? f :ui.state/empty?))
-    (assert (not (in-state? f :ui.state/one?)))
-    (assert (not (in-state? f :ui.state/some?)))
-    (assert (not (in-state? f :ui.state/too-many?)))))
+    (is       (in-state? f :ui.state/empty?))
+    (is (not (in-state? f :ui.state/one?)))
+    (is (not (in-state? f :ui.state/some?)))
+    (is (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-4-one []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 1}] {:frame f})
-    (assert       (in-state? f :ui.state/one?))
-    (assert (not (in-state? f :ui.state/empty?)))
-    (assert (not (in-state? f :ui.state/some?)))))
+    (is       (in-state? f :ui.state/one?))
+    (is (not (in-state? f :ui.state/empty?)))
+    (is (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-5-some []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
-    (assert       (in-state? f :ui.state/some?))
-    (assert (not (in-state? f :ui.state/one?)))
-    (assert (not (in-state? f :ui.state/too-many?)))))
+    (is       (in-state? f :ui.state/some?))
+    (is (not (in-state? f :ui.state/one?)))
+    (is (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-6-too-many []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 25}] {:frame f})
-    (assert       (in-state? f :ui.state/too-many?))
-    (assert (not (in-state? f :ui.state/some?)))))
+    (is       (in-state? f :ui.state/too-many?))
+    (is (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-7-incorrect []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     ;; Type a too-short title, then submit — should land in :error / :incorrect?
     (rf/dispatch-sync [:new-todo/edit-field :title "ab"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                {:frame f})
-    (assert       (in-state? f :ui.state/incorrect?))
-    (assert (not (in-state? f :ui.state/correct?)))))
+    (is       (in-state? f :ui.state/incorrect?))
+    (is (not (in-state? f :ui.state/correct?)))))
 
 (defn test-state-8-correct []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 0}]                  {:frame f})
     (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                    {:frame f})
-    (assert       (in-state? f :ui.state/correct?))
-    (assert (not (in-state? f :ui.state/incorrect?)))
-    (assert       (in-state? f :ui.state/one?))))    ;; correctness side-effect
+    (is       (in-state? f :ui.state/correct?))
+    (is (not (in-state? f :ui.state/incorrect?)))
+    (is       (in-state? f :ui.state/one?))))    ;; correctness side-effect
 
 (defn test-state-9-done []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
@@ -664,9 +665,9 @@
     (rf/dispatch-sync [:todos/editor [:todos.editor/archive {:now 1}]] {:frame f})
     ;; Snapshot lives at [:rf/machines :todos/editor].
     (let [snap (get-in (rf/get-frame-db f) [:rf/machines :todos/editor])]
-      (assert (= :archived (:state snap)))
-      (assert (= 1         (:archived-at (:data snap)))))
-    (assert (in-state? f :ui.state/done?))))
+      (is (= :archived (:state snap)))
+      (is (= 1         (:archived-at (:data snap)))))
+    (is (in-state? f :ui.state/done?))))
 
 (defn run-all-tests []
   (test-state-1-nothing)
