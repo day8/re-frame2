@@ -267,7 +267,9 @@
 (deftest machine-action-throws
   "#11 Machine action throws —
    when an action fn throws the cascade halts; the error is surfaced
-   via :rf.error/handler-exception (the route through reg-event-fx)."
+   as :rf.error/machine-action-exception (machine-scoped, distinct
+   from the generic :rf.error/handler-exception). The pre-action
+   machine snapshot is preserved; no :db effect commits."
   (rf/reg-event-db :seed-state (fn [_ _] {:val :before}))
   (rf/dispatch-sync [:seed-state])
   (let [machine {:initial :idle
@@ -280,10 +282,23 @@
     (let [traces (collect-traces ::xspec-11)]
       (rf/dispatch-sync [:test/m [:bang]])
       (stop-traces ::xspec-11)
-      (is (some #(= :rf.error/handler-exception (:operation %)) @traces)
-          "an action throw surfaces as :rf.error/handler-exception")
+      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
+                         @traces)]
+        (is (seq errs)
+            "an action throw surfaces as :rf.error/machine-action-exception")
+        (is (some #(= :test/m (get-in % [:tags :machine-id])) errs)
+            "the trace identifies the machine that threw")
+        (is (some #(= :boom (get-in % [:tags :action-id])) errs)
+            "the trace identifies the action that threw")
+        (is (some #(= "kaboom" (get-in % [:tags :exception-message])) errs)
+            "the trace carries the original exception message"))
+      (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
+          "the generic :rf.error/handler-exception does NOT also fire — the machine layer catches the action throw and emits the machine-scoped category")
       (is (= :before (:val (rf/get-frame-db :rf/default)))
-          "a non-machine app-db slice is not touched when the cascade halts"))))
+          "a non-machine app-db slice is not touched when the cascade halts")
+      (let [snap (get-in (rf/get-frame-db :rf/default) [:rf/machines :test/m])]
+        (is (or (nil? snap) (= :idle (:state snap)))
+            "the machine snapshot was not committed at :angry — pre-action :idle is preserved")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 12 — Effect handler throws inside a machine action's :fx
@@ -445,7 +460,9 @@
   "#17 Machine error inside SSR —
    composes Interaction 11 (action-throw → snapshot does not commit)
    with Interaction 16 (server projection). The trace fires under the
-   request frame; the snapshot is unchanged."
+   request frame; the snapshot is unchanged. As with the non-SSR case
+   the machine-scoped :rf.error/machine-action-exception fires, NOT
+   the generic :rf.error/handler-exception."
   (rf/reg-frame :req {:preset :ssr-server})
   (let [machine {:initial :idle
                  :data    {}
@@ -457,11 +474,16 @@
     (let [traces (collect-traces ::xspec-17)]
       (rf/dispatch-sync [:test/m [:bang]] {:frame :req})
       (stop-traces ::xspec-17)
-      (let [errs (filter #(= :rf.error/handler-exception (:operation %)) @traces)]
+      (let [errs (filter #(= :rf.error/machine-action-exception (:operation %))
+                         @traces)]
         (is (seq errs)
-            "machine action throw surfaces as :rf.error/handler-exception under :ssr-server")
+            "machine action throw surfaces as :rf.error/machine-action-exception under :ssr-server")
         (is (some #(= :req (get-in % [:tags :frame])) errs)
-            "the trace records the request frame's id"))
+            "the trace records the request frame's id")
+        (is (some #(= :test/m (get-in % [:tags :machine-id])) errs)
+            "the trace identifies the machine"))
+      (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
+          "the generic :rf.error/handler-exception does NOT also fire under :ssr-server")
       (let [snap (get-in (rf/get-frame-db :req) [:rf/machines :test/m])]
         (is (or (nil? snap) (= :idle (:state snap)))
             "no committed machine snapshot at :angry — the cascade halted")))))
