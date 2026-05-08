@@ -111,4 +111,15 @@
   {:target     :browser
    :output-dir "out/examples/todomvc"
    :asset-path "."
-   :modules    {:main {:init-fn todomvc.core/run}}}}}
+   :modules    {:main {:init-fn todomvc.core/run}}}
+
+  ;; Spec 014 — managed HTTP counter (rf2-cfig).  Demonstrates
+  ;; :rf.http/managed end-to-end through Reagent + Fetch. The +1 button
+  ;; hits a real /api/inc.json static asset; the Fail button hits a real
+  ;; 404; the Retry-recover and Cancel buttons exercise the canned-stub
+  ;; seam (so the example doesn't need a flaky/long stub HTTP server).
+  :examples/managed-http-counter
+  {:target     :browser
+   :output-dir "out/examples/managed-http-counter"
+   :asset-path "."
+   :modules    {:main {:init-fn managed-http-counter.core/run}}}}}
