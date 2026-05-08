@@ -173,6 +173,14 @@
 (def create-machine-handler machines/create-machine-handler)
 (def machine-transition     machines/machine-transition)
 
+(defn sub-machine
+  "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
+  machine-id]). Returns a reaction whose value is the snapshot
+  {:state <kw> :data <map>} or nil if the machine is not yet
+  initialised. Per Spec 005 §Subscribing to machines via sub-machine."
+  [machine-id]
+  (subscribe [:rf/machine machine-id]))
+
 ;; ---- introspection (per Spec 002 §The public registrar query API) -------
 
 (def handlers     registrar/handlers)
@@ -226,3 +234,8 @@
 (reg-sub :rf.route/query  :<- [:rf/route] (fn [route _] (:query route)))
 (reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
 (reg-sub :rf.route/error  :<- [:rf/route] (fn [route _] (:error route)))
+
+;; :rf/machine reg-sub lives in re-frame.machines and registers at that
+;; namespace's load time, so the smoke-test fixture's require :reload
+;; recovers it after registrar/clear-all!. Per Spec 005 §Subscribing to
+;; machines via sub-machine.
