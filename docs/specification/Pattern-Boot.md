@@ -203,30 +203,28 @@ A view subscribes to the machine snapshot via `sub-machine` (per [005 §Reading 
   (fn sub-app-boot-state [db _]
     (get-in db [:rf/machines :app/boot :state])))
 
-(def boot-screen
-  (rf/reg-view :app.boot/screen
-    (fn render-boot-screen []
-      (let [state @(subscribe [:app.boot/state])
-            phase @(subscribe [:app.boot/phase])
-            err   @(subscribe [:app.boot/error])]
-        (cond
-          (= state :ready)
-          [running-app-root]
+(rf/reg-view boot-screen []
+  (let [state @(subscribe [:app.boot/state])
+        phase @(subscribe [:app.boot/phase])
+        err   @(subscribe [:app.boot/error])]
+    (cond
+      (= state :ready)
+      [running-app-root]
 
-          (#{:auth-failed :profile-failed :fatal-error} state)
-          [:div.boot-error
-           [:p (str "Couldn't start: " err)]
-           [:button {:on-click #(dispatch [:app/boot [:rf/start]])} "Retry"]]
+      (#{:auth-failed :profile-failed :fatal-error} state)
+      [:div.boot-error
+       [:p (str "Couldn't start: " err)]
+       [:button {:on-click #(dispatch [:app/boot [:rf/start]])} "Retry"]]
 
-          :else
-          [:div.boot-progress
-           [:p (case phase
-                 :configuring     "Loading config…"
-                 :authenticating  "Signing in…"
-                 :loading-profile "Loading your profile…"
-                 :hydrating       "Restoring state…"
-                 :routing         "Almost ready…"
-                 "Starting…")]])))))
+      :else
+      [:div.boot-progress
+       [:p (case phase
+             :configuring     "Loading config…"
+             :authenticating  "Signing in…"
+             :loading-profile "Loading your profile…"
+             :hydrating       "Restoring state…"
+             :routing         "Almost ready…"
+             "Starting…")]])))
 ```
 
 The progress UI reads from the same snapshot the machine writes — no parallel signal.

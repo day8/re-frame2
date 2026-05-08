@@ -211,42 +211,40 @@ Worked example — login form:
 ## Standard view structure
 
 ```clojure
-(def login-form-view
-  (rf/reg-view :form.login/view
-    (fn render-login-form []
-      (let [draft        @(subscribe [:form.login/draft])
-            form-errors  @(subscribe [:form.login/form-errors])
-            email-error  @(subscribe [:form.login/field-error :email])
-            pw-error     @(subscribe [:form.login/field-error :password])
-            can-submit?  @(subscribe [:form.login/can-submit?])
-            status       @(subscribe [:form.login/status])
-            submit-error @(subscribe [:form.login/submit-error])]
-        [:form
-         {:on-submit (fn [e]
-                       (.preventDefault e)
-                       (dispatch [:form.login/submit]))}
-         (when (seq form-errors)
-           [:ul.form-errors
-            (for [msg form-errors] ^{:key msg} [:li msg])])
+(rf/reg-view login-form-view []
+  (let [draft        @(subscribe [:form.login/draft])
+        form-errors  @(subscribe [:form.login/form-errors])
+        email-error  @(subscribe [:form.login/field-error :email])
+        pw-error     @(subscribe [:form.login/field-error :password])
+        can-submit?  @(subscribe [:form.login/can-submit?])
+        status       @(subscribe [:form.login/status])
+        submit-error @(subscribe [:form.login/submit-error])]
+    [:form
+     {:on-submit (fn [e]
+                   (.preventDefault e)
+                   (dispatch [:form.login/submit]))}
+     (when (seq form-errors)
+       [:ul.form-errors
+        (for [msg form-errors] ^{:key msg} [:li msg])])
 
-         [:input {:type      "email"
-                  :value     (:email draft)
-                  :on-change #(dispatch [:form.login/edit-field :email
-                                         (.. % -target -value)])
-                  :on-blur   #(dispatch [:form.login/blur-field :email])}]
-         (when email-error [:p.error email-error])
+     [:input {:type      "email"
+              :value     (:email draft)
+              :on-change #(dispatch [:form.login/edit-field :email
+                                     (.. % -target -value)])
+              :on-blur   #(dispatch [:form.login/blur-field :email])}]
+     (when email-error [:p.error email-error])
 
-         [:input {:type      "password"
-                  :value     (:password draft)
-                  :on-change #(dispatch [:form.login/edit-field :password
-                                         (.. % -target -value)])
-                  :on-blur   #(dispatch [:form.login/blur-field :password])}]
-         (when pw-error [:p.error pw-error])
+     [:input {:type      "password"
+              :value     (:password draft)
+              :on-change #(dispatch [:form.login/edit-field :password
+                                     (.. % -target -value)])
+              :on-blur   #(dispatch [:form.login/blur-field :password])}]
+     (when pw-error [:p.error pw-error])
 
-         [:button {:type "submit" :disabled (not can-submit?)}
-          (if (= status :submitting) "Signing in…" "Sign in")]
+     [:button {:type "submit" :disabled (not can-submit?)}
+      (if (= status :submitting) "Signing in…" "Sign in")]
 
-         (when submit-error [:p.error submit-error])]))))
+     (when submit-error [:p.error submit-error])]))
 ```
 
 ## Variations

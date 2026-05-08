@@ -28,7 +28,8 @@
 | `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | |
 | `reg-frame` | M | `(reg-frame id metadata)` | v1 | 002 | Atomic create + register. |
 | `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | 002 | Anonymous frame; gensym'd id. |
-| `reg-view` | M | `(reg-view id ?metadata render-fn) → wrapped-fn` | v1 | 004 | |
+| `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
+| `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
 | `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 (preserved, alpha) | — | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
