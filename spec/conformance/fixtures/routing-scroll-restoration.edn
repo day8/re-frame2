@@ -40,6 +40,11 @@
        :rf.nav/replace-url [[:noop]]
        :rf.nav/scroll      [[:noop]]}}
 
+ ;; Per Spec 012: :rf.nav/push-url and :rf.nav/scroll declare :platforms
+ ;; #{:client}, so the frame must run on the client platform for the
+ ;; effects-routed assertions to match.
+ :fixture/frame-config {:platform :client}
+
  :fixture/dispatches
  [;; 1. Forward navigation to a route with no :scroll meta — default :top.
   [:rf.route/navigate :route/articles]
