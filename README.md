@@ -30,7 +30,7 @@ The further implication is that value has moved up the chain. The value of code 
 
 **2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
-**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a complete [migration prompt](docs/specification/MIGRATION.md) which you can use to convert your codebase — currently twenty-one rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent. And, to the Clojureists reading, I apologise for the breakage - it hurts my soul too. Please, please don't tell Mr Hickey.
+**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a complete [migration prompt](docs/specification/MIGRATION.md) which you can use to convert your codebase — currently twenty-five rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent. And, to the Clojurists reading, I apologise for the breakage — it hurts my soul too. Please, please don't tell Mr Hickey.
 
 ## re-frame First
 
