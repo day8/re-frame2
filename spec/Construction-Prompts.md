@@ -56,9 +56,9 @@ Each entry below is one CP:
 
 ```clojure
 (rf/reg-event-fx :feature/verb-noun
-  {:doc          "One-sentence what-and-why."
-   :spec         EventSchema
-   :interceptors []}                          ;; optional; usually empty
+  {:doc  "One-sentence what-and-why."
+   :spec EventSchema}
+  ;; A positional interceptor vector goes here when needed; usually omitted.
   (fn handler-feature-verb-noun [{:keys [db] :as cofx} [_ payload]]
     ;; Pure: read db and any injected cofx, return an effect map.
     ;; payload is a single scalar (for single-arg events) or a map (for multi-arg events
@@ -907,8 +907,8 @@ The handler reads `(:route db)` for any path/query params it needs — the `:rou
    [:timestamp  :int]])
 
 (rf/reg-event-fx :webhook/handle
-  {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]
-   :interceptors [(rf/spec/validate-at-boundary)]}    ;; rejects payload at boundary if invalid
+  {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]}
+  [(rf/spec/validate-at-boundary)]                   ;; positional; rejects payload at boundary if invalid
   ...)
 ```
 

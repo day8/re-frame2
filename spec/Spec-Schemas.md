@@ -132,11 +132,12 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
    [:file      {:optional true} :string]
    [:tags      {:optional true} [:set :keyword]]                           ;; user-defined tags
    [:platforms {:optional true} [:set [:enum :server :client]]]            ;; for reg-fx / reg-cofx; per [011](011-SSR.md)
-   [:interceptors {:optional true} [:vector :any]]                         ;; for reg-event-*
    ])
 ```
 
 Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape.
+
+The `reg-event-*` interceptor chain is **not** a metadata-map key — it is the positional vector slot between the metadata-map and the handler. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-), `:interceptors` inside this map is silently ignored and the runtime emits `:rf.warning/interceptors-in-metadata-map`. (`reg-frame`'s metadata-map *does* carry an `:interceptors` key — that's a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 
 ### `:rf/effect-map`
 

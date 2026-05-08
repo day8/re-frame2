@@ -987,9 +987,9 @@ re-frame2 lets the middle argument of `reg-event-db`/`reg-event-fx`/etc. be eith
 
 ;; after
 (rf/reg-event-fx :load-todo
-  {:doc          "Loads a todo by id from the API."
-   :interceptors [interceptor-1 interceptor-2]
-   :spec         [:cat [:= :load-todo] :int]}             ;; Malli, optional
+  {:doc  "Loads a todo by id from the API."
+   :spec [:cat [:= :load-todo] :int]}                     ;; Malli, optional
+  [interceptor-1 interceptor-2]                           ;; positional; NOT a metadata-map key
   (fn load-todo-handler [ctx]
     ...))
 ```

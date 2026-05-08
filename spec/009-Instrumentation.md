@@ -557,6 +557,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.warning/multiple-status-set` | Two or more `:rf.server/set-status` calls in the same request drain. Last-write-wins; advisory for finding the conflicting handlers. Per [011 §Multiple-status policy](011-SSR.md#multiple-status-policy) | `:writes` (vector of `{:status :handler-id :event}` per write), `:final-status` |
 | `:rf.warning/multiple-redirects` | Two or more `:rf.server/redirect` calls in the same request drain. Last-write-wins. Per [011 §Redirect precedence](011-SSR.md#redirect-precedence) | `:writes` (vector), `:final-redirect` |
 | `:rf.warning/head-mismatch` | Client-computed head model differs from server-supplied head; client re-renders and replaces. Per [011 §Mismatch detection — head](011-SSR.md#mismatch-detectionhead) | `:server-hash`, `:client-hash`, `:head-id` |
+| `:rf.warning/interceptors-in-metadata-map` | A `reg-event-*` registration carried `:interceptors` inside its metadata-map; the chain is silently dropped. Per [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) and rf2-bbea | `:reg-fn` (the fn's name as a string), `:id`, `:offending-keys`, `:reason` |
 | `:rf.error/sanitised-on-projection` | The active error projector threw or returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 public shape. Per [011 §Where sanitisation happens — before render](011-SSR.md#where-sanitisation-happensbefore-render) | `:projector-id`, `:original-operation`, `:projection-failure-reason` |
 
 `:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
@@ -670,6 +671,7 @@ Only **one** error-handler is registered at a time per process. Replacing it rep
 | `:rf.warning/multiple-status-set` | `:warned-and-replaced` | Last-write wins; advisory only. |
 | `:rf.warning/multiple-redirects` | `:warned-and-replaced` | Last-write wins; advisory only. |
 | `:rf.warning/head-mismatch` | `:warned-and-replaced` | Client renders its head; server's is replaced. |
+| `:rf.warning/interceptors-in-metadata-map` | `:ignored` | The mis-placed `:interceptors` chain is dropped; registration completes with no positional interceptors. |
 | `:rf.error/sanitised-on-projection` | `:replaced-with-default` | Runtime falls back to the locked generic-500 public-error shape. |
 
 #### Style rubric for `:reason` strings (non-normative)

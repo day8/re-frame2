@@ -43,29 +43,38 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 | `:file` | string | auto-supplied | Source file. |
 | `:tags` | set of ids | optional | Application-defined tags for filtering (e.g., `#{:critical :auth}`). |
 | `:platforms` | set of platform-ids | optional | Where the registration is allowed to run. Set of `:client`, `:server`, etc. (See [011](011-SSR.md).) |
-| `:interceptors` | vector | optional | (For `reg-event-*` only.) The interceptor chain. |
 
-Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs.
+For `reg-event-*`, the **interceptor chain is positional** (a separate vector argument between the metadata-map and the handler), NOT a metadata-map key. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) for the rationale and the warning the runtime emits when `:interceptors` is mis-placed inside the metadata-map.
+
+Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs. Notably `reg-frame`'s metadata-map *does* recognise `:interceptors` (frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)).
 
 ### Allowed forms of the middle slot
 
-For backwards-compatibility with re-frame v1, the middle slot of `reg-event-*` accepts either:
+For backwards-compatibility with re-frame v1, the middle slot of `reg-event-*` is either:
 
-1. **A vector of interceptors** (legacy form):
+1. **A vector of interceptors** (the interceptor chain):
    ```clojure
    (rf/reg-event-fx :foo
      [some-interceptor another-interceptor]
      (fn [m _] ...))
    ```
 
-2. **A metadata map** (new form):
+2. **A metadata map** (reflection metadata only — `:doc`, `:spec`, `:tags`, ...):
    ```clojure
    (rf/reg-event-fx :foo
-     {:doc "..." :spec ... :interceptors [some-interceptor another-interceptor]}
+     {:doc "..." :spec ...}
      (fn [m _] ...))
    ```
 
-The macro discriminates on the type of the second argument: vector → legacy path, map → new path. Both forms live in the same `reg-event-fx` symbol. The migration agent translates legacy → new on demand (per [MIGRATION.md §O-1](MIGRATION.md)).
+3. **Both — metadata map AND a positional interceptors vector** (the canonical form when an event has both reflection metadata and an interceptor chain):
+   ```clojure
+   (rf/reg-event-fx :foo
+     {:doc "..." :spec ...}
+     [some-interceptor another-interceptor]
+     (fn [m _] ...))
+   ```
+
+The function discriminates on the type of each argument: a map is metadata, a vector is interceptors. `:interceptors` inside the metadata-map is not a valid position — the runtime emits `:rf.warning/interceptors-in-metadata-map` at registration time and the chain is silently ignored. (Form 2 in earlier drafts of this Spec accepted `:interceptors` inside the metadata-map; that path was removed per rf2-bbea — one canonical position is simpler than two.)
 
 For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 

@@ -35,19 +35,19 @@ The middle slot of `reg-event-*` (and `reg-sub`, `reg-fx`, etc.) used to be the 
   (fn [m event] ...))
 ```
 
-In re-frame2 it can also be a metadata map:
+In re-frame2 it can also be a metadata map. The metadata map carries reflection keys (`:doc`, `:spec`, `:tags`); the interceptor chain stays in the positional vector slot — `:interceptors` is **not** a metadata-map key:
 
 ```clojure
-;; re-frame2 — new, optional
+;; re-frame2 — new, optional. Metadata for reflection; interceptors positional.
 (rf/reg-event-fx :foo
-  {:doc          "What this event does."
-   :spec         FooEventSchema
-   :interceptors [interceptor-1 interceptor-2]
-   :tags         #{:auth :critical}}
+  {:doc  "What this event does."
+   :spec FooEventSchema
+   :tags #{:auth :critical}}
+  [interceptor-1 interceptor-2]
   (fn my-foo-handler [m] ...))
 ```
 
-Both forms work. The macros dispatch on the type of the second argument: vector → legacy form, map → new form. If you never use the new form, your code is unchanged.
+All three forms — bare `(id handler)`, `(id [interceptors] handler)`, and `(id metadata [interceptors] handler)` — work. The function dispatches on the type of each non-id argument: a map is metadata, a vector is interceptors. Putting `:interceptors` inside the metadata-map is an authoring mistake; the runtime emits `:rf.warning/interceptors-in-metadata-map` and the chain is silently ignored. (See [Conventions §`:interceptors` is positional, not metadata](../specification/Conventions.md#interceptors-is-positional-not-metadata-reg-event-).)
 
 The new form gets you:
 
