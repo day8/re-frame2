@@ -14,6 +14,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 ;; ---- the frame record -----------------------------------------------------
@@ -146,11 +147,13 @@
           ;; Run :on-create events synchronously BEFORE emitting :frame/created.
           ;; Per Spec 002 §Frame creation: on-create completes first, then
           ;; the frame is observable to listeners. The router/dispatch
-          ;; namespace handles dispatch-sync; we forward via require to avoid
-          ;; a cyclic dep at compile time.
+          ;; namespace handles dispatch-sync; we forward via the late-bind
+          ;; registry to avoid a cyclic dep at compile time. (`resolve` is
+          ;; not a runtime fn in CLJS, so the older `(resolve 'router/...)`
+          ;; pattern silently no-op'd in CLJS — see rf2-p8g8.)
           (when-let [on-create (:on-create config)]
-            (when-let [dispatch-sync (resolve 're-frame.router/dispatch-sync!)]
-              ((deref dispatch-sync) on-create {:frame id})))
+            (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+              (dispatch-sync on-create {:frame id})))
           (trace/emit! :frame :frame/created
                        {:frame id :config config})
           id)
@@ -193,8 +196,8 @@
     ;; (1) fire the user-supplied :on-destroy event before mutating
     ;; lifecycle state so handlers see a still-alive frame.
     (when-let [on-destroy (get-in f [:config :on-destroy])]
-      (when-let [dispatch-sync (resolve 're-frame.router/dispatch-sync!)]
-        ((deref dispatch-sync) on-destroy {:frame id})))
+      (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+        (dispatch-sync on-destroy {:frame id})))
     ;; (2) signal active-machine teardown so observers can hook in.
     (let [container (get-frame-db id)
           db        (when container (adapter/read-container container))

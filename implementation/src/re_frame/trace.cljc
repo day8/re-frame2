@@ -15,7 +15,8 @@
      :time        <millis>                 ;; required
      :duration    <millis>                 ;; optional
      :tags        {...}}                   ;; required, open map"
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- listener registry ----------------------------------------------------
 
@@ -98,3 +99,13 @@
         (try
           (f event)
           (catch #?(:clj Throwable :cljs :default) _ nil))))))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.registrar emits a trace event when a handler is replaced but
+;; cannot `:require` this namespace without a cyclic load order.
+;; Publish `emit!` through the late-bind hook registry. See
+;; re-frame.late-bind.
+
+(late-bind/set-fn! :trace/emit!       emit!)
+(late-bind/set-fn! :trace/emit-error! emit-error!)

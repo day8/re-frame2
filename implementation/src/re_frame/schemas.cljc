@@ -10,6 +10,7 @@
   hasn't pulled Malli into their project, schemas are silently ignored."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 (defn- malli-validate*
@@ -198,3 +199,15 @@
                               :recovery    :no-recovery})
           false)))
     true))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.router, re-frame.cofx, and re-frame.subs need to call into
+;; schema validation but cannot `:require` this namespace without a
+;; cyclic load order. Publish entry points through the late-bind hook
+;; registry. See re-frame.late-bind.
+
+(late-bind/set-fn! :schemas/validate-app-db!     validate-app-db!)
+(late-bind/set-fn! :schemas/validate-event!      validate-event!)
+(late-bind/set-fn! :schemas/validate-sub-return! validate-sub-return!)
+(late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)

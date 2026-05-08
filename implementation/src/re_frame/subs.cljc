@@ -19,6 +19,7 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 ;; ---- registration ---------------------------------------------------------
@@ -93,12 +94,13 @@
   return nil per :replaced-with-default recovery; otherwise return
   the value unchanged.
 
-  Resolved lazily so this namespace stays free of a hard re-frame.schemas
-  dep (avoids load-order surprises)."
+  Looked up lazily through the late-bind registry so this namespace
+  stays free of a hard re-frame.schemas dep (avoids load-order
+  surprises)."
   [value query-v sub-id sub-meta]
   (if (and sub-meta (:spec sub-meta))
-    (if-let [validate (resolve 're-frame.schemas/validate-sub-return!)]
-      (if (try ((deref validate) sub-id query-v value sub-meta)
+    (if-let [validate (late-bind/get-fn :schemas/validate-sub-return!)]
+      (if (try (validate sub-id query-v value sub-meta)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value
         nil)
@@ -312,3 +314,11 @@
          (try (interop/dispose! r)
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.routing needs to call subscribe-value but cannot `:require`
+;; this namespace without a cyclic load order. Publish entry point
+;; through the late-bind hook registry. See re-frame.late-bind.
+
+(late-bind/set-fn! :subs/subscribe-value subscribe-value)

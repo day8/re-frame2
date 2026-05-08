@@ -17,6 +17,7 @@
     :rf.fx/clear-flow — runtime, clear a flow"
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 ;; ---- registration ---------------------------------------------------------
@@ -87,26 +88,26 @@
    (case fx-id
     :dispatch
     ;; Append to back of the frame's router queue.
-    (when-let [dispatch! (resolve 're-frame.router/dispatch!)]
-      ((deref dispatch!) args {:frame frame-id}))
+    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+      (dispatch! args {:frame frame-id}))
 
     :dispatch-later
     (let [{:keys [ms event]} args]
       (interop/set-timeout!
         (fn []
-          (when-let [dispatch! (resolve 're-frame.router/dispatch!)]
-            ((deref dispatch!) event {:frame frame-id})))
+          (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+            (dispatch! event {:frame frame-id})))
         ms))
 
     :rf.fx/reg-flow
     ;; Per Spec 013 — flows are frame-scoped. The flow registers against
     ;; the dispatching frame.
-    (when-let [reg-flow! (resolve 're-frame.flows/reg-flow-fx!)]
-      ((deref reg-flow!) args {:frame frame-id}))
+    (when-let [reg-flow! (late-bind/get-fn :flows/reg-flow-fx!)]
+      (reg-flow! args {:frame frame-id}))
 
     :rf.fx/clear-flow
-    (when-let [clear-flow! (resolve 're-frame.flows/clear-flow-fx!)]
-      ((deref clear-flow!) args {:frame frame-id}))
+    (when-let [clear-flow! (late-bind/get-fn :flows/clear-flow-fx!)]
+      (clear-flow! args {:frame frame-id}))
 
     :spawn
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn): emitted by

@@ -14,6 +14,7 @@
             [re-frame.fx :as fx]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 ;; ---- envelope construction ------------------------------------------------
@@ -95,9 +96,8 @@
                 ;; :no-recovery; downstream queue continues). Tracked
                 ;; as rf2-jwm4.
                 event-ok?
-                (if-let [validate-event!
-                         (resolve 're-frame.schemas/validate-event!)]
-                  (try ((deref validate-event!) event-id event handler-meta)
+                (if-let [validate-event! (late-bind/get-fn :schemas/validate-event!)]
+                  (try (validate-event! event-id event handler-meta)
                        (catch #?(:clj Throwable :cljs :default) _ true))
                   true)
                 {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
@@ -147,15 +147,15 @@
               ;; after each commit. Failures emit
               ;; :rf.error/schema-validation-failure but don't roll back
               ;; (recovery is :no-recovery by default).
-              (when-let [validate (resolve 're-frame.schemas/validate-app-db!)]
+              (when-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
                 (try
-                  ((deref validate) (:db effects) event-id)
+                  (validate (:db effects) event-id)
                   (catch #?(:clj Throwable :cljs :default) _ nil))))
             ;; Run flows (per Spec 013 §Drain integration: after :db
             ;; commits and before :fx walks).
-            (when-let [run-flows! (resolve 're-frame.flows/run-flows!)]
+            (when-let [run-flows! (late-bind/get-fn :flows/run-flows!)]
               (try
-                ((deref run-flows!) frame)
+                (run-flows! frame)
                 (catch #?(:clj Throwable :cljs :default) e
                   (trace/emit-error! :rf.error/flow-eval-exception
                                      {:frame frame :event event :exception e}))))
@@ -306,3 +306,15 @@
            (finally
              (swap! router assoc :in-sync-drain? false)))))
      nil)))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; Other namespaces that load BEFORE this one (re-frame.frame for :on-create
+;; / :on-destroy, re-frame.fx for :dispatch / :dispatch-later) need to call
+;; into the router. They cannot `:require` this namespace without a cyclic
+;; load order, so we publish our entry points through the late-bind hook
+;; registry once this namespace is loaded. The hook keys are documented in
+;; re-frame.late-bind.
+
+(late-bind/set-fn! :router/dispatch!       dispatch!)
+(late-bind/set-fn! :router/dispatch-sync!  dispatch-sync!)

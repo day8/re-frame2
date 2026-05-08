@@ -10,7 +10,8 @@
 
   Per Spec 005, machine guards/actions are machine-scoped (declared in
   the machine's :guards / :actions map) and NOT registered as standalone
-  kinds. The kinds set below is the closed v1 list.")
+  kinds. The kinds set below is the closed v1 list."
+  (:require [re-frame.late-bind :as late-bind]))
 
 ;; ---- the kind set ---------------------------------------------------------
 
@@ -73,9 +74,9 @@
         ;; re-registrations (same fn instance, common during ns reload of
         ;; static defs) would otherwise spam the trace stream.
         (when different?
-          (when-let [emit! (resolve 're-frame.trace/emit!)]
-            ((deref emit!) :registry :rf.registry/handler-replaced
-                           {:kind kind :id id :different-fn? true})))))
+          (when-let [emit! (late-bind/get-fn :trace/emit!)]
+            (emit! :registry :rf.registry/handler-replaced
+                   {:kind kind :id id :different-fn? true})))))
     {:was previous :now metadata}))
 
 (defn unregister!
