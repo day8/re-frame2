@@ -67,7 +67,7 @@ For backwards-compatibility with re-frame v1, the middle slot of `reg-event-*` a
 
 The macro discriminates on the type of the second argument: vector → legacy path, map → new path. Both forms live in the same `reg-event-fx` symbol. The migration agent translates legacy → new on demand (per [MIGRATION.md §O-1](MIGRATION.md)).
 
-For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with.
+For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 
 ## Registry model — the canonical `kind` keyword set
 
@@ -238,7 +238,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Subscription | `reg-sub` | [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) |
 | Effect | `reg-fx` | [002-Frames.md](002-Frames.md), [011-SSR.md](011-SSR.md) (for `:platforms`) |
 | Cofx | `reg-cofx` | [002-Frames.md](002-Frames.md) |
-| View | `reg-view` | [004-Views.md](004-Views.md) |
+| View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
 | Frame | `reg-frame` | [002-Frames.md](002-Frames.md) |
 | App-db schema | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
 | Route | `reg-route` | [012-Routing.md](012-Routing.md) |

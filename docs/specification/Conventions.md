@@ -121,6 +121,34 @@ Full rationale: [000-Vision §Pointers to per-area Specs (Features)](000-Vision.
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other-language ports pick a host-idiomatic library (Immer or Immutable.js for JS; pyrsistent or immutables for Python; im-rs for Rust; native collections for F# / Scala / OCaml / Clojure). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
 
+## `*`-suffix naming for fn-versions of macros
+
+When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
+
+For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](004-Views.md#reg-view-the-plain-fn-escape-hatch)); future macros that want fn partners follow the same convention.
+
+The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#family-asymmetry-only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+
+## `reg-view` auto-id derivation rule
+
+Per [Spec 004 §reg-view](004-Views.md#reg-view-is-the-multi-frame-contract), the `reg-view` macro auto-derives the registered id from the symbol you supply:
+
+```
+id = (keyword (str *ns*) (str sym))
+```
+
+This matches Clojure's `defn` Var-naming idiom: the symbol is the source of truth; the registry id mirrors it. Override the auto-derivation by attaching `^{:rf/id :explicit/id}` metadata to the symbol:
+
+```clojure
+(reg-view counter [label] body)
+;; ⇒ id is :my.ns/counter
+
+(reg-view ^{:rf/id :widget/counter} counter [label] body)
+;; ⇒ id is :widget/counter
+```
+
+The metadata-override syntax is the single supported way to set a non-auto-derived id at the macro surface. Other slot metadata (e.g. `:doc`) lives on the same metadata map: `^{:doc "..." :rf/id :widget/x}`. For computed ids, drop to `re-frame.core/reg-view*`.
+
 ## Cross-references
 
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.

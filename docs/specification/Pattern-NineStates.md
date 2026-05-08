@@ -99,20 +99,18 @@ The sub ids are illustrative. Feature code may namespace them differently.
 The page's root view should branch explicitly:
 
 ```clojure
-(def root-view
-  (rf/reg-view :ui.view/root
-    (fn []
-      (cond
-        @(subscribe [:ui.state/done?])      [view-done]
-        @(subscribe [:ui.state/incorrect?]) [view-incorrect]
-        @(subscribe [:ui.state/correct?])   [view-correct]
-        @(subscribe [:ui.state/nothing?])   [view-nothing]
-        @(subscribe [:ui.state/loading?])   [view-loading]
-        @(subscribe [:ui.state/empty?])     [view-empty]
-        @(subscribe [:ui.state/one?])       [view-one]
-        @(subscribe [:ui.state/some?])      [view-some]
-        @(subscribe [:ui.state/too-many?])  [view-too-many]
-        :else                               [view-fallback]))))
+(rf/reg-view root-view []
+  (cond
+    @(subscribe [:ui.state/done?])      [view-done]
+    @(subscribe [:ui.state/incorrect?]) [view-incorrect]
+    @(subscribe [:ui.state/correct?])   [view-correct]
+    @(subscribe [:ui.state/nothing?])   [view-nothing]
+    @(subscribe [:ui.state/loading?])   [view-loading]
+    @(subscribe [:ui.state/empty?])     [view-empty]
+    @(subscribe [:ui.state/one?])       [view-one]
+    @(subscribe [:ui.state/some?])      [view-some]
+    @(subscribe [:ui.state/too-many?])  [view-too-many]
+    :else                               [view-fallback]))
 ```
 
 The exact ordering depends on the feature, but the branch structure should be visible in one place.
