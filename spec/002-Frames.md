@@ -301,7 +301,7 @@ Tests use this pattern as their fixture lifecycle:
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (try
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-      (is (= :validating (get-in @(rf/get-frame-db f) [:auth :state])))
+      (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
       (finally
         (rf/destroy-frame f)))))
 ```
@@ -666,7 +666,7 @@ Use case: REPL sessions, tests that share a fixture across multiple `deftest` bl
 ```clojure
 (rf/with-frame [f (rf/make-frame {:on-create [:auth/init]})]
   (rf/dispatch-sync [:auth/login])
-  (is (= :authenticated (get-in @(rf/get-frame-db f) [:auth :state]))))
+  (is (= :authenticated (get-in (rf/get-frame-db f) [:auth :state]))))
 ```
 
 Used when the frame's lifetime is exactly the body. The macro creates the frame from the given expression, binds the resulting frame keyword to the local symbol, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception).
@@ -1125,7 +1125,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |
-| `(rf/get-frame-db id)` | Atom-deref-able handle to a frame's `app-db`. | Yes |
+| `(rf/get-frame-db id)` | Current `app-db` value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
 | `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form uses `:rf/default` frame; two-arg accepts `{:frame frame-id}`. | Yes |
 | `(rf/sub-topology)` | **Static** dependency graph from `:<-` declarations: a map of `sub-id → {:inputs [<input-sub-ids>], :doc, :ns/:line/:file}`. Pure data derived from the registrar at registration time. | Yes |
 | `(rf/sub-cache id)` | **Runtime** cache state for a frame: which subs are currently materialised, their current cached values, dependent components if any. Requires the reactive runtime. | **No** — CLJS-only |

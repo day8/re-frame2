@@ -103,7 +103,7 @@ re-frame2's compatibility commitment covers `re-frame.core` only. Internal names
 
 | Old usage | Replace with |
 |---|---|
-| `@re-frame.db/app-db` | `@(rf/get-frame-db :rf/default)` (or store the result of `(rf/get-frame-db ...)` once and deref) |
+| `@re-frame.db/app-db` | `(rf/get-frame-db :rf/default)` — returns the current `app-db` value (a plain map). |
 | `(reset! re-frame.db/app-db v)` | Don't. If the user truly needs to bypass the event pipeline, replace with `(rf/dispatch-sync [::reset-app-db v])` and add a handler that does the reset. Flag this for human review — direct mutation is almost always a code smell. |
 | `re-frame.subs/clear-subscription-cache!` | `(rf/clear-subscription-cache! :rf/default)` (or whichever frame is intended) |
 | `re-frame.registrar/get-handler` | Use the public `(rf/get-handler kind id)` from `re-frame.core`. |

@@ -590,7 +590,17 @@
 (def registry-summary registrar/all-kinds-with-counts)
 (def frames       (fn [] (frame/frame-ids)))
 (def frame-meta   frame/frame-meta)
-(def get-frame-db frame/frame-app-db-value)
+(defn get-frame-db
+  "Return the current `app-db` value (a plain map) for the named frame.
+  Returns `nil` if the frame is not registered.
+
+  This is a value-form accessor: there is no deref. To assert against
+  a path, use `(get-in (rf/get-frame-db frame-id) path)` or the
+  convenience wrapper `(rf/snapshot-of path opts)`.
+
+  Per Spec 002 §The public registrar query API."
+  [frame-id]
+  (frame/frame-app-db-value frame-id))
 
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db. Convenience wrapper

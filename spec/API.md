@@ -213,7 +213,7 @@ For tooling, agents, story tools, 10x.
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | 002 |
-| `get-frame-db` | Fn | `(get-frame-db frame-id)` → atom | v1 | ✓ | 002 |
+| `get-frame-db` | Fn | `(get-frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
 | `sub-topology` | Fn | `(sub-topology)` → static dependency graph | v1 | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
