@@ -108,18 +108,18 @@
      :guards
      {:under-retry-limit
       ;; True if the flow has had fewer than 3 prior failed attempts.
-      (fn [{:keys [data]} _event]
+      (fn [data _event]
         (< (:attempts data) 3))}
 
      :actions
      {:clear-error
       ;; Reset error and prepare to submit.
-      (fn [_ _event]
+      (fn [_data _event]
         {:data {:error nil}})
 
       :issue-request
       ;; Issue the login HTTP request. Returns effects, not side-effects.
-      (fn [_snapshot [_ creds]]
+      (fn [_data [_ creds]]
         {:fx [[:http {:method     :post
                       :url        "/api/login"
                       :body       creds
@@ -128,19 +128,19 @@
 
       :record-error
       ;; Record the failure into :data and bump the attempt counter.
-      (fn [{:keys [data]} [_ err]]
+      (fn [data [_ err]]
         {:data (-> data
                    (update :attempts inc)
                    (assoc :error (or (:message err) "Login failed.")))})
 
       :lock-account
       ;; Mark the account as locked after too many failed attempts.
-      (fn [_snapshot _event]
+      (fn [_data _event]
         {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
 
       :store-session
       ;; Persist the session token returned by a successful login.
-      (fn [_snapshot [_ {:keys [token]}]]
+      (fn [_data [_ {:keys [token]}]]
         {:fx [[:auth.session/store {:token token}]]})}
 
      :states

@@ -413,7 +413,7 @@
     (let [m {:id     :auth
              :initial :checking
              :data    {:authed? true}
-             :guards  {:authed? (fn [snap _] (:authed? (:data snap)))}
+             :guards  {:authed? (fn [data _] (:authed? data))}
              :states
              {:checking {:always [{:guard :authed? :target :authed}]}
               :authed   {}
@@ -431,8 +431,8 @@
              :data    {:n 0}
              :actions {:start (fn [_ _]
                                 {:fx [[:raise [:bump]] [:raise [:bump]]]})
-                       :bump  (fn [snap _]
-                                {:data {:n (inc (:n (:data snap)))}})}
+                       :bump  (fn [data _]
+                                {:data {:n (inc (:n data))}})}
              :states
              {:idle {:on {:start {:target :busy :action :start}
                           :bump  {:action :bump}}}
@@ -692,7 +692,7 @@
            :data    {:attempts 0 :error nil}
            :guards
            {:under-retry-limit
-            (fn [{:keys [data]} _] (< (:attempts data) 3))}
+            (fn [data _] (< (:attempts data) 3))}
            :actions
            {:clear-error    (fn [_ _] {:data {:error nil}})
             :issue-request  (fn [_ [_ creds]]
@@ -701,7 +701,7 @@
                                             :body       creds
                                             :on-success [:auth.login/flow [:auth.login/success]]
                                             :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
-            :record-error   (fn [{:keys [data]} [_ err]]
+            :record-error   (fn [data [_ err]]
                               {:data (-> data
                                          (update :attempts inc)
                                          (assoc :error (or (:message err) "Login failed.")))})
@@ -755,7 +755,7 @@
     (rf/reg-machine :test/tiny
       {:initial :idle
        :data    {:n 0}
-       :actions {:bump (fn [{:keys [data]} _] {:data (update data :n inc)})}
+       :actions {:bump (fn [data _] {:data (update data :n inc)})}
        :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
@@ -773,7 +773,7 @@
     (let [tiny-spec   {:initial :idle
                        :data    {:n 0}
                        :doc     "A tiny test machine."
-                       :actions {:bump (fn [{:keys [data]} _]
+                       :actions {:bump (fn [data _]
                                          {:data (update data :n inc)})}
                        :states  {:idle {:on {:tick {:target :idle
                                                     :action :bump}}}}}
