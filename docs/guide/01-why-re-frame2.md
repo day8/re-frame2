@@ -123,6 +123,6 @@ Almost everything. The same six dominoes. The same opinionated stance on a singl
 
 If the argument lands, the next chapter ([02 — Your first app](02-your-first-app.md)) walks through a counter end-to-end. It's the smallest possible re-frame2 program, in narrative form, with the shape of every primitive made visible.
 
-If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [08 — The dynamic-model story](08-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
+If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [09 — The dynamic-model story](09-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
 If you want the precise contracts before the prose, the [specification](../../spec/) is one click away.

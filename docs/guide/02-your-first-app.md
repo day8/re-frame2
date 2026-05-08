@@ -201,15 +201,15 @@ That's the entire dynamic story. Five steps, all named, no surprises.
 ```clojure
 (deftest counter-flow
   (rf/with-frame [f (rf/make-frame {:on-create [:counter/initialise]})]
-    (is (= 5 (rf/compute-sub [:count] @(rf/get-frame-db f))))
+    (is (= 5 (rf/compute-sub [:count] (rf/get-frame-db f))))
     (rf/dispatch-sync [:counter/inc] {:frame f})
-    (is (= 6 (rf/compute-sub [:count] @(rf/get-frame-db f))))
+    (is (= 6 (rf/compute-sub [:count] (rf/get-frame-db f))))
     (rf/dispatch-sync [:counter/dec] {:frame f})
     (rf/dispatch-sync [:counter/dec] {:frame f})
-    (is (= 4 (rf/compute-sub [:count] @(rf/get-frame-db f))))))
+    (is (= 4 (rf/compute-sub [:count] (rf/get-frame-db f))))))
 ```
 
-That test runs on the JVM. There's no browser. There's no React. The `with-frame` block creates a fresh frame, binds it as the current frame for the body, and the test asserts against its `app-db`. Tests like this run in milliseconds and you can have thousands of them. (Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; the framework's testing helpers in [Spec 008](../../spec/008-Testing.md) wire that up for you.)
+That test runs on the JVM. There's no browser. There's no React. The `with-frame` block binds `f` to the freshly-made frame's id and pins `*current-frame*` to it for the body; `make-frame` returns the gensym'd id keyword and the runtime fires `:on-create` synchronously. `get-frame-db` returns the current `app-db` *value* (not a deref-able container) — `compute-sub` runs the registered `:count` sub against that value. Tests like this run in milliseconds and you can have thousands of them. (Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; the framework's testing helpers in [Spec 008](../../spec/008-Testing.md) wire that up for you.)
 
 ## What the example covered
 
@@ -226,6 +226,7 @@ What we didn't cover yet:
 - **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [03 — Events, state, and the cycle](03-events-state-cycle.md).
 - **Multiple frames** — you only need them when you need them. Coming in [04 — Views and frames](04-views-and-frames.md).
 - **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [05 — State machines](05-state-machines.md).
+- **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [06 — Doing HTTP requests](06-doing-http-requests.md).
 
 ## A small extension
 

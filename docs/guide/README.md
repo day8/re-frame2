@@ -15,9 +15,10 @@ If you're an AI agent or implementor, you want the [specification](../../spec/) 
 | 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
 | 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
 | 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |
-| 06 | [The server side](06-server-side.md) | SSR and hydration without losing your mind. |
-| 07 | [From re-frame v1](07-from-re-frame-v1.md) | What's the same, what's different, what to do. |
-| 08 | [The dynamic-model story](08-the-dynamic-model.md) | The deeper essay on *why* less-powerful is more. |
+| 06 | [Doing HTTP requests](06-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
+| 07 | [The server side](07-server-side.md) | SSR and hydration without losing your mind. |
+| 08 | [From re-frame v1](08-from-re-frame-v1.md) | What's the same, what's different, what to do. |
+| 09 | [The dynamic-model story](09-the-dynamic-model.md) | The deeper essay on *why* less-powerful is more. |
 
 After the chapters: read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login), then benchmarks (7GUIs, nine-states), then the RealWorld scaffold.
 

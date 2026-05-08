@@ -1,4 +1,4 @@
-# 08 — The dynamic-model story
+# 09 — The dynamic-model story
 
 > *Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed.*
 > — E. W. Dijkstra
@@ -55,7 +55,7 @@ re-frame2 takes the position that **most parts of an SPA should be deliberately 
 
 - **Event handlers** are restricted to pure functions of `(state, event) → effects`. They can't call out to the network. They can't read globals. They can't mutate state. They can't suspend. They take in data and return data. That's it.
 - **Subscriptions** are restricted to pure derivations of `state → value`. Same constraints, even tighter.
-- **Effects** are described as data, not performed. An event handler that wants to fire an HTTP request returns `{:fx [[:http {:url ...}]]}`. The runtime interprets. The handler stays pure.
+- **Effects** are described as data, not performed. An event handler that wants to fire an HTTP request returns `{:fx [[:rf.http/managed {:request {:url ...}}]]}`. The runtime interprets. The handler stays pure.
 - **State machines** (when used) are explicit FSMs. Discrete states. Discrete transitions. No backdoors.
 - **The drain semantics** are run-to-completion. Events don't interleave. State doesn't change while a handler is running.
 - **Views** are pure functions of state to render-tree. They can't mutate. They can't have side-effects. They produce data describing what should be on the screen.
@@ -93,7 +93,7 @@ What you gain:
 - **Tests that don't need a runtime.** Pure functions are testable as pure functions, full stop.
 - **Time-travel debugging.** Because state is one value updated atomically, every value can be recorded.
 - **Replay.** Because events are data and state is a value, you can replay any session.
-- **Revertibility as a contract.** Because the *whole* of a frame's runtime state — `app-db`, frame-local registrations, machine snapshots, router state, sub-cache — is a single persistent value, reverting to any prior point is a pointer swap. App-level undo is a thin interceptor. AI experimentation can try-revert-retry without registry pollution. SSR ships a value, not a sequence of mutations. The architecture commits to "frame state is a value" so these consequences are real, not aspirational. (See [Goal 2 — Frame state revertibility](../../spec/000-Vision.md#frame-state-revertibility).)
+- **Revertibility as a contract.** Because the *whole* of a frame's runtime state — `app-db`, frame-local registrations, machine snapshots, router state, sub-cache — is a single persistent value, reverting to any prior point is a pointer swap. App-level undo is a thin interceptor. AI experimentation can try-revert-retry without registry pollution. SSR ships a value, not a sequence of mutations. The architecture commits to "frame state is a value" so these consequences are real, not aspirational. (See [Goal 3 — Frame state revertibility](../../spec/000-Vision.md#frame-state-revertibility).)
 - **AI assistance.** Because the registry is queryable, the contracts are stable, and the dynamic model is small.
 - **Predictable concurrency.** Because run-to-completion drain rules out the interleaving classes of bug.
 - **Server-side rendering.** Because the runtime is just data interpretation, not browser-coupled.
