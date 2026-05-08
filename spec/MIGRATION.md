@@ -22,7 +22,7 @@ Read top-to-bottom for the full picture; jump to Part 2 if you only need the pro
 
 re-frame2 keeps the public API of `re-frame.core` working for the vast majority of code, with migration cost held to a **small, well-defined set of breakages** documented in this file. New features (rich registration metadata, frames for multi-instance, `reg-view`, Malli schemas, etc.) are *additive opt-ins* that existing code is not required to adopt.
 
-The required-migration rules in this file are M-1 through M-18, with one strikethrough entry (M-2) preserved for stability of numbering. M-1 through M-11 are single-concern rules; M-12 through M-18 are smaller-surface notes the agent surfaces alongside the report. M-2 was demoted to opt-in [O-6](#o-6-future-proof-against-reagent-specific-sub-return-types) but the slot is retained — the numbering stays stable. The rest of the public API surface (`reg-event-db`/`reg-event-fx`/`reg-sub`/`reg-fx`/`reg-cofx`/`dispatch`/`subscribe`/`dispatch-sync` and their handler signatures) is preserved — see the "What stays the same" section below for the explicit non-breakage list. Every dispatch and subscription that doesn't specify a frame routes to a default frame named `:rf/default`; today's re-frame is structurally "re-frame2 with only the default frame in play." The full design rationale is in [000-Vision.md](000-Vision.md); the multi-frame mechanism is in [002-Frames.md](002-Frames.md).
+The required-migration rules in this file are M-1 through M-18, with one strikethrough entry (M-2) preserved for stability of numbering. M-1 through M-11 are single-concern rules; M-12 through M-18 are smaller-surface notes the agent surfaces alongside the report. M-2 was demoted to opt-in [O-6](#o-6-future-proof-against-reagent-specific-subscription-return-types) but the slot is retained — the numbering stays stable. The rest of the public API surface (`reg-event-db`/`reg-event-fx`/`reg-sub`/`reg-fx`/`reg-cofx`/`dispatch`/`subscribe`/`dispatch-sync` and their handler signatures) is preserved — see the "What stays the same" section below for the explicit non-breakage list. Every dispatch and subscription that doesn't specify a frame routes to a default frame named `:rf/default`; today's re-frame is structurally "re-frame2 with only the default frame in play." The full design rationale is in [000-Vision.md](000-Vision.md); the multi-frame mechanism is in [002-Frames.md](002-Frames.md).
 
 ---
 
@@ -113,9 +113,9 @@ re-frame2's compatibility commitment covers `re-frame.core` only. Internal names
 
 ---
 
-### M-2. ~~Reading subscription return values as Reagent-specific types~~ — *demoted to [O-6](#o-6-future-proof-against-reagent-specific-sub-return-types).*
+### M-2. ~~Reading subscription return values as Reagent-specific types~~ — *demoted to [O-6](#o-6-future-proof-against-reagent-specific-subscription-return-types).*
 
-For v1, subscriptions still return Reagent-compatible reactives in CLJS-Reagent contexts; existing introspection code keeps working. The "don't lean on the Reagent type" guidance is a forward-looking recommendation, not a v1 break — see [O-6](#o-6-future-proof-against-reagent-specific-sub-return-types) under Opt-in modernisation.
+For v1, subscriptions still return Reagent-compatible reactives in CLJS-Reagent contexts; existing introspection code keeps working. The "don't lean on the Reagent type" guidance is a forward-looking recommendation, not a v1 break — see [O-6](#o-6-future-proof-against-reagent-specific-subscription-return-types) under Opt-in modernisation.
 
 ---
 

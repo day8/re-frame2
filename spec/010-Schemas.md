@@ -16,7 +16,7 @@ A schema describes the *shape* of data flowing through a re-frame app:
 
 re-frame2 lets users attach a Malli schema to any of these via the `:spec` metadata key on the relevant `reg-*` registration, plus a dedicated `reg-app-schema` API for `app-db`. In dev builds the framework validates against schemas at well-defined points; in production validation elides (or is restricted to system boundaries) to keep the hot path cheap.
 
-Malli is the documented and supported default schema library; users may substitute another (the `:spec` value is opaque to re-frame; only the registered validator function is invoked). See [§Notes — Why Malli](#notes--why-malli) for the rationale, and [§Non-Malli validators — the validator-fn extension point](#non-malli-validators--the-validator-fn-extension-point) for how a host or app substitutes a different validator.
+Malli is the documented and supported default schema library; users may substitute another (the `:spec` value is opaque to re-frame; only the registered validator function is invoked). See [§Notes — Why Malli](#why-malli) for the rationale, and [§Non-Malli validators — the validator-fn extension point](#non-malli-validators--the-validator-fn-extension-point) for how a host or app substitutes a different validator.
 
 ## Where schemas attach
 
@@ -115,7 +115,7 @@ A failure at any step aborts the dispatch with a structured error.
 | 1. Event-vector | The dispatched event vector doesn't conform to the handler's `:spec`. | Handler is **not invoked**; emit `:rf.error/schema-validation-failure` with `:where :event`. The cascade stops at this event; downstream events in the queue continue. |
 | 2. Cofx | A cofx's injected value doesn't conform to its `:spec`. | Handler is **not invoked**; emit with `:where :cofx`; same cascade behaviour as step 1. |
 | 3. Handler exception | A registered handler throws. | `:rf.error/handler-exception` (per [009](009-Instrumentation.md)); cascade halts. |
-| 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`. **Dev:** the `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed. **Prod (when validation re-enabled):** log and proceed with the offending value (cf. [009 §Per-category recovery defaults](009-Instrumentation.md#per-category-recovery-defaults)). |
+| 4. `app-db` path | The post-handler `app-db` value at a registered schema-bound path doesn't conform. | Emit with `:where :app-db`. **Dev:** the `:db` effect is **rolled back** (the pre-handler value is restored) and the dispatch is treated as failed. **Prod (when validation re-enabled):** log and proceed with the offending value (cf. [009 §Per-category recovery defaults](009-Instrumentation.md#recovery-contract)). |
 | 5. Fx-args | A registered fx's args map doesn't conform to its `:spec`. | The **offending fx is skipped**; emit with `:where :fx-args`, `:fx-id`, `:fx-args`. Other fx in the same `:fx` vector continue to run (per the run-to-completion drain — fx are independent). The cascade does **not** halt; downstream events in the queue still drain. The skipped-fx outcome is `:recovery :skipped`, mirroring `:rf.fx/skipped-on-platform`. |
 | 6. Sub return-value | A schema'd sub's computed value doesn't conform. | Emit with `:where :sub-return`. Default recovery: `:replaced-with-default` — the sub returns `nil` to its consumer; views see no value. Strict mode re-raises. |
 

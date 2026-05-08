@@ -128,7 +128,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 
 ### 12. Effect handler throws inside a machine action's `:fx`
 
-- **Specs:** [005-StateMachines §Action effect map](005-StateMachines.md#action-effect-map----data-fx), [002-Frames §`:fx` ordering §Error during `:fx`](002-Frames.md#fx-ordering-and-atomicity-guarantees), [009 §Error contract](009-Instrumentation.md#error-contract).
+- **Specs:** [005-StateMachines §Action effect map](005-StateMachines.md#action-effect-map--data-fx), [002-Frames §`:fx` ordering §Error during `:fx`](002-Frames.md#fx-ordering-and-atomicity-guarantees), [009 §Error contract](009-Instrumentation.md#error-contract).
 - **Scenario:** A machine action returns `{:fx [[:http ...] [:dispatch ...]]}`; the snapshot commits successfully; `do-fx` invokes `:http` and the fx handler throws.
 - **Behaviour:** The snapshot commit already happened (per [005 §Drain semantics §Level 3 step 5](005-StateMachines.md#level-3--within-a-single-machine-event)) and is preserved. The `:fx` walk **continues** to subsequent entries (per [002 §Error during `:fx`](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — `:dispatch` runs even though `:http` threw. Two trace events fire: `:rf.error/fx-handler-exception` for `:http`, and `:rf.machine/transition` for the successful machine transition.
 - **Reason:** `:fx` ordering means *order*, not *dependency*. The action committed; downstream fx that genuinely depend on `:http` succeeding should be lifted to a `:dispatch` chain that observes `:http`'s result via cofx. Halting on first error would conflate the two concerns.

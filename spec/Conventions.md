@@ -71,7 +71,7 @@ re-frame2 reserves a small set of *unqualified* fx-ids — the runtime, the mach
 | `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: a flow map. | 013 |
 | `:rf.fx/clear-flow` | runtime `do-fx` | Clear a registered flow; `dissoc-in` on its `:path`. Args: a flow id. | 013 |
 
-**Spawn-spec keys.** Inside a `[:spawn <spec>]` entry, the spec map uses the following reserved keys (per [005 §Spawn-spec keys](005-StateMachines.md#spawn-spec-keys) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#rffxspawn-args)): `:machine-id`, `:definition`, `:id-prefix`, `:data`, `:on-spawn`, `:start`. The spawned actor's snapshot lives at the runtime-managed `[:rf/machines <gensym'd-id>]` — the spec does NOT carry a `:path` or `:collection` key. User-supplied spawn-spec keys outside the reserved set are tolerated (open shape) but unused by v1.
+**Spawn-spec keys.** Inside a `[:spawn <spec>]` entry, the spec map uses the following reserved keys (per [005 §Spawn-spec keys](005-StateMachines.md#spawn-spec-keys) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas)): `:machine-id`, `:definition`, `:id-prefix`, `:data`, `:on-spawn`, `:start`. The spawned actor's snapshot lives at the runtime-managed `[:rf/machines <gensym'd-id>]` — the spec does NOT carry a `:path` or `:collection` key. User-supplied spawn-spec keys outside the reserved set are tolerated (open shape) but unused by v1.
 
 ### Reserved state-node keys (machine transition tables)
 
@@ -163,9 +163,9 @@ Conformant implementations need a structural-sharing persistent collection libra
 
 When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
 
-For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](004-Views.md#reg-view-the-plain-fn-escape-hatch)); future macros that want fn partners follow the same convention.
+For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch)); future macros that want fn partners follow the same convention.
 
-The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#family-asymmetry-only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
 
 ## `reg-view` auto-id derivation rule
 

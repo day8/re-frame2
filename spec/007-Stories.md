@@ -299,7 +299,7 @@ Play is a **sequence of events fired after the variant has rendered**, distinct 
             [:rf.assert/path-equals [:nav :route] :dashboard]]})
 ```
 
-`:rf.assert/*` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see [§Assertion vocabulary is registered and enumerable](#assertion-vocabulary) below for the full registered set.
+`:rf.assert/*` events are themselves dispatches, handled by the story tool's test runner. In dev/docs mode they're rendered as a checked-step list; in test mode they fail loudly when assertions don't hold; in agent mode they're simulation breakpoints. The `:rf.assert/*` namespace is the canonical assertion namespace — see §Assertion vocabulary is registered and enumerable below for the full registered set.
 
 > **Assertion vocabulary is registered and enumerable.** The `:rf.assert/*` namespace is reserved (see [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) and registered as a public, queryable set of events. The stories library registers the canonical vocabulary at load time: `:rf.assert/path-equals`, `:rf.assert/path-matches`, `:rf.assert/sub-equals`, `:rf.assert/dispatched?`, `:rf.assert/state-is` (machine), `:rf.assert/no-warnings`, `:rf.assert/effect-emitted`. Tooling enumerates `(rf/handlers :event #(re-find #"^:rf\.assert/" (str (:id %))))` to discover the vocabulary. Per [Principles §Public query surfaces](Principles.md#public-query-surfaces).
 
@@ -456,7 +456,7 @@ The framework surface is sufficient for any team to roll their own equivalent if
 
 ## Relationship with frames
 
-A variant *is* a frame, registered under its variant keyword. But variant `:events` are NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame-is-atomic)), while variant `:events` is an explicitly multi-step setup sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
+A variant *is* a frame, registered under its variant keyword. But variant `:events` are NOT desugared to `reg-frame :on-create` — `reg-frame :on-create` is single-event by design ([002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), while variant `:events` is an explicitly multi-step setup sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
 
 ```clojure
 ;; conceptual setup logic for reg-variant

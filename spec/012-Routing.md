@@ -84,7 +84,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
-- `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--routenot-found-canonical)).
+- `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
 
 ## Pattern-level contract
 
@@ -145,7 +145,7 @@ The grammar is a small subset of common path-pattern syntaxes — straightforwar
 
 A canonical schema for path patterns is registered as `:rf/route-pattern` (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-pattern)). Tooling can validate patterns at registration time.
 
-> **Data-form path patterns (per host):** the same grammar can be expressed as a vector of segment values — `[:files [:* :rest]]` is the data-form of `/files/*rest`. This is the natural form in hosts without a string-parser library, and lines up with [Principles.md §Data is code](Principles.md#data-is-code--the-application-as-a-virtual-machine). Ports are required to support the string grammar above; hosts may additionally accept a data form whose semantics are equivalent.
+> **Data-form path patterns (per host):** the same grammar can be expressed as a vector of segment values — `[:files [:* :rest]]` is the data-form of `/files/*rest`. This is the natural form in hosts without a string-parser library, and lines up with [Principles.md §Data is code](Principles.md#data-is-code). Ports are required to support the string grammar above; hosts may additionally accept a data form whose semantics are equivalent.
 
 #### Route ranking algorithm
 
@@ -924,7 +924,7 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render route-loading dependency graphs without parsing handler bodies.
 - The `:route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
-- A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--routenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
+- A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
 
 ## Multi-frame routing
 

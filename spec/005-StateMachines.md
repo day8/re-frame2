@@ -568,7 +568,7 @@ An action returns `{:data ... :fx [...]}`. The two keys are independent:
 
 The relative order of `:raise` entries in `:fx` is the order they enter the local raise-queue. The relative order of non-raise fx entries is the order they reach `do-fx`.
 
-This Level-1 walk is the machine-layer instance of the runtime-wide [`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) — `:db` (here, the lowered `:data` write) commits before any `:fx` entry, `:fx` entries process in source order, each entry's fx-handler returns before the next begins, and an fx-handler exception traces independently without halting subsequent entries. `:raise` and `:spawn` are reserved fx-ids routed locally before the rest reach `do-fx` (see [§`:raise` and `:spawn` are reserved fx-ids inside `:fx`](#raise-and-spawn-are-reserved-fx-ids-inside-fx)).
+This Level-1 walk is the machine-layer instance of the runtime-wide [`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) — `:db` (here, the lowered `:data` write) commits before any `:fx` entry, `:fx` entries process in source order, each entry's fx-handler returns before the next begins, and an fx-handler exception traces independently without halting subsequent entries. `:raise` and `:spawn` are reserved fx-ids routed locally before the rest reach `do-fx` (see [§`:raise` and `:spawn` are reserved fx-ids inside `:fx`](#raise-spawn-and-destroy-machine-are-reserved-fx-ids-inside-fx)).
 
 ### Level 2 — across the action slots in one transition
 
@@ -1108,7 +1108,7 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 | `:on-spawn` | `(fn [data id] new-data)` — how the parent records the new id | required for from-action spawns; ignored for top-level `spawn-machine` calls |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
 
-The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#rffxspawn-args).
+The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
 ### Top-level `spawn-machine` (rare)
 
@@ -1364,7 +1364,7 @@ User-facing call sites:
 ;;    ...)
 ```
 
-See also [API.md §Machines](API.md#machines) and [Conventions.md §Reading machines](Conventions.md#reading-machines).
+See also [API.md §Machines](API.md#machines) and Conventions.md §Reading machines.
 
 ## Subscribing to machines via `sub-machine`
 
@@ -1757,7 +1757,7 @@ Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-
 
 Two features the matrix names as out of pattern scope — **parallel regions** and **history states** — have well-defined substitutes that exploit re-frame2's existing primitives. The substitutes are not workarounds: they are *better* fits for the substrate, given the snapshot-as-value foundation per [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility).
 
-The substitutes — *parallel regions → separate machines per region (with worked example)*, and *history states → snapshot-as-value capture (with worked example)* — and the rationale for why xstate needs them but re-frame2 doesn't, live in [CP-5-MachineGuide §Substitutes for parallel regions and history states](CP-5-MachineGuide.md#substitutes-for-parallel-regions-and-history-states). Out-of-scope features (`:type :parallel`, `:history`) emit `:rf.error/machine-grammar-not-in-v1` against v1; the runtime points users at the substitute patterns rather than promising future support.
+The substitutes — *parallel regions → separate machines per region (with worked example)*, and *history states → snapshot-as-value capture (with worked example)* — and the rationale for why xstate needs them but re-frame2 doesn't, live in [CP-5-MachineGuide §Substitutes for parallel regions and history states](CP-5-MachineGuide.md#substitutes-for-skipped-features). Out-of-scope features (`:type :parallel`, `:history`) emit `:rf.error/machine-grammar-not-in-v1` against v1; the runtime points users at the substitute patterns rather than promising future support.
 
 ## Open questions
 
@@ -1843,7 +1843,7 @@ The substrate guarantees needed by the harness — all already locked in v1:
 The harness's locked design (per the model-based-testing follow-up):
 
 - **Default coverage model:** transition coverage (every transition fires at least once). State coverage and guard coverage are opt-in; path coverage (n-step combinations) for advanced cases.
-- **`:after` timers** are included with explicit time-advance steps using the test-clock pattern from [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives).
+- **`:after` timers** are included with explicit time-advance steps using the test-clock pattern from [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005).
 - **Action / spawn stubbing** is auto-installed by the harness (registered fxs become no-ops in test mode); recursive coverage of spawned children is opt-in.
 - **Output:** EDN fixtures in the corpus shape so generated tests are trace-comparable across implementations.
 

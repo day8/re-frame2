@@ -180,7 +180,7 @@ For each capability included in Part 1, the implementor makes the per-capability
   - **Python** — Watch + reimport; `reg-*` calls re-bind in the registrar.
   - **Rust** — Compile-replace cycle; for dev-only hot-reload, `dlopen`/dynamic-library swap is the route.
 - **Reference-impl picks.** CLJS uses figwheel/shadow-cljs.
-- **Trade-offs.** The registrar is a single mutable cell; replacing entries is atomic. Frame state is preserved across re-registration of `reg-frame` (per [002 §reg-frame is atomic](002-Frames.md#reg-frame-is-atomic)).
+- **Trade-offs.** The registrar is a single mutable cell; replacing entries is atomic. Frame state is preserved across re-registration of `reg-frame` (per [002 §reg-frame is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
 
 ### State storage (always required)
 
@@ -213,7 +213,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### Sub1. Signal graph + caching
 
-- **Why it matters.** Subscriptions form a DAG over `app-db`; values are cached per `=`-equality. Layer-1 subs read `app-db` directly; layer-2+ compose via `:<-` (per [002 §Subscriptions](002-Frames.md) and [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics)).
+- **Why it matters.** Subscriptions form a DAG over `app-db`; values are cached per `=`-equality. Layer-1 subs read `app-db` directly; layer-2+ compose via `:<-` (per [002 §Subscriptions](002-Frames.md) and [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics)).
 - **Options by host.** Falls out of **F3** + **S1**.
 - **Reference-impl picks.** CLJS uses Reagent reactions for the graph.
 - **Trade-offs.** Equality-by-value is required for cache invalidation; identity-only equality breaks the contract.
@@ -243,7 +243,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Why it matters.** When does the view re-render? Tied to the substrate's reactivity (per **F3**).
 - **Options by host.** Falls out of **F3**; signal libraries trigger re-render on subscribed-value change.
 - **Reference-impl picks.** CLJS triggers re-render via Reagent's auto-tracked deref dependency capture.
-- **Trade-offs.** The trigger must be observably equivalent to "change in `app-db` → recompute affected subs → re-render dependent views" (per [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache-invalidation--operational-semantics)).
+- **Trade-offs.** The trigger must be observably equivalent to "change in `app-db` → recompute affected subs → re-render dependent views" (per [006 §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics)).
 
 #### V3. Mount/unmount
 

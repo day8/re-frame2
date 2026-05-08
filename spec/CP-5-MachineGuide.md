@@ -183,7 +183,7 @@ xstate needs history states because its runtime lacks first-class snapshot-as-va
 
 What this gives:
 
-- **No new substrate.** The captured state is just a key in `:data`; the restore is a `:raise` (per [§Action effect map](#action-effect-map--data-fx)).
+- **No new substrate.** The captured state is just a key in `:data`; the restore is a `:raise` (per [Spec 005 §Action effect map](005-StateMachines.md#action-effect-map--data-fx)).
 - **Inspectable.** `(:last-browsing-state data)` is visible in the machine's snapshot at all times. Visualisers see "the user was last at `:browsing.cart`" as a normal data field, not as opaque history-state plumbing.
 - **Undo / time-travel free.** The captured value rides along with the rest of the snapshot; reverting `app-db` reverts the captured value too.
 - **Per-region independent.** Combine with the parallel-region substitute above and each region captures and restores its own position independently — no cross-region history-state coupling.
