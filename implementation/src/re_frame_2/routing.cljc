@@ -36,6 +36,37 @@
             [re-frame-2.fx :as fx]
             [re-frame-2.trace :as trace]))
 
+;; ---- url encoding / decoding ---------------------------------------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params: param values are
+;; %-encoded in URLs and decoded into clojure values. We use the
+;; encodeURIComponent-equivalent behaviour (spaces → %20, slashes
+;; encoded) for named path params and query values. Splat values
+;; preserve literal '/' between captured segments — so the splat
+;; encoder runs per-segment.
+
+(defn- url-encode
+  "Encode a single component (named param or query value). Uses
+  encodeURIComponent semantics on CLJS; emulates it on JVM (URLEncoder
+  + + → %20 swap)."
+  [s]
+  #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
+               (.replace "+" "%20"))
+     :cljs (js/encodeURIComponent (str s))))
+
+(defn- url-encode-splat
+  "Encode a splat value — multi-segment, preserves literal '/'.
+  Each segment is encoded individually."
+  [s]
+  (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
+
+(defn- url-decode
+  "Decode a percent-encoded string back to its raw form. Round-trip
+  inverse of url-encode."
+  [s]
+  #?(:clj  (java.net.URLDecoder/decode (str s) "UTF-8")
+     :cljs (js/decodeURIComponent (str s))))
+
 ;; ---- registration ---------------------------------------------------------
 ;;
 ;; Per Spec 012 §Route ranking algorithm: each registration computes a
@@ -272,13 +303,14 @@
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
-  params map on success, nil on miss."
+  params map (with %-decoded values) on success, nil on miss."
   [compiled url]
   (let [{:keys [regex names]} compiled
         m (re-matches regex url)]
     (when m
       (let [groups (if (sequential? m) (rest m) [])]
-        (zipmap (map keyword names) groups)))))
+        (zipmap (map keyword names)
+                (map (fn [g] (when g (url-decode g))) groups))))))
 
 (defn- coerce-query-value
   "Per Spec 012 §Query-string coercion: when a route declares :query as
@@ -327,7 +359,9 @@
                            (reduce
                              (fn [m pair]
                                (let [[k v] (clojure.string/split pair #"=" 2)]
-                                 (assoc m (keyword k) (or v ""))))
+                                 (assoc m
+                                        (keyword (url-decode k))
+                                        (if v (url-decode v) ""))))
                              (array-map)
                              (clojure.string/split query-str #"&")))
         ;; Find every route whose pattern matches; sort by rank descending
@@ -440,7 +474,7 @@
                                                    (= \? (.charAt pattern m))) m
                                                :else (recur (inc m))))
                                      k     (keyword (subs pattern start end))]
-                                 (emit (str (get path-params k)))
+                                 (emit (url-encode (get path-params k)))
                                  (reset! i end))
 
                                (= c2 \*)
@@ -454,7 +488,7 @@
                                                    (= \? (.charAt pattern m))) m
                                                :else (recur (inc m))))
                                      k     (keyword (subs pattern start end))]
-                                 (emit (str (get path-params k)))
+                                 (emit (url-encode-splat (get path-params k)))
                                  (reset! i end))
 
                                :else
@@ -472,10 +506,11 @@
                                  (= \} (.charAt pattern m))
                                  (= \? (.charAt pattern m))) m
                              :else (recur (inc m))))
-                   k     (keyword (subs pattern start end))]
-               (emit (str (or (get path-params k)
-                              (throw (ex-info ":rf.error/missing-route-param"
-                                              {:param k :route-id route-id})))))
+                   k     (keyword (subs pattern start end))
+                   v     (or (get path-params k)
+                             (throw (ex-info ":rf.error/missing-route-param"
+                                             {:param k :route-id route-id})))]
+               (emit (url-encode v))
                (reset! i end))
 
              (= ch \*)
@@ -488,10 +523,11 @@
                                  (= \} (.charAt pattern m))
                                  (= \? (.charAt pattern m))) m
                              :else (recur (inc m))))
-                   k     (keyword (subs pattern start end))]
-               (emit (str (or (get path-params k)
-                              (throw (ex-info ":rf.error/missing-route-param"
-                                              {:param k :route-id route-id})))))
+                   k     (keyword (subs pattern start end))
+                   v     (or (get path-params k)
+                             (throw (ex-info ":rf.error/missing-route-param"
+                                             {:param k :route-id route-id})))]
+               (emit (url-encode-splat v))
                (reset! i end))
 
              :else
@@ -501,7 +537,10 @@
            qs (when (seq query-params)
                 (str "?"
                      (clojure.string/join "&"
-                       (map (fn [[k v]] (str (name k) "=" v)) query-params))))]
+                       (map (fn [[k v]]
+                              (str (url-encode (name k)) "="
+                                   (url-encode v)))
+                            query-params))))]
        (str path-out qs)))))
 
 ;; ---- standard handlers ----------------------------------------------------

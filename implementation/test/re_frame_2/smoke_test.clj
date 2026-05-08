@@ -287,6 +287,26 @@
 
 ;; ---- routing --------------------------------------------------------------
 
+(deftest route-url-encoding
+  (testing "route-url percent-encodes named params; match-url decodes them"
+    (rf/reg-route :user/show {:path "/users/:id"})
+    (is (= "/users/hello%20world"
+           (rf/route-url :user/show {:id "hello world"})))
+    (let [m (rf/match-url "/users/hello%20world")]
+      (is (= "hello world" (:id (:params m))))))
+  (testing "splat value preserves '/' between segments but encodes within"
+    (rf/reg-route :files/get {:path "/files/*rest"})
+    (is (= "/files/a/b%20c/d"
+           (rf/route-url :files/get {:rest "a/b c/d"})))
+    (let [m (rf/match-url "/files/a/b%20c/d")]
+      (is (= "a/b c/d" (:rest (:params m))))))
+  (testing "query keys and values are encoded / decoded"
+    (rf/reg-route :search {:path "/search"})
+    (is (= "/search?q=hello%20world"
+           (rf/route-url :search {} {:q "hello world"})))
+    (let [m (rf/match-url "/search?q=hello%20world")]
+      (is (= "hello world" (:q (:query m)))))))
+
 (deftest match-and-route-url
   (testing "match-url and route-url round-trip"
     (rf/reg-route :user/show {:path "/users/:id"})
