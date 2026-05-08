@@ -168,11 +168,11 @@
     (let [machine
           {:initial :asking
            :data    {:correct-count 9}
-           :guards  {:enough? (fn [snap _]
-                                (>= (get-in snap [:data :correct-count]) 10))}
-           :actions {:count   (fn [snap _]
+           :guards  {:enough? (fn [data _]
+                                (>= (:correct-count data) 10))}
+           :actions {:count   (fn [data _]
                                 {:data {:correct-count
-                                        (inc (get-in snap [:data :correct-count]))}})}
+                                        (inc (:correct-count data))}})}
            :states
            {:asking {:always [{:guard :enough? :target :winner}]
                      :on     {:answer-correct {:action :count}}}
@@ -194,11 +194,11 @@
     (let [machine
           {:initial :asking
            :data    {:correct-count 5}
-           :guards  {:enough? (fn [snap _]
-                                (>= (get-in snap [:data :correct-count]) 10))}
-           :actions {:count   (fn [snap _]
+           :guards  {:enough? (fn [data _]
+                                (>= (:correct-count data) 10))}
+           :actions {:count   (fn [data _]
                                 {:data {:correct-count
-                                        (inc (get-in snap [:data :correct-count]))}})}
+                                        (inc (:correct-count data))}})}
            :states
            {:asking {:always [{:guard :enough? :target :winner}]
                      :on     {:answer-correct {:action :count}}}

@@ -178,7 +178,7 @@
         {:initial :red
          :data    {:ticks 0}
          :actions {:tick-action
-                   (fn [{:keys [data]} _]
+                   (fn [data _]
                      {:data (update data :ticks inc)})}
          :states
          {:red    {:on {:tick {:target :green :action :tick-action}}}

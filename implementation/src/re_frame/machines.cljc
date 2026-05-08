@@ -67,6 +67,55 @@
     :else             (throw (ex-info ":rf.error/machine-bad-action-form"
                                       {:action action}))))
 
+;; ---- guard/action contract --------------------------------------------------
+;;
+;; Per Spec 005 §Guards / §Actions, the canonical signature is:
+;;
+;;   (fn [data event] ...)              ; 2-arity — the 99% case
+;;   (fn [data event ctx] ...)          ; 3-arity — opt-in introspection
+;;
+;; `data` is the machine's :data slot directly (a map). `event` is the inbound
+;; event vector. `ctx` (3-arity escape hatch) is `{:state ... :meta ...}` —
+;; the snapshot's discrete-state and any user `:meta`. Returning to the 2-
+;; arity surface from the 3-arity body is a one-line `(let [data data] ...)`;
+;; no migration cost when introspection is no longer needed.
+
+(defn- declares-3-arity?
+  "True iff f explicitly declares a 3-fixed-arg invocation. Distinguishes
+  user opt-in 3-arity from variadic helpers like (constantly ...). On the
+  JVM, walks the fn class's declared invoke methods (variadics are
+  RestFns with no declared invoke(O,O,O) on the fn class itself); on
+  CLJS, looks for the multi-arity dispatch slot or matches .-length."
+  [f]
+  #?(:clj  (boolean
+             (some
+               (fn [^java.lang.reflect.Method m]
+                 (and (= "invoke" (.getName m))
+                      (= 3 (.getParameterCount m))))
+               (.getDeclaredMethods (class f))))
+     :cljs (or (= 3 (.-length f))
+               (some? (unchecked-get f "cljs$core$IFn$_invoke$arity$3")))))
+
+(defn- call-guard
+  "Invoke a resolved guard fn against a snapshot + event with the
+  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  [data event {:state :meta}]."
+  [g snapshot event]
+  (let [data (:data snapshot)]
+    (if (declares-3-arity? g)
+      (g data event {:state (:state snapshot) :meta (:meta snapshot)})
+      (g data event))))
+
+(defn- call-action
+  "Invoke a resolved action fn against a snapshot + event with the
+  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  [data event {:state :meta}]."
+  [f snapshot event]
+  (let [data (:data snapshot)]
+    (if (declares-3-arity? f)
+      (f data event {:state (:state snapshot) :meta (:meta snapshot)})
+      (f data event))))
+
 ;; ---- spawn counter --------------------------------------------------------
 ;;
 ;; Per Spec 005 §Declarative :invoke (sugar over spawn): on entry to an
@@ -256,7 +305,7 @@
                              (get-in n [:on :*])))
                 hit    (some (fn [t]
                                (let [g (resolve-guard machine (:guard t))]
-                                 (when (g snapshot event) t)))
+                                 (when (call-guard g snapshot event) t)))
                              cands)]
             (if hit
               {:transition hit :decl-path prefix}
@@ -295,7 +344,7 @@
 (defn- run-action [machine snap action-ref event]
   (if action-ref
     (let [f (resolve-action machine action-ref)
-          result (f snap event)]
+          result (call-action f snap event)]
       (or result {}))
     {}))
 
@@ -468,7 +517,7 @@
                      :else             [always])
             hit    (some (fn [t]
                            (let [g (resolve-guard machine (:guard t))]
-                             (when (g snapshot nil) t)))
+                             (when (call-guard g snapshot nil) t)))
                          always)]
         (if hit
           {:transition (assoc hit :decl-path prefix) :decl-path prefix}
