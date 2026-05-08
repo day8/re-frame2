@@ -549,7 +549,7 @@
   (subscriber))
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
-;; reg-view (the macro), h, with-frame live in re-frame.views-macros (CLJS-
+;; reg-view (the macro), with-frame live in re-frame.views-macros (CLJS-
 ;; only macros — users `(:require-macros [re-frame.views-macros :refer ...])`).
 ;; frame-provider is a Reagent component re-exported here so `rf/frame-provider`
 ;; is the canonical user-facing surface (per Spec 002 §What `frame-provider` is

@@ -1,5 +1,5 @@
 (ns re-frame.views
-  "Views — reg-view, the h macro, frame-provider. Per Spec 004.
+  "Views — reg-view, frame-provider. Per Spec 004.
 
   CLJS-only (Reagent-side). The pure-data render-tree contract lives in
   Spec 011 (SSR); this namespace ties view registration into the Reagent
@@ -9,9 +9,11 @@
   supported via Reagent's native handling.
 
   reg-view auto-defs the local Var (per Spec 004 §reg-view defs the Var
-  by default); the Var is the canonical call-site reference. Bare
-  `[:keyword args]` in raw hiccup is post-v1; the (h [...]) macro
-  rewrites keyword references at compile time as the v1 escape hatch."
+  by default); the Var is the canonical call-site reference. For
+  late-binding by id (e.g. across module boundaries, runtime-computed
+  ids, or hot-reload semantics), call `(re-frame.core/get-view :id)`
+  to obtain the wrapped fn and use `[(rf/get-view :id) args]` as the
+  hiccup head."
   (:require ["react"        :as React]
             [reagent.core   :as r]
             [re-frame.registrar :as registrar]
