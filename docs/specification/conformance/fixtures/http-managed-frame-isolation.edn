@@ -1,0 +1,86 @@
+;; Conformance fixture: rf.http.managed/frame-isolation
+;;
+;; Per Spec 014 §Frame awareness. The reply dispatch lands in the same
+;; frame the request was issued from. Two frames issuing concurrent
+;; managed requests against the same registered handler keep their
+;; replies isolated — frame A's reply writes to frame A's app-db,
+;; frame B's reply writes to frame B's app-db. The handler registry
+;; is shared (registered once); per-frame state is partitioned.
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-success
+;; configured to dispatch frame-targeted replies. The DSL's :dispatch
+;; step inside an fx body inherits the originating frame (per Spec 002
+;; §Routing), so each canned-success dispatch lands on the correct frame.
+
+{:fixture/id           :rf.http.managed/frame-isolation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "Two frames issue managed requests against the same registered :article/load handler; the canned-success replies land in the same frame each request was issued from. The handler registry is shared; the app-db slices are per-frame. Per Spec 014 §Frame awareness + Spec 002 §Routing."
+
+ :fixture/registry
+ {:event {:article/load   {:doc "Issue the GET (originator)."}
+          :article/loaded {:doc "Receive the success payload, frame-scoped."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:article/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-success [:article/loaded]}]]]]
+
+   ;; The :on-success target writes to the receiving frame's :article slice.
+   :article/loaded
+   [[:set [:article] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-success
+   ;; The DSL's :dispatch inherits the originating frame, so each canned
+   ;; reply lands on the same frame the originating request was issued
+   ;; from. The :value carries a frame-distinguishable token so the
+   ;; fixture can assert where each reply landed.
+   [[:dispatch [:article/loaded {:kind  :success
+                                 :value {:from :stub}}]]]}}
+
+ ;; Each frame carries its own :fx-overrides — multi-frame fixtures pass
+ ;; per-frame opts via :fixture/frames, not the single-frame
+ ;; :fixture/frame-config seam (which only applies to :rf/default).
+ :fixture/frames
+ [{:id :tab.left
+   :doc "Left tab — issues its own managed request."
+   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+  {:id :tab.right
+   :doc "Right tab — issues its own managed request."
+   :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}]
+
+ :fixture/dispatches
+ [{:event [:article/load] :frame :tab.left}
+  {:event [:article/load] :frame :tab.right}]
+
+ :fixture/expect
+ {:final-app-dbs
+  {:tab.left  {:article {:kind  :success
+                         :value {:from :stub}}}
+   :tab.right {:article {:kind  :success
+                         :value {:from :stub}}}}
+
+  ;; The :rf.fx/override-applied trace carries {:from :to} only — it
+  ;; does not tag the frame (the override seam runs at fx dispatch
+  ;; time, before the per-frame routing layer attaches its tags).
+  ;; We assert the per-frame :event traces and the override-applied
+  ;; pair without :frame.
+  :trace-emissions
+  [{:operation :event :tags {:event-id :article/load   :frame :tab.left}}
+   {:operation :rf.fx/override-applied
+    :tags {:from :rf.http/managed
+           :to   :rf.http/managed-canned-success}}
+   {:operation :event :tags {:event-id :article/loaded :frame :tab.left}}
+   {:operation :event :tags {:event-id :article/load   :frame :tab.right}}
+   {:operation :rf.fx/override-applied
+    :tags {:from :rf.http/managed
+           :to   :rf.http/managed-canned-success}}
+   {:operation :event :tags {:event-id :article/loaded :frame :tab.right}}]}}
