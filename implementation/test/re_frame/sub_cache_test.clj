@@ -14,12 +14,14 @@
             [re-frame.subs :as subs]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)

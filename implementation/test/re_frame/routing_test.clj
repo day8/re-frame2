@@ -34,12 +34,14 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.

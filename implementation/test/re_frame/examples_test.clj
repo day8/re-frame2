@@ -6,12 +6,14 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; clear-all! also drops the framework-shipped fxs that register at
   ;; namespace load time (e.g. :rf.http/managed and its canned-stub

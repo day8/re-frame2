@@ -38,6 +38,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   (test-fn))
 
@@ -374,3 +375,76 @@
         (is (keyword? (:code public)))
         (is (string? (:message public)))
         (is (boolean? (:retryable? public)))))))
+
+;; ---- rf2-xfa2 — frame-scoped app-db schemas ------------------------------
+
+(deftest reg-app-schema-defaults-to-current-frame
+  (testing "Per Spec 010 §Per-frame schemas — reg-app-schema with no opts
+            registers against (current-frame), which is :rf/default outside
+            (with-frame ...)."
+    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user]))
+        "schema is visible from the active frame's lookup")
+    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user] :rf/default))
+        "schema is visible from explicit :rf/default lookup")
+    (is (= {[:user] [:map [:id :uuid]]} (rf/app-schemas))
+        "app-schemas returns the active frame's schema set")
+    (is (= {[:user] [:map [:id :uuid]]} (rf/app-schemas :rf/default))
+        "app-schemas with explicit :rf/default returns the same map")))
+
+(deftest reg-app-schema-explicit-frame-opt-isolates-schemas
+  (testing "Per Spec 010 §Per-frame schemas — :frame opt registers against
+            a named frame; sibling frames don't see that schema."
+    (rf/reg-frame :test/story {})
+    (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :rf/default})
+    (rf/reg-app-schema [:user] [:map [:nick :string]] {:frame :test/story})
+    (is (= [:map [:id :uuid]]   (rf/app-schema-at [:user] :rf/default))
+        "default frame keeps its own schema at [:user]")
+    (is (= [:map [:nick :string]] (rf/app-schema-at [:user] :test/story))
+        "story frame has its own (different) schema at [:user]")
+    (is (= {[:user] [:map [:id :uuid]]}     (rf/app-schemas :rf/default)))
+    (is (= {[:user] [:map [:nick :string]]} (rf/app-schemas {:frame :test/story})))))
+
+(deftest sibling-frame-schemas-do-not-fire-on-each-others-dispatches
+  (testing "Per Spec 010 §Per-frame schemas — validate-app-db! only walks the
+            schemas registered against THIS dispatch's frame; a malformed
+            commit on frame A must not fire a schema-validation-failure for
+            a schema registered against frame B."
+    (rf/reg-frame :test/main  {})
+    (rf/reg-frame :test/other {})
+    ;; Schema only on :test/other; commit happens on :test/main.
+    (rf/reg-app-schema [:n] [:int] {:frame :test/other})
+    (rf/reg-event-db :n/break-on-main (fn [db _] (assoc db :n "not-an-int")))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::sib (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:n/break-on-main] {:frame :test/main})
+      (rf/remove-trace-cb! ::sib)
+      (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
+                          @traces))
+          "no schema fires on :test/main because the schema lives on :test/other"))))
+
+(deftest schema-fires-only-on-the-frame-it-registers-against
+  (testing "Per Spec 010 §Per-frame schemas — a malformed commit on the same
+            frame the schema is registered against DOES fire the failure trace."
+    (rf/reg-frame :test/main {})
+    (rf/reg-app-schema [:n] [:int] {:frame :test/main})
+    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "not-an-int")))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::same (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:n/break] {:frame :test/main})
+      (rf/remove-trace-cb! ::same)
+      (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces)]
+        (is (= 1 (count violations))
+            "the schema registered against :test/main fires when :test/main commits a violation")
+        (is (= :test/main (-> violations first :tags :frame))
+            ":frame tag carries the failing frame's id")))))
+
+(deftest app-schemas-with-keyword-and-opts-arities-agree
+  (testing "(app-schemas frame-id) is documented as sugar for
+            (app-schemas {:frame frame-id}); both must return the same map."
+    (rf/reg-frame :test/k {})
+    (rf/reg-app-schema [:k] [:int] {:frame :test/k})
+    (is (= (rf/app-schemas :test/k)
+           (rf/app-schemas {:frame :test/k}))
+        "keyword form == opts-map form")))

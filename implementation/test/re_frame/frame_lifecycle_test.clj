@@ -9,12 +9,14 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
+  (reset! schemas/schemas-by-frame {})
   (rf/init!)
   ;; Framework events / fx / subs are registered at namespace-load time;
   ;; clear-all! wiped them. Reload to resurrect the framework registrations.
