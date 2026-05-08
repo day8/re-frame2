@@ -1,17 +1,24 @@
 ;; Conformance fixture: ssr/error-known-mapping
 ;; Routing emits :rf.error/no-such-handler (or :rf.error/no-such-route);
-;; the default projector maps it to a 404 public-error. Verifies the
-;; default projector's canonical mapping for known categories, per
-;; [011 §Default projector].
+;; the runtime's default projector maps it to a 404 public-error and
+;; stamps :status 404 onto the response accumulator. Asserts the
+;; projector's output reaches :rf/response — NOT a user-stub-rolled
+;; status fx. Per [011 §Default projector] and §Where sanitisation
+;; happens — before render.
 
 {:fixture/id           :ssr/error-known-mapping
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :ssr/error-projection :routing/match-url}
- :fixture/doc          "A request URL has no matching route. The runtime emits :rf.error/no-such-handler in the routing context. The default error projector maps it to {:status 404 :code :not-found :message \"Page not found\" :retryable? false}. Response status is 404."
+ :fixture/doc          "A request URL has no matching route. The runtime emits :rf.error/no-such-handler in the routing context. The default error projector maps it to {:status 404 :code :not-found :message \"Page not found\" :retryable? false} and writes :status 404 to the per-request response accumulator. Asserts the projector's output, not a user-stub-rolled fx."
 
  :fixture/registry
  {:event {:rf/server-init {:platforms #{:server}}}
   :route {:route/home {:doc "Home page only." :path "/"}}
+  ;; :rf.ssr/default-error-projector ships with the runtime
+  ;; (re-frame.ssr/reg-error-projector at ns-load); declared here so
+  ;; the fixture's :ssr config's :public-error-id resolves at the
+  ;; :error-projector kind. Not declaring a body — the runtime's
+  ;; default-error-projector-fn is the implementation.
   :error-projector
         {:rf.ssr/default-error-projector
          {:doc "Built-in default projector."}}}
@@ -30,14 +37,15 @@
  [[:rf.route/handle-url-change "/no-such-page"]]
 
  :fixture/expect
- {;; The response is a 404 with a stable :code.
-  :ssr/request-result
-  {:response     {:status 404
-                  :headers [["content-type" "text/html; charset=utf-8"]]}
-   :public-error {:status     404
-                  :code       :not-found
-                  :message    "Page not found"
-                  :retryable? false}}
+ {;; The runtime's error-projection listener writes :status 404 to the
+  ;; response accumulator. This is what asserting the PROJECTOR's
+  ;; output (rather than a user-stub-rolled fx call) looks like:
+  ;; the :rf/response slot reflects the public-error's :status because
+  ;; the projector ran, not because the fixture body emits
+  ;; :rf.server/set-status.
+  :final-app-db
+  {:rf/response {:status 404
+                 :redirect nil}}
 
   ;; The internal trace records :rf.error/no-such-handler.
   :trace-emissions
@@ -47,7 +55,10 @@
     :op-type   :error
     :tags      {:category :rf.error/no-such-handler}}]
 
-  ;; The rendered HTML body must NOT contain internal detail.
-  :ssr/rendered-html-must-not-contain
-  ["no-such-handler"
-   "exception-message"]}}
+  ;; Public-error shape produced by the runtime's default projector.
+  ;; Hosts read this via (rf/project-error frame-id trace-event).
+  :ssr/public-error
+  {:status     404
+   :code       :not-found
+   :message    "Page not found"
+   :retryable? false}}}

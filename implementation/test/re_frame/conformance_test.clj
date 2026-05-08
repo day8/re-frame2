@@ -598,6 +598,16 @@
                                (clojure.string/join "; "
                                  (map :detail call-failures)))
                           {:call-failures call-failures}))))
+      ;; Per Spec 011 §Server error projection — drain any pending
+      ;; error projections so :rf/response carries the projector's
+      ;; :status before we snapshot final-app-db. The runtime's
+      ;; trace listener buffers error events; this flushes them
+      ;; just before the conformance check reads app-db.
+      (let [apply-fn (requiring-resolve 're-frame.ssr/apply-pending-error-projection!)]
+        (when apply-fn
+          (doseq [fid (frame/frame-ids)]
+            (try (apply-fn fid)
+                 (catch Throwable _ nil)))))
       (let [expect       (or (:fixture/expect fixture) {})
             ;; Single-frame: :final-app-db. Multi-frame: :final-app-dbs as
             ;; {frame-id db}.
@@ -618,7 +628,25 @@
                   {:query    query-v
                    :expected expected-val
                    :actual   (rf/subscribe-value frame-id qv)})))
-            trace-failures (check-trace-emissions @traces (:trace-emissions expect))]
+            trace-failures (check-trace-emissions @traces (:trace-emissions expect))
+            ;; SSR error-projection contract — Spec 011 §Server error
+            ;; projection. Find the most recent :error trace and project
+            ;; it via the active projector for :rf/default; assert the
+            ;; result equals the fixture's :ssr/public-error.
+            expected-public-error (:ssr/public-error expect)
+            public-error-check
+            (when expected-public-error
+              (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+                    error-events  (filter #(= :error (:op-type %)) @traces)
+                    last-error    (last error-events)]
+                (if (and project-error last-error)
+                  (let [actual (project-error :rf/default last-error)]
+                    {:expected expected-public-error
+                     :actual   actual
+                     :passed?  (= expected-public-error actual)})
+                  {:expected expected-public-error
+                   :actual   nil
+                   :passed?  false})))]
         (trace/clear-trace-cbs!)
         {:fixture-id   fid
          :passed?      (and (or (nil? expected-db) (submap? expected-db final-db))
@@ -626,13 +654,16 @@
                                 (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
                                         expected-dbs))
                             (every? #(= (:expected %) (:actual %)) sub-checks)
-                            (empty? trace-failures))
+                            (empty? trace-failures)
+                            (or (nil? public-error-check)
+                                (:passed? public-error-check)))
          :final-db     final-db
          :final-dbs    final-dbs
          :expected-db  expected-db
          :expected-dbs expected-dbs
          :sub-checks   sub-checks
-         :trace-failures trace-failures}))
+         :trace-failures trace-failures
+         :public-error-check public-error-check}))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
        :passed?    false
@@ -702,7 +733,11 @@
               (println "    sub" (:query sc) "expected:" (:expected sc) "actual:" (:actual sc))))
           (when (seq (:trace-failures f))
             (doseq [tf (:trace-failures f)]
-              (println "    trace:" tf)))))
+              (println "    trace:" tf)))
+          (when-let [pec (:public-error-check f)]
+            (when-not (:passed? pec)
+              (println "    public-error expected:" (:expected pec))
+              (println "    public-error actual:  " (:actual pec))))))
       ;; The test asserts that AT LEAST one fixture passes.
       ;; Stricter assertions land as more capabilities come online.
       (is (pos? (count passed))
