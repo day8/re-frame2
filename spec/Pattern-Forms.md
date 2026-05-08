@@ -281,7 +281,7 @@ Forms typically don't need SSR-rendered hydration; the form is interactive clien
 - [examples/login/core.cljs](../examples/login/core.cljs) — login form built on this convention plus a state machine
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that turns form validation and success into explicit `Incorrect` / `Correct` UI states.
 - [examples/nine_states/](../examples/nine_states/) — worked example whose Incorrect state exercises this form lifecycle (validation errors, touched-field display, recovery to Correct).
-- [examples/realworld/auth.cljs](../examples/realworld/auth.cljs) — RealWorld's login and register forms exercise the full convention; the article editor (TODO) and comment form (TODO) extend it across more shapes.
+- [examples/realworld/auth.cljs](../examples/realworld/auth.cljs) — RealWorld's login and register forms exercise the full convention; [article_editor.cljs](../examples/realworld/article_editor.cljs) and [comments.cljs](../examples/realworld/comments.cljs) extend it across more shapes.
 
 ## Conformance checklist
 
