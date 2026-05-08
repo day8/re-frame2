@@ -72,6 +72,52 @@ The render-tree's *structure* — the tags, the children nesting, and the **non-
 
 The contract therefore: **structure is serialisable; behaviour (functions) is not**. This is consistent with the broader spec position that the wire carries data and behaviour is registered at runtime per host.
 
+### Render-tree primitives
+
+Render-tree activity surfaces in the trace stream via `:view/render` events and in `:rf/epoch-record`'s `:renders` projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)). The identity carried on each entry is the `:render-key` — the tuple shape every conformant view contract emits.
+
+#### `:render-key` is the tuple `[<view-id> <instance-token>]`
+
+Per rf2-t5tx Option C / rf2-piag, a `:render-key` is a two-element vector:
+
+- **`view-id`** — the `reg-view` registry id (e.g. `:my-app.cart/row`, `:counter`). Names the *kind* of view. For renders that did not enter through `reg-view` / `reg-view*` (plain Reagent fns), the view-id slot is `:rf.view/anonymous` (see §Anonymous fallback below).
+- **`instance-token`** — an integer, minted at mount time from a process-wide counter. Disambiguates concurrently-mounted instances of the same view-id. Tokens are monotonic within a single process run; they carry **no cross-run correlation guarantee** and are not stable across hot-reloads, page refreshes, or replay/restore. Tools that want cross-run identity must derive it elsewhere (positional path, parent-aware keys); the instance-token is for in-run discrimination only.
+
+Tuple example:
+
+```clojure
+{:render-key   [:my-app.cart/row 1473]
+ :triggered-by :sub.cart/items
+ :elapsed-ms   1.2}
+```
+
+Two mounted instances of the same view-id share the view-id and differ in the instance-token:
+
+```clojure
+[:my-app.cart/row 1473]   ;; first row, mount-instance A
+[:my-app.cart/row 1474]   ;; second row, mount-instance B (same kind, different mount)
+```
+
+#### Token lifecycle
+
+- **Minted at mount.** The first render of a `reg-view`-registered component allocates one token from the runtime counter; subsequent re-renders of the same instance reuse it.
+- **Discarded on unmount.** No bookkeeping; the next mount of an equivalent component gets a fresh token.
+- **Process-scoped.** Counter resets when the process restarts. A token from one run never collides with a token from another run within the same run; across runs, equality is meaningless.
+- **Replay-aware.** Tool-Pair's epoch restore (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) does NOT preserve tokens — a fresh run mints fresh tokens. Restored `:db-after` is the contract; the `:renders` projection is a per-run derivation, not an identity continuation.
+
+#### Anonymous fallback for plain Reagent fns
+
+Plain Reagent fns (`(defn my-view [...] ...)`) do not enter through `reg-view`'s wrapper, so they do not bind `*render-key*`. When the trace recorder reads `:render-key` and finds the binding absent, it emits the documented fallback shape `[:rf.view/anonymous nil]`:
+
+- **`:rf.view/anonymous`** — the canonical anonymous-view-id keyword.
+- **`nil`** — the anonymous instance-token. Anonymous renders do not allocate per-instance tokens; tools that need to disambiguate anonymous renders must use other signals (call-site, parent context).
+
+If the runtime can derive a cheap function-name hint (e.g. via `(.-displayName fn)`) it MAY emit `[:rf.view/<name> nil]` for tooling-friendliness, but `[:rf.view/anonymous nil]` is the safe default and the canonical fallback. The CLJS reference today emits `[:rf.view/anonymous nil]` unconditionally; the per-name optimisation is reserved as a future addition.
+
+#### Production elision
+
+`:render-key` is part of the trace surface; per [Spec 009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code), trace emission elides entirely under `^boolean ^:goog-define re-frame.interop.debug-enabled?`. The instance-token mint, the `*render-key*` binding, and the `:view/render` emission all sit behind that gate — production builds incur zero allocation, zero counter activity, zero binding-frame overhead.
+
 ### Loading state is explicit, not implicit
 
 React Suspense lets a component "suspend" while async work runs; the framework shows a fallback; the component renders normally on resolve. Loading state is implicit, sitting inside the suspended-component machinery. **Re-frame2 takes the opposite approach: loading state is explicit data in `app-db`.** [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status :loading` is the canonical place it lives; views read the state and branch on it. The choice is deliberate and worth calling out, because developers arriving from React (and other Suspense-using frameworks) would otherwise expect the implicit form.
