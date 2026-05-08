@@ -86,6 +86,28 @@
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (rf/clear-flow :no-such-flow)))
 
+(deftest clear-flow-handles-single-element-path
+  (testing "rf2-aqt7: clear-flow with a single-element :path dissocs the top-level key"
+    ;; The repro from rf2-aqt7: a flow whose :path is a one-element vector
+    ;; [:area]. Before the fix, clear-flow's (update-in cur [] dissoc :area)
+    ;; left :area in app-db (and silently introduced an {nil nil} entry).
+    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* w h))
+                  :path   [:area]})
+    (rf/dispatch-sync [:seed])
+    (is (= 12 (get (rf/get-frame-db :rf/default) :area))
+        "flow ran on the drain after :seed and materialised :area")
+    (rf/clear-flow :area)
+    (let [db (rf/get-frame-db :rf/default)]
+      (is (not (contains? db :area))
+          "single-element :path is dissoc'd cleanly")
+      (is (not (contains? db nil))
+          "no spurious {nil nil} entry from update-in on empty path")
+      (is (= {:w 3 :h 4} db)
+          "siblings of the cleared key are untouched"))))
+
 (deftest reg-flow-validates-required-keys
   (testing "missing :id throws"
     (is (thrown? Throwable
