@@ -18,6 +18,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- registration ---------------------------------------------------------
@@ -34,7 +35,8 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
-    (registrar/register! :fx id (assoc meta :handler-fn handler-fn))
+    (registrar/register! :fx id (assoc (source-coords/merge-coords meta)
+                                       :handler-fn handler-fn))
     id))
 
 (defn unregister-fx [id]

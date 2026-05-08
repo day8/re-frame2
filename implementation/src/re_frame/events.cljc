@@ -12,6 +12,7 @@
   during drain — the difference is only in the wrapping shape."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
@@ -153,7 +154,7 @@
         wrapped     (db-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
-      (assoc meta
+      (assoc (source-coords/merge-coords meta)
              :event/kind   :db
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))
@@ -165,7 +166,7 @@
         wrapped     (fx-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
-      (assoc meta
+      (assoc (source-coords/merge-coords meta)
              :event/kind   :fx
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))
@@ -177,7 +178,7 @@
         wrapped     (ctx-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
-      (assoc meta
+      (assoc (source-coords/merge-coords meta)
              :event/kind   :ctx
              :handler-fn   handler-fn
              :interceptors (vec all-chain)))

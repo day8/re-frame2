@@ -14,7 +14,8 @@
   rewrites keyword references at compile time as the v1 escape hatch."
   (:require ["react"        :as React]
             [reagent.core   :as r]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.source-coords :as source-coords]))
 
 ;; ---- the React context for frame propagation -----------------------------
 
@@ -64,7 +65,8 @@
                   (fn frame-aware-view [& args]
                     (apply render-fn args))
                   {:context-type frame-context})]
-    (registrar/register! :view id (assoc metadata :handler-fn wrapped))
+    (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
+                                         :handler-fn wrapped))
     wrapped))
 
 (defn get-view

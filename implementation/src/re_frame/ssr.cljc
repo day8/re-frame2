@@ -43,6 +43,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.events :as events]
+            [re-frame.source-coords :as source-coords]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])
@@ -675,7 +676,8 @@ response with no body."
    (reg-error-projector id {} projector-fn))
   ([id metadata projector-fn]
    (registrar/register! :error-projector id
-                        (assoc metadata :handler-fn projector-fn))
+                        (assoc (source-coords/merge-coords metadata)
+                               :handler-fn projector-fn))
    id))
 
 ;; Built-in default projector — always available; user code reaches

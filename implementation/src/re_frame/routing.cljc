@@ -35,6 +35,7 @@
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- url encoding / decoding ---------------------------------------------
@@ -191,7 +192,7 @@
         rank     (when pattern (compute-rank pattern))
         compiled (when pattern (compile-pattern pattern))
         idx      (swap! reg-counter inc)
-        meta'    (cond-> metadata
+        meta'    (cond-> (source-coords/merge-coords metadata)
                    rank     (assoc :rf.route/rank (conj rank (- idx)))
                    compiled (assoc :rf.route/compiled compiled))]
     ;; Spec 012 rule-6 warning: scan existing routes for one whose structural

@@ -14,6 +14,7 @@
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as adapter]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- registry -------------------------------------------------------------
@@ -128,7 +129,9 @@
      ;; The :flow registrar slot keys on flow-id only — but stamp :frame
      ;; into the metadata so introspection / hot-reload hooks can read
      ;; the owning frame.
-     (registrar/register! :flow flow-id (assoc flow :frame frame-id))
+     (registrar/register! :flow flow-id
+                          (source-coords/merge-coords
+                            (assoc flow :frame frame-id)))
      (swap! flows assoc-in [frame-id flow-id] flow)
      ;; Cycle detection on this frame's flows only.
      (try

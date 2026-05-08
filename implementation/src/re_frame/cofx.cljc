@@ -11,7 +11,8 @@
   registered cofx into the context."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
@@ -49,7 +50,8 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
-    (registrar/register! :cofx id (assoc meta :handler-fn handler-fn))
+    (registrar/register! :cofx id (assoc (source-coords/merge-coords meta)
+                                         :handler-fn handler-fn))
     id))
 
 (defn inject-cofx

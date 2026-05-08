@@ -11,6 +11,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 (defn- malli-validate*
@@ -50,7 +51,9 @@
   dev whenever an event handler returns a new app-db; failures emit
   :rf.error/schema-validation-failure."
   [path schema]
-  (registrar/register! :app-schema path {:schema schema :path path})
+  (registrar/register! :app-schema path
+                       (source-coords/merge-coords
+                         {:schema schema :path path}))
   path)
 
 (defn app-schema-at

@@ -15,6 +15,7 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- the frame record -----------------------------------------------------
@@ -136,7 +137,7 @@
     runtime state (app-db, sub-cache, queue) is preserved; only the
     metadata/config is replaced. Hot-reload Just Works."
   [id metadata]
-  (let [config (expand-preset metadata)]
+  (let [config (source-coords/merge-coords (expand-preset metadata))]
     (registrar/register! :frame id config)
     (let [existing (get @frames id)]
       (cond

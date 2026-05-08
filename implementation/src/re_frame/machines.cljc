@@ -24,6 +24,7 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.subs :as subs]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- pure machine-transition ----------------------------------------------
