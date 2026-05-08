@@ -373,6 +373,25 @@
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
+(deftest spawn-and-destroy-machine-fx
+  (testing ":spawn and :destroy-machine traverse fx without :rf.error/no-such-fx"
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::spawn (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-fx :do-spawn
+        (fn [_ _] {:fx [[:spawn {:machine-id :worker
+                                 :id-prefix  :worker
+                                 :start      [:begin]
+                                 :on-spawn   :record}]
+                        [:destroy-machine :worker#1]]}))
+      (rf/dispatch-sync [:do-spawn])
+      (rf/remove-trace-cb! ::spawn)
+      (is (some #(= :rf.machine/spawned (:operation %)) @traces)
+          "expected :rf.machine/spawned trace")
+      (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
+          "expected :rf.machine/destroyed trace")
+      (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)
+          ":spawn / :destroy-machine should not raise no-such-fx"))))
+
 (deftest login-machine-flow
   (testing "Spec 005 machine pattern: login flow as a state machine, end-to-end"
     ;; Stub fx that synthesises a successful or failed HTTP response.

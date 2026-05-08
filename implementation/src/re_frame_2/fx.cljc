@@ -8,11 +8,12 @@
     4. Subscriptions observe the post-:db state.
 
   Reserved fx-ids (per Conventions §Reserved fx-ids):
-    :dispatch       — runtime, intra-frame dispatch (back of router queue)
-    :dispatch-later — runtime, delayed dispatch
-    :raise          — machine-internal (machine handler routes locally)
-    :spawn          — machine-internal
-    :rf.fx/reg-flow — runtime, register a flow (Spec 013)
+    :dispatch         — runtime, intra-frame dispatch (back of router queue)
+    :dispatch-later   — runtime, delayed dispatch
+    :raise            — machine-internal (machine handler routes locally)
+    :spawn            — machine-internal: declarative :invoke desugar
+    :destroy-machine  — machine-internal: counterpart to :spawn on state exit
+    :rf.fx/reg-flow   — runtime, register a flow (Spec 013)
     :rf.fx/clear-flow — runtime, clear a flow"
   (:require [re-frame-2.registrar :as registrar]
             [re-frame-2.interop :as interop]
@@ -104,6 +105,25 @@
     :rf.fx/clear-flow
     (when-let [clear-flow! (resolve 're-frame-2.flows/clear-flow-fx!)]
       ((deref clear-flow!) args))
+
+    :spawn
+    ;; Per Spec 005 §Declarative :invoke (sugar over spawn): emitted by
+    ;; the machine when entering an :invoke-bearing state. The runtime
+    ;; layer here just emits a trace so observers see the spawn intent;
+    ;; full actor lifecycle (auto-start, message routing, supervision)
+    ;; is the user's responsibility for now.
+    (trace/emit! :machine :rf.machine/spawned
+                 {:frame frame-id
+                  :machine-id (:machine-id args)
+                  :id-prefix  (:id-prefix args)
+                  :start      (:start args)
+                  :on-spawn   (:on-spawn args)})
+
+    :destroy-machine
+    ;; Per Spec 005: emitted on exit from an :invoke-bearing state.
+    (trace/emit! :machine :rf.machine/destroyed
+                 {:frame    frame-id
+                  :actor-id args})
 
     ;; Default: user-registered fx.
     (if-let [meta (registrar/lookup :fx fx-id)]
