@@ -132,6 +132,78 @@
         (is (false? (:scheduled? @router))
             ":scheduled? is reset so future dispatches re-engage drain")))))
 
+(deftest drain-depth-exceeded-rolls-back-app-db
+  ;; Spec 002 §Run-to-completion §Rules rule 3 (atomic rollback): when
+  ;; the drain trips its depth limit, the runtime restores app-db to
+  ;; its pre-drain snapshot before emitting :rf.error/drain-depth-
+  ;; exceeded. Partial writes from the failed cascade are reverted —
+  ;; no caller observes a state no single completed event would
+  ;; produce. Discovered via rf2-8hi7.
+  (testing "a 4-deep chain that overflows leaves :db at the pre-drain value"
+    ;; Frame seeded via :on-create so the pre-drain snapshot is non-empty.
+    ;; If rollback regressed (partial writes preserved), :step would
+    ;; advance to whatever the bound caught — the assertion would fail
+    ;; loudly with the depth count so the regression is obvious.
+    (rf/reg-event-db :seed/init
+      (fn [_ _] {:step :pre-drain :counter 0}))
+    (rf/reg-frame :drain.rollback/main
+      {:on-create   [:seed/init]
+       :drain-depth 4})
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::rollback (fn [ev] (swap! traces conj ev)))
+      ;; A handler that COMMITS a :db write (advancing :step and bumping
+      ;; :counter) AND re-dispatches itself. Without rollback, the final
+      ;; :db carries the partial writes from depth-1..depth-4. With
+      ;; rollback, the final :db is exactly what :seed/init produced.
+      (rf/reg-event-fx :overflow
+        (fn [{:keys [db]} _]
+          {:db {:step :mid-drain :counter (inc (:counter db 0))}
+           :fx [[:dispatch [:overflow]]]}))
+      (rf/dispatch-sync [:overflow] {:frame :drain.rollback/main})
+      (rf/remove-trace-cb! ::rollback)
+      ;; Atomic rollback: app-db is exactly what :seed/init produced.
+      (is (= {:step :pre-drain :counter 0}
+             (rf/get-frame-db :drain.rollback/main))
+          "app-db is restored to the pre-drain snapshot; partial writes are reverted")
+      ;; Sanity: the depth-exceeded trace did fire and tags :rollback? true.
+      (let [hit (some (fn [ev]
+                        (when (= :rf.error/drain-depth-exceeded
+                                 (:operation ev))
+                          ev))
+                      @traces)]
+        (is (some? hit) "drain-depth-exceeded trace was emitted")
+        (when hit
+          (is (true? (get-in hit [:tags :rollback?]))
+              ":rollback? true tag flags the atomic rollback per Spec 002")))))
+
+  (testing "rollback target is the snapshot at drain entry, not :on-create"
+    ;; A drain that has already settled cleanly once and then is re-
+    ;; engaged with a self-dispatching event must roll back to the
+    ;; *post-first-drain* state, not all the way back to :on-create.
+    ;; This pins the contract: rollback boundary is the drain, not the
+    ;; lifetime of the frame.
+    (rf/reg-event-db :seed2/init (fn [_ _] {:phase :seeded}))
+    (rf/reg-frame :drain.rollback/two
+      {:on-create   [:seed2/init]
+       :drain-depth 3})
+    ;; First drain: a clean settle that mutates :phase. After this, the
+    ;; pre-drain snapshot for any FUTURE drain is {:phase :first-settled}.
+    (rf/reg-event-db :advance (fn [db _] (assoc db :phase :first-settled)))
+    (rf/dispatch-sync [:advance] {:frame :drain.rollback/two})
+    (is (= {:phase :first-settled}
+           (rf/get-frame-db :drain.rollback/two))
+        "first drain settled cleanly; that's the new baseline")
+    ;; Second drain: trip the depth limit. Rollback target is the
+    ;; baseline above, not :seed2/init's output.
+    (rf/reg-event-fx :overflow2
+      (fn [_ _]
+        {:db {:phase :poisoned}
+         :fx [[:dispatch [:overflow2]]]}))
+    (rf/dispatch-sync [:overflow2] {:frame :drain.rollback/two})
+    (is (= {:phase :first-settled}
+           (rf/get-frame-db :drain.rollback/two))
+        "rollback restored the *drain-entry* snapshot, not :on-create's output")))
+
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
 
 (deftest dispatch-sync-in-handler-jvm
