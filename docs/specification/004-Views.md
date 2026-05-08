@@ -187,7 +187,7 @@ This is the family-asymmetry rule applied to views: **render trees use Vars; run
 ;; (or whatever Reagent's hiccup interpretation produces for that tag).
 ```
 
-For users who want hiccup to read as pure data (keyword-tagged trees), the opt-in `(rf/h ...)` macro performs a compile-time rewrite — see [§The `h` macro](#the-h-macro) below. `h` is a sugar layer over Var-references; it does not change the render-time contract.
+An earlier draft included an opt-in `(rf/h ...)` macro that walked hiccup at compile time and rewrote namespaced-keyword heads into runtime view lookups. It has been **dropped from the v1 surface** (rf2-n4um). See [§`h` macro dropped](#h-macro-dropped-rf2-n4um) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every previous use case without a compile-time hiccup walker.
 
 ## How registered views are used in hiccup
 
