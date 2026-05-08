@@ -2,9 +2,10 @@
   "CLJS-side smoke tests. Verifies the JVM-shared API (events, subs,
   dispatch, registry) works under the Reagent reactive substrate AND
   exercises the CLJS-only macros from re-frame.views-macros."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             [re-frame.ssr :as ssr]
             [re-frame.substrate.reagent :as reagent-adapter]
@@ -604,3 +605,51 @@
       (is (= (first a) (first b)) "both emit the :> Reagent native marker")
       (is (= (nth a 2) (nth b 2)) "both emit {:value :hello} as the props")
       (is (= (drop 3 a) (drop 3 b)) "both emit the same children"))))
+
+;; ---- per-frame sub-cache grace-period (Spec 006, rf2-s9dn) ----------------
+;;
+;; Mirrors the synchronous-disposal portion of
+;; implementation/test/re_frame/sub_cache_test.clj — verifies the cache
+;; surface (configure!, ref-count, pending-dispose slot) under the Reagent
+;; adapter. The JVM test exercises the full deferred-dispose contract
+;; (resubscribe-cancels, real-time timer assertions) against a
+;; ScheduledExecutorService — under CLJS those checks would require async
+;; tests, which need a map-form fixture incompatible with this ns's
+;; reset-runtime-fixture. The grace-period implementation is shared core
+;; code; the JVM coverage is sufficient for the timing contract.
+
+(defn- cache-keys-of
+  [frame-id]
+  (set (keys @(:sub-cache (frame/frame frame-id)))))
+
+(deftest sub-cache-grace-zero-disposes-synchronously
+  (testing "with grace=0, ref-count → 0 disposes the slot synchronously"
+    (rf/configure :sub-cache {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+    (rf/subscribe [:n])
+    (is (contains? (cache-keys-of :rf/default) [:n]))
+    (rf/unsubscribe [:n])
+    (is (not (contains? (cache-keys-of :rf/default) [:n])))
+    (rf/configure :sub-cache {:grace-period-ms 50})))
+
+(deftest sub-cache-grace-default-defers-disposal
+  (testing "with default grace, last unsubscribe leaves a pending-dispose handle"
+    (rf/configure :sub-cache {:grace-period-ms 60000}) ;; long enough never to fire during the test
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+    (rf/subscribe [:n])
+    (rf/unsubscribe [:n])
+    (is (contains? (cache-keys-of :rf/default) [:n])
+        "slot survives the grace-period window")
+    (is (some? (get-in @(:sub-cache (frame/frame :rf/default))
+                       [[:n] :pending-dispose]))
+        "a deferred-dispose handle was scheduled")
+    (let [r2 (rf/subscribe [:n])]
+      (is (some? r2) "resubscribe returns the cached reaction")
+      (is (nil? (get-in @(:sub-cache (frame/frame :rf/default))
+                        [[:n] :pending-dispose]))
+          "resubscribe cancels the pending-dispose"))
+    (rf/configure :sub-cache {:grace-period-ms 50})))

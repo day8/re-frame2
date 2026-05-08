@@ -677,10 +677,15 @@
   "Configure a runtime knob. Closed v1 keys (additive across versions
   per Spec-ulation):
 
-    :epoch-history {:depth N}    — set the per-frame epoch ring depth
-                                    (default 50). 0 disables recording.
-    :trace-buffer  {:depth N}    — set the retain-N trace ring buffer
-                                    depth (default 200). 0 disables.
+    :epoch-history {:depth N}         — set the per-frame epoch ring depth
+                                         (default 50). 0 disables recording.
+    :trace-buffer  {:depth N}         — set the retain-N trace ring buffer
+                                         depth (default 200). 0 disables.
+    :sub-cache     {:grace-period-ms N} — set the deferred-dispose grace
+                                         period for the per-frame sub-cache
+                                         (default 50ms; 0 = synchronous
+                                         disposal). Per Spec 006 §Reference
+                                         counting and disposal.
 
   Per Tool-Pair §How AI tools attach. Future keys (e.g. :performance-api
   per Spec 009) will land additively."
@@ -688,6 +693,7 @@
   (case knob
     :epoch-history (epoch/configure! opts)
     :trace-buffer  (trace/configure-trace-buffer! opts)
+    :sub-cache     (subs/configure! opts)
     nil))
 
 ;; ---- substrate adapter ----------------------------------------------------

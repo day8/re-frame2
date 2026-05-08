@@ -5,7 +5,7 @@
   simplified because the JVM has no DOM, no Reagent, no animation frame.
   See Spec 011 §JVM-runnable view rendering and Spec 008 §JVM-runnable
   test suites."
-  (:import [java.util.concurrent Executor Executors]))
+  (:import [java.util.concurrent Executor Executors ScheduledExecutorService TimeUnit ScheduledFuture]))
 
 ;; ---- next-tick scheduling -------------------------------------------------
 
@@ -60,15 +60,29 @@
   true)
 
 ;; ---- timers ---------------------------------------------------------------
+;;
+;; The JVM uses a real ScheduledExecutorService so that ms-valued delays
+;; behave like js/setTimeout — required by the per-frame sub-cache's
+;; grace-period disposal (per Spec 006 §Reference counting and disposal,
+;; rf2-s9dn). When ms = 0 the schedule still goes through the executor
+;; but fires effectively immediately.
+
+(defonce ^:private ^ScheduledExecutorService scheduled-executor
+  (Executors/newSingleThreadScheduledExecutor))
 
 (defn set-timeout!
-  "On the JVM, fire f synchronously after ignoring ms (no real timer needed
-  for headless tests). SSR does not exercise :after timers per Spec 011."
-  [f _ms]
-  (next-tick f))
+  "Schedule f to run after ms milliseconds. Returns an opaque handle
+  (a ScheduledFuture on the JVM)."
+  [f ms]
+  (let [bound-f (bound-fn [] (f))]
+    (.schedule scheduled-executor ^Runnable bound-f
+               (long (or ms 0)) TimeUnit/MILLISECONDS)))
 
 (defn clear-timeout!
-  [_handle]
+  "Cancel a previously-scheduled timer."
+  [handle]
+  (when (instance? ScheduledFuture handle)
+    (.cancel ^ScheduledFuture handle false))
   nil)
 
 ;; ---- clock ----------------------------------------------------------------
