@@ -12,7 +12,7 @@
 | 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`circle_drawer.cljs`](circle_drawer.cljs) |
 | 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`cells.cljs`](cells.cljs) |
 
-Each example is a single CLJS source file plus a thin HTML host page. The shadow-cljs build targets (in `implementation/shadow-cljs.edn`) and the Playwright smoke specs (in `examples/playwright/`) wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
+Each example is a single CLJS source file plus a thin HTML host page and a Playwright smoke spec (e.g. `cells.cljs` + `cells.html` + `cells.spec.cjs`). The shadow-cljs build targets in `implementation/shadow-cljs.edn` and the orchestrator under `implementation/scripts/` wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
 
 ## How these compare to the original 7GUIs reference
 

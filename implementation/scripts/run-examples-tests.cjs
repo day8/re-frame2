@@ -5,8 +5,10 @@
  * Each example is built by shadow-cljs into out/examples/<name>/main.js
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
- * browser and executes the spec files under examples/playwright/, each
- * of which navigates to the example's URL and asserts a user-visible
+ * browser and executes the *.spec.cjs files that sit alongside each
+ * example's source (examples/<name>/<name>.spec.cjs, plus
+ * examples/seven_guis/<name>.spec.cjs for the flat 7GUIs cluster).
+ * Each spec navigates to the example's URL and asserts a user-visible
  * behaviour (initial render + an interaction + post-interaction state).
  *
  * Why a hand-rolled runner rather than @playwright/test:
@@ -32,19 +34,32 @@ const fs = require('fs');
 const { chromium } = require('playwright');
 
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
-const SPECS_DIR = path.resolve(__dirname, '..', '..', 'examples', 'playwright');
+const EXAMPLES_ROOT = path.resolve(__dirname, '..', '..', 'examples');
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 
-function listSpecFiles(dir) {
-  if (!fs.existsSync(dir)) {
-    console.error(`Specs directory does not exist: ${dir}`);
+// Specs live alongside the example they exercise, one or two levels
+// under examples/ — e.g. examples/counter/counter.spec.cjs, or
+// examples/seven_guis/cells.spec.cjs (flat 7GUIs cluster). Walk the
+// tree and pick up every *.spec.cjs we find.
+function listSpecFiles(root) {
+  if (!fs.existsSync(root)) {
+    console.error(`Examples root does not exist: ${root}`);
     return [];
   }
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.spec.cjs'))
-    .sort()
-    .map((f) => path.join(dir, f));
+  const out = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile() && entry.name.endsWith('.spec.cjs')) {
+        out.push(full);
+      }
+    }
+  }
+  return out.sort();
 }
 
 function withTimeout(promise, ms, label) {
@@ -59,9 +74,9 @@ function withTimeout(promise, ms, label) {
 }
 
 (async () => {
-  const specFiles = listSpecFiles(SPECS_DIR);
+  const specFiles = listSpecFiles(EXAMPLES_ROOT);
   if (specFiles.length === 0) {
-    console.error(`No specs found in ${SPECS_DIR}`);
+    console.error(`No specs found under ${EXAMPLES_ROOT}`);
     process.exit(1);
   }
 

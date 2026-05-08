@@ -63,8 +63,9 @@
   ;; Each example compiles into out/examples/<name>/ and is paired with a
   ;; hand-written examples/<name>/index.html host page that loads main.js
   ;; from the same directory. The serve-and-run-examples script builds the
-  ;; site layout, serves it, and runs the Playwright specs under
-  ;; examples/playwright/.
+  ;; site layout, serves it, and runs the Playwright specs that sit
+  ;; alongside each example (examples/<name>/<name>.spec.cjs, plus the
+  ;; flat 7GUIs cluster under examples/seven_guis/).
   ;;
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
