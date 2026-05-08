@@ -128,6 +128,33 @@ A feature does not reach into another feature's slice directly — it goes throu
 
 Full rationale: [000-Vision §Pointers to per-area Specs (Features)](000-Vision.md#pointers-to-per-area-specs) and [Construction-Prompts.md §CP-6](Construction-Prompts.md).
 
+## `:interceptors` is positional, not metadata (`reg-event-*`)
+
+For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain lives in the positional middle slot**, not inside the metadata-map. The metadata-map is reserved for *reflection* (`:doc`, `:spec`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) — keys tooling reads back from the registrar to describe what was registered.
+
+```clojure
+;; correct — metadata-map for reflection, interceptors in the third positional slot
+(rf/reg-event-db :cart.item/add
+  {:doc "Add an item to the cart." :spec CartItemAddEvent}
+  [undoable spec/validate-at-boundary]
+  (fn [db [_ item]] (update db :items conj item)))
+
+;; correct — no metadata, just the legacy 2-arg `[interceptors] handler` form
+(rf/reg-event-db :cart.item/add
+  [undoable]
+  (fn [db [_ item]] (update db :items conj item)))
+
+;; WRONG — `:interceptors` inside the metadata-map is silently ignored.
+;; The runtime emits :rf.warning/interceptors-in-metadata-map at registration.
+(rf/reg-event-db :cart.item/add
+  {:doc "Add an item." :interceptors [undoable]}    ;; <- chain dropped
+  (fn [db [_ item]] (update db :items conj item)))
+```
+
+The runtime warns at registration time when `:interceptors` appears inside the metadata-map (`:rf.warning/interceptors-in-metadata-map`, per [§Reserved namespaces](#reserved-namespaces-framework-owned) — `:rf.warning/*`). Hot-reload tools and 10x surface the warning so the typo doesn't reach production.
+
+This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise `:interceptors` (per [Spec 002 §`:interceptors` — *add* interceptors to a frame's events](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)) — frames have no positional middle slot, so frame-level interceptors live on the metadata-map by necessity.
+
 ## Implementation note — persistent data structures
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other-language ports pick a host-idiomatic library (Immer or Immutable.js for JS; pyrsistent or immutables for Python; im-rs for Rust; native collections for F# / Scala / OCaml / Clojure). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).

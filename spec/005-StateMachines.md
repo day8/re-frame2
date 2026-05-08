@@ -416,7 +416,8 @@ A machine is registered as **one event handler** via `reg-event-fx` whose body c
 
 ```clojure
 (rf/reg-event-fx :drawer/editor
-  {:doc "Modal-edit flow." :interceptors [undoable]}
+  {:doc "Modal-edit flow."}
+  [undoable]
   (rf/create-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
@@ -1520,8 +1521,8 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event-db :drawer/apply-radius
-  {:doc "Persist a circle's new radius. Called by the editor machine on commit."
-   :interceptors [undoable]}
+  {:doc "Persist a circle's new radius. Called by the editor machine on commit."}
+  [undoable]
   (fn [db [_ circle-id new-radius]]
     (update-in db [:drawer :circles]
                (fn [cs]
@@ -1604,7 +1605,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
     {:db {:drawer {:circles [] :undo [] :redo []}}}))
 
 (rf/reg-event-db :drawer/add-circle
-  {:interceptors [undoable]}
+  [undoable]
   (fn [db [_ x y]]
     (update-in db [:drawer :circles] conj
                {:id (random-uuid) :x x :y y :radius 30})))

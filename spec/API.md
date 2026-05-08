@@ -232,7 +232,7 @@ For tooling, agents, story tools, 10x.
 | `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | 010 |
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
-| `:spec/validate-at-boundary` (interceptor) | — | Add to `:interceptors` for production-boundary validation | v1 | 010 |
+| `:spec/validate-at-boundary` (interceptor) | — | Add to a `reg-event-*`'s positional interceptor vector for production-boundary validation | v1 | 010 |
 
 See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and dev/prod elision.
 
