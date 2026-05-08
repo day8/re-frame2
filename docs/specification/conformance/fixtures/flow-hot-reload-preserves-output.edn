@@ -1,0 +1,58 @@
+;; Conformance fixture: flow/hot-reload-preserves-output
+;; Per Spec 013 §Re-registration and Spec 001 §Hot-reload semantics —
+;; reg-flow against an already-registered :id performs a surgical
+;; update: the new flow's definition replaces the old; last-inputs
+;; clears so the new body re-evaluates on the next event regardless of
+;; whether inputs changed.
+;;
+;; This fixture verifies the user-visible value at the output path:
+;; if the new body would compute the same output, the prior output is
+;; preserved across re-registration.
+
+{:fixture/id           :flow/hot-reload-preserves-output
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/hot-reload}
+ :fixture/doc          "Re-registering a flow with an equivalent body keeps the prior output value at the flow's :path. Per Spec 001 §Hot-reload, the new flow re-evaluates on the next drain — so the user observes a continuous output as long as the new body is value-equivalent on the same inputs. (If the new body would compute a different value, the next drain materialises the new value.)"
+
+ :fixture/registry
+ {:event {:doubled/init      {:doc "Seed :n to 7."}
+          :doubled/reg-v1    {:doc "Register :double v1 — output is (* 2 n)."}
+          :doubled/reg-v2    {:doc "Re-register :double v2 — same output value."}
+          :doubled/poke      {:doc "No-op event to drive a drain."}}
+  :fx    {:rf.fx/reg-flow {:doc "Reserved — register a flow."
+                           :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event {:doubled/init   [[:set [:n] 7]]
+          :doubled/reg-v1 [[:fx :rf.fx/reg-flow
+                            {:id     :doubled/value
+                             :inputs [[:n]]
+                             :body   [[:fn :* [:event-arg 0] 2]]
+                             :path   [:doubled]}]]
+          :doubled/reg-v2 [[:fx :rf.fx/reg-flow
+                            {:id     :doubled/value
+                             :inputs [[:n]]
+                             :body   [[:fn :+ [:event-arg 0] [:event-arg 0]]]
+                             :path   [:doubled]}]]
+          :doubled/poke   [[:set [:tick] [:event-arg 1]]]}}
+
+ :fixture/frame-config
+ {:on-create [:doubled/init]}
+
+ ;; Sequence:
+ ;;   on-create [:doubled/init]   — :n 7
+ ;;   [:doubled/reg-v1]           — register v1; flow first-fires on next drain
+ ;;   [:doubled/poke 1]           — drives a drain; v1 fires → :doubled 14
+ ;;   [:doubled/reg-v2]           — re-register with (+ n n); last-inputs cleared
+ ;;   [:doubled/poke 2]           — v2 fires; same output value 14
+ :fixture/dispatches
+ [[:doubled/reg-v1]
+  [:doubled/poke 1]
+  [:doubled/reg-v2]
+  [:doubled/poke 2]]
+
+ :fixture/expect
+ {:final-app-db
+  {:n       7
+   :tick    2
+   :doubled 14}}}

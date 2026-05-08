@@ -1,0 +1,56 @@
+;; Conformance fixture: flow/noop-on-value-equal-input
+;; Per Spec 013 §Dirty-check semantics — a flow recomputes only when
+;; its inputs change by =-equality since its last evaluation. A handler
+;; that writes the same value back to an input path does NOT re-fire
+;; flows that depend on that path.
+;;
+;; This fixture verifies the no-op path. The flow's :output is wired
+;; to :tick-counter — an external counter the test asserts hasn't
+;; advanced when the input was rewritten with an =-equal value.
+
+{:fixture/id           :flow/noop-on-value-equal-input
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/dirty-check}
+ :fixture/doc          "A handler that writes the same value back to an input path does not cause the flow to re-fire. Implementations track per-flow last-inputs as a vector; =-equal new-inputs is a no-op. First evaluation always fires (initial output materialises on first drain)."
+
+ :fixture/registry
+ {:event {:doubled/init      {:doc "Seed :n to 5."}
+          :doubled/replace-n {:doc "Replace :n with the supplied value."}}
+  :flow  {:doubled/value
+          {:doc    "Doubles :n at [:doubled]."
+           :inputs [[:n]]
+           :path   [:doubled]}}}
+
+ :fixture/handlers
+ {:event {:doubled/init      [[:set [:n] 5]]
+          :doubled/replace-n [[:set [:n] [:event-arg 1]]]}}
+
+ :fixture/flow-bodies
+ {:doubled/value [[:fn :* [:event-arg 0] 2]]}
+
+ :fixture/frame-config
+ {:on-create [:doubled/init]}
+
+ ;; First :doubled/replace-n with 5 is =-equal to current :n (5) — flow
+ ;; should NOT recompute.
+ ;; Second with 7 changes the value; flow recomputes to 14.
+ :fixture/dispatches
+ [[:doubled/replace-n 5]
+  [:doubled/replace-n 7]]
+
+ :fixture/expect
+ {:final-app-db
+  {:n        7
+   :doubled  14}
+
+  ;; The dirty-check is per-flow: paths that did not change between
+  ;; drains do not trigger their flow's :output. The harness verifies
+  ;; the recompute count via instrumentation. v1 dispatch sequence:
+  ;;
+  ;;   on-create [:doubled/init]    — sets :n 5;   flow first-fires → :doubled 10
+  ;;   [:doubled/replace-n 5]       — :n stays 5;  flow no-op (=-equal inputs)
+  ;;   [:doubled/replace-n 7]       — :n now 7;    flow fires → :doubled 14
+  ;;
+  ;; Expected recompute count for :doubled/value is 2.
+  :flow-recompute-counts
+  {:doubled/value 2}}}

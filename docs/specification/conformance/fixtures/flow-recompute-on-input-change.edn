@@ -1,0 +1,53 @@
+;; Conformance fixture: flow/recompute-on-input-change
+;; Per Spec 013 §Drain integration — a flow recomputes when its input
+;; paths change after an event drain. The output value is materialised
+;; into app-db at the flow's :path before :fx walks.
+;;
+;; This is the canonical "flow as on-changes successor" smoke: width and
+;; height live in app-db; the :rectangle/area flow keeps :area in sync
+;; as inputs mutate.
+
+{:fixture/id           :flow/recompute-on-input-change
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :flow/basic}
+ :fixture/doc          "A flow with two input paths and one output path. Mutating either input via an event handler causes the :output fn to fire and the result to be assoc-in'd at the flow's :path. Each event drain runs the flow at most once and only writes when inputs differ from the last run."
+
+ :fixture/registry
+ {:event {:rect/init    {:doc "Seed width and height to 0."}
+          :rect/set-w   {:doc "Set the rectangle's width."}
+          :rect/set-h   {:doc "Set the rectangle's height."}}
+  :flow  {:rectangle/area
+          {:doc    "Materialised rectangle area — width × height."
+           :inputs [[:width] [:height]]
+           :path   [:area]}}
+  :sub   {:area/value {:doc "Read the materialised :area path."}}}
+
+ :fixture/handlers
+ {:event {:rect/init  [[:set [:width]  0]
+                       [:set [:height] 0]]
+          :rect/set-w [[:set [:width]  [:event-arg 1]]]
+          :rect/set-h [[:set [:height] [:event-arg 1]]]}
+  :sub   {:area/value [[:get [:area]]]}}
+
+ ;; The :output fn is described declaratively here. The conformance
+ ;; harness realises it as `(fn [w h] (* w h))`. Implementations that
+ ;; have not wired flow-body realisation yet will skip the fixture
+ ;; (capability :flow/basic not claimed) and report not-exercised.
+ :fixture/flow-bodies
+ {:rectangle/area [[:fn :* [:event-arg 0] [:event-arg 1]]]}
+
+ :fixture/frame-config
+ {:on-create [:rect/init]}
+
+ :fixture/dispatches
+ [[:rect/set-w 3]
+  [:rect/set-h 4]]
+
+ :fixture/expect
+ {:final-app-db
+  {:width  3
+   :height 4
+   :area   12}
+
+  :sub-values
+  {[:area/value] 12}}}
