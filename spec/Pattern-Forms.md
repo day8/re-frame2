@@ -251,7 +251,7 @@ Worked example — login form:
 
 ### Multi-step forms / wizards
 
-For multi-step flows (signup wizard, checkout), pair the form slice with a state machine. The machine handles step transitions; the form slice persists across steps. See [examples/login/core.cljs](../../examples/login/core.cljs) for a related machine pattern.
+For multi-step flows (signup wizard, checkout), pair the form slice with a state machine. The machine handles step transitions; the form slice persists across steps. See [examples/login/core.cljs](../examples/login/core.cljs) for a related machine pattern.
 
 ### Field-level async validation
 
@@ -278,10 +278,10 @@ Forms typically don't need SSR-rendered hydration; the form is interactive clien
 - [010-Schemas.md](010-Schemas.md) — schema validation runs at the boundaries this pattern leans on
 - [Pattern-RemoteData.md](Pattern-RemoteData.md) — the submit lifecycle reuses the request-lifecycle slice when the server is involved
 - [005-StateMachines.md](005-StateMachines.md) — multi-step wizards use machines on top of the form slice
-- [examples/login/core.cljs](../../examples/login/core.cljs) — login form built on this convention plus a state machine
+- [examples/login/core.cljs](../examples/login/core.cljs) — login form built on this convention plus a state machine
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that turns form validation and success into explicit `Incorrect` / `Correct` UI states.
-- [examples/nine_states/](../../examples/nine_states/) — worked example whose Incorrect state exercises this form lifecycle (validation errors, touched-field display, recovery to Correct).
-- [examples/realworld/auth.cljs](../../examples/realworld/auth.cljs) — RealWorld's login and register forms exercise the full convention; the article editor (TODO) and comment form (TODO) extend it across more shapes.
+- [examples/nine_states/](../examples/nine_states/) — worked example whose Incorrect state exercises this form lifecycle (validation errors, touched-field display, recovery to Correct).
+- [examples/realworld/auth.cljs](../examples/realworld/auth.cljs) — RealWorld's login and register forms exercise the full convention; the article editor (TODO) and comment form (TODO) extend it across more shapes.
 
 ## Conformance checklist
 
