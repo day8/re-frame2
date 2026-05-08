@@ -439,20 +439,61 @@
                     path)))
               schemas)))))
 
+(defn- machine-registration
+  "Resolve a machine-id against the public machine registry. Per
+  Spec 005 §Registration / §Querying machines, machines are event
+  handlers whose registration metadata carries `:rf/machine? true`
+  and `:rf/machine` (the spec map). Returns the registration map
+  when machine-id names a registered machine, nil otherwise.
+
+  Per rf2-ocg1: epoch restore validates against this public surface,
+  not against the internal `:head` registrar kind that machines
+  never used."
+  [machine-id]
+  (let [reg (registrar/lookup :event machine-id)]
+    (when (:rf/machine? reg)
+      reg)))
+
+(defn- snapshot-version
+  "Read the recorded snapshot's `:rf/snapshot-version`. Per
+  Spec-Schemas §`:rf/machine-snapshot` and Spec 005 §Snapshot shape,
+  the canonical slot is `[:meta :rf/snapshot-version]`. Tolerates
+  the legacy top-level `:rf/snapshot-version` slot for snapshots
+  written before the meta-nesting was finalised."
+  [snapshot]
+  (or (get-in snapshot [:meta :rf/snapshot-version])
+      (:rf/snapshot-version snapshot)))
+
+(defn- machine-definition-version
+  "Read the currently-registered machine definition's
+  `:rf/snapshot-version`. Per Spec 005 §Snapshot shape — the
+  definition's `:meta :rf/snapshot-version` is the canonical slot."
+  [machine-id]
+  (when-let [reg (machine-registration machine-id)]
+    (let [machine (:rf/machine reg)]
+      (get-in machine [:meta :rf/snapshot-version]))))
+
 (defn- missing-references
   "Walk the recorded db for ids that are no longer present in the
-  registrar. Closed v1 surface — `:rf/machines` (machine-id keys must
-  reference a registered :head/machine snapshot via the machine
-  registry) and `:route` (`:id` must reference a registered :route).
+  registrar. Closed v1 surface — `:rf/machines` (each machine-id
+  must reference a registered machine via the public event registry,
+  per Spec 005 §Registration — machines are event handlers tagged
+  with `:rf/machine?`) and `:route` (`:id` must reference a registered
+  :route).
+
+  Per rf2-ocg1: machine lookup goes through the event registry, NOT
+  the internal `:head` registrar kind. The latter is unrelated to
+  the public machine contract.
 
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
   [db]
   (let [missing (atom [])]
-    ;; Machines under :rf/machines: re-frame.machines registers under :head.
+    ;; Machines under :rf/machines: registered as event handlers with
+    ;; :rf/machine? true (per Spec 005 §Registration).
     (doseq [[machine-id _snapshot] (:rf/machines db)]
-      (when-not (registrar/lookup :head machine-id)
-        (swap! missing conj {:kind :head :id machine-id})))
+      (when-not (machine-registration machine-id)
+        (swap! missing conj {:kind :machine :id machine-id})))
     ;; Active route
     (when-let [route-id (get-in db [:route :id])]
       (when-not (registrar/lookup :route route-id)
@@ -461,17 +502,23 @@
 
 (defn- machine-version-mismatch
   "Walk the recorded db's `:rf/machines` for snapshot version drift.
-  Each snapshot may carry `:rf/snapshot-version`; the currently-
-  registered machine carries `:version` in its meta. When they
-  differ, return the first mismatch as
+  The recorded snapshot may carry `:rf/snapshot-version` under
+  `:meta`; the registered machine definition carries
+  `:rf/snapshot-version` under its own `:meta`. When they differ,
+  return the first mismatch as
   `{:machine-id <id> :recorded <int> :current <int>}`. nil when no
-  mismatch is found."
+  mismatch is found.
+
+  Per rf2-ocg1: both versions are read through the public Spec 005
+  §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`
+  and the registered machine's `[:meta :rf/snapshot-version]`. The
+  legacy top-level `:rf/snapshot-version` slot on the snapshot is
+  tolerated for back-compat."
   [db]
   (some (fn [[machine-id snapshot]]
-          (let [recorded (:rf/snapshot-version snapshot)]
+          (let [recorded (snapshot-version snapshot)]
             (when (some? recorded)
-              (let [meta    (registrar/lookup :head machine-id)
-                    current (:version meta)]
+              (let [current (machine-definition-version machine-id)]
                 (when (and (some? current) (not= recorded current))
                   {:machine-id machine-id
                    :recorded   recorded
