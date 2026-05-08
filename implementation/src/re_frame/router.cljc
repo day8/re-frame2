@@ -17,6 +17,28 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
+;; ---- dispatch-id allocation -----------------------------------------------
+;;
+;; Per Spec 009 §Dispatch correlation: every dispatch is stamped with a
+;; process-monotonic :dispatch-id at queue time. When the dispatch is
+;; emitted as a side-effect of another event's processing (typically inside
+;; an fx handler running in do-fx), the new dispatch's :parent-dispatch-id
+;; is the in-flight event's :dispatch-id. *current-dispatch-id* tracks the
+;; in-flight dispatch during process-event!; child dispatches read it to
+;; populate :parent-dispatch-id.
+;;
+;; All of this rides the dev-only trace surface; production builds (where
+;; interop/debug-enabled? is false at compile time) elide the allocation
+;; (the counter increments harmlessly but the values are never read by
+;; anyone except trace consumers, which are themselves dead).
+
+(defonce ^:private dispatch-counter (atom 0))
+
+(defn- next-dispatch-id []
+  (swap! dispatch-counter inc))
+
+(def ^:dynamic ^:private *current-dispatch-id* nil)
+
 ;; ---- envelope construction ------------------------------------------------
 
 (defn- build-envelope
@@ -28,15 +50,26 @@
     :fx-overrides       per-call fx-id-to-fx-id remapping
     :interceptor-overrides
     :trace-id           tooling
-    :source             :ui :timer :http :repl :machine ..."
+    :source             :ui :timer :http :repl :machine ...
+    :origin             actor identity tag (:app default; :pair, :story,
+                        :test, ... per Spec 002 §Dispatch origin tagging)
+    :dispatch-id        process-monotonic id allocated here per
+                        Spec 009 §Dispatch correlation
+    :parent-dispatch-id the in-flight dispatch's id when this dispatch is
+                        emitted from inside another event's processing"
   [event opts]
-  {:event                  event
-   :frame                  (or (:frame opts) (frame/current-frame))
-   :fx-overrides           (:fx-overrides opts {})
-   :interceptor-overrides  (:interceptor-overrides opts {})
-   :trace-id               (:trace-id opts)
-   :source                 (:source opts :ui)
-   :dispatched-at          (interop/now-ms)})
+  (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
+        parent-dispatch-id (when interop/debug-enabled? *current-dispatch-id*)]
+    (cond-> {:event                  event
+             :frame                  (or (:frame opts) (frame/current-frame))
+             :fx-overrides           (:fx-overrides opts {})
+             :interceptor-overrides  (:interceptor-overrides opts {})
+             :trace-id               (:trace-id opts)
+             :source                 (:source opts :ui)
+             :origin                 (:origin opts :app)
+             :dispatched-at          (interop/now-ms)}
+      dispatch-id        (assoc :dispatch-id        dispatch-id)
+      parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id))))
 
 ;; ---- per-event drain ------------------------------------------------------
 
@@ -57,9 +90,14 @@
      :interceptor-overrides  (merge per-frame-interceptors per-call-interceptors)
      :extra-interceptors     (vec (concat (:interceptors frame-cfg [])))}))
 
-(defn- process-event!
-  "Per-event drain. Resolve handler, run interceptor chain, apply :db,
-  walk :fx in source order. Per Spec 002 §Drain-loop pseudocode."
+(defn- process-event*
+  "Per-event drain body. Resolve handler, run interceptor chain, apply :db,
+  walk :fx in source order. Per Spec 002 §Drain-loop pseudocode.
+
+  This is the inner of `process-event!`; the outer wraps it in a binding of
+  *current-dispatch-id* so child dispatches issued from within fx handlers
+  inherit the in-flight dispatch's id as their :parent-dispatch-id (Spec
+  009 §Dispatch correlation)."
   [envelope]
   (let [{:keys [event frame]} envelope
         event-id              (first event)
@@ -173,6 +211,15 @@
                           :frame    frame
                           :phase    :run-end})))))))
 
+(defn- process-event!
+  "Wrap process-event* in a binding of *current-dispatch-id* so child
+  dispatches issued from within an fx handler inherit this event's
+  :dispatch-id as their :parent-dispatch-id. Per Spec 009 §Dispatch
+  correlation."
+  [envelope]
+  (binding [*current-dispatch-id* (:dispatch-id envelope)]
+    (process-event* envelope)))
+
 ;; ---- outer drain ----------------------------------------------------------
 
 (def ^:private drain-depth-default 100)
@@ -236,6 +283,24 @@
 
 ;; ---- public dispatch ------------------------------------------------------
 
+(defn- emit-dispatched-trace!
+  "Emit the :event :event/dispatched trace event for this envelope. Per
+  Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
+  ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
+  on :tags too. Spec elision is automatic — trace/emit! short-circuits
+  when interop/debug-enabled? is false at compile time."
+  [envelope sync?]
+  (trace/emit! :event :event/dispatched
+               (cond-> {:event    (:event envelope)
+                        :frame    (:frame envelope)
+                        :origin   (:origin envelope)
+                        :source   (:source envelope)
+                        :sync?    sync?}
+                 (:dispatch-id envelope)
+                 (assoc :dispatch-id (:dispatch-id envelope))
+                 (:parent-dispatch-id envelope)
+                 (assoc :parent-dispatch-id (:parent-dispatch-id envelope)))))
+
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:
   FIFO at the runtime layer; no reordering, no priority lanes. The drain
@@ -251,6 +316,7 @@
 
        :else
        (let [router (:router frame-record)]
+         (emit-dispatched-trace! envelope false)
          (swap! router update :queue conj envelope)
          (ensure-drain-scheduled! (:frame envelope) router)))
      nil)))
@@ -292,6 +358,7 @@
 
        :else
        (let [router (:router frame-record)]
+         (emit-dispatched-trace! envelope true)
          ;; Put the seed at the front and mark scheduled to suppress async.
          ;; :in-sync-drain? lets a nested dispatch-sync detect the unsafe
          ;; call and refuse rather than silently interleave.
