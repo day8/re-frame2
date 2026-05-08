@@ -149,9 +149,20 @@
        (let [path (:path flow)]
          (when-let [container (frame/get-frame-db frame-id)]
            (let [cur    (adapter/read-container container)
-                 new-db (if (and (vector? path) (seq path))
-                          (update-in cur (vec (butlast path)) dissoc (last path))
-                          (dissoc cur path))]
+                 ;; rf2-aqt7: when :path is a single-element vector [:k],
+                 ;; (butlast [:k]) is () and (update-in cur [] dissoc :k)
+                 ;; does NOT dissoc — Clojure's update-in on the empty
+                 ;; path falls into (assoc {} nil (apply f val args)),
+                 ;; producing {... nil nil}. Special-case length 1 so
+                 ;; the leaf is dissoc'd directly.
+                 new-db (cond
+                          (not (vector? path))         (dissoc cur path)
+                          (empty? path)                cur
+                          (= 1 (count path))           (dissoc cur (first path))
+                          :else                        (update-in cur
+                                                                  (vec (butlast path))
+                                                                  dissoc
+                                                                  (last path)))]
              (adapter/replace-container! container new-db)))
          (swap! flows update frame-id dissoc id)
          (swap! last-inputs dissoc [frame-id id])
