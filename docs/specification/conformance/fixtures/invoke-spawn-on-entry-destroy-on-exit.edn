@@ -109,4 +109,8 @@
   ;; id under :pending. Signature: (fn [data spawned-id] new-data). The
   ;; handler-body DSL form: read the spawned-id from the action's invocation
   ;; envelope and assoc it into :data under :pending.
-  {:auth/record-actor [[:set [:data :pending] [:event-arg 1]]]}}}
+  ;;
+  ;; Per [005 §Path conventions in machine bodies] (rf2-een2 / rf2-smba): the
+  ;; body's :set paths are data-relative — uniform with regular machine
+  ;; actions. The path is [:pending], not [:data :pending].
+  {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}}

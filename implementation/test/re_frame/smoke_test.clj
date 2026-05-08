@@ -605,7 +605,9 @@
                                         :start      [:begin]
                                         :on-spawn   :record}
                                :on    {:done :idle}}}
-           :actions {:record (fn [snap _] snap)}}
+           ;; Per Spec 005 §Declarative :invoke (rf2-een2 / rf2-smba):
+           ;; on-spawn callback signature is (fn [data spawned-id] new-data).
+           :on-spawn-actions {:record (fn [data _id] data)}}
           handler (rf/create-machine-handler machine)
           collect-ids (fn [frame-id]
                         (let [acc (atom [])]

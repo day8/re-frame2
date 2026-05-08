@@ -360,8 +360,11 @@
           {:initial :idle
            :data    {:credentials {:user "alice" :pass "secret"}}
            :on-spawn-actions
-           {:auth/record-actor (fn [snap actor-id]
-                                 (assoc-in snap [:data :pending] actor-id))}
+           ;; Per Spec 005 §Declarative :invoke (rf2-een2 / rf2-smba):
+           ;; on-spawn callback signature is (fn [data spawned-id] new-data).
+           ;; The runtime patches the returned data back into the snapshot.
+           {:auth/record-actor (fn [data actor-id]
+                                 (assoc data :pending actor-id))}
            :states
            {:idle
             {:on {:submit :authenticating}}
