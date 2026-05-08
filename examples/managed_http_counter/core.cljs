@@ -12,10 +12,10 @@
     Cancel            — :rf.http/managed-abort by :request-id
 
   The +1 and Fail buttons exercise a REAL round-trip: Fetch hits the
-  static file (or 404s), the response body is decoded, and the reply
-  lands back in app-db. The Retry-recover and Cancel buttons exercise
-  the canned-stub seam, which lets the app demonstrate the contract
-  without needing a stub HTTP server.
+  static file (or 404s), the response body is decoded (only on 2xx), and
+  the reply lands back in app-db. The Retry-recover and Cancel buttons
+  exercise the canned-stub seam, which lets the app demonstrate the
+  contract without needing a stub HTTP server.
 
   This example is intentionally minimal — the heavy contract testing
   lives in the JVM smoke (re-frame.http-managed-test) and the
@@ -84,15 +84,14 @@
       :else
       {:db (assoc db :status :loading :error nil)
        :fx [[:rf.http/managed
-             {:request {:method :get :url "api/does-not-exist"}
-              ;; :decode :text — http-server returns plain text for a 404
-              ;; ("Not found"). We decode-as-text so the 4xx classification
-              ;; reaches the failure branch with :rf.http/http-4xx; if we
-              ;; asked for :json the decode would fail FIRST and the
-              ;; failure would classify as :rf.http/decode-failure (a
-              ;; classification-ordering quirk in the Phase 1 impl that
-              ;; this app doesn't try to exercise).
-              :decode  :text}]]})))
+             ;; Per Spec 014 §Classification order, status-check fires
+             ;; before decode — so even with `:decode :json`, a 404 with
+             ;; an HTML or plain-text body classifies as :rf.http/http-4xx
+             ;; (the raw body lands at :body), not :rf.http/decode-failure.
+             ;; Leaving :decode at the default `:auto` here exercises the
+             ;; common case: a JSON endpoint that 404s with a load-balancer
+             ;; HTML page.
+             {:request {:method :get :url "api/does-not-exist"}}]]})))
 
 ;; -- Retry-recover (canned-stub at app level) --------------------------------
 ;;

@@ -1,0 +1,84 @@
+;; Conformance fixture: rf.http.managed/http-4xx-precedes-decode
+;;
+;; Per Spec 014 §Classification order — status classification fires BEFORE
+;; decode. A 4xx response whose body would FAIL the configured `:decode`
+;; (the canonical case: a JSON endpoint that 404s with an HTML load-balancer
+;; error page) classifies as `:rf.http/http-4xx`, NOT `:rf.http/decode-failure`.
+;; The raw response body lands at `:body` (not a decoded value), and `:decode`
+;; never runs on the response.
+;;
+;; This is the regression guard for rf2-lokk: the Phase 1 implementation
+;; previously decoded first and classified second, which meant a JSON-API
+;; endpoint hitting an HTML 404 surfaced as `:rf.http/decode-failure` and
+;; hid the real HTTP failure category from the caller. The order is now
+;; locked: status first, decode only on success-eligible (2xx).
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-failure
+;; configured with `:kind :rf.http/http-4xx` and the raw HTML body at
+;; `:body` — the same envelope the live fx synthesises after running the
+;; status check.
+
+{:fixture/id           :rf.http.managed/http-4xx-precedes-decode
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "Status classification fires before decode. A 4xx response with an HTML body — issued from a handler that asked for `:decode :json` — classifies as :rf.http/http-4xx with the raw HTML at :body, NOT as :rf.http/decode-failure. Regression guard for rf2-lokk."
+
+ :fixture/registry
+ {:event {:page/load        {:doc "Issue the GET that 404s with HTML."}
+          :page/load-error  {:doc "Receive the failure payload."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:page/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles/missing"}
+            ;; The handler asks for :json — but the endpoint 404s with
+            ;; HTML. Per Spec 014 §Classification order, the status check
+            ;; runs first; :decode is never invoked on the 4xx body.
+            :decode     :json
+            :on-failure [:page/load-error]}]]]]
+
+   :page/load-error
+   [[:set [:page :error] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-failure
+   [[:dispatch [:page/load-error
+                {:kind    :failure
+                 :failure {:kind        :rf.http/http-4xx
+                           :status      404
+                           :status-text "Not Found"
+                           :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
+                           :headers     {"content-type" "text/html"}}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+
+ :fixture/dispatches
+ [[:page/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:page {:error {:kind    :failure
+                  :failure {:kind        :rf.http/http-4xx
+                            :status      404
+                            :status-text "Not Found"
+                            :body        "<!doctype html><html><body><h1>Not Found</h1></body></html>"
+                            :headers     {"content-type" "text/html"}}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :page/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-failure}}
+   {:operation :event :tags {:event-id :page/load-error}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-failure
+    :args  {:request    {:method :get :url "/articles/missing"}
+            :decode     :json
+            :on-failure [:page/load-error]}}]}}

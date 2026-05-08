@@ -123,6 +123,8 @@ Multipart upload: pass `(js/FormData.)` directly as `:body` (or as the return va
 
 The `:decode` key controls how the response body is parsed.
 
+**Decode runs only on success-eligible (2xx) responses.** Status classification happens *before* decode — see [§Classification order](#classification-order). On a 4xx or 5xx the body is surfaced raw (as the response text) under the `:body` tag of `:rf.http/http-4xx` / `:rf.http/http-5xx`; the `:decode` pipeline is skipped entirely. This means a JSON endpoint that returns an HTML 404 from the load balancer surfaces as `:rf.http/http-4xx` with the HTML at `:body`, NOT as `:rf.http/decode-failure`.
+
 ### Schema-driven (the canonical form)
 
 Pass a Malli schema as `:decode`:
@@ -137,7 +139,7 @@ The fx:
 3. Validates / coerces with Malli's `decode` against the schema.
 4. Hands the decoded value to `:accept`.
 
-If the body fails to decode (transport-OK but malformed payload), the fx classifies it as `:problem :decode` and routes through the failure path.
+If a 2xx response's body fails to decode (transport-OK, status-OK, but malformed payload), the fx classifies it as `:rf.http/decode-failure` and routes through the failure path. Decode never runs on a 4xx/5xx — see [§Classification order](#classification-order).
 
 ### Explicit content type
 
@@ -157,7 +159,7 @@ No Malli step. The user gets the raw decoded value in `:accept`.
 :decode (fn [response-text headers] decoded)
 ```
 
-Full control. Throwing inside this fn classifies as `:problem :decode`.
+Full control. Throwing inside this fn (on a 2xx response — it doesn't run on non-2xx) classifies as `:rf.http/decode-failure`.
 
 ### `:auto` (default)
 
@@ -260,6 +262,23 @@ For debugging visibility, **each intermediate attempt emits a `:rf.http/retry-at
 
 Pair tools and 10x panels surface the per-attempt trace; user code only sees the final outcome through `:on-failure` (or the default reply-to-origin path).
 
+## Classification order
+
+When a response arrives, the runtime classifies the outcome in this fixed order:
+
+1. **Transport / timeout / abort.** A network error, per-attempt timeout, or abort short-circuits the rest. Classified as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, or `:rf.http/aborted`. The body never enters the picture.
+2. **HTTP status.** Once a response lands, status is checked **before** the body is touched.
+   - `2xx` → success-eligible; proceed to decode.
+   - `4xx` → `:rf.http/http-4xx`; the raw response text is surfaced at `:body`. Decode is skipped.
+   - `5xx` → `:rf.http/http-5xx`; same shape as `:http-4xx`. Decode is skipped.
+   - Anything else (a 1xx/3xx the runtime didn't follow) → `:rf.http/http-4xx`-shaped.
+3. **Decode** (only on 2xx). The configured `:decode` runs against the body. A throw / Malli rejection / parser error here classifies as `:rf.http/decode-failure`.
+4. **Accept** (only on a successful decode). The configured `:accept` (or the default) projects the decoded value to `{:ok v}` or `{:failure m}`. A `{:failure m}` here classifies as `:rf.http/accept-failure`.
+
+The order is **status-before-decode by design**: a JSON-API endpoint that returns an HTML 404 from a load balancer (or a CORS pre-flight 4xx with a generic HTML body, or a 503 with a Cloudfront error page) classifies as `:rf.http/http-4xx` / `:rf.http/http-5xx` with the raw body at `:body`, not as `:rf.http/decode-failure`. The HTTP failure category is the load-bearing piece of information for the caller; surfacing decode-failure on a 4xx would hide the real error.
+
+If a caller wants to see the structured error body that an API returns alongside a non-2xx (e.g., `{"error": "..."}` JSON on a 4xx), the caller decodes the raw `:body` themselves in the failure-handling branch — the framework hands you the bytes and the status, and you decide what to do with them.
+
 ## Failure categories (closed set)
 
 Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/*` namespace) plus category-specific tags. `:kind` is **framework-owned**; user payloads (from `:accept`) sit at `:detail`, never at `:kind`.
@@ -269,9 +288,9 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 | `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed | `:message`, `:cause` |
 | `:rf.http/cors` | CORS preflight rejected or response blocked by browser CORS policy. Distinct from `:transport` because CORS is a configuration error, not a network error. CLJS-only; JVM never emits this. | `:message`, `:url` |
 | `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms`, `:limit-ms` |
-| `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (raw or decoded), `:headers` |
+| `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:headers` |
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
-| `:rf.http/decode-failure` | Body couldn't be parsed (Malli error, JSON syntax error, custom decoder threw) | `:body-text`, `:cause`, `:malli-error?` |
+| `:rf.http/decode-failure` | A success-eligible (2xx) response whose body the decode pipeline rejected (Malli error, JSON syntax error, custom decoder threw). Non-2xx responses never produce `:rf.http/decode-failure` — they classify by status. | `:body-text`, `:cause`, `:malli-error?` |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. The user's failure map sits at `:detail`; `:decoded` carries the pre-`:accept` decoded value for context. | `:detail` (user's verbatim failure map), `:decoded` |
 | `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal` | `:request-id` (if any), `:reason` (`:user` / `:request-id-superseded`) |
 
