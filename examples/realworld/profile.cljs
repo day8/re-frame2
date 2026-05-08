@@ -192,69 +192,65 @@
 ;; VIEWS
 ;; ============================================================================
 
-(def profile-page
-  (reg-view :pages/profile
-    (fn render-profile-page []
-      (let [d             (rf/dispatcher)
-            s             (rf/subscriber)
-            profile       @(s [:profile/data])
-            profile-error @(s [:profile/error])
-            loading?      @(s [:profile/loading?])
-            own?          @(s [:profile/own-profile?])
-            tab           @(s [:profile/current-tab])
-            articles*     @(s [:profile/current-articles])]
-        [:div.profile-page
-         (cond
-           loading?
-           [:div.article-preview "Loading profile…"]
+(reg-view profile-page []
+  (let [profile       @(subscribe [:profile/data])
+        profile-error @(subscribe [:profile/error])
+        loading?      @(subscribe [:profile/loading?])
+        own?          @(subscribe [:profile/own-profile?])
+        tab           @(subscribe [:profile/current-tab])
+        articles*     @(subscribe [:profile/current-articles])]
+    [:div.profile-page
+     (cond
+       loading?
+       [:div.article-preview "Loading profile…"]
 
-           profile-error
-           [:div.article-preview.error
-            (str "Couldn't load profile: " (pr-str profile-error))]
+       profile-error
+       [:div.article-preview.error
+        (str "Couldn't load profile: " (pr-str profile-error))]
 
-           profile
-           [:<>
-            [:div.user-info
-             [:div.container
-              [:div.row
-               [:div.col-xs-12.col-md-10.offset-md-1
-                [:img.user-img {:src (:image profile)}]
-                [:h4 (:username profile)]
-                [:p (:bio profile)]
-                (if own?
-                  [routing/route-link {:to :route/settings
-                                       :class "btn btn-sm btn-outline-secondary action-btn"}
-                   [:i.ion-gear-a] " Edit Profile Settings"]
-                  [:button.btn.btn-sm.btn-outline-secondary.action-btn
-                   {:type "button"
-                    :on-click #(d [(if (:following profile)
-                                     :profile/unfollow
-                                     :profile/follow)])}
-                   (if (:following profile) "Unfollow " "Follow ")
-                   (:username profile)])]]]]
-            [:div.container
-             [:div.row
-              [:div.col-xs-12.col-md-10.offset-md-1
-               [:div.articles-toggle
-                [:ul.nav.nav-pills.outline-active
-                 [:li.nav-item
-                  [routing/route-link {:to     :route/profile
-                                       :params {:username (:username profile)}
-                                       :class  (str "nav-link" (when (= tab :articles) " active"))}
-                   "My Articles"]]
-                 [:li.nav-item
-                  [routing/route-link {:to     :route/profile.favorites
-                                       :params {:username (:username profile)}
-                                       :class  (str "nav-link" (when (= tab :favorites) " active"))}
-                   "Favorited Articles"]]]]
-               (if (seq articles*)
-                 (for [article articles*]
-                   ^{:key (:slug article)}
-                   [articles/article-preview {:article article}])
-                 [:div.article-preview "No articles here yet."])]]]]
+       profile
+       [:<>
+        [:div.user-info
+         [:div.container
+          [:div.row
+           [:div.col-xs-12.col-md-10.offset-md-1
+            [:img.user-img {:src (:image profile)}]
+            [:h4 (:username profile)]
+            [:p (:bio profile)]
+            (if own?
+              [routing/route-link {:to :route/settings
+                                   :class "btn btn-sm btn-outline-secondary action-btn"}
+               [:i.ion-gear-a] " Edit Profile Settings"]
+              [:button.btn.btn-sm.btn-outline-secondary.action-btn
+               {:type "button"
+                :on-click #(dispatch [(if (:following profile)
+                                        :profile/unfollow
+                                        :profile/follow)])}
+               (if (:following profile) "Unfollow " "Follow ")
+               (:username profile)])]]]]
+        [:div.container
+         [:div.row
+          [:div.col-xs-12.col-md-10.offset-md-1
+           [:div.articles-toggle
+            [:ul.nav.nav-pills.outline-active
+             [:li.nav-item
+              [routing/route-link {:to     :route/profile
+                                   :params {:username (:username profile)}
+                                   :class  (str "nav-link" (when (= tab :articles) " active"))}
+               "My Articles"]]
+             [:li.nav-item
+              [routing/route-link {:to     :route/profile.favorites
+                                   :params {:username (:username profile)}
+                                   :class  (str "nav-link" (when (= tab :favorites) " active"))}
+               "Favorited Articles"]]]]
+           (if (seq articles*)
+             (for [article articles*]
+               ^{:key (:slug article)}
+               [articles/article-preview {:article article}])
+             [:div.article-preview "No articles here yet."])]]]]
 
-           :else
-           [:div.article-preview "No profile loaded."])]))))
+       :else
+       [:div.article-preview "No profile loaded."])]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

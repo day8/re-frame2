@@ -238,111 +238,104 @@
 ;; VIEWS
 ;; ============================================================================
 
-(def comment-card
-  (reg-view :comments/card
-    (fn render-comment-card [{:keys [comment current-user]}]
-      (let [d       (rf/dispatcher)
-            mine?   (= (:username current-user)
-                       (get-in comment [:author :username]))
-            temp?   (str/starts-with? (str (:id comment)) "temp-")]
-        [:div.card
-         [:div.card-block [:p.card-text (:body comment)]]
-         [:div.card-footer
-          [routing/route-link {:to     :route/profile
-                               :params {:username (get-in comment [:author :username])}
-                               :class  "comment-author"}
-           [:img.comment-author-img {:src (get-in comment [:author :image])}]
-           " "
-           (get-in comment [:author :username])]
-          [:span.date-posted (:createdAt comment)]
-          (when temp?
-            [:span.mod-options " Sending…"])
-          (when (and mine? (not temp?))
-            [:button.mod-options
-             {:type "button"
-              :on-click #(d [:comment/delete (:id comment)])}
-             [:i.ion-trash-a]])]]))))
+(reg-view comment-card [{:keys [comment current-user]}]
+  (let [mine?   (= (:username current-user)
+                   (get-in comment [:author :username]))
+        temp?   (str/starts-with? (str (:id comment)) "temp-")]
+    [:div.card
+     [:div.card-block [:p.card-text (:body comment)]]
+     [:div.card-footer
+      [routing/route-link {:to     :route/profile
+                           :params {:username (get-in comment [:author :username])}
+                           :class  "comment-author"}
+       [:img.comment-author-img {:src (get-in comment [:author :image])}]
+       " "
+       (get-in comment [:author :username])]
+      [:span.date-posted (:createdAt comment)]
+      (when temp?
+        [:span.mod-options " Sending…"])
+      (when (and mine? (not temp?))
+        [:button.mod-options
+         {:type "button"
+          :on-click #(dispatch [:comment/delete (:id comment)])}
+         [:i.ion-trash-a]])]]))
 
-(def article-page
-  (reg-view :pages/article
-    (fn render-article-page []
-      (let [d                 (rf/dispatcher)
-            s                 (rf/subscriber)
-            article           @(s [:article/data])
-            article-status    @(s [:article/status])
-            article-error     @(s [:article/error])
-            comments          @(s [:comments/data])
-            comments-error    @(s [:comments/error])
-            comment-draft     @(s [:comment-form/draft])
-            submit-error      @(s [:comment-form/submit-error])
-            submitting?       @(s [:comment-form/submitting?])
-            current-user      @(s [:auth/user])]
-        [:div.article-page
-         (cond
-           (= article-status :loading)
-           [:div.article-preview "Loading article…"]
+(reg-view article-page []
+  (let [article        @(subscribe [:article/data])
+        article-status @(subscribe [:article/status])
+        article-error  @(subscribe [:article/error])
+        comments       @(subscribe [:comments/data])
+        comments-error @(subscribe [:comments/error])
+        comment-draft  @(subscribe [:comment-form/draft])
+        submit-error   @(subscribe [:comment-form/submit-error])
+        submitting?    @(subscribe [:comment-form/submitting?])
+        current-user   @(subscribe [:auth/user])]
+    [:div.article-page
+     (cond
+       (= article-status :loading)
+       [:div.article-preview "Loading article…"]
 
-           article-error
-           [:div.article-preview.error
-            (str "Couldn't load article: " (pr-str article-error))]
+       article-error
+       [:div.article-preview.error
+        (str "Couldn't load article: " (pr-str article-error))]
 
-           article
-           [:<>
-            [:div.banner
-             [:div.container
-              [:h1 (:title article)]
-              [:p (:description article)]
-              [:button.btn.btn-sm.btn-outline-primary
-               {:type "button"
-                :on-click #(d [:article/toggle-favorite (:slug article)])}
-               [:i.ion-heart] " " (:favoritesCount article)]]]
-            [:div.container.page
-             [:div.row.article-content
-              [:div.col-md-12
-               [:p (:body article)]
-               [:ul.tag-list
-                (for [tag (:tagList article)]
-                  ^{:key tag}
-                  [:li.tag-default.tag-pill.tag-outline tag])]]]
-             [:hr]
-             [:div.article-actions
-              [routing/route-link {:to :route/home} "Back to feed"]]
-             [:div.row
-              [:div.col-xs-12.col-md-8.offset-md-2
-               (if current-user
-                 [:form.card.comment-form
-                  {:on-submit (fn [e]
-                                (.preventDefault e)
-                                (d [:comment-form/submit]))}
-                  [:div.card-block
-                   [:textarea.form-control
-                    {:rows 3
-                     :placeholder "Write a comment..."
-                     :value (:body comment-draft)
-                     :disabled submitting?
-                     :on-change #(d [:comment-form/edit-field :body (.. % -target -value)])}]]
-                  [:div.card-footer
-                   [:img.comment-author-img {:src (:image current-user)}]
-                   [:button.btn.btn-sm.btn-primary
-                    {:type "submit"
-                     :disabled submitting?}
-                    (if submitting? "Posting…" "Post Comment")]]
-                  (when submit-error
-                    [:div.error-messages submit-error])]
-                 [:p
-                  [routing/route-link {:to :route/login} "Sign in"]
-                  " or "
-                  [routing/route-link {:to :route/register} "sign up"]
-                  " to add comments."])
-               (when comments-error
-                 [:div.article-preview.error
-                  (str "Couldn't load comments: " (pr-str comments-error))])
-               (for [comment comments]
-                 ^{:key (:id comment)}
-                 [comment-card {:comment comment :current-user current-user}])]]]]
+       article
+       [:<>
+        [:div.banner
+         [:div.container
+          [:h1 (:title article)]
+          [:p (:description article)]
+          [:button.btn.btn-sm.btn-outline-primary
+           {:type "button"
+            :on-click #(dispatch [:article/toggle-favorite (:slug article)])}
+           [:i.ion-heart] " " (:favoritesCount article)]]]
+        [:div.container.page
+         [:div.row.article-content
+          [:div.col-md-12
+           [:p (:body article)]
+           [:ul.tag-list
+            (for [tag (:tagList article)]
+              ^{:key tag}
+              [:li.tag-default.tag-pill.tag-outline tag])]]]
+         [:hr]
+         [:div.article-actions
+          [routing/route-link {:to :route/home} "Back to feed"]]
+         [:div.row
+          [:div.col-xs-12.col-md-8.offset-md-2
+           (if current-user
+             [:form.card.comment-form
+              {:on-submit (fn [e]
+                            (.preventDefault e)
+                            (dispatch [:comment-form/submit]))}
+              [:div.card-block
+               [:textarea.form-control
+                {:rows 3
+                 :placeholder "Write a comment..."
+                 :value (:body comment-draft)
+                 :disabled submitting?
+                 :on-change #(dispatch [:comment-form/edit-field :body (.. % -target -value)])}]]
+              [:div.card-footer
+               [:img.comment-author-img {:src (:image current-user)}]
+               [:button.btn.btn-sm.btn-primary
+                {:type "submit"
+                 :disabled submitting?}
+                (if submitting? "Posting…" "Post Comment")]]
+              (when submit-error
+                [:div.error-messages submit-error])]
+             [:p
+              [routing/route-link {:to :route/login} "Sign in"]
+              " or "
+              [routing/route-link {:to :route/register} "sign up"]
+              " to add comments."])
+           (when comments-error
+             [:div.article-preview.error
+              (str "Couldn't load comments: " (pr-str comments-error))])
+           (for [comment comments]
+             ^{:key (:id comment)}
+             [comment-card {:comment comment :current-user current-user}])]]]]
 
-           :else
-           [:div.article-preview "No article loaded."])]))))
+       :else
+       [:div.article-preview "No article loaded."])]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

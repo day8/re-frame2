@@ -138,40 +138,36 @@
 ;; VIEW
 ;; ============================================================================
 
-(def flight-booker
-  (reg-view :flight/booker
-    (fn render-flight-booker []
-      (let [d                (rf/dispatcher)
-            s                (rf/subscriber)
-            trip-type        @(s [:flight/trip-type])
-            start-text       @(s [:flight/start-text])
-            return-text      @(s [:flight/return-text])
-            return-enabled?  @(s [:flight/return-enabled?])
-            start-valid?     @(s [:flight/start-valid?])
-            return-valid?    @(s [:flight/return-valid?])
-            book-enabled?    @(s [:flight/book-enabled?])
-            invalid-style    {:background "#fdd"}]
-        [:div.flight-booker
-         [:select {:value     (name trip-type)
-                   :on-change #(d [:flight/set-trip-type
-                                   (keyword (.. % -target -value))])}
-          [:option {:value "one-way"} "one-way flight"]
-          [:option {:value "return"}  "return flight"]]
+(reg-view flight-booker []
+  (let [trip-type        @(subscribe [:flight/trip-type])
+        start-text       @(subscribe [:flight/start-text])
+        return-text      @(subscribe [:flight/return-text])
+        return-enabled?  @(subscribe [:flight/return-enabled?])
+        start-valid?     @(subscribe [:flight/start-valid?])
+        return-valid?    @(subscribe [:flight/return-valid?])
+        book-enabled?    @(subscribe [:flight/book-enabled?])
+        invalid-style    {:background "#fdd"}]
+    [:div.flight-booker
+     [:select {:value     (name trip-type)
+               :on-change #(dispatch [:flight/set-trip-type
+                                      (keyword (.. % -target -value))])}
+      [:option {:value "one-way"} "one-way flight"]
+      [:option {:value "return"}  "return flight"]]
 
-         [:input {:type      "text"
-                  :value     start-text
-                  :style     (when-not start-valid? invalid-style)
-                  :on-change #(d [:flight/set-start (.. % -target -value)])}]
+     [:input {:type      "text"
+              :value     start-text
+              :style     (when-not start-valid? invalid-style)
+              :on-change #(dispatch [:flight/set-start (.. % -target -value)])}]
 
-         [:input {:type      "text"
-                  :value     return-text
-                  :disabled  (not return-enabled?)
-                  :style     (when (and return-enabled? (not return-valid?)) invalid-style)
-                  :on-change #(d [:flight/set-return (.. % -target -value)])}]
+     [:input {:type      "text"
+              :value     return-text
+              :disabled  (not return-enabled?)
+              :style     (when (and return-enabled? (not return-valid?)) invalid-style)
+              :on-change #(dispatch [:flight/set-return (.. % -target -value)])}]
 
-         [:button {:disabled (not book-enabled?)
-                   :on-click #(d [:flight/book])}
-          "Book"]]))))
+     [:button {:disabled (not book-enabled?)
+               :on-click #(dispatch [:flight/book])}
+      "Book"]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

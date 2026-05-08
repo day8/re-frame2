@@ -138,42 +138,38 @@
 ;; VIEW
 ;; ============================================================================
 
-(def crud-view
-  (reg-view :crud/main
-    (fn render-crud []
-      (let [d           (rf/dispatcher)
-            s           (rf/subscriber)
-            people      @(s [:crud/filtered-people])
-            selected-id @(s [:crud/selected-id])
-            d-name      @(s [:crud/draft-name])
-            d-surname   @(s [:crud/draft-surname])
-            can-update? @(s [:crud/can-update?])]
-        [:div.crud
-         [:div.row
-          [:label "Filter prefix: "]
-          [:input {:type      "text"
-                   :on-change #(d [:crud/set-filter (.. % -target -value)])}]]
-         [:div.row
-          [:select.list {:size      6
-                         :value     (or selected-id "")
-                         :on-change #(d [:crud/select (uuid (.. % -target -value))])}
-           (for [{:keys [id name surname]} people]
-             ^{:key id}
-             [:option {:value id} (str surname ", " name)])]
+(reg-view crud-view []
+  (let [people      @(subscribe [:crud/filtered-people])
+        selected-id @(subscribe [:crud/selected-id])
+        d-name      @(subscribe [:crud/draft-name])
+        d-surname   @(subscribe [:crud/draft-surname])
+        can-update? @(subscribe [:crud/can-update?])]
+    [:div.crud
+     [:div.row
+      [:label "Filter prefix: "]
+      [:input {:type      "text"
+               :on-change #(dispatch [:crud/set-filter (.. % -target -value)])}]]
+     [:div.row
+      [:select.list {:size      6
+                     :value     (or selected-id "")
+                     :on-change #(dispatch [:crud/select (uuid (.. % -target -value))])}
+       (for [{:keys [id name surname]} people]
+         ^{:key id}
+         [:option {:value id} (str surname ", " name)])]
 
-          [:div.inputs
-           [:div [:label "Name: "]
-            [:input {:type      "text"
-                     :value     d-name
-                     :on-change #(d [:crud/edit-name (.. % -target -value)])}]]
-           [:div [:label "Surname: "]
-            [:input {:type      "text"
-                     :value     d-surname
-                     :on-change #(d [:crud/edit-surname (.. % -target -value)])}]]]]
-         [:div.row.buttons
-          [:button {:on-click #(d [:crud/create])} "Create"]
-          [:button {:on-click #(d [:crud/update]) :disabled (not can-update?)} "Update"]
-          [:button {:on-click #(d [:crud/delete]) :disabled (not can-update?)} "Delete"]]]))))
+      [:div.inputs
+       [:div [:label "Name: "]
+        [:input {:type      "text"
+                 :value     d-name
+                 :on-change #(dispatch [:crud/edit-name (.. % -target -value)])}]]
+       [:div [:label "Surname: "]
+        [:input {:type      "text"
+                 :value     d-surname
+                 :on-change #(dispatch [:crud/edit-surname (.. % -target -value)])}]]]]
+     [:div.row.buttons
+      [:button {:on-click #(dispatch [:crud/create])} "Create"]
+      [:button {:on-click #(dispatch [:crud/update]) :disabled (not can-update?)} "Update"]
+      [:button {:on-click #(dispatch [:crud/delete]) :disabled (not can-update?)} "Delete"]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

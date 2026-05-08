@@ -161,41 +161,37 @@
 ;; VIEW
 ;; ============================================================================
 
-(def drawer-view
-  (reg-view :drawer/main
-    (fn render-drawer []
-      (let [d          (rf/dispatcher)
-            s          (rf/subscriber)
-            circles    @(s [:drawer/circles])
-            dialog     @(s [:drawer/dialog])
-            can-undo?  @(s [:drawer/can-undo?])
-            can-redo?  @(s [:drawer/can-redo?])]
-        [:div.drawer
-         [:div.row
-          [:button {:on-click #(d [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
-          [:button {:on-click #(d [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
-         [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
-                :on-click (fn [e]
-                            (let [rect (.. e -currentTarget getBoundingClientRect)
-                                  x    (- (.. e -clientX) (.-left rect))
-                                  y    (- (.. e -clientY) (.-top rect))]
-                              (d [:drawer/add-circle x y])))}
-          (for [{:keys [id x y radius]} circles]
-            ^{:key id}
-            [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
-                      :on-context-menu (fn [e]
-                                         (.preventDefault e)
-                                         (d [:drawer/open-dialog id]))}])]
+(reg-view drawer-view []
+  (let [circles    @(subscribe [:drawer/circles])
+        dialog     @(subscribe [:drawer/dialog])
+        can-undo?  @(subscribe [:drawer/can-undo?])
+        can-redo?  @(subscribe [:drawer/can-redo?])]
+    [:div.drawer
+     [:div.row
+      [:button {:on-click #(dispatch [:drawer/undo]) :disabled (not can-undo?)} "Undo"]
+      [:button {:on-click #(dispatch [:drawer/redo]) :disabled (not can-redo?)} "Redo"]]
+     [:svg {:width 600 :height 400 :style {:border "1px solid #999"}
+            :on-click (fn [e]
+                        (let [rect (.. e -currentTarget getBoundingClientRect)
+                              x    (- (.. e -clientX) (.-left rect))
+                              y    (- (.. e -clientY) (.-top rect))]
+                          (dispatch [:drawer/add-circle x y])))}
+      (for [{:keys [id x y radius]} circles]
+        ^{:key id}
+        [:circle {:cx x :cy y :r radius :fill "transparent" :stroke "black"
+                  :on-context-menu (fn [e]
+                                     (.preventDefault e)
+                                     (dispatch [:drawer/open-dialog id]))}])]
 
-         (when dialog
-           [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
-            [:p (str "Adjust diameter of circle " (:circle-id dialog))]
-            [:input {:type      "range"
-                     :min       5 :max 100 :step 1
-                     :value     (:draft-radius dialog)
-                     :on-change #(d [:drawer/dialog-drag
-                                     (js/parseInt (.. % -target -value))])}]
-            [:button {:on-click #(d [:drawer/close-dialog])} "Close"]])]))))
+     (when dialog
+       [:div.dialog {:style {:border "1px solid #999" :padding "10px" :margin-top "5px"}}
+        [:p (str "Adjust diameter of circle " (:circle-id dialog))]
+        [:input {:type      "range"
+                 :min       5 :max 100 :step 1
+                 :value     (:draft-radius dialog)
+                 :on-change #(dispatch [:drawer/dialog-drag
+                                        (js/parseInt (.. % -target -value))])}]
+        [:button {:on-click #(dispatch [:drawer/close-dialog])} "Close"]])]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

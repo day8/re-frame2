@@ -217,49 +217,44 @@
 ;; hiccup]). The current API uses `rf/dispatcher` / `rf/subscriber` for
 ;; frame-bound access inside views.
 
-(def login-form
-  (reg-view :auth.login/form
-    {:doc "The login form view: email + password + submit button + error display."}
-    (fn render-auth-login-form []
-      (let [d     (rf/dispatcher)
-            s     (rf/subscriber)
-            state (atom {:email "" :password ""})]
-        (fn []
-          (let [submitting? @(s [:auth.login/submitting?])
-                err         @(s [:auth.login/error])]
-            [:form.login-form
-             {:on-submit (fn [e]
-                           (.preventDefault e)
-                           (d [:auth.login/flow [:auth.login/submit @state]]))}
-             [:input  {:type        "email"
-                       :placeholder "Email"
-                       :disabled    submitting?
-                       :on-change   #(swap! state assoc :email (.. % -target -value))}]
-             [:input  {:type        "password"
-                       :placeholder "Password"
-                       :disabled    submitting?
-                       :on-change   #(swap! state assoc :password (.. % -target -value))}]
-             [:button {:type "submit" :disabled submitting?}
-              (if submitting? "Signing in…" "Sign in")]
-             (when err [:p.error err])]))))))
+;; Form-2 view: the outer fn captures local component state in `state`
+;; (a Reagent atom kept across renders); the inner fn is the actual
+;; render fn. dispatch / subscribe are auto-injected and visible in
+;; both the outer and inner fn bodies.
+(reg-view ^{:doc "The login form view: email + password + submit button + error display."}
+          login-form []
+  (let [state (atom {:email "" :password ""})]
+    (fn []
+      (let [submitting? @(subscribe [:auth.login/submitting?])
+            err         @(subscribe [:auth.login/error])]
+        [:form.login-form
+         {:on-submit (fn [e]
+                       (.preventDefault e)
+                       (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
+         [:input  {:type        "email"
+                   :placeholder "Email"
+                   :disabled    submitting?
+                   :on-change   #(swap! state assoc :email (.. % -target -value))}]
+         [:input  {:type        "password"
+                   :placeholder "Password"
+                   :disabled    submitting?
+                   :on-change   #(swap! state assoc :password (.. % -target -value))}]
+         [:button {:type "submit" :disabled submitting?}
+          (if submitting? "Signing in…" "Sign in")]
+         (when err [:p.error err])]))))
 
-(def login-banner
-  (reg-view :auth.login/banner
-    {:doc "Shows the user's logged-in state and a sign-out button."}
-    (fn render-auth-login-banner []
-      (let [s       (rf/subscriber)
-            authed? @(s [:auth.login/authenticated?])]
-        [:div.banner
-         (if authed?
-           [:span "Welcome!"]
-           [login-form])]))))
+(reg-view ^{:doc "Shows the user's logged-in state and a sign-out button."}
+          login-banner []
+  (let [authed? @(subscribe [:auth.login/authenticated?])]
+    [:div.banner
+     (if authed?
+       [:span "Welcome!"]
+       [login-form])]))
 
-(def root-view
-  (reg-view :auth.login/root
-    (fn render-auth-login-root []
-      [:div.app
-       [:h1 "Sign in"]
-       [login-banner]])))
+(reg-view root-view []
+  [:div.app
+   [:h1 "Sign in"]
+   [login-banner]])
 
 ;; ============================================================================
 ;; HEADLESS TEST  (smoke test for the feature)
