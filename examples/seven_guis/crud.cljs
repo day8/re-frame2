@@ -17,8 +17,10 @@
    - Selection as state, not as React component identity  (P8: low hidden context)
    - Derived filtered list                                 (CP-2 with :<-)
    - Schema-bound entity                                   (CP-8)"
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+  (:require [clojure.string :as str]
+            [reagent.dom.client :as rdc]
+            [re-frame.core :as rf]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -124,10 +126,10 @@
   :<- [:crud/people]
   :<- [:crud/filter-text]
   (fn sub-crud-filtered-people [[people prefix] _]
-    (let [pfx (clojure.string/lower-case (or prefix ""))]
-      (if (clojure.string/blank? pfx)
+    (let [pfx (str/lower-case (or prefix ""))]
+      (if (str/blank? pfx)
         people
-        (filterv #(clojure.string/starts-with? (clojure.string/lower-case (:surname %)) pfx)
+        (filterv #(str/starts-with? (str/lower-case (:surname %)) pfx)
                  people)))))
 
 (rf/reg-sub :crud/can-update?
@@ -209,8 +211,13 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce root
+;; The React root is named `react-root` (not `root`) so it does NOT
+;; collide with the `crud-view` reg-view above; reg-view defs vars in
+;; this ns and any name-collision would shadow the rdc root handle.
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [crud-view]))
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:crud/initialise])
+  (rdc/render react-root [crud-view]))
