@@ -1,15 +1,18 @@
 ;; Conformance fixture: drain/depth-limit
 ;; Exercises the drain-depth-exceeded error. A handler that recursively
-;; dispatches itself triggers the configured drain depth limit.
+;; dispatches itself triggers the configured drain depth limit. Per
+;; Spec 002 §Run-to-completion §Rules rule 3, the runtime restores
+;; app-db to its pre-drain snapshot when the limit trips — the partial
+;; writes from the cascade are NOT preserved.
 
 {:fixture/id           :drain/depth-limit
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error}
- :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. Cascade halts."
+ :fixture/doc          "A handler that always dispatches itself recursively. Drain hits the configured depth limit and emits :rf.error/drain-depth-exceeded. The runtime rolls app-db back to the pre-drain snapshot (atomic rollback per Spec 002 rule 3) and the cascade halts."
 
  :fixture/registry
  {:event {:recursive {:doc "Always dispatches itself."}}
-  :sub   {:depth {:doc "How many times the handler ran."}}}
+  :sub   {:depth {:doc "How many times the handler ran (rolled back on overflow)."}}}
 
  :fixture/handlers
  {:event {:recursive [[:update [:depth] [:fn :inc]]
@@ -25,7 +28,10 @@
 
  :fixture/expect
  {;; The handler ran 5 times (the depth limit) before the runtime aborted.
-  :final-app-db {:depth 5}
+  ;; Then app-db was rolled back to the pre-drain snapshot ({} since the
+  ;; frame had no :on-create event seeding state). Per Spec 002 rule 3 —
+  ;; partial writes from a failed cascade do not survive.
+  :final-app-db {}
 
   :trace-emissions
   [{:operation :event :tags {:event-id :recursive}}
@@ -33,11 +39,14 @@
    {:operation :event :tags {:event-id :recursive}}
    {:operation :event :tags {:event-id :recursive}}
    {:operation :event :tags {:event-id :recursive}}
-   ;; Drain depth exceeded — the 6th attempt is rejected.
+   ;; Drain depth exceeded — the 6th attempt is rejected and the
+   ;; rolled-back app-db is published before the error trace fires.
+   ;; The :rollback? true tag flags the atomic rollback per Spec 002.
    {:operation :rf.error/drain-depth-exceeded
     :op-type   :error
     :tags      {:category   :rf.error/drain-depth-exceeded
                 :depth      5
                 :queue-size 1
-                :last-event [:recursive]}
+                :last-event [:recursive]
+                :rollback?  true}
     :recovery  :no-recovery}]}}
