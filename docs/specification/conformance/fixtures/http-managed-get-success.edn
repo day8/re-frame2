@@ -1,0 +1,71 @@
+;; Conformance fixture: rf.http.managed/get-success
+;;
+;; Per Spec 014 §The shape and §`:accept`. A simple GET, decoded as JSON,
+;; reaches the success path; the default `:accept` returns `{:ok decoded}`
+;; for 2xx; the runtime synthesises the canonical
+;; `{:rf/reply {:kind :success :value <decoded>}}` envelope.
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-success,
+;; which Spec 014 §Testing guarantees produces the same dispatch shape the
+;; real fx would.
+
+{:fixture/id           :rf.http.managed/get-success
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "GET /articles/hello with :decode :json. The canned-success stub synthesises {:kind :success :value {:title \"hello\"}}; the explicit :on-success target receives the payload and writes it to [:article]."
+
+ :fixture/registry
+ {:event {:article/load   {:doc "Issue the GET."}
+          :article/loaded {:doc "Receive the payload."}}
+  :sub   {:article {:doc "The article slice."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:article/load
+   [[:fx [[:rf.http/managed
+           {:request {:method :get :url "/articles/hello"}
+            :decode  :json
+            :on-success [:article/loaded]}]]]]
+
+   :article/loaded
+   [[:set [:article] [:event-arg 1]]]}
+
+  :sub
+  {:article [[:get [:article]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-success
+   [[:dispatch [:article/loaded {:kind  :success
+                                 :value {:title "hello" :id 42}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:article/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article {:kind  :success
+             :value {:title "hello" :id 42}}}
+
+  :sub-values
+  {[:article] {:kind  :success
+               :value {:title "hello" :id 42}}}
+
+  :trace-emissions
+  [{:operation :event :op-type :event :tags {:event-id :article/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-success}}
+   {:operation :event :op-type :event :tags {:event-id :article/loaded}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-success
+    :args  {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-success [:article/loaded]}}]}}

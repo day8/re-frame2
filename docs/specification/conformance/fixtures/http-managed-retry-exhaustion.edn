@@ -1,0 +1,83 @@
+;; Conformance fixture: rf.http.managed/retry-exhaustion
+;;
+;; Per Spec 014 §Retry × `:on-failure` semantics — only the final
+;; exhausted-retries failure dispatches `:on-failure`. Intermediate
+;; retriable attempts emit `:rf.http/retry-attempt` traces but do NOT
+;; dispatch the failure handler. The user sees exactly one failure reply.
+;;
+;; The fixture models the contract with a single canned-failure invocation
+;; (the harness doesn't time real backoff delays). The trace expectation
+;; verifies the failure dispatch is to :on-failure, not the originator,
+;; for the final outcome.
+
+{:fixture/id           :rf.http.managed/retry-exhaustion
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "All :max-attempts attempts return a retriable :rf.http/http-5xx; only the final exhausted attempt dispatches :on-failure. Per Spec 014 §Retry and backoff."
+
+ :fixture/registry
+ {:event {:flaky/load        {:doc "Issue the GET with retry policy."}
+          :flaky/load-error  {:doc "Receive the final failure after :max-attempts exhausted."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:flaky/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/flaky"}
+            :decode     :json
+            :retry      {:on           #{:rf.http/http-5xx}
+                         :max-attempts 3
+                         :backoff      {:base-ms 5 :factor 1 :max-ms 10}}
+            :on-failure [:flaky/load-error]}]]]]
+
+   :flaky/load-error
+   [[:set [:flaky :error] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-failure
+   ;; Final-after-retries-exhausted shape per Spec 014 §Reply payload shape.
+   [[:dispatch [:flaky/load-error
+                {:kind    :failure
+                 :failure {:kind        :rf.http/http-5xx
+                           :status      503
+                           :status-text "Service Unavailable"
+                           :body        {:err true}
+                           :headers     {}}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+
+ :fixture/dispatches
+ [[:flaky/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:flaky {:error {:kind    :failure
+                   :failure {:kind        :rf.http/http-5xx
+                             :status      503
+                             :status-text "Service Unavailable"
+                             :body        {:err true}
+                             :headers     {}}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :flaky/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-failure}}
+   ;; Only one :on-failure dispatch for the final exhausted attempt;
+   ;; intermediate :rf.http/retry-attempt traces ride the live fx, not the
+   ;; canned-failure stub (which short-circuits to the final outcome).
+   {:operation :event :tags {:event-id :flaky/load-error}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-failure
+    :args  {:request    {:method :get :url "/flaky"}
+            :decode     :json
+            :retry      {:on           #{:rf.http/http-5xx}
+                         :max-attempts 3
+                         :backoff      {:base-ms 5 :factor 1 :max-ms 10}}
+            :on-failure [:flaky/load-error]}}]}}

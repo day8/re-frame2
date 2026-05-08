@@ -1,0 +1,68 @@
+;; Conformance fixture: rf.http.managed/decode-failure
+;;
+;; Per Spec 014 §Failure categories — `:rf.http/decode-failure`: a body that
+;; couldn't be parsed (Malli rejection, JSON syntax error, custom decoder
+;; threw) classifies under this kind. The fixture exercises the contract via
+;; `:rf.http/managed-canned-failure` configured with
+;; `:kind :rf.http/decode-failure`. The :on-failure target receives the
+;; canonical failure envelope.
+
+{:fixture/id           :rf.http.managed/decode-failure
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "A response body that fails to decode (Malli rejection / JSON syntax error / custom decoder threw) classifies as :rf.http/decode-failure. The :on-failure target receives {:kind :failure :failure {:kind :rf.http/decode-failure ...}}."
+
+ :fixture/registry
+ {:event {:articles/list       {:doc "Issue the GET."}
+          :articles/list-error {:doc "Receive the failure payload."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:articles/list
+   [[:fx [[:rf.http/managed
+           {:request {:method :get :url "/articles"}
+            :decode  :json
+            :on-failure [:articles/list-error]}]]]]
+
+   :articles/list-error
+   [[:set [:articles :error] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-failure
+   [[:dispatch [:articles/list-error
+                {:kind    :failure
+                 :failure {:kind         :rf.http/decode-failure
+                           :body-text    "{not-valid-json"
+                           :cause        "JSON syntax error"
+                           :malli-error? false}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+
+ :fixture/dispatches
+ [[:articles/list]]
+
+ :fixture/expect
+ {:final-app-db
+  {:articles {:error {:kind    :failure
+                      :failure {:kind         :rf.http/decode-failure
+                                :body-text    "{not-valid-json"
+                                :cause        "JSON syntax error"
+                                :malli-error? false}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :articles/list}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-failure}}
+   {:operation :event :tags {:event-id :articles/list-error}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-failure
+    :args  {:request    {:method :get :url "/articles"}
+            :decode     :json
+            :on-failure [:articles/list-error]}}]}}

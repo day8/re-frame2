@@ -204,7 +204,8 @@
               (let [active-platform (or (get-in frame-record [:config :platform])
                                         interop/platform)]
                 (fx/do-fx frame fx-vec active-platform
-                          (or (:rf/fx-overrides initial-ctx) {}))))
+                          (or (:rf/fx-overrides initial-ctx) {})
+                          event)))
             (trace/emit! :event :event
                          {:event-id event-id
                           :event    event

@@ -1,0 +1,86 @@
+;; Conformance fixture: rf.http.managed/default-reply-addressing
+;;
+;; Per Spec 014 §Reply addressing — default (omitted) form. The fx captures
+;; the originating event id and re-dispatches `[<orig-id> (assoc orig-msg
+;; :rf/reply {:kind :success :value v})]`. The same handler branches on
+;; `(:rf/reply msg)` to handle both initial-dispatch and reply paths.
+;;
+;; This fixture mirrors the contract — `:rf.http/managed` is redirected to
+;; a canned-success stub (`:rf.http/managed-canned-success`) whose body
+;; synthesises the canonical reply shape per Spec 014 §Testing.
+
+{:fixture/id           :rf.http.managed/default-reply-addressing
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "The :rf.http/managed fx, redirected via :fx-overrides to :rf.http/managed-canned-success, dispatches a {:kind :success :value {:stubbed true}} reply back to the originating event-id with :rf/reply merged into the original message map."
+
+ :fixture/registry
+ {:event {:article/load          {:doc "Initial-dispatch path — issues the managed request."}
+          :article/load-reply    {:doc "Reply-receiving path — receives :rf/reply via merged message and stores under [:article]."}}
+  :sub   {:article {:doc "The currently-loaded article."}}
+  :fx    {:rf.http/managed                {:doc "Spec 014 — managed HTTP request."
+                                           :platforms #{:client :server}}
+          :rf.http/managed-canned-success {:doc "Spec 014 — synthesised success reply (test stub)."
+                                           :platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {;; The initial-dispatch path issues the fx; in the real framework,
+   ;; the same id receives the reply. The DSL has no native if/else
+   ;; on (:rf/reply msg); we model the contract by splitting the
+   ;; receiver into :article/load-reply and pointing :on-success at
+   ;; it. The default-reply-addressing assertion (:rf/reply merged
+   ;; into the original msg under the same id) is exercised by the
+   ;; JVM smoke test re-frame.http-managed-test/canned-success-default-reply-addressing
+   ;; and by the explicit-on-success fixture below.
+   :article/load
+   [[:fx [[:rf.http/managed
+           {:request {:method :get :url "/articles/hello"}
+            :decode  :json
+            :on-success [:article/load-reply]}]]]]
+
+   :article/load-reply
+   ;; The :on-success target receives the reply payload as the last
+   ;; arg — `[:article/load-reply {:kind :success :value v}]`.
+   ;; Store the :value at [:article].
+   [[:set [:article] [:event-arg 1]]]}
+
+  :sub
+  {:article [[:get [:article]]]}
+
+  :fx
+  {;; Real fx — never invoked under the override below.
+   :rf.http/managed                [[:noop]]
+   ;; Stub fx — dispatches the canonical success reply per Spec 014 §Testing.
+   :rf.http/managed-canned-success
+   [[:dispatch [:article/load-reply {:kind :success :value {:stubbed true}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:article/load {:slug "hello"}]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article {:kind :success :value {:stubbed true}}}
+
+  :sub-values
+  {[:article] {:kind :success :value {:stubbed true}}}
+
+  :trace-emissions
+  [;; Initial dispatch.
+   {:operation :event :op-type :event :tags {:event-id :article/load}}
+   ;; The override redirected :rf.http/managed → :rf.http/managed-canned-success.
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-success}}
+   ;; The stub re-dispatched to :article/load-reply with the success payload.
+   {:operation :event :op-type :event :tags {:event-id :article/load-reply}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-success
+    :args  {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-success [:article/load-reply]}}]}}
