@@ -121,7 +121,16 @@ const DEV_ONLY_SENTINELS = [
   // Emitted when a machine snapshot's :rf/snapshot-version differs
   // from the currently-registered machine's :version. Must elide.
   { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-version-mismatch)',
-    sentinel: 'rf.epoch/restore-version-mismatch' }
+    sentinel: 'rf.epoch/restore-version-mismatch' },
+  // re-frame.views — :view/render trace op (Spec 004 §Render-tree
+  // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
+  // wrapper on every render of a registered view; the entire emit
+  // body sits inside `(when interop/debug-enabled? ...)`. The
+  // operation keyword's string fragment must elide in production —
+  // along with the instance-token mint, the *render-key* binding,
+  // and the late-bind lookup.
+  { source: 're-frame.views/reg-view* frame-aware-view (view/render)',
+    sentinel: 'view/render' }
 ];
 
 // ----- helpers ---------------------------------------------------------------
