@@ -14,7 +14,8 @@
  * below. Adding a new example: add its shadow-cljs build target,
  * append an entry here, and add a Playwright spec.
  *
- * Cross-platform: same npx shell discipline as serve-and-run-browser-tests.cjs.
+ * Cross-platform: compile via npx, but launch http-server directly from the
+ * local package so teardown kills the real server process on Windows too.
  */
 
 const { spawn, spawnSync } = require('child_process');
@@ -27,6 +28,7 @@ const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
+const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server');
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 
@@ -64,6 +66,21 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'routing', 'index.html'),
     outDir: path.join(OUT_ROOT, 'routing'),
   },
+  {
+    build: 'examples/todomvc',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'todomvc', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'todomvc'),
+    extraFiles: [
+      {
+        src: path.join(IMPL_ROOT, 'node_modules', 'todomvc-common', 'base.css'),
+        dest: 'base.css',
+      },
+      {
+        src: path.join(IMPL_ROOT, 'node_modules', 'todomvc-app-css', 'index.css'),
+        dest: 'todomvc-app.css',
+      },
+    ],
+  },
 ];
 
 function compileAll() {
@@ -94,6 +111,16 @@ function stageHtml() {
     const dest = path.join(ex.outDir, 'index.html');
     fs.copyFileSync(ex.htmlSrc, dest);
     console.log(`Staged ${ex.htmlSrc} -> ${dest}`);
+
+    for (const extra of ex.extraFiles || []) {
+      if (!fs.existsSync(extra.src)) {
+        throw new Error(`Static asset missing: ${extra.src}`);
+      }
+      const assetDest = path.join(ex.outDir, extra.dest);
+      fs.mkdirSync(path.dirname(assetDest), { recursive: true });
+      fs.copyFileSync(extra.src, assetDest);
+      console.log(`Staged ${extra.src} -> ${assetDest}`);
+    }
   }
 }
 
@@ -126,12 +153,9 @@ async function waitForReady(port, deadline) {
   compileAll();
   stageHtml();
 
-  const isWin = process.platform === 'win32';
-  const httpServerCmd = isWin ? 'npx.cmd' : 'npx';
-  const args = ['http-server', OUT_ROOT, '-p', String(PORT), '-s', '-c-1'];
-  const server = spawn(httpServerCmd, args, {
+  const server = spawn(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(PORT), '-s', '-c-1'], {
+    cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
-    shell: isWin,
   });
 
   let serverDown = false;

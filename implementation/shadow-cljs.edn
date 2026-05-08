@@ -105,4 +105,10 @@
   {:target     :browser
    :output-dir "out/examples/routing"
    :asset-path "."
-   :modules    {:main {:init-fn routing.core/run}}}}}
+   :modules    {:main {:init-fn routing.core/run}}}
+
+  :examples/todomvc
+  {:target     :browser
+   :output-dir "out/examples/todomvc"
+   :asset-path "."
+   :modules    {:main {:init-fn todomvc.core/run}}}}}
