@@ -1,0 +1,70 @@
+;; Conformance fixture: flow/toggle-via-fx
+;; Per Spec 013 §Dynamic toggle via fx — two reserved fx-ids let event
+;; handlers register and clear flows during normal event processing:
+;;
+;;   :rf.fx/reg-flow   — args are a flow map; registers the flow
+;;   :rf.fx/clear-flow — args are a flow id;  clears the flow
+;;
+;; A flow registered mid-event first runs on the NEXT event drain
+;; (per Spec 013 §Sequencing). Clearing a flow dissoc's its :path.
+
+{:fixture/id           :flow/toggle-via-fx
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle}
+ :fixture/doc          "Round-trip the dynamic toggle: an event handler emits :rf.fx/reg-flow which registers the flow; a later event emits :rf.fx/clear-flow which deregisters and dissoc-in's the output path. The flow's first run lands on the event AFTER registration; clearing immediately vacates the slot."
+
+ :fixture/registry
+ {:event {:wizard/init       {:doc "Seed :step-2 inputs."}
+          :wizard/enter      {:doc "Register the :step-2/computed flow via fx."}
+          :wizard/bump-foo   {:doc "Mutate :step-2 :foo to drive a recompute."}
+          :wizard/leave      {:doc "Clear the :step-2/computed flow via fx."}}
+  :fx    {:rf.fx/reg-flow   {:doc "Reserved — register a flow at runtime."
+                             :platforms #{:client :server}}
+          :rf.fx/clear-flow {:doc "Reserved — clear a flow at runtime."
+                             :platforms #{:client :server}}}}
+
+ ;; The flow body is described declaratively; the harness wires it to
+ ;; (fn [foo bar] (+ foo bar)) when materialising the :rf.fx/reg-flow
+ ;; effect's args.
+ :fixture/handlers
+ {:event {:wizard/init     [[:set [:step-2 :foo] 3]
+                            [:set [:step-2 :bar] 4]]
+          :wizard/enter    [[:fx :rf.fx/reg-flow
+                             {:id     :step-2/computed
+                              :inputs [[:step-2 :foo] [:step-2 :bar]]
+                              :body   [[:fn :+ [:event-arg 0] [:event-arg 1]]]
+                              :path   [:step-2 :result]}]]
+          :wizard/bump-foo [[:set [:step-2 :foo] [:event-arg 1]]]
+          :wizard/leave    [[:fx :rf.fx/clear-flow :step-2/computed]]}}
+
+ :fixture/frame-config
+ {:on-create [:wizard/init]}
+
+ ;; Sequence:
+ ;;   :wizard/enter    — registers the flow. First evaluation fires on
+ ;;                      the NEXT drain (per Spec 013 §Sequencing); inputs
+ ;;                      are 3 + 4 → flow has not yet written.
+ ;;   :wizard/bump-foo — mutates :step-2 :foo to 5; flow runs on this drain
+ ;;                      (registered before the drain) → 5 + 4 = 9 at
+ ;;                      [:step-2 :result].
+ ;;   :wizard/leave    — clears the flow. The output path is dissoc-in'd.
+ :fixture/dispatches
+ [[:wizard/enter]
+  [:wizard/bump-foo 5]
+  [:wizard/leave]]
+
+ :fixture/expect
+ ;; After :wizard/leave, :step-2 retains :foo / :bar; :result is gone
+ ;; (clear-flow dissoc-in's the leaf at the flow's :path).
+ ;;
+ ;; NOTE: rf2-aqt7 — clear-flow with a single-element :path (e.g. [:area])
+ ;; currently leaves the key in app-db (off-by-one in update-in
+ ;; (butlast path)). This fixture uses a two-element :path
+ ;; ([:step-2 :result]) which exercises the working code path.
+ {:final-app-db
+  {:step-2 {:foo 5 :bar 4}}
+
+  ;; The harness checks that the flow registry no longer contains
+  ;; :step-2/computed after :wizard/leave fires.
+  :flow-registry-after
+  #{}}}

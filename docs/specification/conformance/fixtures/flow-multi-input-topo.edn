@@ -1,0 +1,59 @@
+;; Conformance fixture: flow/multi-input-topo
+;; Per Spec 013 §Topological sort and cycle detection — flow B depends
+;; on flow A iff A's :path and any of B's :inputs share a path prefix
+;; in either direction. Mutating A's input cascades through B in a
+;; single drain pass; the topological sort places A before B.
+;;
+;; Layout:
+;;   :rect/area           → depends on [:width] [:height]; writes [:area]
+;;   :rect/area-doubled   → depends on [:area];            writes [:area*2]
+;;
+;; A single :rect/init seeds inputs; one drain settles both flows.
+
+{:fixture/id           :flow/multi-input-topo
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :flow/basic :flow/topo}
+ :fixture/doc          "Two-layer flow graph: flow B reads what flow A wrote. The topological sort places A before B so a single drain pass settles both. Cycle detection rejects mutual deps at registration; this fixture is acyclic by construction."
+
+ :fixture/registry
+ {:event {:rect/init  {:doc "Seed width and height."}
+          :rect/set-w {:doc "Update :width."}
+          :rect/set-h {:doc "Update :height."}}
+  :flow  {:rect/area
+          {:doc    "Width × height."
+           :inputs [[:width] [:height]]
+           :path   [:area]}
+          :rect/area-doubled
+          {:doc    "Area × 2 — depends on :rect/area's output."
+           :inputs [[:area]]
+           :path   [:area*2]}}}
+
+ :fixture/handlers
+ {:event {:rect/init  [[:set [:width]  2]
+                       [:set [:height] 3]]
+          :rect/set-w [[:set [:width]  [:event-arg 1]]]
+          :rect/set-h [[:set [:height] [:event-arg 1]]]}}
+
+ :fixture/flow-bodies
+ {:rect/area         [[:fn :* [:event-arg 0] [:event-arg 1]]]
+  :rect/area-doubled [[:fn :* [:event-arg 0] 2]]}
+
+ :fixture/frame-config
+ {:on-create [:rect/init]}
+
+ :fixture/dispatches
+ [[:rect/set-w 5]
+  [:rect/set-h 4]]
+
+ :fixture/expect
+ {:final-app-db
+  {:width  5
+   :height 4
+   :area   20
+   :area*2 40}
+
+  ;; Per Spec 013 §Topological sort: B depends on A iff A's :path
+  ;; intersects B's :inputs. The harness asserts the static dependency
+  ;; graph topologies — A runs before B in a single drain pass.
+  :flow-graph-topology
+  {:rect/area-doubled #{:rect/area}}}}
