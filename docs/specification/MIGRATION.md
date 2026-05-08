@@ -41,6 +41,46 @@ The rules are listed in order of likelihood. Apply them in order; later rules ma
 
 These are the changes that **must** be applied if the codebase trips them.
 
+### M-0. Bump the dependency coordinate to `day8/re-frame-2`
+
+**Type A** (mechanical). The target coord is unambiguous (per rf2-5sqd[^rf2-5sqd]); apply without asking.
+
+Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with the latest released version of `day8/re-frame-2`. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
+
+**Files to inspect** (whichever exist at the project root):
+
+- `deps.edn` — `:deps` and any `:aliases ../:extra-deps`
+- `project.clj` — `:dependencies`
+- `shadow-cljs.edn` — `:dependencies`
+- `bb.edn` — `:deps` (if present)
+
+**Coords to detect** (any of these forms — re-frame v1 has shipped under all three at various points):
+
+```clojure
+re-frame/re-frame {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — current canonical form
+re-frame          {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — older shorter form
+[re-frame "1.x.x"]                            ;; project.clj — Lein vector form
+```
+
+**Replacement.** Swap the entire coord (not just the version) — the artefact name changes:
+
+```clojure
+day8/re-frame-2 {:mvn/version "<latest>"}    ;; deps.edn / shadow-cljs.edn / bb.edn
+[day8/re-frame-2 "<latest>"]                  ;; project.clj
+```
+
+`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). The `re-frame.core` namespace and `:require` lines are unchanged; only the dep coord moves.
+
+**If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
+
+**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame-2 2.0.0`).
+
+**Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame-2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. See rf2-5sqd for the full rationale.
+
+[^rf2-5sqd]: Decision recorded in bead **rf2-5sqd** ("Decide artefact name for re-frame2 publication") — option 2 (new artefact `day8/re-frame-2`, public namespace `re-frame.core` unchanged).
+
+---
+
 ### M-1. Private namespace access — `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`
 
 **Type A** (mechanical).
@@ -922,7 +962,7 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1124,7 +1164,7 @@ Sections below are written in second person to an AI agent performing the migrat
 
 You are migrating a ClojureScript codebase from re-frame v1.x to **re-frame2**. The headline expectation is that **most codebases require no changes at all** — re-frame2 is designed for maximum backwards compatibility. Your job is to:
 
-1. **Verify the codebase compiles and runs against re-frame2 with the dependency bumped and nothing else changed.** This is the success path for the majority of projects.
+1. **Apply [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame-2) — bump the dep coord to `day8/re-frame-2`. Then verify the codebase compiles and runs with nothing else changed.** This is the success path for the majority of projects.
 2. **If compilation or runtime failures occur, identify which migration rule (`M-N` in Part 1) applies, apply it, and re-verify.**
 3. **Optionally, if the user has asked you to also modernise the codebase, apply the opt-in upgrades (the `O-N` rules in Part 1).** Do not do this unless asked.
 4. **Report back** — succinctly summarise what changed, why, and what still needs attention.
