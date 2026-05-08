@@ -1,4 +1,4 @@
-(ns example.realworld.auth
+(ns realworld.auth
   "Authentication for the RealWorld (Conduit) example.
 
    The auth flow is implemented as a re-frame2 state machine. Login,
@@ -11,9 +11,9 @@
    the machine snapshot itself lives at [:rf/machines :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -159,8 +159,8 @@
   [(rf/inject-cofx :auth.session/token)]
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
     {:db (assoc db :auth {:user nil
-                          :token auth.session/token})
-     :fx [[:dispatch [:auth/flow [:auth/restore auth.session/token]]]]}))
+                          :token token})
+     :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
 
 ;; ============================================================================
 ;; FORMS

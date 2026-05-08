@@ -1,4 +1,4 @@
-(ns example.realworld.articles
+(ns realworld.articles
   "Home-page article feeds for the RealWorld (Conduit) example.
 
    This sketch demonstrates:
@@ -7,14 +7,12 @@
    - home-page tabs expressed as ordinary navigation events
    - view reuse across the home page and profile pages"
   (:require [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
-(defn current-time-ms []
-  #?(:cljs (.getTime (js/Date.))
-     :clj  (System/currentTimeMillis)))
+(defn current-time-ms [] (.getTime (js/Date.)))
 
 (defn request-slice [data]
   {:status :idle :data data :error nil :loaded-at nil :attempt 0})

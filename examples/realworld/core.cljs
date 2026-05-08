@@ -1,4 +1,4 @@
-(ns example.realworld.core
+(ns realworld.core
   "Entry point for the RealWorld (Conduit) example.
 
    Wires the app together:
@@ -22,17 +22,18 @@
      ssr.cljc              — hydration payload helper for the RealWorld app"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing]
-            [example.realworld.auth :as auth]
-            [example.realworld.articles :as articles]
-            [example.realworld.comments :as comments]
-            [example.realworld.article-editor :as editor]
-            [example.realworld.profile :as profile]
-            [example.realworld.favorites]
-            [example.realworld.tags]
-            [example.realworld.settings :as settings])
+            [re-frame.substrate.reagent :as reagent-adapter]
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing]
+            [realworld.auth :as auth]
+            [realworld.articles :as articles]
+            [realworld.comments :as comments]
+            [realworld.article-editor :as editor]
+            [realworld.profile :as profile]
+            [realworld.favorites]
+            [realworld.tags]
+            [realworld.settings :as settings])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -155,10 +156,88 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
-(defonce root
+;; ----------------------------------------------------------------------------
+;; DEMO STUBS
+;;
+;; The realworld example would normally call out to https://api.realworld.io/api,
+;; which is unreliable for the headless smoke and slow for a demo. Override the
+;; :http effect with a small in-process stub that returns canned data for the
+;; routes the demo actually exercises (global feed, tags, profile). Anything
+;; not covered resolves to an empty-shape :on-success — enough for the app
+;; shell + main feed to render.
+;; ----------------------------------------------------------------------------
+
+(def ^:private demo-articles
+  [{:slug "hello-conduit"
+    :title "Hello, Conduit"
+    :description "A short greeting from the realworld stub."
+    :body "This article is served by the demo :http override."
+    :tagList ["intro" "demo"]
+    :createdAt "2026-01-01T00:00:00Z"
+    :updatedAt "2026-01-01T00:00:00Z"
+    :favorited false
+    :favoritesCount 0
+    :author {:username "stub-bot"
+             :bio "A friendly stub."
+             :image ""
+             :following false}}
+   {:slug "second-article"
+    :title "Second article"
+    :description "A second short article."
+    :body "More canned demo content."
+    :tagList ["demo"]
+    :createdAt "2026-02-01T00:00:00Z"
+    :updatedAt "2026-02-01T00:00:00Z"
+    :favorited false
+    :favoritesCount 0
+    :author {:username "stub-bot"
+             :bio "A friendly stub."
+             :image ""
+             :following false}}])
+
+(def ^:private demo-tags
+  ["intro" "demo" "clojure" "re-frame"])
+
+(rf/reg-fx :http.demo-stub
+  {:doc       "Demo stub for realworld :http: routes URLs to canned responses
+               so the example runs standalone without a backend."
+   :platforms #{:server :client}}
+  (fn fx-http-demo-stub [{:keys [frame]} {:keys [url on-success on-error]}]
+    (let [resp (cond
+                 (re-find #"/articles$|/articles\?" (str url))
+                 {:articles demo-articles :articlesCount (count demo-articles)}
+
+                 (re-find #"/articles/feed" (str url))
+                 {:articles [] :articlesCount 0}
+
+                 (re-find #"/tags" (str url))
+                 {:tags demo-tags}
+
+                 (re-find #"/profiles/" (str url))
+                 {:profile {:username "stub-bot" :bio "" :image "" :following false}}
+
+                 :else {})]
+      (js/setTimeout
+        (fn []
+          (when on-success
+            (rf/dispatch (conj on-success resp) {:frame frame})))
+        20))))
+
+;; React root named `react-root` (not `root`) so it does NOT collide with
+;; the `root-view` reg-view above (rf2-562e).
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
+  ;; Override :http on the default frame so all the realworld feature
+  ;; HTTP calls land on the demo stub (no real backend required).
+  (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
+                             :fx-overrides {:http :http.demo-stub}})
+  ;; The orchestrator serves this example at /realworld/; strip that
+  ;; prefix before the route matcher sees the URL so :route/home (path "/")
+  ;; matches.
+  (routing/set-base-path! "/realworld")
   (rf/dispatch-sync [:app/initialise])
   (routing/install-router!)
-  (rdc/render root [root-view]))
+  (rdc/render react-root [root-view]))

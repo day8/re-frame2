@@ -1,4 +1,4 @@
-(ns example.realworld.comments
+(ns realworld.comments
   "Article detail plus comments for the RealWorld (Conduit) example.
 
    This sketch keeps the current re-frame2 API surface explicit:
@@ -8,14 +8,12 @@
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
-(defn current-time-ms []
-  #?(:cljs (.getTime (js/Date.))
-     :clj  (System/currentTimeMillis)))
+(defn current-time-ms [] (.getTime (js/Date.)))
 
 (defn comment-form-defaults []
   {:draft        {:body ""}
@@ -32,8 +30,7 @@
   (str (article-path slug) "/comments"))
 
 (defn temp-comment-id []
-  #?(:cljs (str "temp-" (random-uuid))
-     :clj  (str "temp-" (java.util.UUID/randomUUID))))
+  (str "temp-" (random-uuid)))
 
 ;; ============================================================================
 ;; INITIALISATION
@@ -366,7 +363,7 @@
                              :updatedAt "2026-05-01"
                              :favorited false
                              :favoritesCount 0
-                             :author {:username "alice" :bio nil :image nil :following false}}})
+                             :author {:username "alice" :bio nil :image nil :following false}}}))
           {:frame frame}))))
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]

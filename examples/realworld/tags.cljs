@@ -1,4 +1,4 @@
-(ns example.realworld.tags
+(ns realworld.tags
   "Home-page query helpers for tag filtering and feed selection.
 
    The popular-tags list itself is loaded by `articles.cljs`. This file

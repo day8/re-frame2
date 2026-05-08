@@ -1,4 +1,4 @@
-(ns example.realworld.ssr
+(ns realworld.ssr
   "RealWorld-specific SSR helpers.
 
    The generic runtime SSR walkthrough lives in `examples/ssr/core.cljc`.

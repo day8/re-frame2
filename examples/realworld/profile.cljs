@@ -1,4 +1,4 @@
-(ns example.realworld.profile
+(ns realworld.profile
   "Profile pages for the RealWorld (Conduit) example.
 
    One route family, three remote-data slices:
@@ -10,15 +10,13 @@
    article cards rendered from the profile routes."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing]
-            [example.realworld.articles :as articles])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing]
+            [realworld.articles :as articles])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
-(defn current-time-ms []
-  #?(:cljs (.getTime (js/Date.))
-     :clj  (System/currentTimeMillis)))
+(defn current-time-ms [] (.getTime (js/Date.)))
 
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})

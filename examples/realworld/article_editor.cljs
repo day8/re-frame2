@@ -1,4 +1,4 @@
-(ns example.realworld.article-editor
+(ns realworld.article-editor
   "Article editor for the RealWorld (Conduit) example.
 
    This sketch shows the current re-frame2 shape for:
@@ -8,9 +8,9 @@
    - ordinary HTTP effects for create / update / delete"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def blank-draft

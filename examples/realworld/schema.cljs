@@ -1,4 +1,4 @@
-(ns example.realworld.schema
+(ns realworld.schema
   "Malli schemas for the RealWorld (Conduit) example.
 
    These describe the shape of every wire payload the RealWorld API returns,

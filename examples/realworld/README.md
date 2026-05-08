@@ -43,9 +43,9 @@ A worked example based on the [RealWorld spec](https://github.com/gothinkster/re
 ## How to run
 
 The example assumes a shadow-cljs build aliased `realworld` (typical
-`:modules {:realworld {:entries [example.realworld.core] :init-fn example.realworld.core/run}}`).
+`:modules {:realworld {:entries [realworld.core] :init-fn realworld.core/run}}`).
 
-In production point `example.realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`.
+In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`.
 
 ```bash
 shadow-cljs watch realworld
@@ -55,16 +55,16 @@ shadow-cljs watch realworld
 The included headless tests are browserless sketches. Because most files are `.cljs`, run them in a CLJS host (Node, a `node-test` target, or a browser build without mounting the DOM-facing entrypoint):
 
 ```clojure
-(example.realworld.auth/login-happy-path-test)
-(example.realworld.articles/articles-load-test)
-(example.realworld.comments/comments-load-test)
-(example.realworld.article-editor/editor-create-test)
-(example.realworld.profile/profile-load-test)
-(example.realworld.favorites/favorite-toggle-test)
-(example.realworld.tags/tag-query-test)
-(example.realworld.settings/settings-test)
-(example.realworld.routing/routing-tests)
-(example.realworld.core/app-smoke-test)
+(realworld.auth/login-happy-path-test)
+(realworld.articles/articles-load-test)
+(realworld.comments/comments-load-test)
+(realworld.article-editor/editor-create-test)
+(realworld.profile/profile-load-test)
+(realworld.favorites/favorite-toggle-test)
+(realworld.tags/tag-query-test)
+(realworld.settings/settings-test)
+(realworld.routing/routing-tests)
+(realworld.core/app-smoke-test)
 ```
 
 ## Why RealWorld

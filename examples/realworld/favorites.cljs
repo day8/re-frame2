@@ -1,4 +1,4 @@
-(ns example.realworld.favorites
+(ns realworld.favorites
   "Favorite/unfavorite actions plus the authenticated user's feed.
 
    The favorite toggle is shared across the home feed, profile lists,
@@ -6,13 +6,11 @@
    Pattern-RemoteData slice so the home page can switch between feeds
    without throwing away already-loaded global articles."
   (:require [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http])
+            [realworld.schema]
+            [realworld.http])
   (:require-macros [re-frame.views-macros :refer [with-frame]]))
 
-(defn current-time-ms []
-  #?(:cljs (.getTime (js/Date.))
-     :clj  (System/currentTimeMillis)))
+(defn current-time-ms [] (.getTime (js/Date.)))
 
 (defn request-slice []
   {:status :idle :data [] :error nil :loaded-at nil :attempt 0})
