@@ -5,7 +5,15 @@
     - Pure hiccup → HTML emitter (HTML5: void elements self-close
       bare, doctype prefix on demand, full attr/text escaping,
       :tag#id.cls keyword parsing, registered-view resolution via
-      the :view registry).
+      the :view registry). Per Spec 011 §The render-tree → HTML
+      emitter — render-to-string returns ONE shape: an HTML STRING.
+      The render-tree's structural hash is a separate fn
+      (render-tree-hash) and rides the wire as a data-rf-render-hash
+      attribute on the root element when :emit-hash? is set. The
+      per-request HTTP response (status / headers / cookies /
+      redirect) lives in the response accumulator at [:rf/response]
+      (per §HTTP response contract) — NOT in render-to-string's
+      return value.
     - :rf/hydrate event with :replace-app-db semantics — the server-
       supplied payload's :rf/app-db replaces the client app-db. The
       conformance harness simulates a hydration-mismatch by feeding a
@@ -20,9 +28,11 @@
       under the reserved path [:rf/response]; the host adapter consumes
       that slot after drain to build the wire response. Per
       Spec 011 §HTTP response contract.
-    - Default error projector (:rf.ssr/default-error-projector)
-      mapping :rf.error/no-such-handler / no-such-route to the
-      Spec-011 public-error shape.
+    - reg-error-projector + default :rf.ssr/default-error-projector,
+      plus the runtime's SSR error path that calls the active
+      projector when an error trace fires inside a server frame and
+      writes the public-error's :status to the response accumulator.
+      Per Spec 011 §Server error projection.
 
   Conformance fixtures cover all of the above (ssr/render-to-string,
   ssr/hydrate, ssr/hydration-mismatch, ssr/head-emits, ssr/head-hydration,
@@ -219,6 +229,18 @@
 
 (defn render-to-string
   "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML emitter.
+
+  RETURN SHAPE — STRING. Always. render-to-string emits a single HTML
+  string; it does NOT return a map of {:html ... :hash ... :status ...}.
+  The structural hash is a separate fn (render-tree-hash) that the same
+  render path embeds on the wire as data-rf-render-hash when :emit-hash?
+  is set. The HTTP response triple (:status / :headers / :cookies /
+  :redirect) lives in the per-request response accumulator at
+  [:rf/response] (per §HTTP response contract) — get-response reads the
+  resolved shape after drain. Hosts that want the bundled
+  {:html :payload :response} shape from §Request-handler return shape
+  build it from these three primitives — render-to-string is the
+  string-yielding piece.
 
   Implements:
     - HTML5 void elements (no closing tag, no self-close slash).
@@ -515,14 +537,337 @@ response with no body."
                         :frame          frame
                         :recovery       :warned-and-replaced}))))))
 
+(declare apply-pending-error-projection!)
+
 (defn get-response
   "Read the resolved response accumulator for a frame. Public surface
   for host adapters that consume the accumulator after drain to build
   the wire response. The internal :rf.server/_status-writes /
-  :rf.server/_redirect-writes bookkeeping keys are stripped."
+  :rf.server/_redirect-writes bookkeeping keys are stripped.
+
+  Flushes any pending error projections before reading so the
+  response's :status reflects the active projector's output. Per
+  Spec 011 §Server error projection — \"runtime sets :rf.server/set-
+  status to the public-error's :status\"."
   [frame-id]
+  (apply-pending-error-projection! frame-id)
   (-> (response-of frame-id)
       (dissoc status-writes-key redirect-writes-key)))
+
+;; ---- error projector + default + SSR error path --------------------------
+;;
+;; Per Spec 011 §Server error projection. The trace surface carries
+;; INTERNAL error detail (stack traces, exception messages, internal
+;; codes) for monitoring; the HTTP response carries a PUBLIC projection
+;; — a sanitised, client-safe shape that crawlers / unauthenticated
+;; users may see. The two surfaces have different audiences and
+;; different security profiles. The projector is the boundary.
+;;
+;; A projector is a fn `(trace-event) → public-error-map`. The public
+;; shape is locked to four keys:
+;;
+;;   {:status     500             ;; HTTP status integer
+;;    :code       :internal-error ;; stable category keyword
+;;    :message    "..."           ;; one-sentence human string
+;;    :retryable? false}          ;; boolean
+;;
+;; In dev mode (:dev-error-detail? true via the frame's :ssr config),
+;; the public shape carries an additional :details key with the raw
+;; trace event. In prod (default), :details is absent.
+
+(def public-error-keys
+  "The four locked keys on the :rf/public-error shape per Spec 011
+  §Server error projection. Conformance ensures projector output
+  carries exactly these (plus optional :details in dev mode)."
+  #{:status :code :message :retryable?})
+
+(defn- public-error-shape?
+  "True if x is a conformant :rf/public-error map."
+  [x]
+  (and (map? x)
+       (integer?  (:status     x))
+       (keyword?  (:code       x))
+       (string?   (:message    x))
+       (boolean?  (:retryable? x))))
+
+(def fallback-public-error
+  "The locked generic-500 shape per Spec 011 §Default projector. The
+  runtime falls back to this whenever the active projector throws or
+  returns a non-conforming shape."
+  {:status     500
+   :code       :internal-error
+   :message    "Something went wrong"
+   :retryable? false})
+
+(defn default-error-projector-fn
+  "The runtime's default projector. Implements Spec 011 §Default
+  projector verbatim:
+
+    :rf.error/no-such-handler            → 404 :not-found
+    :rf.error/no-such-route              → 404 :not-found
+    :rf.error/schema-validation-failure  → 400 :bad-request
+    :rf.error/handler-exception          → 500 :internal-error
+    :rf.error/sub-exception              → 500 :internal-error
+    :rf.error/fx-handler-exception       → 500 :internal-error
+    :rf.error/drain-depth-exceeded       → 500 :internal-error
+    anything else                        → 500 :internal-error
+
+  Pure: takes a trace event, returns a public-error map. No I/O, no
+  config. Custom projectors may inject auth-specific 401/403 codes
+  and override the message strings; the runtime's default is the
+  prod-safe baseline."
+  [trace-event]
+  (case (:operation trace-event)
+    (:rf.error/no-such-handler
+      :rf.error/no-such-route)
+    {:status     404
+     :code       :not-found
+     :message    "Page not found"
+     :retryable? false}
+
+    :rf.error/schema-validation-failure
+    {:status     400
+     :code       :bad-request
+     :message    "Invalid input"
+     :retryable? false}
+
+    (:rf.error/handler-exception
+      :rf.error/sub-exception
+      :rf.error/fx-handler-exception
+      :rf.error/drain-depth-exceeded)
+    {:status     500
+     :code       :internal-error
+     :message    "Something went wrong"
+     :retryable? false}
+
+    ;; default — generic 500
+    {:status     500
+     :code       :internal-error
+     :message    "Something went wrong"
+     :retryable? false}))
+
+(defn reg-error-projector
+  "Register a projector under :error-projector kind. The fn maps an
+  internal trace event to the public-error shape:
+
+    (rf/reg-error-projector :myapp/public-error
+      {:doc \"Project internal error trace events to public response shapes.\"}
+      (fn [trace-event]
+        (case (:operation trace-event)
+          :rf.error/no-such-handler           {:status 404 :code :not-found
+                                               :message \"Not found\" :retryable? false}
+          :rf.error/schema-validation-failure {:status 400 :code :bad-request
+                                               :message \"Invalid input\" :retryable? false}
+          ;; ...
+          {:status 500 :code :internal-error
+           :message \"Something went wrong\" :retryable? false})))
+
+  Frames opt into a projector by name in their :ssr config:
+
+    (rf/make-frame {:platform :server
+                    :ssr {:public-error-id   :myapp/public-error
+                          :dev-error-detail? false}})
+
+  When a frame's :ssr config is absent, the runtime falls back to the
+  built-in :rf.ssr/default-error-projector. Per Spec 011 §Server error
+  projection."
+  ([id projector-fn]
+   (reg-error-projector id {} projector-fn))
+  ([id metadata projector-fn]
+   (registrar/register! :error-projector id
+                        (assoc metadata :handler-fn projector-fn))
+   id))
+
+;; Built-in default projector — always available; user code reaches
+;; it via the :rf.ssr/default-error-projector id.
+(reg-error-projector :rf.ssr/default-error-projector
+                     {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
+                     default-error-projector-fn)
+
+(defn- frame-projector-id
+  "Read the :ssr config's :public-error-id for a frame, falling back
+  to :rf.ssr/default-error-projector when no config / no id."
+  [frame-id]
+  (or (get-in (frame/frame-meta frame-id) [:config :ssr :public-error-id])
+      :rf.ssr/default-error-projector))
+
+(defn- frame-dev-error-detail?
+  "Read the :ssr config's :dev-error-detail? for a frame. Defaults to
+  false (prod-safe). When true the projection result carries an extra
+  :details key with the raw trace event."
+  [frame-id]
+  (boolean
+    (get-in (frame/frame-meta frame-id) [:config :ssr :dev-error-detail?])))
+
+(defn project-error
+  "Resolve the active projector for the given frame and apply it to
+  trace-event. Returns a :rf/public-error map. If the projector throws
+  or returns a non-conforming shape, emits :rf.error/sanitised-on-projection
+  and returns the locked generic-500 fallback. Per Spec 011
+  §Server error projection — \"the fallback ensures the boundary
+  cannot be bypassed by a bug in the projector.\""
+  [frame-id trace-event]
+  (let [projector-id  (frame-projector-id frame-id)
+        projector-fn  (registrar/handler :error-projector projector-id)
+        dev-detail?   (frame-dev-error-detail? frame-id)
+        ;; Two failure modes for the projector:
+        ;;   :threw      — the catch path returns this in `result`
+        ;;   conforming  — usable
+        ;;   anything else (nil from no-projector, wrong-shape map, etc.)
+        ;; Both failure modes fall back to the locked-500 shape; the
+        ;; sanitisation trace fires AT MOST ONCE per call.
+        result
+        (try
+          (if projector-fn
+            (projector-fn trace-event)
+            ::no-projector)
+          (catch #?(:clj Throwable :cljs :default) e
+            (trace/emit-error! :rf.error/sanitised-on-projection
+                               {:projector-id      projector-id
+                                :frame             frame-id
+                                :exception         e
+                                :exception-message #?(:clj  (.getMessage e)
+                                                      :cljs (.-message e))
+                                :reason            "Error projector threw — using fallback."
+                                :recovery          :warned-and-replaced})
+            ::threw))
+        public
+        (cond
+          (public-error-shape? result)
+          result
+
+          ;; Already-warned cases (the catch handled the trace) and the
+          ;; no-projector-registered case (silent — the user named an id
+          ;; that doesn't exist; the fallback is the safe behaviour).
+          (or (= ::threw result) (= ::no-projector result))
+          fallback-public-error
+
+          :else
+          (do
+            (trace/emit-error! :rf.error/sanitised-on-projection
+                               {:projector-id      projector-id
+                                :frame             frame-id
+                                :returned          result
+                                :reason            "Error projector returned a non-conforming shape — using fallback."
+                                :recovery          :warned-and-replaced})
+            fallback-public-error))]
+    (cond-> public
+      dev-detail? (assoc :details trace-event))))
+
+(defn- server-frame?
+  "True when the frame's :platform is :server. The error-projection
+  hook only fires for server frames."
+  [frame-id]
+  (= :server (get-in (frame/frame-meta frame-id) [:config :platform])))
+
+(defn- candidate-frame-for-error
+  "Select the frame to project against for a trace-event. Prefer the
+  frame named in :tags :frame; otherwise pick a single registered
+  server frame if exactly one exists. Returns nil when no server
+  frame applies (so client-platform errors don't write to a stray
+  response accumulator)."
+  [trace-event]
+  (let [tag-frame (get-in trace-event [:tags :frame])]
+    (cond
+      (and tag-frame (server-frame? tag-frame))
+      tag-frame
+
+      ;; Routing's :rf.error/no-such-handler may not have carried :frame
+      ;; in older code paths. Fall back to the single active server
+      ;; frame if there is exactly one — the canonical SSR-request
+      ;; shape.
+      (nil? tag-frame)
+      (let [server-fids (filter server-frame? (frame/frame-ids))]
+        (when (= 1 (count server-fids))
+          (first server-fids)))
+
+      :else nil)))
+
+;; Per-frame buffer of captured error trace events. The trace listener
+;; appends here synchronously when the error fires; apply-pending-
+;; error-projection! drains the buffer and stamps the projected status
+;; onto :rf/response. We buffer rather than mutating :rf/response inline
+;; because the firing handler's `{:db ...}` return CLOBBERS app-db
+;; (replace-container!) AFTER the trace fired — so an inline write
+;; would be silently overwritten. Buffering + applying at the drain's
+;; settle-point (or via get-response on demand) sidesteps that race.
+(defonce ^:private pending-error-traces (atom {}))
+
+(defn- buffer-error-trace!
+  [frame-id trace-event]
+  (swap! pending-error-traces update frame-id (fnil conj []) trace-event))
+
+(defn- consume-pending-traces!
+  "Atomically pull and clear the pending error traces for frame-id."
+  [frame-id]
+  (let [snap @pending-error-traces
+        traces (get snap frame-id [])]
+    (when (seq traces)
+      (swap! pending-error-traces dissoc frame-id))
+    traces))
+
+(defn apply-pending-error-projection!
+  "Drain frame-id's error-trace buffer, project each trace via the
+  active projector, and stamp the LAST projection's :status onto the
+  response accumulator (last-write-wins, mirroring the multi-status
+  policy). Returns the last public-error projected, or nil when the
+  buffer was empty / frame is not :server.
+
+  Hosts that drive their own SSR loop call this after drain settles
+  so the response carries the projector's status. The runtime also
+  calls it automatically from get-response so a host reading the
+  resolved response always sees up-to-date projection."
+  [frame-id]
+  (when (and frame-id (server-frame? frame-id))
+    (let [traces (consume-pending-traces! frame-id)]
+      (when (seq traces)
+        (let [;; Don't overwrite a redirect's :status — Spec 011
+              ;; §Redirect precedence locks the redirect's status
+              ;; through to the response.
+              existing  (response-of frame-id)
+              redirect? (:redirect existing)
+              last-trace (last traces)
+              public     (project-error frame-id last-trace)]
+          (when-not redirect?
+            (swap-response! frame-id
+                            (fn [r] (assoc r :status (:status public)))))
+          public)))))
+
+(defn apply-error-projection!
+  "Project trace-event via the active projector for frame-id and stamp
+  the public-error's :status onto the response accumulator. Returns
+  the public-error map on success, nil on no-op (frame missing / not
+  server / redirect set).
+
+  Public so host adapters that catch errors outside the trace stream
+  can drive projection explicitly. Most callers want
+  apply-pending-error-projection! instead — that one drains the
+  trace-listener-buffered events and applies them in one shot."
+  [frame-id trace-event]
+  (when (and frame-id (server-frame? frame-id))
+    (let [public    (project-error frame-id trace-event)
+          existing  (response-of frame-id)
+          redirect? (:redirect existing)]
+      (when-not redirect?
+        (swap-response! frame-id
+                        (fn [r] (assoc r :status (:status public)))))
+      public)))
+
+(defn- error-projection-listener
+  "Trace-event listener — captures error trace events bound to a server
+  frame in the per-frame pending-error-traces buffer. Buffering avoids
+  the race where an in-flight handler's `{:db ...}` would clobber an
+  inline :rf/response write. Internal listener; users who want to
+  observe error projection should register their own trace listener."
+  [event]
+  (when (= :error (:op-type event))
+    (let [op (:operation event)]
+      ;; Skip our own sanitisation traces to avoid recursion.
+      (when-not (= :rf.error/sanitised-on-projection op)
+        (when-let [fid (candidate-frame-for-error event)]
+          (buffer-error-trace! fid event))))))
+
+(trace/register-trace-cb! ::error-projection error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

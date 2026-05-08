@@ -844,15 +844,18 @@
             {})))))
 
 (events/reg-event-fx :rf.route/handle-url-change
-  (fn [{:keys [db]} [_ url]]
+  (fn [{:keys [db frame]} [_ url]]
     (let [[path-q fragment] (split-fragment url)
           m                 (match-url path-q)]
       (when (nil? m)
         ;; Unmatched URL — fixture corpus calls this :rf.error/no-such-handler
         ;; in the routing context. The default error projector maps it to a
-        ;; public-facing 404. Per Spec 011 §Default projector.
+        ;; public-facing 404. Per Spec 011 §Default projector. We carry
+        ;; :frame so the SSR error-projection listener can attribute the
+        ;; trace to the right server frame.
         (trace/emit-error! :rf.error/no-such-handler
                            {:url url
+                            :frame frame
                             :recovery :replaced-with-default}))
       (let [route-id     (or (:route-id m) :rf.route/not-found)
             params       (or (:params m) {:url url})

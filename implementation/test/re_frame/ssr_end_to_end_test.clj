@@ -408,6 +408,201 @@
           ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))
 
 ;; ===========================================================================
+;; ssr-default-error-projector — runtime maps known errors to public shapes
+;; ===========================================================================
+;;
+;; Per Spec 011 §Server error projection / §Default projector. The runtime
+;; ships :rf.ssr/default-error-projector. When an :error trace fires inside
+;; a server frame, the runtime's listener applies the active projector and
+;; stamps the public-error's :status onto :rf/response. Asserts the
+;; PROJECTOR's output reaches the response accumulator — not a user-stub-
+;; rolled :rf.server/set-status.
+
+(deftest ssr-default-error-projector-no-such-handler
+  (testing "routing's :rf.error/no-such-handler → default projector → 404"
+    (rf/reg-route :route/home {:path "/"})
+    (let [project-error  (requiring-resolve 're-frame.ssr/project-error)
+          f              (rf/make-frame
+                           {:platform :server
+                            :ssr {:public-error-id   :rf.ssr/default-error-projector
+                                  :dev-error-detail? false}})
+          traces         (atom [])]
+      (rf/register-trace-cb! ::nsh (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
+      (rf/remove-trace-cb! ::nsh)
+
+      ;; Runtime's error-projection listener stamps :status 404 on :rf/response.
+      (is (= 404 (:status (get-response f)))
+          "default projector's :status reaches :rf/response — not a user-stub fx")
+      (is (nil? (:redirect (get-response f)))
+          "no redirect — the 404 is a status-only response, body still renders")
+
+      ;; The trace stream still carries the internal :rf.error/no-such-handler.
+      (let [err (some #(when (= :rf.error/no-such-handler (:operation %)) %) @traces)]
+        (is (some? err)
+            "internal trace records :rf.error/no-such-handler")
+        ;; Projecting the trace yields the locked public-error shape.
+        (let [public (project-error f err)]
+          (is (= {:status     404
+                  :code       :not-found
+                  :message    "Page not found"
+                  :retryable? false}
+                 public)
+              "default projector returns the canonical 404 mapping per Spec 011"))))))
+
+(deftest ssr-default-error-projector-handler-exception
+  (testing "a handler that throws → default projector → 500"
+    (rf/reg-event-fx :load/article
+      (fn [_ _]
+        (throw (ex-info "Database connection failed: SECRET_TOKEN=xyz" {}))))
+    (rf/reg-event-fx :rf/server-init
+      (fn [_ _]
+        {:fx [[:dispatch [:load/article]]]}))
+
+    (let [project-error  (requiring-resolve 're-frame.ssr/project-error)
+          traces         (atom [])
+          _              (rf/register-trace-cb! ::he (fn [ev] (swap! traces conj ev)))
+          f              (rf/make-frame
+                           {:platform :server
+                            :on-create [:rf/server-init]
+                            :ssr {:public-error-id   :rf.ssr/default-error-projector
+                                  :dev-error-detail? false}})
+          _              (rf/remove-trace-cb! ::he)
+          err            (some #(when (= :rf.error/handler-exception (:operation %)) %)
+                               @traces)]
+      (is (some? err)
+          "handler-exception fired during the drain")
+      (is (= 500 (:status (get-response f)))
+          "default projector's :status 500 reaches :rf/response")
+      (let [public (project-error f err)]
+        (is (= {:status     500
+                :code       :internal-error
+                :message    "Something went wrong"
+                :retryable? false}
+               public)
+            "default projector's prod shape carries exactly the four locked keys")
+        (is (not (contains? public :details))
+            "prod shape (:dev-error-detail? false) — :details is absent so no internal detail leaks")))))
+
+(deftest ssr-error-projector-dev-mode-includes-details
+  (testing ":dev-error-detail? true puts the raw trace under :details"
+    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+          f             (rf/make-frame
+                          {:platform :server
+                           :ssr {:public-error-id   :rf.ssr/default-error-projector
+                                 :dev-error-detail? true}})
+          trace-event   {:operation :rf.error/handler-exception
+                         :op-type   :error
+                         :tags      {:exception-message "boom"
+                                     :failing-id        :foo}}
+          public        (project-error f trace-event)]
+      (is (= 500 (:status public)))
+      (is (= :internal-error (:code public)))
+      (is (contains? public :details)
+          ":details present in dev mode")
+      (is (= trace-event (:details public))
+          ":details is the trace event verbatim — full internal detail for the dev console"))))
+
+;; ===========================================================================
+;; ssr-custom-error-projector — reg-error-projector overrides the default
+;; ===========================================================================
+
+(deftest ssr-custom-error-projector-overrides-default
+  (testing "reg-error-projector + :ssr {:public-error-id ...} swaps the projector"
+    (rf/reg-error-projector :myapp/public-error
+      {:doc "Custom projector — promotes auth errors to 401."}
+      (fn [trace-event]
+        (case (:operation trace-event)
+          :auth/unauthorised             {:status 401 :code :unauthorised
+                                          :message "Sign in to continue"
+                                          :retryable? false}
+          :rf.error/no-such-handler      {:status 404 :code :not-found
+                                          :message "Custom not-found"
+                                          :retryable? false}
+          {:status 500 :code :internal-error
+           :message "Custom 500"
+           :retryable? false})))
+
+    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+          f             (rf/make-frame
+                          {:platform :server
+                           :ssr {:public-error-id   :myapp/public-error
+                                 :dev-error-detail? false}})]
+      ;; Auth-specific code that the DEFAULT projector doesn't know about.
+      (let [public (project-error f {:operation :auth/unauthorised :tags {}})]
+        (is (= 401 (:status public)))
+        (is (= :unauthorised (:code public)))
+        (is (= "Sign in to continue" (:message public))
+            "custom projector's message wins over the default's generic 500"))
+
+      ;; Known-error category — custom projector wins, not the default.
+      (let [public (project-error f {:operation :rf.error/no-such-handler :tags {}})]
+        (is (= "Custom not-found" (:message public))
+            "custom projector's mapping shadows :rf.ssr/default-error-projector's"))
+
+      ;; Unknown category falls into the custom projector's catch-all.
+      (let [public (project-error f {:operation :totally-unknown :tags {}})]
+        (is (= "Custom 500" (:message public)))))))
+
+(deftest ssr-error-projector-throws-falls-back-to-locked-500
+  (testing "projector throws → :rf.error/sanitised-on-projection trace + locked fallback"
+    (rf/reg-error-projector :myapp/buggy-projector
+      (fn [_trace-event]
+        (throw (ex-info "projector bug" {}))))
+
+    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+          f             (rf/make-frame
+                          {:platform :server
+                           :ssr {:public-error-id   :myapp/buggy-projector
+                                 :dev-error-detail? false}})
+          traces        (atom [])
+          _             (rf/register-trace-cb! ::sop (fn [ev] (swap! traces conj ev)))
+          public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
+      (rf/remove-trace-cb! ::sop)
+      (is (= {:status     500
+              :code       :internal-error
+              :message    "Something went wrong"
+              :retryable? false}
+             public)
+          "fallback to the locked generic-500 shape — the boundary holds even with a buggy projector")
+      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)
+          ":rf.error/sanitised-on-projection trace fired so the buggy projector is observable"))))
+
+(deftest ssr-error-projector-non-conforming-shape-falls-back
+  (testing "projector returns nil / wrong shape → :rf.error/sanitised-on-projection + fallback"
+    (rf/reg-error-projector :myapp/bad-shape
+      (fn [_trace-event] {:wrong :shape}))
+
+    (let [project-error (requiring-resolve 're-frame.ssr/project-error)
+          f             (rf/make-frame
+                          {:platform :server
+                           :ssr {:public-error-id   :myapp/bad-shape}})
+          traces        (atom [])
+          _             (rf/register-trace-cb! ::bs (fn [ev] (swap! traces conj ev)))
+          public        (project-error f {:operation :rf.error/handler-exception :tags {}})]
+      (rf/remove-trace-cb! ::bs)
+      (is (= 500 (:status public))
+          "non-conforming projector output → fallback locked-500")
+      (is (= :internal-error (:code public)))
+      (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)))))
+
+(deftest ssr-error-projection-skips-client-frames
+  (testing "client-platform frames don't have their :rf/response stamped on errors"
+    ;; A :rf.error/no-such-handler trace inside a CLIENT frame should not
+    ;; touch :rf/response — the client doesn't have an HTTP response to
+    ;; project. (The trace still fires; the projector just isn't called
+    ;; for a client frame's response slot.)
+    (rf/reg-route :route/home {:path "/"})
+    (let [client-f (rf/make-frame {:platform :client})]
+      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
+                        {:frame client-f})
+      (let [resp (get-response client-f)]
+        ;; Default response status (200) is unchanged — error-projection
+        ;; listener no-op'd because the frame is not :server.
+        (is (= 200 (:status resp))
+            "client frame's :rf/response :status stays at 200; projector skipped")))))
+
+;; ===========================================================================
 ;; ssr-multi-redirect — multi-write emits :rf.warning/multiple-redirects
 ;; ===========================================================================
 

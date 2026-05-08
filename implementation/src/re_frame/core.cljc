@@ -89,6 +89,40 @@
 (def reg-app-schema  schemas/reg-app-schema)
 (def reg-machine     machines/reg-machine)
 
+;; reg-error-projector lives in re-frame.ssr so the registry kind
+;; ships with its default :rf.ssr/default-error-projector. Forward
+;; through requiring-resolve to avoid a top-level :require cycle
+;; (ssr.cljc requires events/fx/registrar which core also requires).
+(defn reg-error-projector
+  "Register an error projector — a fn `(trace-event) → public-error-map`.
+  Per Spec 011 §Server error projection. Frames opt into a custom
+  projector via the :ssr config's :public-error-id key:
+
+    (rf/reg-error-projector :myapp/public-error
+      (fn [trace-event] ...public-error-shape...))
+
+    (rf/make-frame {:platform :server
+                    :ssr {:public-error-id   :myapp/public-error
+                          :dev-error-detail? false}})
+
+  See re-frame.ssr/reg-error-projector for the full doc."
+  ([id projector-fn]
+   (reg-error-projector id {} projector-fn))
+  ([id metadata projector-fn]
+   #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
+   (let [f #?(:clj  (requiring-resolve 're-frame.ssr/reg-error-projector)
+              :cljs (resolve 're-frame.ssr/reg-error-projector))]
+     (f id metadata projector-fn))))
+
+(defn project-error
+  "Apply the active error projector for frame-id to the trace event.
+  Returns a :rf/public-error map. Per Spec 011 §Server error projection."
+  [frame-id trace-event]
+  #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
+  (let [f #?(:clj  (requiring-resolve 're-frame.ssr/project-error)
+             :cljs (resolve 're-frame.ssr/project-error))]
+    (f frame-id trace-event)))
+
 ;; ---- clearing -------------------------------------------------------------
 
 (def clear-event events/clear-event)
