@@ -12,6 +12,8 @@ A **flow** is a registered rule that says: "when these `app-db` paths change, ru
 
 Flows differ from subscriptions in *where the value lives*. A sub's value lives in the per-frame sub-cache and is consumed by views. A flow's value lives in `app-db` at a known path, where it survives SSR / hydration / time-travel revert, is visible in the app-db inspector, can be read by downstream event handlers and other flows, and is covered by registered schemas. When the derived value is part of the application's *state* (as opposed to part of a view's render input), use a flow.
 
+**Flows are frame-scoped.** A flow belongs to one frame: its registration, evaluation, output `app-db` path, and undo / time-travel boundaries are all frame-local. The same flow id can register against two different frames with two different `:output` functions and two different `:path` slots; clearing the flow on one frame leaves the other untouched. See [§Frame-scoping](#frame-scoping) for the rationale and API.
+
 ## When (and when not) to use a flow
 
 Flows are the right tool when **all** of the following apply:
@@ -68,6 +70,36 @@ Optional keys (per the [001-Registration §Registration grammar](001-Registratio
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. (A map-keyed alternative was considered — see [§Open questions](#open-questions).)
 
+`reg-flow` accepts an optional second argument carrying a `:frame` opt — the frame the flow registers against. Default is `(current-frame)` (per [002 §How `:frame` gets attached](002-Frames.md#how-frame-gets-attached), usually `:rf/default` unless the call sits inside a `with-frame` form or under a frame-providing context):
+
+```clojure
+(rf/reg-flow flow)                    ;; defaults frame to (current-frame)
+(rf/reg-flow flow {:frame :scratch})  ;; explicit frame
+```
+
+`clear-flow` mirrors the shape:
+
+```clojure
+(rf/clear-flow :rectangle/area)
+(rf/clear-flow :rectangle/area {:frame :scratch})
+```
+
+## Frame-scoping
+
+Flows are **frame-scoped**: registration, evaluation, and `clear-flow`'s `dissoc-in` all belong to one frame. The runtime registry shape is:
+
+```
+{frame-id {flow-id flow-map}}
+```
+
+Three consequences follow:
+
+1. **Per-frame undo / time-travel boundaries.** Time-travel is a frame-local primitive (per [002 §Frames](002-Frames.md)). A flow's `:path` write is part of the owning frame's `app-db` history; reverting frame `:left` does not disturb flow outputs in frame `:right`.
+2. **Same flow-id, multiple frames, independent definitions.** Registering `:compute` against `:left` with `(fn [x] (* 2 x))` and against `:right` with `(fn [x] (* 100 x))` produces two independent flows. Each frame's `run-flows!` walks only its own slot of the registry.
+3. **`clear-flow` is frame-local.** `(clear-flow :compute {:frame :left})` removes the flow's definition from frame `:left` and `dissoc-in`s its `:path` from `:left`'s `app-db` only. Frame `:right`'s `:compute` and its output keep working. The shared `:flow` registrar slot is only unregistered when the *last* frame holding the id releases it (so hot-reload tracking survives multi-frame setups).
+
+Frame defaulting matches the rest of the API: a bare `(reg-flow flow)` resolves the frame via `(current-frame)`, picking up `with-frame` bindings or falling through to `:rf/default`. Tests and per-tenant runtimes that need an explicit frame pass `{:frame ...}` as the second arg.
+
 ## Drain integration
 
 Flow evaluation happens **after `:db` commits and before `:fx` walks** on every event drain. Per [002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode), the per-event drain inserts one step:
@@ -77,26 +109,30 @@ process-event! (revised, with flows):
   1. Resolve handler.
   2. Run interceptor chain.
   3. Apply :db. Sub-cache invalidates.
-  4. Walk registered flows in topologically-sorted order.    ← NEW
-       For each flow:
+  4. run-flows! frame-id                                     ← NEW
+       Walk THIS FRAME'S registered flows in topologically-
+       sorted order — i.e. (get @flows frame-id) only;
+       sibling frames' flows are not visited.
+       For each flow in this frame's slot:
          new-inputs ← read input paths from new app-db
-         if new-inputs ≠ last-inputs[flow-id]:
+         if new-inputs ≠ last-inputs[[frame-id flow-id]]:
            new-output ← (apply :output new-inputs)
            app-db ← (assoc-in app-db (:path flow) new-output)
-           last-inputs[flow-id] ← new-inputs
+           last-inputs[[frame-id flow-id]] ← new-inputs
        Sub-cache invalidates again if any flow wrote.
   5. Walk :fx in source order.
 ```
 
-Three properties this gives:
+Four properties this gives:
 
 1. **`:fx` entries see flow outputs.** An `:fx` entry that reads `app-db` after the handler returns sees flow-computed values. This is what makes `[:dispatch [:react-to-area-change]]` work cleanly.
 2. **Single pass per event.** Each flow runs at most once per drain. The topological order ensures multi-layer flows settle in one walk.
 3. **Run-to-completion is preserved.** Views never observe an intermediate state where some flows have updated and others haven't.
+4. **Frame isolation.** An event dispatched on frame `:left` only walks flows registered against `:left`. Flows on frame `:right` are dormant from `:left`'s perspective — they walk only when `:right`'s drain calls its own `run-flows!`. This is what makes multi-tenant frames safe to colocate without cross-talk in derived state.
 
 ## Topological sort and cycle detection
 
-Flows form a static dependency graph derivable from their `:path` and `:inputs` declarations.
+Flows form a static dependency graph derivable from their `:path` and `:inputs` declarations. The graph is **per-frame** — flows in different frames cannot depend on each other (their inputs read different `app-db`s). Each frame's topsort is computed independently over `(get @flows frame-id)`.
 
 **Dependency rule.** Flow B depends on flow A iff A's `:path` and any of B's `:inputs` share a path prefix in either direction:
 
@@ -123,9 +159,11 @@ A flow recomputes only when its inputs change by **`=`-equality** since its last
 
 ```
 new-inputs ← (mapv #(get-in app-db %) (:inputs flow))
-if new-inputs ≠ last-inputs[flow-id]:
+if new-inputs ≠ last-inputs[[frame-id flow-id]]:
   recompute and write
 ```
+
+The `last-inputs` table is keyed by `[frame-id flow-id]` so the same flow id registered against two frames maintains two independent dirty-check windows.
 
 Three implications:
 
@@ -139,8 +177,8 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 | Fx-id | Args | Effect |
 |---|---|---|
-| `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow. Topsort cache invalidated. |
-| `:rf.fx/clear-flow` | A flow id | Clear the flow. `dissoc-in` on its `:path`. Topsort cache invalidated. |
+| `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow against the dispatching frame. Topsort cache invalidated. |
+| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:path` in that frame's `app-db`. Topsort cache invalidated. |
 
 ```clojure
 (rf/reg-event-fx :wizard/enter-step-2
@@ -155,13 +193,15 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
     {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
 ```
 
-**Sequencing.** `:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — *after* the flow after-interceptor has already evaluated for the current event. A flow registered mid-event therefore first runs on the *next* event drain. Its initial output appears one event after registration. Apps that need the value immediately can dispatch a synthetic re-walk event after registration.
+**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` opt — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
 
-**`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:path` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing.
+**Sequencing.** `:rf.fx/reg-flow` and `:rf.fx/clear-flow` run during the standard `:fx` walk (per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — *after* the flow after-interceptor has already evaluated for the current event. A flow registered mid-event therefore first runs on the *next* event drain on the same frame. Its initial output appears one event after registration. Apps that need the value immediately can dispatch a synthetic re-walk event after registration.
+
+**`clear-flow` cleanup.** Default behaviour is `dissoc-in` on the flow's `:path` in the owning frame's `app-db` — the slot is vacated when the flow goes away. Stale derived values left behind would confuse downstream consumers. Apps that want to preserve the value should copy it elsewhere before clearing. Sibling frames are unaffected.
 
 ## Re-registration
 
-`reg-flow` with an already-registered `:id` performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old; `last-inputs` is reset (the new flow re-evaluates on the next event regardless of input change); the topsort cache invalidates. In-flight events finish against the resolved handler at the time they entered the drain.
+`reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the topsort cache invalidates. In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
 
 ## What flows are NOT
 
@@ -171,7 +211,7 @@ Three near-neighbours flows are *not*:
 |---|---|
 | **Subscription** ([006](006-ReactiveSubstrate.md)) | Subs live in the sub-cache; consumed by views. Flows live in `app-db`; consumed by everything (handlers, other flows, schemas, SSR payload). When the value is part of the application's *state*, use a flow; when it's part of view rendering only, use a sub. |
 | **State machine** ([005](005-StateMachines.md)) | Machines have transitions, hierarchical states, `:always`/`:after`/`:invoke`, snapshots at `[:rf/machines <id>]`. Flows have one pure function and one output path. Use a machine when there are discrete states; use a flow when the value is a pure function of inputs. |
-| **`on-changes` interceptor** (v1) | `on-changes` is wired into specific events' interceptor chains. Flows are registered globally and toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. The compute-on-change semantics are identical; the registration shape and lifecycle are different. |
+| **`on-changes` interceptor** (v1) | `on-changes` is wired into specific events' interceptor chains. Flows are registered against a frame and toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`. The compute-on-change semantics are identical; the registration shape and lifecycle are different. |
 
 Flows are also explicitly *not*:
 
@@ -203,6 +243,7 @@ The migration agent rewrites mechanically; flow definitions that used `:live?` l
 - `flow-topsort.edn` — multi-layer flows; verify A runs before B when B depends on A's output.
 - `flow-cycle.edn` — registering a cycle throws `:rf.error/flow-cycle`.
 - `flow-no-recompute-equal.edn` — `app-db` write that produces `=`-equal value does not re-fire dependent flows.
+- `flow-frame-scoped.edn` — same flow id registered against two frames with different `:output` fns produces two independent results on the same input; `clear-flow` on one frame leaves the other intact.
 
 ## Open questions
 
