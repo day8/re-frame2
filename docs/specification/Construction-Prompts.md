@@ -386,13 +386,13 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
      :guards
      {:under-retry-limit
       ;; Has this login had fewer than 3 prior attempts?
-      (fn [{:keys [data]} _event]
+      (fn [data _event]
         (< (:attempts data) 3))}
 
      :actions
      {:begin-submit
       ;; Clear the prior error and emit the HTTP request for credential check.
-      (fn [_snap [_ creds]]
+      (fn [_data [_ creds]]
         {:data {:error nil}
          :fx   [[:http {:method     :post
                         :url        "/api/login"
@@ -402,7 +402,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
       :record-failure
       ;; Bump the attempts counter and surface a credentials error.
-      (fn [{:keys [data]} _event]
+      (fn [data _event]
         {:data {:attempts (inc (:attempts data))
                 :error    :credentials}})
 
