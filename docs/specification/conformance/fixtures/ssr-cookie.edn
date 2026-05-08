@@ -13,9 +13,10 @@
                                  :platforms #{:server}}
           :auth/establish       {:doc       "Set the session cookie after auth succeeds."
                                  :platforms #{:server}}}
-  :fx    {:rf.server/set-cookie {:doc       "Add a structured cookie to the response accumulator."
-                                 :platforms #{:server}
-                                 :spec      :rf.fx.server/set-cookie-args}}}
+  ;; :rf.server/set-cookie is registered by the runtime (re-frame.ssr,
+  ;; per Spec 011 §HTTP response contract / rf2-8pif). Not declared
+  ;; here so the harness doesn't shadow it with a no-op stub.
+  }
 
  :fixture/handlers
  {:event {:rf/server-init [[:fx [[:dispatch [:auth/establish]]]]]
@@ -32,7 +33,18 @@
  :fixture/dispatches []
 
  :fixture/expect
- {:ssr/request-result
+ ;; Submap match — assert the framework-populated :rf/response slot
+ ;; carries the cookie. Other keys (status defaults, headers) tolerated.
+ {:final-app-db
+  {:rf/response {:cookies [{:name      "session"
+                            :value     "abc123"
+                            :max-age   3600
+                            :secure    true
+                            :http-only true
+                            :same-site :lax
+                            :path      "/"}]}}
+
+  :ssr/request-result
   {:response {:status  200
               :cookies [{:name      "session"
                          :value     "abc123"

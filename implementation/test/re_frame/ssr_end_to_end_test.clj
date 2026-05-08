@@ -22,11 +22,12 @@
        client render produces the same hash. Mutate, re-render, hash
        differs, :rf.ssr/hydration-mismatch trace fires.
 
-  The :rf.server/* fx (set-status / set-cookie / redirect) are spec'd
-  in 011 but not yet registered by the runtime (filed as rf2-8pif).
-  The set-status / multi-cookie / redirect tests below register
-  user-level reg-fx that mirror the spec's accumulator contract — they
-  can be removed once the runtime registers the canonical fx natively."
+  The :rf.server/* fx (set-status / set-header / append-header /
+  set-cookie / delete-cookie / redirect) are registered by the runtime
+  at re-frame.ssr namespace-load time (per Spec 011 §HTTP response
+  contract; resolved in rf2-8pif). The accumulator lives in app-db
+  under the [:rf/response] path; tests read the resolved shape via
+  re-frame.ssr/get-response."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -232,49 +233,17 @@
 ;;
 ;; Per Spec 011 §Multiple-status policy: two :rf.server/set-status fx in a
 ;; single drain → last write wins AND a :rf.warning/multiple-status-set trace
-;; fires. The runtime doesn't yet register :rf.server/set-status (rf2-8pif);
-;; we register a user-level reg-fx that mirrors the spec'd accumulator
-;; contract so the test pins the protocol shape.
+;; fires. Accumulator lives in app-db at [:rf/response]; resolved view via
+;; re-frame.ssr/get-response.
 
-(defn- install-server-fx!
-  "User-space stand-ins for the spec'd :rf.server/* fx (per rf2-8pif).
-  All writes target a per-frame :rf.server/response accumulator in app-db
-  — the host adapter consumes that key after the drain to build the wire
-  response. Replace these with native runtime registrations once rf2-8pif
-  lands."
-  []
-  (let [response-writes (atom {})]                                      ;; per-frame {:status [...] :cookies [...] :redirect [...]}
-
-    (rf/reg-fx :rf.server/set-status
-      {:platforms #{:server}}
-      (fn [{:keys [frame]} status]
-        (swap! response-writes update-in [frame :status] (fnil conj []) status)
-        (let [writes (get-in @response-writes [frame :status])]
-          (when (> (count writes) 1)
-            (rf/emit-trace! :warning :rf.warning/multiple-status-set
-                            {:writes        writes
-                             :final-status  (last writes)
-                             :frame         frame
-                             :recovery      :warned-and-replaced})))))
-
-    (rf/reg-fx :rf.server/set-cookie
-      {:platforms #{:server}}
-      (fn [{:keys [frame]} cookie-map]
-        (swap! response-writes update-in [frame :cookies] (fnil conj []) cookie-map)))
-
-    (rf/reg-fx :rf.server/redirect
-      {:platforms #{:server}}
-      (fn [{:keys [frame]} redirect-map]
-        (let [normalised (-> redirect-map
-                             (update :status #(or % 302)))]
-          (swap! response-writes assoc-in [frame :redirect] normalised))))
-
-    response-writes))
+(defn- get-response
+  "Read the resolved :rf/response accumulator for a frame."
+  [frame-id]
+  ((requiring-resolve 're-frame.ssr/get-response) frame-id))
 
 (deftest ssr-set-status-precedence
   (testing "two :rf.server/set-status fx → last write wins + :rf.warning/multiple-status-set"
-    (let [writes (install-server-fx!)
-          traces (atom [])]
+    (let [traces (atom [])]
       (rf/reg-event-fx :auth/forbid
         (fn [_ _]
           {:fx [[:rf.server/set-status 401]
@@ -285,11 +254,8 @@
         (rf/dispatch-sync [:auth/forbid] {:frame f})
         (rf/remove-trace-cb! ::status)
 
-        (let [recorded (get-in @writes [f :status])]
-          (is (= [401 403] recorded)
-              "both writes recorded in source order")
-          (is (= 403 (last recorded))
-              "last write wins — the response status is 403"))
+        (is (= 403 (:status (get-response f)))
+            "last write wins — the response status is 403")
 
         (is (some (fn [ev]
                     (and (= :rf.warning/multiple-status-set (:operation ev))
@@ -306,46 +272,96 @@
 
 (deftest ssr-multi-cookie
   (testing "multiple :rf.server/set-cookie fxs accumulate; runtime stores structured maps not strings"
-    (let [writes (install-server-fx!)]
-      (rf/reg-event-fx :auth/establish
-        (fn [_ _]
-          {:fx [[:rf.server/set-cookie {:name      "session"
-                                        :value     "abc123"
-                                        :path      "/"
-                                        :http-only true
-                                        :secure    true
-                                        :same-site :lax}]
-                [:rf.server/set-cookie {:name    "csrf"
-                                        :value   "tok-xyz"
-                                        :path    "/"
-                                        :secure  true}]
-                [:rf.server/set-cookie {:name    "tracker"
-                                        :value   "off"
-                                        :max-age 0}]]}))
+    (rf/reg-event-fx :auth/establish
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie {:name      "session"
+                                      :value     "abc123"
+                                      :path      "/"
+                                      :http-only true
+                                      :secure    true
+                                      :same-site :lax}]
+              [:rf.server/set-cookie {:name    "csrf"
+                                      :value   "tok-xyz"
+                                      :path    "/"
+                                      :secure  true}]
+              [:rf.server/set-cookie {:name    "tracker"
+                                      :value   "off"
+                                      :max-age 0}]]}))
 
-      (let [f (rf/make-frame {:platform :server})]
-        (rf/dispatch-sync [:auth/establish] {:frame f})
+    (let [f (rf/make-frame {:platform :server})]
+      (rf/dispatch-sync [:auth/establish] {:frame f})
 
-        (let [cookies (get-in @writes [f :cookies])]
-          (is (= 3 (count cookies))
-              "three cookies accumulated in :cookies")
-          ;; Lock: the runtime emits STRUCTURED MAPS — cookie-attribute
-          ;; serialisation (RFC 6265 wire form, attribute quoting) is the
-          ;; host adapter's job per Spec 011 §Cookie shape.
-          (is (every? map? cookies)
-              "every cookie is a structured map, not a serialised string")
-          (is (every? (fn [c] (every? string? [(:name c) (:value c)]))
-                      cookies)
-              "every cookie has :name and :value as strings")
-          (is (= "session" (-> cookies (nth 0) :name)))
-          (is (= "csrf"    (-> cookies (nth 1) :name)))
-          (is (= "tracker" (-> cookies (nth 2) :name)))
-          (is (= :lax (-> cookies (nth 0) :same-site))
-              ":same-site stays a keyword in the map; the adapter renders 'Lax'")
-          (is (true? (-> cookies (nth 0) :secure))
-              "boolean attrs stay booleans in the map")
-          (is (zero? (-> cookies (nth 2) :max-age))
-              "delete-marker semantics live in the map; not pre-serialised"))))))
+      (let [cookies (:cookies (get-response f))]
+        (is (= 3 (count cookies))
+            "three cookies accumulated in :cookies")
+        ;; Lock: the runtime emits STRUCTURED MAPS — cookie-attribute
+        ;; serialisation (RFC 6265 wire form, attribute quoting) is the
+        ;; host adapter's job per Spec 011 §Cookie shape.
+        (is (every? map? cookies)
+            "every cookie is a structured map, not a serialised string")
+        (is (every? (fn [c] (every? string? [(:name c) (:value c)]))
+                    cookies)
+            "every cookie has :name and :value as strings")
+        (is (= "session" (-> cookies (nth 0) :name)))
+        (is (= "csrf"    (-> cookies (nth 1) :name)))
+        (is (= "tracker" (-> cookies (nth 2) :name)))
+        (is (= :lax (-> cookies (nth 0) :same-site))
+            ":same-site stays a keyword in the map; the adapter renders 'Lax'")
+        (is (true? (-> cookies (nth 0) :secure))
+            "boolean attrs stay booleans in the map")
+        (is (zero? (-> cookies (nth 2) :max-age))
+            "delete-marker semantics live in the map; not pre-serialised")))))
+
+;; ===========================================================================
+;; ssr-delete-cookie — :rf.server/delete-cookie emits a Max-Age=0 marker
+;; ===========================================================================
+
+(deftest ssr-delete-cookie
+  (testing ":rf.server/delete-cookie writes a structured cookie with :max-age 0 and empty :value"
+    (rf/reg-event-fx :auth/logout
+      (fn [_ _]
+        {:fx [[:rf.server/delete-cookie {:name "session" :path "/"}]]}))
+
+    (let [f (rf/make-frame {:platform :server})]
+      (rf/dispatch-sync [:auth/logout] {:frame f})
+      (let [[c] (:cookies (get-response f))]
+        (is (= "session" (:name c)))
+        (is (= ""        (:value c)))
+        (is (zero?       (:max-age c)))
+        (is (= "/"       (:path c))
+            ":path passes through to the delete marker so the browser scope-matches")))))
+
+;; ===========================================================================
+;; ssr-set-and-append-header — :rf.server/set-header replaces; append accumulates
+;; ===========================================================================
+
+(deftest ssr-set-and-append-header
+  (testing ":rf.server/set-header replaces case-insensitively; :rf.server/append-header preserves duplicates"
+    (rf/reg-event-fx :hdr/set-then-replace
+      (fn [_ _]
+        ;; First :set-header writes the default; the second replaces it
+        ;; (case-insensitive name match per Spec 011 §Header replacement).
+        {:fx [[:rf.server/set-header {:name "X-Foo" :value "first"}]
+              [:rf.server/set-header {:name "x-foo" :value "second"}]]}))
+    (rf/reg-event-fx :hdr/append-twice
+      (fn [_ _]
+        {:fx [[:rf.server/append-header {:name "Set-Cookie" :value "a=1"}]
+              [:rf.server/append-header {:name "Set-Cookie" :value "b=2"}]]}))
+
+    (let [f (rf/make-frame {:platform :server})]
+      (rf/dispatch-sync [:hdr/set-then-replace] {:frame f})
+      (rf/dispatch-sync [:hdr/append-twice]     {:frame f})
+      (let [hdrs  (:headers (get-response f))
+            x-foo (filter (fn [[n _]] (= "x-foo" (clojure.string/lower-case n))) hdrs)
+            sc    (filter (fn [[n _]] (= "set-cookie" (clojure.string/lower-case n))) hdrs)]
+        (is (= 1 (count x-foo))
+            ":rf.server/set-header replaced the prior X-Foo header")
+        (is (= "second" (-> x-foo first second))
+            "the second set-header value won")
+        (is (= 2 (count sc))
+            ":rf.server/append-header preserved both Set-Cookie entries")
+        (is (= ["a=1" "b=2"] (mapv second sc))
+            "append-header preserves source order")))))
 
 ;; ===========================================================================
 ;; ssr-redirect-short-circuits — :rf.server/redirect halts further rendering
@@ -353,43 +369,73 @@
 
 (deftest ssr-redirect-short-circuits
   (testing ":rf.server/redirect populates :redirect and the response payload omits HTML"
-    (let [writes (install-server-fx!)]
-      (rf/reg-event-fx :auth/check-session
-        (fn [_ _]
-          {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
+    (rf/reg-event-fx :auth/check-session
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
-      (let [f (rf/make-frame {:platform     :server
-                              :on-create    [:auth/check-session]})]
-        (let [redirect (get-in @writes [f :redirect])]
-          (is (= {:status 302 :location "/login"} redirect)
-              "the :redirect accumulator carries status + location"))
+    (let [f (rf/make-frame {:platform     :server
+                            :on-create    [:auth/check-session]})]
+      (let [resp     (get-response f)
+            redirect (:redirect resp)]
+        (is (= {:status 302 :location "/login"} redirect)
+            "the :redirect accumulator carries status + location")
+        (is (= 302 (:status resp))
+            "redirect's :status flows through to the response :status")
 
         ;; The "host adapter" decision per Spec 011 §Redirect precedence:
         ;; if :redirect is set, build a redirect-only response — no body,
         ;; no hydration payload. We model that here as a small fn that
         ;; mirrors what the host would do.
-        (let [response-of (fn [frame-id]
-                            (let [acc (get @writes frame-id)]
-                              (if-let [r (:redirect acc)]
-                                {:redirect r}
-                                {:status (or (last (:status acc)) 200)
-                                 :body   "<full-html-here>"})))
-              response    (response-of f)]
+        (let [build-response (fn [r]
+                               (if-let [redir (:redirect r)]
+                                 {:redirect redir}
+                                 {:status (or (:status r) 200)
+                                  :body   "<full-html-here>"}))
+              response       (build-response resp)]
           (is (= {:redirect {:status 302 :location "/login"}}
                  response)
               "redirect short-circuits — response carries :redirect only, no :body, no hydration payload")
           (is (not (contains? response :body))
-              "no HTML body when redirected"))))
+              "no HTML body when redirected")))))
 
-    (testing "a redirect with default :status defaults to 302"
-      (let [writes (install-server-fx!)]
-        (rf/reg-event-fx :auth/check-no-status
-          (fn [_ _]
-            {:fx [[:rf.server/redirect {:location "/login"}]]}))
-        (let [f (rf/make-frame {:platform  :server
-                                :on-create [:auth/check-no-status]})]
-          (is (= 302 (get-in @writes [f :redirect :status]))
-              ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))))
+  (testing "a redirect with default :status defaults to 302"
+    (rf/reg-event-fx :auth/check-no-status
+      (fn [_ _]
+        {:fx [[:rf.server/redirect {:location "/login"}]]}))
+    (let [f (rf/make-frame {:platform  :server
+                            :on-create [:auth/check-no-status]})]
+      (is (= 302 (-> (get-response f) :redirect :status))
+          ":rf.server/redirect defaults :status to 302 per Spec 011 §Redirect"))))
+
+;; ===========================================================================
+;; ssr-multi-redirect — multi-write emits :rf.warning/multiple-redirects
+;; ===========================================================================
+
+(deftest ssr-multi-redirect
+  (testing "two :rf.server/redirect fxs → last write wins + :rf.warning/multiple-redirects"
+    (let [traces (atom [])]
+      (rf/reg-event-fx :auth/double-redirect
+        (fn [_ _]
+          {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
+                [:rf.server/redirect {:status 301 :location "/canonical"}]]}))
+
+      (let [f (rf/make-frame {:platform :server})]
+        (rf/register-trace-cb! ::redir (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:auth/double-redirect] {:frame f})
+        (rf/remove-trace-cb! ::redir)
+
+        (let [redirect (-> (get-response f) :redirect)]
+          (is (= {:status 301 :location "/canonical"} redirect)
+              "last write wins — the response :redirect is the second write"))
+
+        (is (some (fn [ev]
+                    (and (= :rf.warning/multiple-redirects (:operation ev))
+                         (= 2 (count (:writes (:tags ev))))
+                         (= {:status 301 :location "/canonical"} (:final-redirect (:tags ev)))
+                         (= :warned-and-replaced (:recovery ev))))
+                  @traces)
+            (str "expected :rf.warning/multiple-redirects trace; saw: "
+                 (pr-str (mapv :operation @traces))))))))
 
 ;; ===========================================================================
 ;; ssr-head-hash-mismatch — head-model hash differs across server/client

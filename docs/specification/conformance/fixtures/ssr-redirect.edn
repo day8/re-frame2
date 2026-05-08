@@ -13,9 +13,10 @@
                                :platforms #{:server}}
           :auth/check-session {:doc       "Authentication gate."
                                :platforms #{:server}}}
-  :fx    {:rf.server/redirect {:doc       "Set redirect on the response accumulator; truncates HTML body."
-                               :platforms #{:server}
-                               :spec      :rf.fx.server/redirect-args}}}
+  ;; :rf.server/redirect is registered by the runtime (re-frame.ssr,
+  ;; per Spec 011 §HTTP response contract / rf2-8pif). Not declared
+  ;; here so the harness doesn't shadow it with a no-op stub.
+  }
 
  :fixture/handlers
  {:event {:rf/server-init     [[:fx [[:dispatch [:auth/check-session]]]]]
@@ -26,7 +27,12 @@
  :fixture/dispatches []                                              ;; the :on-create cascade is sufficient
 
  :fixture/expect
- {:final-app-db {}
+ ;; Submap match — assert the framework-populated :rf/response slot
+ ;; carries the redirect AND the redirect's :status flowed through to
+ ;; the top-level :status (per Spec 011 §Redirect precedence).
+ {:final-app-db
+  {:rf/response {:status   302
+                 :redirect {:status 302 :location "/login"}}}
 
   :ssr/request-result
   {:html     :absent                                                 ;; redirect truncates the body
