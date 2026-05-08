@@ -253,10 +253,60 @@
      (plain-atom-cljs/set-hiccup-emitter! render-to-string)
      (reagent-adapter/set-hiccup-emitter! render-to-string)))
 
-;; ---- hydrate event --------------------------------------------------------
+;; ---- hydrate event + mismatch detection ----------------------------------
+;;
+;; Per Spec 011 §The :rf/hydrate event and §Hydration-mismatch detection.
+;; The server's payload carries :rf/render-hash; we replace app-db with
+;; :rf/app-db AND stash the server hash under [:rf/hydration :server-hash]
+;; so verify-hydration! can read it after the client's first render.
 
 (events/reg-event-fx :rf/hydrate
   (fn [{:keys [db]} [_ payload]]
-    ;; Locked policy per Spec 011 §The :rf/hydrate event: replace-app-db.
-    ;; Server is authoritative for the initial client app-db.
-    {:db (or (:rf/app-db payload) (:app-db payload) db)}))
+    (let [new-db   (or (:rf/app-db payload) (:app-db payload) db)
+          metadata (cond-> {}
+                     (:rf/render-hash payload) (assoc :server-hash (:rf/render-hash payload))
+                     (:rf/version payload)     (assoc :version     (:rf/version payload)))]
+      {:db (cond-> new-db
+             (seq metadata) (assoc :rf/hydration metadata))})))
+
+(defn verify-hydration!
+  "Per Spec 011 §Hydration-mismatch detection. Called by client code
+  after the first render. Compares the post-render hash to the server
+  hash stashed during :rf/hydrate; on disagreement emits
+  :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced.
+
+  The second arg may be EITHER a render tree (we hash it) OR a
+  pre-computed hash string (used by test harnesses that simulate the
+  client render).
+
+    (verify-hydration! frame-id render-tree)
+    (verify-hydration! frame-id render-tree opts)
+
+  opts may carry :first-diff-path, :failing-id, AND :server-hash.
+  The :server-hash opt overrides the [:rf/hydration :server-hash]
+  slot in app-db — useful when the user's :rf/hydrate handler doesn't
+  populate that slot (e.g. fixture-overridden handlers)."
+  ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
+  ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
+   (let [adapter     (resolve 're-frame-2.frame/frame-app-db-value)
+         db          (when adapter ((deref adapter) frame-id))
+         server-hash (or server-hash
+                         (get-in db [:rf/hydration :server-hash]))
+         client-hash (cond
+                       (string? tree-or-hash) tree-or-hash
+                       tree-or-hash           (render-tree-hash tree-or-hash))]
+     (when (and server-hash client-hash (not= server-hash client-hash))
+       (let [trace-fn (resolve 're-frame-2.trace/emit-error!)]
+         (when trace-fn
+           ((deref trace-fn) :rf.ssr/hydration-mismatch
+            (cond-> {:server-hash server-hash
+                     :client-hash client-hash
+                     :frame       frame-id
+                     :failing-id  (or failing-id :rf/hydrate)
+                     :reason      (str "Hydration mismatch: server hash '"
+                                       server-hash
+                                       "' != client hash '"
+                                       client-hash
+                                       "'. Re-rendering client-side.")
+                     :recovery    :warned-and-replaced}
+              first-diff-path (assoc :first-diff-path first-diff-path)))))))))

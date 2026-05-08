@@ -16,6 +16,12 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (rf/init!)
+  ;; Framework events / fx are registered at namespace-load time in
+  ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those
+  ;; registrations so :rf.route/navigate, :rf/hydrate, :rf.nav/push-url
+  ;; etc. resurrect across smoke tests.
+  (require 're-frame-2.routing :reload)
+  (require 're-frame-2.ssr :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -354,6 +360,31 @@
       (is (some #(= 're-frame-2.core/get-view %)
                 (tree-seq coll? seq exp))
           "h expansion references get-view for namespaced keywords"))))
+
+(deftest verify-hydration-emits-mismatch
+  (testing "rf/hydrate stashes :rf/hydration metadata; verify-hydration! detects mismatch"
+    (require 're-frame-2.ssr)
+    (let [verify-fn  @(resolve 're-frame-2.ssr/verify-hydration!)
+          ;; Server-supplied payload with a render-hash.
+          payload    {:rf/version     1
+                      :rf/app-db      {:greeting "Hello, server!"}
+                      :rf/render-hash "server-hash-X"}
+          traces     (atom [])]
+      (rf/dispatch-sync [:rf/hydrate payload])
+      ;; Hydrate stashed the metadata.
+      (is (= "server-hash-X"
+             (get-in (rf/get-frame-db :rf/default) [:rf/hydration :server-hash])))
+      ;; Now simulate the client render producing a different hash.
+      (rf/register-trace-cb! ::vh (fn [ev] (swap! traces conj ev)))
+      (verify-fn :rf/default "client-hash-Y")
+      (rf/remove-trace-cb! ::vh)
+      (is (some (fn [ev]
+                  (and (= :rf.ssr/hydration-mismatch (:operation ev))
+                       (= "server-hash-X" (:server-hash (:tags ev)))
+                       (= "client-hash-Y" (:client-hash (:tags ev)))
+                       (= :warned-and-replaced (:recovery ev))))
+                @traces)
+          "expected :rf.ssr/hydration-mismatch trace with both hashes"))))
 
 (deftest render-tree-hash-is-stable
   (testing "render-tree-hash is deterministic and order-sensitive on vectors"
