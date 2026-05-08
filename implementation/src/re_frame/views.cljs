@@ -89,18 +89,20 @@
 ;; ---- reg-view -------------------------------------------------------------
 
 (defn reg-view*
-  "Function form of reg-view. Registers the view under :view kind in the
-  registrar. Returns the wrapped (frame-aware) render fn.
+  "Reagent-aware view registration. Wraps `render-fn` with the React
+  `:context-type` hook used to resolve the surrounding frame at render
+  time, then registers it in the :view kind of the registrar.
 
-  The Var-defining form lives in a macro so the local Var is bound at
-  compile time."
+  Per Spec 004 §reg-view*: this is the plain-fn surface delegated to
+  by `re-frame.core/reg-view*` on CLJS. `metadata` is merged into the
+  registry slot's metadata as-is; source-coord capture is performed
+  by the caller (`re-frame.core/reg-view*`)."
   [id metadata render-fn]
   (let [wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (apply render-fn args))
                   {:context-type frame-context})]
-    (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
-                                         :handler-fn wrapped))
+    (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
 
 (defn get-view

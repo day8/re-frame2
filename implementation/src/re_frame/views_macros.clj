@@ -58,24 +58,112 @@
 
 ;; ---- reg-view ------------------------------------------------------------
 ;;
-;; Per Spec 004 §reg-view defs the Var by default: the macro auto-defs a
-;; local Var named after the keyword's name so the call site can refer to
-;; the view as a value (Reagent's idiomatic Form-1).
+;; Per Spec 004 §reg-view: defn-shape macro. Two surfaces emit the same
+;; expansion — re-frame.core/reg-view (the canonical home) and the
+;; legacy re-frame.views-macros/reg-view (kept so existing
+;; `(:require-macros [re-frame.views-macros :refer [reg-view]])` imports
+;; keep working without an across-the-board sweep of example imports).
 ;;
-;; Forms supported:
-;;   (reg-view :id render-fn)
-;;   (reg-view :id metadata render-fn)
+;; The macro logic lives here as plain helpers so both defmacros can
+;; share it without circular load issues.
+
+(defn parse-reg-view-args
+  "Per Spec 004 §reg-view defn-shape. Parses (sym docstring? args body+)
+  into {:sym :docstring :args :body}. Returns nil when shape is invalid."
+  [more]
+  (let [[a & rest1] more]
+    (cond
+      (vector? a)
+      {:docstring nil :args a :body rest1}
+      (and (string? a) (vector? (first rest1)))
+      {:docstring a :args (first rest1) :body (next rest1)}
+      :else nil)))
+
+(defn describe-reg-view-bad-second-arg
+  "Human-readable description of an invalid second-arg to reg-view, for
+  the compile-error message. Per Spec 004 §reg-view compile-error
+  contract: the rejected cases are Var-ref symbol, create-class call,
+  and computed-fn call."
+  [x]
+  (cond
+    (symbol? x)
+    (str "a Var reference (" x ")")
+    (and (seq? x) (symbol? (first x)) (= "create-class" (name (first x))))
+    (str "a (" (first x) " …) call")
+    (seq? x)
+    (str "a (" (first x) " …) call")
+    (nil? x)
+    "nothing"
+    :else
+    (str "a " (some-> x type .getSimpleName) " — " (pr-str x))))
+
+(defn expand-reg-view
+  "Build the expansion form for a reg-view macro call. Used by both
+  re-frame.core/reg-view and re-frame.views-macros/reg-view. `form-meta`
+  is `(meta &form)` from the calling macro; `current-ns-sym` is
+  `(ns-name *ns*)` at expansion time."
+  [form-meta current-ns-sym sym more]
+  (let [parsed   (parse-reg-view-args more)
+        sym-meta (or (meta sym) {})
+        id-meta  (:rf/id sym-meta)
+        id       (or id-meta (keyword (str current-ns-sym) (str sym)))
+        ;; Anything on the symbol other than :rf/id is treated as slot
+        ;; metadata (matches Clojure's defn idiom: ^{:doc "..."} sym).
+        slot-meta (dissoc sym-meta :rf/id)]
+    (when (nil? parsed)
+      (throw (ex-info
+               (str "reg-view second argument must be an args vector "
+                    "(defn-shape: (reg-view sym [args] body)). Got "
+                    (describe-reg-view-bad-second-arg (first more))
+                    ". For runtime registration, use "
+                    "(re-frame.core/reg-view* :id render-fn).")
+               {:sym sym :got (first more) :args-after-sym (vec more)})))
+    (let [{:keys [docstring args body]} parsed
+          line (:line form-meta)
+          col  (:column form-meta)
+          def-form (if docstring
+                     `(def ~sym ~docstring (re-frame.core/get-view ~id))
+                     `(def ~sym (re-frame.core/get-view ~id)))
+          full-slot-meta (cond-> slot-meta
+                           docstring (assoc :doc docstring))]
+      `(do
+         (binding [re-frame.source-coords/*pending-coords*
+                   (cond-> {:ns (ns-name *ns*)}
+                     *file* (assoc :file *file*)
+                     ~line  (assoc :line ~line)
+                     ~col   (assoc :column ~col))]
+           (re-frame.core/reg-view* ~id
+             ~full-slot-meta
+             (fn ~sym ~args
+               (let [~'dispatch  (re-frame.core/dispatcher)
+                     ~'subscribe (re-frame.core/subscriber)]
+                 ~@body))))
+         ~def-form))))
 
 (defmacro reg-view
-  "Register a view by keyword id and def a same-named local Var bound
-  to the wrapped render fn. The local Var is the call-site reference;
-  the registered view is what frame-aware tooling (SSR, get-view) reads."
-  ([id render-fn]
-   `(reg-view ~id {} ~render-fn))
-  ([id metadata render-fn]
-   (let [sym (-> id name symbol)]
-     `(def ~sym
-        (re-frame.views/reg-view* ~id ~metadata ~render-fn)))))
+  "Register a view as a defn-shape macro. Per Spec 004 §reg-view.
+
+  Shape:
+    (reg-view sym [args] body+)
+    (reg-view sym docstring [args] body+)
+    (reg-view ^{:rf/id :explicit/id} sym [args] body+)
+
+  Auto-derives the id from `(keyword (str *ns*) (str sym))`. Override
+  via `^{:rf/id :explicit/id}` metadata on the symbol. Auto-injects
+  lexical bindings `dispatch` and `subscribe`. Defs the symbol to the
+  registered render fn.
+
+  Compile-time error if the second arg (after optional docstring) is
+  not a vector. For runtime registration with computed ids or
+  non-defn-shape bodies (e.g. Form-3 / `create-class`), use
+  `re-frame.core/reg-view*` instead.
+
+  This is the legacy import path; new code should
+  `:require-macros [re-frame.core :refer [reg-view]]` directly. Both
+  surfaces emit the same expansion."
+  {:arglists '([sym args body+] [sym docstring args body+])}
+  [sym & more]
+  (expand-reg-view (meta &form) (ns-name *ns*) sym more))
 
 ;; ---- h --------------------------------------------------------------------
 ;;
