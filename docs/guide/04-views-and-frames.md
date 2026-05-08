@@ -39,17 +39,15 @@ For most apps, this works fine. There's no ceremony, no registration, nothing to
 But there's a sharper version: **registered views**.
 
 ```clojure
-(def greeting
-  (rf/reg-view :greeting
-    (fn [name]
-      [:div.greeting
-       [:h1 "Hello"]
-       [:p "Welcome back, " [:strong name] "."]])))
+(rf/reg-view greeting [name]
+  [:div.greeting
+   [:h1 "Hello"]
+   [:p "Welcome back, " [:strong name] "."]])
 ```
 
 Two things change:
 
-1. The view is registered under a keyword, `:greeting`. It's now in the registry alongside events, subs, fx. Tooling can list it. AIs can introspect it. You can query its `:doc`/`:spec` metadata.
+1. The view is registered under an auto-derived keyword, `(keyword *ns* "greeting")`. It's now in the registry alongside events, subs, fx. Tooling can list it. AIs can introspect it. You can query its `:doc`/`:spec` metadata.
 
 2. **Inside the view's body, `dispatch` and `subscribe` are bound to the surrounding frame.** This is the load-bearing reason to register views. Without it, plain Reagent functions read state from a hard-coded default frame; you can't put two instances of the same view next to each other showing different state.
 
@@ -57,11 +55,10 @@ For a single-frame app, plain views are fine. For anything else — and "anythin
 
 ### The Var-reference idiom
 
-The canonical way to use a registered view in hiccup is to `def` a var from the registration's return value, then reference the var like any other Reagent component:
+`reg-view` is defn-shape: it auto-defs the symbol you supply. Reference that var like any other Reagent component:
 
 ```clojure
-(def greeting
-  (rf/reg-view :greeting (fn [name] ...)))
+(rf/reg-view greeting [name] ...)
 
 ;; ... elsewhere
 [:div
@@ -71,7 +68,7 @@ The canonical way to use a registered view in hiccup is to `def` a var from the 
 
 This reads exactly like Reagent. There's nothing to learn. It just happens to work for the multi-frame case because of the registration that's also happening.
 
-An alternative form exists — `(rf/view :greeting)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `view` is the escape hatch for those specific cases.
+An alternative form exists — `(rf/view :my-ns/greeting)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `view` is the escape hatch for those specific cases.
 
 ## Frames
 
@@ -227,12 +224,10 @@ Two counters, side by side, isolated:
 (rf/reg-event-db :counter/inc        (fn [db _] (update db :count inc)))
 (rf/reg-sub      :count              (fn [db _] (:count db)))
 
-(def counter
-  (rf/reg-view :counter
-    (fn []
-      [:div
-       [:button {:on-click #(dispatch [:counter/inc])} "+"]
-       [:span @(subscribe [:count])]])))
+(rf/reg-view counter []
+  [:div
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]
+   [:span @(subscribe [:count])]])
 
 ;; Two frames, one for each side.
 (rf/reg-frame :left  {:on-create [:counter/initialise]})

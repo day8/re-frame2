@@ -444,7 +444,7 @@ The agent doesn't need to render the tree — a static walk over the hiccup form
 
 Then offer the user three options per call site:
 
-- **Convert to `reg-view`** — wrap the body in `(rf/reg-view :feature/component-name {:doc "..."} (fn [args] ...))`. The component picks up the surrounding frame correctly. This is the recommended path.
+- **Convert to `reg-view`** — replace the `defn` with `(rf/reg-view ^{:doc "..."} component-name [args] ...)` (defn-shape; auto-defs the symbol and registers under `(keyword *ns* "component-name")`). The component picks up the surrounding frame correctly. This is the recommended path.
 - **Use `(rf/dispatcher)` / `(rf/subscriber)` render-time helpers** — for plain fns that the user wants to keep as plain fns, replace bare `dispatch` / `subscribe` with the helper-bound forms. See [004 §Affordance for plain fns](004-Views.md#affordance-for-plain-fns-rfdispatcher--rfsubscriber).
 - **Leave as-is** — the user accepts that the component routes to `:rf/default`. Acceptable if the component is genuinely meant to read/write the default frame regardless of where it renders.
 
@@ -1012,12 +1012,10 @@ Plain Reagent fns target only `:rf/default`. If the codebase plans to introduce 
      (str label ": " n)]))
 
 ;; after
-(rf/reg-view :counter
-  {:doc "Counter widget."}
-  (fn [label]
-    (let [n @(subscribe [:count])]                       ;; unqualified — frame-bound local
-      [:button {:on-click #(dispatch [:inc])}            ;; unqualified — frame-bound local
-       (str label ": " n)])))
+(rf/reg-view ^{:doc "Counter widget."} counter [label]
+  (let [n @(subscribe [:count])]                         ;; unqualified — frame-bound local
+    [:button {:on-click #(dispatch [:inc])}              ;; unqualified — frame-bound local
+     (str label ": " n)]))
 ```
 
 Note the `re-frame.core/` prefix is dropped inside `reg-view` bodies — `dispatch` and `subscribe` are lexical locals injected by the macro.
