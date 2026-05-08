@@ -5,16 +5,16 @@
    `dispatch`/`subscribe` injection.
 
    NOTE on frame-provider: an earlier shape of this example wrapped
-   `:counter-buttons` in `(v/build-frame-provider :counter)` so the
-   subtree resolved its current frame to `:counter` rather than
-   `:rf/default`. That depends on React-context resolution working
-   under Reagent 1.2 + React 18, which is currently broken (rf2-kdwc:
-   class-component-style :context-type metadata isn't wired up; the
-   resolution falls back to :rf/default and the subscription misses
-   the :counter app-db). The example below uses the default frame so
-   the smoke test passes today; revisit once rf2-kdwc lands or once
-   the Reagent v2 migration (rf2-25aq) replaces contextType with
-   useContext."
+   `:counter-buttons` in `[rf/frame-provider {:frame :counter} ...]`
+   so the subtree resolved its current frame to `:counter` rather
+   than `:rf/default`. That depends on React-context resolution
+   working under Reagent 1.2 + React 18, which is currently broken
+   (rf2-kdwc: class-component-style :context-type metadata isn't
+   wired up; the resolution falls back to :rf/default and the
+   subscription misses the :counter app-db). The example below uses
+   the default frame so the smoke test passes today; revisit once
+   rf2-kdwc lands or once the Reagent v2 migration (rf2-25aq)
+   replaces contextType with useContext."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
             [re-frame.views]
