@@ -1035,7 +1035,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ## Worked examples (each prompt, in action)
 
-The [7GUIs example series](../../examples/seven_guis/README.md) and the [login example](../../examples/login/core.cljs) demonstrate every prompt in working code (see also [`examples/playwright/`](../../examples/playwright/) for the in-browser smoke specs):
+The [7GUIs example series](../../examples/seven_guis/README.md) and the [login example](../../examples/login/core.cljs) demonstrate every prompt in working code (each example sits alongside its own `*.spec.cjs` Playwright smoke test):
 
 | Prompt | Example |
 |---|---|

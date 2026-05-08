@@ -225,8 +225,9 @@ jobs:
 
       # Compile every example shadow-cljs build, stage the per-example
       # index.html alongside the bundle, serve out/examples on :8030,
-      # and run the Playwright specs under examples/playwright/. Each
-      # spec asserts a user-visible behaviour for its example.
+      # and run the Playwright specs that sit alongside each example
+      # (examples/<name>/<name>.spec.cjs). Each spec asserts a
+      # user-visible behaviour for its example.
       #
       # NOT a required check on main initially — mirrors the rollout
       # pattern used for cljs-browser (rf2-zoem). Promote to required
