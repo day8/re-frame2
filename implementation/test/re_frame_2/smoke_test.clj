@@ -461,19 +461,12 @@
                (set (map #(:last-state (:tags %)) machine-traces)))
             "each trace carries its machine's last-state")))))
 
-(deftest create-machine-handler-requires-id
-  (testing "missing :id on the machine def throws — silent-bug guard"
-    (try
-      (rf/create-machine-handler {:initial :idle :states {:idle {}}})
-      (is false "create-machine-handler should have thrown")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= ":rf.error/machine-missing-id" (.getMessage e)))))))
-
 (deftest spawn-id-is-frame-scoped
   (testing "actor-id allocation is keyed on [frame-id machine-id], not just machine-id"
     (let [machine
-          {:id      :flow
-           :initial :idle
+          ;; Per Spec 005 §Where snapshots live: spec map does NOT carry
+          ;; :id; the id comes from the surrounding reg-event-fx id.
+          {:initial :idle
            :data    {}
            :states  {:idle    {:on    {:start :working}}
                      :working {:invoke {:machine-id :worker
@@ -566,8 +559,9 @@
       ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
       (rf/reg-event-fx :auth.login/flow
         (rf/create-machine-handler
-          {:id      :auth.login/flow
-           :initial :idle
+          ;; Per Spec 005: spec map does NOT carry :id; the id comes
+          ;; from the reg-event-fx call above.
+          {:initial :idle
            :data    {:attempts 0 :error nil}
            :guards
            {:under-retry-limit

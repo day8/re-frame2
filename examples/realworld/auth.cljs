@@ -64,8 +64,9 @@
 (rf/reg-event-fx :auth/flow
   {:doc "The auth flow: idle → submitting/restoring → authed | error."}
   (rf/create-machine-handler
-    {:id      :auth/flow
-     :initial :idle
+    ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
+    ;; the id is the surrounding reg-event-fx id.
+    {:initial :idle
      :data    {:error nil}
      :guards
      {:has-token?

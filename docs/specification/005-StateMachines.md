@@ -118,6 +118,8 @@ A transition table is pure data. Top-level shape:
 
 The snapshot's location in `app-db` is `[:rf/machines <id>]` — runtime-managed and not part of the transition-table grammar. See [§Where snapshots live](#where-snapshots-live).
 
+> **The transition-table spec map MUST NOT carry `:id`.** A machine's id is the surrounding registration's event-id (the first arg to `reg-event-fx` or `spawn-machine`), not a field on the spec map. The runtime derives the id at handler-call time from the dispatched event vector's first element. Keeping `:id` out of the spec map keeps it a pure description of behaviour and lets the same spec value register against multiple ids if the application wants two independent machines with the same body.
+
 #### Transition table top-level keys
 
 | Key | Where | Notes |

@@ -261,8 +261,9 @@
 (rf/reg-event-fx :todos/editor
   {:doc "Editor lifecycle: :editing -> :archived. Archive is terminal."}
   (rf/create-machine-handler
-    {:id      :todos/editor
-     :initial :editing
+    ;; Per Spec 005 §Where snapshots live: spec map does NOT carry :id;
+    ;; the id is the surrounding reg-event-fx id.
+    {:initial :editing
      :data    {:archived-at nil}
 
      :guards

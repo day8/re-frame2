@@ -100,8 +100,9 @@
 (rf/reg-event-fx :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
   (rf/create-machine-handler
-    {:id      :auth.login/flow
-     :initial :idle
+    ;; Per Spec 005 §Where snapshots live: the spec map does NOT carry
+    ;; :id; the machine's id is the surrounding reg-event-fx id.
+    {:initial :idle
      :data    {:attempts 0 :error nil}
 
      :guards

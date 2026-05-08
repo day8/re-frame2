@@ -589,83 +589,79 @@
 (defn create-machine-handler
   "Returns a function suitable for registration with reg-event-fx.
 
-  The handler reads the current snapshot at [:rf/machines <id>] in app-db,
-  runs machine-transition, writes the new snapshot back, and returns
-  the resulting effects map for the standard fx pipeline.
-
   Per Spec 005 §Registration — the machine IS the event handler.
-  The machine def MUST carry :id; without it the snapshot path would
-  resolve to [:rf/machines nil], silently dropping all reads/writes
-  and producing the appearance that no transition fired. We surface
-  the misuse early instead of debugging a silent run-to-completion."
+  The machine spec MUST NOT carry :id; the machine's id is the
+  surrounding registration's event-id, derived at handler-call time
+  from the dispatched event vector's first element. This keeps the
+  spec map a pure description of behaviour and makes the same spec
+  reusable across multiple registrations (e.g. (reg-event-fx :a m)
+  and (reg-event-fx :b m) produce two independent machines)."
   [machine]
-  (let [machine-id (:id machine)
-        _ (when (nil? machine-id)
-            (throw (ex-info ":rf.error/machine-missing-id"
-                            {:machine machine
-                             :reason  "create-machine-handler requires the machine def to carry :id; the snapshot path is computed as [:rf/machines (:id machine)] and a missing :id silently disables the machine."})))
-        ;; Validate guard/action references at registration time.
-        _ (doseq [[s state-node] (:states machine)]
-            (let [transitions (mapcat
-                               (fn [[_ t]]
-                                 (if (vector? t) t [t]))
-                               (:on state-node))]
-              (doseq [t transitions]
-                (when-let [g (:guard t)]
-                  (when (and (keyword? g)
-                             (not (contains? (:guards machine) g)))
-                    (throw (ex-info ":rf.error/machine-unresolved-guard"
-                                    {:guard g :machine-id machine-id :state s}))))
-                (when-let [a (:action t)]
-                  (when (and (keyword? a)
-                             (not (contains? (:actions machine) a)))
-                    (throw (ex-info ":rf.error/machine-unresolved-action"
-                                    {:action a :machine-id machine-id :state s})))))))]
-    (fn [{:keys [db frame] :as _cofx} event]
-      ;; Stamp the live frame onto the machine def so spawn-id allocation
-      ;; (frame-scoped per Spec 002) gets the right key. machine-transition
-      ;; doesn't otherwise need it; this is purely a side-channel for
-      ;; per-frame counters.
-      (let [machine  (assoc machine :rf/frame (or frame :rf/default))
-            path     (snapshot-path machine-id)
-            initial  {:state (:initial machine) :data (or (:data machine) {})}
-            snapshot (or (get-in db path) initial)
-            ;; Sub-event routing per Spec 005 §Registration. The outer
-            ;; event is [:machine-id <inner-event> & extra-args]. Extra
-            ;; args are conj'd onto the inner event — that's the
-            ;; convention http-style fx callbacks rely on:
-            ;;   :on-success [:machine-id [:inner-id]]   →
-            ;;   (conj on-success response) yields
-            ;;   [:machine-id [:inner-id] response]      →
-            ;;   inner-event [:inner-id response]
-            inner-event (cond
-                          (and (vector? event)
-                               (>= (count event) 2)
-                               (vector? (second event)))
-                          (let [inner (second event)
-                                extra (drop 2 event)]
-                            (if (seq extra)
-                              (vec (concat inner extra))
-                              inner))
+  ;; Validate guard/action references at construction time. machine-id
+  ;; isn't known yet (it's the registration-site id), so error tags use
+  ;; a placeholder; real misuse traces at handler-call time fill it in.
+  (doseq [[s state-node] (:states machine)]
+    (let [transitions (mapcat
+                       (fn [[_ t]]
+                         (if (vector? t) t [t]))
+                       (:on state-node))]
+      (doseq [t transitions]
+        (when-let [g (:guard t)]
+          (when (and (keyword? g)
+                     (not (contains? (:guards machine) g)))
+            (throw (ex-info ":rf.error/machine-unresolved-guard"
+                            {:guard g :state s}))))
+        (when-let [a (:action t)]
+          (when (and (keyword? a)
+                     (not (contains? (:actions machine) a)))
+            (throw (ex-info ":rf.error/machine-unresolved-action"
+                            {:action a :state s})))))))
+  (fn [{:keys [db frame] :as _cofx} event]
+    (let [;; Per Spec 005 §Registration: id comes from event[0] (the
+          ;; surrounding reg-event-fx id), NOT from the spec map.
+          machine-id (first event)
+          ;; Stamp the live frame onto the machine def so spawn-id
+          ;; allocation (frame-scoped per Spec 002) gets the right key.
+          machine    (assoc machine :rf/frame (or frame :rf/default))
+          path       (snapshot-path machine-id)
+          initial    {:state (:initial machine) :data (or (:data machine) {})}
+          snapshot   (or (get-in db path) initial)
+          ;; Sub-event routing per Spec 005 §Registration. The outer
+          ;; event is [:machine-id <inner-event> & extra-args]. Extra
+          ;; args are conj'd onto the inner event — the convention
+          ;; http-style fx callbacks rely on:
+          ;;   :on-success [:machine-id [:inner-id]]   →
+          ;;   (conj on-success response) yields
+          ;;   [:machine-id [:inner-id] response]      →
+          ;;   inner-event = [:inner-id response]
+          inner-event (cond
+                        (and (vector? event)
+                             (>= (count event) 2)
+                             (vector? (second event)))
+                        (let [inner (second event)
+                              extra (drop 2 event)]
+                          (if (seq extra)
+                            (vec (concat inner extra))
+                            inner))
 
-                          :else event)
-            [next-snapshot fx] (machine-transition machine snapshot inner-event)
-            new-db (assoc-in db path next-snapshot)]
-        (trace/emit! :machine :rf.machine/transition
-                     {:machine-id  machine-id
-                      :event       inner-event
-                      :before      snapshot
-                      :after       next-snapshot})
-        {:db new-db
-         :fx fx}))))
+                        :else event)
+          [next-snapshot fx] (machine-transition machine snapshot inner-event)
+          new-db (assoc-in db path next-snapshot)]
+      (trace/emit! :machine :rf.machine/transition
+                   {:machine-id  machine-id
+                    :event       inner-event
+                    :before      snapshot
+                    :after       next-snapshot})
+      {:db new-db
+       :fx fx})))
 
 ;; ---- reg-machine convenience ----------------------------------------------
 
 (defn reg-machine
-  "Convenience: register a machine as an event handler. Equivalent to
+  "Convenience: register a machine as an event handler under
+  machine-id. Equivalent to
   (reg-event-fx machine-id (create-machine-handler machine))."
-  [machine]
-  (let [machine-id (:id machine)
-        handler-fn (create-machine-handler machine)]
+  [machine-id machine]
+  (let [handler-fn (create-machine-handler machine)]
     (events/reg-event-fx machine-id handler-fn)
     machine-id))
