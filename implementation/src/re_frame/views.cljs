@@ -11,8 +11,8 @@
   reg-view auto-defs the local Var (per Spec 004 §reg-view defs the Var
   by default); the Var is the canonical call-site reference. For
   late-binding by id (e.g. across module boundaries, runtime-computed
-  ids, or hot-reload semantics), call `(re-frame.core/get-view :id)`
-  to obtain the wrapped fn and use `[(rf/get-view :id) args]` as the
+  ids, or hot-reload semantics), call `(re-frame.core/view :id)`
+  to obtain the wrapped fn and use `[(rf/view :id) args]` as the
   hiccup head."
   (:require ["react"        :as React]
             [reagent.core   :as r]
@@ -106,9 +106,3 @@
                   {:context-type frame-context})]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
-
-(defn get-view
-  "Return the wrapped render fn for a registered view, or nil."
-  [view-id]
-  (when-let [meta (registrar/lookup :view view-id)]
-    (:handler-fn meta)))

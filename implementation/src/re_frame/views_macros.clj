@@ -126,8 +126,8 @@
           line (:line form-meta)
           col  (:column form-meta)
           def-form (if docstring
-                     `(def ~sym ~docstring (re-frame.core/get-view ~id))
-                     `(def ~sym (re-frame.core/get-view ~id)))
+                     `(def ~sym ~docstring (re-frame.core/view ~id))
+                     `(def ~sym (re-frame.core/view ~id)))
           full-slot-meta (cond-> slot-meta
                            docstring (assoc :doc docstring))]
       `(do
