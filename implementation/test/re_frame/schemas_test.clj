@@ -112,6 +112,160 @@
         (is (= :n/break (-> violations first :tags :failing-id))
             ":failing-id names the handler whose commit prompted the failure")))))
 
+;; ---- rf2-jwm4 — event-payload validation ---------------------------------
+
+(deftest dispatch-validates-event-payload-pre-handler
+  (testing "Per Spec 010 §step 1 (rf2-jwm4): a malformed event vector fires
+            :rf.error/schema-validation-failure :where :event before the
+            handler runs; the handler is NOT invoked"
+    (let [calls (atom 0)]
+      (rf/reg-event-db :user/register
+        {:spec [:cat [:= :user/register]
+                     [:map [:email :string] [:age :int]]]}
+        (fn [db [_ payload]]
+          (swap! calls inc)
+          (update db :users (fnil conj []) payload)))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::ev (fn [ev] (swap! traces conj ev)))
+        ;; Well-typed payload — passes; handler runs.
+        (rf/dispatch-sync [:user/register {:email "alice@example.com" :age 30}])
+        ;; Malformed payload — fails; handler must NOT run.
+        (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
+        (rf/remove-trace-cb! ::ev)
+        (is (= 1 @calls)
+            "handler ran exactly once — once for the well-typed payload, skipped for the bad one")
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations)))
+          (let [v (first violations)]
+            (is (= :event (-> v :tags :where)))
+            (is (= :user/register (-> v :tags :failing-id)))
+            (is (= :user/register (-> v :tags :spec-id)))))))))
+
+(deftest event-payload-validation-elides-when-debug-disabled
+  (testing "validate-event! is a no-op when debug-enabled? is false (production)"
+    (let [calls (atom 0)]
+      (rf/reg-event-db :user/strict
+        {:spec [:cat [:= :user/strict] :int]}
+        (fn [db _] (swap! calls inc) db))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::ev2 (fn [ev] (swap! traces conj ev)))
+        (with-redefs [interop/debug-enabled? false]
+          (rf/dispatch-sync [:user/strict "not-an-int"]))
+        (rf/remove-trace-cb! ::ev2)
+        (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                (:operation %))
+                            @traces))
+            "no validation trace when debug-enabled? is false")
+        (is (= 1 @calls)
+            "handler runs anyway — production validation is elided")))))
+
+;; ---- rf2-wcam — sub-return validation ------------------------------------
+
+(deftest sub-return-validation-fires-and-replaces-with-default
+  (testing "Per Spec 010 §step 6 (rf2-wcam): a sub whose return value fails
+            its :spec emits :rf.error/schema-validation-failure :where :sub-return
+            and the caller sees nil (default :replaced-with-default recovery)"
+    (rf/reg-event-db :items/init (fn [_ _] {:items ["a" "b" "c"]}))
+    (rf/reg-event-db :items/break (fn [db _] (assoc db :items [1 2 3])))
+    (rf/reg-sub :items
+      {:spec [:vector :string]}
+      (fn [db _] (:items db)))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::sr (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:items/init])
+      ;; Well-typed: sub returns the vec.
+      (is (= ["a" "b" "c"] (rf/subscribe-value [:items])))
+      (rf/dispatch-sync [:items/break])
+      ;; Malformed: sub yields nil per :replaced-with-default recovery.
+      (is (nil? (rf/subscribe-value [:items])))
+      (rf/remove-trace-cb! ::sr)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (pos? (count violations))
+            "at least one sub-return validation failure fired")
+        (let [v (first violations)]
+          (is (= :sub-return (-> v :tags :where)))
+          (is (= :items (-> v :tags :sub-id)))
+          (is (= :items (-> v :tags :spec-id)))
+          (is (= :replaced-with-default (:recovery v))))))))
+
+(deftest compute-sub-validates-return-value
+  (testing "compute-sub validates the return against :spec — the pure
+            test-time path mirrors the live reactive path"
+    (rf/reg-sub :nums
+      {:spec [:vector :int]}
+      (fn [db _] (:nums db)))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::cs (fn [ev] (swap! traces conj ev)))
+      (is (= [1 2 3] (#'re-frame.subs/compute-sub [:nums] {:nums [1 2 3]})))
+      (is (nil? (#'re-frame.subs/compute-sub [:nums] {:nums ["bad"]}))
+          "compute-sub yields nil on validation failure")
+      (rf/remove-trace-cb! ::cs)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations))
+            "exactly one trace from the malformed compute-sub call")))))
+
+;; ---- rf2-7leq — cofx validation ------------------------------------------
+
+(deftest cofx-validation-fires-and-skips-handler
+  (testing "Per Spec 010 §step 2 (rf2-7leq): a cofx whose injected value
+            fails its :spec emits :rf.error/schema-validation-failure
+            :where :cofx and the handler is NOT invoked"
+    (rf/reg-cofx :app-version/bad
+      {:spec :string}
+      (fn [ctx]
+        (assoc-in ctx [:coeffects :app-version/bad] 42)))
+    (let [calls (atom 0)]
+      (rf/reg-event-fx :cap/seed
+        [(rf/inject-cofx :app-version/bad)]
+        (fn [_cofx _]
+          (swap! calls inc)
+          {:db {:app-version "should-not-stash"}}))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::cf (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:cap/seed])
+        (rf/remove-trace-cb! ::cf)
+        (is (= 0 @calls)
+            "handler was skipped because the cofx :spec failed")
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations)))
+          (let [v (first violations)]
+            (is (= :cofx (-> v :tags :where)))
+            (is (= :cap/seed (-> v :tags :failing-id)))
+            (is (= :app-version/bad (-> v :tags :cofx-id)))
+            (is (= :app-version/bad (-> v :tags :spec-id)))
+            (is (= :no-recovery (:recovery v)))))))))
+
+(deftest cofx-validation-passes-when-conforming
+  (testing "well-typed cofx values flow through to the handler — no trace, handler runs"
+    (rf/reg-cofx :app-version/well
+      {:spec :string}
+      (fn [ctx]
+        (assoc-in ctx [:coeffects :app-version/well] "1.4.5")))
+    (let [seen-version (atom nil)]
+      (rf/reg-event-fx :cap/seed-good
+        [(rf/inject-cofx :app-version/well)]
+        (fn [cofx _]
+          (reset! seen-version (:app-version/well cofx))
+          {}))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::cf2 (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:cap/seed-good])
+        (rf/remove-trace-cb! ::cf2)
+        (is (= "1.4.5" @seen-version)
+            "handler ran and saw the well-typed cofx value")
+        (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                (:operation %))
+                            @traces))
+            "no schema-validation-failure trace fires for a conforming cofx")))))
+
 ;; ---- error projector → :rf/public-error mapping --------------------------
 
 (defn- default-error-projector

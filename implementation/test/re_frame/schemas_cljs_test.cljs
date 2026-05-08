@@ -83,3 +83,38 @@
                               (:operation %))
                           @traces))
           "no validation-failure traces — every commit conforms"))))
+
+;; ---- rf2-jwm4 — event-payload validation under Reagent -------------------
+;;
+;; Smokes the validate-event! pre-handler wiring (rf2-jwm4) under the
+;; Reagent reactive substrate. The JVM smoke covers the broader pre-
+;; handler / sub-return / cofx contract; this CLJS path locks the
+;; cross-substrate behaviour for at least one of the three new wirings.
+
+(deftest live-dispatch-validates-event-payload-under-reagent
+  (testing "a malformed event payload skips the handler and emits :where :event"
+    (let [calls (atom 0)]
+      (rf/reg-event-db :user/register
+        {:spec [:cat [:= :user/register]
+                     [:map [:email :string] [:age :int]]]}
+        (fn [db _]
+          (swap! calls inc)
+          db))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::cljs-ev (fn [ev] (swap! traces conj ev)))
+        ;; Well-typed payload — handler runs.
+        (rf/dispatch-sync [:user/register {:email "a@b.com" :age 30}])
+        ;; Malformed — handler must NOT run.
+        (rf/dispatch-sync [:user/register {:email "c@d.com" :age "no"}])
+        (rf/remove-trace-cb! ::cljs-ev)
+        (is (= 1 @calls)
+            "handler ran exactly once — the bad payload was rejected pre-handler")
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations))
+              "exactly one schema-validation-failure trace fired under Reagent")
+          (let [v (first violations)]
+            (is (= :event (-> v :tags :where))
+                ":where :event locates the failure at pre-handler validation")
+            (is (= :user/register (-> v :tags :failing-id)))))))))
