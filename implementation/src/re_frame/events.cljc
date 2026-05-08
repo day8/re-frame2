@@ -15,6 +15,43 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
+;; ---- metadata-map mis-use detection (rf2-bbea) ----------------------------
+;;
+;; `reg-event-*`'s middle slot may be a metadata-map (open shape — `:doc`,
+;; `:spec`, `:tags`, ...) OR an interceptor vector. The interceptor chain
+;; lives in the *positional* slot only, NOT inside the metadata-map. Putting
+;; `:interceptors` inside the metadata-map silently drops the chain — which
+;; surfaced via rf2-w3vn (Circle Drawer): `{:interceptors [undoable]}` placed
+;; in the metadata-map disabled undo silently until the typo was spotted.
+;;
+;; Path 1 from rf2-bbea: warn at registration when `:interceptors` appears
+;; inside the metadata-map. The runtime emits a structured trace event
+;; (`:rf.warning/interceptors-in-metadata-map`, per Conventions §Reserved
+;; namespaces — `:rf.warning/*`) that hot-reload tools and 10x can surface.
+
+(defn- warn-interceptors-in-meta!
+  "Emit `:rf.warning/interceptors-in-metadata-map` when `meta` carries the
+  `:interceptors` key. The metadata-map is for reflection (`:doc`, `:spec`,
+  `:tags`, `:platforms`, ...) and the interceptor chain belongs in the
+  positional slot. Returns nil."
+  [reg-fn-name id meta]
+  (when (and (map? meta) (contains? meta :interceptors))
+    (trace/emit! :warning :rf.warning/interceptors-in-metadata-map
+                 {:reg-fn      reg-fn-name
+                  :id          id
+                  :offending-keys [:interceptors]
+                  :reason
+                  (str reg-fn-name " for `" id "` received `:interceptors` "
+                       "inside the metadata-map; `:interceptors` is a "
+                       "positional slot, not metadata. The interceptors are "
+                       "being silently ignored. Move them out of the metadata "
+                       "map and into the third positional argument: "
+                       "`(" reg-fn-name " " id " [icpt1 icpt2] (fn ...))` "
+                       "or `(" reg-fn-name " " id " {:doc \"...\"} "
+                       "[icpt1 icpt2] (fn ...))`.")
+                  :recovery    :ignored}))
+  nil)
+
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per spec/MIGRATION.md §M-8 and Spec-Schemas.md §:rf/effect-map,
@@ -151,6 +188,7 @@
 (defn reg-event-db
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
+        _           (warn-interceptors-in-meta! "reg-event-db" id meta)
         wrapped     (db-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
@@ -163,6 +201,7 @@
 (defn reg-event-fx
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
+        _           (warn-interceptors-in-meta! "reg-event-fx" id meta)
         wrapped     (fx-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
@@ -175,6 +214,7 @@
 (defn reg-event-ctx
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
+        _           (warn-interceptors-in-meta! "reg-event-ctx" id meta)
         wrapped     (ctx-handler->interceptor handler-fn)
         all-chain   (concat interceptors [wrapped])]
     (registrar/register! :event id
