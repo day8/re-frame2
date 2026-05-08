@@ -453,8 +453,12 @@
       (is (vector? sub-runs))
       (is (some #(= :n   (:sub-id %)) sub-runs))
       (is (some #(= :n*2 (:sub-id %)) sub-runs))
-      (is (every? :recomputed?     sub-runs))
-      (is (every? :result-changed? sub-runs)))))
+      (is (every? :recomputed? sub-runs))
+      ;; rf2-7e2y: :result-changed? was structurally always true (only
+      ;; recomputed subs emit :sub/run under rf2-719e value-equality
+      ;; suppression) and has been dropped — every entry must NOT carry
+      ;; the slot.
+      (is (every? #(not (contains? % :result-changed?)) sub-runs)))))
 
 (deftest effects-projection-skipped-on-platform
   (testing ":effects captures :skipped-on-platform outcomes"

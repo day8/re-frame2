@@ -968,10 +968,9 @@ Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used 
    [:trace-events  {:optional true} [:vector :any]]                         ;; the cascade's trace events (raw)
    [:sub-runs      {:optional true} [:vector
                                      [:map
-                                      [:sub-id           :any]
-                                      [:query-v          [:vector :any]]
-                                      [:result-changed?  :boolean]
-                                      [:recomputed?      :boolean]]]]      ;; per-sub activity in this cascade
+                                      [:sub-id      :any]
+                                      [:query-v     [:vector :any]]
+                                      [:recomputed? :boolean]]]]           ;; per-sub activity in this cascade
    [:renders       {:optional true} [:vector
                                      [:map
                                       [:render-key   :any]
@@ -990,7 +989,7 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 **Structured slots are derived from `:trace-events`.** The `:sub-runs`, `:renders`, and `:effects` slots are pre-computed projections of the underlying `:trace-events` stream, surfacing the per-sub / per-render / per-effect activity of the cascade in a shape pair-shaped tools can route off without re-folding the raw trace each time. The legacy `:trace-events` slot remains the raw underpinning; the structured slots derive from it.
 
-- `:sub-runs` — every sub the cascade touched. `:recomputed?` is `false` on a cache hit (the sub was queried but its memoised value reused) and `true` when the sub re-ran. `:result-changed?` reports whether the post-run value differs from the prior cached value. The two together let a tool answer "which subs actually moved this cascade?" without re-deriving from the trace.
+- `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under [Spec 006 §No-op via value equality (rf2-719e)](006-Subscriptions.md), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. (rf2-7e2y dropped a `:result-changed?` slot that was structurally always true under the same semantics — consumers wanting the input-changed-but-value-equal distinction must consume the raw trace until that distinction is wired through as a separate signal.)
 - `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` identifies the rendered unit; **TBD pending rf2-t5tx** — the choice between "the `reg-view` registration id" (coarse) and "a per-component-instance token" (fine) has not been pinned. Tools should treat it as opaque.
 - `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:spawn`, `:destroy-machine`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
 
