@@ -16,23 +16,37 @@
                                  :params [:map [:id :string]]}}
   :fx    {:rf.nav/push-url        {:platforms #{:client}}}}
 
+ ;; The fixture intentionally does NOT override :rf.route/navigate — the
+ ;; runtime's built-in handler (per Spec 012) computes the URL via
+ ;; route-url and emits :rf.nav/push-url, which is exactly what
+ ;; :effects-routed asserts.
  :fixture/handlers
- {:event {:rf/init        [[:set [:route] {:id :route/home :params {}}]]
-          :rf.route/navigate [[:set [:route] {:id [:event-arg 1] :params [:event-arg 2 {}]}]
-                           [:fx :rf.nav/push-url [:route-url [:event-arg 1] [:event-arg 2 {}]]]]}
+ {:event {:rf/init [[:set [:route] {:id :route/home :params {}}]]}
   :sub   {:route [[:get [:route]]]}
   :fx    {:rf.nav/push-url [[:noop]]}}
 
- :fixture/frame-config {:on-create [:rf/init]}
+ ;; :rf.nav/push-url declares :platforms #{:client}; the frame runs on the
+ ;; client platform so the fx is actually routed (per Spec 002 §`:platforms`
+ ;; gating on reg-fx).
+ :fixture/frame-config {:on-create [:rf/init] :platform :client}
 
  :fixture/dispatches
  [[:rf.route/navigate :route/articles]
   [:rf.route/navigate :route/article-detail {:id "intro"}]]
 
  :fixture/expect
+ ;; The runtime's :rf.route/navigate handler writes the canonical slice
+ ;; (per Spec 012 §Route slice shape): :id, :params, :query, :transition,
+ ;; :error. The :final-app-db submap match tolerates the additional keys;
+ ;; the :sub-values check is exact, so the expected slice mirrors what
+ ;; the runtime writes.
  {:final-app-db {:route {:id :route/article-detail :params {:id "intro"}}}
 
-  :sub-values   {[:route] {:id :route/article-detail :params {:id "intro"}}}
+  :sub-values   {[:route] {:id         :route/article-detail
+                           :params     {:id "intro"}
+                           :query      {}
+                           :transition :idle
+                           :error      nil}}
 
   :effects-routed
   [{:fx-id :rf.nav/push-url :args "/articles"}

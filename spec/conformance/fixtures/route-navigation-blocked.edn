@@ -40,6 +40,11 @@
                        ;; (Built-in :not.)
                        [:fn :not]]}}
 
+ ;; Per Spec 012: :rf.nav/push-url declares :platforms #{:client}, so the
+ ;; frame must run on the client platform for the effects-routed assertion
+ ;; on the resumed navigation to match.
+ :fixture/frame-config {:platform :client}
+
  :fixture/dispatches
  [;; Step 1: Navigate to /editor/articles/A. nav-token allocates; route lands.
   [:rf/url-changed "/editor/articles/A"]
