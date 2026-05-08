@@ -37,14 +37,58 @@
 
 (defn- seed-snapshot!
   "Force the snapshot for `machine-id` to a known value via an event-db.
-  Used to position machines at a specific state without relying on the
-  runtime's first-dispatch initial-cascade behaviour (which doesn't
-  auto-descend through compound :initial chains)."
+  Used to *reposition* a machine to a non-initial state mid-test (e.g. to
+  exercise a different leaf without rebuilding the whole machine).
+  The first-dispatch path no longer needs this: `create-machine-handler`
+  cascades the declared `:initial` to a leaf path via `initial-cascade`,
+  so a fresh `(rf/reg-machine ...)` followed by a real event dispatches
+  against the correct compound leaf — see rf2-m1tv."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
     (rf/reg-event-db seed-id
       (fn [db _] (assoc-in db [:rf/machines machine-id] snap)))
     (rf/dispatch-sync [seed-id])))
+
+;; ---- (0) initial-cascade on first dispatch (rf2-m1tv) ---------------------
+;; Per Spec 005 §Initial-state cascading: when a machine is first
+;; instantiated and its declared :initial lands on a compound state, the
+;; runtime descends the :initial chain to a leaf path. Without this, the
+;; first event resolves against the wrong state-node level.
+
+(deftest machine-initial-cascade-on-first-dispatch
+  (testing "compound :initial chain descends to a leaf on first-dispatch snapshot synthesis (rf2-m1tv)"
+    (let [machine
+          {:initial :foo
+           :data    {}
+           :states
+           {:foo {:initial :bar
+                  :states
+                  {:bar {:on {:go :baz}}
+                   :baz {}}}}}]
+      (rf/reg-machine :rf2-m1tv/flow machine)
+      ;; First event: the runtime synthesises the initial snapshot, which
+      ;; MUST cascade :foo → :bar to a leaf path. The :go transition is
+      ;; declared on :bar, so resolving against the synthesised initial
+      ;; snapshot only fires if :state is [:foo :bar].
+      (rf/dispatch-sync [:rf2-m1tv/flow [:go]])
+      (is (= [:foo :baz] (:state (snapshot :rf2-m1tv/flow)))
+          "first-dispatch initial-cascade landed at the leaf and the :go transition fired")))
+
+  (testing "deeper compound :initial chain (three levels) cascades to leaf"
+    (let [machine
+          {:initial :a
+           :data    {}
+           :states
+           {:a {:initial :b
+                :states
+                {:b {:initial :c
+                     :states
+                     {:c {:on {:next :d}}
+                      :d {}}}}}}}]
+      (rf/reg-machine :rf2-m1tv/deep machine)
+      (rf/dispatch-sync [:rf2-m1tv/deep [:next]])
+      (is (= [:a :b :d] (:state (snapshot :rf2-m1tv/deep)))
+          ":initial chain a→b→c cascaded to leaf; :next transition resolved at :c"))))
 
 ;; ---- (1) hierarchical -----------------------------------------------------
 ;; Mirrors hierarchical-compound-transition.edn (sibling-leaf transition,
@@ -77,10 +121,10 @@
                           :exit  :exit-set
                           :on    {:close :dashboard}}}}}}]
       (rf/reg-machine :auth/flow machine)
-      ;; Position the machine at the deepest leaf for a deterministic
-      ;; starting point.
-      (seed-snapshot! :auth/flow {:state [:authenticated :dashboard] :data {}})
-      (is (= [:authenticated :dashboard] (:state (snapshot :auth/flow))))
+      ;; The runtime cascades the declared :initial through compound
+      ;; :initial chains on first-snapshot synthesis (rf2-m1tv), so the
+      ;; first event dispatches against the deepest leaf without us
+      ;; having to seed the snapshot manually.
       (reset! log [])
       ;; Sibling-leaf transition. LCA is :authenticated; only the leaf
       ;; exit/entry hooks fire — the parent's :enter-auth must NOT re-fire.
@@ -106,7 +150,7 @@
              {:dashboard {}                                ;; no :help handler
               :settings  {:on {:help {:action :leaf-help}}}}}}}]
       (rf/reg-machine :auth2/flow machine)
-      (seed-snapshot! :auth2/flow {:state [:authenticated :dashboard] :data {}})
+      ;; Initial cascade lands at [:authenticated :dashboard] without seeding.
       ;; Case 1: leaf has no :help — parent fallthrough.
       (reset! log [])
       (rf/dispatch-sync [:auth2/flow [:help]])
@@ -142,7 +186,8 @@
             :winner {}
             :loser  {}}}]
       (rf/reg-machine :quiz/flow machine)
-      (seed-snapshot! :quiz/flow {:state :asking :data {:correct-count 9}})
+      ;; Initial state :asking with :data {:correct-count 9} synthesised
+      ;; on first dispatch — no seed needed.
       ;; Pre-condition: count is 9; one :answer-correct ticks to 10; :always
       ;; guard becomes true; microstep transitions to :winner.
       (rf/dispatch-sync [:quiz/flow [:answer-correct]])
@@ -166,7 +211,6 @@
                      :on     {:answer-correct {:action :count}}}
             :winner {}}}]
       (rf/reg-machine :quiz2/flow machine)
-      (seed-snapshot! :quiz2/flow {:state :asking :data {:correct-count 5}})
       (rf/dispatch-sync [:quiz2/flow [:answer-correct]])
       (let [s (snapshot :quiz2/flow)]
         (is (= :asking (:state s))
@@ -189,7 +233,6 @@
             :b     {:always [{:guard :p? :target :a}]}}}
           traces (atom [])]
       (rf/reg-machine :osc/flow machine)
-      (seed-snapshot! :osc/flow {:state :start :data {}})
       (rf/register-trace-cb! ::osc (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:osc/flow [:go]])
       (rf/remove-trace-cb! ::osc)
@@ -225,7 +268,6 @@
             :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :http/flow machine)
-      (seed-snapshot! :http/flow {:state :idle :data {:rf/after-epoch 0}})
       (rf/register-trace-cb! ::after (fn [ev] (swap! traces conj ev)))
       ;; Step 1 — enter :loading; timer schedules at epoch 1.
       (rf/dispatch-sync [:http/flow [:fetch]])
@@ -267,7 +309,6 @@
             :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :http2/flow machine)
-      (seed-snapshot! :http2/flow {:state :idle :data {:rf/after-epoch 0}})
       ;; Enter :loading — epoch advances to 1.
       (rf/dispatch-sync [:http2/flow [:fetch]])
       (is (= :loading (:state (snapshot :http2/flow))))
@@ -278,12 +319,11 @@
       (rf/dispatch-sync [:http2/flow [:loaded]])
       (is (= :ready (:state (snapshot :http2/flow))))
       (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch])))
-      ;; Now the stale timer fires. The user-visible correctness property
-      ;; per Spec 005 §Epoch-based stale detection is: the stale firing
-      ;; MUST NOT cause a transition. (Whether the runtime additionally
-      ;; emits :rf.machine.timer/stale-after when the snapshot has already
-      ;; left the after-bearing state is a trace-surface concern; not
-      ;; asserted here.)
+      ;; Now the stale timer fires. Per Spec 005 §Epoch-based stale
+      ;; detection: (a) the stale firing MUST NOT cause a transition, and
+      ;; (b) the runtime emits :rf.machine.timer/stale-after as the
+      ;; canonical signal so observers can distinguish "suppressed stale
+      ;; firing" from "no firing at all" (rf2-7urp).
       (rf/register-trace-cb! ::stale (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:http2/flow [:rf.machine.timer/after-elapsed 5000 1]])
       (rf/remove-trace-cb! ::stale)
@@ -291,6 +331,15 @@
           "stale timer must not fire its transition")
       (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch]))
           "stale firing does not bump epoch")
+      ;; Per rf2-7urp: the stale-after trace must emit even though the
+      ;; current state (:ready) no longer carries an :after table.
+      (is (some (fn [ev]
+                  (and (= :rf.machine.timer/stale-after (:operation ev))
+                       (= 5000 (:delay (:tags ev)))
+                       (= 1    (:scheduled-epoch (:tags ev)))
+                       (= 2    (:current-epoch (:tags ev)))))
+                @traces)
+          "expected :rf.machine.timer/stale-after trace on the stale firing")
       ;; Negative assertion: no machine-transition trace shows a state-change
       ;; from :loading on the stale firing.
       (is (not-any? (fn [ev]
@@ -336,9 +385,8 @@
             :authenticated {}}}
           traces (atom [])]
       (rf/reg-machine :auth3/flow machine)
-      (seed-snapshot! :auth3/flow
-                      {:state :idle
-                       :data  {:credentials {:user "alice" :pass "secret"}}})
+      ;; Initial state :idle with the credentials fixture data is
+      ;; synthesised on first dispatch; no seed required.
       ;; Entering :authenticating: :spawn fx fires (→ :rf.machine/spawned
       ;; trace), :on-spawn callback records the deterministic actor id
       ;; into :data.:pending.

@@ -185,13 +185,31 @@
   path leaf→root for an :after table at that delay. If the carried
   epoch matches the snapshot's current :rf/after-epoch, return the
   transition. Otherwise return :stale (so the caller can emit
-  :rf.machine.timer/stale-after)."
+  :rf.machine.timer/stale-after).
+
+  When no :after table is found at any level along the current path,
+  the synthetic timer event was carried from a state the machine has
+  since exited. Per Spec 005 §Epoch-based stale detection — any
+  non-matching epoch on a synthetic timer event is a stale carry by
+  definition — return :stale so the caller emits
+  :rf.machine.timer/stale-after. Matching epochs with no table are
+  treated as a no-op (return nil): nothing to fire, and the epoch
+  invariant says the timer wasn't really stale either."
   [machine path event snapshot]
   (let [[_ delay carried-epoch] event
         current-epoch (get-in snapshot [:data :rf/after-epoch])]
     (loop [i (dec (count path))]
       (if (neg? i)
-        nil
+        ;; No :after table found anywhere along the path — the timer was
+        ;; scheduled by an :after-bearing state we've since exited. If the
+        ;; epoch doesn't match, surface it as stale; if it does match, the
+        ;; carry is benign and we suppress silently.
+        (when (not= carried-epoch current-epoch)
+          {:stale?          true
+           :state           (last path)
+           :delay           delay
+           :scheduled-epoch carried-epoch
+           :current-epoch   current-epoch})
         (let [prefix (vec (take (inc i) path))
               n      (node-at machine prefix)
               t      (get-in n [:after delay])]
@@ -625,7 +643,16 @@
           ;; allocation (frame-scoped per Spec 002) gets the right key.
           machine    (assoc machine :rf/frame (or frame :rf/default))
           path       (snapshot-path machine-id)
-          initial    {:state (:initial machine) :data (or (:data machine) {})}
+          ;; Per Spec 005 §Initial-state cascading: when the snapshot is
+          ;; first synthesised, descend the declared :initial through any
+          ;; compound state's :initial chain to a leaf path. Without this,
+          ;; a machine declared {:initial :foo :states {:foo {:initial :bar
+          ;; :states {:bar {} :baz {}}}}} would land at :state :foo and
+          ;; subsequent transitions resolve against the wrong path.
+          initial-decl  (:initial machine)
+          initial-path  (initial-cascade machine (state-path initial-decl))
+          initial-state (denormalise-state initial-path initial-decl)
+          initial    {:state initial-state :data (or (:data machine) {})}
           snapshot   (or (get-in db path) initial)
           ;; Sub-event routing per Spec 005 §Registration. The outer
           ;; event is [:machine-id <inner-event> & extra-args]. Extra
