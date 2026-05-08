@@ -75,7 +75,7 @@
      :data    {:error nil}
      :guards
      {:has-token?
-      (fn [_snapshot [_ token]]
+      (fn [_data [_ token]]
         (not (str/blank? token)))}
      :actions
      {:clear-error

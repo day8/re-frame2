@@ -295,16 +295,17 @@
      {:has-todos?
       ;; Only allow archive if there is at least one todo to freeze.
       ;; Named — a non-trivial guard reading two slices of app-db.
-      (fn guard-has-todos? [_snapshot _event]
-        ;; The machine sees its own snapshot's :data; for cross-slice guards
-        ;; we typically pass the predicate result IN via the event payload.
-        ;; Here the event itself carries the count.
+      (fn guard-has-todos? [_data _event]
+        ;; The machine's 2-arity sees `data` (the snapshot's :data slot)
+        ;; directly. For cross-slice guards we typically pass the predicate
+        ;; result IN via the event payload. Here the event itself carries
+        ;; the count.
         true)}
 
      :actions
      {:stamp-archived
       ;; Mark the moment of archival in the machine's :data. Inspectable.
-      (fn action-stamp-archived [_snapshot [_ {:keys [now]}]]
+      (fn action-stamp-archived [_data [_ {:keys [now]}]]
         {:data {:archived-at (or now 0)}})}
 
      :states
