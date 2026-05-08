@@ -35,5 +35,7 @@
   :final-app-db {:count 43 :user {:id "u-1" :name "Hydrated"}}
   :sub-values   {[:count] 43 [:user] {:id "u-1" :name "Hydrated"}}
   :trace-emissions
-  [{:operation :event :tags {:event-id :rf/hydrate :source :ssr-hydration}}
+  ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
+  ;; not a key inside :tags.
+  [{:operation :event :source :ssr-hydration :tags {:event-id :rf/hydrate}}
    {:operation :event :tags {:event-id :counter/inc}}]}}

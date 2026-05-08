@@ -63,15 +63,14 @@
   (when interop/debug-enabled?
     (let [source   (:source tags)
           recovery (:recovery tags)
-          ;; :source and :recovery are mirrored at the top level (per
-          ;; Spec 009 §Core fields) AND retained in :tags so consumers
-          ;; using either shape see them. Different fixtures expect
-          ;; different shapes.
+          ;; Per Spec 009 §Required top-level fields: :source and
+          ;; :recovery (when present) live at the top level of the
+          ;; trace event, NOT inside :tags. Hoist them here.
           event    (cond-> {:operation operation
                             :op-type   op
                             :id        (next-event-id)
                             :time      (interop/now-ms)
-                            :tags      tags}
+                            :tags      (dissoc tags :source :recovery)}
                      source   (assoc :source source)
                      recovery (assoc :recovery recovery))]
       (doseq [[_ f] @listeners]

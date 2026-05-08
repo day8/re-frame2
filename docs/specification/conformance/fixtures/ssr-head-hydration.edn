@@ -50,8 +50,10 @@
    :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
 
   ;; Importantly: NO :rf.warning/head-mismatch trace.
+  ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
+  ;; not a key inside :tags.
   :trace-emissions
-  [{:operation :event :tags {:event-id :rf/hydrate :source :ssr-hydration}}]
+  [{:operation :event :source :ssr-hydration :tags {:event-id :rf/hydrate}}]
 
   :trace-not-emitted
   [{:operation :rf.warning/head-mismatch}]}}
