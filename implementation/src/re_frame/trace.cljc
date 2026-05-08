@@ -46,6 +46,105 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
+;; ---- retain-N trace ring buffer (dev-only) -------------------------------
+;;
+;; Per Spec 009 §Retain-N trace ring buffer. Holds the most recent N completed
+;; trace events; queryable via (trace-buffer). All ring-buffer machinery is
+;; gated on interop/debug-enabled? (the same compile-time flag the rest of the
+;; trace surface rides) so production builds drop the buffer entirely — no
+;; allocation, no append, no storage.
+
+(def ^:private default-buffer-depth
+  "Per Spec 009 §Retain-N trace ring buffer: default 200 events."
+  200)
+
+(defonce ^:private buffer-depth (atom default-buffer-depth))
+
+(defonce ^:private trace-buffer-state
+  ;; The buffer is a plain vector held under an atom. Append is conj+slice;
+  ;; the slot count caps memory. depth=0 disables the buffer entirely (the
+  ;; delivery path still works — see configure-trace-buffer!).
+  (atom []))
+
+(defn- push-to-buffer!
+  "Append ev to the ring buffer, evicting the oldest entry when the slot
+  count is exceeded. No-op when the configured depth is 0."
+  [ev]
+  (when interop/debug-enabled?
+    (let [depth @buffer-depth]
+      (when (pos? depth)
+        (swap! trace-buffer-state
+               (fn [v]
+                 (let [v' (conj v ev)
+                       n  (count v')]
+                   (if (> n depth)
+                     (subvec v' (- n depth))
+                     v'))))))))
+
+(defn trace-buffer
+  "Return the trace ring buffer's current contents, oldest first.
+
+  With opts, filters the result. Recognised keys:
+    :operation  — keep only events with this :operation value.
+    :op-type    — keep only events with this :op-type value.
+    :since      — keep only events whose :id is strictly greater than this.
+    :frame      — keep only events whose :tags :frame matches.
+
+  Filters compose: every supplied key must match. Returns an empty vector
+  in production (the buffer never receives events when interop/debug-enabled?
+  is false at compile time).
+
+  Per Spec 009 §Retain-N trace ring buffer."
+  ([] (trace-buffer {}))
+  ([opts]
+   (if-not interop/debug-enabled?
+     []
+     (let [{:keys [operation op-type since frame]} opts
+           pred (fn [ev]
+                  (and (or (nil? operation) (= operation (:operation ev)))
+                       (or (nil? op-type)   (= op-type   (:op-type ev)))
+                       (or (nil? since)     (and (number? (:id ev))
+                                                 (> (:id ev) since)))
+                       (or (nil? frame)
+                           (= frame (or (:frame ev)
+                                        (get-in ev [:tags :frame]))))))]
+       (filterv pred @trace-buffer-state)))))
+
+(defn clear-trace-buffer!
+  "Empty the ring buffer. Tooling uses this between sessions. No-op in
+  production. Per Spec 009 §Retain-N trace ring buffer."
+  []
+  (when interop/debug-enabled?
+    (reset! trace-buffer-state []))
+  nil)
+
+(defn configure-trace-buffer!
+  "Set the ring buffer's depth. depth=0 disables the buffer (the delivery
+  path still works). The new depth applies on the next append; existing
+  entries are trimmed to fit immediately. No-op in production.
+
+  Per Spec 009 §Retain-N trace ring buffer."
+  [{:keys [depth]}]
+  (when (and interop/debug-enabled? (number? depth) (not (neg? depth)))
+    (reset! buffer-depth depth)
+    (swap! trace-buffer-state
+           (fn [v]
+             (let [n (count v)]
+               (cond
+                 (zero? depth) []
+                 (> n depth)   (subvec v (- n depth))
+                 :else         v)))))
+  nil)
+
+(defn configure
+  "Generic config dispatch. Recognises :trace-buffer; future config knobs
+  add cases here. Per Spec 009 §Retain-N trace ring buffer
+  (`(rf/configure :trace-buffer {:depth N})`)."
+  [k opts]
+  (case k
+    :trace-buffer (configure-trace-buffer! opts)
+    nil))
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn emit!
@@ -74,6 +173,7 @@
                             :tags      (dissoc tags :source :recovery)}
                      source   (assoc :source source)
                      recovery (assoc :recovery recovery))]
+      (push-to-buffer! event)
       (doseq [[_ f] @listeners]
         (try
           (f event)
@@ -95,6 +195,7 @@
                  :time      (interop/now-ms)
                  :tags      (merge {:category error-operation} tags)
                  :recovery  (:recovery tags :no-recovery)}]
+      (push-to-buffer! event)
       (doseq [[_ f] @listeners]
         (try
           (f event)

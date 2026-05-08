@@ -240,9 +240,12 @@
 
 ;; ---- trace ----------------------------------------------------------------
 
-(def register-trace-cb! trace/register-trace-cb!)
-(def remove-trace-cb!   trace/remove-trace-cb!)
-(def emit-trace!        trace/emit!)
+(def register-trace-cb!  trace/register-trace-cb!)
+(def remove-trace-cb!    trace/remove-trace-cb!)
+(def emit-trace!         trace/emit!)
+(def trace-buffer        trace/trace-buffer)
+(def clear-trace-buffer! trace/clear-trace-buffer!)
+(def configure           trace/configure)
 
 ;; ---- substrate adapter ----------------------------------------------------
 
