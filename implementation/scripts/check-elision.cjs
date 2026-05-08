@@ -73,7 +73,18 @@ const DEV_ONLY_SENTINELS = [
   // correlation).  Emitted via trace/emit! whose body is gated; the
   // operation keyword should not survive.
   { source: 're-frame.router/emit-dispatched-trace! (event/dispatched)',
-    sentinel: 'event/dispatched' }
+    sentinel: 'event/dispatched' },
+  // re-frame.http-managed — :rf.http/retry-attempt trace op (Spec 014
+  // §Retry and backoff). Emitted from `(when interop/debug-enabled? ...)`
+  // branches in maybe-retry! / maybe-retry-jvm!. Both transports' emit
+  // sites must elide; the keyword's string fragment should not survive.
+  { source: 're-frame.http-managed/maybe-retry! (rf.http/retry-attempt)',
+    sentinel: 'rf.http/retry-attempt' },
+  // re-frame.http-managed — :rf.warning/decode-defaulted trace op (Spec
+  // 014 §:auto). Emitted only when the user did NOT supply :decode AND
+  // interop/debug-enabled?. The string fragment must elide in production.
+  { source: 're-frame.http-managed/maybe-emit-decode-defaulted! (rf.warning/decode-defaulted)',
+    sentinel: 'rf.warning/decode-defaulted' }
 ];
 
 // ----- helpers ---------------------------------------------------------------
