@@ -12,7 +12,9 @@
    - `:rf.route/id` and `:rf.route/params` for route reads
    - `:rf/url-requested` for user-initiated anchor clicks"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.views]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -170,10 +172,15 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce root
+;; The React root is named `react-root` (not `root`) so it does NOT
+;; collide with the local Var that `(reg-view :app/root ...)` defs:
+;; `(name :app/root)` is "root", and that latter `def` would otherwise
+;; overwrite the React root with the view fn.
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:app/initialise])
   (install-router!)
-  (rdc/render root [root-view]))
+  (rdc/render react-root [root-view]))

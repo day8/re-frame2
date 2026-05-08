@@ -21,7 +21,9 @@
    - Layered subs for derived progress %                   (CP-2)
    - Controlled-input slider via dispatch on change       (CP-4)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.views]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def TICK-MS 100)
@@ -48,7 +50,7 @@
     {:db (assoc db :timer {:elapsed-ms   0
                            :duration-ms  10000
                            :tick-active? true})
-     :fx [[:dispatch-later {:ms TICK-MS :dispatch [:timer/tick]}]]}))
+     :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]]}))
 
 (rf/reg-event-fx :timer/tick
   {:doc "Advance elapsed by one tick. Schedules the next tick if still ticking."}
@@ -59,7 +61,7 @@
       (cond-> {:db (assoc-in db [:timer :elapsed-ms] next-elapsed)}
         ;; Continue ticking while not done and tick still active.
         (and tick-active? (not done?))
-        (assoc :fx [[:dispatch-later {:ms TICK-MS :dispatch [:timer/tick]}]])))))
+        (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]])))))
 
 (rf/reg-event-db :timer/set-duration
   {:doc "User dragged the slider."
@@ -76,7 +78,7 @@
                        (assoc-in [:timer :tick-active?] true))}
         ;; If the tick had previously stopped (because we hit duration), re-start it.
         (not tick-was-active?)
-        (assoc :fx [[:dispatch-later {:ms TICK-MS :dispatch [:timer/tick]}]])))))
+        (assoc :fx [[:dispatch-later {:ms TICK-MS :event [:timer/tick]}]])))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -163,4 +165,6 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:timer/initialise])
   (rdc/render root [timer-view]))

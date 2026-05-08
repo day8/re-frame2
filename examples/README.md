@@ -23,7 +23,7 @@ Each example carries one of three maturity tags. New readers should pick example
 | [`login/`](login/) | Pedagogical sketch | Single-feature scaffold — events + subs + views + machine + tests, all in one file, for a typical login flow. |
 | [`routing/`](routing/) | Pedagogical sketch | Three-page app demonstrating `reg-route`, `:rf.route/navigate`, and route-not-found handling. The CP-7 worked example. |
 | [`ssr/`](ssr/) | Pedagogical sketch | Minimal SSR + hydration walkthrough. The CP-9 worked example. JVM-runnable. |
-| [`7guis/`](7guis/README.md) | Benchmark | The full [7GUIs](https://eugenkiss.github.io/7guis/) cross-framework UI benchmark — counter, temperature converter, flight booker, timer, CRUD, circle drawer, cells. Exhaustive demonstration that the pattern's primitives compose across difficulty levels. |
+| [`seven_guis/`](seven_guis/README.md) | Benchmark | The full [7GUIs](https://eugenkiss.github.io/7guis/) cross-framework UI benchmark — counter, temperature converter, flight booker, timer, CRUD, circle drawer, cells. Exhaustive demonstration that the pattern's primitives compose across difficulty levels. |
 | [`nine_states/`](nine_states/README.md) | Benchmark | The nine canonical UI states (nothing / loading / empty / one / some / too many / incorrect / correct / done) for a single domain. Pedagogically exhaustive. |
 | [`realworld/`](realworld/README.md) | Worked scaffold | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
 
@@ -34,7 +34,7 @@ If you've finished the guide and want to see code:
 1. **Start with [`counter/`](counter/)** — the smallest possible app. Establishes the basic shape.
 2. **Then [`login/`](login/)** — adds a state machine, async effects, and form handling. Single-feature scope; full shape.
 3. **Then [`routing/`](routing/)** or [`ssr/`](ssr/)** — pick whichever is closer to your interest.
-4. **Then [`7guis/`](7guis/)** — survey of the pattern across many UI shapes.
+4. **Then [`seven_guis/`](seven_guis/)** — survey of the pattern across many UI shapes.
 5. **Then [`realworld/`](realworld/)** — substantial-app shape across the widest surface in the repo.
 
 ## What examples are *not*

@@ -5,14 +5,14 @@
 | # | Task | Demonstrates | File |
 |---|---|---|---|
 | 1 | Counter | Smallest possible app: events, subs, view | [`../counter/core.cljs`](../counter/core.cljs) |
-| 2 | Temperature Converter | Bidirectional derivations; one source of truth | [`02_temperature.cljs`](02_temperature.cljs) |
-| 3 | Flight Booker | Form validation; layered subs deriving the Book button's enabled-state | [`03_flight_booker.cljs`](03_flight_booker.cljs) |
-| 4 | Timer | `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time | [`04_timer.cljs`](04_timer.cljs) |
-| 5 | CRUD | List operations (add/update/delete); selection-as-state; derived filtered list | [`05_crud.cljs`](05_crud.cljs) |
-| 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`06_circle_drawer.cljs`](06_circle_drawer.cljs) |
-| 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`07_cells.cljs`](07_cells.cljs) |
+| 2 | Temperature Converter | Bidirectional derivations; one source of truth | [`temperature.cljs`](temperature.cljs) |
+| 3 | Flight Booker | Form validation; layered subs deriving the Book button's enabled-state | [`flight_booker.cljs`](flight_booker.cljs) |
+| 4 | Timer | `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time | [`timer.cljs`](timer.cljs) |
+| 5 | CRUD | List operations (add/update/delete); selection-as-state; derived filtered list | [`crud.cljs`](crud.cljs) |
+| 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`circle_drawer.cljs`](circle_drawer.cljs) |
+| 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`cells.cljs`](cells.cljs) |
 
-Each example is single-file (no shadow-cljs.edn, no package.json, no HTML scaffolding) and demonstrates the current re-frame2 API. Together they exercise the construction prompts (CP-1..CP-9) and validate that the pattern's primitives compose into real UI work.
+Each example is a single CLJS source file plus a thin HTML host page. The shadow-cljs build targets (in `implementation/shadow-cljs.edn`) and the Playwright smoke specs (in `examples/playwright/`) wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
 
 ## How these compare to the original 7GUIs reference
 
