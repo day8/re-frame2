@@ -42,12 +42,14 @@
      require porting the testable parts to .cljc.
 
    Layout follows the single-file style of `examples/login/core.cljs`
-   and `examples/7guis/06_circle_drawer.cljs`. In a real codebase this
+   and `examples/seven_guis/circle_drawer.cljs`. In a real codebase this
    would split per CP-6 conventions across schema / events / subs /
    views / machines / tests files."
   (:require [cljs.test :refer-macros [is]]
             [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.views]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -690,11 +692,17 @@
 ;; harnesses, JVM). The pure run-all-tests fn at line 670 runs in any
 ;; CLJS host without touching React.
 
-(defonce root
+;; The React root is named `react-root` (not `root`) so it does NOT
+;; collide with the local Var `root` that `reg-view :ui.view/root`
+;; auto-defs. (`(name :ui.view/root)` is "root" — without renaming the
+;; mount point, the latter `def` overwrites the React root with the
+;; view fn, and at run time `root.render` is undefined.)
+(defonce react-root
   (when (exists? js/document)
     (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:app/initialise])
-  (when root
-    (rdc/render root [root-view])))
+  (when react-root
+    (rdc/render react-root [root-view])))

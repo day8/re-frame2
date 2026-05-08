@@ -1042,16 +1042,16 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ## Worked examples (each prompt, in action)
 
-The [7GUIs example series](../../examples/7guis/README.md) and the [login example](../../examples/login/core.cljs) demonstrate every prompt in working code:
+The [7GUIs example series](../../examples/seven_guis/README.md) and the [login example](../../examples/login/core.cljs) demonstrate every prompt in working code (see also [`examples/playwright/`](../../examples/playwright/) for the in-browser smoke specs):
 
 | Prompt | Example |
 |---|---|
-| CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../../examples/7guis/03_flight_booker.cljs) and the undo events in [Circle Drawer](../../examples/7guis/06_circle_drawer.cljs) |
-| CP-2 (subscription) | [Temperature Converter](../../examples/7guis/02_temperature.cljs) shows `:<-` chains; [Flight Booker](../../examples/7guis/03_flight_booker.cljs) shows multi-input chains for derived enabled-state |
-| CP-3 (registered fx) | [Login](../../examples/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../../examples/7guis/04_timer.cljs) shows `:dispatch-later`; [Flight Booker](../../examples/7guis/03_flight_booker.cljs) shows a custom `:notify` fx |
+| CP-1 (event handler) | All examples; especially the bookkeeping events in [Flight Booker](../../examples/seven_guis/flight_booker.cljs) and the undo events in [Circle Drawer](../../examples/seven_guis/circle_drawer.cljs) |
+| CP-2 (subscription) | [Temperature Converter](../../examples/seven_guis/temperature.cljs) shows `:<-` chains; [Flight Booker](../../examples/seven_guis/flight_booker.cljs) shows multi-input chains for derived enabled-state |
+| CP-3 (registered fx) | [Login](../../examples/login/core.cljs) shows `:platforms` metadata + a stub fx for tests; [Timer](../../examples/seven_guis/timer.cljs) shows `:dispatch-later`; [Flight Booker](../../examples/seven_guis/flight_booker.cljs) shows a custom `:notify` fx |
 | CP-4 (registered view) | All examples use Var-reference Form-1 (canonical) |
 | CP-5 (state machine) | [Login](../../examples/login/core.cljs) — full transition table with guards, actions, terminal states |
 | CP-6 (feature scaffold) | [Login](../../examples/login/core.cljs) is a full feature: schema + events + subs + views + machine + tests |
 | CP-7 (route) | [Routing example](../../examples/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
-| CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../../examples/login/core.cljs) and [Flight Booker](../../examples/7guis/03_flight_booker.cljs) also attach event schemas |
+| CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../../examples/login/core.cljs) and [Flight Booker](../../examples/seven_guis/flight_booker.cljs) also attach event schemas |
 | CP-9 (SSR setup) | [SSR example](../../examples/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |

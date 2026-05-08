@@ -77,4 +77,4 @@ The headless test suite runs JVM-side:
 - [`docs/specification/Pattern-Forms.md`](../../docs/specification/Pattern-Forms.md) — the form lifecycle that drives the Incorrect / Correct states.
 - [`docs/specification/Pattern-NineStates.md`](../../docs/specification/Pattern-NineStates.md) — the page-level convention this example instantiates directly.
 - [`docs/specification/005-StateMachines.md`](../../docs/specification/005-StateMachines.md) — the machine grammar and `[:rf/machines <id>]` snapshot location used for the Done state.
-- [`examples/login/core.cljs`](../login/core.cljs) and [`examples/7guis/06_circle_drawer.cljs`](../7guis/06_circle_drawer.cljs) — single-file style this example follows.
+- [`examples/login/core.cljs`](../login/core.cljs) and [`examples/seven_guis/circle_drawer.cljs`](../seven_guis/circle_drawer.cljs) — single-file style this example follows.

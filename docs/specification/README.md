@@ -89,7 +89,7 @@ Worked examples:
 
 | Title | Type | One-liner |
 |---|---|---|
-| [Worked examples](../../examples/) | Reference | The [7GUIs series](../../examples/7guis/README.md), a [login feature](../../examples/login/core.cljs), the [Nine States of UI](../../examples/nine_states/README.md) pedagogical exhaustive-states demo, and a [RealWorld (Conduit)](../../examples/realworld/README.md) cross-framework benchmark app. Demonstrates every construction prompt in working code. |
+| [Worked examples](../../examples/) | Reference | The [7GUIs series](../../examples/seven_guis/README.md), a [login feature](../../examples/login/core.cljs), the [Nine States of UI](../../examples/nine_states/README.md) pedagogical exhaustive-states demo, and a [RealWorld (Conduit)](../../examples/realworld/README.md) cross-framework benchmark app. Demonstrates every construction prompt in working code. |
 
 ## Reading paths
 

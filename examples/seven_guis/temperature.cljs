@@ -19,7 +19,9 @@
    - Pure derivation in subs (Celsius ↔ Fahrenheit)        (CP-2)
    - Schema-bound app-db slice                            (CP-8)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.views]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -67,7 +69,7 @@
          conversion happens here so the rest of the app reads from one path."}
   (fn handler-temp-edit-fahrenheit [db [_ raw]]
     (let [f (parse-num raw)
-          c (when f (* (- f 32) 5/9))]
+          c (when f (* (- f 32) (/ 5.0 9.0)))]
       (assoc db :temp {:celsius      c
                        :input-source :fahrenheit
                        :typing       raw}))))
@@ -112,7 +114,7 @@
   (fn sub-temp-fahrenheit-text [[active typing c] _]
     (case active
       :fahrenheit  typing
-      :celsius     (when c (.toFixed (+ (* c 9/5) 32) 2)))))
+      :celsius     (when c (.toFixed (+ (* c (/ 9.0 5.0)) 32) 2)))))
 
 ;; ============================================================================
 ;; VIEW
@@ -170,4 +172,6 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:temp/initialise])
   (rdc/render root [temperature-converter]))

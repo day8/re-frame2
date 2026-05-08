@@ -55,4 +55,54 @@
    :output-dir       "out/elision-probe-control"
    :asset-path       "/elision-probe-control"
    :compiler-options {:closure-defines {goog.DEBUG true}}
-   :modules          {:probe {:init-fn re-frame.elision-probe/run}}}}}
+   :modules          {:probe {:init-fn re-frame.elision-probe/run}}}
+
+  ;; ============================================================================
+  ;; Example apps (rf2-lyj0).
+  ;;
+  ;; Each example compiles into out/examples/<name>/ and is paired with a
+  ;; hand-written examples/<name>/index.html host page that loads main.js
+  ;; from the same directory. The serve-and-run-examples script builds the
+  ;; site layout, serves it, and runs the Playwright specs under
+  ;; examples/playwright/.
+  ;;
+  ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
+  ;; cljs-runtime, etc.) relative to the page rather than the document root —
+  ;; necessary because each example is served from its own subdirectory.
+  ;; ============================================================================
+
+  :examples/counter
+  {:target     :browser
+   :output-dir "out/examples/counter"
+   :asset-path "."
+   :modules    {:main {:init-fn counter.core/run}}}
+
+  :examples/temperature
+  {:target     :browser
+   :output-dir "out/examples/temperature"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.temperature/run}}}
+
+  :examples/flight-booker
+  {:target     :browser
+   :output-dir "out/examples/flight-booker"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.flight-booker/run}}}
+
+  :examples/timer
+  {:target     :browser
+   :output-dir "out/examples/timer"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.timer/run}}}
+
+  :examples/nine-states
+  {:target     :browser
+   :output-dir "out/examples/nine-states"
+   :asset-path "."
+   :modules    {:main {:init-fn nine-states.core/run}}}
+
+  :examples/routing
+  {:target     :browser
+   :output-dir "out/examples/routing"
+   :asset-path "."
+   :modules    {:main {:init-fn routing.core/run}}}}}

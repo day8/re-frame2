@@ -21,7 +21,9 @@
    - Conditional UI driven by sub return values           (CP-4)
    - Smoke test exercising the constraint surface         (CP-1 checklist)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.views]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -204,4 +206,6 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:flight/initialise])
   (rdc/render root [flight-booker]))
