@@ -1,0 +1,74 @@
+;; Conformance fixture: rf.http.managed/accept-failure
+;;
+;; Per Spec 014 §Failure categories — `:rf.http/accept-failure`. The user's
+;; `:accept` fn returns `{:failure user-map}` on a structurally-OK 2xx that
+;; is nevertheless a domain failure. The runtime classifies the dispatch
+;; under `:kind :rf.http/accept-failure`, with the user's verbatim failure
+;; map at `:detail` and the pre-`:accept` decoded value at `:decoded`.
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-failure
+;; configured with `:kind :rf.http/accept-failure` and matching tags, the
+;; same shape the live fx synthesises after running `:accept`.
+
+{:fixture/id           :rf.http.managed/accept-failure
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "An :accept fn returning {:failure user-map} on a 2xx classifies as :rf.http/accept-failure. The user's failure map sits at :detail; :decoded carries the pre-:accept decoded value. The :on-failure target receives the canonical failure envelope."
+
+ :fixture/registry
+ {:event {:article/load        {:doc "Issue the GET."}
+          :article/load-error  {:doc "Receive the failure payload."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:article/load
+   [[:fx [[:rf.http/managed
+           {:request {:method :get :url "/articles/hello"}
+            :decode  :json
+            ;; The :accept fn would normally inspect the decoded value
+            ;; and return {:failure ...}; the canned-failure stub
+            ;; pre-synthesises the resulting failure envelope.
+            :on-failure [:article/load-error]}]]]]
+
+   :article/load-error
+   [[:set [:article :error] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-failure
+   [[:dispatch [:article/load-error
+                {:kind    :failure
+                 :failure {:kind    :rf.http/accept-failure
+                           :detail  {:reason  :missing-article
+                                     :message "Response missing :article"}
+                           :decoded {:meta {:status "ok"}}}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+
+ :fixture/dispatches
+ [[:article/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article {:error {:kind    :failure
+                     :failure {:kind    :rf.http/accept-failure
+                               :detail  {:reason  :missing-article
+                                         :message "Response missing :article"}
+                               :decoded {:meta {:status "ok"}}}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :article/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-failure}}
+   {:operation :event :tags {:event-id :article/load-error}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-failure
+    :args  {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-failure [:article/load-error]}}]}}

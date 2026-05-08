@@ -1,0 +1,75 @@
+;; Conformance fixture: rf.http.managed/retry-recover
+;;
+;; Per Spec 014 §Retry × `:on-success` semantics — when an intermediate
+;; retriable attempt succeeds before `:max-attempts` exhausts, the user
+;; sees exactly one success reply (the recovered payload). Intermediate
+;; `:rf.http/retry-attempt` traces ride the live fx; the final outcome
+;; dispatches `:on-success`.
+;;
+;; The fixture models the contract with a single canned-success invocation
+;; (the harness doesn't run real backoff retries — `retry-exhaustion.edn`
+;; covers the dual case). Both fixtures together lock that the dispatched
+;; reply is exactly one event, and the kind matches the final outcome.
+
+{:fixture/id           :rf.http.managed/retry-recover
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "When an intermediate retry attempt succeeds, the user sees exactly one :on-success dispatch carrying the recovered payload. Intermediate :rf.http/retry-attempt traces from the live fx do not dispatch the failure handler. Per Spec 014 §Retry and backoff."
+
+ :fixture/registry
+ {:event {:flaky/load         {:doc "Issue the GET with retry policy."}
+          :flaky/load-success {:doc "Receive the recovered payload."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:flaky/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/flaky"}
+            :decode     :json
+            :retry      {:on           #{:rf.http/http-5xx}
+                         :max-attempts 3
+                         :backoff      {:base-ms 5 :factor 1 :max-ms 10}}
+            :on-success [:flaky/load-success]}]]]]
+
+   :flaky/load-success
+   [[:set [:flaky :data] [:event-arg 1]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-success
+   ;; Recovered-on-retry shape per Spec 014 §Reply payload shape.
+   [[:dispatch [:flaky/load-success
+                {:kind  :success
+                 :value {:ok true :recovered-on :attempt-2}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:flaky/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:flaky {:data {:kind  :success
+                  :value {:ok true :recovered-on :attempt-2}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :flaky/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-success}}
+   ;; Exactly one :on-success dispatch — intermediate :rf.http/retry-attempt
+   ;; traces ride the live fx, not the canned-success stub.
+   {:operation :event :tags {:event-id :flaky/load-success}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-success
+    :args  {:request    {:method :get :url "/flaky"}
+            :decode     :json
+            :retry      {:on           #{:rf.http/http-5xx}
+                         :max-attempts 3
+                         :backoff      {:base-ms 5 :factor 1 :max-ms 10}}
+            :on-success [:flaky/load-success]}}]}}

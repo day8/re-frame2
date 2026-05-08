@@ -1,0 +1,82 @@
+;; Conformance fixture: rf.http.managed/on-success-explicit
+;;
+;; Per Spec 014 §Reply addressing §Explicit target — separate handler.
+;; When `:on-success [:event-id ...args]` is supplied, the runtime
+;; appends the canonical `{:kind :success :value v}` payload as the
+;; last argument of the dispatched event vector. The dispatched event
+;; routes to the named handler (NOT back to the originator).
+;;
+;; The fixture verifies:
+;;   - the explicit `:on-success` event is dispatched (not the originator)
+;;   - the reply payload arrives as the last positional arg
+;;   - the originator does NOT receive a `:rf/reply`-merged dispatch
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-success.
+
+{:fixture/id           :rf.http.managed/on-success-explicit
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "Explicit :on-success [:article/loaded] routes the success reply to :article/loaded with {:kind :success :value v} appended as the last arg. The originating :article/load handler does NOT receive a reply-merged dispatch — explicit-target addressing supplants default-reply addressing."
+
+ :fixture/registry
+ {:event {:article/load   {:doc "Issue the GET (originator)."}
+          :article/loaded {:doc "Receive the success payload (explicit target)."}}
+  :sub   {:article {:doc "The article slice."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-canned-success {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:article/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-success [:article/loaded :hello]}]]]]
+
+   ;; The explicit target receives [:article/loaded :hello {:kind :success ...}]
+   ;; — :event-arg 1 is :hello (the prefix arg), :event-arg 2 is the payload.
+   :article/loaded
+   [[:set [:article :slug]    [:event-arg 1]]
+    [:set [:article :payload] [:event-arg 2]]]}
+
+  :sub
+  {:article [[:get [:article]]]}
+
+  :fx
+  {:rf.http/managed                [[:noop]]
+   :rf.http/managed-canned-success
+   [[:dispatch [:article/loaded :hello {:kind  :success
+                                        :value {:title "hello" :id 42}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+
+ :fixture/dispatches
+ [[:article/load]]
+
+ :fixture/expect
+ {:final-app-db
+  {:article {:slug    :hello
+             :payload {:kind  :success
+                       :value {:title "hello" :id 42}}}}
+
+  :sub-values
+  {[:article] {:slug    :hello
+               :payload {:kind  :success
+                         :value {:title "hello" :id 42}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :article/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-success}}
+   ;; Exactly :article/loaded fires — the originator :article/load is
+   ;; NOT re-dispatched, because :on-success was supplied.
+   {:operation :event :tags {:event-id :article/loaded}}]
+
+  :effects-routed
+  [{:fx-id :rf.http/managed-canned-success
+    :args  {:request    {:method :get :url "/articles/hello"}
+            :decode     :json
+            :on-success [:article/loaded :hello]}}]}}
