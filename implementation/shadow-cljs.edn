@@ -14,5 +14,16 @@
    :ns-regexp "-cljs-test$"
    :test-dir  "out/browser-test"
    :runner-ns shadow.test.browser
+   :compiler-options
+   ;; cljs-test-display.core/printing defaults to false. Without printing
+   ;; enabled, shadow.test.browser's reporter writes results only to the
+   ;; DOM and never produces the "Ran N tests containing M assertions"
+   ;; summary line our Playwright runner watches for in the console
+   ;; stream — which means the runner times out with a green test suite,
+   ;; presenting as a hang. Per cljs-test-display's design, set
+   ;; :closure-defines so cljs-test-display.core/printing = true at
+   ;; compile time so the summary lands on the console where the runner
+   ;; can see it.
+   {:closure-defines {cljs-test-display.core/printing true}}
    :devtools  {:http-port 8021
                :http-root "out/browser-test"}}}}
