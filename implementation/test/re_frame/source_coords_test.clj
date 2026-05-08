@@ -115,8 +115,10 @@
 
 (deftest source-coords-on-reg-view
   (testing "reg-view stamps :ns / :line / :file"
-    (rf/reg-view :rf2-k84s/reg-view-sample
-                 (fn [] [:div "hi"]))
+    ;; Per Spec 004 §reg-view, defn-shape with explicit id-meta override.
+    ;; ^{:rf/id ...} keeps the legacy keyword for the assertion.
+    (rf/reg-view ^{:rf/id :rf2-k84s/reg-view-sample} reg-view-sample []
+      [:div "hi"])
     (assert-coords (rf/handler-meta :view :rf2-k84s/reg-view-sample)
                    :view :rf2-k84s/reg-view-sample)))
 
