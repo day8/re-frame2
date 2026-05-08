@@ -110,7 +110,18 @@
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve :<- chain, build the reaction, attach
-  on-dispose to evict the cache slot."
+  on-dispose to evict the cache slot.
+
+  Per Spec 006 §No-op via value equality (rf2-719e): the user's body fn
+  is wrapped in a value-equality memoization layer. Reagent's auto-run
+  reaction unconditionally invokes the compute fn on any source-watch
+  fire, then dedups *downstream notification* by `=`. That's one level
+  too late for the spec — the body fn itself must NOT re-run when the
+  resolved input value is `=` to the last-seen. The wrapper compares
+  `in-vals` against the previous invocation and short-circuits to the
+  cached return value when equal. Reagent's dependency tracking still
+  observes every `deref` because the wrapper *is* the compute fn — only
+  the user's body is suppressed."
   [frame-id query-v]
   (let [query-id     (first query-v)
         meta         (registrar/lookup :sub query-id)
@@ -123,40 +134,50 @@
         inputs (if (empty? input-signals)
                  [(frame/get-frame-db frame-id)]
                  (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
+        ;; Per Spec 006 §No-op via value equality (rf2-719e): memoize the
+        ;; body call against the last-seen in-vals. The sentinel ensures
+        ;; the first invocation always runs.
+        last-in-vals (volatile! ::unset)
+        last-result  (volatile! nil)
         reaction (adapter/make-derived-value
                    inputs
                    (fn [& in-vals]
                      (when body-fn
-                       (try
-                         (let [v (if (empty? input-signals)
-                                   (body-fn (first in-vals) query-v)
-                                   ;; Layer-2+: deliver inputs as a coll if many,
-                                   ;; or singleton when only one chain entry.
-                                   (if (= 1 (count input-signals))
-                                     (body-fn (first in-vals) query-v)
-                                     (body-fn (vec in-vals) query-v)))]
-                           ;; Per Spec 010 §step 6: validate sub-return
-                           ;; post-compute against the sub's :spec.
-                           ;; Failures emit :rf.error/schema-validation-failure
-                           ;; and the sub yields nil (recovery
-                           ;; :replaced-with-default).
-                           (maybe-validate-sub-return! v query-v query-id meta))
-                         (catch #?(:clj Throwable :cljs :default) e
-                           (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
-                             (trace/emit-error!
-                               :rf.error/sub-exception
-                               {:failing-id        query-id
-                                :sub-id            query-id
-                                :sub-query         query-v
-                                :exception         e
-                                :exception-message msg
-                                :reason            (str "Subscription `" query-id
-                                                        "` threw while computing: "
-                                                        msg ". Returning nil.")
-                                :recovery          :replaced-with-default}))
-                           ;; Per Spec 009 §Error contract: replaced-with-default
-                           ;; means return nil.
-                           nil)))))
+                       (if (= @last-in-vals in-vals)
+                         @last-result
+                         (let [v (try
+                                   (let [v (if (empty? input-signals)
+                                             (body-fn (first in-vals) query-v)
+                                             ;; Layer-2+: deliver inputs as a coll if many,
+                                             ;; or singleton when only one chain entry.
+                                             (if (= 1 (count input-signals))
+                                               (body-fn (first in-vals) query-v)
+                                               (body-fn (vec in-vals) query-v)))]
+                                     ;; Per Spec 010 §step 6: validate sub-return
+                                     ;; post-compute against the sub's :spec.
+                                     ;; Failures emit :rf.error/schema-validation-failure
+                                     ;; and the sub yields nil (recovery
+                                     ;; :replaced-with-default).
+                                     (maybe-validate-sub-return! v query-v query-id meta))
+                                   (catch #?(:clj Throwable :cljs :default) e
+                                     (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
+                                       (trace/emit-error!
+                                         :rf.error/sub-exception
+                                         {:failing-id        query-id
+                                          :sub-id            query-id
+                                          :sub-query         query-v
+                                          :exception         e
+                                          :exception-message msg
+                                          :reason            (str "Subscription `" query-id
+                                                                  "` threw while computing: "
+                                                                  msg ". Returning nil.")
+                                          :recovery          :replaced-with-default}))
+                                     ;; Per Spec 009 §Error contract: replaced-with-default
+                                     ;; means return nil.
+                                     nil))]
+                           (vreset! last-in-vals in-vals)
+                           (vreset! last-result v)
+                           v)))))
         cache (:sub-cache (frame/frame frame-id))
         k     (cache-key query-v)]
     (when cache

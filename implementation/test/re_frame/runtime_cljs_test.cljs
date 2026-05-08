@@ -344,21 +344,53 @@
                  (pr-str (remove #{21 201} seen))))))))
 
 (deftest sub-correctness-on-value-equal-input
-  (testing "[Spec 006 §No-op via value equality, partial] value-equal app-db replacement keeps the downstream value correct, even if Reagent's auto-run reaction recomputes (suboptimal but not a glitch — see open bead for the recompute-suppression follow-up)"
-    (rf/reg-event-db :stable/init (fn [_ _] {:n 5 :unrelated "z"}))
-    (rf/reg-event-db :stable/touch-unrelated
-                     (fn [db _] (assoc db :unrelated "z")))   ;; same value
-    (rf/reg-sub :stable/a (fn [db _] (:n db)))
-    (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
-    (rf/dispatch-sync [:stable/init])
-    (let [r (rf/subscribe [:stable/squared])]
-      (add-watch r ::touch (fn [_ _ _ _] nil))
-      (is (= 25 @r) "initial value correct")
-      (rf/dispatch-sync [:stable/touch-unrelated])
-      (r/flush)
-      (is (= 25 @r) "value still correct after a value-equal app-db replacement")
-      (remove-watch r ::touch)
-      (rf/unsubscribe [:stable/squared]))))
+  (testing "[Spec 006 §No-op via value equality, rf2-719e] a value-equal app-db replacement does NOT re-run the body fn of a layer-2 sub whose resolved input is value-equal — the wrapper short-circuits to the cached return value"
+    (let [a-runs       (atom 0)
+          squared-runs (atom 0)]
+      (rf/reg-event-db :stable/init (fn [_ _] {:n 5 :unrelated "z"}))
+      (rf/reg-event-db :stable/touch-unrelated
+                       (fn [db _] (assoc db :unrelated "z")))   ;; same value
+      (rf/reg-event-db :stable/bump-n
+                       (fn [db _] (update db :n inc)))          ;; real change
+      (rf/reg-sub :stable/a
+                  (fn [db _] (swap! a-runs inc) (:n db)))
+      (rf/reg-sub :stable/squared
+                  :<- [:stable/a]
+                  (fn [a _] (swap! squared-runs inc) (* a a)))
+      (rf/dispatch-sync [:stable/init])
+      (let [r (rf/subscribe [:stable/squared])]
+        (add-watch r ::touch (fn [_ _ _ _] nil))
+        (is (= 25 @r) "initial value correct")
+        (let [a-baseline       @a-runs
+              squared-baseline @squared-runs]
+          ;; Value-equal app-db replacement: neither body should re-run.
+          (rf/dispatch-sync [:stable/touch-unrelated])
+          (r/flush)
+          @r
+          (is (= 25 @r) "value still correct after a value-equal app-db replacement")
+          (is (= a-baseline @a-runs)
+              "layer-1 body should NOT re-run when its input is =-equal")
+          (is (= squared-baseline @squared-runs)
+              "layer-2 body should NOT re-run when its input is =-equal")
+          ;; Real change: each body should run exactly once more.
+          (rf/dispatch-sync [:stable/bump-n])
+          (r/flush)
+          (is (= 36 @r) "value updated after a real change")
+          (is (= (inc a-baseline) @a-runs)
+              "layer-1 body runs exactly once on a real input change")
+          (is (= (inc squared-baseline) @squared-runs)
+              "layer-2 body runs exactly once on a real input change")
+          ;; A second value-equal touch must again be a no-op.
+          (rf/dispatch-sync [:stable/touch-unrelated])
+          (r/flush)
+          @r
+          (is (= 36 @r) "value still correct after a second value-equal replacement")
+          (is (= (inc a-baseline) @a-runs)
+              "layer-1 body still suppressed on the second value-equal replacement")
+          (is (= (inc squared-baseline) @squared-runs)
+              "layer-2 body still suppressed on the second value-equal replacement"))
+        (remove-watch r ::touch)
+        (rf/unsubscribe [:stable/squared])))))
 
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
