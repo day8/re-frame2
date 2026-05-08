@@ -35,6 +35,17 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 |---|---|
 | `:re-frame/*` | **Legacy alias.** v1 codebases reference `:rf/default`, `:rf/db-change`, etc. v2 accepts these as aliases for their `:rf/*` counterparts during migration; the migration agent rewrites mechanically (per [MIGRATION §M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)). Direct authoring of `:re-frame/*` ids in new code is deprecated; the linter nudges. |
 
+### `re-frame.alpha` is dissolved
+
+The v1 `re-frame.alpha` namespace is **not part of v2** (rf2-7cb2 / rf2-s9dn). The generalised `reg`/`sub`/`reg-sub-lifecycle` surface — together with the built-in lifecycle policies `:safe`, `:no-cache`, `:reactive`, `:forever` and the query-map `:re-frame/q` shape — is removed. This is pre-v1 cleanup, not deprecation. The canonical surfaces are:
+
+- **Per-kind registration macros**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`.
+- **Vector-form subscribe**: `(rf/subscribe [::id arg])`.
+
+The per-frame sub-cache uses a single disposal algorithm — deferred ref-counting with a configurable grace-period — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
+
+Migration entries: [MIGRATION §M-22](MIGRATION.md#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+
 ### User-defined route ids
 
 User-defined route ids are **not** namespaced under any framework prefix. Routes are user-facing names; pick a feature prefix per the [feature-modularity convention](#feature-modularity-prefix-convention) below — `:cart/show`, `:auth/login-page`, `:account.profile/show`. The framework's routing concerns (events that drive navigation, subs that read the route slice) live under `:rf.route/*`; user route ids share the user-feature namespace with their adjacent events and subs. This stops the framework prefix from leaking into app code and removes the `:route/*` ambiguity (was it a framework operation or a user route-id? — the v2 answer is unambiguously the latter has no `:route/*` prefix at all).
