@@ -164,6 +164,11 @@
   until the queue is empty. Bounded by :drain-depth (default 100; per
   Spec 002 §Run-to-completion §Rules).
 
+  Sets :in-drain? on the router state for the duration of the loop so
+  reentrant dispatch-sync! detects 'we're already in a drain' and
+  refuses (regardless of whether the outer drain came from
+  dispatch-sync or async dispatch).
+
   When the depth limit is hit, emit :rf.error/drain-depth-exceeded with
   :depth, :queue-size, and :last-event tags, then halt (the remaining
   queued events are discarded)."
@@ -173,27 +178,31 @@
       (let [router       (:router frame-record)
             drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)
             last-event-a (atom nil)]
-        (loop [depth 0]
-          (cond
-            (>= depth drain-depth)
-            (let [{:keys [queue]} @router]
-              (trace/emit-error! :rf.error/drain-depth-exceeded
-                                 {:frame      frame-id
-                                  :depth      depth
-                                  :queue-size (count queue)
-                                  :last-event @last-event-a
-                                  :recovery   :no-recovery})
-              (swap! router assoc :queue interop/empty-queue :scheduled? false))
+        (swap! router assoc :in-drain? true)
+        (try
+          (loop [depth 0]
+            (cond
+              (>= depth drain-depth)
+              (let [{:keys [queue]} @router]
+                (trace/emit-error! :rf.error/drain-depth-exceeded
+                                   {:frame      frame-id
+                                    :depth      depth
+                                    :queue-size (count queue)
+                                    :last-event @last-event-a
+                                    :recovery   :no-recovery})
+                (swap! router assoc :queue interop/empty-queue :scheduled? false))
 
-            :else
-            (let [{:keys [queue]} @router]
-              (if (empty? queue)
-                (swap! router assoc :scheduled? false)
-                (let [envelope (peek queue)]
-                  (reset! last-event-a (:event envelope))
-                  (swap! router update :queue pop)
-                  (process-event! envelope)
-                  (recur (inc depth)))))))))))
+              :else
+              (let [{:keys [queue]} @router]
+                (if (empty? queue)
+                  (swap! router assoc :scheduled? false)
+                  (let [envelope (peek queue)]
+                    (reset! last-event-a (:event envelope))
+                    (swap! router update :queue pop)
+                    (process-event! envelope)
+                    (recur (inc depth)))))))
+          (finally
+            (swap! router assoc :in-drain? false)))))))
 
 (defn- ensure-drain-scheduled!
   [frame-id router]
@@ -252,10 +261,11 @@
                           {:frame (:frame envelope) :event event
                            :recovery :no-recovery})
 
-       (:in-sync-drain? @(:router frame-record))
-       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside a
-       ;; running drain is an error — the event would interleave with the
-       ;; outer handler's run-to-completion.
+       (let [r @(:router frame-record)]
+         (or (:in-sync-drain? r) (:in-drain? r)))
+       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside ANY
+       ;; running drain (sync or async) is an error — the event would
+       ;; interleave with the outer handler's run-to-completion.
        (trace/emit-error! :rf.error/dispatch-sync-in-handler
                           {:frame    (:frame envelope)
                            :event    event

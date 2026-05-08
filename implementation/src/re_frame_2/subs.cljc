@@ -152,16 +152,25 @@
   inside a with-frame or under a frame-provider auto-routes."
   ([query-v] (subscribe (frame/current-frame) query-v))
   ([frame-id query-v]
-   (let [frame-record (frame/frame frame-id)
-         _ (when (nil? frame-record)
-             (trace/emit-error! :rf.error/frame-destroyed
-                                {:frame frame-id :query-v query-v}))
-         cache (:sub-cache frame-record)
-         k     (cache-key query-v)]
-     (if-let [entry (get @cache k)]
-       (do (swap! cache update-in [k :ref-count] (fnil inc 1))
-           (:reaction entry))
-       (compute-and-cache! frame-id query-v)))))
+   (let [frame-record (frame/frame frame-id)]
+     (cond
+       ;; Missing or destroyed frame: trace and return nil rather than
+       ;; deref-ing nil and exploding. Per Spec 009 §Error contract:
+       ;; recovery is :replaced-with-default — the sub resolves to nil.
+       (nil? frame-record)
+       (do (trace/emit-error! :rf.error/frame-destroyed
+                              {:frame    frame-id
+                               :query-v  query-v
+                               :recovery :replaced-with-default})
+           nil)
+
+       :else
+       (let [cache (:sub-cache frame-record)
+             k     (cache-key query-v)]
+         (if-let [entry (get @cache k)]
+           (do (swap! cache update-in [k :ref-count] (fnil inc 1))
+               (:reaction entry))
+           (compute-and-cache! frame-id query-v)))))))
 
 (declare unsubscribe)
 

@@ -98,6 +98,21 @@
     ;; Unknown sub returns nil instead of throwing.
     (is (nil? (rf/compute-sub [:no-such-sub] {})))))
 
+(deftest subscribe-handles-missing-frame
+  (testing "subscribe / subscribe-value against a missing frame don't throw"
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::missing (fn [ev] (swap! traces conj ev)))
+      (is (nil? (rf/subscribe :missing/frame [:n])) "subscribe returns nil")
+      (is (nil? (rf/subscribe-value :missing/frame [:n]))
+          "subscribe-value returns nil")
+      (rf/remove-trace-cb! ::missing)
+      (is (some (fn [ev]
+                  (and (= :rf.error/frame-destroyed (:operation ev))
+                       (= :replaced-with-default (:recovery ev))))
+                @traces)
+          "expected :rf.error/frame-destroyed trace with :replaced-with-default"))))
+
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
