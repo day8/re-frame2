@@ -26,3 +26,8 @@ Thumbs.db
 .dolt/
 *.db
 .beads-credential-key
+
+# MkDocs build artefacts (rf2-h09k)
+/site/
+# spec/ is staged into docs/spec/ at build time; never commit the staged copy.
+/docs/spec/
