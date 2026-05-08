@@ -134,7 +134,7 @@ For **boot-time-fixed values** that originate from the host environment — a bu
 :hydrate
 {:on {:succeeded
       {:target :ready
-       :action (fn [{:keys [data]} _]
+       :action (fn [data _]
                  {:fx [[:dispatch [:ws/socket
                                    [:connect {:url        (-> data :config :ws-url)
                                               :auth-token (-> data :session :token)}]]]]})}}}

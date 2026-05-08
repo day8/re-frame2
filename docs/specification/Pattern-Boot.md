@@ -85,28 +85,28 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
       (fn [_ _] (some? (.getItem js/localStorage "auth/token")))
 
       :under-retry-limit?
-      (fn [{:keys [data]} _] (< (:phase-attempt data) 3))}
+      (fn [data _] (< (:phase-attempt data) 3))}
 
      :actions
      {:set-phase
       ;; Update visible-progress slice in :data so the boot UI can render.
-      (fn [{:keys [data]} [_ phase]]
+      (fn [data [_ phase]]
         {:data (assoc data :phase phase :phase-attempt 0)})
 
       :record-config
-      (fn [{:keys [data]} [_ config]]
+      (fn [data [_ config]]
         {:data (assoc data :config config)})
 
       :record-user
-      (fn [{:keys [data]} [_ user]]
+      (fn [data [_ user]]
         {:data (assoc data :user user)})
 
       :bump-attempt
-      (fn [{:keys [data]} _]
+      (fn [data _]
         {:data (update data :phase-attempt inc)})
 
       :record-error
-      (fn [{:keys [data]} [_ err]]
+      (fn [data [_ err]]
         {:data (assoc data :error err)})
 
       :resolve-initial-route

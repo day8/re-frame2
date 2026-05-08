@@ -50,8 +50,8 @@ A state machine that processes one batch per state transition, yields to the bro
                :input       nil
                :result      []}
      :guards
-     {:done?      (fn [{:keys [data]} _] (>= (:processed data) (:total data)))
-      :more-work? (fn [{:keys [data]} _] (<  (:processed data) (:total data)))}
+     {:done?      (fn [data _] (>= (:processed data) (:total data)))
+      :more-work? (fn [data _] (<  (:processed data) (:total data)))}
 
      :actions
      {:start-job
@@ -64,7 +64,7 @@ A state machine that processes one batch per state transition, yields to the bro
                 :result     []}})
 
       :process-chunk
-      (fn [{:keys [data]} _]
+      (fn [data _]
         (let [{:keys [input chunk-size processed result]} data
               chunk    (subvec input processed (min (+ processed chunk-size) (count input)))
               outputs  (mapv expensive-fn chunk)]
