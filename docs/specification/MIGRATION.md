@@ -779,7 +779,68 @@ Any of the five interceptor refs in any registration's interceptor list.
 
 ---
 
-**Reporting M-12 through M-21.** These ten rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing ten separate preambles.
+### M-22. `reg-view` is now a defn-shape macro — keyword-shape calls must rewrite
+
+**Type A** (mechanical).
+
+Per [Spec 004 §reg-view](004-Views.md#reg-view-is-the-multi-frame-contract) and rf2-d0pi: `reg-view` is now a defn-shape macro that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects `dispatch` / `subscribe`. The keyword-shape call `(reg-view :id render-fn)` no longer compiles; the macro rejects it at macroexpand-time with an error pointing the user at `re-frame.core/reg-view*`.
+
+**What to look for** in the codebase:
+
+```clojure
+(def my-view (rf/reg-view :ns/my-view (fn [args] body)))
+(def my-view (rf/reg-view :ns/my-view {:doc "..."} (fn [args] body)))
+```
+
+**What to do:**
+
+```clojure
+;; before
+(def my-view
+  (rf/reg-view :ns/my-view (fn [] body)))
+
+;; after — defn-shape; id auto-derives to (keyword *ns* "my-view")
+(rf/reg-view my-view [] body)
+
+;; before — explicit id that the auto-derivation wouldn't reproduce
+(def cart-row
+  (rf/reg-view :cart.item/row (fn [item] [:tr ...])))
+
+;; after — ^{:rf/id ...} metadata override on the symbol
+(rf/reg-view ^{:rf/id :cart.item/row} cart-row [item] [:tr ...])
+
+;; before — programmatic / computed id, not a defn-shape body
+(rf/reg-view (keyword "feature/widget" (name variant))
+  computed-render-fn)
+
+;; after — reg-view* (the plain-fn surface; no auto-anything)
+(re-frame.core/reg-view*
+  (keyword "feature/widget" (name variant))
+  computed-render-fn)
+```
+
+Inside the body, drop any explicit `(rf/dispatcher)` / `(rf/subscriber)` capture — `dispatch` and `subscribe` are auto-injected as lexical bindings:
+
+```clojure
+;; before
+(rf/reg-view :counter
+  (fn []
+    (let [d (rf/dispatcher)
+          s (rf/subscriber)]
+      [:button {:on-click #(d [:inc])} @(s [:count])])))
+
+;; after
+(rf/reg-view counter []
+  [:button {:on-click #(dispatch [:inc])} @(subscribe [:count])])
+```
+
+The agent rewrites mechanically: the keyword's local-name becomes the auto-defed symbol; the keyword itself becomes `^{:rf/id ...}` metadata if the auto-derived id wouldn't match. Bodies that are not literal `(fn [args] body)` forms (Var refs, `reagent.core/create-class` calls, computed expressions) are flagged for the user — those route to `reg-view*`, the plain-fn surface, where the body can be any callable.
+
+**Why?** The defn-shape removes a redundant naming step (the keyword + the symbol said the same thing twice), bakes in source-coord auto-capture at the macro-expansion site, and eliminates the mechanical `(rf/dispatcher)` / `(rf/subscriber)` capture every view body used to need. The compile-time check on the body shape catches Form-3 / computed-fn footguns at the point of registration rather than at runtime. `reg-view*` (the `*`-suffixed plain-fn partner — standard Clojure idiom per `let`/`let*`, `fn`/`fn*`) is the runtime-callable surface for any case the macro shape doesn't fit.
+
+---
+
+**Reporting M-12 through M-22.** These eleven rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing eleven separate preambles.
 
 ---
 

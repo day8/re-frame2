@@ -1,6 +1,6 @@
 # Spec 004 — Views
 
-> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` injects frame-bound `dispatch`/`subscribe` lexically — an ergonomic realisation of the explicit-frame contract. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
+> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
 
 ## Abstract
 
@@ -108,24 +108,60 @@ Pattern-RemoteData's `:status` field is the canonical home for loading state. Pa
 
 ## `reg-view` is the multi-frame contract
 
-`reg-view` registers a render function under a keyword. The macro wraps the user's fn so that, on each render, three frame-bound names are injected as lexical locals inside the body:
+`reg-view` is a **defn-shape macro**. It registers a render function under an auto-derived id, defs the symbol you supply to the wrapped (frame-aware) fn, and auto-injects two lexical bindings — `dispatch` and `subscribe` — at every call to the rendered fn.
 
-- `dispatch` — frame-bound `(fn [event] ...)` building an envelope tagged with the surrounding frame's id.
-- `subscribe` — frame-bound `(fn [query-v] ...)` consulting the surrounding frame's sub-cache.
-- `frame-id` — the keyword identifying the surrounding frame (useful for debugging, logging, or passing to non-frame-aware children).
+### Shape
 
 ```clojure
-(rf/reg-view :counter
-  {:doc "Counter widget."}
-  (fn [label]
-    (let [n @(subscribe [:count])]
-      [:button {:on-click #(dispatch [:inc])}
-       (str label ": " n)])))
+(reg-view sym [args] body+)
+(reg-view sym docstring [args] body+)
+(reg-view ^{:rf/id :explicit/id} sym [args] body+)
 ```
 
-The `:on-click` lambda closes over the local `dispatch`, so it carries the frame into the callback automatically — there is no render-time-binding-vs-callback-time problem.
+- **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
+- **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/get-view :id)` results — both resolve to the same wrapped fn.
+- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically.
 
-**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from React context** — the injected closures resolve to whatever frame the surrounding `frame-provider` puts in scope. The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
+```clojure
+(rf/reg-view counter [label]
+  (let [n @(subscribe [:count])]
+    [:button {:on-click #(dispatch [:inc])}
+     (str label ": " n)]))
+
+;; … and elsewhere in hiccup:
+[counter "Hello"]
+```
+
+### Compile-time error contract
+
+`reg-view` enforces the defn-shape at macroexpand time. The second argument (after an optional docstring) MUST be the args vector. Anything else throws with a stable error pointing the user at `re-frame.core/reg-view*`:
+
+| Bad call | Why it fails |
+|---|---|
+| `(reg-view foo my-render)` | `my-render` is a Var reference, not an args vector. |
+| `(reg-view foo (reagent.core/create-class {...}))` | Form-3 (a Reagent class component) is a list, not an args vector. Form-3 is out of scope for the macro per the Reagent-v2 directive. |
+| `(reg-view foo (some-fn-returning-a-fn))` | A computed body. |
+
+The error message names the kind of value supplied and points at `reg-view*` — the plain-fn surface for runtime registration with computed ids or non-defn-shape bodies.
+
+### `reg-view*` — the plain-fn escape hatch
+
+```clojure
+(re-frame.core/reg-view* id render-fn)
+(re-frame.core/reg-view* id metadata render-fn)
+```
+
+A plain function. No auto-def. No auto-inject. No compile-time check. Use when:
+- The id is computed at runtime (dynamic dispatch).
+- The render fn is computed (a library that generates views from data).
+- The body is Reagent Form-3 (`reagent.core/create-class`) — out of scope for the macro.
+- The view is registered without a Var binding (e.g. a `defn` that registers as a side effect).
+
+Inside a `reg-view*` body the user must capture the frame explicitly via `(rf/dispatcher)` / `(rf/subscriber)` if they need frame-bound dispatch — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
+
+The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callable surface beneath a macro (`let` / `let*`, `fn` / `fn*`). Per [Conventions §`*`-suffix naming](Conventions.md), this convention applies wherever a macro has a fn partner; `reg-view` / `reg-view*` is the only such pair in v1.
+
+**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from the surrounding frame** — the injected closures resolve to whatever frame the surrounding `frame-provider` puts in scope. The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
 
 The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
 
@@ -133,22 +169,18 @@ The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects]
 
 v1 ships three forms for invoking a registered view. To honour the principle of "one obvious way", one of them is **canonical** and the others are **alternatives** with documented use cases.
 
-### The canonical form: `reg-view` auto-defs the Var
+### The canonical form: `reg-view` auto-defs the symbol
 
 ```clojure
-(rf/reg-view :counter
-  {:doc "A counter widget."}
-  (fn [label] ...))
-;; ⇒ defs `counter` (the local part of :counter) in the current namespace
-;;   bound to the wrapped (frame-aware) fn.
+(rf/reg-view counter [label] ...)
+;; ⇒ defs `counter` in the current namespace, bound to the wrapped
+;;    (frame-aware) fn. The id is auto-derived: (keyword *ns* "counter").
 
 ;; ... elsewhere in hiccup
 [counter "Hello"]
 ```
 
-`reg-view` *defs* the Var as part of registration. There is no separate `(def counter (rf/reg-view ...))` step — `(reg-view :counter ...)` is the one form that registers + binds. The Var name is the keyword's local name (the part after the slash); namespaced ids (e.g. `:cart.item/row`) bind the local symbol (`row`) and are accessed under their fully-qualified namespace.
-
-Override the auto-def behaviour via `:as` in the metadata — `:as 'my-counter` for explicit naming, `:as nil` to suppress the def entirely (registration-only).
+`reg-view` *defs* the symbol you supply. There is no separate `(def counter (reg-view …))` step — the macro is the one form that registers + binds. The id is auto-derived from `*ns*` + symbol; override via `^{:rf/id :explicit/id}` metadata on the symbol.
 
 ### `get-view` — the canonical post-registration lookup
 
@@ -236,7 +268,7 @@ For any plain Reagent fn that may render under a non-default frame, replace with
 (defn my-summary [label] ...)
 
 ;; after — same body, registered, frame-aware
-(def my-summary (rf/reg-view :feature/summary {:doc "..."} (fn [label] ...)))
+(rf/reg-view ^{:doc "..."} my-summary [label] ...)
 ```
 
 The CLJS reference's `re-frame.core-legacy` namespace continues to allow plain fns indefinitely; the warning is a *quality-of-life* signal, not a deprecation.
@@ -265,9 +297,8 @@ Form-1 is the **canonical** form. Form-2 and Form-3 exist for Reagent compatibil
 ### Form-1 (canonical — simple render fn)
 
 ```clojure
-(rf/reg-view :counter
-  (fn render-counter [label]
-    [:button (str label)]))
+(rf/reg-view counter [label]
+  [:button (str label)])
 ```
 
 Each render invocation runs the body fresh. No setup ceremony, no closure subtleties.
@@ -276,10 +307,9 @@ For setup-on-mount work that *would* go in a Form-2 outer fn, use a separate eve
 
 ```clojure
 ;; preferred over Form-2
-(rf/reg-view :counter
-  (fn render-counter [label]
-    [:button {:on-click #(dispatch [:counter/inc])}
-     (str label ": " @(subscribe [:count]))]))
+(rf/reg-view counter [label]
+  [:button {:on-click #(dispatch [:counter/inc])}
+   (str label ": " @(subscribe [:count]))])
 
 ;; setup happens in :on-create on the frame, or via a dedicated init event:
 (rf/reg-frame :counter-frame {:on-create [:counter/initialise]})
@@ -289,27 +319,36 @@ The setup event is named, registered, queryable — visible. The Form-2 outer-fn
 
 ### Form-2 (closure — supported, prefer Form-1 + explicit setup event)
 
-A view returning a fn (Form-2) closes over the outer scope, so the injected locals are captured by both inner-render invocations and any callbacks created in either form:
+A view body that yields a fn (Form-2) closes over the outer scope, so the injected `dispatch` / `subscribe` locals are captured by both inner-render invocations and any callbacks created in either form:
 
 ```clojure
-(rf/reg-view :counter-with-init
-  (fn outer-counter-with-init [label]
-    (dispatch [:counter/initialise label])           ;; outer fires once on mount — hidden side-effect at call site
-    (fn render-counter-with-init [label]              ;; render fn, called on each render
-      (let [n @(subscribe [:count])]
-        [:button {:on-click #(dispatch [:inc])}
-         (str label ": " n)]))))
+(rf/reg-view counter-with-init [label]
+  (dispatch [:counter/initialise label])           ;; outer fires once on mount — hidden side-effect at call site
+  (fn render-counter-with-init [label]             ;; inner render fn, called on each render
+    (let [n @(subscribe [:count])]
+      [:button {:on-click #(dispatch [:inc])}
+       (str label ": " n)])))
 ```
 
-The `dispatch` and `subscribe` in both the outer and inner fn refer to the same locals — Clojure lexical closure does the right thing.
+The `dispatch` and `subscribe` in both the outer body and the inner fn refer to the same lexical bindings — Clojure lexical closure does the right thing.
 
 **Use Form-2 only when the setup work genuinely depends on per-mount props.** For stable setup, use Form-1 + a frame-level `:on-create` event.
 
-### Form-3 (class — supported, rare)
+### Form-3 (class — out of scope for the macro)
 
-Class-form views that return a map of lifecycle methods (`:reagent-render`, `:component-did-mount`, etc.) — supported, but the injected locals are only in scope for the lifecycle methods themselves, not for any user code outside the registered fn. Consistent treatment with Form-2; the macro injects the `let` once around the entire returned map's body.
+Reagent Form-3 (`reagent.core/create-class`) is **not supported by the `reg-view` macro** in v1. The macro's compile-time check rejects calls whose body is a `(reagent.core/create-class …)` form; the error message points the user at `re-frame.core/reg-view*` — the plain-fn surface, where the body can be any callable.
 
-Required only when interop with stateful third-party React components needs explicit lifecycle hooks (`componentDidMount`, `componentWillUnmount`).
+```clojure
+;; instead of (rf/reg-view my-view (reagent.core/create-class …)) — compile error,
+;; use:
+(re-frame.core/reg-view* :feature/my-view
+  (reagent.core/create-class
+    {:reagent-render        (fn [] ...)
+     :component-did-mount   (fn [] ...)
+     :component-will-unmount (fn [] ...)}))
+```
+
+The Reagent-v2 directive (rf2-25aq) constrains the canonical surface to Form-1 + Form-2; Form-3 ships through the escape hatch.
 
 ## View registry — tooling surface
 
@@ -325,12 +364,11 @@ Tools (10x, story tools, agents) read these to render view inspectors, pick view
 Registered views referenced from hiccup inherit the surrounding frame from React context:
 
 ```clojure
-(rf/reg-view :outer
-  (fn []
-    [:div
-     [counter "Inner"]                  ;; or [:counter "Inner"] under the `h` macro
-     [rf/frame-provider {:frame :other}
-      [counter "Other-frame inner"]]])) ;; nested provider re-points
+(rf/reg-view outer []
+  [:div
+   [counter "Inner"]                  ;; or [:counter "Inner"] under the `h` macro
+   [rf/frame-provider {:frame :other}
+    [counter "Other-frame inner"]]])  ;; nested provider re-points
 ```
 
 Nested `frame-provider`s re-point children. The deepest provider in scope wins.
@@ -354,34 +392,29 @@ The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and i
 
 ### `reg-view` defs the Var by default
 
-`reg-view` defs the Var as a side effect. No need to write `(def x (rf/reg-view :x ...))` — `(rf/reg-view :x ...)` is enough; a Var named `x` is created in the surrounding namespace.
-
-The macro takes the id keyword's local name (the part after the slash) as the Var's symbol:
+`reg-view` is defn-shape: the symbol you supply IS the Var name; the id is auto-derived from `(keyword *ns* sym)`. No need to write `(def x (rf/reg-view :x ...))` — `(rf/reg-view x [args] body)` is enough; a Var named `x` is created in the surrounding namespace and registered under `(keyword *ns* "x")`.
 
 ```clojure
-(rf/reg-view :counter
-  (fn [label] [:button label]))
+(rf/reg-view counter [label] [:button label])
 ;; ⇒ defs `counter` in the current namespace, bound to the wrapped fn.
+;; ⇒ registers under (keyword *ns* "counter").
 ;; You can now write [counter "Hi"] in hiccup directly.
 
-(rf/reg-view :cart.item/row
-  (fn [item] [:tr ...]))
-;; ⇒ defs `row` (uses the local name after the slash).
+(rf/reg-view ^{:rf/id :cart.item/row} item-row [item] [:tr ...])
+;; ⇒ defs `item-row`; registers under the explicit override id :cart.item/row.
 ;; Use the qualified namespace prefix when reading: [cart.item.row item]
 ```
 
 This matches `defn`'s shape (registers + binds a Var) and removes a redundant naming step. Other registration kinds don't need this because their values aren't called as Reagent components in hiccup — only views are.
 
-For the rare case where the user wants to control the Var name explicitly (or suppress the def — e.g. for views generated programmatically), pass `:as` in the metadata:
+For the rare case where the user wants no Var binding (e.g. views generated programmatically, or registered without a Var by a library), use `re-frame.core/reg-view*` directly — the plain-fn surface registers under the supplied id without defing anything.
 
 ```clojure
-(rf/reg-view :counter
-  {:as 'my-counter}                     ;; explicitly named
-  (fn [label] [:button label]))
-
-(rf/reg-view :counter
-  {:as nil}                             ;; suppress the def; only register
-  (fn [label] [:button label]))
+;; Programmatic registration — no Var, computed id.
+(doseq [variant [:summary :detail]]
+  (re-frame.core/reg-view*
+    (keyword "feature/article" (name variant))
+    (fn [_props] ...)))
 ```
 
 ### The `h` macro's expansion strategy
@@ -400,11 +433,19 @@ A keyword *not* registered as a view at expansion time passes through unchanged.
 
 **Edge case — re-registration shadowing a DOM tag.** A user must not `(reg-view :div ...)`. The runtime emits a warning at registration time; `h` honours the registry (the registered fn wins). Documented as a footgun, not policed.
 
-### Form-3 (`reagent.core/create-class`) — full lifecycle exposure
+### Form-3 (`reagent.core/create-class`) — out of scope for the macro
 
-Form-3 lifecycle methods all see the injected `dispatch`/`subscribe`/`frame-id` locals. The macro wraps the *entire returned map's body* in the same `let` — `:reagent-render`, `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, etc. all close over the same frame-bound locals. Across Reagent's class-creation paths (`r/create-class`, hooks-flavoured wrappers) the expansion is uniform: one `let` around the map literal, all method bodies read the same locals.
+The `reg-view` macro rejects bodies whose top-level form is `(reagent.core/create-class …)` — Form-3 is the canonical escape-hatch case. Per the Reagent-v2 directive (rf2-25aq) the canonical surface targets Form-1 + Form-2; Form-3 ships through `re-frame.core/reg-view*`:
 
-This matches Form-2's treatment (one `let` around the outer + inner fns) and keeps Form-3 a true *escape hatch* for stateful third-party React interop — `componentDidMount`-style hooks have access to the right `dispatch`/`subscribe` without ceremony.
+```clojure
+(re-frame.core/reg-view* :feature/widget
+  (reagent.core/create-class
+    {:reagent-render        (fn [props] ...)
+     :component-did-mount   (fn [this] ...)
+     :component-will-unmount (fn [this] ...)}))
+```
+
+Inside a Form-3 body, the user captures frame-bound dispatch/subscribe explicitly via `(rf/dispatcher)` / `(rf/subscriber)` if needed — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
 
 ### Hot-reload behaviour for re-registered views
 

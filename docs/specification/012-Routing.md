@@ -409,15 +409,13 @@ Views derive UI from the route the same way they derive UI from any other state 
 ### The root view dispatches on `:rf.route/id`
 
 ```clojure
-(def app-root
-  (rf/reg-view :app/root
-    (fn render-app-root []
-      (case @(subscribe [:rf.route/id])
-        :route/home              [home-page]
-        :route/cart              [cart-page]
-        :route/cart.item-detail  [cart-item-detail]
-        :route/article           [article-page]
-        :rf.route/not-found         [not-found-page]))))
+(rf/reg-view app-root []
+  (case @(subscribe [:rf.route/id])
+    :route/home              [home-page]
+    :route/cart              [cart-page]
+    :route/cart.item-detail  [cart-item-detail]
+    :route/article           [article-page]
+    :rf.route/not-found      [not-found-page]))
 ```
 
 Pattern: a single `case` (or equivalent) over the route id at the top of the tree. Per-route views can subscribe to `:rf.route/params` for their own data needs.
@@ -602,15 +600,14 @@ These events are the **decision points** for navigation policy. The policy is en
 `route-link`'s body becomes:
 
 ```clojure
-(rf/reg-view :rf/route-link
-  (fn render-route-link [{:keys [to params query]} & children]
-    (let [url (rf/route-url to (or params {}) (or query {}))]
-      [:a {:href     url
-           :on-click (fn [e]
-                       (when (plain-left-click? e)        ;; no modifier keys
-                         (.preventDefault e)
-                         (rf/dispatch [:rf/url-requested {:url url :to to :params params :query query}])))}
-       children])))
+(rf/reg-view route-link [{:keys [to params query]} & children]
+  (let [url (rf/route-url to (or params {}) (or query {}))]
+    [:a {:href     url
+         :on-click (fn [e]
+                     (when (plain-left-click? e)        ;; no modifier keys
+                       (.preventDefault e)
+                       (dispatch [:rf/url-requested {:url url :to to :params params :query query}])))}
+     children]))
 ```
 
 ## Scroll restoration

@@ -210,6 +210,17 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Reason:** Mid-process adapter swap would leave an unknown set of cached reactions, mounted views, and frame containers wired to the old adapter — the inconsistency is unrecoverable. The dispose-then-install path forces a known clean state.
 - **Status:** `Provisional` — fixture pending: `adapter-already-installed.edn`.
 
+## Registration family
+
+### 21. Family asymmetry — only `reg-view` has a macro tier
+
+- **Specs:** [001-Registration](001-Registration.md) (the registration family); [Spec 004 §reg-view](004-Views.md#reg-view-is-the-multi-frame-contract); [Conventions §`*`-suffix naming](Conventions.md#-suffix-naming-for-fn-versions-of-macros).
+- **Scenario:** A reader looks at the public API and notices that `reg-view` ships as a **macro** with a `reg-view*` plain-fn partner, while every other `reg-*` (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-machine`, `reg-error-projector`) is a plain fn with no `*` partner. Why is the family asymmetric?
+- **Behaviour:** `reg-view` is the only `reg-*` macro because views need a Var binding — Reagent calls them by symbol from hiccup heads (`[counter "label"]`). The macro defs the symbol, registers the view, and auto-injects `dispatch` / `subscribe` lexically into the body. None of the other registrations are *invoked by name* from user-facing data; they are dispatched (events) or looked up by id (subs, fx, cofx, frames, routes, schemas, machines) at runtime. They have no need for an auto-defed Var, no need for compile-time auto-id derivation, and no body-shape compile-time check to enforce — so they stay plain fns.
+- **The `*` convention applies only where a macro sweetens an underlying fn.** Adding `reg-event-db*` / `reg-sub*` / etc. would be pure aliases for `reg-event-db` / `reg-sub` themselves — no macro tier exists, no fn partner is necessary. The convention is reserved for the sweetened-vs-unsweetened case, per `let` / `let*`.
+- **Reason:** The family looks asymmetric because the underlying need is asymmetric. Views participate in the render-tree by Var reference (Reagent's idiomatic hiccup head); other registrations participate by id (the registry holds the data). The macro tier exists where the Var binding is part of the contract; the plain fn tier is sufficient where the registry id is.
+- **Status:** `Locked` — Spec 004 owns the `reg-view` macro shape; this entry documents the family-level asymmetry so implementors and readers don't expect a `*` partner for every registration.
+
 ## Cross-references
 
 - [000-Vision §Goals](000-Vision.md#goals) — the goals these interactions exist to satisfy.
