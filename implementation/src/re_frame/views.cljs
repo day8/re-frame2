@@ -92,18 +92,25 @@
 
 (defn reg-view*
   "Reagent-aware view registration. Wraps `render-fn` with the React
-  `:context-type` hook used to resolve the surrounding frame at render
-  time, then registers it in the :view kind of the registrar.
+  `:contextType` static-field metadata used to resolve the surrounding
+  frame at render time, then registers it in the :view kind of the
+  registrar.
 
   Per Spec 004 §reg-view*: this is the plain-fn surface delegated to
   by `re-frame.core/reg-view*` on CLJS. `metadata` is merged into the
   registry slot's metadata as-is; source-coord capture is performed
-  by the caller (`re-frame.core/reg-view*`)."
+  by the caller (`re-frame.core/reg-view*`).
+
+  Note (rf2-kdwc): Reagent's create-class / fn-to-class machinery
+  recognises `:contextType` (camelCase, the React static-field name),
+  not `:context-type` (kebab). The earlier shape used the kebab key
+  and was silently ignored, which is why frame-provider context
+  resolution fell back to :rf/default."
   [id metadata render-fn]
   (let [wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (apply render-fn args))
-                  {:context-type frame-context})]
+                  {:contextType frame-context})]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
 
