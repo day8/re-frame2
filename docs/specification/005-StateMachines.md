@@ -431,6 +431,30 @@ Sub-events are how the machine receives its inputs:
 
 The handler dispatches on the second-position keyword (`:right-click-circle`, `:close-dialog`); the rest of the inner vector is the event payload visible to actions and guards.
 
+#### Extra-args fold
+
+The dispatched outer vector MAY carry **additional elements after the inner event**:
+
+```clojure
+[:machine-id [:inner-event-id & inner-args] & extra-args]
+```
+
+When the runtime drains an event with this shape, **the extras are appended (folded) onto the inner event** before it's interpreted, producing:
+
+```clojure
+inner-event = [:inner-event-id <inner-args>... <extra-args>...]
+```
+
+This makes the standard fx-callback convention work without ceremony. Idiomatic uses:
+
+- **HTTP callbacks.** A handler emits `:on-success [:machine-id [:inner-id]]` — a 2-element template. The fx implementation does `(rf/dispatch (conj on-success response))`, which conj-onto-the-outer produces `[:machine-id [:inner-id] response]`. The runtime folds the trailing `response` into the inner event, so the machine handler sees `[:inner-id response]` and the action's `[_ result]` destructure receives `result`.
+
+- **Promise / future resolution patterns.** Same shape: the surrounding async layer captures a 2-element template, conj's the resolved value, dispatches.
+
+- **Chained dispatches that carry payload.** Any callsite that wants to "ship a value into the machine" can use the `[:machine-id [:event-id] payload]` form rather than constructing the inner vector manually.
+
+The fold only applies when the outer event has length ≥ 3 AND the second element is itself a vector. Length-2 dispatches (`[:machine-id [:inner-id]]`) and the legacy single-arg form (`[:machine-id]`) are unaffected. The runtime resolves the outer-shape ambiguity by inspecting the second element's type — a vector second element means "sub-event, fold extras"; anything else means "use the whole vector as the inner event" (compatibility fallback).
+
 ### `create-machine-handler` is a pure factory
 
 The fn `create-machine-handler` returns is the event handler. Crucially, the factory itself:
