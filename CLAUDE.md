@@ -50,6 +50,10 @@ bd close <id>         # Complete work
 <!-- END BEADS INTEGRATION -->
 
 
+## Git Conventions
+
+- **No AI attribution in commits or PRs.** Do not add `Co-Authored-By: Claude ...`, `🤖 Generated with [Claude Code]`, or any similar trailer to commit messages or PR descriptions. Commit and PR text should read as the user's own work.
+
 ## Build & Test
 
 _Add your build and test commands here_
