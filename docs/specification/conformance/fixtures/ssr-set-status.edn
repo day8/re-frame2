@@ -13,9 +13,10 @@
                                  :platforms #{:server}}
           :rf.route/not-found      {:doc       "Render the not-found page with the right status."
                                  :platforms #{:server}}}
-  :fx    {:rf.server/set-status {:doc       "Set the response status code."
-                                 :platforms #{:server}
-                                 :spec      :rf.fx.server/set-status-args}}
+  ;; :rf.server/set-status is registered by the runtime (re-frame.ssr,
+  ;; per Spec 011 §HTTP response contract / rf2-8pif). The harness's
+  ;; :fixture/registry :fx slot would shadow that with a no-op stub, so
+  ;; the canonical fx is intentionally not declared here.
   :sub   {:rf/response          {:doc "Read the response accumulator."}}}
 
  :fixture/handlers
@@ -29,7 +30,11 @@
  :fixture/dispatches []
 
  :fixture/expect
- {:final-app-db {:page :not-found}
+ ;; Submap match — extra app-db keys (e.g. the framework-populated
+ ;; :rf/response accumulator) are tolerated. We assert :page here AND
+ ;; the :rf/response slot's :status so the runtime fx visibly fires.
+ {:final-app-db {:page :not-found
+                 :rf/response {:status 404}}
 
   :ssr/request-result
   {:response {:status 404
