@@ -3,13 +3,20 @@
             [re-frame.core :as rf]
             [todomvc.db :as db]))
 
-(defn- filter-from-hash [hash]
-  (case hash
-    "#/active"    :active
-    "#!/active"   :active
-    "#/completed" :completed
-    "#!/completed" :completed
-    :all))
+;; ---- routes (Spec 012) ----------------------------------------------------
+;; TodoMVC's canonical URLs are hash-based (#/, #/active, #/completed). Spec
+;; 012 routes match path-strings, so the host-adapter (core.cljs) strips the
+;; leading '#' (and optional '!') from the URL hash before dispatching
+;; :rf.route/handle-url-change. The result is a Spec 012 path the registered
+;; routes match exactly.
+
+(rf/reg-route :todo/all       {:doc "Show all todos."       :path "/"})
+(rf/reg-route :todo/active    {:doc "Show active todos."    :path "/active"})
+(rf/reg-route :todo/completed {:doc "Show completed todos." :path "/completed"})
+
+;; Required by Spec 012 §Route-not-found. Unmatched URLs land here; we treat
+;; them as "show all" so a stray hash never breaks the app.
+(rf/reg-route :rf.route/not-found {:doc "Fallback." :path "/_404"})
 
 (defn- allocate-next-id [todos]
   ((fnil inc 0) (last (keys todos))))
@@ -32,14 +39,8 @@
 
 (rf/reg-event-fx :todo/initialise
   [(rf/inject-cofx :todo.storage/todos)]
-  (fn [{:todo.storage/keys [todos]} [_ current-hash]]
-    {:db (assoc db/default-db
-                :todos todos
-                :showing (filter-from-hash current-hash))}))
-
-(rf/reg-event-db :todo/url-changed
-  (fn [db [_ current-hash]]
-    (assoc db :showing (filter-from-hash current-hash))))
+  (fn [{:todo.storage/keys [todos]} _]
+    {:db (assoc db/default-db :todos todos)}))
 
 (rf/reg-event-fx :todo/add
   (fn [{:keys [db]} [_ title]]
