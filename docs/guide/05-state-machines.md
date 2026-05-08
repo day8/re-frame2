@@ -67,27 +67,43 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
 
 ```clojure
 (def login-flow
-  {:id      :auth.login/flow
-   :initial :idle
-   :context {:attempts 0 :error nil}
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+   :guards  {:under-retry-limit (fn [{:keys [data]} _]
+                                  (< (:attempts data) 3))}
+   :actions {:clear-error    (fn [{:keys [data]} _]
+                               {:data (assoc data :error nil)})
+             :issue-request  (fn [_ [_ creds]]
+                               {:fx [[:http {:method :post :url "/api/login"
+                                             :body creds
+                                             :on-success [:auth.login [:success]]
+                                             :on-error   [:auth.login [:failure]]}]]})
+             :record-error   (fn [{:keys [data]} [_ err]]
+                               {:data (-> data
+                                          (update :attempts inc)
+                                          (assoc :error (:message err)))})
+             :store-session  (fn [{:keys [data]} [_ {:keys [user]}]]
+                               {:data (assoc data :user user)
+                                :fx   [[:localstorage/set
+                                        {:key "session" :val user}]]})
+             :lock-account   (fn [_ _]
+                               {:fx [[:http {:url "/api/lock-account"}]]})}
    :states
    {:idle
-    {:on {:auth.login/submit {:target  :submitting
-                              :actions [:auth.login/clear-error]}}}
+    {:on {:submit {:target :submitting :actions [:clear-error]}}}
 
     :submitting
-    {:entry [:auth.login/issue-request]
-     :on    {:auth.login/success {:target  :authed
-                                  :actions [:auth.login/store-session]}
-             :auth.login/failure [{:target  :error-shown
-                                   :cond    :auth.login/under-retry-limit
-                                   :actions [:auth.login/record-error]}
-                                  {:target  :locked-out
-                                   :actions [:auth.login/lock-account]}]}}
+    {:entry [:issue-request]
+     :on    {:success {:target :authed :actions [:store-session]}
+             :failure [{:target :error-shown
+                        :cond   :under-retry-limit
+                        :actions [:record-error]}
+                       {:target :locked-out
+                        :actions [:lock-account]}]}}
 
     :error-shown
-    {:on {:auth.login/dismiss {:target :idle}
-          :auth.login/submit  {:target :submitting}}}
+    {:on {:dismiss {:target :idle}
+          :submit  {:target :submitting}}}
 
     :authed      {:meta {:terminal? true}}
     :locked-out  {:meta {:terminal? true}}}})
@@ -97,26 +113,27 @@ This is a **transition table**. It's pure data. You can read it top to bottom an
 
 - Five states: `:idle`, `:submitting`, `:error-shown`, `:authed`, `:locked-out`.
 - The starting state is `:idle`.
-- From `:idle`, the event `:auth.login/submit` takes us to `:submitting`.
-- From `:submitting`, the event `:auth.login/success` takes us to `:authed`.
-- From `:submitting`, the event `:auth.login/failure` takes us to `:error-shown` if the guard `:auth.login/under-retry-limit` is true, otherwise to `:locked-out`.
-- The actions on each transition (`:auth.login/clear-error`, `:auth.login/issue-request`, `:auth.login/record-error`, `:auth.login/lock-account`, `:auth.login/store-session`) are referenced by id. They're registered separately.
+- From `:idle`, the event `:submit` takes us to `:submitting`.
+- From `:submitting`, the event `:success` takes us to `:authed`.
+- From `:submitting`, the event `:failure` takes us to `:error-shown` if the guard `:under-retry-limit` is true, otherwise to `:locked-out`.
+- The actions on each transition (`:clear-error`, `:issue-request`, `:record-error`, `:lock-account`, `:store-session`) are referenced by keyword. They resolve into the machine's own `:guards` / `:actions` map — there is no global guard/action registry; each machine carries its own.
 
 The whole flow is in one piece of data. You can pretty-print it. You can render it to a graph. You can check it against a schema. You can hand it to an AI and say "here's the auth flow, add a two-factor state between submitting and authed" — the AI has the whole context in front of it.
 
-The runtime takes this data, plus the registered guards/actions, plus the snapshot of the machine's current state, and applies the transition rules. The runtime — not the developer — is responsible for "if we're in :submitting and a :failure arrives, check the guard, fire the action, transition to the right next state." The developer is responsible only for *describing the transitions as data*.
+The runtime takes this data plus the snapshot of the machine's current state and applies the transition rules. The runtime — not the developer — is responsible for "if we're in :submitting and a :failure arrives, check the guard, fire the action, transition to the right next state." The developer is responsible only for *describing the transitions as data*.
 
 ## What's in a transition
 
 The grammar is borrowed (with adaptation) from [xstate](https://xstate.js.org/), which is the canonical state-machine library in the JavaScript world. Specifically:
 
 - **`:initial`** — the starting state.
-- **`:context`** — extended state that lives alongside the discrete state. Counters, error messages, transient data.
+- **`:data`** — extended state that lives alongside the discrete state. Counters, error messages, transient data. (xstate calls this slot `:context`; we use `:data` because re-frame already has a "context" — the interceptor pipeline's coeffect map. The pair `{:state :data}` is the snapshot.)
+- **`:guards`** / **`:actions`** — machine-scoped maps of named predicate / action functions. Transitions reference them by keyword (`:cond :under-retry-limit`, `:actions [:clear-error]`); the runtime resolves the keyword against this machine's `:guards` / `:actions` map. Each machine has its own namespace; there is no global guard/action registry.
 - **`:states`** — the state nodes, keyed by name.
 - **`:on`** — for a state, the events it responds to and where they go.
 - **`:target`** — the next state name.
 - **`:cond`** — a guard: a predicate that must return true for the transition to fire.
-- **`:actions`** — registered actions that fire on this transition.
+- **`:actions`** (inside a transition) — actions that fire on this transition.
 - **`:entry`/`:exit`** — actions that fire when entering or leaving a state, regardless of which event triggered the transition.
 - **`:meta`** — arbitrary user-defined annotations (e.g. `:terminal?`).
 
@@ -147,11 +164,19 @@ Each of these is opt-in — implementations declare which capabilities they supp
 Views that need to read a machine's current state read it through a sub:
 
 ```clojure
-@(rf/sub-machine :auth.login/event-handler)
+@(rf/sub-machine :auth.login)
 ;; → {:state :submitting :data {:attempts 1 :error nil}}
 ```
 
-`sub-machine` is sugar over the framework-shipped `:rf/machine` sub. It returns the snapshot — `{:state :data}` — or `nil` if the machine hasn't been created yet. Views typically destructure the `:state` and switch on it; complex UIs read the `:data` slot too. This is the single supported read path; there's no separate "actor reference" object to thread around.
+`sub-machine` is sugar over the framework-shipped `:rf/machine` sub (`(rf/subscribe [:rf/machine :auth.login])` is the explicit form). It returns the snapshot — `{:state :data}` — or `nil` if the machine hasn't been initialised yet. Views typically destructure the `:state` and switch on it; complex UIs read the `:data` slot too. This is the single supported read path; there's no separate "actor reference" object to thread around.
+
+For finer granularity, write derived subs against `:rf/machine` like any other `:<-` chain:
+
+```clojure
+(rf/reg-sub :auth/state
+  :<- [:rf/machine :auth.login]
+  (fn [{:keys [state]} _] state))
+```
 
 ## Patterns that bottom out in machines
 
@@ -164,53 +189,53 @@ Both are pattern docs (convention), not Specs (contract). When the shape of a fe
 
 ## Wiring a machine into the rest of re-frame
 
-Once the transition table is defined, registering it as an event handler is one line:
+The machine **is** the event handler. Two equivalent registration forms:
 
 ```clojure
-(rf/reg-event-fx :auth.login/event-handler
-  {:doc          "All :auth.login/* events route through here, interpreted as a machine."
-   :machine-path [:auth :login]}
-  (rf/machine-handler [:auth :login] login-flow))
+;; Convenience form — one call, machine registered under its own id.
+(rf/reg-machine :auth.login login-flow)
+
+;; Equivalent explicit form — passes through reg-event-fx with metadata.
+(rf/reg-event-fx :auth.login
+  {:doc "Login flow as a state machine."}
+  (rf/create-machine-handler login-flow))
 ```
 
-The `:machine-path` is where in `app-db` the machine's snapshot lives. The snapshot is a small map: `{:state :submitting :context {:attempts 1 :error nil}}`. The runtime reads/writes this snapshot at that path; the machine doesn't manage its own state separately.
+That's the whole wiring. The runtime owns the snapshot's location — it lives at `[:rf/machines :auth.login]` in the frame's `app-db`, and you don't pick the path. The snapshot is a small map: `{:state :submitting :data {:attempts 1 :error nil}}`. `create-machine-handler` returns a pure event-handler fn that reads the snapshot, runs `machine-transition`, writes the new snapshot, and returns the action effects.
 
-`(rf/machine-handler path definition)` is a helper that returns a regular `reg-event-fx`-shaped handler. It does the work of "look up the snapshot, call `machine-transition`, write the new snapshot, return the action effects." The handler is pure (`machine-transition` is pure), so all the testing and tooling guarantees of regular events apply to machines.
-
-## Guards and actions
-
-Guards are predicates. Registered separately, by id:
+Dispatching to the machine is dispatching to its event id, with the machine event nested:
 
 ```clojure
-(rf/reg-machine-guard :auth.login/under-retry-limit
-  {:doc "True if fewer than 3 prior attempts."}
-  (fn [{:keys [context]} _event]
-    (< (:attempts context) 3)))
+(rf/dispatch [:auth.login [:submit {:email "..." :password "..."}]])
 ```
 
-Actions are functions that produce context updates and/or effects. Also registered:
+The runtime folds extra args so the machine sees the inner event `[:submit creds]` and routes it through the `:on` map.
 
-```clojure
-(rf/reg-machine-action :auth.login/issue-request
-  {:doc "Fire the login HTTP request."}
-  (fn [_snapshot [_ creds]]
-    {:fx [[:http {:method :post :url "/api/login" :body creds
-                  :on-success [:auth.login/success]
-                  :on-error   [:auth.login/failure]}]]}))
+## Guards and actions live inside the machine
 
-(rf/reg-machine-action :auth.login/record-error
-  (fn [{:keys [context]} [_ err]]
-    {:context (-> context
-                  (update :attempts inc)
-                  (assoc :error (:message err)))}))
-```
+Notice in the `login-flow` definition above that `:guards` and `:actions` are **maps inside the machine spec**, not separate top-level registrations. Each machine carries its own guard/action namespace — keywords resolve via `(get-in spec [:guards :under-retry-limit])` / `(get-in spec [:actions :issue-request])`. There is no `reg-machine-guard` / `reg-machine-action`; the inline form is the form.
 
-Actions can return:
+Inline `(fn ...)` values are also first-class — `:cond (fn [...] ...)` skips the named-lookup. Use the named form for testability and tool introspection; use inline for one-off lambdas.
 
-- `:context` — updates to the extended state.
+Guards are predicates: `(fn [snapshot event] boolean)`. Actions return effect maps:
+
+- `:data` — updates to the extended state. The runtime writes the returned `:data` back into the snapshot's `:data` slot.
 - `:fx` — effects to fire (HTTP, navigation, follow-up dispatches).
 
-Just like ordinary `reg-event-fx` returns. The contract is consistent.
+The shape mirrors `reg-event-fx`'s return: in goes a value, out goes a description of state changes plus side-effects. The runtime interprets.
+
+**Cross-machine reuse via Clojure vars.** When a guard or action is shared across machines, define it as a `defn` and reference the var from each machine's `:guards` / `:actions` map:
+
+```clojure
+(defn user-authenticated? [{:keys [data]} _]
+  (some? (:user-id data)))
+
+(def login-flow
+  {... :guards {:auth? user-authenticated?} ...})
+
+(def cart-flow
+  {... :guards {:auth? user-authenticated?} ...})
+```
 
 ## When to reach for a machine, and when not to
 
@@ -234,21 +259,21 @@ Because `machine-transition` is pure — and because actions/guards are register
 
 ```clojure
 (deftest login-flow-happy-path
-  (let [snapshot {:state :idle :context {:attempts 0 :error nil}}]
+  (let [snapshot {:state :idle :data {:attempts 0 :error nil}}]
     (let [[s1 _fx] (rf/machine-transition login-flow snapshot
-                                          [:auth.login/submit {:email "a@b.com"
-                                                               :password "..."}])]
+                                          [:submit {:email "a@b.com"
+                                                    :password "..."}])]
       (is (= :submitting (:state s1))))
 
     (let [[s2 _fx] (rf/machine-transition login-flow
-                                          {:state :submitting :context {:attempts 0}}
-                                          [:auth.login/success {:user {:id 1}}])]
+                                          {:state :submitting :data {:attempts 0}}
+                                          [:success {:user {:id 1}}])]
       (is (= :authed (:state s2))))))
 
 (deftest login-flow-lockout
-  (let [snapshot {:state :submitting :context {:attempts 2}}]
+  (let [snapshot {:state :submitting :data {:attempts 2}}]
     (let [[s _fx] (rf/machine-transition login-flow snapshot
-                                         [:auth.login/failure {:message "wrong creds"}])]
+                                         [:failure {:message "wrong creds"}])]
       ;; 2 prior + 1 current = 3, hits the guard, transitions to :locked-out
       (is (= :locked-out (:state s))))))
 ```
@@ -259,9 +284,9 @@ This is the testing experience for *flows that are non-trivial* — exactly the 
 
 ## Composing machines
 
-Real apps have more than one machine: an auth machine, a checkout-wizard machine, a websocket-connection machine. They coexist within a frame, each at its own `:machine-path`.
+Real apps have more than one machine: an auth machine, a checkout-wizard machine, a websocket-connection machine. They coexist within a frame, each with its own snapshot under `[:rf/machines <id>]` in `app-db`.
 
-When machines need to talk to each other, they do so through dispatch — the auth machine's `:auth.login/success` action might dispatch `[:user/load-profile]`, which is handled by a regular `reg-event-fx` handler that updates the user-profile slice. There's no special inter-machine messaging. It's all events, all going through the same queue, all running to completion.
+When machines need to talk to each other, they do so through dispatch — the auth machine's `:store-session` action might dispatch `[:user/load-profile]`, which is handled by a regular `reg-event-fx` handler that updates the user-profile slice. There's no special inter-machine messaging. It's all events, all going through the same queue, all running to completion.
 
 The drain semantics matter here. If an action dispatches a child event, that child event runs *before* subscriptions update. So if a state machine moves through `:idle → :submitting → :authed → :loading-profile → :ready` in a single user click, the view sees only `:idle` (before) and `:ready` (after) — never any in-between flicker. The pattern's commitment to atomic state changes pays off most strongly in flows like this.
 

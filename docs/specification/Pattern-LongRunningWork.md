@@ -130,14 +130,14 @@ The machine's `:data` slot holds the progress fields. Register subs and views re
 ```clojure
 (rf/reg-sub :compute.job/progress
   :<- [:rf/machine :compute/batch-job]
-  (fn [snapshot _]
-    (let [{:keys [processed total]} (:data snapshot)]
+  (fn [{:keys [data]} _]
+    (let [{:keys [processed total]} data]
       (when (pos? total)
         (/ processed total)))))         ;; 0.0 .. 1.0
 
 (rf/reg-sub :compute.job/state
   :<- [:rf/machine :compute/batch-job]
-  (fn [snapshot _] (:state snapshot)))  ;; :idle / :processing / :yielding / :complete / :cancelled
+  (fn [{:keys [state]} _] state))       ;; :idle / :processing / :yielding / :complete / :cancelled
 ```
 
 The view renders a progress bar from `:compute.job/progress` and shows different UI per `:compute.job/state`. The progress bar updates between chunks because each chunk advances `:data.processed` and the next browser tick renders the new value.
