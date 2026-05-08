@@ -1,0 +1,59 @@
+;; Conformance fixture: routing/on-match-rerun-on-param-change
+;;
+;; Per Spec 012 §Per-route data loading: same-route-id navigations with
+;; CHANGED :params (or :query) re-fire :on-match — the route is becoming
+;; active again under new inputs. Fragment-only changes do NOT re-fire
+;; (covered by `route-fragment-change`); this fixture covers the
+;; opposite case — params change → loaders re-run.
+;;
+;; Per [012 §Per-route data loading](../../012-Routing.md#per-route-data-loading).
+
+{:fixture/id           :routing/on-match-rerun-on-param-change
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "Navigating to /articles/A then /articles/B (same :route-id, different :params) re-fires :on-match. The loader handler appends the params snapshot to a log so the fixture verifies both navigations dispatched their loaders."
+
+ :fixture/registry
+ {:route
+  {:route/article {:path     "/articles/:id"
+                   :params   [:map [:id :string]]
+                   :on-match [[:article/load]]}}
+
+  :event
+  {:rf/init       {:doc "Seed."}
+   :article/load  {:doc "Loader — re-fires when params change."}}}
+
+ :fixture/handlers
+ {:event
+  ;; Loader appends a marker each time it fires. The conformance runtime
+  ;; emits :event traces with :event-id; the load-count counter and the
+  ;; trace stream together verify the on-match fires twice — once for
+  ;; A, once for B.
+  {:rf/init       [[:set [:load-count] 0]]
+   :article/load  [[:update [:load-count] [:fn :inc]]]}}
+
+ :fixture/frame-config {:on-create [:rf/init]}
+
+ :fixture/dispatches
+ [;; Step 1: Navigate to /articles/A. :article/load fires.
+  [:rf/url-changed "/articles/A"]
+
+  ;; Step 2: Same route-id, different params. The slice changes; :on-match
+  ;; re-fires.
+  [:rf/url-changed "/articles/B"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route      {:id :route/article :params {:id "B"} :query {} :fragment nil}
+   :load-count 2}                                          ;; A + B
+
+  :trace-emissions
+  [;; First navigation: nav-token allocated, loader fires.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/article}}
+   {:operation :event :tags {:event-id :article/load}}
+
+   ;; Second navigation: fresh nav-token, loader re-fires.
+   {:operation :route.nav-token/allocated
+    :tags      {:route-id :route/article}}
+   {:operation :event :tags {:event-id :article/load}}]}}

@@ -1,0 +1,39 @@
+;; Conformance fixture: routing/fragment-as-slice
+;;
+;; The URL #fragment is a first-class slot in the :route slice — populated
+;; on initial navigation, updatable on fragment-only changes, and cleared
+;; when the next URL has no fragment. This fixture isolates the slice
+;; lifecycle separately from `route-fragment-change`'s on-match-doesn't-
+;; re-fire behaviour.
+;;
+;; Per [012 §Fragments — Fragment in the slice]
+;; (../../012-Routing.md#fragment-in-the-slice).
+
+{:fixture/id           :routing/fragment-as-slice
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/fragment}
+ :fixture/doc          "The :route slice's :fragment field tracks the URL #fragment. Initial navigation seeds it; same-path/different-fragment updates it; navigation to a URL without a fragment clears it (nil). The slice-level shape is the only thing this fixture asserts — on-match firing is covered by route-fragment-change."
+
+ :fixture/registry
+ {:route
+  {:route/docs {:path   "/docs/:page"
+                :params [:map [:page :string]]}}}
+
+ :fixture/dispatches
+ [;; Step 1: Visit /docs/routing#scroll-restoration. :fragment seeded.
+  [:rf/url-changed "/docs/routing#scroll-restoration"]
+
+  ;; Step 2: Same path/params, different fragment. :fragment updates.
+  [:rf/url-changed "/docs/routing#caching"]
+
+  ;; Step 3: Same path/params, NO fragment. :fragment clears to nil.
+  ;; Note: :rf/url-changed treats this as a fragment-only update from
+  ;; "caching" → nil (slice-level).
+  [:rf/url-changed "/docs/routing"]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route {:id       :route/docs
+           :params   {:page "routing"}
+           :query    {}
+           :fragment nil}}}}

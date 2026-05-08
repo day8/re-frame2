@@ -1,0 +1,55 @@
+;; Conformance fixture: routing/not-found
+;;
+;; An unmatched URL routes to :rf.route/not-found via :rf.route/handle-url-change.
+;; The runtime emits :rf.error/no-such-handler with :recovery
+;; :replaced-with-default per the routing context. The not-found route's
+;; :on-match events fire just like any other route.
+;;
+;; Per [012 §Route-not-found](../../012-Routing.md#route-not-found--routenot-found-canonical).
+
+{:fixture/id           :routing/not-found
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/error}
+ :fixture/doc          "An unmatched URL — no path-pattern matches — routes to :rf.route/not-found via :rf.route/handle-url-change. The runtime emits :rf.error/no-such-handler with the URL in :tags. :rf.route/not-found is an ordinary registered route; its :on-match events fire like any other route."
+
+ :fixture/registry
+ {:route
+  {:route/home         {:path "/"}
+   :rf.route/not-found {:path     "/404"
+                        :on-match [[:analytics/log-404]]}}
+
+  :event
+  {:analytics/log-404 {:doc "Logs the 404 hit."}}}
+
+ :fixture/handlers
+ {:event
+  ;; Capture the unmatched URL so we can verify the on-match path runs.
+  {:analytics/log-404 [[:set [:analytics :last-404] true]]}}
+
+ :fixture/dispatches
+ ;; :rf.route/handle-url-change is the runtime's URL-driven entry point —
+ ;; Spec 012 §URL changes are events specifies it routes to
+ ;; :rf.route/not-found on miss. The :rf/url-changed branch only emits the
+ ;; error trace and leaves the slice unchanged.
+ [[:rf.route/handle-url-change "/garbage/path"]]
+
+ :fixture/expect
+ {:final-app-db
+  ;; :transition is implementation-defined here (some runtimes leave
+  ;; :loading after on-match drain; others normalise to :idle). Partial-
+  ;; match — assert the locked fields only.
+  {:route     {:id     :rf.route/not-found
+               :params {:url "/garbage/path"}
+               :query  {}
+               :error  nil}
+   :analytics {:last-404 true}}
+
+  :trace-emissions
+  [;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
+   {:operation :rf.error/no-such-handler
+    :op-type   :error
+    :recovery  :replaced-with-default
+    :tags      {:url "/garbage/path"}}
+
+   ;; The not-found route's :on-match events still fire.
+   {:operation :event :tags {:event-id :analytics/log-404}}]}}
