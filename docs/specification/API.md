@@ -79,7 +79,6 @@
 | `subscriber` | Fn | `(subscriber)` (called during render) → frame-bound subscribe fn | v1 | 004 |
 | `get-view` | Fn | `(get-view view-id)` → render-fn | v1 | 004 |
 | `view` | Fn | `(view view-id)` → render-fn (runtime-lookup handle; alias of `get-view`) | v1 | 001, 004 |
-| `h` | M | `(h hiccup-form)` | v1 | 004 |
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
 
@@ -532,7 +531,8 @@ See [007-Stories.md](007-Stories.md).
 | `frame-dispatcher` (proposed earlier) | Renamed to `bound-dispatcher` | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Bridge always active when tracing is on; production elides everything | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb` / `remove-trace-cb` | 009 |
-| Bare `[:my-view "args"]` keyword-tagged hiccup (without `h`) | Use `(rf/h [:my-view "args"])` or `[(rf/get-view :my-view) "args"]` | 004 |
+| Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/get-view :my-view) "args"]` for late-binding by id | 004 |
+| `h` macro (proposed earlier) | Removed (rf2-n4um). Use the Var form `[my-view "args"]` or `[(rf/get-view :my-view) "args"]` | 004 |
 | `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb`. | MIGRATION M-17 |
 | `clear-global-interceptor` | No replacement needed — re-register `reg-frame` with an updated `:interceptors` vector (absent-key semantics clear it). | MIGRATION M-17 |
 | `reg-sub-raw` | Use `reg-sub` (app-db reads), Pattern-AsyncEffect (non-app-db sources), state machines (lifecycle), or the [006](006-ReactiveSubstrate.md) adapter contract (bridging external reactivity). | MIGRATION M-18 |
