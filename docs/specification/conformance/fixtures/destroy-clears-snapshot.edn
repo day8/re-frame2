@@ -23,13 +23,13 @@
 
  :fixture/handlers
  {:machine-action
-  ;; The action emits a literal :destroy-machine fx targeting the
-  ;; previously-recorded actor id. The handler-body DSL passes the fx
-  ;; args verbatim, so the actor-id is bound at action-write time. (User
-  ;; code in a real machine would close over the id via :data — out of
-  ;; scope for the conformance corpus's small DSL.)
+  ;; The action emits a :destroy-machine fx targeting the recorded
+  ;; child id. Per rf2-8vo0, the runner now passes :fx args through
+  ;; `eval-value`, so the reflection form `[:get [:child-id]]` resolves
+  ;; against the snapshot's :data at action-eval time — letting the
+  ;; fixture express the natural data-flow rather than hardcoding the id.
   {:supervisor/destroy-worker
-   [[:fx :destroy-machine :worker#1]]}}
+   [[:fx :destroy-machine [:get [:child-id]]]]}}
 
  :fixture/calls
  [{:call         :machine-transition

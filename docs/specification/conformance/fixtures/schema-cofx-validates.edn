@@ -12,9 +12,7 @@
 ;; This capability — :schemas/cofx — is finer-grained than the baseline
 ;; :schemas/runtime. Ports that have wired cofx-injection validation
 ;; declare :schemas/cofx alongside :schemas/runtime; ports that haven't
-;; are skipped on this fixture. The runtime gap (validate-cofx! not yet
-;; wired) is tracked as rf2-7leq; the conformance-runner gap (cofx body
-;; realisation from fixture DSL) is tracked as rf2-g25p.
+;; are skipped on this fixture.
 ;;
 ;; Dynamic-host only.
 
@@ -38,10 +36,11 @@
           {:doc "Read :app-version from coeffects and stash it in app-db."}}}
 
  :fixture/handlers
- ;; The cofx body DSL is gated on the runner supporting cofx body
- ;; realisation (rf2-g25p). Until that lands, the cofx registrations are
- ;; metadata-only and this fixture is skipped via the :schemas/cofx
- ;; capability gate. The bodies below describe the intended behaviour.
+ ;; Per rf2-g25p the runner now realises cofx bodies via `eval-value`,
+ ;; so the `:set` step's value is the value injected at [:coeffects cofx-id].
+ ;; The path slot is symbolic — convention is `[k]` where `k` is the
+ ;; bare key shared by namespaced cofx-ids (matches `[:cofx-key k]`
+ ;; reads in event bodies via the runner's auto-injection heuristic).
  {:cofx  {:app-version/well [[:set [:app-version] "1.4.5"]]
           :app-version/bad  [[:set [:app-version] 42]]}
   :event {:cap/seed [[:set [:app-version] [:cofx-key :app-version]]]}}
