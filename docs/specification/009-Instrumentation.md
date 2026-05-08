@@ -545,6 +545,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit | `:depth`, `:queue-size`, `:last-event` |
 | `:rf.error/no-such-handler` | A dispatch arrived with no registered handler | `:event`, `:kind` |
 | `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside an event handler's interceptor pipeline (use `:fx [[:dispatch event]]` instead — see [002 §dispatch-sync](002-Frames.md#dispatch-sync)) | `:event`, `:enclosing-event`, `:enclosing-frame` |
+| `:rf.error/effect-map-shape` | A `reg-event-fx` handler returned a top-level effect-map key other than `:db` / `:fx` (per [MIGRATION §M-8](MIGRATION.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level)). The runtime drops the offending key and emits one trace per offending key; legal `:db` / `:fx` keys still apply | `:failing-id` (event-id), `:event-id`, `:event` (vector), `:offending-key`, `:value`, `:reason` |
 | `:rf.error/override-fallthrough` | An override was specified but no matching id existed | `:overrides-map`, `:looked-up-id` |
 | `:rf.fx/skipped-on-platform` | An fx was skipped because its `:platforms` excluded the active platform (per [011](011-SSR.md)) | `:fx-id`, `:platform`, `:registered-platforms` |
 | `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree (per [011](011-SSR.md)) | `:server-hash`, `:client-hash`, `:first-diff-path?` |
@@ -609,6 +610,7 @@ The `:recovery` field on the trace event tells consumers (dev panels, error-moni
 - `:retried` — the runtime retried (with an upper bound) and surfaces the result.
 - `:skipped` — the runtime declined to act (`:rf.fx/skipped-on-platform`).
 - `:warned-and-replaced` — the runtime emitted the warning and did its default action anyway (e.g., `:rf.ssr/hydration-mismatch` warn-and-replace mode).
+- `:logged-and-skipped` — the runtime emitted the trace and dropped the offending input; sibling inputs still apply (e.g., `:rf.error/effect-map-shape` drops the offending top-level effect-map key while `:db` / `:fx` still apply).
 
 A registered error-handler (per `reg-event-error-handler`) can intercept any error category and decide policy. The default error-handler routes everything to the trace stream and proceeds with the documented per-category recovery.
 
@@ -658,6 +660,7 @@ Only **one** error-handler is registered at a time per process. Replacing it rep
 | `:rf.error/drain-depth-exceeded` | `:no-recovery` | Always indicates a bug; halt the cascade. |
 | `:rf.error/no-such-handler` | `:replaced-with-default` | No-op; emit the trace. |
 | `:rf.error/dispatch-sync-in-handler` | `:no-recovery` | The call is rejected. Use `:fx [[:dispatch event]]` in the effect map. |
+| `:rf.error/effect-map-shape` | `:logged-and-skipped` | The offending top-level key is dropped; `:db` and `:fx` still apply. One trace per offending key. Per [MIGRATION §M-8](MIGRATION.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level). |
 | `:rf.error/override-fallthrough` | `:replaced-with-default` | Use the registered fx as if no override existed. |
 | `:rf.fx/skipped-on-platform` | `:skipped` | Documented; not really an error. |
 | `:rf.ssr/hydration-mismatch` | `:warned-and-replaced` | Re-render client-side; the server's HTML is replaced. |
@@ -696,6 +699,10 @@ Example pairs (acceptable → preferred):
 :rf.error/drain-depth-exceeded
   acceptable: "Drain depth exceeded."
   preferred:  "Drain depth limit (100) exceeded — likely a dispatch loop. Last event in queue: `[:cart/recompute]`."
+
+:rf.error/effect-map-shape
+  acceptable: "Effect-map returned a disallowed top-level key."
+  preferred:  "Effect-map for `:cart/save` returned top-level key `:dispatch`; only `:db` and `:fx` are allowed at the top level — wrap as `:fx [[:dispatch event]]`."
 ```
 
 Implementations that omit a `:reason` (returning the empty string) are conformant — the structured payload is the contract — but the rubric is the recommended voice for the reference implementation and for ports.
