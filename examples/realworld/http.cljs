@@ -1,4 +1,4 @@
-(ns example.realworld.http
+(ns realworld.http
   "The :http registered fx for the RealWorld example.
 
    The RealWorld spec lives at:

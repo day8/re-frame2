@@ -1,4 +1,4 @@
-(ns example.realworld.routing
+(ns realworld.routing
   "Routes for the RealWorld (Conduit) example.
 
    This file owns the route table, an app-specific auth guard, and a local
@@ -11,8 +11,9 @@
    - `:rf.route/continue` / `:rf.route/cancel`
    - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
    - `:rf/url-requested`"
-  (:require [re-frame.core :as rf]
-            [example.realworld.schema])
+  (:require [clojure.string]
+            [re-frame.core :as rf]
+            [realworld.schema])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -137,10 +138,27 @@
 ;; ROUTER WIRING
 ;; ============================================================================
 
+;; The example may be served from a sub-path (e.g. /realworld/) by the
+;; Playwright orchestrator; in production it would be mounted at /.
+;; `*base-path*` lets the host strip a prefix before the route matcher
+;; runs. Set via `set-base-path!` in the run fn.
+(def ^:dynamic *base-path* "")
+
+(defn set-base-path! [s]
+  (set! *base-path* (or s "")))
+
+(defn- strip-base [s]
+  (if (and (seq *base-path*)
+           (clojure.string/starts-with? s *base-path*))
+    (let [stripped (subs s (count *base-path*))]
+      (if (clojure.string/starts-with? stripped "/") stripped (str "/" stripped)))
+    s))
+
 (defn current-url []
-  (str (.. js/window -location -pathname)
-       (.. js/window -location -search)
-       (.. js/window -location -hash)))
+  (-> (.. js/window -location -pathname)
+      strip-base
+      (str (.. js/window -location -search)
+           (.. js/window -location -hash))))
 
 (defn install-router! []
   (.addEventListener js/window "popstate"

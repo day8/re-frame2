@@ -1,4 +1,4 @@
-(ns example.realworld.settings
+(ns realworld.settings
   "User settings page for the RealWorld (Conduit) example.
 
    This is a small Pattern-Forms sketch:
@@ -7,9 +7,9 @@
    - write the returned user back through `:auth/store-session`
    - keep logout on the existing auth machine path"
   (:require [re-frame.core :as rf]
-            [example.realworld.schema]
-            [example.realworld.http]
-            [example.realworld.routing :as routing])
+            [realworld.schema]
+            [realworld.http]
+            [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (defn draft-from-user [user]
