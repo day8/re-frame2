@@ -1,7 +1,7 @@
 # re-frame2 — reference implementation
 
 The v2 reference implementation, generated from the specification corpus in
-`../docs/specification/`. The acceptance test for the spec is:
+`../spec/`. The acceptance test for the spec is:
 *"an AI can one-shot the implementation from the spec alone."* This
 directory is that one-shot.
 
@@ -62,7 +62,7 @@ implementation/
     smoke_test.clj           JVM smoke tests
     runtime_cljs_test.cljs   CLJS smoke tests (Reagent adapter)
     conformance_test.clj     Loads + runs every fixture in
-                             ../docs/specification/conformance/fixtures/
+                             ../spec/conformance/fixtures/
 ```
 
 ## Status by spec area
@@ -93,7 +93,7 @@ clojure -M:test
 
 This runs the smoke tests in `test/re_frame/smoke_test.clj` plus the
 conformance fixture runner in `test/re_frame/conformance_test.clj`,
-which loads every `.edn` in `../docs/specification/conformance/fixtures/`
+which loads every `.edn` in `../spec/conformance/fixtures/`
 and runs the runnable subset against this implementation.
 
 **CLJS** (one-time `npm install`, then iterate):
@@ -129,4 +129,4 @@ DOM-rendering pipeline.
 ## What's not in scope
 
 - The migration agent (re-frame v1 → v2). That's a separate
-  AI-driven task per `../docs/specification/MIGRATION.md`.
+  AI-driven task per `../spec/MIGRATION.md`.

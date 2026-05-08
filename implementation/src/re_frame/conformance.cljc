@@ -3,7 +3,7 @@
 
   The conformance corpus represents handler bodies as data — a small DSL
   the harness interprets into native fns. Per
-  docs/specification/conformance/README.md §Handler-body DSL ops.
+  spec/conformance/README.md §Handler-body DSL ops.
 
   Operator set:
 

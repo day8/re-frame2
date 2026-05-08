@@ -42,5 +42,5 @@ If you've finished the guide and want to see code:
 ## What examples are *not*
 
 - **Not all immediately runnable end-to-end.** Some examples are aligned to the current implementation and some remain pedagogical sketches.
-- **Not a substitute for the [specification](../docs/specification/).** Examples illustrate; the specification defines.
+- **Not a substitute for the [specification](../spec/).** Examples illustrate; the specification defines.
 - **Not all uniformly polished.** The Pedagogical-sketch examples are deliberately small. The Worked-scaffold (RealWorld) prioritises breadth of API coverage over production polish.

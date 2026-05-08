@@ -19,7 +19,7 @@
 
   This example is intentionally minimal — the heavy contract testing
   lives in the JVM smoke (re-frame.http-managed-test) and the
-  conformance fixtures (docs/specification/conformance/fixtures/
+  conformance fixtures (spec/conformance/fixtures/
   http-managed-*.edn). Playwright's role is the cross-substrate sanity
   check: the same fx, the same reply shape, end-to-end through Reagent
   and Fetch."

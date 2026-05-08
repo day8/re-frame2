@@ -2,7 +2,7 @@
   "JVM smoke coverage for Spec 013 — Flows.
 
   This file backstops the conformance fixtures in
-  docs/specification/conformance/fixtures/flow-*.edn. Where the fixtures
+  spec/conformance/fixtures/flow-*.edn. Where the fixtures
   describe canonical flow shapes as data (skipped by the reference
   harness until the :flow/* capability set is wired into the conformance
   runner), the tests here exercise the same paths against the JVM

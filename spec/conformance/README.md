@@ -1,7 +1,7 @@
 # Conformance Corpus
 
 > **Type:** Reference
-> The conformance test suite for re-frame2 implementations. The corpus is the verification mechanism for [Goal 2 — AI-implementable from the spec alone](../000-Vision.md#ai-implementable-from-the-spec-alone): the claim that the spec is sufficiently complete for an AI armed only with `/docs/specification/` + this corpus to produce a working reference implementation in any host language. A spec gap surfaces as a fixture an AI cannot reproduce without consulting outside sources; closing the gap is a spec-level remediation, not an implementation-level one.
+> The conformance test suite for re-frame2 implementations. The corpus is the verification mechanism for [Goal 2 — AI-implementable from the spec alone](../000-Vision.md#ai-implementable-from-the-spec-alone): the claim that the spec is sufficiently complete for an AI armed only with `/spec/` + this corpus to produce a working reference implementation in any host language. A spec gap surfaces as a fixture an AI cannot reproduce without consulting outside sources; closing the gap is a spec-level remediation, not an implementation-level one.
 
 ## Naming convention
 

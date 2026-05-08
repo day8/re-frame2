@@ -1,6 +1,6 @@
 (ns re-frame.conformance-test
   "Conformance fixture runner. Loads .edn fixtures from
-  ../docs/specification/conformance/fixtures/, realises handler-body DSL
+  ../spec/conformance/fixtures/, realises handler-body DSL
   ops into native fns, runs each fixture's :fixture/dispatches, and
   compares observables against :fixture/expect.
 
@@ -73,7 +73,7 @@
 ;; ---- fixture loader -------------------------------------------------------
 
 (def fixtures-dir
-  (io/file "../docs/specification/conformance/fixtures"))
+  (io/file "../spec/conformance/fixtures"))
 
 (defn- load-fixture [file]
   (try

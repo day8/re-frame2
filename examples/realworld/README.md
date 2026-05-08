@@ -34,11 +34,11 @@ A worked example based on the [RealWorld spec](https://github.com/gothinkster/re
 
 ## Architecture references
 
-- [`docs/specification/Pattern-RemoteData.md`](../../docs/specification/Pattern-RemoteData.md)
-- [`docs/specification/Pattern-Forms.md`](../../docs/specification/Pattern-Forms.md)
-- [`docs/specification/012-Routing.md`](../../docs/specification/012-Routing.md)
-- [`docs/specification/005-StateMachines.md`](../../docs/specification/005-StateMachines.md)
-- [`docs/specification/011-SSR.md`](../../docs/specification/011-SSR.md)
+- [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md)
+- [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md)
+- [`spec/012-Routing.md`](../../spec/012-Routing.md)
+- [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md)
+- [`spec/011-SSR.md`](../../spec/011-SSR.md)
 
 ## How to run
 

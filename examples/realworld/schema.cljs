@@ -71,7 +71,7 @@
 ;; ============================================================================
 ;;
 ;; Every slice that holds remote data follows the standard 5-key shape from
-;; docs/specification/Pattern-RemoteData.md.
+;; spec/Pattern-RemoteData.md.
 
 (def RequestSlice
   "The standard remote-data lifecycle slice. Generic over the :data type."

@@ -140,7 +140,7 @@ A real HTTP response is HTML *plus* a status code, plus headers, plus cookies, p
 
 The standard server fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/redirect`) are all `:platforms #{:server}` and write to a structured accumulator the host adapter consumes. Cookies are structured maps, not raw strings — the adapter does the wire serialisation, so you never write `Set-Cookie:` by hand and you never trip on per-attribute quoting bugs. Redirects short-circuit the render — a `302` skips body rendering and the hydration-payload serialisation; the host adapter sees `{:redirect {:status 302 :location ...}}` and emits the right wire response. Multiple `set-status` calls? The runtime takes the last write and emits a `:rf.warning/multiple-status-set` trace event so tooling can find the conflict.
 
-The full contract — every fx, every default, the full request-handler return shape — lives in [Spec 011 §HTTP response contract](../specification/011-SSR.md#http-response-contract).
+The full contract — every fx, every default, the full request-handler return shape — lives in [Spec 011 §HTTP response contract](../../spec/011-SSR.md#http-response-contract).
 
 ## Head and meta — `<title>`, `<meta>`, JSON-LD
 
@@ -163,7 +163,7 @@ A registered head function plus per-route `:head` metadata is what produces the 
        :link  [{:rel "canonical" :href (canonical-url article)}]})))
 ```
 
-The runtime renders the head model to HTML, ships it in the document, and on the client side the same head function runs and the runtime hashes both server and client head models for mismatch detection. Same idiom as the body: data → render-tree → HTML, with structural-equivalence hashing as the lock. See [Spec 011 §Head/meta contract](../specification/011-SSR.md#headmeta-contract).
+The runtime renders the head model to HTML, ships it in the document, and on the client side the same head function runs and the runtime hashes both server and client head models for mismatch detection. Same idiom as the body: data → render-tree → HTML, with structural-equivalence hashing as the lock. See [Spec 011 §Head/meta contract](../../spec/011-SSR.md#headmeta-contract).
 
 ## Server errors are sanitised
 
@@ -182,7 +182,7 @@ The trace stream carries the **internal** error — full structured detail, stac
       {:status 500 :code :internal-error :message "Something went wrong." :retryable? true})))
 ```
 
-In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. See [Spec 011 §Server error projection](../specification/011-SSR.md#server-error-projection).
+In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. See [Spec 011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
 
 ## The server's per-request frame
 
@@ -223,7 +223,7 @@ This is why run-to-completion drain matters for SSR: the server can't render hal
 
 ## Routing and SSR
 
-Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 04](04-views-and-frames.md) and [Spec 012](../specification/012-Routing.md)). The same handler runs server-side, fed the request URL.
+Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 04](04-views-and-frames.md) and [Spec 012](../../spec/012-Routing.md)). The same handler runs server-side, fed the request URL.
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
@@ -237,7 +237,7 @@ Routing on the server is the same as routing on the client. The route slice in `
 
 The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the [routing example](../../examples/routing/core.cljs)) — and because the server-rendered route is the same data shape as the client route, the view code is identical.
 
-The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. The full contract is in [Spec 012](../specification/012-Routing.md). The server-side relevance of all this: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
+The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. The full contract is in [Spec 012](../../spec/012-Routing.md). The server-side relevance of all this: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
 
 ## What you give up
 

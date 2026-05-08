@@ -277,7 +277,7 @@ Production elision of instrumentation is non-negotiable; see [009 §Production b
 
 ### AI-implementable from the spec alone
 
-Goal 2 is *a property of the spec corpus itself*, not of the design or the runtime. It says: an AI armed with `/docs/specification/` and `/docs/specification/conformance/` should be able to produce a working v1 reference implementation, in CLJS or any other host, **without consulting the existing re-frame v1 source code or asking the spec authors for clarification**.
+Goal 2 is *a property of the spec corpus itself*, not of the design or the runtime. It says: an AI armed with `/spec/` and `/spec/conformance/` should be able to produce a working v1 reference implementation, in CLJS or any other host, **without consulting the existing re-frame v1 source code or asking the spec authors for clarification**.
 
 This is distinct from Goal 1 (AI-first amenability):
 
@@ -482,7 +482,7 @@ re-frame2's "AI-first" commitment ships **three distinct layers** of AI-amenable
 
 | Layer | What it is | Where it lives |
 |---|---|---|
-| **1. AI-targeted docs** | Construction Prompts, Spec-Schemas, MIGRATION, conformance corpus, the AI track of the two-track docs | `/docs/specification/` |
+| **1. AI-targeted docs** | Construction Prompts, Spec-Schemas, MIGRATION, conformance corpus, the AI track of the two-track docs | `/spec/` |
 | **2. Runtime pair tool** | A re-frame2-native equivalent of [re-frame-pair](https://github.com/day8/re-frame-pair) — REPL-attached AI/REPL companion | separate library |
 | **3. Pair-improver skill** | A re-frame2-native equivalent of [re-frame-pair-improver](https://github.com/day8/re-frame-pair-improver) — a Claude skill that critiques the pair tool itself | `/skills/` |
 
