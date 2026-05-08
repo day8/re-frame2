@@ -13,6 +13,13 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (rf/init!)
+  ;; clear-all! also drops the framework-shipped fxs that register at
+  ;; namespace load time (e.g. :rf.http/managed and its canned-stub
+  ;; siblings). Reload the relevant ns so the toplevel reg-fx forms run
+  ;; again and the framework substrate is back in place — the examples
+  ;; routinely route :rf.http/managed via :fx-overrides to those stubs
+  ;; (Spec 014 §Testing).
+  (require 're-frame.http-managed :reload)
   ;; Drop any cached require of example namespaces so each test re-evaluates
   ;; their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)
