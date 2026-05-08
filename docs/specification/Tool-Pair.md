@@ -88,7 +88,7 @@ All six failures have `:op-type :error` and `:recovery :no-recovery`. Pair tools
 
 **Restore caveat.** Even a *successful* restore rewinds `app-db` only; effects already fired (HTTP requests sent, navigation pushed, localStorage written) are not reversed. Pair-shaped tools surface this caveat in their UI before applying a restore.
 
-**Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) the trace surface and epoch-history machinery is compile-time gated; production builds elide entirely.
+**Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) the trace surface, schema validation, registrar trace emit, and epoch-history machinery share a single compile-time gate (`re-frame.interop/debug-enabled?`, alias of `goog.DEBUG`); production builds (`:advanced` + `goog.DEBUG=false`) elide all of it. CI's `npm run test:elision` job (Spec 009 §Production-elision verification) asserts the contract holds for every gated surface, including the epoch-history primitives once they land.
 
 ## REPL-eval
 

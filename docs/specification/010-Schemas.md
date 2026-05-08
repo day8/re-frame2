@@ -129,7 +129,7 @@ All registered schemas are checked at every validation point. The intent is to c
 
 ### Production builds
 
-Validation is **elided** by default — schemas remain registered (so tooling can introspect them) but the validation calls are compile-time-eliminated, similar to trace emission. The mechanism: a closure-define `re-frame.spec/validation-enabled?` (default `false` in production) gates each validation site.
+Validation is **elided** by default — schemas remain registered (so tooling can introspect them) but the validation calls are compile-time-eliminated, alongside trace emission. The mechanism: every `validate-*!` body is wrapped in `(when re-frame.interop/debug-enabled? ...)`. `debug-enabled?` is an alias of `goog.DEBUG` (default `true` in dev, `false` in `:advanced` production), so under `:closure-defines {goog.DEBUG false}` the closure compiler constant-folds and DCEs every validation site — the malli call, the trace-error envelope, the human-readable reason string, and every keyword the failure tags carry. See [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) for the full elision contract and the CI verifier that enforces it.
 
 For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:spec/validate-at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
 
@@ -143,7 +143,7 @@ For users who want production validation at *system boundaries* — typically in
 **Relationship to the handler's `:spec`.** `:spec/validate-at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
 
 - In **dev builds**, every event handler's `:spec` is checked anyway (per [§Validation order](#validation-order-on-event-processing) step 1). The boundary interceptor is a no-op in this mode — it doesn't run validation a second time.
-- In **production builds**, the global `re-frame.spec/validation-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:spec` check inline, so handlers carrying it still validate at the boundary.
+- In **production builds**, `re-frame.interop/debug-enabled?` is `false` and step-1 validation is elided. The boundary interceptor runs the same `:spec` check inline, so handlers carrying it still validate at the boundary.
 - In **production builds with no `:spec`** on the handler, the boundary interceptor is a no-op (nothing to validate against) and emits `:rf.warning/boundary-without-spec` once per `(handler-id)` to flag the misconfiguration.
 
 Failures from the boundary interceptor flow through the same `:rf.error/schema-validation-failure :where :event` path as dev-mode step-1 failures — the recovery (skip handler; downstream queue continues) is identical. The only difference is *whether the check ran*, not *what happens when it fails*.
@@ -274,7 +274,7 @@ Locked rules:
 
 - **One validator fn per frame** is in effect at any time. Last-write-wins on re-registration; tools warn if the source coords differ between registrations (same form re-register is benign hot-reload).
 - **The validator fn is pure** — same `(schema, value)` returns the same result. Implementations may memoise but tests must not depend on memoisation.
-- **The validator fn must be production-elidable** alongside `re-frame.spec/validation-enabled?` — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
+- **The validator fn must be production-elidable** alongside `re-frame.interop/debug-enabled?` — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
 - **Schema digests** ([§Schema digest](#schema-digest)) are computed from the schema **values** as serialised by the registered validator's `serialise` companion fn (see [§Schema digest](#schema-digest)) — not from the validator. Two ports using different validators against the same Malli-EDN schemas produce the same digest; two ports using *different* schema languages produce different digests by construction.
 
 What the extension point does NOT cover: a *mix* of validators within one frame. The runtime resolves one validator and uses it for every `:spec` in the frame; a hybrid setup (Malli for app schemas, JSON-Schema for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.

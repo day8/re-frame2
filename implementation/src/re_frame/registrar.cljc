@@ -10,8 +10,17 @@
 
   Per Spec 005, machine guards/actions are machine-scoped (declared in
   the machine's :guards / :actions map) and NOT registered as standalone
-  kinds. The kinds set below is the closed v1 list."
-  (:require [re-frame.late-bind :as late-bind]))
+  kinds. The kinds set below is the closed v1 list.
+
+  ## Production elision
+
+  The :rf.registry/* trace emit sites in this namespace are gated on
+  `re-frame.interop/debug-enabled?` (per Spec 009 §Production builds) so
+  that the late-bind lookup, the call into trace/emit!, and the small
+  metadata map allocation all disappear from `:advanced` production
+  bundles where `goog.DEBUG` is `false`."
+  (:require [re-frame.interop   :as interop]
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- the kind set ---------------------------------------------------------
 
@@ -76,17 +85,25 @@
         ;; Only trace when the handler-fn actually changed — idempotent
         ;; re-registrations (same fn instance, common during ns reload of
         ;; static defs) would otherwise spam the trace stream.
-        (when different?
-          (when-let [emit! (late-bind/get-fn :trace/emit!)]
-            (emit! :registry :rf.registry/handler-replaced
-                   {:kind kind :id id :different-fn? true}))))
+        ;; The interop/debug-enabled? gate is OUTERMOST so :advanced +
+        ;; goog.DEBUG=false can constant-fold the entire branch (per
+        ;; Spec 009 §Production builds).  Inverting this — for example,
+        ;; `(when (and different? interop/debug-enabled?) ...)` —
+        ;; defeats the constant-fold because Closure can't statically
+        ;; rule out `different?`.
+        (when interop/debug-enabled?
+          (when different?
+            (when-let [emit! (late-bind/get-fn :trace/emit!)]
+              (emit! :registry :rf.registry/handler-replaced
+                     {:kind kind :id id :different-fn? true})))))
       ;; First-time registration — emit handler-registered per Spec 009
       ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
       ;; this to track when fresh ids appear in the registry.
       :else
-      (when-let [emit! (late-bind/get-fn :trace/emit!)]
-        (emit! :registry :rf.registry/handler-registered
-               {:kind kind :id id})))
+      (when interop/debug-enabled?
+        (when-let [emit! (late-bind/get-fn :trace/emit!)]
+          (emit! :registry :rf.registry/handler-registered
+                 {:kind kind :id id}))))
     {:was previous :now metadata}))
 
 (defn unregister!
@@ -98,10 +115,11 @@
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
     ;; views. Only emit when something was actually present.
-    (when previous
-      (when-let [emit! (late-bind/get-fn :trace/emit!)]
-        (emit! :registry :rf.registry/handler-cleared
-               {:kind kind :id id}))))
+    (when interop/debug-enabled?
+      (when previous
+        (when-let [emit! (late-bind/get-fn :trace/emit!)]
+          (emit! :registry :rf.registry/handler-cleared
+                 {:kind kind :id id})))))
   nil)
 
 (defn clear-kind!
@@ -111,11 +129,12 @@
     (swap! kind->id->metadata dissoc kind)
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires for each id so consumers see consistent registry transitions.
-    (when (seq previous-ids)
-      (when-let [emit! (late-bind/get-fn :trace/emit!)]
-        (doseq [id previous-ids]
-          (emit! :registry :rf.registry/handler-cleared
-                 {:kind kind :id id})))))
+    (when interop/debug-enabled?
+      (when (seq previous-ids)
+        (when-let [emit! (late-bind/get-fn :trace/emit!)]
+          (doseq [id previous-ids]
+            (emit! :registry :rf.registry/handler-cleared
+                   {:kind kind :id id}))))))
   nil)
 
 (defn clear-all!

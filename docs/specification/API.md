@@ -245,7 +245,7 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 |---|---|---|---|---|
 | `register-trace-cb` | Fn | `(register-trace-cb key callback)` / `(register-trace-cb key callback opts)` | v1 (preserved) | 009 |
 | `remove-trace-cb` | Fn | `(remove-trace-cb key)` | v1 (preserved) | 009 |
-| `is-trace-enabled?` | Fn | `(is-trace-enabled?)` | v1 (preserved) | 009 |
+| `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
 | `trace-api-version` | Fn | `(trace-api-version)` → integer | v1 | 009 |
 | `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | 009 |
 | `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | 009 |
