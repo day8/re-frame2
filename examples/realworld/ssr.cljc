@@ -49,11 +49,3 @@
         (rf/dispatch-sync [:rf/hydrate payload] {:frame frame-id})
         payload))))
 
-(defn hydration-payload-test []
-  (let [db {:route {:id :route/home}
-            :auth {:user {:username "alice"} :token "jwt"}
-            :articles {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
-            :transient {:popup true}}
-        payload (hydration-payload db [:div "hello"])]
-    (assert (= #{:route :auth :articles}
-               (set (keys (:rf/app-db payload)))))))

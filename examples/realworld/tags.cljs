@@ -6,8 +6,7 @@
    - `?tag=<name>` filters the global articles list
    - `?feed=your` switches the home page to the authenticated feed
    - navigation is always expressed as `:rf.route/navigate` events"
-  (:require [re-frame.core :as rf])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require [re-frame.core :as rf]))
 
 (defn home-query [db]
   (get-in db [:route :query] {}))
@@ -47,9 +46,3 @@
   :<- [:home/query]
   (fn [query _] (if (= "your" (:feed query)) :your :global)))
 
-(defn tag-query-test []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
-    (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
-    (assert (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))
-    (rf/dispatch-sync [:home/show-your-feed] {:frame f})
-    (assert (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/get-frame-db f)))))))

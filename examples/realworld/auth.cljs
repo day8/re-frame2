@@ -14,7 +14,7 @@
             [realworld.schema]
             [realworld.http]
             [realworld.routing :as routing])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; ============================================================================
 ;; FX / COFX
@@ -323,52 +323,3 @@
        [:button {:type "submit" :disabled submitting?}
         (if submitting? "Signing up…" "Sign up")]]]]))
 
-;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-
-(defn login-happy-path-test []
-  (rf/reg-fx :http.canned-login-success
-    {:platforms #{:client :server}}
-    (fn [{:keys [frame]} {:keys [on-success]}]
-      (when on-success
-        (rf/dispatch (conj on-success {:user {:email    "alice@example.com"
-                                              :username "alice"
-                                              :token    "jwt-abc"
-                                              :bio      nil
-                                              :image    nil}})
-                     {:frame frame}))))
-
-  (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:http :http.canned-login-success
-                                                :auth.session/store :rf/no-op
-                                                :auth.session/clear :rf/no-op}})]
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-
-    (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
-                                                :password "correct-horse"}]]
-                      {:frame f})
-    (assert (= :authed (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (= "alice" (:username (rf/compute-sub [:auth/user] (rf/get-frame-db f)))))
-
-    (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (nil? (rf/compute-sub [:auth/user] (rf/get-frame-db f))))))
-
-(defn login-failure-test []
-  (rf/reg-fx :http.canned-failure
-    {:platforms #{:client :server}}
-    (fn [{:keys [frame]} {:keys [on-error]}]
-      (when on-error
-        (rf/dispatch (conj on-error {:errors ["email or password is invalid"]})
-                     {:frame frame}))))
-
-  (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:http :http.canned-failure}})]
-    (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
-                      {:frame f})
-    (assert (= :error (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
-    (assert (some? (rf/compute-sub [:auth/error] (rf/get-frame-db f))))
-
-    (rf/dispatch-sync [:auth/flow [:auth/dismiss]] {:frame f})
-    (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))))

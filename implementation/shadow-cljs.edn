@@ -1,4 +1,4 @@
-{:source-paths ["src" "test" "../examples"]
+{:source-paths ["src" "test" "../examples" "../examples/realworld/test"]
  :dependencies [[reagent       "2.0.1"]
                 [metosin/malli "0.13.0"]]
 
