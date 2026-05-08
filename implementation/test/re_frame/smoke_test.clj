@@ -258,6 +258,65 @@
                 @traces)
           "expected :rf.error/dispatch-sync-in-handler trace event"))))
 
+;; ---- subscription topology: glitch-freedom (JVM) -------------------------
+;;
+;; The CLJS reference uses Reagent reactions and asserts no transient
+;; intermediate value is observed during propagation. The JVM plain-atom
+;; adapter's make-derived-value recomputes on every deref — there is no
+;; reactive cascade, so glitches are impossible by construction. These
+;; JVM mirrors of the CLJS topology tests pin the *algebraic* property:
+;; layer-2+ subs computed via compute-sub against a post-event app-db
+;; produce the post-event value (and only that value).
+
+(deftest sub-topology-glitch-free-diamond-jvm
+  (testing "diamond: app-db -> {a,b} -> c — c reads the post-swap state under compute-sub"
+    (rf/reg-event-db :diamond/init (fn [_ _] {:x 1 :y 2}))
+    (rf/reg-event-db :diamond/swap (fn [{:keys [x y] :as db} _]
+                                     (assoc db :x y :y x)))
+    (rf/reg-sub :diamond/a (fn [db _] (:x db)))
+    (rf/reg-sub :diamond/b (fn [db _] (:y db)))
+    (rf/reg-sub :diamond/c
+      :<- [:diamond/a]
+      :<- [:diamond/b]
+      (fn [[a b] _] {:a a :b b}))
+    (let [f (rf/make-frame {})]
+      (rf/dispatch-sync [:diamond/init] {:frame f})
+      (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/get-frame-db f)))
+          "initial state is fully consistent")
+      (rf/dispatch-sync [:diamond/swap] {:frame f})
+      (is (= {:a 2 :b 1} (rf/compute-sub [:diamond/c] (rf/get-frame-db f)))
+          "post-swap state is fully consistent — never half-propagated"))))
+
+(deftest sub-topology-glitch-free-chain-jvm
+  (testing "chain: :n -> a -> (* 2) -> b -> inc -> c — compute-sub yields only the post-event value"
+    (rf/reg-event-db :chain/init (fn [_ _] {:n 10}))
+    (rf/reg-event-db :chain/set  (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-sub :chain/a (fn [db _] (:n db)))
+    (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
+    (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
+    (let [f (rf/make-frame {})]
+      (rf/dispatch-sync [:chain/init] {:frame f})
+      (is (= 21 (rf/compute-sub [:chain/c] (rf/get-frame-db f)))
+          "initial: n=10 → b=20 → c=21")
+      (rf/dispatch-sync [:chain/set 100] {:frame f})
+      (is (= 201 (rf/compute-sub [:chain/c] (rf/get-frame-db f)))
+          "after :n→100: b=200 → c=201; no transient intermediates"))))
+
+(deftest sub-correctness-on-value-equal-input-jvm
+  (testing "a value-equal app-db replacement keeps the downstream sub value correct"
+    (rf/reg-event-db :stable/init (fn [_ _] {:n 5 :unrelated "z"}))
+    (rf/reg-event-db :stable/touch-unrelated
+                     (fn [db _] (assoc db :unrelated "z")))   ;; same value
+    (rf/reg-sub :stable/a (fn [db _] (:n db)))
+    (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
+    (let [f (rf/make-frame {})]
+      (rf/dispatch-sync [:stable/init] {:frame f})
+      (is (= 25 (rf/compute-sub [:stable/squared] (rf/get-frame-db f)))
+          "initial value correct: 5*5 = 25")
+      (rf/dispatch-sync [:stable/touch-unrelated] {:frame f})
+      (is (= 25 (rf/compute-sub [:stable/squared] (rf/get-frame-db f)))
+          "value still correct after a value-equal app-db replacement"))))
+
 ;; ---- subscription chain ---------------------------------------------------
 
 (deftest layer-1-and-layer-2-subs
