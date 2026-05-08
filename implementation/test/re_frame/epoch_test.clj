@@ -340,8 +340,8 @@
         (is (some? ev) ":rf.epoch/restore-schema-mismatch fired")
         (is (vector? (:failing-paths (:tags ev))))))))
 
-(deftest restore-failure-missing-handler
-  (testing "restore-epoch on a db referencing a now-unregistered head/route fires :rf.epoch/restore-missing-handler"
+(deftest restore-failure-missing-handler-route
+  (testing "restore-epoch on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
     (rf/reg-frame :test/main {})
     ;; Register a route so the recorded :route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
@@ -370,23 +370,98 @@
                             (= :route/users (:id %)))
                       missing))))))))
 
-(deftest restore-failure-version-mismatch
-  (testing "restore-epoch on a db whose machine snapshot version drifts fires :rf.epoch/restore-version-mismatch"
+(deftest restore-failure-missing-handler-machine
+  (testing "restore-epoch on a db referencing a machine snapshot whose machine
+  is no longer registered fires :rf.epoch/restore-missing-handler. Per
+  rf2-ocg1: machine resolution goes through the public event registry
+  (:rf/machine? metadata), NOT the internal :head registrar kind."
     (rf/reg-frame :test/main {})
-    ;; Register a machine head with version 1, then commit a snapshot
-    ;; carrying :rf/snapshot-version 1.
-    (registrar/register! :head :machine/tl
-      {:version 1 :handler-fn (fn [_ _] nil)})
+    ;; Register a machine via the public reg-machine path. This installs an
+    ;; :event handler with :rf/machine? metadata.
+    (rf/reg-machine :machine/tl
+      {:initial :red
+       :states  {:red    {:on {:tick :green}}
+                 :green  {:on {:tick :red}}}})
+    ;; Drive the machine so :rf/machines :machine/tl gets a snapshot.
+    (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
+
+    (let [target (last (rf/epoch-history :test/main))]
+      (is (some? (get-in (:db-after target) [:rf/machines :machine/tl]))
+          "snapshot recorded under :rf/machines")
+
+      ;; Unregister the machine so the recorded snapshot's id no longer resolves.
+      (registrar/unregister! :event :machine/tl)
+
+      (let [recorded (record-trace!)
+            pre      (rf/get-frame-db :test/main)
+            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+        (is (false? ok?))
+        (is (= pre (rf/get-frame-db :test/main)) "app-db unchanged")
+        (let [ev (some (fn [ev]
+                         (when (= :rf.epoch/restore-missing-handler (:operation ev))
+                           ev))
+                       @recorded)]
+          (is (some? ev) ":rf.epoch/restore-missing-handler fired")
+          (let [missing (:missing (:tags ev))]
+            (is (vector? missing))
+            (is (some #(and (= :machine (:kind %))
+                            (= :machine/tl (:id %)))
+                      missing)
+                "missing entry surfaces the machine id under :machine kind")))))))
+
+(deftest restore-failure-missing-handler-non-machine-event-not-confused
+  (testing "an event handler under the same id as a recorded machine snapshot —
+  but NOT marked :rf/machine? — does not satisfy the machine reference. Per
+  rf2-ocg1, the registry probe gates on :rf/machine? metadata."
+    (rf/reg-frame :test/main {})
+    ;; Register a machine, drive it, then replace its registration with a
+    ;; plain event handler (no :rf/machine? metadata). The recorded snapshot
+    ;; should still surface as missing, since the public contract says the
+    ;; reference must resolve to a registered MACHINE — not a same-id event.
+    (rf/reg-machine :machine/tl
+      {:initial :red
+       :states  {:red {:on {:tick :green}} :green {}}})
+    (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
+
+    (let [target (last (rf/epoch-history :test/main))]
+      (rf/reg-event-db :machine/tl (fn [db _] db)) ;; replace with non-machine handler
+
+      (let [recorded (record-trace!)
+            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+        (is (false? ok?))
+        (let [ev (some (fn [ev]
+                         (when (= :rf.epoch/restore-missing-handler (:operation ev))
+                           ev))
+                       @recorded)]
+          (is (some? ev))
+          (is (some #(and (= :machine (:kind %))
+                          (= :machine/tl (:id %)))
+                    (:missing (:tags ev)))))))))
+
+(deftest restore-failure-version-mismatch
+  (testing "restore-epoch on a db whose machine snapshot version drifts fires
+  :rf.epoch/restore-version-mismatch. Per rf2-ocg1: the recorded snapshot's
+  [:meta :rf/snapshot-version] is compared against the registered machine's
+  [:meta :rf/snapshot-version], both via the public Spec 005 surface."
+    (rf/reg-frame :test/main {})
+    ;; Register a versioned machine via the public path.
+    (rf/reg-machine :machine/tl
+      {:initial :red
+       :meta    {:rf/snapshot-version 1}
+       :states  {:red {:on {:tick :green}} :green {}}})
+    ;; Commit a snapshot carrying matching :meta :rf/snapshot-version.
     (rf/reg-event-db :put-snap
       (fn [db _]
         (assoc-in db [:rf/machines :machine/tl]
-                  {:state :red :data {} :rf/snapshot-version 1})))
+                  {:state :red :data {} :meta {:rf/snapshot-version 1}})))
     (rf/dispatch-sync [:put-snap] {:frame :test/main})
 
     (let [target (last (rf/epoch-history :test/main))]
-      ;; Hot-reload bumps the machine version.
-      (registrar/register! :head :machine/tl
-        {:version 2 :handler-fn (fn [_ _] nil)})
+      ;; Hot-reload bumps the machine definition's version.
+      (rf/reg-machine :machine/tl
+        {:initial :red
+         :meta    {:rf/snapshot-version 2}
+         :states  {:red {:on {:tick :green}} :green {}}})
 
       (let [recorded (record-trace!)
             pre      (rf/get-frame-db :test/main)
@@ -399,6 +474,40 @@
                        @recorded)]
           (is (some? ev) ":rf.epoch/restore-version-mismatch fired")
           (is (= :machine/tl (:machine-id (:tags ev))))
+          (is (= 1 (:version-recorded (:tags ev))))
+          (is (= 2 (:version-current  (:tags ev)))))))))
+
+(deftest restore-version-legacy-snapshot-slot-tolerated
+  (testing "snapshots written before :rf/snapshot-version moved into :meta
+  remain comparable. The legacy top-level slot resolves to the same recorded
+  version. Per rf2-ocg1 (back-compat tolerance)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-machine :machine/tl
+      {:initial :red
+       :meta    {:rf/snapshot-version 1}
+       :states  {:red {} :green {}}})
+    ;; Commit a snapshot with the LEGACY top-level slot.
+    (rf/reg-event-db :put-snap
+      (fn [db _]
+        (assoc-in db [:rf/machines :machine/tl]
+                  {:state :red :data {} :rf/snapshot-version 1})))
+    (rf/dispatch-sync [:put-snap] {:frame :test/main})
+
+    (let [target (last (rf/epoch-history :test/main))]
+      ;; Bump definition version.
+      (rf/reg-machine :machine/tl
+        {:initial :red
+         :meta    {:rf/snapshot-version 2}
+         :states  {:red {} :green {}}})
+
+      (let [recorded (record-trace!)
+            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+        (is (false? ok?))
+        (let [ev (some (fn [ev]
+                         (when (= :rf.epoch/restore-version-mismatch (:operation ev))
+                           ev))
+                       @recorded)]
+          (is (some? ev))
           (is (= 1 (:version-recorded (:tags ev))))
           (is (= 2 (:version-current  (:tags ev)))))))))
 
