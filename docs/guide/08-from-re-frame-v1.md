@@ -1,4 +1,4 @@
-# 07 — From re-frame v1
+# 08 — From re-frame v1
 
 If you've been writing re-frame for a while — say, since 2015, when re-frame v0.something was already a real thing — most of re-frame2 will feel familiar. The dominoes are still six. `app-db` is still one atom. `reg-event-db` and `reg-event-fx` still take an id and a handler. `subscribe` and `dispatch` still do what they always did.
 
@@ -12,7 +12,7 @@ Most of re-frame2 is re-frame v1 with cleaner edges. The unchanged parts:
 - **The six dominoes.** Event dispatch → event handler → effect handling → query → view → DOM. Same pipeline, same semantics.
 - **Pure handlers.** `reg-event-db` and `reg-event-fx` still take pure functions. The argument shapes are unchanged.
 - **Subscriptions, including `:<-` chained subs.** The signal-graph composition rules are the same.
-- **Effects-as-data.** The effect map keys (`:db`, `:dispatch`, `:dispatch-later`, `:fx`, `:http` if you've written that fx, etc.) are unchanged.
+- **Effects-as-data.** The effect map keeps the `:db` slot and the `:fx` slot. v1's top-level `:dispatch`/`:dispatch-later`/`:dispatch-n` shorthands fold into `:fx` — see M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md). The `:fx` shape `[[fx-id args] ...]` is unchanged. The HTTP fx becomes the framework-shipped `:rf.http/managed` (see [chapter 06](06-doing-http-requests.md)); apps that hand-rolled their own `:http` keep working but should adopt managed for the closed-set failure shapes, retry, and reply addressing.
 - **Reagent for the view layer.** Hiccup is hiccup. Form-1, Form-2, and Form-3 components all still work.
 - **The event queue and run-to-completion semantics.** The drain still runs to completion before the view re-renders.
 - **`re-frame-10x`, `re-frame-test`, `re-frame-undo`, and friends** — they still work. The trace API they consume is preserved.
@@ -47,7 +47,7 @@ In re-frame2 it can also be a metadata map. The metadata map carries reflection 
   (fn my-foo-handler [m] ...))
 ```
 
-All three forms — bare `(id handler)`, `(id [interceptors] handler)`, and `(id metadata [interceptors] handler)` — work. The function dispatches on the type of each non-id argument: a map is metadata, a vector is interceptors. Putting `:interceptors` inside the metadata-map is an authoring mistake; the runtime emits `:rf.warning/interceptors-in-metadata-map` and the chain is silently ignored. (See [Conventions §`:interceptors` is positional, not metadata](../specification/Conventions.md#interceptors-is-positional-not-metadata-reg-event-).)
+All three forms — bare `(id handler)`, `(id [interceptors] handler)`, and `(id metadata [interceptors] handler)` — work. The function dispatches on the type of each non-id argument: a map is metadata, a vector is interceptors. Putting `:interceptors` inside the metadata-map is an authoring mistake; the runtime emits `:rf.warning/interceptors-in-metadata-map` and the chain is silently ignored. (See [Conventions §`:interceptors` is positional, not metadata](../../spec/Conventions.md#interceptors-is-positional-not-metadata-reg-event-).)
 
 The new form gets you:
 
@@ -148,7 +148,7 @@ Multi-instance state, with shared handlers. See [chapter 04](04-views-and-frames
 
 In v1, there was effectively one frame, but it wasn't a first-class concept; `app-db` was a top-level Reagent atom. In re-frame2, `app-db` is a property of a frame. For most apps this is a relabelling; for apps that wanted multi-instance behaviour, it's a structural enabler.
 
-The migration agent handles the renamings. Your code that does `@rf/app-db` is updated to `@(rf/get-frame-db :rf/default)`. (Direct access to `re-frame.db/app-db` was always off-contract; it's even more so now.)
+The migration agent handles the renamings. Your code that does `@rf/app-db` is updated to `(rf/get-frame-db :rf/default)` — the new accessor returns the `app-db` value (a plain map), not a deref-able container. (Direct access to `re-frame.db/app-db` was always off-contract; it's even more so now.)
 
 ### Registered views
 
@@ -164,7 +164,7 @@ The xstate-flavoured pattern in [chapter 05](05-state-machines.md). Entirely opt
 
 ### Server-side rendering
 
-[Chapter 06](06-server-side.md). Also entirely opt-in for clients-only apps; the architecture changes that make SSR possible are present whether or not you use SSR. If you don't, you don't notice them.
+[Chapter 07](07-server-side.md). Also entirely opt-in for clients-only apps; the architecture changes that make SSR possible are present whether or not you use SSR. If you don't, you don't notice them.
 
 ### Schemas everywhere (CLJS reference)
 
@@ -206,16 +206,16 @@ If your code uses any of these, the migration agent will find them and either re
 
 ### The structured error contract
 
-[Spec 009 §Error contract](../../spec/009-Instrumentation.md) defines structured error trace events: `:rf.error/handler-exception`, `:rf.error/schema-validation-failure`, etc. These ride the same trace stream that 10x and re-frame-pair already consume. You can register an error-handler that decides recovery policy:
+[Spec 009 §Error contract](../../spec/009-Instrumentation.md) defines structured error trace events: `:rf.error/handler-exception`, `:rf.error/schema-validation-failure`, `:rf.error/machine-action-exception`, and the closed `:rf.http/*` failure-category set ([Spec 014](../../spec/014-HTTPRequests.md)). These ride the same trace stream that 10x and re-frame-pair already consume. You hook in via the trace callback surface:
 
 ```clojure
-(rf/reg-event-error-handler
-  (fn [error-event]
-    (sentry/capture (sentry-shape error-event))
-    nil))                                          ;; nil = use default recovery
+(rf/register-trace-cb! ::sentry-fwd
+  (fn [trace-event]
+    (when (= :error (:op-type trace-event))
+      (sentry/capture (sentry-shape trace-event)))))
 ```
 
-In v1, errors propagated unstructured. In re-frame2, every error has a category, a payload, a recovery hint, and rides the trace stream. Tools can categorise; monitoring can integrate; users can decide.
+In v1, errors propagated unstructured. In re-frame2, every error has a category, a payload, a recovery hint, and rides the trace stream. Tools can categorise; monitoring can integrate; users can decide. Production builds elide the trace surface entirely via `interop/debug-enabled?`, so the cost is dev-only.
 
 ## How to migrate
 

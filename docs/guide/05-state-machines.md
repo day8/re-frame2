@@ -22,16 +22,18 @@ Without state machines, the login flow looks something like this:
 
       (>= (:auth/attempts db) 3)
       {:db (assoc db :auth/state :locked-out)
-       :fx [[:http {:url "/api/lock-account"}]]}
+       :fx [[:rf.http/managed
+             {:request {:method :post :url "/api/lock-account"}}]]}
 
       :else
       {:db (-> db
                (assoc :auth/state :submitting)
                (update :auth/attempts inc))
-       :fx [[:http {:url "/api/login"
-                    :body creds
-                    :on-success [:auth/login-success]
-                    :on-error   [:auth/login-error]}]]})))
+       :fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login" :body creds
+                           :request-content-type :json}
+              :on-success [:auth/login-success]
+              :on-failure [:auth/login-error]}]]})))
 
 (rf/reg-event-db :auth/login-success
   (fn [db [_ resp]]
@@ -80,11 +82,13 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
 
     :issue-request
     (fn [_data [_ creds]]
-      {:fx [[:http {:method     :post
-                    :url        "/api/login"
-                    :body       creds
-                    :on-success [:auth.login/flow [:auth.login/success]]
-                    :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+      {:fx [[:rf.http/managed
+             {:request    {:method :post
+                           :url    "/api/login"
+                           :body   creds
+                           :request-content-type :json}
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
     (fn [data [_ err]]
@@ -93,7 +97,9 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
                  (assoc :error (or (:message err) "Login failed.")))})
 
     :lock-account
-    (fn [_ _] {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
+    (fn [_ _]
+      {:fx [[:rf.http/managed
+             {:request {:method :post :url "/api/auth/lock"}}]]})
 
     :store-session
     (fn [_data [_ {:keys [token]}]]
@@ -194,21 +200,23 @@ Sub-events route via the machine's id and an inner event vector:
 
 The outer keyword is the machine; the inner vector is the event the machine sees. The runtime resolves the inner event against the current state's `:on` map, runs the guard, fires the action, and writes the new snapshot back to `[:rf/machines :auth.login/flow]`.
 
-For HTTP / async callbacks, the convention "build a 2-element template, conj the result on resolve" works as in any other re-frame fx:
+For HTTP / async callbacks, the convention "build a 2-element template, conj the reply on resolve" works as in any other re-frame fx:
 
 ```clojure
 ;; The :issue-request action returns this fx vector:
-[:http {:url        "/api/login"
-        :on-success [:auth.login/flow [:auth.login/success]]   ;; 2-element template
-        :on-error   [:auth.login/flow [:auth.login/failure]]}]
+[:rf.http/managed
+ {:request    {:method :post :url "/api/login"
+               :request-content-type :json}
+  :on-success [:auth.login/flow [:auth.login/success]]   ;; 2-element template
+  :on-failure [:auth.login/flow [:auth.login/failure]]}]
 
-;; The :http fx implementation does (rf/dispatch (conj on-success response)),
-;; producing [:auth.login/flow [:auth.login/success] response].
-;; The runtime folds the trailing response onto the inner event so the action
-;; sees [:auth.login/success response].
+;; :rf.http/managed appends the reply payload as the last argument, producing
+;;   [:auth.login/flow [:auth.login/success] {:kind :success :value v}]
+;; The runtime folds the trailing reply onto the inner event so the action
+;; sees [:auth.login/success {:kind :success :value v}].
 ```
 
-This "extras-fold" makes the standard fx-callback convention work without ceremony — every async callback ships a value into the machine the same way.
+This "extras-fold" makes the standard fx-callback convention work without ceremony — every async callback ships a value into the machine the same way. (The reply-payload shape — `{:kind :success :value v}` / `{:kind :failure :failure m}` — is the canonical envelope `:rf.http/managed` produces; see [chapter 06 — Doing HTTP requests](06-doing-http-requests.md).)
 
 ## Guards and actions
 
@@ -234,11 +242,13 @@ Actions are functions that produce data updates and / or effects. They live in `
 
  :issue-request
  (fn [_data [_ creds]]
-   {:fx [[:http {:method     :post
-                 :url        "/api/login"
-                 :body       creds
-                 :on-success [:auth.login/flow [:auth.login/success]]
-                 :on-error   [:auth.login/flow [:auth.login/failure]]}]]})}
+   {:fx [[:rf.http/managed
+          {:request    {:method :post
+                        :url    "/api/login"
+                        :body   creds
+                        :request-content-type :json}
+           :on-success [:auth.login/flow [:auth.login/success]]
+           :on-failure [:auth.login/flow [:auth.login/failure]]}]]})}
 ```
 
 An action sees `(fn [data event] effects)` and returns either:
@@ -366,7 +376,7 @@ The complete login flow from this chapter — including the runnable smoke tests
 
 ## The deeper claim
 
-State machines are a small example of the broader thesis [chapter 08](08-the-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**.
+State machines are a small example of the broader thesis [chapter 09](09-the-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**.
 
 A finite state machine has, by construction, a small set of reachable states. You can enumerate them. You can prove things about transitions. You can render the whole flow as a diagram. You can ask "from this state, what can happen?" and the answer is bounded.
 
@@ -378,4 +388,5 @@ When the flow has the shape of a machine, write a machine.
 
 ## Next
 
-- [06 — The server side](06-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.
+- [06 — Doing HTTP requests](06-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
+- [07 — The server side](07-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.

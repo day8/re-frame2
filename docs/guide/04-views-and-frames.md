@@ -184,7 +184,7 @@ A top-level key per *feature*. Each feature owns its own slice. No feature reach
 
 This **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...` and `:cart.item/...`; subs that read the cart's slice live under `:cart/items`, `:cart/total`; views live under `:cart/summary`. The whole feature is identifiable by its prefix. Adding or removing a feature is a `git mv` away from being a single coherent unit.
 
-For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev. We'll see this in [chapter 06](06-server-side.md) when SSR enters the picture.
+For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev. We'll see this in [chapter 07](07-server-side.md) when SSR enters the picture.
 
 ### Computed values as state — the flow escape hatch
 

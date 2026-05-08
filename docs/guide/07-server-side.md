@@ -1,4 +1,4 @@
-# 06 — The server side
+# 07 — The server side
 
 For most of the SPA era, "server-side rendering" has been an awkward retrofit. You built your client app with React, then later — when SEO mattered, or first-paint was too slow, or social-media link previews didn't render — you bolted on Next.js or its equivalent. The server-rendered code path was different from the client-rendered one. Subtle bugs lived in the seam.
 
@@ -34,7 +34,7 @@ It works because the architecture has been *structurally* SSR-friendly from the 
 
 **Render-tree as serialisable data.** Hiccup is just nested vectors and maps. There's a pure function — `(rf/render-to-string hiccup-tree)` — that turns any hiccup into a string. No React. No DOM. No JavaScript runtime. It's a function from data to string, and it runs on the JVM.
 
-These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 08](08-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
+These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 09](09-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
 
 ## The hydration handshake
 
@@ -46,13 +46,13 @@ The re-frame2 approach: the server **serialises the final state** and ships it d
 
 ```clojure
 ;; Server side
-(let [final-db @(rf/get-frame-db request-frame)
-      hiccup   ((rf/view :app/root))
+(let [final-db (rf/get-frame-db request-frame)
+      hiccup   [(rf/view :app/root)]
       html     (rf/render-to-string hiccup {:frame request-frame})
       payload  {:rf/version    "1.0"
                 :rf/frame-id   :app/main
                 :rf/app-db     final-db
-                :rf/render-hash (hash hiccup)}]
+                :rf/render-hash (rf/render-tree-hash hiccup)}]
   ;; ... ship html + payload to the client
   )
 
@@ -63,6 +63,8 @@ The re-frame2 approach: the server **serialises the final state** and ships it d
       (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
     (rdc/render root [(rf/view :app/root)])))
 ```
+
+`get-frame-db` returns the current `app-db` *value* — a plain map, not a deref-able container — so there's no `@` in front. `(rf/view :id)` looks up the registered render fn by id; the canonical hiccup head is the looked-up fn placed inside a vector (`[(rf/view :app/root)]`), so Reagent / the SSR emitter treats the call as a component. `render-tree-hash` is the framework's stable structural hash — both server and client compute it from the same canonical-EDN representation, which is what makes the mismatch detection below reliable.
 
 The framework's default `:rf/hydrate` handler is **`:replace-app-db`**: the server's serialised slice replaces whatever the client bootstrap had pre-seeded. This is locked. The reasoning: the server is authoritative for the initial app-db, and a defaulting merge policy would leave subtle ordering bugs (which slice wins?) under the rug.
 
@@ -190,16 +192,21 @@ A server handling concurrent requests can't have one global frame — each reque
 
 ```clojure
 (defn handle-request [request]
-  (let [frame-id (gensym "ssr-")]
-    (rf/with-frame [f (rf/make-frame {:id frame-id
-                                      :on-create [:rf/server-init request]})]
-      ;; with-frame creates the frame, runs the body, destroys the frame at end
-      (let [final-db @(rf/get-frame-db f)
-            hiccup   ((rf/view :app/root))
-            html     (rf/render-to-string hiccup {:frame f})]
-        {:status  200
-         :headers {"Content-Type" "text/html"}
-         :body    (page-template html (pr-str (build-payload f hiccup)))}))))
+  (rf/with-frame [f (rf/make-frame {:on-create [:rf/server-init request]})]
+    ;; make-frame returns the gensym'd frame id (a keyword under :rf.frame/);
+    ;; with-frame binds *current-frame* to it for the body. The frame's
+    ;; :on-create dispatches synchronously when the frame is created, so by
+    ;; the time the let-body runs the frame is already initialised.
+    (let [final-db (rf/get-frame-db f)
+          hiccup   [(rf/view :app/root)]
+          html     (rf/render-to-string hiccup {:frame f})]
+      {:status  200
+       :headers {"Content-Type" "text/html"}
+       :body    (page-template html (pr-str (build-payload f hiccup)))})))
+
+;; Test fixtures destroy the frame between runs via (rf/destroy-frame f);
+;; long-lived servers typically destroy after the response is shipped to free
+;; the per-frame caches.
 ```
 
 The pattern from [chapter 04](04-views-and-frames.md) — frames as isolated runtime boundaries — is what makes this clean. Each request lives in its own frame; the frames don't share state. Concurrent requests don't pollute each other.
@@ -213,11 +220,12 @@ The `:on-create` event for the per-request frame typically dispatches setup via 
     {:db (-> db
              (assoc :session (:session request))
              (assoc :route (parse-url (:uri request))))
-     :fx [[:http {:url "/api/initial-data"
-                  :on-success [:initial-data/loaded]}]]}))
+     :fx [[:rf.http/managed
+           {:request    {:method :get :url "/api/initial-data"}
+            :on-success [:initial-data/loaded]}]]}))
 ```
 
-The drain settles before `with-frame` returns: the HTTP fetch resolves (server-side `:http` is synchronous in the JVM; or async with a `<!!` block to wait), the response arrives, the `:initial-data/loaded` handler runs, state is final. *Then* `render-to-string` runs, against the now-stable state.
+The drain settles before `with-frame` returns: the managed-HTTP request runs (on the JVM the fx uses `java.net.http.HttpClient`; the per-spec contract is a single drain that completes before render), the reply lands, the `:initial-data/loaded` handler runs, state is final. *Then* `render-to-string` runs, against the now-stable state.
 
 This is why run-to-completion drain matters for SSR: the server can't render half-resolved state. Drain ensures it doesn't.
 
@@ -283,4 +291,4 @@ For non-Clojure hosts entirely (a TypeScript port of re-frame2), the exact same 
 
 ## Next
 
-- [07 — From re-frame v1](07-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.
+- [08 — From re-frame v1](08-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.

@@ -43,87 +43,89 @@ Here's the same login event in re-frame2 idiom:
 (rf/reg-event-fx :user/login
   (fn [{:keys [db]} [_ creds]]
     {:db (assoc db :auth/loading? true)
-     :fx [[:http {:method     :post
-                  :url        "/api/login"
-                  :body       creds
-                  :on-success [:user/login-success]
-                  :on-error   [:user/login-error]}]]}))
+     :fx [[:rf.http/managed
+           {:request    {:method :post
+                         :url    "/api/login"
+                         :body   creds
+                         :request-content-type :json}
+            :on-success [:user/login-success]
+            :on-failure [:user/login-error]}]]}))
 ```
 
 Three things changed:
 
 1. The registration is `reg-event-fx`, not `reg-event-db`. The "fx" stands for "effects" — this handler returns a map of effects, not a new db.
 2. The handler is **still pure**. It returns a Clojure map. Every value in that map is just data — strings, keywords, vectors. No `js/fetch`, no callbacks, no promises.
-3. The map describes everything: "set the db to this; *also*, fire an HTTP effect with these args, and on success dispatch this event, on error dispatch this one."
+3. The map describes everything: "set the db to this; *also*, fire a managed HTTP request with these args, and on success dispatch this event, on failure dispatch this one."
 
 Then there are two follow-up handlers, each pure:
 
 ```clojure
 (rf/reg-event-db :user/login-success
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc :auth/loading? false)
-        (assoc :auth/user (:user resp)))))
+        (assoc :auth/user (:user value)))))
 
 (rf/reg-event-db :user/login-error
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc :auth/loading? false)
-        (assoc :auth/error err))))
+        (assoc :auth/error failure))))
 ```
 
-The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:http {...}]`, looks up the registered `:http` fx handler, hands it the args. When the request resolves, the registered fx handler dispatches `[:user/login-success {...}]` or `[:user/login-error {...}]`. Those events go through the queue exactly like any other event. The cycle runs.
+The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:user/login-success {:kind :success :value v}]` or `[:user/login-error {:kind :failure :failure m}]`. Those events go through the queue exactly like any other event. The cycle runs.
+
+`:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, schema-driven decode, frame-aware reply addressing — and it's covered in detail in [chapter 06 — Doing HTTP requests](06-doing-http-requests.md). This chapter uses it to make the effects-as-data shape concrete; the full surface lives there.
 
 This shape makes the dynamic story tractable again. You can trace the login flow by reading three handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
 
 ## The standard effect map
 
-The standard keys an `reg-event-fx` handler can return:
+The shape an `reg-event-fx` handler returns is intentionally narrow: two top-level keys.
 
 | Key | Meaning |
 |---|---|
 | `:db` | Replace `app-db` with this value. |
-| `:dispatch` | Dispatch a single event vector. |
-| `:dispatch-later` | After `n` ms, dispatch this event. (Vector of `{:ms ... :dispatch ...}`.) |
-| `:fx` | A vector of arbitrary `[fx-id args]` pairs. The recommended form for any non-trivial set of effects. |
+| `:fx` | A vector of `[fx-id args]` pairs. Every other effect — dispatch, dispatch-later, HTTP, navigation, your own — goes through here. |
 
-You also use `:fx` for user-registered effects. Anything you've registered with `reg-fx` is reachable from here:
+That's all. Top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` from re-frame v1 are gone — they fold into `:fx` as `[:dispatch ...]` / `[:dispatch-later {...}]` rows. The single shape across every effect is the load-bearing piece: tooling, tests, and the runtime each see one consistent grammar instead of two parallel ones. (This consolidation is migration rule M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md).)
 
 ```clojure
 {:db (assoc db :saved? true)
- :fx [[:http       {:url "/api/save" :method :post}]
-      [:localstorage/set {:key "last-saved" :value (now)}]
-      [:rf.nav/push-url     "/saved"]
-      [:dispatch         [:notification/show "Saved!"]]]}
+ :fx [[:rf.http/managed
+       {:request {:method :post :url "/api/save" :body (:draft db)
+                  :request-content-type :json}}]
+      [:localstorage/set  {:key "last-saved" :value (now)}]
+      [:rf.nav/push-url   "/saved"]
+      [:dispatch          [:notification/show "Saved!"]]]}
 ```
 
-Five effects in one handler, including a state change, an HTTP request, a localStorage write, a navigation, and a follow-up event. The order of these effects is well-defined (the runtime applies `:db` first, then walks the `:fx` vector in order), and crucially, *the handler itself is still pure*. Tested as a function: `(handler {:db {...}} [:event-id])` returns the map above. Done.
+Four effects in one handler, including a state change, an HTTP request, a localStorage write, a navigation, and a follow-up event. The order is well-defined (the runtime applies `:db` first, then walks `:fx` top-to-bottom), and crucially, *the handler itself is still pure*. Tested as a function: `(handler {:db {...}} [:event-id])` returns the map above. Done.
 
 ## Registering your own effects
 
-You're not limited to the standard set. Any side-effect you need can be registered:
+You're not limited to the framework-supplied set. Any side-effect you need can be registered:
 
 ```clojure
-(rf/reg-fx :http
-  {:doc       "Issue an HTTP request."
-   :platforms #{:client :server}}
-  (fn [m args]
-    ;; This is the one place where the network call actually happens.
-    (let [{:keys [method url body on-success on-error]} args]
-      (-> (js/fetch url #js {:method (name method) :body (when body (js/JSON.stringify body))})
-          (.then  (fn [resp] (rf/dispatch (conj on-success (json->clj resp)) {:frame (:frame m)})))
-          (.catch (fn [err]  (rf/dispatch (conj on-error err)               {:frame (:frame m)})))))))
+(rf/reg-fx :localstorage/set
+  {:doc       "Write a value to localStorage."
+   :platforms #{:client}}
+  (fn [_frame-ctx {:keys [key value]}]
+    (.setItem js/localStorage key (pr-str value))))
 ```
 
 Three things to notice:
 
-1. **`reg-fx` is the *only* place in your codebase that actually calls `js/fetch`.** The handler that triggered the request didn't. The success-handler that processes the response doesn't either. The line `js/fetch` appears once. That's the entire surface for the effect.
+1. **`reg-fx` is the *only* place in your codebase that calls `js/localStorage`.** The handler that triggered the write didn't. The handler that reads the value back later doesn't either. The browser-side imperative call appears once. That's the entire surface for the effect.
 
-2. **The fx receives args (the value the event handler put in the effect map) and an envelope `m` (the dispatch envelope, which carries the originating frame).** It uses both to dispatch follow-up events on the right frame.
+2. **The fx receives a frame context (carrying `:frame`, `:event`, etc.) and the args the event handler put in the effect map.** Most fxs only use the args; ones that re-dispatch follow-up events thread the frame through so the dispatch lands in the right frame.
 
-3. **`:platforms` says where this effect is allowed to run.** `#{:client :server}` means it works in the browser and in server-side rendering. A `:localstorage/set` effect would be `#{:client}` only — the runtime skips it during SSR with a logged trace event. We'll come back to this in [chapter 06](06-server-side.md).
+3. **`:platforms` says where this effect is allowed to run.** `#{:client}` means it's skipped during SSR with a `:rf.fx/skipped-on-platform` trace event; the handler doesn't have to branch. We'll come back to this in [chapter 07](07-server-side.md).
 
-You'll register a handful of effects in any non-trivial app. `:http` for the network. `:localstorage/get` and `:localstorage/set` for persistence. `:rf.nav/push-url` for navigation. `:notify` for toasts. Each is registered once; every event handler describes its effects by id.
+You'll register a handful of effects in any non-trivial app: `:localstorage/get` and `:localstorage/set` for persistence, `:rf.nav/push-url` for navigation, `:notify` for toasts. Each is registered once; every event handler describes its effects by id.
+
+For HTTP, the framework already ships `:rf.http/managed` — managed decoding, retry-with-backoff, abort, frame-aware reply addressing, schema-driven decode. You don't write your own HTTP fx; you use that one. [Chapter 06 — Doing HTTP requests](06-doing-http-requests.md) walks through it end-to-end.
 
 ## Why effects-as-data is worth the verbosity
 
@@ -133,16 +135,18 @@ The benefits:
 
 **Tests don't need a network.** The handler that produces the effect map can be tested as a pure function. The success/error handlers similarly. The fx itself can be tested by stubbing the HTTP call. None of these tests need React, JSDOM, or a running server.
 
-**You can swap the implementation.** A test wants the `:http` fx to return a canned response? Override it for that test:
+**You can swap the implementation.** A test wants `:rf.http/managed` to return a canned response? Override it for that test:
 
 ```clojure
-(rf/with-frame [f (rf/make-frame
-                   {:on-create [:user/login {:email "a@b.c" :password "..."}]
-                    :fx-overrides {:http :http.canned-success}})]
-  (is (= "test@example.com" (-> @(rf/get-frame-db f) :auth/user :email))))
+(rf/with-managed-request-stubs
+  {[:post "/api/login"] {:reply {:ok {:user {:email "test@example.com"}}}}}
+  (rf/with-frame [f (rf/make-frame
+                     {:on-create [:user/login {:email "a@b.c" :password "..."}]})]
+    (is (= "test@example.com"
+           (-> (rf/get-frame-db f) :auth/user :email)))))
 ```
 
-The override is **id-valued** — `:http` is replaced by `:http.canned-success`, another registered fx. No mocking. No interceptors. Just a registry pointer redirected.
+The framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler.
 
 **You can record what happened.** Because effects are data, the runtime can log them, replay them, ship them across the wire, store them in a fixture file. re-frame2's trace stream surfaces every effect that fired, with its args, in order. Debugging an asynchronous interaction stops being archaeology.
 
@@ -209,7 +213,7 @@ The pattern docs are themselves human-readable — closer in voice to this guide
 
 ## A note on revertibility
 
-One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 2](../../spec/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
+One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 3](../../spec/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
 
 ## A note on naming
 
@@ -224,4 +228,4 @@ You don't have to follow this. But every re-frame2 codebase that does looks the 
 ## Next
 
 - [04 — Views and frames](04-views-and-frames.md) — what's on the screen and how to keep different parts isolated.
-- The same pattern that handles `:http` handles every external-world interaction. Once you've internalised "side-effects are data the runtime interprets," you're ready for everything else.
+- The same pattern that handles `:rf.http/managed` handles every external-world interaction. Once you've internalised "side-effects are data the runtime interprets," you're ready for everything else.
