@@ -180,6 +180,22 @@ There's a tradeoff: plain Reagent functions also work, but they don't get frame-
 
 This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `[counter]` is hiccup referencing the Var that `reg-view` defed; `rdc/render` mounts it.
 
+> **Minimum-viable mount.** A real app's `run` does two more things before `rdc/render`:
+>
+> ```clojure
+> (ns counter.core
+>   (:require [reagent.dom.client :as rdc]
+>             [re-frame.core :as rf]
+>             [re-frame.substrate.reagent :as reagent-adapter]))
+>
+> (defn ^:export run []
+>   (rf/init! reagent-adapter/adapter)        ;; wire the substrate
+>   (rf/dispatch-sync [:counter/initialise])  ;; seed app-db
+>   (rdc/render root [counter]))
+> ```
+>
+> `init!` tells re-frame2 which substrate adapter to use (Reagent here; SSR and tests use other adapters). `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+
 ## What just happened
 
 When the page loads, here's what runs:
