@@ -1,0 +1,77 @@
+;; Conformance fixture: machine/actor-isolation
+;;
+;; Per [005 §Capability matrix §Actor-model axis, "Own state + message
+;; ports"](../../005-StateMachines.md#capability-matrix): each registered
+;; machine is its own actor with its own snapshot at [:rf/machines <id>].
+;; Events to one actor don't perturb another's snapshot — even when the
+;; two share an underlying machine spec or registered action ids.
+;;
+;; The fixture exercises this via two independent `:machine-transition`
+;; calls. Each call carries an INDEPENDENT snapshot (modeling the runtime's
+;; per-actor [:rf/machines <id>] slot) and an INDEPENDENT machine spec.
+;; Events fed to one call's machine produce the expected transition for
+;; that call only — there is no shared mutable state for them to step on.
+;; The third call demonstrates a follow-up tick on the first machine,
+;; confirming the second machine's snapshot at that point in time was
+;; never observed by, nor mutated through, the first machine's transition.
+
+{:fixture/id           :machine/actor-isolation
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn}
+ :fixture/doc          "Two machines coexist; events to one don't perturb the other. Pure machine-transition is parameterised by (machine, snapshot, event) — by construction each call's snapshot is the only state mutated. The fixture confirms the contract by interleaving transitions on two distinct machines and asserting each ends in its own expected snapshot."
+
+ :fixture/registry
+ {:machine-action
+  {:counter/inc-a {:doc "Increment :a's :data.:count."}
+   :counter/inc-b {:doc "Increment :b's :data.:count."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; Both actions have the same shape (increment :count under :data); the
+  ;; ids differ only so each machine references its own. Isolation is
+  ;; structural — neither action reads or writes the other actor's slot.
+  ;; Action :set paths are data-relative — the leading key sits under :data.
+  {:counter/inc-a [[:set [:count] [:fn :inc [:get [:count]]]]]
+   :counter/inc-b [[:set [:count] [:fn :inc [:get [:count]]]]]}}
+
+ :fixture/calls
+ ;; ---- (1) Tick on machine :a — its snapshot increments to 1; the
+ ;;          assertion is purely on :a's resulting snapshot. Machine :b's
+ ;;          snapshot does not appear in the call's inputs and so cannot
+ ;;          be affected.
+ [{:call         :machine-transition
+   :definition   {:initial :running
+                  :data    {:count 0}
+                  :states  {:running {:on {:tick {:target :running
+                                                  :action :counter/inc-a}}}}}
+   :snapshot     {:state :running :data {:count 0}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :running :data {:count 1}}
+   :expect-effects       []}
+
+  ;; ---- (2) Tick on machine :b — its snapshot starts at 100 (showing the
+  ;;          two machines hold independent :data) and increments to 101.
+  ;;          Machine :a's count from call (1) is untouched.
+  {:call         :machine-transition
+   :definition   {:initial :running
+                  :data    {:count 100}
+                  :states  {:running {:on {:tick {:target :running
+                                                  :action :counter/inc-b}}}}}
+   :snapshot     {:state :running :data {:count 100}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :running :data {:count 101}}
+   :expect-effects       []}
+
+  ;; ---- (3) Second tick on machine :a, fed the post-(1) snapshot. The
+  ;;          result advances :a from 1 → 2 with no influence from :b's
+  ;;          interleaved tick at (2). Confirms machine :a's state evolution
+  ;;          is independent of machine :b's transitions.
+  {:call         :machine-transition
+   :definition   {:initial :running
+                  :data    {:count 0}
+                  :states  {:running {:on {:tick {:target :running
+                                                  :action :counter/inc-a}}}}}
+   :snapshot     {:state :running :data {:count 1}}
+   :event        [:tick]
+   :expect-next-snapshot {:state :running :data {:count 2}}
+   :expect-effects       []}]}
