@@ -121,6 +121,12 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'realworld', 'index.html'),
     outDir: path.join(OUT_ROOT, 'realworld'),
   },
+  // rf2-vq2s — runnable companion to docs/guide/05-state-machines.md.
+  {
+    build: 'examples/state-machine-walkthrough',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'state_machine_walkthrough', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'state-machine-walkthrough'),
+  },
 ];
 
 function compileAll() {

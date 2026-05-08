@@ -155,4 +155,13 @@
   {:target     :browser
    :output-dir "out/examples/realworld"
    :asset-path "."
-   :modules    {:main {:init-fn realworld.core/run}}}}}
+   :modules    {:main {:init-fn realworld.core/run}}}
+
+  ;; State-machines walkthrough (rf2-vq2s) — companion to docs/guide/05.
+  ;; The pure machine + headless tests live in core.cljc; views.cljs is
+  ;; the browser entry-point that registers the views and `run`.
+  :examples/state-machine-walkthrough
+  {:target     :browser
+   :output-dir "out/examples/state-machine-walkthrough"
+   :asset-path "."
+   :modules    {:main {:init-fn state-machine-walkthrough.views/run}}}}}
