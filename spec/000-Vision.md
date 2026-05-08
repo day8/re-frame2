@@ -436,24 +436,27 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 | Spec | Title | Notes |
 |---|---|---|
-| 001 | Capture Handler Metadata | Registration calls accept a metadata map. Foundation for everything below. |
+| 001 | Registration | Registration calls accept a metadata map. Foundation for everything below. |
 | 002 | Frames | Isolated runtime boundaries; one global handler registrar; explicit-frame addressing at the pattern level. CLJS reference uses React context as an optimisation. |
-| 003 | Reusable Components | Subsumed by 002 + 004. |
-| 004 | View Registration | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. |
+| 004 | Views | Pure `(state, props) → render-tree`; render-tree is serialisable data. CLJS reference: `reg-view` + hiccup + Reagent. |
+| 006 | Reactive Substrate | Substrate-agnostic core + adapter contract; Reagent default; plain-atom for JVM/SSR/headless. v1-required for the CLJS reference; pattern-level for any host. |
 | 008 | Testing | Test fixtures, sync triggers, per-test stubbing, headless sub/machine evaluation, framework adapters. |
 | 009 | Instrumentation, Tracing, Performance | Trace event stream, listener API, Performance API integration; tools depend on traces. |
 | 010 | Schemas (CLJS reference) | Malli on every `reg-*` and `app-db` paths; validation timing and dev-vs-prod elision. Other-language hosts use their type system. |
 | 011 | SSR & Hydration | Server frame lifecycle, render-to-string contract, state-shipping, hydration handshake. Forces the id-valued override seam. |
 | 012 | Routing | URL ↔ frame-state; routes are registry entries; navigation is an event. |
+| 013 | Flows | Registered, runtime-toggleable computed-state declarations that materialise into `app-db`. v2 incarnation of v1's `on-changes` interceptor. |
+
+> Slot 003 is intentionally vacant — reserved for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology); see [README §About Spec 003](README.md). The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
+
+### v1-optional capabilities
+
+- **Spec 014 — HTTP requests.** Implementations MAY ship `:rf.http/managed`; when they do, the contract in [014-HTTPRequests.md](014-HTTPRequests.md) is fixed. The CLJS reference ships it. Other-language ports decide independently.
 
 ### Post-v1 (foundation hooks ship in v1; ergonomic libraries land later)
 
 - **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `create-machine-handler`, pure `machine-transition`, reserved `:raise`/`:spawn` fx-ids). Pattern adopted from xstate.
 - **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008.
-
-### Feasibility-gated → likely v1 territory
-
-- **Spec 006 — Reactive Substrate.** Substrate-agnostic core (and possibly cooperative rendering substrate). Pulled toward v1 by Spec 011 — SSR demands substrate-agnostic rendering.
 
 ### New / deferred
 
