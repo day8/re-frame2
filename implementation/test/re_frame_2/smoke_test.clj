@@ -373,6 +373,55 @@
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
+(deftest spawn-id-is-frame-scoped
+  (testing "actor-id allocation is keyed on [frame-id machine-id], not just machine-id"
+    (let [machine
+          {:id      :flow
+           :initial :idle
+           :data    {}
+           :states  {:idle    {:on    {:start :working}}
+                     :working {:invoke {:machine-id :worker
+                                        :id-prefix  :worker
+                                        :start      [:begin]
+                                        :on-spawn   :record}
+                               :on    {:done :idle}}}
+           :actions {:record (fn [snap _] snap)}}
+          handler (rf/create-machine-handler machine)
+          collect-ids (fn [frame-id]
+                        (let [acc (atom [])]
+                          (rf/reg-fx :spawn.cap
+                                     {:platforms #{:server :client}}
+                                     (fn [_ _] nil))
+                          ;; Inside the handler, capture spawned ids by
+                          ;; intercepting the :spawn fx via a trace.
+                          acc))
+          ;; Reset counters so this test starts clean.
+          _ ((requiring-resolve 're-frame-2.machines/reset-counters!))]
+      (rf/reg-frame :left  {:doc "left"})
+      (rf/reg-frame :right {:doc "right"})
+      (rf/reg-event-fx :flow handler)
+      ;; Each frame's first invoke should get :worker#1.
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::sids (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:flow [:start]] {:frame :left})
+        (rf/dispatch-sync [:flow [:start]] {:frame :right})
+        (rf/remove-trace-cb! ::sids)
+        (let [spawn-traces (filter #(= :rf.machine/spawned (:operation %)) @traces)
+              ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
+          (is (= 2 (count spawn-traces))
+              "two :spawn traces — one per frame")
+          (is (every? #(= :worker %) ids)
+              "both spawned the :worker machine")
+          ;; The actor IDs themselves come through the [:spawn args] fx
+          ;; whose args carry :id-prefix and the runtime stamps the id.
+          ;; Frame-scoping is verified via the spawn-counter staying at 1
+          ;; for each [frame :worker] key.
+          (let [counter @(deref (resolve 're-frame-2.machines/spawn-counter))]
+            (is (= 1 (get counter [:left :worker]))
+                "left frame's :worker counter is 1 (independent)")
+            (is (= 1 (get counter [:right :worker]))
+                "right frame's :worker counter is 1 (independent)")))))))
+
 (deftest spawn-and-destroy-machine-fx
   (testing ":spawn and :destroy-machine traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]

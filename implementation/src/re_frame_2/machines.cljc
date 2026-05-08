@@ -73,11 +73,15 @@
 ;; counter is per machine-id so independent invokes don't cross-contaminate.
 
 (defonce ^:private spawn-counter
-  (atom {}))   ;; machine-id → int
+  ;; Keyed by [frame-id machine-id] so independent frames don't share
+  ;; one actor-id sequence — preserves frame isolation and makes
+  ;; deterministic replay / restore reliable. Pure machine-transition
+  ;; calls (the conformance fixture corpus) pass a sentinel frame.
+  (atom {}))   ;; [frame-id machine-id] → int
 
 (defn- next-spawn-id
-  [machine-id]
-  (let [k machine-id
+  [frame-id machine-id]
+  (let [k [frame-id machine-id]
         n (-> (swap! spawn-counter update k (fnil inc 0))
               (get k))]
     (keyword (namespace machine-id)
@@ -408,7 +412,11 @@
               (fn [[s acc-fx] n]
                 (if-let [inv (:invoke n)]
                   (let [machine-id  (:machine-id inv)
-                        spawned-id  (next-spawn-id machine-id)
+                        ;; Frame-scoped allocation per Spec 002 frame isolation.
+                        ;; Pure-call machine-transition (no frame context) uses
+                        ;; a sentinel so the corpus's deterministic ids hold.
+                        frame-id    (or (:rf/frame machine) :rf/transition-pure)
+                        spawned-id  (next-spawn-id frame-id machine-id)
                         spawn-args  (-> inv (assoc :id-prefix machine-id))
                         on-spawn-fn (let [aref (:on-spawn inv)]
                                       (when aref
@@ -605,8 +613,13 @@
                              (not (contains? (:actions machine) a)))
                     (throw (ex-info ":rf.error/machine-unresolved-action"
                                     {:action a :machine-id machine-id :state s})))))))]
-    (fn [{:keys [db]} event]
-      (let [path     (snapshot-path machine-id)
+    (fn [{:keys [db frame] :as _cofx} event]
+      ;; Stamp the live frame onto the machine def so spawn-id allocation
+      ;; (frame-scoped per Spec 002) gets the right key. machine-transition
+      ;; doesn't otherwise need it; this is purely a side-channel for
+      ;; per-frame counters.
+      (let [machine  (assoc machine :rf/frame (or frame :rf/default))
+            path     (snapshot-path machine-id)
             initial  {:state (:initial machine) :data (or (:data machine) {})}
             snapshot (or (get-in db path) initial)
             ;; Sub-event routing per Spec 005 §Registration. The outer
