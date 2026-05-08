@@ -21,8 +21,8 @@
    - Conditional UI driven by sub return values           (CP-4)
    - Smoke test exercising the constraint surface         (CP-1 checklist)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+            [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA

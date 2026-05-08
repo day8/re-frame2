@@ -24,9 +24,9 @@
    Excel-style infix is left for a future iteration; the shape of the
    solution doesn't change."
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf]
+            [re-frame.core :as rf]
             [clojure.string :as str]))
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def COLS 26)
 (def ROWS 100)

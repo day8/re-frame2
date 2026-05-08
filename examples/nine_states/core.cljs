@@ -46,8 +46,8 @@
    would split per CP-6 conventions across schema / events / subs /
    views / machines / tests files."
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+            [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; CONSTANTS

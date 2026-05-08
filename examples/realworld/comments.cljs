@@ -7,11 +7,11 @@
    - Route-driven loads read the current slug from `[:route :params :slug]`.
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
-            [re-frame-2.core :as rf]
+            [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (defn current-time-ms []
   #?(:cljs (.getTime (js/Date.))

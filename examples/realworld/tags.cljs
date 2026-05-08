@@ -6,8 +6,8 @@
    - `?tag=<name>` filters the global articles list
    - `?feed=your` switches the home page to the authenticated feed
    - navigation is always expressed as `:rf.route/navigate` events"
-  (:require [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [with-frame]]))
+  (:require [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [with-frame]]))
 
 (defn home-query [db]
   (get-in db [:route :query] {}))

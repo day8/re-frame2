@@ -6,11 +6,11 @@
    - save via `PUT /user`
    - write the returned user back through `:auth/store-session`
    - keep logout on the existing auth machine path"
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (defn draft-from-user [user]
   {:image    (or (:image user) "")

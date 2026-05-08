@@ -12,8 +12,8 @@
    - `:rf.route/id` and `:rf.route/params` for route reads
    - `:rf/url-requested` for user-initiated anchor clicks"
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+            [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; ROUTES

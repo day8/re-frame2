@@ -21,7 +21,7 @@
      http.cljs             — :http registered fx
      ssr.cljc              — hydration payload helper for the RealWorld app"
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf]
+            [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing]
@@ -33,7 +33,7 @@
             [example.realworld.favorites]
             [example.realworld.tags]
             [example.realworld.settings :as settings])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; INITIALISATION

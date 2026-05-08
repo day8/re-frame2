@@ -6,11 +6,11 @@
    - route-query driven loading (`?tag=` and `?feed=your`)
    - home-page tabs expressed as ordinary navigation events
    - view reuse across the home page and profile pages"
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (defn current-time-ms []
   #?(:cljs (.getTime (js/Date.))

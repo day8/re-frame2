@@ -25,7 +25,7 @@ implementation/
   deps.edn                   Clojure deps (clojure, clojurescript, reagent, malli)
   package.json               npm deps for the CLJS test target (shadow-cljs, react)
   shadow-cljs.edn            :node-test build that runs cljs.test under node
-  src/re_frame_2/
+  src/re_frame/
     interop.clj              JVM host primitives
     interop.cljs             CLJS host primitives
     registrar.cljc           (kind, id) → metadata + replacement-hooks
@@ -58,7 +58,7 @@ implementation/
       reagent.cljs           Reagent adapter
       plain_atom.cljc        Plain-atom adapter (JVM, SSR, headless)
     core.cljc                Public API surface (re-frame.core equivalent)
-  test/re_frame_2/
+  test/re_frame/
     smoke_test.clj           JVM smoke tests
     runtime_cljs_test.cljs   CLJS smoke tests (Reagent adapter)
     conformance_test.clj     Loads + runs every fixture in
@@ -91,8 +91,8 @@ cd implementation
 clojure -M:test
 ```
 
-This runs the smoke tests in `test/re_frame_2/smoke_test.clj` plus the
-conformance fixture runner in `test/re_frame_2/conformance_test.clj`,
+This runs the smoke tests in `test/re_frame/smoke_test.clj` plus the
+conformance fixture runner in `test/re_frame/conformance_test.clj`,
 which loads every `.edn` in `../docs/specification/conformance/fixtures/`
 and runs the runnable subset against this implementation.
 
