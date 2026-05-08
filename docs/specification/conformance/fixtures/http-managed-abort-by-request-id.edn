@@ -1,0 +1,90 @@
+;; Conformance fixture: rf.http.managed/abort-by-request-id
+;;
+;; Per Spec 014 §Aborts — `:request-id` (internal). A `:rf.http/managed`
+;; fx with `:request-id <id>` may be cancelled by a subsequent
+;; `:rf.http/managed-abort <id>` fx. The cancelled request dispatches
+;; `:on-failure` with `{:kind :rf.http/aborted :reason :user :request-id <id>}`.
+;;
+;; The fixture exercises the contract via :rf.http/managed-canned-failure
+;; configured to synthesise the canonical aborted-shape reply, modelling
+;; what the live fx would emit when the abort handle fires. The :request-id
+;; round-trips through the failure tags so handlers can correlate.
+
+{:fixture/id           :rf.http.managed/abort-by-request-id
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx
+                         :rf.http/managed}
+ :fixture/doc          "A :rf.http/managed-abort fx targeting an in-flight :request-id cancels the request; the resulting :on-failure dispatch carries {:kind :rf.http/aborted :reason :user :request-id <id>}. Per Spec 014 §Aborts §:request-id (internal)."
+
+ :fixture/registry
+ {:event {:slow/load        {:doc "Issue a GET with a stable :request-id."}
+          :slow/abort       {:doc "Abort the in-flight request by id."}
+          :slow/load-error  {:doc "Receive the :rf.http/aborted failure."}}
+  :fx    {:rf.http/managed                {:platforms #{:client :server}}
+          :rf.http/managed-abort          {:platforms #{:client :server}}
+          :rf.http/managed-canned-failure {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:event
+  {:slow/load
+   [[:fx [[:rf.http/managed
+           {:request    {:method :get :url "/slow"}
+            :request-id :slow/load
+            :decode     :json
+            :on-failure [:slow/load-error]}]]]]
+
+   ;; The abort handler models the live :rf.http/managed-abort path,
+   ;; which fires the abort-fn registered against :slow/load and the
+   ;; in-flight request emits :on-failure with :rf.http/aborted. The
+   ;; fixture synthesises the failure reply via :rf.http/managed-abort
+   ;; redirecting to the canned-failure stub through :fx-overrides.
+   :slow/abort
+   [[:fx [[:rf.http/managed-abort :slow/load]]]]
+
+   :slow/load-error
+   [[:set [:slow :error] [:event-arg 1]]]}
+
+  :fx
+  {;; The live fx is overridden to canned-failure. The canned-failure
+   ;; body dispatches the canonical aborted-shape reply to :slow/load-error.
+   :rf.http/managed                [[:noop]]
+   :rf.http/managed-abort          [[:noop]]
+   :rf.http/managed-canned-failure
+   [[:dispatch [:slow/load-error
+                {:kind    :failure
+                 :failure {:kind       :rf.http/aborted
+                           :reason     :user
+                           :request-id :slow/load}}]]]}}
+
+ :fixture/frame-config
+ {:on-create    []
+  ;; Both :rf.http/managed and :rf.http/managed-abort are redirected to
+  ;; the canned-failure stub. The first call (from :slow/load) registers
+  ;; an in-flight handle conceptually; the second call (from :slow/abort)
+  ;; synthesises the aborted reply that the live fx would have emitted.
+  :fx-overrides {:rf.http/managed       :rf.http/managed-canned-failure
+                 :rf.http/managed-abort :rf.http/managed-canned-failure}}
+
+ :fixture/dispatches
+ [[:slow/load]
+  [:slow/abort]]
+
+ :fixture/expect
+ {:final-app-db
+  {:slow {:error {:kind    :failure
+                  :failure {:kind       :rf.http/aborted
+                            :reason     :user
+                            :request-id :slow/load}}}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :slow/load}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed
+                                              :to   :rf.http/managed-canned-failure}}
+   ;; First canned-failure body dispatches the synthesised reply (the
+   ;; runtime queues it; the originator's :slow/load handler completes
+   ;; before the queued dispatch runs).
+   {:operation :event :tags {:event-id :slow/load-error}}
+   {:operation :event :tags {:event-id :slow/abort}}
+   {:operation :rf.fx/override-applied :tags {:from :rf.http/managed-abort
+                                              :to   :rf.http/managed-canned-failure}}
+   {:operation :event :tags {:event-id :slow/load-error}}]}}
