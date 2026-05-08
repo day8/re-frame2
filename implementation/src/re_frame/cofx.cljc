@@ -12,6 +12,32 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]))
 
+(defn- maybe-validate-cofx!
+  "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
+  injects, validate its value against the cofx's :spec metadata.
+
+  We resolve schemas/validate-cofx! lazily so this namespace stays
+  decoupled from re-frame.schemas (avoids a require cycle). Returns
+  the (possibly mutated) context — sets :rf/skip-handler? when
+  validation fails so the handler-as-interceptor short-circuits."
+  [ctx cofx-id cofx-meta]
+  (if-let [validate (resolve 're-frame.schemas/validate-cofx!)]
+    (let [event    (interceptor/get-coeffect ctx :event)
+          event-id (first event)
+          ;; The cofx's injected value is whatever it just stashed under
+          ;; :coeffects keyed by the cofx's id (the conventional shape).
+          ;; If the cofx fn injected under a different key, we fall back
+          ;; to the cofx-id key — validation only runs when :spec is
+          ;; declared, so users opt in by registering against the same
+          ;; key they inject under.
+          value    (get (:coeffects ctx) cofx-id)
+          ok?      (try ((deref validate) cofx-id event-id value cofx-meta)
+                        (catch #?(:clj Throwable :cljs :default) _ true))]
+      (if ok?
+        ctx
+        (assoc ctx :rf/skip-handler? true)))
+    ctx))
+
 (defn reg-cofx
   "Register a coeffect handler.
   cofx-handler signature: (fn [context]) → context  OR  (fn [context value]) → context.
@@ -30,14 +56,21 @@
 
   Two arities:
     (inject-cofx :id)        — no value
-    (inject-cofx :id value)  — passes value as second arg to the cofx fn"
+    (inject-cofx :id value)  — passes value as second arg to the cofx fn
+
+  Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
+  fn returns, if the cofx's metadata carries a :spec, validate the
+  injected value. On failure, mark the context with
+  :rf/skip-handler? so subsequent handler interceptors short-circuit
+  (recovery: :no-recovery; downstream queue continues)."
   ([cofx-id]
    (interceptor/->interceptor
      :id (keyword (str "cofx-" (name cofx-id)))
      :before
      (fn [ctx]
        (if-let [meta (registrar/lookup :cofx cofx-id)]
-         ((:handler-fn meta) ctx)
+         (-> ((:handler-fn meta) ctx)
+             (maybe-validate-cofx! cofx-id meta))
          (do (println "re-frame-2: no cofx registered for" cofx-id)
              ctx)))))
   ([cofx-id value]
@@ -46,7 +79,8 @@
      :before
      (fn [ctx]
        (if-let [meta (registrar/lookup :cofx cofx-id)]
-         ((:handler-fn meta) ctx value)
+         (-> ((:handler-fn meta) ctx value)
+             (maybe-validate-cofx! cofx-id meta))
          (do (println "re-frame-2: no cofx registered for" cofx-id)
              ctx))))))
 

@@ -86,6 +86,25 @@
 
 (declare subscribe)
 
+(defn- maybe-validate-sub-return!
+  "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
+  recomputes, validate its return value against any :spec on the sub
+  meta. On failure, emit :rf.error/schema-validation-failure and
+  return nil per :replaced-with-default recovery; otherwise return
+  the value unchanged.
+
+  Resolved lazily so this namespace stays free of a hard re-frame.schemas
+  dep (avoids load-order surprises)."
+  [value query-v sub-id sub-meta]
+  (if (and sub-meta (:spec sub-meta))
+    (if-let [validate (resolve 're-frame.schemas/validate-sub-return!)]
+      (if (try ((deref validate) sub-id query-v value sub-meta)
+               (catch #?(:clj Throwable :cljs :default) _ true))
+        value
+        nil)
+      value)
+    value))
+
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve :<- chain, build the reaction, attach
@@ -107,13 +126,19 @@
                    (fn [& in-vals]
                      (when body-fn
                        (try
-                         (if (empty? input-signals)
-                           (body-fn (first in-vals) query-v)
-                           ;; Layer-2+: deliver inputs as a coll if many,
-                           ;; or singleton when only one chain entry.
-                           (if (= 1 (count input-signals))
-                             (body-fn (first in-vals) query-v)
-                             (body-fn (vec in-vals) query-v)))
+                         (let [v (if (empty? input-signals)
+                                   (body-fn (first in-vals) query-v)
+                                   ;; Layer-2+: deliver inputs as a coll if many,
+                                   ;; or singleton when only one chain entry.
+                                   (if (= 1 (count input-signals))
+                                     (body-fn (first in-vals) query-v)
+                                     (body-fn (vec in-vals) query-v)))]
+                           ;; Per Spec 010 §step 6: validate sub-return
+                           ;; post-compute against the sub's :spec.
+                           ;; Failures emit :rf.error/schema-validation-failure
+                           ;; and the sub yields nil (recovery
+                           ;; :replaced-with-default).
+                           (maybe-validate-sub-return! v query-v query-id meta))
                          (catch #?(:clj Throwable :cljs :default) e
                            (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
                              (trace/emit-error!
@@ -195,7 +220,10 @@
   WOULD compute given a snapshot of state without going through the
   per-frame cache. Supports the same :<- chain shape as subscribe.
 
-  Per Spec 008 §Testing — pure compute-sub form."
+  Per Spec 008 §Testing — pure compute-sub form. Per Spec 010 §step 6
+  (rf2-wcam): the return value is validated against any :spec on the
+  sub's meta — failures emit :rf.error/schema-validation-failure and
+  yield nil (default :replaced-with-default recovery)."
   [query-v db]
   (let [query-id (first query-v)
         meta     (registrar/lookup :sub query-id)]
@@ -203,15 +231,16 @@
       (let [body-fn (:handler-fn meta)
             inputs  (:input-signals meta)]
         (try
-          (cond
-            (empty? inputs)
-            (body-fn db query-v)
+          (let [v (cond
+                    (empty? inputs)
+                    (body-fn db query-v)
 
-            (= 1 (count inputs))
-            (body-fn (compute-sub (first inputs) db) query-v)
+                    (= 1 (count inputs))
+                    (body-fn (compute-sub (first inputs) db) query-v)
 
-            :else
-            (body-fn (mapv #(compute-sub % db) inputs) query-v))
+                    :else
+                    (body-fn (mapv #(compute-sub % db) inputs) query-v))]
+            (maybe-validate-sub-return! v query-v query-id meta))
           (catch #?(:clj Throwable :cljs :default) _
             nil))))))
 

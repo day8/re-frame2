@@ -16,6 +16,7 @@
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [re-frame.core :as rf]
+            [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
@@ -42,6 +43,9 @@
     :ssr/head-contract
     :ssr/error-projection
     :schemas/runtime
+    :schemas/event-payload                            ;; rf2-jwm4
+    :schemas/sub-return                               ;; rf2-wcam
+    :schemas/cofx                                     ;; rf2-7leq
     :routing/ranking
     :routing/fragment
     :routing/blocking
@@ -113,20 +117,107 @@
   (let [caps (or (:fixture/capabilities fixture) #{})]
     (every? claimed-capabilities caps)))
 
+(defn- collect-cofx-keys
+  "Walk steps and pull every cofx-id referenced via [:cofx-key K]. Used
+  by realise-handlers to auto-wire (inject-cofx K) interceptors onto
+  events whose bodies read coeffects. Returns a set of K."
+  [steps]
+  (let [out (atom #{})]
+    ((fn walk [form]
+       (cond
+         (and (vector? form) (= :cofx-key (first form)))
+         (swap! out conj (second form))
+
+         (coll? form)
+         (doseq [x form] (walk x))))
+     steps)
+    @out))
+
+(defn- realise-cofx-handler
+  "DSL → a cofx handler fn (ctx) → ctx. The body's first :set step
+  declares the value to inject; the runner places that value at
+  [:coeffects cofx-id] (canonical convention — the cofx-id is the
+  slot key per Spec 010 §Where schemas attach §On every reg-*).
+
+  Per rf2-g25p (the conformance-runner gap for cofx body realisation)
+  this is a minimal first-pass interpreter — sufficient for the
+  schemas/cofx fixture which only uses literal :set steps."
+  [cofx-id steps]
+  (fn [ctx]
+    (let [first-set (some (fn [s] (when (= :set (first s)) s)) steps)
+          value     (when first-set (nth first-set 2 nil))]
+      (assoc-in ctx [:coeffects cofx-id] value))))
+
 (defn- realise-handlers [fixture]
   ;; Walk :fixture/handlers and register each.
-  (let [handlers-map (or (:fixture/handlers fixture) {})]
+  (let [handlers-map (or (:fixture/handlers fixture) {})
+        event-registry (get-in fixture [:fixture/registry :event] {})
+        sub-registry   (get-in fixture [:fixture/registry :sub] {})
+        cofx-bodies    (get handlers-map :cofx)
+        cofx-registry  (get-in fixture [:fixture/registry :cofx] {})
+        ;; cofx that should auto-wire as inject-cofx interceptors on
+        ;; event handlers (per rf2-g25p — the runner's first-pass
+        ;; auto-injection convention). Stable lex order on cofx-id so
+        ;; the last-write-wins outcome is deterministic across JVM /
+        ;; CLJS / re-runs.
+        cofx-by-key
+        (->> cofx-registry
+             (sort-by key)
+             (group-by (fn [[cofx-id _]] (keyword (namespace cofx-id))))
+             (reduce-kv (fn [acc k pairs]
+                          (assoc acc k (mapv first pairs)))
+                        {}))]
+    ;; cofx registrations — bodies + :spec metadata. Per rf2-7leq the
+    ;; schema validation runs in inject-cofx; here we register the
+    ;; handler-fn so inject-cofx can resolve it.
+    (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
+      (doseq [cofx-id all-cofx-ids]
+        (let [body    (get cofx-bodies cofx-id [[:noop]])
+              meta    (get cofx-registry cofx-id {})
+              handler (realise-cofx-handler cofx-id body)]
+          (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler))))
     (doseq [[id steps] (get handlers-map :event)]
-      (let [[kind handler] (conformance/realise-event-handler steps)]
+      (let [[kind handler] (conformance/realise-event-handler steps)
+            ;; Per Spec 010 §step 1 (rf2-jwm4): pull :spec / :doc from
+            ;; the fixture's :fixture/registry :event meta and pass it
+            ;; through to reg-event-* so validate-event! can find it.
+            event-meta (get event-registry id {})
+            ;; Per rf2-g25p: scan the body for [:cofx-key K] references;
+            ;; for each K, auto-wire (inject-cofx C) for every C whose
+            ;; namespace matches K (the conformance-corpus convention
+            ;; for the schemas/cofx fixture). With no :spec to flag,
+            ;; non-spec'd cofx still wire so the handler can read them.
+            ks            (collect-cofx-keys steps)
+            cofx-ids      (vec
+                            (mapcat (fn [k]
+                                      (or (get cofx-by-key k)
+                                          (when (contains? cofx-registry k) [k])))
+                                    ks))
+            interceptors  (mapv cofx/inject-cofx cofx-ids)]
         (case kind
-          :db (rf/reg-event-db id handler)
-          :fx (rf/reg-event-fx id handler))))
+          :db (if (seq event-meta)
+                (rf/reg-event-db id event-meta interceptors handler)
+                (if (seq interceptors)
+                  (rf/reg-event-db id interceptors handler)
+                  (rf/reg-event-db id handler)))
+          :fx (if (seq event-meta)
+                (rf/reg-event-fx id event-meta interceptors handler)
+                (if (seq interceptors)
+                  (rf/reg-event-fx id interceptors handler)
+                  (rf/reg-event-fx id handler))))))
     (doseq [[id steps] (get handlers-map :sub)]
-      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)]
+      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
+            ;; Per Spec 010 §step 6 (rf2-wcam): pull :spec from the
+            ;; sub's registry meta so validate-sub-return! sees it.
+            sub-meta (get sub-registry id {})]
         (case kind
-          :layer-1 (rf/reg-sub id body)
+          :layer-1 (if (seq sub-meta)
+                     (rf/reg-sub id sub-meta body)
+                     (rf/reg-sub id body))
           :layer-2 (apply rf/reg-sub id
-                          (concat (interleave (repeat :<-) inputs) [body])))))
+                          (concat (when (seq sub-meta) [sub-meta])
+                                  (interleave (repeat :<-) inputs)
+                                  [body])))))
     ;; fx handlers — DSL bodies. May :throw, :noop, mutate the frame's
     ;; app-db, or :dispatch a follow-up event (e.g. http stubs).
     ;;

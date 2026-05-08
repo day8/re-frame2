@@ -18,32 +18,42 @@
 ;; whose :before slot runs the handler and stores its result on the context.
 
 (defn- db-handler->interceptor
-  "Wrap a (fn [db event]) → new-db handler."
+  "Wrap a (fn [db event]) → new-db handler.
+
+  Per Spec 010 §Validation order steps 1-2 (rf2-7leq, rf2-jwm4) — if
+  any pre-handler validation set :rf/skip-handler? on the context,
+  short-circuit and run no body. The schema-validation-failure trace
+  has already fired."
   [handler-fn]
   (interceptor/->interceptor
     :id :rf/db-handler
     :before
     (fn [ctx]
-      (let [db    (interceptor/get-coeffect ctx :db)
-            event (interceptor/get-coeffect ctx :event)
-            new-db (handler-fn db event)]
-        (interceptor/assoc-effect ctx :db new-db)))))
+      (if (:rf/skip-handler? ctx)
+        ctx
+        (let [db    (interceptor/get-coeffect ctx :db)
+              event (interceptor/get-coeffect ctx :event)
+              new-db (handler-fn db event)]
+          (interceptor/assoc-effect ctx :db new-db))))))
 
 (defn- fx-handler->interceptor
-  "Wrap a (fn [cofx event]) → effects-map handler."
+  "Wrap a (fn [cofx event]) → effects-map handler. See db-handler->interceptor
+  for the :rf/skip-handler? short-circuit (Spec 010 step 1/2 recovery)."
   [handler-fn]
   (interceptor/->interceptor
     :id :rf/fx-handler
     :before
     (fn [ctx]
-      (let [cofx    (interceptor/get-coeffect ctx)
-            event   (interceptor/get-coeffect ctx :event)
-            effects (handler-fn cofx event)]
-        (cond-> ctx
-          (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
-          (contains? effects :fx) (interceptor/assoc-effect :fx (:fx effects))
-          ;; Allow other top-level effect-map keys (open shape per Spec 002).
-          true (update :effects merge (dissoc effects :db :fx)))))))
+      (if (:rf/skip-handler? ctx)
+        ctx
+        (let [cofx    (interceptor/get-coeffect ctx)
+              event   (interceptor/get-coeffect ctx :event)
+              effects (handler-fn cofx event)]
+          (cond-> ctx
+            (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
+            (contains? effects :fx) (interceptor/assoc-effect :fx (:fx effects))
+            ;; Allow other top-level effect-map keys (open shape per Spec 002).
+            true (update :effects merge (dissoc effects :db :fx))))))))
 
 (defn- ctx-handler->interceptor
   "Wrap a (fn [context]) → context handler. Advanced; few apps need it."
@@ -51,7 +61,10 @@
   (interceptor/->interceptor
     :id :rf/ctx-handler
     :before
-    (fn [ctx] (or (handler-fn ctx) ctx))))
+    (fn [ctx]
+      (if (:rf/skip-handler? ctx)
+        ctx
+        (or (handler-fn ctx) ctx)))))
 
 ;; ---- registration ---------------------------------------------------------
 

@@ -105,15 +105,96 @@
                                 event-id (assoc :failing-id event-id)))))))))
 
 (defn validate-event!
-  "Before an event handler runs, validate the event vector against any
-  :spec on the handler's metadata."
+  "Per Spec 010 §Validation order step 1 — before an event handler runs,
+  validate the event vector against any :spec on the handler's metadata.
+
+  Returns true on pass (or when validation is elided / no schema is
+  attached), false on fail. Failures emit
+  :rf.error/schema-validation-failure with :where :event; the caller
+  is responsible for skipping the handler (recovery: :no-recovery)."
   [event-id event handler-meta]
-  (when interop/debug-enabled?
-    (when-let [schema (:spec handler-meta)]
-      (when-not (malli-validate* schema event)
-        (trace/emit-error! :rf.error/schema-validation-failure
-                           {:where   :event
-                            :event-id event-id
-                            :event   event
-                            :explain (malli-explain* schema event)
-                            :recovery :no-recovery})))))
+  (if (and interop/debug-enabled? (:spec handler-meta))
+    (let [schema (:spec handler-meta)]
+      (if (malli-validate* schema event)
+        true
+        (do
+          (trace/emit-error! :rf.error/schema-validation-failure
+                             {:where       :event
+                              :event-id    event-id
+                              :failing-id  event-id
+                              :spec-id     event-id
+                              :received    event
+                              :event       event
+                              :malli-error (malli-explain* schema event)
+                              :explain     (malli-explain* schema event)
+                              :reason      (str "Event " event-id
+                                                " payload failed schema "
+                                                schema ", got "
+                                                (type-of-value event) ".")
+                              :recovery    :no-recovery})
+          false)))
+    true))
+
+(defn validate-sub-return!
+  "Per Spec 010 §Validation order step 6 — after a sub recomputes,
+  validate its return value against any :spec on the sub's metadata.
+
+  Returns true on pass, false on fail. Failures emit
+  :rf.error/schema-validation-failure with :where :sub-return; the
+  caller is responsible for replacing the value with the
+  default (nil) per the :replaced-with-default recovery."
+  [sub-id query-v value sub-meta]
+  (if (and interop/debug-enabled? (:spec sub-meta))
+    (let [schema (:spec sub-meta)]
+      (if (malli-validate* schema value)
+        true
+        (do
+          (trace/emit-error! :rf.error/schema-validation-failure
+                             {:where       :sub-return
+                              :sub-id      sub-id
+                              :failing-id  sub-id
+                              :spec-id     sub-id
+                              :query-v     query-v
+                              :received    value
+                              :value       value
+                              :malli-error (malli-explain* schema value)
+                              :explain     (malli-explain* schema value)
+                              :reason      (str "Subscription " sub-id
+                                                " return value failed schema "
+                                                schema ", got "
+                                                (type-of-value value) ".")
+                              :recovery    :replaced-with-default})
+          false)))
+    true))
+
+(defn validate-cofx!
+  "Per Spec 010 §Validation order step 2 — after a cofx injects its value
+  into the merged context, validate that value against any :spec on the
+  cofx's metadata.
+
+  Returns true on pass, false on fail. Failures emit
+  :rf.error/schema-validation-failure with :where :cofx; the caller is
+  responsible for skipping the handler (recovery: :no-recovery)."
+  [cofx-id event-id value cofx-meta]
+  (if (and interop/debug-enabled? (:spec cofx-meta))
+    (let [schema (:spec cofx-meta)]
+      (if (malli-validate* schema value)
+        true
+        (do
+          (trace/emit-error! :rf.error/schema-validation-failure
+                             {:where       :cofx
+                              :cofx-id     cofx-id
+                              :event-id    event-id
+                              :failing-id  event-id
+                              :spec-id     cofx-id
+                              :received    value
+                              :value       value
+                              :malli-error (malli-explain* schema value)
+                              :explain     (malli-explain* schema value)
+                              :reason      (str "Coeffect " cofx-id
+                                                " injected value failed schema "
+                                                schema ", got "
+                                                (type-of-value value) ".")
+                              :recovery    :no-recovery})
+          false)))
+    true))

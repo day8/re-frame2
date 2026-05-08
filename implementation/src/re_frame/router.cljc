@@ -87,6 +87,19 @@
                                 :source   (:source envelope)
                                 :trace-id (:trace-id envelope)
                                 :phase    :run-start})
+                ;; Per Spec 010 §Validation order step 1: validate the
+                ;; dispatched event vector against the handler's :spec
+                ;; BEFORE the handler's interceptor chain runs. Failures
+                ;; emit :rf.error/schema-validation-failure with
+                ;; :where :event and skip the handler (recovery
+                ;; :no-recovery; downstream queue continues). Tracked
+                ;; as rf2-jwm4.
+                event-ok?
+                (if-let [validate-event!
+                         (resolve 're-frame.schemas/validate-event!)]
+                  (try ((deref validate-event!) event-id event handler-meta)
+                       (catch #?(:clj Throwable :cljs :default) _ true))
+                  true)
                 {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
                 base-chain   (:interceptors handler-meta)
                 full-chain   (vec (concat extra-interceptors base-chain))
@@ -102,7 +115,12 @@
                                           (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
                               :effects {}
                               :rf/fx-overrides fx-overrides}
-                final-ctx    (interceptor/execute-chain full-chain initial-ctx)
+                ;; If event-payload validation failed, skip the handler
+                ;; entirely. Per Spec 010 §Per-step recovery step 1:
+                ;; "Handler is not invoked"; downstream queue continues.
+                final-ctx    (if event-ok?
+                               (interceptor/execute-chain full-chain initial-ctx)
+                               initial-ctx)
                 effects      (:effects final-ctx)
                 error        (:rf/interceptor-error final-ctx)]
             (when error
