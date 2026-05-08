@@ -1,9 +1,15 @@
 (ns todomvc.subs
   (:require [re-frame.core :as rf]))
 
+;; :showing derives from the active Spec 012 route id. :rf.route/not-found and
+;; an unset route both fall through to :all so the UI defaults sensibly.
 (rf/reg-sub :showing
-  (fn [db _]
-    (:showing db)))
+  :<- [:rf.route/id]
+  (fn [route-id _]
+    (case route-id
+      :todo/active    :active
+      :todo/completed :completed
+      :all)))
 
 (rf/reg-sub :sorted-todos
   (fn [db _]
