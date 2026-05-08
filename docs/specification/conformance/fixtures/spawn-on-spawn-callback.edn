@@ -5,9 +5,10 @@
 ;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn): when the
 ;; runtime processes a :spawn fx (whether from declarative :invoke desugar
 ;; or an action's hand-emitted :spawn), it allocates a deterministic actor
-;; id and threads (snapshot, spawned-id) through the user-supplied :on-spawn
-;; callback. The callback returns an updated snapshot — typically recording
-;; the actor-id in :data so later transitions can reference it.
+;; id and threads (data, spawned-id) through the user-supplied :on-spawn
+;; callback. The callback returns an updated :data map — typically recording
+;; the actor-id so later transitions can reference it. The runtime patches
+;; the returned :data back into the parent's snapshot.
 ;;
 ;; This fixture isolates the callback-fires-with-actor-id contract: the
 ;; on-spawn body writes the spawned-id under a distinct key (:born-with-id)
@@ -22,7 +23,7 @@
 {:fixture/id           :machine/spawn-on-spawn-callback
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke}
- :fixture/doc          "The :on-spawn callback receives (snapshot, spawned-id) and updates the snapshot. Verifies the callback fires with the just-allocated actor-id by recording the id in :data under a distinct key."
+ :fixture/doc          "The :on-spawn callback receives (data, spawned-id) and returns new data. Verifies the callback fires with the just-allocated actor-id by recording the id in :data under a distinct key."
 
  :fixture/registry
  {:machine
@@ -35,9 +36,12 @@
  {:machine-action
   ;; The on-spawn handler-body realises [:event-arg 1] as the spawned-id
   ;; (the synthetic event the harness threads through is
-  ;; [::on-spawn spawned-id]). Body :set paths are snapshot-relative; here
-  ;; we record the id under :data.:born-with-id.
-  {:supervisor/record-actor-id [[:set [:data :born-with-id] [:event-arg 1]]]}}
+  ;; [::on-spawn spawned-id]). Per [005 §Path conventions in machine bodies]
+  ;; (rf2-een2 / rf2-smba): body :set paths are data-relative — uniform
+  ;; with regular machine actions. Here the path is [:born-with-id], which
+  ;; lands at data.:born-with-id once the runtime patches the result back
+  ;; into the parent's snapshot.
+  {:supervisor/record-actor-id [[:set [:born-with-id] [:event-arg 1]]]}}
 
  :fixture/calls
  [{:call         :machine-transition

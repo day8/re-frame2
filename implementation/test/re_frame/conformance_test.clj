@@ -441,8 +441,10 @@
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
                             (eval-value step {:data data :event event})))))]))
-        ;; Same machine-action steps, but realised as on-spawn callbacks
-        ;; (snapshot-relative :set paths) for use in :invoke desugaring.
+        ;; Same machine-action steps, but realised as on-spawn callbacks.
+        ;; Per rf2-een2 / rf2-smba: :set paths are data-relative — uniform
+        ;; with regular machine actions; the callback signature is
+        ;; (fn [data spawned-id] new-data).
         on-spawn-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
