@@ -272,7 +272,8 @@ Conformance-corpus event/sub/view handler bodies are described as data so any ho
    [:tuple [:= :merge-into-db]     :map]                                  ;; [:merge-into-db {...}]
    [:tuple [:= :get]               [:vector :any]]                       ;; [:get path]               -- read; used in sub bodies / preds
    ;; --- event / cofx access ---
-   [:tuple [:= :event-arg]         :int]                                 ;; [:event-arg N]            -- the Nth element of the event vector
+   [:tuple [:= :event-arg]         :int]                                 ;; [:event-arg N]                     -- the Nth element of the event vector
+   [:tuple [:= :event-arg]         :int :any]                            ;; [:event-arg N default]             -- the Nth element; default returned when the element is nil (default-for-nil; never type-dispatched)
    [:tuple [:= :get-event-arg]     :int :keyword]                        ;; [:get-event-arg N :key]            -- (get (nth event N) :key)
    [:tuple [:= :get-event-arg]     :int :keyword :any]                   ;; [:get-event-arg N :key default]    -- key-access with default if missing/nil
    [:tuple [:= :cofx-without]      :keyword]                             ;; [:cofx-without :db]       -- assert :db absent (test fixture)
@@ -299,7 +300,7 @@ The body of a fixture event handler / sub computation is a vector of these ops, 
 | `:update` | event-db, event-fx | `(update-in db path f)` where `f` resolves a `[:fn :name]` form to a host-built-in fn |
 | `:merge-into-db` | event-db, event-fx | `(merge db m)` |
 | `:get` | sub, predicate | Read from current `db` — produces the sub's return value |
-| `:event-arg` | event, sub | Selects an event-vector argument by index |
+| `:event-arg` | event, sub | Selects an event-vector argument by index. An optional 3rd element is a **default-for-nil** — returned when the Nth element is `nil`. The 3rd element is never type-dispatched (per rf2-pz9f); for key-access into a map argument use `:get-event-arg`. |
 | `:get-event-arg` | event, sub | `(get (nth event N) :key)` — single-key access into the Nth event arg; an optional 4th element is a default returned when the key is missing/nil |
 | `:cofx-without` | event-fx | Asserts a cofx key is absent — test fixture |
 | `:dispatch` | event-fx | Adds `[:dispatch event]` to the effect-map's `:fx` |
@@ -973,7 +974,7 @@ Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used 
                                       [:recomputed? :boolean]]]]           ;; per-sub activity in this cascade
    [:renders       {:optional true} [:vector
                                      [:map
-                                      [:render-key   :any]
+                                      [:render-key   [:tuple :any :any]]   ;; [<view-id-or-:rf.view/anonymous> <instance-token>]
                                       [:triggered-by [:maybe :any]]        ;; sub-id or nil
                                       [:elapsed-ms   :any]]]]              ;; per-render activity in this cascade
    [:effects       {:optional true} [:vector
@@ -989,8 +990,8 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 **Structured slots are derived from `:trace-events`.** The `:sub-runs`, `:renders`, and `:effects` slots are pre-computed projections of the underlying `:trace-events` stream, surfacing the per-sub / per-render / per-effect activity of the cascade in a shape pair-shaped tools can route off without re-folding the raw trace each time. The legacy `:trace-events` slot remains the raw underpinning; the structured slots derive from it.
 
-- `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under [Spec 006 §No-op via value equality (rf2-719e)](006-Subscriptions.md), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. (rf2-7e2y dropped a `:result-changed?` slot that was structurally always true under the same semantics — consumers wanting the input-changed-but-value-equal distinction must consume the raw trace until that distinction is wired through as a separate signal.)
-- `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` identifies the rendered unit; **TBD pending rf2-t5tx** — the choice between "the `reg-view` registration id" (coarse) and "a per-component-instance token" (fine) has not been pinned. Tools should treat it as opaque.
+- `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under the value-equality rule in [Spec 006 §Invalidation algorithm](006-ReactiveSubstrate.md#invalidation-algorithm) (rf2-719e), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. (rf2-7e2y dropped a `:result-changed?` slot that was structurally always true under the same semantics — consumers wanting the input-changed-but-value-equal distinction must consume the raw trace until that distinction is wired through as a separate signal.)
+- `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` is a **tuple** `[<view-id> <instance-token>]` (rf2-t5tx). The first slot is the `reg-view` registry id, or `:rf.view/anonymous` for plain Reagent fns (implementations may derive a tooling-friendly substitute from `(.-displayName fn)` when cheap); the second slot is an integer instance-token minted at mount time from a runtime counter atom. Tools that aggregate by view use the first slot; tools that distinguish per-mount activity use the second. Cross-run correlation (replay) is out of scope — instance-tokens regenerate per mount; alternative keys (positional path, parent context) are an open question if Tool-Pair replay grows that need.
 - `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:spawn`, `:destroy-machine`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
