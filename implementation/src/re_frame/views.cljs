@@ -36,13 +36,19 @@
   "Resolution chain (per Spec 002 §Reading the frame from React context):
     1. Dynamic var (set by with-frame).
     2. Closest enclosing frame-provider via React context.
-    3. :rf/default."
+    3. :rf/default.
+
+  Frame ids are always keywords (per Spec 002 §Frame ids). The keyword?
+  check filters out React's empty-object default for components without
+  a wired contextType — `goog/typeOf` reports both keywords and bare
+  objects as \"object\", so a typeOf-based discriminator silently
+  swallowed valid keyword contexts and made `frame-provider` resolve
+  to `:rf/default` regardless of what it pushed."
   []
   (or *current-frame*
       (when-let [cmp (r/current-component)]
         (let [ctx (.-context cmp)]
-          (when (and ctx (not= "object" (goog/typeOf ctx)))
-            ctx)))
+          (when (keyword? ctx) ctx)))
       :rf/default))
 
 ;; ---- reg-view -------------------------------------------------------------
