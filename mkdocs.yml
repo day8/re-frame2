@@ -1,0 +1,115 @@
+site_name: "re-frame2"
+site_description: "AI-first, re-frame-first pattern for SPAs — specification, guide, and API reference."
+site_author: Mike Thompson
+site_url: https://day8.github.io/re-frame2/
+
+repo_name: day8/re-frame2
+repo_url: https://github.com/day8/re-frame2
+
+copyright: Copyright &copy; 2014-2026 Michael Thompson
+
+# All published markdown lives under docs/ at build time. The narrative
+# guide already lives under docs/guide/. The normative spec lives at the
+# repo root in spec/ (rf2-9hft) — `bb stage-docs` (or the docs.yml CI
+# step) copies spec/ into docs/spec/ before `mkdocs build` runs. The
+# staged copies are ignored by git (see .gitignore).
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  icon:
+    logo: material/home
+    repo: fontawesome/brands/git-alt
+  language: en
+  palette:
+    primary: blue
+    accent: blue
+  font:
+    text: IBM Plex Sans
+    code: Source Code Pro
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.annotate
+    - content.code.copy
+
+extra:
+  social:
+    - icon: fontawesome/brands/github-alt
+      link: https://github.com/day8
+
+nav:
+  - Home: index.md
+
+  - Guide:
+    - Overview: guide/README.md
+    - "01 — Why re-frame2": guide/01-why-re-frame2.md
+    - "02 — Your first app": guide/02-your-first-app.md
+    - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
+    - "04 — Views and frames": guide/04-views-and-frames.md
+    - "05 — State machines": guide/05-state-machines.md
+    - "06 — Doing HTTP requests": guide/06-doing-http-requests.md
+    - "07 — The server side": guide/07-server-side.md
+    - "08 — From re-frame v1": guide/08-from-re-frame-v1.md
+    - "09 — The dynamic model": guide/09-the-dynamic-model.md
+
+  - Spec:
+    - Overview: spec/README.md
+    - Foundation:
+      - "000 — Vision": spec/000-Vision.md
+      - "001 — Registration": spec/001-Registration.md
+      - "002 — Frames": spec/002-Frames.md
+    - Capability:
+      - "004 — Views": spec/004-Views.md
+      - "005 — State machines": spec/005-StateMachines.md
+      - "006 — Reactive substrate": spec/006-ReactiveSubstrate.md
+      - "007 — Stories": spec/007-Stories.md
+      - "008 — Testing": spec/008-Testing.md
+      - "009 — Instrumentation": spec/009-Instrumentation.md
+      - "010 — Schemas": spec/010-Schemas.md
+      - "011 — SSR": spec/011-SSR.md
+      - "012 — Routing": spec/012-Routing.md
+      - "013 — Flows": spec/013-Flows.md
+      - "014 — HTTP requests": spec/014-HTTPRequests.md
+    - Companion:
+      - Principles: spec/Principles.md
+      - Conventions: spec/Conventions.md
+      - Migration: spec/MIGRATION.md
+      - Construction prompts: spec/Construction-Prompts.md
+      - "CP-5 — Machine guide": spec/CP-5-MachineGuide.md
+      - AI audit: spec/AI-Audit.md
+      - "Tool — pair": spec/Tool-Pair.md
+      - Implementor checklist: spec/Implementor-Checklist.md
+      - Runtime architecture: spec/Runtime-Architecture.md
+      - Cross-spec interactions: spec/Cross-Spec-Interactions.md
+      - Ownership: spec/Ownership.md
+      - Spec schemas: spec/Spec-Schemas.md
+      - Conformance corpus: spec/conformance/README.md
+    - Patterns:
+      - Async effect: spec/Pattern-AsyncEffect.md
+      - Boot: spec/Pattern-Boot.md
+      - Forms: spec/Pattern-Forms.md
+      - Long-running work: spec/Pattern-LongRunningWork.md
+      - Nine states: spec/Pattern-NineStates.md
+      - Remote data: spec/Pattern-RemoteData.md
+      - Stale detection: spec/Pattern-StaleDetection.md
+      - WebSocket: spec/Pattern-WebSocket.md
+
+  - API:
+    - Reference: spec/API.md
+
+markdown_extensions:
+  - meta
+  - admonition
+  - footnotes
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true

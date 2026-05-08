@@ -1,0 +1,7 @@
+# Python dependencies for building the re-frame2 docs site (rf2-h09k).
+#
+# Pinned for reproducibility. Bump deliberately and verify the build still
+# resolves the cross-tree nav (docs/guide + spec/) cleanly.
+mkdocs==1.6.1
+mkdocs-material==9.5.44
+pymdown-extensions==10.11.2
