@@ -20,31 +20,178 @@
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.routing :as routing]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- registration ---------------------------------------------------------
+;;
+;; Per Spec 001 §Source-coordinate capture (CLJS reference) and
+;; Tool-Pair §Source-mapping: every reg-* registration's metadata
+;; carries :ns / :line / :file auto-supplied at compile time. We
+;; wrap each reg-* fn in a macro that captures (meta &form)'s
+;; :line / :column plus *ns* / *file*, binds re-frame.source-coords/
+;; *pending-coords* around the underlying fn, and the fn merges the
+;; coords into the registered metadata.
+;;
+;; JVM side: defmacro form. Direct fn-form access is preserved via
+;; events/reg-event-db etc. — internal callers (re-frame.routing,
+;; re-frame.ssr) reach the fn directly and don't pay the macro tax.
+;;
+;; CLJS side: keep the existing fn-alias form. The macro path is a
+;; future addition (a re-frame.core-macros companion ns following
+;; the re-frame.views-macros pattern); the ALIAS path keeps current
+;; CLJS callers functioning. Tooling that consumes :ns / :line /
+;; :file via the JVM side (server-rendering, JVM tests, REPL
+;; introspection) is unaffected.
 
-(def reg-event-db    events/reg-event-db)
-(def reg-event-fx    events/reg-event-fx)
-(def reg-event-ctx   events/reg-event-ctx)
-(def reg-sub         subs/reg-sub)
-(def reg-fx          fx/reg-fx)
-(def reg-cofx        cofx/reg-cofx)
-(def reg-frame       frame/reg-frame)
+#?(:clj
+   (defmacro reg-event-db
+     "Register a (db, event) -> new-db handler. Per Spec 001 the
+     metadata stamped onto the registry slot includes :ns / :line /
+     :file captured at this call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (events/reg-event-db ~id ~@args)))))
 
-(defn reg-view
-  "Register a view by id. The render-fn is `(fn [args...] hiccup-tree)`.
+#?(:clj
+   (defmacro reg-event-fx
+     "Register a (cofx, event) -> effects-map handler. Per Spec 001
+     the metadata stamped onto the registry slot includes :ns / :line /
+     :file captured at this call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (events/reg-event-fx ~id ~@args)))))
 
-  This is the JVM-runnable / SSR-friendly form. CLJS apps using Reagent
-  should prefer `re-frame.views/reg-view` (a macro that also defs the
-  local var) for client-side use."
+#?(:clj
+   (defmacro reg-event-ctx
+     "Register a context-handler. Per Spec 001 the metadata stamped
+     onto the registry slot includes :ns / :line / :file captured at
+     this call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (events/reg-event-ctx ~id ~@args)))))
+
+#?(:clj
+   (defmacro reg-sub
+     "Register a subscription. Per Spec 001 the metadata stamped onto
+     the registry slot includes :ns / :line / :file captured at this
+     call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (subs/reg-sub ~id ~@args)))))
+
+#?(:clj
+   (defmacro reg-fx
+     "Register an fx handler. Per Spec 001 the metadata stamped onto
+     the registry slot includes :ns / :line / :file captured at this
+     call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (fx/reg-fx ~id ~@args)))))
+
+#?(:clj
+   (defmacro reg-cofx
+     "Register a coeffect handler. Per Spec 001 the metadata stamped
+     onto the registry slot includes :ns / :line / :file captured at
+     this call site."
+     [id & args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (cofx/reg-cofx ~id ~@args)))))
+
+#?(:clj
+   (defmacro reg-frame
+     "Register a frame. Per Spec 001 the metadata stamped onto the
+     registry slot includes :ns / :line / :file captured at this call
+     site."
+     [id metadata]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (frame/reg-frame ~id ~metadata)))))
+
+;; CLJS side keeps the fn-aliases. Source-coord capture on CLJS will
+;; ride a future re-frame.core-macros companion ns (per the existing
+;; re-frame.views-macros pattern). The fns themselves (events/reg-*,
+;; subs/reg-sub, etc.) honour `*pending-coords*` either way — the
+;; macros above are the *capture* path; the merge path is in the fns.
+#?(:cljs
+   (do
+     (def reg-event-db    events/reg-event-db)
+     (def reg-event-fx    events/reg-event-fx)
+     (def reg-event-ctx   events/reg-event-ctx)
+     (def reg-sub         subs/reg-sub)
+     (def reg-fx          fx/reg-fx)
+     (def reg-cofx        cofx/reg-cofx)
+     (def reg-frame       frame/reg-frame)))
+
+(defn -reg-view
+  "Internal helper — the fn-form delegate for the public `reg-view` macro
+  (and CLJS alias). Registers the view in the :view registry, merging
+  any pending source coords into the slot metadata."
   ([id render-fn]
-   (reg-view id {} render-fn))
+   (-reg-view id {} render-fn))
   ([id metadata render-fn]
-   (registrar/register! :view id (assoc metadata :handler-fn render-fn))
+   (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
+                                        :handler-fn render-fn))
    id))
+
+#?(:clj
+   (defmacro reg-view
+     "Register a view by id. The render-fn is `(fn [args...] hiccup-tree)`.
+
+     This is the JVM-runnable / SSR-friendly form. CLJS apps using Reagent
+     should prefer `re-frame.views-macros/reg-view` (also defs the local
+     var) for client-side use.
+
+     Per Spec 001 §Source-coordinate capture the metadata stamped onto
+     the registry slot includes :ns / :line / :file captured at this
+     call site."
+     [& args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (-reg-view ~@args)))))
+
+#?(:cljs
+   (def reg-view -reg-view))
 
 (defn get-view
   "Return the render fn for a registered view by id, or nil if not
@@ -83,36 +230,110 @@
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
-(def reg-flow        flows/reg-flow)
 (def clear-flow      flows/clear-flow)
-(def reg-route       routing/reg-route)
-(def reg-app-schema  schemas/reg-app-schema)
-(def reg-machine     machines/reg-machine)
+
+#?(:clj
+   (defmacro reg-flow
+     "Register a flow. Per Spec 001 the metadata stamped onto the
+     registry slot includes :ns / :line / :file captured at this call
+     site."
+     [& args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (flows/reg-flow ~@args)))))
+
+#?(:clj
+   (defmacro reg-route
+     "Register a route. Per Spec 001 the metadata stamped onto the
+     registry slot includes :ns / :line / :file captured at this call
+     site."
+     [id metadata]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (routing/reg-route ~id ~metadata)))))
+
+#?(:clj
+   (defmacro reg-app-schema
+     "Register a Malli schema at a path inside app-db. Per Spec 001 the
+     metadata stamped onto the registry slot includes :ns / :line /
+     :file captured at this call site."
+     [path schema]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (schemas/reg-app-schema ~path ~schema)))))
+
+#?(:clj
+   (defmacro reg-machine
+     "Register a machine as an event handler. Per Spec 001 the
+     metadata stamped onto the registry slot includes :ns / :line /
+     :file captured at this call site."
+     [machine-id machine]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (machines/reg-machine ~machine-id ~machine)))))
+
+#?(:cljs
+   (do
+     (def reg-flow        flows/reg-flow)
+     (def reg-route       routing/reg-route)
+     (def reg-app-schema  schemas/reg-app-schema)
+     (def reg-machine     machines/reg-machine)))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind
 ;; ships with its default :rf.ssr/default-error-projector. Forward
 ;; through requiring-resolve to avoid a top-level :require cycle
 ;; (ssr.cljc requires events/fx/registrar which core also requires).
-(defn reg-error-projector
-  "Register an error projector — a fn `(trace-event) → public-error-map`.
-  Per Spec 011 §Server error projection. Frames opt into a custom
-  projector via the :ssr config's :public-error-id key:
-
-    (rf/reg-error-projector :myapp/public-error
-      (fn [trace-event] ...public-error-shape...))
-
-    (rf/make-frame {:platform :server
-                    :ssr {:public-error-id   :myapp/public-error
-                          :dev-error-detail? false}})
-
-  See re-frame.ssr/reg-error-projector for the full doc."
+(defn -reg-error-projector
+  "Internal helper — prefer `reg-error-projector` from public callers.
+  This is the fn-form delegate the public macro / CLJS alias forward to.
+  Forwards through requiring-resolve to keep the load order acyclic."
   ([id projector-fn]
-   (reg-error-projector id {} projector-fn))
+   (-reg-error-projector id {} projector-fn))
   ([id metadata projector-fn]
    #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
    (let [f #?(:clj  (requiring-resolve 're-frame.ssr/reg-error-projector)
               :cljs (resolve 're-frame.ssr/reg-error-projector))]
      (f id metadata projector-fn))))
+
+#?(:clj
+   (defmacro reg-error-projector
+     "Register an error projector — a fn `(trace-event) → public-error-map`.
+     Per Spec 011 §Server error projection. Frames opt into a custom
+     projector via the :ssr config's :public-error-id key:
+
+       (rf/reg-error-projector :myapp/public-error
+         (fn [trace-event] ...public-error-shape...))
+
+     Per Spec 001 §Source-coordinate capture the metadata stamped onto
+     the registry slot includes :ns / :line / :file captured at this
+     call site."
+     [& args]
+     (let [m (meta &form)]
+       `(binding [source-coords/*pending-coords*
+                  (cond-> {:ns (ns-name *ns*)}
+                    *file*       (assoc :file *file*)
+                    ~(:line m)   (assoc :line ~(:line m))
+                    ~(:column m) (assoc :column ~(:column m)))]
+          (-reg-error-projector ~@args)))))
+
+#?(:cljs
+   (def reg-error-projector -reg-error-projector))
 
 (defn project-error
   "Apply the active error projector for frame-id to the trace event.

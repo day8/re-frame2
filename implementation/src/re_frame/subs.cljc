@@ -20,6 +20,7 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 ;; ---- registration ---------------------------------------------------------
@@ -67,7 +68,7 @@
   [id & args]
   (let [{:keys [meta handler-fn input-signals]} (parse-reg-sub-args id args)]
     (registrar/register! :sub id
-      (assoc meta
+      (assoc (source-coords/merge-coords meta)
              :handler-fn    handler-fn
              :input-signals input-signals))
     ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription

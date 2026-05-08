@@ -20,6 +20,7 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.flows :as flows]
+            [re-frame.subs :as subs]
             [re-frame.trace :as trace]
             [re-frame.conformance :as conformance]))
 
@@ -98,7 +99,11 @@
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf.route/navigate, :rf.route/handle-url-change,
   ;; :rf/hydrate, :rf.nav/push-url, :rf.nav/replace-url all resolve.
-  ((requiring-resolve 're-frame.core/reg-sub) :rf/route
+  ;; Use the fn-form re-frame.subs/reg-sub here. The public re-frame.core/
+  ;; reg-sub is a macro on JVM (per Spec 001 §Source-coordinate capture)
+  ;; and a macro var isn't a callable fn. The underlying subs/reg-sub fn
+  ;; has the same effect on the registry.
+  ((requiring-resolve 're-frame.subs/reg-sub) :rf/route
    (requiring-resolve 're-frame.routing/route-sub-fn))
   ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
   (require 're-frame.routing :reload)
@@ -227,7 +232,13 @@
           :layer-1 (if (seq sub-meta)
                      (rf/reg-sub id sub-meta body)
                      (rf/reg-sub id body))
-          :layer-2 (apply rf/reg-sub id
+          ;; Use the fn-form (subs/reg-sub) here because the public
+          ;; rf/reg-sub is a macro on JVM (per Spec 001 §Source-coordinate
+          ;; capture) and macros aren't first-class values for `apply`.
+          ;; Source-coord capture is intentionally bypassed for these
+          ;; fixture-synthesised registrations — fixture data carries no
+          ;; meaningful call site.
+          :layer-2 (apply subs/reg-sub id
                           (concat (when (seq sub-meta) [sub-meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
