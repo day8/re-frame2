@@ -25,7 +25,9 @@
    solution doesn't change."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [clojure.string :as str]))
+            [re-frame.substrate.reagent :as reagent-adapter]
+            [clojure.set]
+            [clojure.string :as str])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def COLS 26)
@@ -281,8 +283,12 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce root
+;; React root named `react-root` (not `root`) so it does NOT collide
+;; with reg-view-defined view vars in this ns.
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [cells-grid]))
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:cells/initialise])
+  (rdc/render react-root [cells-grid]))
