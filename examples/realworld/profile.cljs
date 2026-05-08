@@ -9,12 +9,12 @@
    Follow/unfollow is optimistic and shared across the banner plus any
    article cards rendered from the profile routes."
   (:require [clojure.string :as str]
-            [re-frame-2.core :as rf]
+            [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing]
             [example.realworld.articles :as articles])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (defn current-time-ms []
   #?(:cljs (.getTime (js/Date.))

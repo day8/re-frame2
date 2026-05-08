@@ -7,11 +7,11 @@
    - unsaved-change blocking via the route's `:can-leave` subscription
    - ordinary HTTP effects for create / update / delete"
   (:require [clojure.string :as str]
-            [re-frame-2.core :as rf]
+            [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http]
             [example.realworld.routing :as routing])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def blank-draft
   {:title "" :description "" :body "" :tagList ""})

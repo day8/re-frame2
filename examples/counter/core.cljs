@@ -6,9 +6,9 @@
    `:counter` from inside a view (Form-2 outer fn) wrapped in
    `frame-provider`."
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core    :as rf]
-            [re-frame-2.views   :as v])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view]]))
+            [re-frame.core    :as rf]
+            [re-frame.views   :as v])
+  (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
@@ -30,7 +30,7 @@
 ;; `dispatch`/`subscribe` which resolve, at render time, to whichever frame
 ;; the surrounding React context puts in scope.
 
-;; reg-view (the macro form from re-frame-2.views-macros) defs a local
+;; reg-view (the macro form from re-frame.views-macros) defs a local
 ;; Var named after the keyword. The body's dispatch / subscribe both
 ;; resolve through (current-frame) — bound by the enclosing
 ;; frame-provider via React context.

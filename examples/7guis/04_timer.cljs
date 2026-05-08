@@ -21,8 +21,8 @@
    - Layered subs for derived progress %                   (CP-2)
    - Controlled-input slider via dispatch on change       (CP-4)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+            [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 (def TICK-MS 100)
 

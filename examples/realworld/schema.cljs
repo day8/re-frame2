@@ -16,7 +16,7 @@
    - Datetimes are ISO-8601 strings.
    - Authentication tokens are JWT strings, returned as the `:token` field
      of the `User` payload after login or registration."
-  (:require [re-frame-2.core :as rf]))
+  (:require [re-frame.core :as rf]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the RealWorld API returns

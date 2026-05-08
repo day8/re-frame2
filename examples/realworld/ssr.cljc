@@ -9,7 +9,7 @@
 
    That keeps the reusable SSR mechanics in the generic example while
    still showing how a larger app would define its own payload boundary."
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-slice-keys

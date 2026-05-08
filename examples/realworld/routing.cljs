@@ -11,9 +11,9 @@
    - `:rf.route/continue` / `:rf.route/cancel`
    - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
    - `:rf/url-requested`"
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             [example.realworld.schema])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; ROUTES

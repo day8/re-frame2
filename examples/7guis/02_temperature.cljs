@@ -19,8 +19,8 @@
    - Pure derivation in subs (Celsius ↔ Fahrenheit)        (CP-2)
    - Schema-bound app-db slice                            (CP-8)"
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf])
-  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
+            [re-frame.core :as rf])
+  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMA

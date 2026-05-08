@@ -17,7 +17,7 @@
      CLJ data; surfaces non-2xx as :on-error with the parsed error body.
    - It is :platforms #{:server :client} so SSR and the client share the
      same effect surface (per Spec 011)."
-  (:require [re-frame-2.core :as rf]))
+  (:require [re-frame.core :as rf]))
 
 ;; ============================================================================
 ;; CONFIG

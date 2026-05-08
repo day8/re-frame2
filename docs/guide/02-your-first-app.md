@@ -17,7 +17,7 @@ Here's the file, in full, with the surrounding ceremony removed:
 ```clojure
 (ns counter.core
   (:require [reagent.dom.client :as rdc]
-            [re-frame-2.core :as rf]))
+            [re-frame.core :as rf]))
 
 ;; Frame
 (rf/reg-frame :rf/default

@@ -5,10 +5,10 @@
    and the article-detail page. The followed-authors feed is a distinct
    Pattern-RemoteData slice so the home page can switch between feeds
    without throwing away already-loaded global articles."
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             [example.realworld.schema]
             [example.realworld.http])
-  (:require-macros [re-frame-2.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [with-frame]]))
 
 (defn current-time-ms []
   #?(:cljs (.getTime (js/Date.))

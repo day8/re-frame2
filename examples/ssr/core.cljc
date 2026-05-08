@@ -22,7 +22,7 @@
    - data-rf-render-hash structural marker on the root element; the runtime
      diffs server vs. client hashes after first render and emits
      :rf.ssr/hydration-mismatch on disagreement"
-  (:require [re-frame-2.core :as rf]
+  (:require [re-frame.core :as rf]
             #?(:cljs [reagent.dom.client :as rdc])))
 
 ;; ============================================================================
