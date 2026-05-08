@@ -11,14 +11,36 @@
  */
 
 const { spawn } = require('child_process');
+const fs = require('fs');
 const http = require('http');
 const path = require('path');
 
 const PORT = 8021;
 const ROOT = path.resolve(__dirname, '..', 'out', 'browser-test');
+const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
+
+// shadow-cljs's :browser-test target generates an index.html with an empty
+// <body>. Some example namespaces (e.g. examples/nine_states/core.cljs) do
+// `(rdc/create-root (js/document.getElementById "app"))` at namespace-load
+// time. Without an `#app` element, React 18 throws and aborts the test
+// runner before the cljs.test summary is printed. Patch the generated
+// index.html to include a hidden mount point. Idempotent.
+function ensureMountPoint() {
+  if (!fs.existsSync(INDEX)) return;
+  const html = fs.readFileSync(INDEX, 'utf8');
+  if (html.includes('id="app"')) return;
+  const patched = html.replace(
+    '<body>',
+    '<body><div id="app" style="display:none"></div>'
+  );
+  if (patched !== html) {
+    fs.writeFileSync(INDEX, patched, 'utf8');
+    console.log(`Patched ${INDEX} with <div id="app"> mount point.`);
+  }
+}
 
 function probe(port) {
   return new Promise((resolve) => {
@@ -43,6 +65,7 @@ async function waitForReady(port, deadline) {
 }
 
 (async () => {
+  ensureMountPoint();
   const isWin = process.platform === 'win32';
   // On Windows, npx is a .cmd shim — must go through the shell.
   const httpServerCmd = isWin ? 'npx.cmd' : 'npx';
