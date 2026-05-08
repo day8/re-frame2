@@ -81,7 +81,7 @@ Why the locked path — the load-bearing reason is [Goal 2 — Frame state rever
 
 1. **Encapsulation.** A machine's snapshot is its private state; the rest of `app-db` is the rest of the app. Co-locating all snapshots under one reserved key keeps the boundary visible at a glance.
 2. **No path collisions.** Two features that both want a `[:foo :flow]` machine cannot accidentally share a snapshot location. Ids are already unique within a frame; reusing them as the in-`app-db` key inherits that uniqueness for free.
-3. **Tooling.** `(get-in @(get-frame-db frame-id) [:rf/machines])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
+3. **Tooling.** `(get-in (get-frame-db frame-id) [:rf/machines])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
 4. **Per-frame isolation is automatic.** Each frame has its own `app-db`, and thus its own `:rf/machines` map. The same machine id can exist in multiple frames; their snapshots are isolated by virtue of living in different frames' app-dbs (per [002 §Frames](002-Frames.md)). Inside one frame, the id is unique.
 5. **AI-amenability.** "Where is the snapshot?" has one answer at all times. AIs do not need to consult per-machine metadata to find state.
 

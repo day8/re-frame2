@@ -44,7 +44,7 @@ The two parts together form the **consolidated contract** — the complete set o
 
 | Capability | re-frame2 surface | Spec |
 |---|---|---|
-| **Read `app-db`** | `(rf/get-frame-db frame-id)` returns a deref-able container | [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
+| **Read `app-db`** | `(rf/get-frame-db frame-id)` returns the current `app-db` value (a plain map) | [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | **Read sub values** | `(rf/compute-sub query-v db-value)` runs a sub against an `app-db` value | [008](008-Testing.md) |
 | **Read registry** | `(rf/handlers kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |

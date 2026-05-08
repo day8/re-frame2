@@ -23,7 +23,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
-| Assertion: read app-db | `@(rf/get-frame-db :test-frame)` |
+| Assertion: read app-db | `(rf/get-frame-db :test-frame)` |
 | Assertion: read snapshot | `@(rf/sub-machine :auth/state-machine)` (or `(rf/snapshot-of [:rf/machines :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
 | Machine cleanup on destroy | `(rf/destroy-frame f)` — disposes sub-cache, stops router, clears overrides |
@@ -78,7 +78,7 @@ The most common shape. Each test creates a frame, runs assertions, tears down.
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (try
       (rf/dispatch-sync [:auth/login-pressed] {:frame f})
-      (is (= :validating (get-in @(rf/get-frame-db f) [:auth :state])))
+      (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))
       (finally
         (rf/destroy-frame f)))))
 ```
@@ -91,7 +91,7 @@ For tests that don't need explicit teardown logic, `with-frame` handles the life
 (deftest auth-flow
   (rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
     (rf/dispatch-sync [:auth/login-pressed])         ;; uses :frame f via with-frame's binding
-    (is (= :validating (get-in @(rf/get-frame-db f) [:auth :state])))))
+    (is (= :validating (get-in (rf/get-frame-db f) [:auth :state])))))
 ```
 
 `with-frame` binds the frame for the body's duration, dispatch-syncs/subscribes inside the body resolve to that frame via the dynamic-var tier of the resolution chain, and the frame is destroyed on exit (success or exception).
@@ -111,7 +111,7 @@ For test groups that share setup, register a named test frame once and reset bet
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
-  (is (= :validating (get-in @(rf/get-frame-db :test-fixture) [:auth :state]))))
+  (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
 ```
 
 `reset-frame` (per [002 §reset-frame](002-Frames.md#reset-frame--full-replace-opt-in)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
@@ -198,7 +198,7 @@ The recommended pattern is to drive `db` state via dispatches against a fixture 
     (rf/dispatch-sync [:todos/add {:id 1 :status :pending}])
     (rf/dispatch-sync [:todos/add {:id 2 :status :done}])
     (rf/dispatch-sync [:todos/add {:id 3 :status :pending}])
-    (is (= 2 (count (rf/compute-sub [:pending-todos] @(rf/get-frame-db f)))))))
+    (is (= 2 (count (rf/compute-sub [:pending-todos] (rf/get-frame-db f)))))))
 ```
 
 Composed subs (`:<-`) are computed transitively — the inputs are computed first, then the output. All without spinning up the reactive cache.
@@ -257,8 +257,8 @@ Already covered in Pattern 4 — `machine-transition` is pure and JVM-runnable.
 ### Reading app-db
 
 ```clojure
-(is (= :validating (get-in @(rf/get-frame-db :test-frame) [:auth :state])))
-(is (= 3 (count (get-in @(rf/get-frame-db :test-frame) [:items]))))
+(is (= :validating (get-in (rf/get-frame-db :test-frame) [:auth :state])))
+(is (= 3 (count (get-in (rf/get-frame-db :test-frame) [:items]))))
 ```
 
 ### Reading machine snapshots
@@ -290,11 +290,11 @@ For tests that exercise event sequences and want to assert at intermediate point
 ```clojure
 (rf/with-frame [f (rf/make-frame {:on-create [:auth/init-idle]})]
   (rf/dispatch-sync [:auth/email-changed "alice@example.com"])
-  (is (= "alice@example.com" (get-in @(rf/get-frame-db f) [:auth :form :email])))
+  (is (= "alice@example.com" (get-in (rf/get-frame-db f) [:auth :form :email])))
   (rf/dispatch-sync [:auth/password-changed "hunter2"])
-  (is (some? (get-in @(rf/get-frame-db f) [:auth :form :password])))
+  (is (some? (get-in (rf/get-frame-db f) [:auth :form :password])))
   (rf/dispatch-sync [:auth/login-pressed])
-  (is (= :validating (get-in @(rf/get-frame-db f) [:auth :state]))))
+  (is (= :validating (get-in (rf/get-frame-db f) [:auth :state]))))
 ```
 
 Because run-to-completion drain settles each `dispatch-sync` before returning, assertions between dispatches reflect committed state — no race conditions.
@@ -316,7 +316,7 @@ The testing surface is framework-agnostic — `make-frame` and friends work from
 
 (deftest example-test
   (rf/dispatch-sync [:some-event] {:frame :test-fixture})
-  (is (= ... (get-in @(rf/get-frame-db :test-fixture) [...]))))
+  (is (= ... (get-in (rf/get-frame-db :test-fixture) [...]))))
 ```
 
 ### clojure.test on the JVM
@@ -345,7 +345,7 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 
 - `(make-frame {:on-create [:event-id] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
-- `(get-frame-db f)` — deref-able atom.
+- `(get-frame-db f)` — current `app-db` value (a plain map) for the named frame.
 - `(snapshot-of path {:frame f})` — exact opts arg.
 - `(destroy-frame f)` — exact teardown contract.
 - Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
@@ -372,7 +372,7 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ### Snapshot / fixture serialization
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str @(get-frame-db f)))`); a helper is user-space.
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (get-frame-db f)))`); a helper is user-space.
 
 ### Property-based testing integration
 
@@ -406,7 +406,7 @@ re-frame2 ships a `re-frame.test` convenience namespace. The canonical helper in
 |---|---|---|
 | `with-frame`, `make-frame`, `destroy-frame`, `reset-frame`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
 | `dispatch-sequence` | test-flavoured | `(dispatch-sequence frame [event-1 event-2 ...])` — dispatch-syncs each event in order against `frame`. Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
-| `assert-state` | test-flavoured macro | `(assert-state frame [:auth :state] :validating)` — assertion macro reading `(get-in @(get-frame-db frame) path)` and checking equality. Reports the actual value on failure. |
+| `assert-state` | test-flavoured macro | `(assert-state frame [:auth :state] :validating)` — assertion macro reading `(get-in (get-frame-db frame) path)` and checking equality. Reports the actual value on failure. |
 
 This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
 

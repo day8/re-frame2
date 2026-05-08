@@ -76,7 +76,7 @@ Each entry below is one CP:
 (deftest feature-verb-noun-test
   (rf/with-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
     (rf/dispatch-sync [:feature/verb-noun "value"] {:frame f})
-    (is (= "value" (get-in @(rf/get-frame-db f) [:feature :path])))))
+    (is (= "value" (get-in (rf/get-frame-db f) [:feature :path])))))
 ```
 
 **AI-first checklist before declaring done:**
@@ -707,8 +707,8 @@ test/my_app/
   (rf/with-frame [f (rf/make-frame {:on-create [:cart/initialise]})]
     (let [item {:id (random-uuid) :sku "ABC-1" :qty 2 :price 9.99}]
       (rf/dispatch-sync [:cart.item/add item] {:frame f})
-      (is (= [item] @(rf/compute-sub [:cart/items] @(rf/get-frame-db f))))
-      (is (== 19.98 @(rf/compute-sub [:cart/total] @(rf/get-frame-db f)))))))
+      (is (= [item] (rf/compute-sub [:cart/items] (rf/get-frame-db f))))
+      (is (== 19.98 (rf/compute-sub [:cart/total] (rf/get-frame-db f)))))))
 ```
 
 **AI-first checklist for a feature:**
@@ -948,7 +948,7 @@ The handler reads `(:route db)` for any path/query params it needs — the `:rou
                        {:id           frame-id
                         :on-create    [:rf/server-init request]})]
       ;; rebound to f
-      (let [final-db @(rf/get-frame-db f)
+      (let [final-db (rf/get-frame-db f)
             hiccup   ((rf/view :app/root))                ;; the registered root view
             html     (rf/render-to-string hiccup {:frame f})
             payload  {:rf/version "1.0"
