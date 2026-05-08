@@ -91,7 +91,8 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]]
+   [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]] ;; trigger kind
+   [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
    [:dispatched-at         {:optional true} :any]])                        ;; CLJS reference may add an impl-specific timestamp; tools tolerate
 ```
 
@@ -109,7 +110,8 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
    [:interceptors          {:optional true} [:vector :any]]
    [:trace-id              {:optional true} :any]
-   [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]]])
+   [:source                {:optional true} [:enum :ui :timer :http :machine :repl :ssr-hydration :test :other]]
+   [:origin                {:optional true} :keyword]])                     ;; actor identity tag — defaults to :app when omitted
 ```
 
 The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event :frame :rf/default :dispatched-at (now)} opts)`. The runtime asserts `:event` and `:frame` are present after the merge.
@@ -962,11 +964,36 @@ Per-frame epoch snapshot, recorded on each drain-completion in dev builds. Used 
    [:trigger-event [:vector :any]]                                          ;; the full event vector
    [:db-before     :any]                                                    ;; app-db before the cascade
    [:db-after      :any]                                                    ;; app-db after drain settled
-   [:trace-events  {:optional true} [:vector :any]]                         ;; the cascade's trace events
+   [:trace-events  {:optional true} [:vector :any]]                         ;; the cascade's trace events (raw)
+   [:sub-runs      {:optional true} [:vector
+                                     [:map
+                                      [:sub-id           :any]
+                                      [:query-v          [:vector :any]]
+                                      [:result-changed?  :boolean]
+                                      [:recomputed?      :boolean]]]]      ;; per-sub activity in this cascade
+   [:renders       {:optional true} [:vector
+                                     [:map
+                                      [:render-key   :any]
+                                      [:triggered-by [:maybe :any]]        ;; sub-id or nil
+                                      [:elapsed-ms   :any]]]]              ;; per-render activity in this cascade
+   [:effects       {:optional true} [:vector
+                                     [:map
+                                      [:fx-id        :keyword]
+                                      [:args         :any]
+                                      [:outcome      [:enum :ok :error :skipped-on-platform]]
+                                      [:error-trace  {:optional true} :any]]]] ;; per-effect activity in this cascade
    ])
 ```
 
-The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply. `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs.
+The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
+
+**Structured slots are derived from `:trace-events`.** The `:sub-runs`, `:renders`, and `:effects` slots are pre-computed projections of the underlying `:trace-events` stream, surfacing the per-sub / per-render / per-effect activity of the cascade in a shape pair-shaped tools can route off without re-folding the raw trace each time. The legacy `:trace-events` slot remains the raw underpinning; the structured slots derive from it.
+
+- `:sub-runs` — every sub the cascade touched. `:recomputed?` is `false` on a cache hit (the sub was queried but its memoised value reused) and `true` when the sub re-ran. `:result-changed?` reports whether the post-run value differs from the prior cached value. The two together let a tool answer "which subs actually moved this cascade?" without re-deriving from the trace.
+- `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` identifies the rendered unit; **TBD pending rf2-t5tx** — the choice between "the `reg-view` registration id" (coarse) and "a per-component-instance token" (fine) has not been pinned. Tools should treat it as opaque.
+- `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present) references the corresponding error trace event by `:id`.
+
+`:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
 
 ### `:rf/fixture-file`
 
