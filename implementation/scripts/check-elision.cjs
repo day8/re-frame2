@@ -84,7 +84,44 @@ const DEV_ONLY_SENTINELS = [
   // 014 §:auto). Emitted only when the user did NOT supply :decode AND
   // interop/debug-enabled?. The string fragment must elide in production.
   { source: 're-frame.http-managed/maybe-emit-decode-defaulted! (rf.warning/decode-defaulted)',
-    sentinel: 'rf.warning/decode-defaulted' }
+    sentinel: 'rf.warning/decode-defaulted' },
+  // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
+  // travel, Spec 009 §register-epoch-cb). Emitted by settle! after a
+  // drain-settle commits a record. The whole settle! body sits inside
+  // `(when interop/debug-enabled? ...)`; the string fragment must elide.
+  { source: 're-frame.epoch/settle! (rf.epoch/snapshotted)',
+    sentinel: 'rf.epoch/snapshotted' },
+  // re-frame.epoch — :rf.epoch/restored trace op. Emitted on the happy
+  // path of restore-epoch. The entire restore-epoch body is guarded by
+  // an `(if-not interop/debug-enabled? false ...)` early-return so the
+  // success arm and its string sentinel must elide in production.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restored)',
+    sentinel: 'rf.epoch/restored' },
+  // re-frame.epoch — :rf.epoch/restore-during-drain failure mode.
+  // Emitted via emit-restore-failure! when restore-epoch is called
+  // while a drain is in flight. Same elision gate as :rf.epoch/restored.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-during-drain)',
+    sentinel: 'rf.epoch/restore-during-drain' },
+  // re-frame.epoch — :rf.epoch/restore-unknown-epoch failure mode.
+  // Emitted when the requested epoch-id is no longer in the frame's
+  // ring buffer. Must elide.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-unknown-epoch)',
+    sentinel: 'rf.epoch/restore-unknown-epoch' },
+  // re-frame.epoch — :rf.epoch/restore-schema-mismatch failure mode.
+  // Emitted when the recorded :db-after no longer validates against
+  // every currently-registered app-schema. Must elide.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-schema-mismatch)',
+    sentinel: 'rf.epoch/restore-schema-mismatch' },
+  // re-frame.epoch — :rf.epoch/restore-missing-handler failure mode.
+  // Emitted when the recorded db references a registration (machine,
+  // route) that is no longer present in the registrar. Must elide.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-missing-handler)',
+    sentinel: 'rf.epoch/restore-missing-handler' },
+  // re-frame.epoch — :rf.epoch/restore-version-mismatch failure mode.
+  // Emitted when a machine snapshot's :rf/snapshot-version differs
+  // from the currently-registered machine's :version. Must elide.
+  { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-version-mismatch)',
+    sentinel: 'rf.epoch/restore-version-mismatch' }
 ];
 
 // ----- helpers ---------------------------------------------------------------
