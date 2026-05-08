@@ -631,13 +631,16 @@ What this gives:
 (defonce ^:private frame-context
   (.createContext js/React :rf/default))
 
-(defn provider [frame-keyword]
+(defn provider []
   ;; Returns a Reagent component the user includes in their tree:
   ;;   [provider :auth
   ;;     [some-view ...]]
   ;; The Provider's value is the keyword, never the frame record;
   ;; consumers resolve the keyword against the global frame registry on
   ;; every read, so re-registering frames is picked up automatically.
+  ;; 0-arity (rf2-4y60): a single built component services every frame —
+  ;; the frame keyword lives in the Provider's :value at render time, not
+  ;; in a build-time closure.
   (fn [frame-kw & children]
     (into [:> (.-Provider frame-context) {:value frame-kw}] children)))
 ```

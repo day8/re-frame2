@@ -24,20 +24,27 @@
 (defonce ^:private frame-context
   (.createContext React :rf/default))
 
+(defn- frame-provider-component
+  "The single Reagent component that backs every frame-provider. It takes
+  the frame keyword as its first render-time arg and scopes that keyword
+  to its subtree via React context. One built component services every
+  frame — the keyword lives in the Provider's `:value`, not in a
+  closure."
+  [frame-kw & children]
+  (into [:> (.-Provider frame-context) {:value frame-kw}] children))
+
 (defn build-frame-provider
   "Used by re-frame.substrate.reagent/register-context-provider. Returns
   a Reagent component that scopes a frame keyword to its subtree.
 
-  The build-time `_frame-keyword` arg is currently unused — the returned
-  Reagent component takes the frame keyword at render time so a single
-  built component services every frame. The substrate-side
-  `register-context-provider` slot still receives a frame-keyword on
-  call (per Spec 006 §Frame-provider via React context). Kept for
-  forward-compatibility with substrates that want per-frame
-  specialisation; flattening tracked separately."
-  [_frame-keyword]
-  (fn [frame-kw & children]
-    (into [:> (.-Provider frame-context) {:value frame-kw}] children)))
+  Zero-arity (rf2-4y60): the returned component takes the frame keyword
+  at render time, and a single built component services every frame, so
+  there is nothing to specialise at build time. Substrates whose
+  `register-context-provider` slot receives a frame-keyword on call (per
+  Spec 006 §Frame-provider via React context) discard it and call this
+  with no args."
+  []
+  frame-provider-component)
 
 (defn frame-provider
   "User-facing Reagent component that scopes a frame keyword to its
@@ -63,7 +70,7 @@
   surface."
   [props & children]
   (let [frame-kw (or (:frame props) :rf/default)]
-    (into [(build-frame-provider frame-kw) frame-kw] children)))
+    (into [(build-frame-provider) frame-kw] children)))
 
 ;; ---- frame resolution at render time -------------------------------------
 

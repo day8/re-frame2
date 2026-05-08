@@ -57,12 +57,15 @@
 
 ;; ---- context provider -----------------------------------------------------
 
-(defn- register-context-provider [frame-keyword]
+(defn- register-context-provider [_frame-keyword]
   ;; Implementation lives in re-frame.views (CLJS-only); this slot is
-  ;; populated dynamically by views/ns load.
-  (if-let [provider-builder (resolve 're-frame.views/build-frame-provider)]
-    ((deref provider-builder) frame-keyword)
-    nil))
+  ;; populated dynamically by views/ns load. The frame-keyword arg is
+  ;; ignored — `build-frame-provider` is 0-arity (rf2-4y60); the returned
+  ;; component takes the frame keyword at render time. The arg stays in
+  ;; the substrate signature per Spec 006 §Frame-provider via React
+  ;; context.
+  (when-let [provider-builder (resolve 're-frame.views/build-frame-provider)]
+    ((deref provider-builder))))
 
 ;; ---- disposal -------------------------------------------------------------
 

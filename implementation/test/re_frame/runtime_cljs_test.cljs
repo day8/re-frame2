@@ -578,11 +578,13 @@
     ;; hook into re-frame.substrate.reagent/register-context-provider is
     ;; build-frame-provider. Both are callable; both produce the same
     ;; final hiccup shape when invoked with a frame keyword.
-    (let [provider     (re-frame.views/build-frame-provider :ignored)
+    ;; rf2-4y60: build-frame-provider is 0-arity — the returned component
+    ;; takes the frame keyword at render time.
+    (let [provider     (re-frame.views/build-frame-provider)
           substrate-tree (provider :hello [:span "x"])
           wrapper-tree   (rf/frame-provider {:frame :hello} [:span "x"])
-          ;; The wrapper invokes (build-frame-provider frame-kw) per call;
-          ;; the substrate-side returns a fresh component instance. Compare
+          ;; The wrapper invokes (build-frame-provider) per call;
+          ;; the substrate-side returns the same generic component. Compare
           ;; the inner Provider hiccup produced by each.
           unwrap         (fn [tree] (apply (first tree) (rest tree)))
           a              (unwrap wrapper-tree)
