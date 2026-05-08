@@ -164,7 +164,7 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 - **After commit.** The callback receives a fully-formed record with `:db-after`, `:sub-runs`, `:renders`, `:effects`, and any optional `:trace-events` populated. The record has already been appended to the frame's `epoch-history` ring buffer when the callback runs.
 - **Exception isolation.** An exception thrown by an epoch callback is caught, logged via `re-frame.loggers`, and does not propagate. One broken epoch listener cannot break the app or block other listeners (raw-trace or epoch).
 - **Listener ordering** is not contract.
-- **Production elision.** The epoch listener machinery is gated on the same `goog-define trace-enabled?` as the raw-trace surface. Production builds elide registration, dispatch, and the epoch ring-buffer all together.
+- **Production elision.** The epoch listener machinery is gated on the same `re-frame.interop/debug-enabled?` flag (alias of `goog.DEBUG`) as the raw-trace surface — see [§Production builds](#production-builds-zero-overhead-zero-code). Production builds elide registration, dispatch, and the epoch ring-buffer all together.
 
 **When to use which.** `register-trace-cb` is the right shape for tools that need raw fine-grained spans (the Chrome Performance bridge, custom timing displays). `register-epoch-cb` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
 
@@ -241,7 +241,7 @@ Closes the open trace, computes its duration, pushes it onto the trace buffer, a
 
 ### Compile-time elision
 
-All three macros expand to `(when (is-trace-enabled?) ...emit...)` gates. `is-trace-enabled?` reads the `re-frame.trace/trace-enabled?` closure-define (default `false`); when the constant is `false` in a production build, the closure compiler eliminates the gated branch and the macros become no-ops. See "Production builds" below for the full mechanism.
+All three macros expand to `(when re-frame.interop/debug-enabled? ...emit...)` gates. `debug-enabled?` is an alias of `goog.DEBUG` on CLJS (default `true` in dev, `false` in `:advanced` production builds); when the constant is `false` the closure compiler eliminates the gated branch and the macros become no-ops. See "Production builds" below for the full mechanism.
 
 ### Where trace emission lives
 
@@ -265,57 +265,95 @@ User code can also emit traces — `with-trace` and `merge-trace!` are public.
 
 ## Production builds: zero overhead, zero code
 
-**Trace emission is a development-only concern.** In production builds, all tracing code — every emit call site, the listener registry, the trace buffer, the Performance API bridge — is compile-time eliminated. The closure compiler's dead-code elimination removes everything; production binaries contain no trace machinery at all.
+**All dev-side instrumentation is a development-only concern.** In production builds, the trace surface, the schema validation surface (Spec 010), and the registrar's hot-reload trace emit (`:rf.registry/handler-{registered,replaced,cleared}`) are *all* compile-time eliminated through a single shared gate. The closure compiler's dead-code elimination removes the gated branches; production binaries contain no instrumentation machinery at all.
 
-### The mechanism: `goog-define trace-enabled?` + `is-trace-enabled?`
+### The mechanism: `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`)
 
-The convention in `re-frame.trace`:
+The CLJS implementation uses one shared flag — an alias of the standard `goog.DEBUG` closure-define — for every dev-only branch:
 
 ```clojure
-(ns re-frame.trace)
-#?(:cljs (goog-define trace-enabled? false)
-   :clj  (def ^boolean trace-enabled? false))
-
-(defn ^boolean is-trace-enabled? [] trace-enabled?)
+;; src/re_frame/interop.cljs
+(def ^boolean debug-enabled? "@define {boolean}" ^boolean goog/DEBUG)
 ```
 
-Every framework-internal trace emit is wrapped in `(when (is-trace-enabled?) ...)`. The macros (`with-trace`, `merge-trace!`, `finish-trace`) all expand to this gate.
+Every framework-internal dev branch — `trace/emit!`, `trace/emit-error!`, `schemas/validate-app-db!`, `schemas/validate-event!`, `schemas/validate-cofx!`, `schemas/validate-sub-return!`, and the `registrar/{register!,unregister!,clear-kind!}` trace emits — wraps its body in `(when interop/debug-enabled? ...)`. With `:advanced` compilation and `:closure-defines {goog.DEBUG false}`, Closure constant-folds the gate and DCEs every dependent allocation: trace maps, listener iteration, malli calls, error reason strings, the Performance API bridge.
 
-When `trace-enabled?` is `false` (the default), the closure compiler's advanced-compilation pass treats the constant as dead and elides the gated branch from the output bundle. Production builds:
+```edn
+;; user's shadow-cljs.edn — production build
+{:builds {:app {:target           :browser
+                :output-dir       "..."
+                :compiler-options {:closure-defines {goog.DEBUG false}}}}}
+```
 
-- Allocate no trace event maps.
-- Hold no listener registry.
-- Never invoke listener predicates.
-- Don't include the trace buffer in the bundle.
-- Don't include the Performance API bridge.
+(Most production CLJS builds already set `goog.DEBUG=false`; re-frame2 piggybacks on the canonical CLJS production flag rather than introducing its own.)
+
+The gate must be the **outermost** form of the body. `(when interop/debug-enabled? ...)` and `(if interop/debug-enabled? <body> <else>)` constant-fold reliably; `(when (and X interop/debug-enabled?) ...)` does NOT — Closure can't statically rule out `X`, and the dead branch survives into the bundle. The verifier (see [§Production-elision verification](#production-elision-verification)) catches that mistake.
+
+A reachable but dead branch in a production bundle:
+
+- Allocates no trace event maps.
+- Holds no listener registry beyond the (small) `defonce` cells (which carry `{}` and `0`).
+- Never invokes listener predicates.
+- Excludes the trace buffer payload.
+- Excludes the Performance API bridge.
+- Excludes the schema validation entry points and their malli/explanation calls.
 
 ### How users opt in (dev builds)
 
-Tools that consume traces (10x, re-frame-pair) instruct users to set the `trace-enabled?` closure-define to `true` in their dev build:
+CLJS dev builds default to `goog.DEBUG=true` — every gate stays live with no extra configuration. A user who wants trace machinery in a `:advanced` artefact (rare) can flip the flag explicitly:
 
 ```edn
-;; shadow-cljs.edn (dev build)
-{:closure-defines {re-frame.trace/trace-enabled? true}}
+;; shadow-cljs.edn — :advanced build with trace kept in
+{:closure-defines {goog.DEBUG true}}
 ```
-
-Closure compiler with the constant set to `true` keeps the gated branches; trace emission runs and listeners receive batches.
 
 ### User-side listener registration
 
-User-side `(rf/register-trace-cb ...)` calls should also be elided in production. Wrap them with the same predicate:
+User-side `(rf/register-trace-cb! ...)` calls should also elide in production. Wrap them with the same predicate the framework uses:
 
 ```clojure
-(when (rf/is-trace-enabled?)
-  (rf/register-trace-cb :my/listener callback-fn))
+(when ^boolean re-frame.interop/debug-enabled?
+  (rf/register-trace-cb! :my/listener callback-fn))
 ```
 
-In production (closure-define `false`), `is-trace-enabled?` is a constant `false`, the `when` is dead, and the entire registration is elided.
+In production (`goog.DEBUG=false`), `re-frame.interop/debug-enabled?` is the constant `false`, the `when` is dead, and the entire registration is elided.
 
 ### JVM builds
 
-JVM builds resolve `trace-enabled?` via a build-time `System/getProperty` (or equivalent build-time flag) read at namespace load — `(def ^boolean trace-enabled? (= "true" (System/getProperty "re-frame.trace.enabled" "false")))`. Default is `false` (trace disabled in production-built JVM artefacts). Setting `-Dre-frame.trace.enabled=true` at build/run time turns it on for that artefact.
+JVM has no `:advanced` and no compile-time DCE. The JVM half of the interop layer:
 
-JVM doesn't have the closure compiler's dead-code elimination — the gated code paths remain in the bytecode regardless of the flag's value — but the runtime cost is one boolean check on each emit, near-zero overhead. The compile-time-elision guarantee is **CLJS-only**; the JVM contract is "runtime-cheap when off, runs when on." Reader conditionals are not used for trace gating — the same `^boolean` value lives on both platforms; only its origin differs (closure-define on CLJS, system property on JVM).
+```clojure
+;; src/re_frame/interop.clj
+(def debug-enabled? true)
+```
+
+…hardcodes `debug-enabled?` to `true`. JVM artefacts always run the dev-side branches. Two reasons:
+
+1. The JVM is used in re-frame2 only for headless tests, SSR, and tooling-attached REPLs (per Spec 011 §JVM-runnable view rendering and Spec 008 §JVM-runnable test suites). None of those is a production-latency hot path.
+2. Trace events are how SSR errors, schema-validation failures, and hot-reload notifications surface — turning them off on the JVM would silently drop the only data channel those flows carry.
+
+Apps that ship a production JVM artefact (a Pedestal/ring service that uses re-frame2's runtime for state) and want to disable instrumentation should rebuild the framework with `interop.clj`'s `debug-enabled?` switched to `false` (or an `alter-var-root!` at boot) — but the canonical re-frame2 dev surface is CLJS. The compile-time-elision guarantee is **CLJS-only**; on JVM the contract is "code is present, runs cheaply when its inner predicate is also off."
+
+### Production-elision verification
+
+The contract above is enforced by an automated test in CI:
+
+1. `implementation/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-cb!`, `emit-trace!`, `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
+2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
+   - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
+   - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
+3. `implementation/scripts/check-elision.cjs` greps both bundles for sentinel strings drawn from the gated branches (schema reason fragments and `:rf.registry/*` trace operation keywords). The contract:
+   - Production bundle: every sentinel MUST be ABSENT.
+   - Control bundle: every sentinel MUST be PRESENT.
+4. The CI workflow runs `npm run test:elision` (`shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs`) on every push/PR.
+
+The control build is what gives the test teeth: without it, a refactor that *moved* a sentinel string out of a gated branch would silently turn the negative assertion into a vacuous pass. With both bundles checked, any change that either breaks elision *or* loses methodology signal fails CI loudly.
+
+When a future surface is added (e.g. epoch history per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach)), it follows the same pattern:
+
+- Wrap its dev-only body in `(when interop/debug-enabled? ...)`, outermost.
+- Touch the surface from `re-frame.elision-probe` so the DCE graph reaches it.
+- Add a sentinel to `DEV_ONLY_SENTINELS` in `check-elision.cjs` (a string literal or keyword name that only the gated branch contains).
 
 ## Hot path in dev builds
 
@@ -342,7 +380,7 @@ The Chrome Performance API ([User Timing](https://developer.mozilla.org/en-US/do
 (rf/configure :performance-api {:enabled? false})   ;; force-off
 ```
 
-Default: enabled when `(is-trace-enabled?)` returns true; disabled otherwise. So in a dev build with tracing on, the bridge is on out of the box; turning it off with `:enabled? false` keeps trace events flowing to listeners (10x, re-frame-pair, custom recorders) but stops the `performance.mark` / `performance.measure` calls. Useful when:
+Default: enabled when `re-frame.interop/debug-enabled?` is true; disabled otherwise. So in a dev build with tracing on, the bridge is on out of the box; turning it off with `:enabled? false` keeps trace events flowing to listeners (10x, re-frame-pair, custom recorders) but stops the `performance.mark` / `performance.measure` calls. Useful when:
 
 - The Performance panel marks are noisy and the user wants the trace stream without the timeline annotations.
 - A custom profiling integration owns the Performance API and re-frame2's marks would conflict.
@@ -352,7 +390,7 @@ Production builds elide the bridge code along with the rest of tracing (per "Pro
 
 ### Implementation: hardcoded into emit, gated separately
 
-The bridge sits inside the trace-emit path itself, **inside the `(when (is-trace-enabled?) ...)` compile-time gate**, with an additional `(when (performance-api-enabled?) ...)` runtime gate that reads the `:performance-api` config. So in production builds, the outer compile-time gate is dead, the entire emit path is elided, and the bridge calls disappear with everything else. In dev builds, the outer gate is live; the inner config gate decides whether the bridge fires.
+The bridge sits inside the trace-emit path itself, **inside the `(when interop/debug-enabled? ...)` compile-time gate**, with an additional `(when (performance-api-enabled?) ...)` runtime gate that reads the `:performance-api` config. So in production builds, the outer compile-time gate is dead, the entire emit path is elided, and the bridge calls disappear with everything else. In dev builds, the outer gate is live; the inner config gate decides whether the bridge fires.
 
 Two reasons for hardcoding the bridge into emit rather than registering it as a `register-trace-cb` listener:
 
@@ -401,8 +439,8 @@ External tools consume re-frame2 through stable surfaces. Production builds elid
 | Trace event shape (`:id`, `:operation`, `:op-type`, `:start`, `:end`, `:duration`, `:child-of`, `:tags`) | Preserved exactly |
 | `:op-type` discriminator vocabulary (`:event`, `:sub/run`, `:sub/create`, `:render`, `:raf`, `:event/do-fx`, ...) | Preserved; new values additive |
 | `:tags` for op-type-specific data (`:app-db-before`, `:app-db-after`, `:input-signals`, `:cached?`, `:value`, `:error`) | Preserved |
-| `is-trace-enabled?` | Preserved |
-| Compile-time elision via `goog-define trace-enabled?` | Preserved |
+| `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | Preserved |
+| Compile-time elision via `goog.DEBUG=false` + `:advanced` | Preserved |
 | `(trace-api-version)` integer (bumps on contract revisions) | Provided |
 | Public registrar query API (`handlers`/`handler-meta`/`frame-ids`/`frame-meta`/`get-frame-db`/`snapshot-of`/`sub-topology`/`sub-cache`) | See [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Hot-reload notifications (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`, `:frame/created`, `:frame/destroyed`) | Trace events |
@@ -690,7 +728,7 @@ Tracing is the connective tissue between the runtime and every tool that observe
 
 ### Trace allocation cost in dev when no listeners
 
-When a listener is *never* registered, the macros' compile-time gate doesn't help — `is-trace-enabled?` is true (dev), so the body runs. The body should fast-fail when `(empty? @trace-cbs)`. The emit macros perform this check before allocating the trace map.
+When a listener is *never* registered, the macros' compile-time gate doesn't help — `interop/debug-enabled?` is true (dev), so the body runs. The body should fast-fail when `(empty? @trace-cbs)`. The emit macros perform this check before allocating the trace map.
 
 ### Privacy / sensitive data in traces
 

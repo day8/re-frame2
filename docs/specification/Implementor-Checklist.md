@@ -276,7 +276,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** All tracing is dev-only. Production builds must elide every emit call site, the listener registry, the trace buffer, the Performance bridge (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
 - **Options by host.**
-  - **CLJS** — `goog-define trace-enabled?` + Closure compiler dead-code elimination.
+  - **CLJS** — `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) + Closure compiler dead-code elimination, with a CI verifier (`scripts/check-elision.cjs`) that asserts dev-only sentinel strings are absent from `:advanced` `goog.DEBUG=false` bundles. See [009 §Production-elision verification](009-Instrumentation.md#production-elision-verification).
   - **JS / TS** — Build-time constant + tree-shake (Vite/Rollup with `define`); or `process.env.NODE_ENV` checks elided by the bundler.
   - **Python** — Module-level constant + `if __debug__:` (Python's `-O` flag elides assert and `__debug__` blocks).
   - **Rust** — Cargo features (`#[cfg(feature = "trace")]`); release builds omit the trace feature.

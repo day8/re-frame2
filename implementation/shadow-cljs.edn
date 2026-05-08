@@ -26,4 +26,33 @@
    ;; can see it.
    {:closure-defines {cljs-test-display.core/printing true}}
    :devtools  {:http-port 8021
-               :http-root "out/browser-test"}}}}
+               :http-root "out/browser-test"}}
+
+  ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
+  ;;
+  ;; Compiles re-frame.elision-probe under :advanced with goog.DEBUG=false.
+  ;; The grep test (scripts/check-elision.cjs) asserts that string
+  ;; sentinels from the dev-gated branches do NOT appear in the bundle.
+  ;;
+  ;; The probe namespace exercises every gated surface (trace emit,
+  ;; schema validation, registrar trace emit). With goog.DEBUG=false the
+  ;; closure compiler constant-propagates re-frame.interop/debug-enabled?
+  ;; to false and DCEs the (when interop/debug-enabled? ...) bodies.
+  :elision-probe
+  {:target           :browser
+   :output-dir       "out/elision-probe"
+   :asset-path       "/elision-probe"
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :modules          {:probe {:init-fn re-frame.elision-probe/run}}}
+
+  ;; Control build for the elision probe — same probe namespace, same
+  ;; :advanced compilation, but with goog.DEBUG=true. Used to confirm
+  ;; the grep methodology has signal: in this build, the dev-only
+  ;; sentinels MUST be present (otherwise the test's negative assertion
+  ;; would be vacuous).
+  :elision-probe-control
+  {:target           :browser
+   :output-dir       "out/elision-probe-control"
+   :asset-path       "/elision-probe-control"
+   :compiler-options {:closure-defines {goog.DEBUG true}}
+   :modules          {:probe {:init-fn re-frame.elision-probe/run}}}}}

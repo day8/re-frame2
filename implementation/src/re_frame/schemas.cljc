@@ -115,10 +115,14 @@
   Returns true on pass (or when validation is elided / no schema is
   attached), false on fail. Failures emit
   :rf.error/schema-validation-failure with :where :event; the caller
-  is responsible for skipping the handler (recovery: :no-recovery)."
+  is responsible for skipping the handler (recovery: :no-recovery).
+
+  Per Spec 009 §Production builds the entire body lives inside a
+  `(when interop/debug-enabled? ...)` gate so :advanced+goog.DEBUG=false
+  DCE-elides every reason string, every keyword, and every malli call."
   [event-id event handler-meta]
-  (if (and interop/debug-enabled? (:spec handler-meta))
-    (let [schema (:spec handler-meta)]
+  (if interop/debug-enabled?
+    (if-let [schema (:spec handler-meta)]
       (if (malli-validate* schema event)
         true
         (do
@@ -136,7 +140,8 @@
                                                 schema ", got "
                                                 (type-of-value event) ".")
                               :recovery    :no-recovery})
-          false)))
+          false))
+      true)
     true))
 
 (defn validate-sub-return!
@@ -146,10 +151,13 @@
   Returns true on pass, false on fail. Failures emit
   :rf.error/schema-validation-failure with :where :sub-return; the
   caller is responsible for replacing the value with the
-  default (nil) per the :replaced-with-default recovery."
+  default (nil) per the :replaced-with-default recovery.
+
+  Per Spec 009 §Production builds the entire body lives inside a
+  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly."
   [sub-id query-v value sub-meta]
-  (if (and interop/debug-enabled? (:spec sub-meta))
-    (let [schema (:spec sub-meta)]
+  (if interop/debug-enabled?
+    (if-let [schema (:spec sub-meta)]
       (if (malli-validate* schema value)
         true
         (do
@@ -168,7 +176,8 @@
                                                 schema ", got "
                                                 (type-of-value value) ".")
                               :recovery    :replaced-with-default})
-          false)))
+          false))
+      true)
     true))
 
 (defn validate-cofx!
@@ -178,10 +187,13 @@
 
   Returns true on pass, false on fail. Failures emit
   :rf.error/schema-validation-failure with :where :cofx; the caller is
-  responsible for skipping the handler (recovery: :no-recovery)."
+  responsible for skipping the handler (recovery: :no-recovery).
+
+  Per Spec 009 §Production builds the entire body lives inside a
+  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly."
   [cofx-id event-id value cofx-meta]
-  (if (and interop/debug-enabled? (:spec cofx-meta))
-    (let [schema (:spec cofx-meta)]
+  (if interop/debug-enabled?
+    (if-let [schema (:spec cofx-meta)]
       (if (malli-validate* schema value)
         true
         (do
@@ -200,7 +212,8 @@
                                                 schema ", got "
                                                 (type-of-value value) ".")
                               :recovery    :no-recovery})
-          false)))
+          false))
+      true)
     true))
 
 ;; ---- late-bind hook registration ------------------------------------------
