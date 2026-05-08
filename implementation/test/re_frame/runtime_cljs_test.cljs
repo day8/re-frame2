@@ -71,42 +71,31 @@
 ;; ---- reg-view macro ---------------------------------------------------------
 
 (deftest reg-view-registers
-  (testing "reg-view registers the view under the :view kind"
-    (reg-view :greet (fn [n] [:p "hi " n]))
+  (testing "reg-view (defn-shape macro) registers the view under the :view kind"
+    ;; Per Spec 004 §reg-view (rf2-d0pi): the macro is defn-shape. It
+    ;; auto-derives the id from (keyword *ns* sym); the ^{:rf/id ...}
+    ;; metadata override pins an explicit keyword for assertion.
+    (reg-view ^{:rf/id :greet} greet [n] [:p "hi " n])
     (is (some? (rf/get-view :greet))
-        "the view is registered under the :view kind")))
+        "the view is registered under the :view kind")
+    (is (fn? greet)
+        "the macro defs the supplied symbol to a callable render fn")))
 
-(deftest reg-view-macro-double-def-investigation
-  ;; The example apps wrap reg-view in an outer (def some-name ...) like:
-  ;;   (def login-form (reg-view :auth/form metadata render-fn))
-  ;; The reg-view macro itself emits (def form (reg-view* ...)). What
-  ;; does the outer-def actually see? Does login-form end up usable as
-  ;; a hiccup head, or as a var-of-var?
-  (testing "outer (def x (reg-view :foo …)) — what does x become?"
-    (let [outer-def-result
-          (do
-            ;; Simulate the example pattern. The macro defs `widget`
-            ;; AND the def below binds my-widget to whatever the macro
-            ;; returns.
-            (def my-widget
-              (reg-view :ns/widget (fn [n] [:span "w-" n])))
-            my-widget)]
-      ;; The registered view is fine.
-      (is (some? (rf/get-view :ns/widget))
-          ":ns/widget is in the :view registry")
-      ;; The keyword-derived local exists too.
-      (is (some? widget)
-          "the macro defined the keyword-derived local symbol")
-      ;; What did my-widget land as? In CLJS, def's return value is the
-      ;; var when used at top level via a let-bound capture? Let's see.
-      (println :outer-def-result-type (type outer-def-result))
-      ;; Whatever shape, we should be able to call it as a hiccup head.
-      ;; Reagent passes the head through React's createElement as a
-      ;; component fn.
-      (is (or (fn? outer-def-result)
-              (and (var? outer-def-result)
-                   (fn? @outer-def-result)))
-          "the outer-def value is invokable as a fn (or a var that derefs to one)"))))
+(deftest reg-view-macro-defs-the-symbol
+  ;; Per Spec 004 §reg-view (rf2-d0pi), the macro is defn-shape and defs
+  ;; the supplied symbol to the registered render fn — there is no
+  ;; outer-def pattern any more (the legacy
+  ;; `(def name (reg-view :id meta render-fn))` shape is gone with the
+  ;; non-defn-shape body restriction). This test pins the new contract:
+  ;; the auto-defined Var is itself usable as a hiccup head.
+  (testing "the macro defs the symbol to a callable render fn"
+    (reg-view ^{:rf/id :ns/widget} my-widget [n] [:span "w-" n])
+    ;; The registered view is in the registry.
+    (is (some? (rf/get-view :ns/widget))
+        ":ns/widget is in the :view registry")
+    ;; The defn-shape sym is bound to a fn — usable as a hiccup head.
+    (is (fn? my-widget)
+        "the macro defined the supplied symbol as a fn")))
 
 ;; ---- h macro ----------------------------------------------------------------
 
@@ -116,7 +105,7 @@
     (is (= [:div [:p "hi"]] (h [:div [:p "hi"]]))
         "DOM tag heads pass through unchanged")
     ;; A keyword in a namespace IS treated as a view reference.
-    (reg-view :my-ns/widget (fn [n] [:span "w-" n]))
+    (reg-view ^{:rf/id :my-ns/widget} h-test-widget [n] [:span "w-" n])
     (let [tree (h [:my-ns/widget 7])]
       (is (fn? (first tree))
           "namespaced keyword head was rewritten to a fn")
@@ -258,11 +247,10 @@
   (testing "complete SSR flow runs against the Reagent adapter on CLJS"
     (rf/reg-event-db :seed (fn [_ _] {:items ["a" "b" "c"]}))
     (rf/reg-sub :items (fn [db _] (:items db)))
-    (rf/reg-view :pages/list
-      (fn []
-        [:ul
-         (for [it (rf/subscribe-value [:items])]
-           ^{:key it} [:li it])]))
+    (rf/reg-view ^{:rf/id :pages/list} pages-list []
+      [:ul
+       (for [it (rf/subscribe-value [:items])]
+         ^{:key it} [:li it])])
     (rf/dispatch-sync [:seed])
     (let [html (rf/render-to-string [:pages/list] {:emit-hash? true})]
       (is (re-find #"<ul[^>]*data-rf-render-hash=\"[0-9a-f]{8}\"" html)
