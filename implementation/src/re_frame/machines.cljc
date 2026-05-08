@@ -491,8 +491,18 @@
                                       (when aref
                                         (or (chase-ref (:on-spawn-actions machine) aref)
                                             (chase-ref (:actions machine) aref))))
+                        ;; Per Spec 005 §Declarative :invoke (sugar over spawn):
+                        ;; the :on-spawn callback signature is (fn [data id] new-data).
+                        ;; Per rf2-een2 / rf2-smba: the callback operates on :data
+                        ;; (not the snapshot wrapper), uniform with regular actions
+                        ;; whose canonical contract is (fn [data event] effects).
+                        ;; The runtime patches the returned data back into the snapshot.
                         s'          (if on-spawn-fn
-                                      (or (on-spawn-fn s spawned-id) s)
+                                      (let [data     (:data s)
+                                            new-data (on-spawn-fn data spawned-id)]
+                                        (if new-data
+                                          (assoc s :data new-data)
+                                          s))
                                       s)]
                     [s' (conj acc-fx [:spawn spawn-args])])
                   [s acc-fx]))
