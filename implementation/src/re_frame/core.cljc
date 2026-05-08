@@ -588,7 +588,7 @@
 (def handler-meta registrar/handler-meta)
 (def handler-ids  registrar/ids)
 (def registry-summary registrar/all-kinds-with-counts)
-(def frames       (fn [] (frame/frame-ids)))
+(def frame-ids    frame/frame-ids)
 (def frame-meta   frame/frame-meta)
 (def get-frame-db frame/frame-app-db-value)
 
@@ -704,6 +704,7 @@
 
 (def install-adapter!  adapter/install-adapter!)
 (def dispose-adapter!  adapter/dispose-adapter!)
+(def current-adapter   adapter/current-adapter)
 
 ;; ---- boot -----------------------------------------------------------------
 
