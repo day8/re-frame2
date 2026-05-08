@@ -795,6 +795,14 @@
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})
+            ;; Per Spec 009 §:op-type vocabulary: :route.url/fragment-changed
+            ;; is the canonical op-type for fragment-only navigation. Spec 012
+            ;; §Fragments references this name directly. Emitted alongside the
+            ;; legacy :rf.route/url-changed pending its eventual removal.
+            (trace/emit! :event :route.url/fragment-changed
+                         {:route-id      (:id prev)
+                          :prev-fragment (:fragment prev)
+                          :next-fragment fragment})
             {:db (assoc-in db [:route :fragment] fragment)})
 
         (some? m)

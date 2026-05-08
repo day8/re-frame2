@@ -457,7 +457,7 @@
         ;; Each is wrapped with `is-strict?` set to false so this test
         ;; documents the gap without blocking other assertions; flip
         ;; `is-strict?` to true once rf2-hyxg lands to enforce.
-        (let [is-strict? false
+        (let [is-strict? true
               gap-check  (fn [op-type operation]
                            (if is-strict?
                              (is (has-op? events op-type operation)

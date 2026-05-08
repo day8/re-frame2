@@ -60,7 +60,10 @@
                     {:kind kind :id id})))
   (let [previous (get-in @kind->id->metadata [kind id])]
     (swap! kind->id->metadata assoc-in [kind id] metadata)
-    (when previous
+    (cond
+      ;; Re-registration path — fire hooks and emit handler-replaced when
+      ;; the handler-fn actually changed.
+      previous
       (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
         ;; Hot-reload notifications. Hooks run isolated — listener failures
         ;; don't propagate. Hooks fire on EVERY re-registration so dependent
@@ -76,20 +79,43 @@
         (when different?
           (when-let [emit! (late-bind/get-fn :trace/emit!)]
             (emit! :registry :rf.registry/handler-replaced
-                   {:kind kind :id id :different-fn? true})))))
+                   {:kind kind :id id :different-fn? true}))))
+      ;; First-time registration — emit handler-registered per Spec 009
+      ;; §:op-type vocabulary. Hot-reload tools (10x, re-frame-pair) use
+      ;; this to track when fresh ids appear in the registry.
+      :else
+      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+        (emit! :registry :rf.registry/handler-registered
+               {:kind kind :id id})))
     {:was previous :now metadata}))
 
 (defn unregister!
   "Remove a single id under kind. Hot-reload code paths use this; user code
   rarely does."
   [kind id]
-  (swap! kind->id->metadata update kind dissoc id)
+  (let [previous (get-in @kind->id->metadata [kind id])]
+    (swap! kind->id->metadata update kind dissoc id)
+    ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
+    ;; fires on explicit removal so hot-reload tools can update their
+    ;; views. Only emit when something was actually present.
+    (when previous
+      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+        (emit! :registry :rf.registry/handler-cleared
+               {:kind kind :id id}))))
   nil)
 
 (defn clear-kind!
   "Remove every id under kind. Test fixtures use this to reset state."
   [kind]
-  (swap! kind->id->metadata dissoc kind)
+  (let [previous-ids (keys (get @kind->id->metadata kind))]
+    (swap! kind->id->metadata dissoc kind)
+    ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
+    ;; fires for each id so consumers see consistent registry transitions.
+    (when (seq previous-ids)
+      (when-let [emit! (late-bind/get-fn :trace/emit!)]
+        (doseq [id previous-ids]
+          (emit! :registry :rf.registry/handler-cleared
+                 {:kind kind :id id})))))
   nil)
 
 (defn clear-all!

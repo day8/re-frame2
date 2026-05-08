@@ -206,6 +206,13 @@
         (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
                      {:frame      id
                       :machine-id machine-id
+                      :last-state (:state snapshot)})
+        ;; Per Spec 009 §:op-type vocabulary: :rf.machine.lifecycle/destroyed
+        ;; is the documented machine-instance-teardown signal. Pair with
+        ;; :rf.machine.lifecycle/created emitted at reg-machine.
+        (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
+                     {:frame      id
+                      :machine-id machine-id
                       :last-state (:state snapshot)})))
     (swap! frames update id assoc-in [:lifecycle :destroyed?] true)
     ;; (3) sub-cache disposal: walk every entry and dispose.
@@ -218,6 +225,10 @@
     (trace/emit! :frame :frame/destroyed
                  {:frame id})
     (swap! frames dissoc id)
+    ;; Per Spec 001 §Hot-reload semantics — destroying a frame removes it
+    ;; from the registrar, surfacing :rf.registry/handler-cleared so tools
+    ;; tracking the live registry observe the slot freed.
+    (registrar/unregister! :frame id)
     nil))
 
 (defn reset-frame!
