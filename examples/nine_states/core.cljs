@@ -46,7 +46,8 @@
    would split per CP-6 conventions across schema / events / subs /
    views / machines / tests files."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+            [re-frame-2.core :as rf])
+  (:require-macros [re-frame-2.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; CONSTANTS
@@ -130,16 +131,16 @@
 (rf/reg-fx :http.canned-todos
   {:doc       "Test stub: dispatches :on-success with a list of N synthetic todos."
    :platforms #{:client :server}}
-  (fn fx-http-canned-todos [_m {:keys [n on-success]}]
+  (fn fx-http-canned-todos [{:keys [frame]} {:keys [n on-success]}]
     (when on-success
-      (rf/dispatch (conj on-success (gen-todos n))))))
+      (rf/dispatch (conj on-success (gen-todos n)) {:frame frame}))))
 
 (rf/reg-fx :http.canned-failure
   {:doc       "Test stub: dispatches :on-error with a canned error message."
    :platforms #{:client :server}}
-  (fn fx-http-canned-failure [_m {:keys [on-error]}]
+  (fn fx-http-canned-failure [{:keys [frame]} {:keys [on-error]}]
     (when on-error
-      (rf/dispatch (conj on-error {:message "Network unreachable."})))))
+      (rf/dispatch (conj on-error {:message "Network unreachable."}) {:frame frame}))))
 
 ;; ============================================================================
 ;; EVENTS — Pattern-RemoteData lifecycle  (states 1-6)
@@ -255,12 +256,13 @@
 ;; Per the locked spec:
 ;;   - Snapshot lives at [:rf/machines :todos/editor].
 ;;   - Guards / actions are machine-scoped (NOT a global registry).
-;;   - Read via (rf/sub-machine :todos/editor).
+;;   - Read via the snapshot at [:rf/machines :todos/editor].
 
 (rf/reg-event-fx :todos/editor
   {:doc "Editor lifecycle: :editing -> :archived. Archive is terminal."}
   (rf/create-machine-handler
-    {:initial :editing
+    {:id      :todos/editor
+     :initial :editing
      :data    {:archived-at nil}
 
      :guards
@@ -387,8 +389,8 @@
 
 (rf/reg-sub :ui.state/done?
   {:doc "State 9 — Done. The editor machine has reached :archived."}
-  (fn sub-done? [_ _]
-    (= :archived (:state @(rf/sub-machine :todos/editor)))))
+  (fn sub-done? [db _]
+    (= :archived (get-in db [:rf/machines :todos/editor :state]))))
 
 ;; ============================================================================
 ;; VIEWS — one per state
@@ -400,23 +402,24 @@
 ;; through the lifecycle.
 
 (def view-nothing
-  (rf/reg-view :ui.view/nothing
+  (reg-view :ui.view/nothing
     {:doc "State 1 — Nothing: blank slate with a 'Get started' CTA."}
     (fn render-nothing []
-      [:div.state.state-nothing
-       [:h2 "Welcome"]
-       [:p "You haven't loaded any todos yet."]
-       [:button {:on-click #(dispatch [:todos/load {:n 0}])} "Get started"]])))
+      (let [d (rf/dispatcher)]
+        [:div.state.state-nothing
+         [:h2 "Welcome"]
+         [:p "You haven't loaded any todos yet."]
+         [:button {:on-click #(d [:todos/load {:n 0}])} "Get started"]]))))
 
 (def view-loading
-  (rf/reg-view :ui.view/loading
+  (reg-view :ui.view/loading
     {:doc "State 2 — Loading: spinner / skeleton. NEVER blank the page on revalidation."}
     (fn render-loading []
       [:div.state.state-loading
        [:p "Loading todos…"]])))
 
 (def view-empty
-  (rf/reg-view :ui.view/empty
+  (reg-view :ui.view/empty
     {:doc "State 3 — Empty: 'No todos yet' + CTA to add one."}
     (fn render-empty []
       [:div.state.state-empty
@@ -424,28 +427,31 @@
        [:p "Add your first todo using the form below."]])))
 
 (def view-one
-  (rf/reg-view :ui.view/one
+  (reg-view :ui.view/one
     {:doc "State 4 — One: focused single-item layout."}
     (fn render-one []
-      (let [todo (first @(subscribe [:todos/data]))]
+      (let [s    (rf/subscriber)
+            todo (first @(s [:todos/data]))]
         [:div.state.state-one
          [:h2 "Your todo"]
          [:p.title (:title todo)]]))))
 
 (def view-some
-  (rf/reg-view :ui.view/some
+  (reg-view :ui.view/some
     {:doc "State 5 — Some: standard list."}
     (fn render-some []
-      (let [todos @(subscribe [:todos/data])]
+      (let [s     (rf/subscriber)
+            todos @(s [:todos/data])]
         [:div.state.state-some
          [:h2 (str (count todos) " todos")]
          [:ul (for [t todos] ^{:key (:id t)} [:li (:title t)])]]))))
 
 (def view-too-many
-  (rf/reg-view :ui.view/too-many
+  (reg-view :ui.view/too-many
     {:doc "State 6 — Too Many: search + truncation."}
     (fn render-too-many []
-      (let [todos    @(subscribe [:todos/data])
+      (let [s        (rf/subscriber)
+            todos    @(s [:todos/data])
             shown    (take too-many-threshold todos)
             overflow (- (count todos) too-many-threshold)]
         [:div.state.state-too-many
@@ -456,26 +462,28 @@
            [:p.overflow (str "…and " overflow " more.")])]))))
 
 (def view-incorrect
-  (rf/reg-view :ui.view/incorrect
+  (reg-view :ui.view/incorrect
     {:doc "State 7 — Incorrect: per-field validation error + recovery path."}
     (fn render-incorrect []
-      (let [err @(subscribe [:new-todo/field-error :title])]
+      (let [s   (rf/subscriber)
+            err @(s [:new-todo/field-error :title])]
         [:div.state.state-incorrect
          [:p.error (str "We can't add that todo: " err)]
          [:p "Please fix the title field below and submit again."]]))))
 
 (def view-correct
-  (rf/reg-view :ui.view/correct
+  (reg-view :ui.view/correct
     {:doc "State 8 — Correct: success feedback (toast / checkmark)."}
     (fn render-correct []
       [:div.state.state-correct
        [:p.success "✓ Todo added."]])))
 
 (def view-done
-  (rf/reg-view :ui.view/done
+  (reg-view :ui.view/done
     {:doc "State 9 — Done/Frozen: archived list. Read-only."}
     (fn render-done []
-      (let [todos @(subscribe [:todos/data])]
+      (let [s     (rf/subscriber)
+            todos @(s [:todos/data])]
         [:div.state.state-done
          [:h2 "Archived"]
          [:p "This list has been archived. It is read-only."]
@@ -486,62 +494,68 @@
 ;; ============================================================================
 
 (def new-todo-form
-  (rf/reg-view :ui.view/new-todo-form
+  (reg-view :ui.view/new-todo-form
     {:doc "Form for adding a todo. Drives the Forms slice (states 7 & 8)."}
     (fn render-new-todo-form []
-      (let [draft       @(subscribe [:new-todo/draft])
-            field-err   @(subscribe [:new-todo/field-error :title])
-            done?       @(subscribe [:ui.state/done?])]
+      (let [d           (rf/dispatcher)
+            s           (rf/subscriber)
+            draft       @(s [:new-todo/draft])
+            field-err   @(s [:new-todo/field-error :title])
+            done?       @(s [:ui.state/done?])]
         [:form.new-todo
          {:on-submit (fn [e]
                        (.preventDefault e)
-                       (dispatch [:new-todo/submit]))}
+                       (d [:new-todo/submit]))}
          [:input {:type        "text"
                   :placeholder "What needs doing?"
                   :value       (:title draft)
                   :disabled    done?
-                  :on-change   #(dispatch [:new-todo/edit-field :title
-                                           (.. % -target -value)])}]
+                  :on-change   #(d [:new-todo/edit-field :title
+                                    (.. % -target -value)])}]
          [:button {:type "submit" :disabled done?} "Add"]
          (when field-err [:p.error field-err])]))))
 
 (def control-panel
-  (rf/reg-view :ui.view/control-panel
+  (reg-view :ui.view/control-panel
     {:doc "Buttons to drive the app into each of the nine states."}
     (fn render-control-panel []
-      (let [done? @(subscribe [:ui.state/done?])]
+      (let [d     (rf/dispatcher)
+            s     (rf/subscriber)
+            done? @(s [:ui.state/done?])]
         [:div.control-panel
          [:h3 "Drive the demo"]
-         [:button {:on-click #(dispatch [:app/initialise])
+         [:button {:on-click #(d [:app/initialise])
                    :disabled done?} "1. Nothing"]
-         [:button {:on-click #(dispatch [:todos/load-with-failure])
+         [:button {:on-click #(d [:todos/load-with-failure])
                    :disabled done?} "Trigger error"]
-         [:button {:on-click #(dispatch [:todos/load {:n 0}])
+         [:button {:on-click #(d [:todos/load {:n 0}])
                    :disabled done?} "3. Empty"]
-         [:button {:on-click #(dispatch [:todos/load {:n 1}])
+         [:button {:on-click #(d [:todos/load {:n 1}])
                    :disabled done?} "4. One"]
-         [:button {:on-click #(dispatch [:todos/load {:n 4}])
+         [:button {:on-click #(d [:todos/load {:n 4}])
                    :disabled done?} "5. Some"]
-         [:button {:on-click #(dispatch [:todos/load {:n 25}])
+         [:button {:on-click #(d [:todos/load {:n 25}])
                    :disabled done?} "6. Too Many"]
-         [:button {:on-click #(dispatch [:todos/editor [:todos.editor/archive {}]])
+         [:button {:on-click #(d [:todos/editor [:todos.editor/archive {}]])
                    :disabled done?} "9. Archive (Done)"]]))))
 
 (def root-view
-  (rf/reg-view :ui.view/root
+  (reg-view :ui.view/root
     {:doc "Root view: pick exactly one of the nine state views, plus form
            and control panel."}
     (fn render-root []
-      (let [done?      @(subscribe [:ui.state/done?])
-            correct?   @(subscribe [:ui.state/correct?])
-            incorrect? @(subscribe [:ui.state/incorrect?])
-            nothing?   @(subscribe [:ui.state/nothing?])
-            loading?   @(subscribe [:ui.state/loading?])
-            empty?     @(subscribe [:ui.state/empty?])
-            one?       @(subscribe [:ui.state/one?])
-            some?*     @(subscribe [:ui.state/some?])
-            too-many?  @(subscribe [:ui.state/too-many?])
-            error      @(subscribe [:todos/error])]
+      (let [d          (rf/dispatcher)
+            s          (rf/subscriber)
+            done?      @(s [:ui.state/done?])
+            correct?   @(s [:ui.state/correct?])
+            incorrect? @(s [:ui.state/incorrect?])
+            nothing?   @(s [:ui.state/nothing?])
+            loading?   @(s [:ui.state/loading?])
+            empty?     @(s [:ui.state/empty?])
+            one?       @(s [:ui.state/one?])
+            some?*     @(s [:ui.state/some?])
+            too-many?  @(s [:ui.state/too-many?])
+            error      @(s [:todos/error])]
         [:div.app
          [:h1 "Nine States of UI — todos"]
          [control-panel]
@@ -554,7 +568,7 @@
            loading?   [view-loading]
            error      [:div.state.state-error
                        [:p.error (str "Couldn't load: " (:message error))]
-                       [:button {:on-click #(dispatch [:todos/load {:n 4}])}
+                       [:button {:on-click #(d [:todos/load {:n 4}])}
                         "Retry"]]
            empty?     [view-empty]
            one?       [view-one]
@@ -577,16 +591,16 @@
 (defn- in-state?
   "Read a state-discriminator sub against the frame's app-db."
   [frame state-sub]
-  (rf/compute-sub [state-sub] @(rf/get-frame-db frame)))
+  (rf/compute-sub [state-sub] (rf/get-frame-db frame)))
 
 (defn test-state-1-nothing []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (assert (in-state? f :ui.state/nothing?))
     (assert (not (in-state? f :ui.state/loading?)))
     (assert (not (in-state? f :ui.state/empty?)))))
 
 (defn test-state-2-loading []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     ;; Set status directly to :loading (the actual stub resolves synchronously,
     ;; so we assert against an explicit pre-loaded shape).
     (rf/dispatch-sync [:todos/loaded []] {:frame f}) ;; loaded with no data
@@ -596,10 +610,10 @@
     ;; the `loading?` predicate is false at the *end* of the drain — which is
     ;; the correct semantic. We instead assert that the lifecycle visited
     ;; :loading by checking :attempt was bumped.
-    (assert (pos? (:attempt (rf/compute-sub [:todos] @(rf/get-frame-db f)))))))
+    (assert (pos? (:attempt (rf/compute-sub [:todos] (rf/get-frame-db f)))))))
 
 (defn test-state-3-empty []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 0}] {:frame f})
     (assert       (in-state? f :ui.state/empty?))
     (assert (not (in-state? f :ui.state/one?)))
@@ -607,27 +621,27 @@
     (assert (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-4-one []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 1}] {:frame f})
     (assert       (in-state? f :ui.state/one?))
     (assert (not (in-state? f :ui.state/empty?)))
     (assert (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-5-some []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (assert       (in-state? f :ui.state/some?))
     (assert (not (in-state? f :ui.state/one?)))
     (assert (not (in-state? f :ui.state/too-many?)))))
 
 (defn test-state-6-too-many []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 25}] {:frame f})
     (assert       (in-state? f :ui.state/too-many?))
     (assert (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-7-incorrect []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     ;; Type a too-short title, then submit — should land in :error / :incorrect?
     (rf/dispatch-sync [:new-todo/edit-field :title "ab"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                {:frame f})
@@ -635,7 +649,7 @@
     (assert (not (in-state? f :ui.state/correct?)))))
 
 (defn test-state-8-correct []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 0}]                  {:frame f})
     (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                    {:frame f})
@@ -644,11 +658,11 @@
     (assert       (in-state? f :ui.state/one?))))    ;; correctness side-effect
 
 (defn test-state-9-done []
-  (rf/with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (rf/dispatch-sync [:todos/editor [:todos.editor/archive {:now 1}]] {:frame f})
     ;; Snapshot lives at [:rf/machines :todos/editor].
-    (let [snap (get-in @(rf/get-frame-db f) [:rf/machines :todos/editor])]
+    (let [snap (get-in (rf/get-frame-db f) [:rf/machines :todos/editor])]
       (assert (= :archived (:state snap)))
       (assert (= 1         (:archived-at (:data snap)))))
     (assert (in-state? f :ui.state/done?))))
@@ -668,10 +682,17 @@
 ;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
+;;
+;; The DOM mount is gated on (exists? js/document) so the namespace can
+;; load in non-DOM CLJS hosts (shadow-cljs :node-test, headless test
+;; harnesses, JVM). The pure run-all-tests fn at line 670 runs in any
+;; CLJS host without touching React.
 
 (defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+  (when (exists? js/document)
+    (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
   (rf/dispatch-sync [:app/initialise])
-  (rdc/render root [root-view]))
+  (when root
+    (rdc/render root [root-view])))
