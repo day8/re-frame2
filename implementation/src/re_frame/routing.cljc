@@ -551,30 +551,23 @@
 ;;
 ;; Per Spec 012 §Scroll restoration: the runtime captures scroll positions
 ;; per URL on every navigation so a later :restore strategy can re-apply
-;; them. The capture itself only makes sense on the client (DOM); on the
-;; JVM the map stays empty. We expose a small helper API so the CLJS fx
-;; implementation can populate it on every navigation, and so tests can
-;; seed values without poking the atom directly.
-
-(defonce ^:private saved-scroll-positions
-  ;; URL (string) → [x y]
-  (atom {}))
-
-(defn save-scroll-position!
-  "Record the current scroll position for a URL. Called by the CLJS host
-  on outgoing navigations so a future :restore can recover [x y]."
-  [url xy]
-  (swap! saved-scroll-positions assoc url xy))
+;; them. Per Spec 012 §Multi-frame routing the saved-position map is
+;; per-frame (each frame's :route slice is independent and the URL it
+;; remembers is its own). The map lives in app-db at
+;; [:rf.route/scroll-positions]; helpers below work against a db value.
 
 (defn lookup-scroll-position
-  "Return the saved [x y] for url, or nil if none."
-  [url]
-  (get @saved-scroll-positions url))
+  "Return the saved [x y] for url in this frame's app-db, or nil if none."
+  [db url]
+  (get-in db [:rf.route/scroll-positions url]))
 
-(defn clear-scroll-positions!
-  "Test-time helper: reset the saved-position map."
-  []
-  (reset! saved-scroll-positions {}))
+(defn save-scroll-position
+  "Pure: return db with the scroll position for url recorded under
+  [:rf.route/scroll-positions url]. Used inside :db effect maps so
+  scroll positions live under the frame boundary (Spec 012 §Multi-frame
+  routing)."
+  [db url xy]
+  (assoc-in db [:rf.route/scroll-positions url] xy))
 
 (defn- route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
@@ -647,12 +640,14 @@
                         (seq path-params)  (assoc :params path-params)
                         (seq query-params) (assoc :query  query-params))
           strategy    (resolve-scroll-strategy route-meta opts :top)
+          ;; Per Spec 012 §Multi-frame routing: scroll-position lookup
+          ;; reads the per-frame map under [:rf.route/scroll-positions].
           scroll-fx   (scroll-fx-entry
                         {:strategy  strategy
                          :from      (route-descriptor (:route db))
                          :to        to-route
                          :saved-pos (when (= :restore strategy)
-                                      (lookup-scroll-position url))
+                                      (lookup-scroll-position db url))
                          :fragment  fragment})]
       {:db (assoc db :route
                   {:id         route-id
@@ -674,25 +669,38 @@
       [url nil]
       [(subs url 0 hash-idx) (subs url (inc hash-idx))])))
 
-(defonce ^:private nav-token-counter (atom 0))
-(defonce ^:private pending-nav-counter (atom 0))
+;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
+;; counters live under the frame boundary — each frame has its own
+;; epoch space at [:rf.route/nav-token-counter] and
+;; [:rf.route/pending-nav-counter]. Allocators are pure: they take a
+;; db value, return [db' allocated-id-string]. Callers thread the new
+;; db through the :db effect map alongside their other writes.
 
-(defn- alloc-nav-token []
-  (str "nav-" (swap! nav-token-counter inc)))
+(defn- alloc-nav-token
+  "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
+  counter at [:rf.route/nav-token-counter]."
+  [db]
+  (let [n (inc (or (:rf.route/nav-token-counter db) 0))]
+    [(assoc db :rf.route/nav-token-counter n)
+     (str "nav-" n)]))
 
-(defn- alloc-pending-nav-id []
-  (str "pn-" (swap! pending-nav-counter inc)))
+(defn- alloc-pending-nav-id
+  "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
+  counter at [:rf.route/pending-nav-counter]."
+  [db]
+  (let [n (inc (or (:rf.route/pending-nav-counter db) 0))]
+    [(assoc db :rf.route/pending-nav-counter n)
+     (str "pn-" n)]))
 
 (defn reset-counters!
-  "Reset the nav-token / pending-nav / route-registration counters to
-  zero. Test-time helper so allocated ids are stable across fixture
-  runs. Also clears the saved-scroll-positions map per Spec 012
-  §Scroll restoration."
+  "Reset the route-registration counter to zero. Test-time helper so
+  reg-index is deterministic across fixture runs. Per Spec 012
+  §Multi-frame routing the nav-token and pending-nav id counters and
+  the saved-scroll-positions map all live in app-db, so they reset
+  naturally when a frame's app-db is reset; nothing to clear here for
+  those."
   []
-  (reset! nav-token-counter 0)
-  (reset! pending-nav-counter 0)
-  (reset! reg-counter 0)
-  (reset! saved-scroll-positions {}))
+  (reset! reg-counter 0))
 
 ;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
 ;;
@@ -720,11 +728,11 @@
           ok?            (can-leave? (or frame :rf/default) current-meta)]
       (cond
         (not ok?)
-        (let [pn-id (alloc-pending-nav-id)]
+        (let [[db' pn-id] (alloc-pending-nav-id db)]
           (trace/emit! :event :rf.route/navigation-blocked
                        {:requested-url   url
                         :rejecting-route (:id current-route)})
-          {:db (assoc db :rf/pending-navigation
+          {:db (assoc db' :rf/pending-navigation
                       {:id pn-id :request request})})
 
         :else
@@ -807,28 +815,31 @@
             {:db (assoc-in db [:route :fragment] fragment)})
 
         (some? m)
-        (let [route-meta   (registrar/lookup :route (:route-id m))
-              on-match-vec (vec (or (:on-match route-meta) []))
-              token        (alloc-nav-token)
+        (let [route-meta    (registrar/lookup :route (:route-id m))
+              on-match-vec  (vec (or (:on-match route-meta) []))
+              ;; Per Spec 012 §Multi-frame routing: nav-token allocation
+              ;; bumps the per-frame counter — the [db' token] tuple is
+              ;; threaded through the :db write below.
+              [db' token]   (alloc-nav-token db)
               ;; Per Spec 012 §Scroll restoration: a URL-driven navigation
               ;; emits :rf.nav/scroll. URL changes from clicked links /
               ;; programmatic pushes are forward-style (default :top); the
               ;; route metadata's :scroll wins when declared.
-              to-route     (cond-> {:id (:route-id m)}
-                             (seq (:params m)) (assoc :params (:params m))
-                             (seq (:query m))  (assoc :query  (:query m)))
-              strategy     (resolve-scroll-strategy route-meta nil :top)
-              scroll-fx    (scroll-fx-entry
-                             {:strategy  strategy
-                              :from      (route-descriptor prev)
-                              :to        to-route
-                              :saved-pos (when (= :restore strategy)
-                                           (lookup-scroll-position url))
-                              :fragment  fragment})]
+              to-route      (cond-> {:id (:route-id m)}
+                              (seq (:params m)) (assoc :params (:params m))
+                              (seq (:query m))  (assoc :query  (:query m)))
+              strategy      (resolve-scroll-strategy route-meta nil :top)
+              scroll-fx     (scroll-fx-entry
+                              {:strategy  strategy
+                               :from      (route-descriptor prev)
+                               :to        to-route
+                               :saved-pos (when (= :restore strategy)
+                                            (lookup-scroll-position db url))
+                               :fragment  fragment})]
           (trace/emit! :event :route.nav-token/allocated
                        {:route-id  (:route-id m)
                         :nav-token token})
-          {:db (assoc db :route
+          {:db (assoc db' :route
                       {:id         (:route-id m)
                        :params     (:params m)
                        :query      (:query m)
@@ -874,7 +885,7 @@
                             :from      (route-descriptor (:route db))
                             :to        to-route
                             :saved-pos (when (= :restore strategy)
-                                         (lookup-scroll-position url))
+                                         (lookup-scroll-position db url))
                             :fragment  fragment})]
         {:db (assoc db :route
                     {:id         route-id
