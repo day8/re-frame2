@@ -147,6 +147,20 @@
 
 ;; ---- emission -------------------------------------------------------------
 
+(defn- deliver-to-epoch-capture!
+  "Forward the assembled trace event to the epoch-capture buffer if
+  re-frame.epoch has registered its capture hook. The capture hook
+  is published through `re-frame.late-bind` (key `:epoch/capture-event`);
+  routing through there keeps this namespace free of a require on
+  re-frame.epoch and ensures `clear-trace-cbs!` (a user-facing API) does
+  NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
+  Spec 009 §`register-epoch-cb`."
+  [event]
+  (when-let [capture (late-bind/get-fn :epoch/capture-event)]
+    (try
+      (capture event)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn emit!
   "Emit a trace event. In production builds (when interop/debug-enabled?
   is false at compile time), Closure DCE removes the body and the call
@@ -174,6 +188,7 @@
                      source   (assoc :source source)
                      recovery (assoc :recovery recovery))]
       (push-to-buffer! event)
+      (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]
         (try
           (f event)
@@ -196,6 +211,7 @@
                  :tags      (merge {:category error-operation} tags)
                  :recovery  (:recovery tags :no-recovery)}]
       (push-to-buffer! event)
+      (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]
         (try
           (f event)
