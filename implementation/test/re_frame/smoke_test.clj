@@ -501,15 +501,19 @@
       (is (some #(= 're-frame.frame/*current-frame* %)
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
-    ;; reg-view defs a local var named after the keyword's name. Use
-    ;; macroexpand (not -1) because the 2-arity form delegates to the
-    ;; 3-arity form via a self-call.
+    ;; reg-view (defn-shape per Spec 004 §reg-view) defs the symbol and
+    ;; registers under (keyword (str *ns*) (str sym)). The expansion is
+    ;; (do (binding [...] (reg-view* ...)) (def sym (get-view ...))).
     (let [exp (macroexpand `(re-frame.views-macros/reg-view
-                              :my-widget (fn [] :body)))]
-      (is (= 'def (first exp))
-          "reg-view expansion starts with def")
-      (is (= 'my-widget (second exp))
-          "reg-view defs the var with the keyword's name"))
+                              ~'my-widget [] :body))]
+      (is (= 'do (first exp))
+          "reg-view expansion starts with do (binding + def)")
+      (let [forms (rest exp)
+            def-form (last forms)]
+        (is (= 'def (first def-form))
+            "the trailing form in the expansion is a def")
+        (is (= 'my-widget (second def-form))
+            "the def binds the symbol the user supplied")))
     ;; h leaves DOM tags alone but rewrites namespaced view refs.
     (let [exp (macroexpand-1 `(re-frame.views-macros/h [:my-ns/w {:k 1}]))]
       (is (some #(= 're-frame.core/get-view %)
@@ -854,7 +858,10 @@
       (fn [_ _] {:articles [{:id "a" :title "Article A" :body "Body A"}
                             {:id "b" :title "Article B" :body "Body B"}]}))
     (rf/reg-sub :articles (fn [db _] (:articles db)))
-    (rf/reg-view :pages/articles
+    ;; Test exercises the keyword-id [:pages/articles] hiccup head — not
+    ;; the macro shape — so it uses the plain-fn surface reg-view* with
+    ;; an explicit id rather than the defn-shape macro.
+    (rf/reg-view* :pages/articles
       (fn []
         (let [arts (rf/subscribe-value [:articles])]
           [:div.page
@@ -881,7 +888,8 @@
 
 (deftest reg-view-jvm
   (testing "reg-view registers a view that render-to-string resolves"
-    (rf/reg-view :greet
+    ;; Plain-fn surface (reg-view*): explicit id, no auto-def.
+    (rf/reg-view* :greet
       (fn [name] [:p "hello " [:strong name]]))
     (is (= "<p>hello <strong>world</strong></p>"
            (rf/render-to-string [:greet "world"]))

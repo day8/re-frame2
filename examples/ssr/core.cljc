@@ -105,26 +105,23 @@
 
 (rf/reg-sub :articles (fn [db _] (:articles db)))
 
-;; rf/reg-view returns the view-id keyword. CLJS apps using the
-;; views-macros version of reg-view get an auto-defed Var as well; here
-;; we just bind the keyword.
-(def articles-page
-  (rf/reg-view :pages/articles
-    (fn render-articles []
-      (let [arts (rf/subscribe-value [:articles])]
-        [:div.page
-         [:h1 "Recent articles"]
-         (if (seq arts)
-           (into [:ul]
-                 (for [{:keys [id title body]} arts]
-                   ^{:key id}
-                   [:li [:h3 title] [:p body]]))
-           [:p "No articles."])]))))
+;; reg-view (defn-shape per Spec 004 §reg-view) auto-defs the symbol and
+;; registers under (keyword *ns* sym) — overridden here via
+;; ^{:rf/id ...} so the legacy :pages/articles / :app/root ids stay
+;; intact for the get-view callers below.
+(rf/reg-view ^{:rf/id :pages/articles} articles-page []
+  (let [arts (rf/subscribe-value [:articles])]
+    [:div.page
+     [:h1 "Recent articles"]
+     (if (seq arts)
+       (into [:ul]
+             (for [{:keys [id title body]} arts]
+               ^{:key id}
+               [:li [:h3 title] [:p body]]))
+       [:p "No articles."])]))
 
-(def root-view
-  (rf/reg-view :app/root
-    (fn render-root []
-      [(rf/get-view :pages/articles)])))
+(rf/reg-view ^{:rf/id :app/root} root-view []
+  [(rf/get-view :pages/articles)])
 
 ;; ============================================================================
 ;; SERVER ENTRY POINT

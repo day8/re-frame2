@@ -113,7 +113,10 @@
         (assoc db :articles articles)))
 
     (rf/reg-sub :articles (fn [db _] (:articles db)))
-    (rf/reg-view :pages/articles
+    ;; Plain-fn surface (reg-view*): the SSR test references the view by
+    ;; the literal :pages/articles keyword in render-to-string, so we
+    ;; preserve the explicit id rather than auto-derive.
+    (rf/reg-view* :pages/articles
       (fn []
         (let [arts (rf/subscribe-value [:articles])]
           [:div.page

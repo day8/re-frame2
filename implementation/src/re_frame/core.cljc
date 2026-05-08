@@ -24,7 +24,18 @@
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
             [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            ;; CLJS only: re-frame.views holds the Reagent-aware reg-view*
+            ;; (with React-context wiring). On JVM the registrar registration
+            ;; is sufficient.
+            #?(:cljs [re-frame.views :as views]))
+  ;; The reg-view macro is defined in the #?(:clj ...) block below. Make
+  ;; it visible to CLJS callers under the `re-frame.core` alias by
+  ;; self-referring `:require-macros`. Per Spec 004 §reg-view, the macro
+  ;; lives in re-frame.core; CLJS users can write `rf/reg-view` after
+  ;; `(:require [re-frame.core :as rf])` without an explicit
+  ;; `:require-macros` clause at the call site.
+  #?(:cljs (:require-macros [re-frame.core :refer [reg-view]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -160,39 +171,71 @@
      (def reg-cofx        cofx/reg-cofx)
      (def reg-frame       frame/reg-frame)))
 
-(defn -reg-view
-  "Internal helper — the fn-form delegate for the public `reg-view` macro
-  (and CLJS alias). Registers the view in the :view registry, merging
-  any pending source coords into the slot metadata."
+(defn reg-view*
+  "Plain-fn surface for view registration. Per Spec 004 §reg-view*.
+
+  Takes an id keyword and a render fn of any shape. No auto-def, no
+  auto-inject of `dispatch`/`subscribe`, no compile-time check on the
+  shape of `render-fn`. Use this when the registration is computed at
+  runtime: dynamic ids, library generation, registration without a
+  Var, or when the body doesn't fit the literal-fn contract enforced
+  by the `reg-view` macro (Reagent Form-3 / `create-class`).
+
+  On CLJS this delegates to `re-frame.views/reg-view*` so the
+  registered fn is wrapped with the React-context hook used to
+  resolve the surrounding frame at render time.
+
+  An optional metadata map may be supplied; merged with any pending
+  source-coords captured by the `reg-view` macro at the call site
+  (per Spec 001 §Source-coordinate capture)."
   ([id render-fn]
-   (-reg-view id {} render-fn))
+   (reg-view* id {} render-fn))
   ([id metadata render-fn]
-   (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
-                                        :handler-fn render-fn))
+   #?(:cljs
+      ;; Hand off to the Reagent-aware impl which wraps with
+      ;; :context-type metadata for frame resolution. The merge of
+      ;; pending source-coords happens here so re-frame.views/reg-view*
+      ;; receives a single, complete metadata map.
+      (views/reg-view* id (source-coords/merge-coords metadata) render-fn)
+      :clj
+      (registrar/register! :view id (assoc (source-coords/merge-coords metadata)
+                                           :handler-fn render-fn)))
    id))
 
 #?(:clj
    (defmacro reg-view
-     "Register a view by id. The render-fn is `(fn [args...] hiccup-tree)`.
+     "Register a view as a defn-shape macro. Per Spec 004 §reg-view.
 
-     This is the JVM-runnable / SSR-friendly form. CLJS apps using Reagent
-     should prefer `re-frame.views-macros/reg-view` (also defs the local
-     var) for client-side use.
+     Shape:
+
+       (reg-view sym [args] body+)
+       (reg-view sym docstring [args] body+)
+       (reg-view ^{:rf/id :explicit/id} sym [args] body+)
+
+     Behavior:
+     - Auto-derives the id from `(keyword (str *ns*) (str sym))`.
+       Override via `^{:rf/id :explicit/id}` metadata on the symbol.
+     - Auto-injects lexical bindings `dispatch` and `subscribe`,
+       bound at render-time to `(rf/dispatcher)` / `(rf/subscriber)` of
+       the surrounding frame.
+     - Defs the symbol to the wrapped render fn AND registers under
+       the id in the :view registry.
+
+     Compile-time error if the second arg (after optional docstring)
+     is not a vector — the args vector of a defn-shape. For runtime
+     registration with computed ids or non-defn-shape bodies (e.g.
+     Form-3 / `create-class`), use `reg-view*` instead.
 
      Per Spec 001 §Source-coordinate capture the metadata stamped onto
-     the registry slot includes :ns / :line / :file captured at this
-     call site."
-     [& args]
-     (let [m (meta &form)]
-       `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns (ns-name *ns*)}
-                    *file*       (assoc :file *file*)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
-          (-reg-view ~@args)))))
-
-#?(:cljs
-   (def reg-view -reg-view))
+     the registry slot includes :ns / :line / :file captured here."
+     {:arglists '([sym args body+] [sym docstring args body+])}
+     [sym & more]
+     ;; Delegates to the shared expander in re-frame.views-macros so
+     ;; both this surface and the legacy
+     ;; `:require-macros [re-frame.views-macros :refer [reg-view]]`
+     ;; emit identical expansions.
+     ((requiring-resolve 're-frame.views-macros/expand-reg-view)
+      (meta &form) (ns-name *ns*) sym more)))
 
 (defn get-view
   "Return the render fn for a registered view by id, or nil if not
