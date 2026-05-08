@@ -122,4 +122,36 @@
   {:target     :browser
    :output-dir "out/examples/managed-http-counter"
    :asset-path "."
-   :modules    {:main {:init-fn managed-http-counter.core/run}}}}}
+   :modules    {:main {:init-fn managed-http-counter.core/run}}}
+
+  ;; Phase 3 — rf2-w3vn.
+
+  :examples/crud
+  {:target     :browser
+   :output-dir "out/examples/crud"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.crud/run}}}
+
+  :examples/circle-drawer
+  {:target     :browser
+   :output-dir "out/examples/circle-drawer"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.circle-drawer/run}}}
+
+  :examples/cells
+  {:target     :browser
+   :output-dir "out/examples/cells"
+   :asset-path "."
+   :modules    {:main {:init-fn seven-guis.cells/run}}}
+
+  :examples/login
+  {:target     :browser
+   :output-dir "out/examples/login"
+   :asset-path "."
+   :modules    {:main {:init-fn login.core/run}}}
+
+  :examples/realworld
+  {:target     :browser
+   :output-dir "out/examples/realworld"
+   :asset-path "."
+   :modules    {:main {:init-fn realworld.core/run}}}}}

@@ -95,6 +95,32 @@ const EXAMPLES = [
       },
     ],
   },
+  // Phase 3 — rf2-w3vn.
+  {
+    build: 'examples/crud',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'crud.html'),
+    outDir: path.join(OUT_ROOT, 'crud'),
+  },
+  {
+    build: 'examples/circle-drawer',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'circle_drawer.html'),
+    outDir: path.join(OUT_ROOT, 'circle-drawer'),
+  },
+  {
+    build: 'examples/cells',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'cells.html'),
+    outDir: path.join(OUT_ROOT, 'cells'),
+  },
+  {
+    build: 'examples/login',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'login', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'login'),
+  },
+  {
+    build: 'examples/realworld',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'realworld', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'realworld'),
+  },
 ];
 
 function compileAll() {
