@@ -16,9 +16,15 @@
             [re-frame-2.trace :as trace]))
 
 ;; ---- registry -------------------------------------------------------------
+;;
+;; Per Spec 013, flows are frame-scoped — same flow-id can register
+;; against two frames with different :inputs / :output / :path, and
+;; undo / time-travel semantics belong to a specific frame's history.
+;; The registry shape is {frame-id {flow-id flow-map}}.
 
 (defonce
-  ^{:doc "id → flow-map. Each flow-map: {:id :inputs :output :path :doc?}."}
+  ^{:doc "frame-id → flow-id → flow-map. Per-frame so undo / time-travel
+          / clear semantics are unambiguous."}
   flows
   (atom {}))
 
@@ -103,47 +109,73 @@
                     {:flow flow :reason ":path must be a vector"}))))
 
 (defn reg-flow
-  "Register a flow.
-   Required keys: :id :inputs :output :path
-   Optional: :doc :spec"
-  [flow]
-  (validate-flow flow)
-  (registrar/register! :flow (:id flow) flow)
-  (swap! flows assoc (:id flow) flow)
-  ;; Cycle detection: try a topo-sort; if it throws, abort the registration.
-  (try
-    (topo-sort @flows)
-    (catch #?(:clj Throwable :cljs :default) e
-      (swap! flows dissoc (:id flow))
-      (registrar/unregister! :flow (:id flow))
-      (throw e)))
-  (invalidate-topo!)
-  (:id flow))
+  "Register a flow against a frame. Per Spec 013 — flows are frame-
+  scoped: their lifecycle, evaluation, undo / time-travel semantics
+  all belong to one frame.
+
+  Required keys on the flow map: :id :inputs :output :path.
+  Optional: :doc :spec.
+
+  The frame to register against comes from the optional :frame opt;
+  default is (frame/current-frame) — usually :rf/default unless
+  called inside a (with-frame ...) wrapper or under a frame-provider."
+  ([flow] (reg-flow flow {}))
+  ([flow {:keys [frame] :as _opts}]
+   (validate-flow flow)
+   (let [frame-id (or frame (frame/current-frame))
+         flow-id  (:id flow)]
+     ;; The :flow registrar slot keys on flow-id only — but stamp :frame
+     ;; into the metadata so introspection / hot-reload hooks can read
+     ;; the owning frame.
+     (registrar/register! :flow flow-id (assoc flow :frame frame-id))
+     (swap! flows assoc-in [frame-id flow-id] flow)
+     ;; Cycle detection on this frame's flows only.
+     (try
+       (topo-sort (get @flows frame-id))
+       (catch #?(:clj Throwable :cljs :default) e
+         (swap! flows update frame-id dissoc flow-id)
+         (registrar/unregister! :flow flow-id)
+         (throw e)))
+     (invalidate-topo!)
+     flow-id)))
 
 (defn clear-flow
-  "Deregister a flow and dissoc its output path from every frame's app-db."
-  [id]
-  (when-let [flow (get @flows id)]
-    (let [path (:path flow)]
-      ;; Dissoc the output from every live frame.
-      (doseq [f-id (frame/frame-ids)]
-        (let [container (frame/get-frame-db f-id)
-              cur       (adapter/read-container container)
-              new-db    (if (and (vector? path) (seq path))
+  "Deregister a flow from a frame; dissoc its output path from that
+  frame's app-db (only that frame). Frame defaults to (current-frame)."
+  ([id] (clear-flow id {}))
+  ([id {:keys [frame] :as _opts}]
+   (let [frame-id (or frame (frame/current-frame))]
+     (when-let [flow (get-in @flows [frame-id id])]
+       (let [path (:path flow)]
+         (when-let [container (frame/get-frame-db frame-id)]
+           (let [cur    (adapter/read-container container)
+                 new-db (if (and (vector? path) (seq path))
                           (update-in cur (vec (butlast path)) dissoc (last path))
                           (dissoc cur path))]
-          (adapter/replace-container! container new-db)))
-      (swap! flows dissoc id)
-      (swap! last-inputs (fn [m]
-                           (into {} (remove (fn [[[_ flow-id] _]] (= flow-id id))) m)))
-      (registrar/unregister! :flow id)
-      (invalidate-topo!)))
-  nil)
+             (adapter/replace-container! container new-db)))
+         (swap! flows update frame-id dissoc id)
+         (swap! last-inputs dissoc [frame-id id])
+         ;; Only unregister from the registrar if this was the LAST
+         ;; frame holding the flow id — otherwise other frames still
+         ;; need the registry slot for hot-reload tracking.
+         (when (every? (fn [[_ frame-flows]] (not (contains? frame-flows id)))
+                       @flows)
+           (registrar/unregister! :flow id))
+         (invalidate-topo!)))
+     nil)))
 
 ;; ---- fx hooks (called from re-frame-2.fx) --------------------------------
+;;
+;; The :rf.fx/reg-flow / :rf.fx/clear-flow runtime fx receive a {:frame ...}
+;; cofx via fx.cljc. Thread the frame through.
 
-(defn reg-flow-fx! [flow] (reg-flow flow))
-(defn clear-flow-fx! [id] (clear-flow id))
+(defn reg-flow-fx!
+  ([flow]      (reg-flow flow))
+  ([flow opts] (reg-flow flow opts)))
+
+(defn clear-flow-fx!
+  ([id]      (clear-flow id))
+  ([id opts] (clear-flow id opts)))
 
 ;; ---- hot-reload invalidation ---------------------------------------------
 ;;
@@ -185,12 +217,15 @@
         [new-db true]))))
 
 (defn run-flows!
-  "Per Spec 013 §Drain integration: walk all registered flows in topological
-  order, dirty-check each one, recompute and write if inputs changed.
-  Called from the per-event drain after :db commits."
+  "Per Spec 013 §Drain integration: walk THIS FRAME'S registered flows
+  in topological order, dirty-check each one, recompute and write
+  if inputs changed. Called from the per-event drain after :db commits.
+
+  Flows are frame-scoped — only flows registered against frame-id run
+  here, leaving sibling frames' flows untouched."
   [frame-id]
   (let [container (frame/get-frame-db frame-id)
-        flow-map  @flows]
+        flow-map  (get @flows frame-id)]
     (when (seq flow-map)
       (let [ordered (topo-sort flow-map)]
         (loop [remaining ordered

@@ -99,12 +99,14 @@
         ms))
 
     :rf.fx/reg-flow
+    ;; Per Spec 013 — flows are frame-scoped. The flow registers against
+    ;; the dispatching frame.
     (when-let [reg-flow! (resolve 're-frame-2.flows/reg-flow-fx!)]
-      ((deref reg-flow!) args))
+      ((deref reg-flow!) args {:frame frame-id}))
 
     :rf.fx/clear-flow
     (when-let [clear-flow! (resolve 're-frame-2.flows/clear-flow-fx!)]
-      ((deref clear-flow!) args))
+      ((deref clear-flow!) args {:frame frame-id}))
 
     :spawn
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn): emitted by
