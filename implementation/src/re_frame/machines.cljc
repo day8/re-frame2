@@ -639,6 +639,13 @@
     (let [;; Per Spec 005 §Registration: id comes from event[0] (the
           ;; surrounding reg-event-fx id), NOT from the spec map.
           machine-id (first event)
+          ;; Per Spec 009 §:op-type vocabulary: :rf.machine/event-received
+          ;; fires at the top of the handler so consumers see the inbound
+          ;; event before any state derivation.
+          _ (trace/emit! :rf.machine/event-received :rf.machine/event-received
+                         {:machine-id machine-id
+                          :event      event
+                          :frame      (or frame :rf/default)})
           ;; Stamp the live frame onto the machine def so spawn-id
           ;; allocation (frame-scoped per Spec 002) gets the right key.
           machine    (assoc machine :rf/frame (or frame :rf/default))
@@ -680,6 +687,17 @@
                     :event       inner-event
                     :before      snapshot
                     :after       next-snapshot})
+      ;; Per Spec 009 §:op-type vocabulary: :rf.machine/snapshot-updated
+      ;; fires whenever the handler writes the new snapshot to
+      ;; [:rf/machines machine-id]. Distinct from :rf.machine/transition
+      ;; in that it documents the app-db slot mutation specifically.
+      (when (not= snapshot next-snapshot)
+        (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+                     {:machine-id machine-id
+                      :path       path
+                      :before     snapshot
+                      :after      next-snapshot
+                      :frame      (or frame :rf/default)}))
       {:db new-db
        :fx fx})))
 
@@ -692,6 +710,12 @@
   [machine-id machine]
   (let [handler-fn (create-machine-handler machine)]
     (events/reg-event-fx machine-id handler-fn)
+    ;; Per Spec 009 §:op-type vocabulary: :rf.machine.lifecycle/created
+    ;; fires when a machine instance is registered. Tools observe this
+    ;; to track the machine population over hot reloads / boot.
+    (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
+                 {:machine-id machine-id
+                  :initial    (:initial machine)})
     machine-id))
 
 ;; ---- framework-shipped sub -----------------------------------------------

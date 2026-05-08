@@ -70,6 +70,12 @@
       (assoc meta
              :handler-fn    handler-fn
              :input-signals input-signals))
+    ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription
+    ;; materialisation — emitted at registration time so tools see when
+    ;; the sub becomes available in the registry.
+    (trace/emit! :sub/create :sub/create
+                 {:sub-id        id
+                  :input-signals input-signals})
     id))
 
 (defn clear-sub
@@ -145,7 +151,17 @@
                      (when body-fn
                        (if (= @last-in-vals in-vals)
                          @last-result
-                         (let [v (try
+                         (let [;; Per Spec 009 §:op-type vocabulary: :sub/run
+                               ;; marks subscription recompute — emitted each
+                               ;; time the body actually runs against fresh
+                               ;; inputs. The memo path above does NOT count
+                               ;; as a re-run per Spec 006 §No-op via value
+                               ;; equality.
+                               _ (trace/emit! :sub/run :sub/run
+                                              {:sub-id  query-id
+                                               :query-v query-v
+                                               :frame   frame-id})
+                               v (try
                                    (let [v (if (empty? input-signals)
                                              (body-fn (first in-vals) query-v)
                                              ;; Layer-2+: deliver inputs as a coll if many,
@@ -251,6 +267,12 @@
   (let [query-id (first query-v)
         meta     (registrar/lookup :sub query-id)]
     (when meta
+      ;; Per Spec 009 §:op-type vocabulary: :sub/run marks a sub recompute.
+      ;; The pure compute-sub form fires the same op-type as the reactive
+      ;; recompute path so tools can observe both call sites uniformly.
+      (trace/emit! :sub/run :sub/run
+                   {:sub-id  query-id
+                    :query-v query-v})
       (let [body-fn (:handler-fn meta)
             inputs  (:input-signals meta)]
         (try
