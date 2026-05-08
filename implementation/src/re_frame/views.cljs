@@ -16,6 +16,8 @@
   hiccup head."
   (:require ["react"        :as React]
             [reagent.core   :as r]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]))
 
@@ -95,6 +97,76 @@
           (when (keyword? ctx) ctx)))
       :rf/default))
 
+;; ---- per-render identity (rf2-piag / rf2-t5tx) ----------------------------
+;;
+;; Render-trace entries carry a `:render-key` of shape
+;; `[<view-id> <instance-token>]`. Per rf2-t5tx Option C the tuple is the
+;; canonical identity: the view-id (registry keyword) names the kind; the
+;; instance-token disambiguates concurrently-mounted instances of the same
+;; kind. Tokens are minted at mount time from a process-wide counter and
+;; are NOT correlated across runs — they're for in-run instance discrimination
+;; only (per Spec 004 §Render-tree primitives).
+;;
+;; For renders that did not enter through reg-view / reg-view* (plain
+;; Reagent fns), `*render-key*` is unbound at trace-emission time; consumers
+;; treat that as `[:rf.view/anonymous nil]` (per the bead resolution).
+
+(defonce ^:private instance-counter (atom 0))
+
+(defn mint-instance-token!
+  "Return a fresh integer token for a freshly-mounted view instance. The
+  counter is process-wide and monotonic; values are unique within a
+  single process run but carry no cross-run correlation guarantee."
+  []
+  (swap! instance-counter inc))
+
+(def ^:dynamic *render-key*
+  "The `:render-key` for the in-flight render — a tuple
+  `[<view-id> <instance-token>]`. Bound by the wrapper emitted by
+  `reg-view*` for the duration of each render. Nil outside a registered
+  view's render (the trace recorder treats nil as
+  `[:rf.view/anonymous nil]` per Spec 004 §Render-tree primitives)."
+  nil)
+
+(defn current-render-key
+  "Return the `:render-key` for the in-flight render, or
+  `[:rf.view/anonymous nil]` when none is bound (e.g. inside a plain
+  Reagent fn that bypassed reg-view). Per Spec 004 §Render-tree
+  primitives — the anonymous fallback is the documented unbound-shape."
+  []
+  (or *render-key* [:rf.view/anonymous nil]))
+
+(defn- reagent-component-token
+  "Return the per-component-instance token, minting one on first call.
+  Stored on the Reagent component object as `.-rfInstanceToken` so the
+  same mounted instance reuses the token across re-renders. When called
+  outside a Reagent component (direct invocation in headless tests),
+  mints a fresh token per call — that mirrors the per-mount-fresh
+  semantics for tests that simulate one mount per call."
+  []
+  (if-let [cmp (r/current-component)]
+    (or (.-rfInstanceToken ^js cmp)
+        (let [tok (mint-instance-token!)]
+          (set! (.-rfInstanceToken ^js cmp) tok)
+          tok))
+    (mint-instance-token!)))
+
+(defn- emit-render-trace!
+  "Emit a `:view/render` trace event tagged with the in-flight
+  `:render-key`. The trace also carries the `:frame` tag so the
+  epoch-capture buffer (per re-frame.epoch §capture-event!) can route
+  the render into the right per-frame cascade. Goes through late-bind
+  so this ns doesn't depend on re-frame.trace (which itself routes
+  through late-bind for registrar/views ordering reasons). Production
+  builds elide via the `interop/debug-enabled?` gate the trace surface
+  itself rides."
+  [render-key]
+  (when interop/debug-enabled?
+    (when-let [emit! (late-bind/get-fn :trace/emit!)]
+      (emit! :view :view/render
+             {:render-key render-key
+              :frame      (current-frame)}))))
+
 ;; ---- reg-view -------------------------------------------------------------
 
 (defn reg-view*
@@ -112,11 +184,21 @@
   recognises `:contextType` (camelCase, the React static-field name),
   not `:context-type` (kebab). The earlier shape used the kebab key
   and was silently ignored, which is why frame-provider context
-  resolution fell back to :rf/default."
+  resolution fell back to :rf/default.
+
+  Per rf2-piag / rf2-t5tx: each render binds `*render-key*` to the
+  tuple `[id instance-token]` for the body, so the trace recorder can
+  attribute the render. The instance-token is minted at mount and
+  reused across re-renders of the same component instance (per
+  Spec 004 §Render-tree primitives)."
   [id metadata render-fn]
   (let [wrapped (with-meta
                   (fn frame-aware-view [& args]
-                    (apply render-fn args))
+                    (let [tok        (reagent-component-token)
+                          render-key [id tok]]
+                      (binding [*render-key* render-key]
+                        (emit-render-trace! render-key)
+                        (apply render-fn args))))
                   {:contextType frame-context})]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
