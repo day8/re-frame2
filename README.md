@@ -6,15 +6,15 @@
 
 ## What Is It?
 
-It is a **[re-frame](https://github.com/day8/re-frame) first** and **AI-first** pattern for building web apps (specifically SPAs), probably in ClojureScript.
+It is a pattern for building web apps (specifically SPAs), probably in ClojureScript which is: 
+  - **[re-frame](https://github.com/day8/re-frame)-first** 
+  - **AI-first**
 
 ## Status
 
-Still very much a **work in progress**. Call it pre-alpha. Call it aspirational.
+Still a **work in progress** but getting close to beta. 
 
-None of the primary claims/goals are yet verified and **there is no working implementation yet**. But the specification itself is almost complete and you can most certainly see where this is going.
-
-I'm interested in constructive feedback if you have the time.
+There is a near complete specification - which is the primary artifact. And a working reference implementation has been generated for Reagent/ClojureScript to validate the specification.
 
 ## AI First
 
