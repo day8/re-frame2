@@ -9,12 +9,25 @@
   `re-frame.interop/debug-enabled?` flag — see emit! below.
 
   Trace event shape (per Spec 009 §Core fields):
-    {:operation   :event/run               ;; required
-     :op-type     :event                   ;; one of :event :sub :fx :machine :registry ...
-     :id          <uuid-or-counter>        ;; required, unique per emit
-     :time        <millis>                 ;; required
-     :duration    <millis>                 ;; optional
-     :tags        {...}}                   ;; required, open map"
+    {:operation   :event/run               ;; required — what's being traced
+     :op-type     :event                   ;; required — discriminator
+                                           ;;   (:event :sub/run :sub/create
+                                           ;;    :fx :event/do-fx :machine
+                                           ;;    :registry :view/render
+                                           ;;    :warning :error :info ...)
+     :id          <int>                    ;; required — auto-incrementing
+                                           ;;   per-process counter, unique per emit
+     :time        <millis>                 ;; required — emit timestamp (host clock)
+     :tags        {...}                    ;; required — op-type-specific bag
+     :source      <kw>                     ;; (when present) hoisted from tags;
+                                           ;;   :ui :timer :http :machine :repl ...
+     :recovery    <kw>}                    ;; (when present) hoisted from tags;
+                                           ;;   error-event recovery disposition.
+
+  The shape is event-at-a-time, not span-shaped: there is no :start/:end/
+  :duration pair and no :child-of parent-id. Cascade correlation rides on
+  :dispatch-id / :parent-dispatch-id under :tags of :event/dispatched
+  events (per Spec 009 §Dispatch correlation)."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]))
 

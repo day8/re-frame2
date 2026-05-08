@@ -179,18 +179,16 @@ Universal trace event shape, including error events.
 ```clojure
 (def TraceEvent
   [:map
-   [:id        :any]
+   [:id        :any]                                                       ;; auto-incrementing per-process counter
    [:operation :keyword]                                                   ;; what this trace describes
-   [:op-type   :keyword]                                                    ;; discriminator (open vocabulary; see below)
-   [:start     :any]                                                       ;; timestamp; impl-specific
-   [:end       {:optional true} :any]
-   [:duration  {:optional true} number?]
+   [:op-type   :keyword]                                                   ;; discriminator (open vocabulary; see below)
+   [:time      :any]                                                       ;; emit timestamp (host clock)
    [:tags      {:optional true} [:map-of :keyword :any]]                   ;; op-type-specific payload
-   [:child-of  {:optional true} :any]
-   [:source    {:optional true} :keyword]
-   [:frame     {:optional true} :keyword]                                  ;; the frame this trace happened in
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced]]])
+   [:source    {:optional true} :keyword]                                  ;; (when present) the trigger source
+   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]])
 ```
+
+The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` / `:parent-dispatch-id` under `:tags` of `:event/dispatched` events (per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)). Per-event frame attribution rides under `[:tags :frame]`.
 
 The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md). The reserved values used by the framework (in alphabetical order):
 
@@ -205,9 +203,8 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry | 005 |
 | `:rf.machine.timer/fired` | State-machine `:after` timer fired (live; epoch matched). `:tags` carries `:fired? <bool>` indicating whether the guard passed. | 005 |
 | `:rf.machine.timer/stale-after` | State-machine `:after` timer fired with mismatched epoch (state was exited before the timer expired) and was silently ignored | 005 |
-| `:raf` | requestAnimationFrame boundary (CLJS reference) | 009 |
 | `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` | Registrar mutations | 001 / 009 |
-| `:render` | View render | 009 |
+| `:view/render` | View render (per [Spec 004 §Render-tree primitives](004-Views.md)) | 004 / 009 |
 | `:rf.epoch/snapshotted`, `:rf.epoch/restored` | Tool-Pair epoch operations | Tool-Pair |
 | `:route.nav-token/allocated` | A new navigation token was allocated for an `:rf/url-changed` / `:rf.route/navigate` cascade. `:tags {:route-id <id> :nav-token <token>}` | 012 |
 | `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result was silently suppressed. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}` | 012 |
@@ -216,8 +213,13 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.fx/override-applied` | An override redirected an fx call | 002 |
 | `:ssr` | Generic SSR-context op (server-render boundaries) | 011 |
 | `:sub/create`, `:sub/run` | Subscription lifecycle | 009 |
-| `:sync` | Synchronous dispatch boundary | 009 |
 | `:warning` | Non-error advisories (e.g., `:rf.warning/plain-fn-under-non-default-frame-once`) | 009 |
+| `:fx` | An effect substrate event (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 009 |
+| `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`) | 009 / 014 |
+| `:registry` | Registrar mutation events (handler-registered/cleared/replaced) | 001 / 009 |
+| `:machine` | Machine-substrate events (transitions, lifecycle, timers) | 005 |
+| `:rf.epoch` | Epoch-history events (snapshotted, restored) | Tool-Pair |
+| `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
 
 The error category schemas in [009 §Error contract](009-Instrumentation.md#error-contract) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
@@ -233,15 +235,11 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
    [:id        :any]
    [:operation :keyword]                        ;; one of the reserved :rf.error/* / :rf.warning/* / :rf.fx/* / :rf.ssr/* operations
    [:op-type   [:enum :error :warning]]         ;; :error for failures; :warning for advisories
-   [:start     :any]
-   [:end       {:optional true} :any]
-   [:duration  {:optional true} number?]
-   [:child-of  {:optional true} :any]
+   [:time      :any]                            ;; emit timestamp (host clock)
    [:source    {:optional true} :keyword]
-   [:frame     {:optional true} :keyword]
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced]]
+   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]
    [:tags      [:map
-                [:category    :keyword]          ;; same value as :operation, for consumer convenience
+                [:category    :keyword]         ;; same value as :operation, for consumer convenience
                 [:failing-id  {:optional true} :any]
                 [:frame       {:optional true} :keyword]
                 [:reason      {:optional true} :string]]]])    ;; remaining keys are category-specific
