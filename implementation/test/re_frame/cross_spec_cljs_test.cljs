@@ -83,12 +83,12 @@
          :states  {:idle    {:on {:go {:target :acting :action :record-role}}}
                    :acting  {}}
          :actions {:record-role
-                   (fn [snapshot _event]
+                   (fn [_data _event]
                      ;; Read a sub from inside the action — the machine
                      ;; cascade has not committed yet but the sub sees
                      ;; the *current* committed app-db.
                      (reset! observed-by-action (rf/subscribe-value [:user-role]))
-                     snapshot)}}]
+                     nil)}}]
     (rf/reg-machine :auth/check machine)
     (rf/dispatch-sync [:auth/check [:go]])
     (is (= :admin @observed-by-action)
@@ -302,9 +302,9 @@
                    :states  {:idle {:on {:go {:target :done :action :emit-fx}}}
                              :done {}}
                    :actions {:emit-fx
-                             (fn [snap _]
-                               (assoc snap :fx [[:throwy :a]
-                                                [:record :b]]))}}]
+                             (fn [_data _event]
+                               {:fx [[:throwy :a]
+                                     [:record :b]]})}}]
       (rf/reg-machine :test/m machine)
       (let [traces (collect-traces ::xspec-12)]
         (rf/dispatch-sync [:test/m [:go]])
@@ -335,10 +335,10 @@
                                                   :action :tag}}}
                               :working {:on {:go {:target :idle
                                                   :action :tag}}}}
-                    :actions {:tag (fn [snap _]
-                                     (assoc-in snap [:data :who] :v1))}}
+                    :actions {:tag (fn [data _]
+                                     {:data (assoc data :who :v1)})}}
         machine-v2 (assoc-in machine-v1 [:actions :tag]
-                             (fn [snap _] (assoc-in snap [:data :who] :v2)))]
+                             (fn [data _] {:data (assoc data :who :v2)}))]
     (rf/reg-machine :test/m machine-v1)
     (rf/dispatch-sync [:test/m [:go]])
     (is (= :v1 (get-in (rf/get-frame-db :rf/default)

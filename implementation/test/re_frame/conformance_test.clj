@@ -393,7 +393,11 @@
         actions-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
-                [id (fn [snap event]
+                ;; Per Spec 005 §Guards / §Actions canonical 2-arity:
+                ;; the user-facing fn receives (data event), not the
+                ;; snapshot. The fixture-step interpreter still threads
+                ;; a local `ctx` map for its own reduction state.
+                [id (fn [data event]
                       (let [final (reduce
                                     (fn [{:keys [data] :as ctx} step]
                                       (case (first step)
@@ -411,19 +415,20 @@
                                                   (update ctx :fx (fnil conj [])
                                                           [a (eval-value b ctx)]))
                                         ctx))
-                                    {:data (:data snap) :event event :fx []}
+                                    {:data data :event event :fx []}
                                     steps)]
                         (cond-> {}
-                          (not= (:data snap) (:data final)) (assoc :data (:data final))
+                          (not= data (:data final)) (assoc :data (:data final))
                           (seq (:fx final)) (assoc :fx (:fx final)))))]))
         guards-by-id
         (into {}
               (for [[id steps] (:machine-guard handlers-map)]
-                [id (fn [snap event]
+                ;; Per Spec 005 §Guards canonical 2-arity: (fn [data event]).
+                [id (fn [data event]
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
-                            (eval-value step {:data (:data snap) :event event})))))]))
+                            (eval-value step {:data data :event event})))))]))
         ;; Same machine-action steps, but realised as on-spawn callbacks
         ;; (snapshot-relative :set paths) for use in :invoke desugaring.
         on-spawn-by-id
