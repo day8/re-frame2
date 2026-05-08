@@ -168,7 +168,7 @@
 (deftest expand-reg-view-helper-shape
   (testing "vm/expand-reg-view returns a (do binding+def) form"
     (let [exp (vm/expand-reg-view {:line 1 :column 1}
-                                  'my.ns 'my-widget '([] [:p]))]
+                                  'my.ns "my_ns.cljc" 'my-widget '([] [:p]))]
       (is (= 'do (first exp)))
       (is (= 'def (first (last exp))))
       (is (= 'my-widget (second (last exp))))))
