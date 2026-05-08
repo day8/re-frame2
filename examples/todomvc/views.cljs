@@ -44,10 +44,10 @@
               (reset! suppress-blur false)
               (save)))})])))
 
-(defn todo-item []
+(defn todo-item [dispatch]
   ;; editing? is local component state by design — matches v1 TodoMVC; not in app-db so it isn't persisted/inspected (TodoMVC tradeoff).
   (let [editing? (reagent/atom false)]
-    (fn [{:keys [id title completed]}]
+    (fn [_dispatch {:keys [id title completed]}]
       [:li {:class (str/join " " (cond-> []
                                  completed (conj "completed")
                                  @editing? (conj "editing")))}
@@ -57,50 +57,48 @@
          {:type "checkbox"
           :checked completed
           :readOnly true
-          :on-click #(rf/dispatch [:todo/toggle-completed id])}]
+          :on-click #(dispatch [:todo/toggle-completed id])}]
         [:label {:on-double-click #(reset! editing? true)}
          title]
         [:button.destroy
-         {:on-click #(rf/dispatch [:todo/delete id])}]]
+         {:on-click #(dispatch [:todo/delete id])}]]
        (when @editing?
          [todo-input
           {:class "edit"
            :title title
-           :on-save #(rf/dispatch [:todo/save id %])
+           :on-save #(dispatch [:todo/save id %])
            :on-stop #(reset! editing? false)}])])))
 
-(defn task-entry []
+(defn task-entry [dispatch]
   [:header.header
    [:h1 "todos"]
    [todo-input
     {:id "new-todo"
      :class "new-todo"
      :placeholder "What needs to be done?"
-     :on-save #(rf/dispatch [:todo/add %])}]])
+     :on-save #(dispatch [:todo/add %])}]])
 
-(defn task-list []
-  (let [s (rf/subscriber)]
-    [:section.main {:id "main"}
-     [:input#toggle-all.toggle-all
-      {:type "checkbox"
-       :checked @(s [:all-complete?])
-       :readOnly true
-       :on-click #(rf/dispatch [:todo/toggle-all])}]
-     [:label {:for "toggle-all"} "Mark all as complete"]
-     [:ul.todo-list {:id "todo-list"}
-      (for [{:keys [id] :as todo} @(s [:visible-todos])]
-        ^{:key id}
-        [todo-item todo])]]))
+(defn task-list [dispatch subscribe]
+  [:section.main {:id "main"}
+   [:input#toggle-all.toggle-all
+    {:type "checkbox"
+     :checked @(subscribe [:all-complete?])
+     :readOnly true
+     :on-click #(dispatch [:todo/toggle-all])}]
+   [:label {:for "toggle-all"} "Mark all as complete"]
+   [:ul.todo-list {:id "todo-list"}
+    (for [{:keys [id] :as todo} @(subscribe [:visible-todos])]
+      ^{:key id}
+      [todo-item dispatch todo])]])
 
 (defn- filter-link [showing filter-kw label]
   [:a {:href (hash-for-filter filter-kw)
        :class (when (= showing filter-kw) "selected")}
    label])
 
-(defn footer-controls []
-  (let [s (rf/subscriber)
-        [active completed] @(s [:footer-counts])
-        showing @(s [:showing])]
+(defn footer-controls [dispatch subscribe]
+  (let [[active completed] @(subscribe [:footer-counts])
+        showing @(subscribe [:showing])]
     [:footer.footer {:id "footer"}
      [:span.todo-count {:id "todo-count"}
       [:strong active]
@@ -114,21 +112,22 @@
      (when (pos? completed)
        [:button.clear-completed
         {:id "clear-completed"
-         :on-click #(rf/dispatch [:todo/clear-completed])}
+         :on-click #(dispatch [:todo/clear-completed])}
         "Clear completed"])]))
 
 (def root-view
   (reg-view :todo.app/root-view
     (fn render-root-view []
-      (let [s     (rf/subscriber)
-            todos @(s [:todos])]
+      (let [dispatch  (rf/dispatcher)
+            subscribe (rf/subscriber)
+            todos     @(subscribe [:todos])]
         [:<>
          [:section.todoapp
-          [task-entry]
+          [task-entry dispatch]
           (when (seq todos)
-            [task-list])
+            [task-list dispatch subscribe])
           (when (seq todos)
-            [footer-controls])]
+            [footer-controls dispatch subscribe])]
          [:footer.info
           [:p "Double-click to edit a todo"]
           [:p
