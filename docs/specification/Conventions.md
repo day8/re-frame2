@@ -44,7 +44,7 @@ The v1 `re-frame.alpha` namespace is **not part of v2** (rf2-7cb2 / rf2-s9dn). T
 
 The per-frame sub-cache uses a single disposal algorithm — deferred ref-counting with a configurable grace-period — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
 
-Migration entries: [MIGRATION §M-22](MIGRATION.md#m-22-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
+Migration entries: [MIGRATION §M-23](MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 
 ### User-defined route ids
 
