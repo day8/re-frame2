@@ -385,6 +385,31 @@ This forces every cross-encapsulation write to be a *named, traced, reusable eve
 
 **State-keyword is not in the action's return shape either** — only the transition's `:target` decides the next state. Actions cannot bypass the FSM.
 
+## Path conventions in machine bodies
+
+Every callback the user supplies inside a machine body — guards, actions, `:on-spawn` — operates on the snapshot's **`:data`** map directly, not on the wrapping snapshot:
+
+| Slot | Signature | What it sees | What it returns |
+|---|---|---|---|
+| `:guard` | `(fn [data event] boolean)` | the `:data` map | a boolean |
+| `:action` | `(fn [data event] effects)` | the `:data` map | `{:data ... :fx ...}` (or `nil`) |
+| `:on-spawn` | `(fn [data spawned-id] new-data)` | the `:data` map | the new `:data` map |
+
+The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
+
+The same principle holds for any data DSL the conformance corpus or a tooling layer interprets on top of the surface: a `:set` step inside a body operates on `:data`, so its path is data-relative. `[:set [:pending] x]` writes `data.:pending = x`. `[:set [:data :pending] x]` would write `data.:data.:pending = x`, which is virtually never what's wanted.
+
+### 3-arity escape hatch — snapshot introspection
+
+When a callback truly needs the discrete `:state` or any user `:meta` (rare), declare the third parameter:
+
+- `:guard (fn [data event {:keys [state meta]}] ...)`
+- `:action (fn [data event {:keys [state meta]}] ...)`
+
+`:on-spawn` doesn't currently take an introspection slot — the snapshot's `:state` at spawn time is the entry-bearing leaf state by definition, so the slot would carry no information beyond the lexical position of the `:invoke`. If a future use case needs it, the same 3-arity opt-in pattern applies.
+
+The 3-arity overload is **structurally detected** — implementations distinguish a fn that declares three fixed parameters from variadics like `(constantly true)`. No metadata is required on the fn.
+
 ## Registration — the machine IS the event handler
 
 A machine is registered as **one event handler** via `reg-event-fx` whose body comes from `create-machine-handler`.
@@ -1169,6 +1194,8 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 - `:data` admits a function form `(fn [snap ev] data)` so the initial data can depend on the snapshot at the moment of entry — the snapshot is the *post-action* value (the transition's `:action` has already run, so any `:data` writes the action made are visible).
 - `:invoke-id` is an explicit alternative to `:id-prefix` + gensym — useful when a state should host exactly one actor with a known id (no need to record the id in the parent's `:data` because it's already a known constant).
+
+**Path convention.** The `:on-spawn` callback receives the snapshot's `:data` directly and returns a new `:data` map. The runtime patches the result back into the snapshot. Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), this is uniform with `:guard` and `:action`: the body operates on `:data`, never on the wrapping snapshot. A typical body is `(assoc data :pending id)` or `(update data :workers (fnil conj []) id)` — *not* `(assoc-in snap [:data :pending] id)`.
 
 ### Desugaring rules
 
