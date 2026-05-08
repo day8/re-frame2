@@ -173,6 +173,35 @@
       (is (= 'def (first (last exp))))
       (is (= 'my-widget (second (last exp))))))
 
+  ;; rf2-atsv regression guard. The bug shape was an outer
+  ;; (def x (reg-view :id ...)) wrapper that double-def'd against the
+  ;; macro's own internal def. rf2-d0pi removed the substrate by making
+  ;; reg-view defn-shape — the macro itself emits the (single) def, and
+  ;; the legacy outer-def wrapper no longer compiles. Pin: exactly ONE
+  ;; def in the full expansion, no matter the input shape.
+  (testing "rf2-atsv: expansion contains exactly one def form"
+    (letfn [(count-defs [form]
+              (cond
+                (and (seq? form) (= 'def (first form)))
+                (+ 1 (apply + (map count-defs (rest form))))
+                (coll? form)
+                (apply + (map count-defs form))
+                :else 0))]
+      (let [exp-plain   (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+                                            'plain-view '([] [:p]))
+            exp-doc     (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+                                            'docced-view '("a doc" [] [:p]))
+            exp-id-meta (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+                                            (with-meta 'meta-view
+                                              {:rf/id :explicit/id})
+                                            '([] [:p]))]
+        (is (= 1 (count-defs exp-plain))
+            "plain (reg-view sym [args] body) emits exactly one def")
+        (is (= 1 (count-defs exp-doc))
+            "(reg-view sym docstring [args] body) emits exactly one def")
+        (is (= 1 (count-defs exp-id-meta))
+            "(reg-view ^{:rf/id ...} sym [args] body) emits exactly one def"))))
+
   (testing "vm/parse-reg-view-args parses the three accepted shapes"
     (is (= {:docstring nil :args '[] :body nil}
            (vm/parse-reg-view-args '([]))))
