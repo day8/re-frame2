@@ -17,6 +17,10 @@ The shape deliberately echoes the v1 example's teaching split:
 - A v1-style separation of data/events/subs/views, but on the current re-frame2 API surface.
 - Headless browser verification through the Playwright example harness.
 
+### Why localStorage and not :rf.http/managed?
+
+TodoMVC persists locally so the example stays small and dependency-free. The canonical demo of Spec 014 (`:rf.http/managed`) lives with the `realworld` example. If you're here to learn the request shape, that's where to look.
+
 ## Official assets
 
 The example stages the official TodoMVC CSS packages at test/build time:
