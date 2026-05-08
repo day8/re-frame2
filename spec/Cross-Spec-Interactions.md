@@ -26,7 +26,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 | **`Pinned`** | A working fixture in the conformance corpus enforces this rule. An implementation that fails the fixture fails conformance. |
 | **`Provisional`** | The rule is documented as a decided behaviour, but no fixture exists yet. Implementations should follow it; deviation is not yet detectable through the corpus. Provisional → Pinned as fixtures land. |
 
-**Current state of the corpus (2026-05-07).** All 20 interactions below are **Provisional**. No cross-Spec-Interactions fixtures exist yet — the fixture filenames in each entry are *targets for future authoring*, not files you can run today. Pinning these is tracked as a follow-up to the conformance-coverage expansion (per [conformance/README.md](conformance/README.md#fixtures)). When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
+**Current state of the corpus (2026-05-09).** First wave of cross-Spec fixtures landed under bead rf2-bhhu — interactions 5, 6, 7, and 19 are now `Pinned`. The remaining 16 stay `Provisional`; their fixture filenames remain *targets for future authoring* until the corresponding runner / runtime gaps close (rendering capability per [rf2-j9yf](#); machine-via-`reg-machine` realisation in the conformance runner; adapter-lifecycle hooks; tool-pair time-travel; etc.). Pinning these is tracked under follow-up beads filed by rf2-bhhu. When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
 
 ## Frames × Machines
 
@@ -70,7 +70,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** The server renders a page that ran machines to completion of their SSR-eligible drain (see Interaction 4); the client hydrates and continues from the server's settled state.
 - **Behaviour:** Machine snapshots live at `[:rf/machines <id>]` inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys). The hydration payload is `app-db` itself; machines deserialise as data. After hydration, the client mounts the same machine handlers (registered identically); subsequent dispatches resolve to the (now client-side) handler. `:after` timers that the server skipped now schedule on the client per the entry action's normal behaviour.
 - **Reason:** Machine state inheriting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free is the same property that makes hydration trivial — one EDN payload, no separate machine-state channel.
-- **Status:** `Provisional` — fixture pending: `ssr-hydrate-with-machines.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-ssr-hydrate-with-machines.edn`](conformance/fixtures/cross-spec-ssr-hydrate-with-machines.edn).
 
 ## Routing × SSR
 
@@ -80,7 +80,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A server-side render handles a request for `/users/42`; the route matches a registered route handler that produces the initial state.
 - **Behaviour:** The route is bound from the request URL at frame creation; `(rf/sub-value [:route])` returns the resolved route map. The route handler runs to populate `app-db`. Navigation effects (`:rf.nav/push-url`, `:rf.nav/replace-url`) are **no-ops on the server** with a `:rf.warning/nav-fx-on-server` trace; the request frame is request-scoped and there is no browser to navigate. The hydration payload includes the resolved `:route` slice; the client mounts at the same route without re-resolving.
 - **Reason:** Routing-as-state means the route is just an `app-db` slice. SSR populates it; the client hydrates it. Navigation effects are device-side concerns that don't survive to the server.
-- **Status:** `Provisional` — fixture pending: `routing-in-ssr.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-routing-in-ssr.edn`](conformance/fixtures/cross-spec-routing-in-ssr.edn).
 
 ### 7. Route-not-found under SSR
 
@@ -88,7 +88,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A request URL matches no registered route on the server.
 - **Behaviour:** The standard route-not-found path runs (per [012](012-Routing.md)), populating `app-db` with the not-found marker. The HTTP response status is 404 (the response status is part of the request-frame's effect map, settled before render). The error projector ([009 §Error contract](009-Instrumentation.md#error-contract)) does **not** fire — route-not-found is normal control flow, not an error.
 - **Reason:** Some 404s are signal (typo URL); some are intentional (privacy, link-rot probing). Treating all as errors would noise the trace stream. The HTTP status conveys the response semantics; the trace surface stays signal-only.
-- **Status:** `Provisional` — fixture pending: `route-not-found-ssr-status.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-route-not-found-ssr-status.edn`](conformance/fixtures/cross-spec-route-not-found-ssr-status.edn). Note: the fixture pins the runtime-observable behaviour, which differs slightly from the prose above (the default error projector DOES fire — that's how the response gets its 404 status). Cross-spec doc reconciliation is tracked under bead rf2-bhhu's follow-up.
 
 ## Frames × Reactive Substrate
 
@@ -198,7 +198,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A story registers a frame with `:fx-overrides {:http :http.canned-200}` and a portable-stories-as-test runs the same story under the test framework.
 - **Behaviour:** The id-valued override resolves identically in both contexts: `:http.canned-200` is a registered fx, the canned fx runs in place of the real `:http`. No function-valued lambda is needed; the override is portable across the wire (per [002 §Per-frame and per-call overrides §pattern-level vs CLJS reference](002-Frames.md#per-frame-and-per-call-overrides)).
 - **Reason:** Pattern-level overrides are id-valued precisely so they survive the story → test transition. Function-valued overrides are CLJS-only ergonomic sugar.
-- **Status:** `Provisional` — fixture pending: `portable-story-fx-override.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-portable-story-fx-override.edn`](conformance/fixtures/cross-spec-portable-story-fx-override.edn).
 
 ## Boot × Substrate
 
