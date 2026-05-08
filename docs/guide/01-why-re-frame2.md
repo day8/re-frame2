@@ -26,6 +26,8 @@ In re-frame2, the only way state changes is this:
 
 That's the whole loop. There are six steps. There aren't more. There aren't different kinds of state that move differently. There aren't async backdoors that skip steps. There isn't a "side channel" that bypasses the queue.
 
+A useful way to picture it: a re-frame2 app is a small virtual machine. Registered handlers are the instruction set, events are the program, and the runtime executes them through the same six-step pipeline every time. State is explicit and centralised, data is immutable, effects are isolated, and views stay at the edge of the flow where they belong — not at its centre.
+
 Compare this to a typical React app. You have a tree of components. Each component might have its own `useState`, its own `useEffect`, its own `useReducer`. State can live in props passed down, in context shared across, in refs, in external stores you've imported, in URL params, in `localStorage`. When something changes, *some* of these update synchronously and *some* of them schedule re-renders. Some `useEffect` calls fire on next render; some on every render; some on unmount. The order in which things happen depends on which component renders first.
 
 The React app is more flexible than re-frame2. You can do things in it that you can't do in re-frame2 — like updating a single component's local state without anyone else knowing. That flexibility is real. It's also the reason the dynamic story is hard.
@@ -40,7 +42,7 @@ There's a quote in the original re-frame docs:
 
 This is the philosophical centre of re-frame2. The pattern is **deliberately less powerful** than the host language it sits inside. You can't write an event handler that suspends mid-flight. You can't have two handlers touch state simultaneously. Side-effects are not free: every effect goes through a registered, named, queryable interpreter. State changes are not free either: every change goes through an event, which has a name, a registration, and (optionally) a schema describing its shape.
 
-When you give up power, you gain something specific in return: **an execution model you can fully model in your head**.
+When you give up power, you gain something specific in return: **an execution model you can fully model in your head**. The host language is Turing complete, but the library is not — and that's the point. No dependency-array decisions, no escape hatches. Every higher-order concept (state machines, async effects, SSR) inherits the same shape rather than escaping it.
 
 This isn't a soft claim. A finite state machine — to take an extreme — is provably easier to reason about than a Turing machine. Every reachable state is enumerable. Every transition is discrete. Every input has a defined response. You can draw it on paper. re-frame2 isn't a finite state machine, but it lives in the same neighbourhood: it's a small, known set of stages connected in a fixed order, with pure functions inside each stage. You can, in principle, simulate any specific event's path through the system without running the code. People do.
 
@@ -104,9 +106,13 @@ This isn't an argument by authority. It's an observation that the architectural 
 If you've used re-frame v1, the pattern above is mostly familiar. What re-frame2 adds:
 
 - **Frames** — multi-instance support. Same handlers, isolated state. Useful for devcards, story tools, server-side rendering, multi-window UIs.
-- **AI-first stance** — every registration carries metadata; the registry is queryable; errors are structured; the spec ships with construction prompts and a conformance corpus an AI can use.
-- **Server-side rendering** — first-class, not a future concession. Views are pure data-producing functions; the render-tree is a serialisable string; hydration is a defined protocol.
 - **State machines** — adopted from xstate; finite-state, transition-table-driven, headlessly testable. Available when an event handler's logic is naturally a flow.
+- **Flows** — registered, toggleable computed-state declarations. Derived values become named runtime artefacts with explicit inputs, paths, and tooling visibility.
+- **Server-side rendering** — first-class, not a future concession. Views are pure data-producing functions; the render-tree is a serialisable string; hydration is a defined protocol.
+- **Routing as state** — the URL ↔ frame state contract. Routes are registry entries, navigation is an event, `:route` is a sub. The same handler runs server- and client-side.
+- **Schema-attached contracts** — Malli-backed path and payload schemas for events, routes, hydration payloads, and app-db slices. Better runtime diagnostics, migration safety, and stronger AI/tooling guidance.
+- **Deep instrumentation** — every dispatch, render, fx, error, and machine transition emits a structured trace event. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely.
+- **AI-first stance** — every registration carries metadata; the registry is queryable; errors are structured; the spec ships with construction prompts and a conformance corpus an AI can use.
 - **A specification** that's implementable in any language. The pattern stops being "a CLJS thing" and starts being "a thing you can have in TypeScript or Python or Kotlin too." The [Implementor's Checklist](../specification/Implementor-Checklist.md) is the structured port guide — it walks an implementor through the optional-capability declarations, the host-discretion choices (which PDS library, which scheduler, which trace sink), and the conformance-corpus subset that grades the result.
 
 ## What re-frame2 keeps from the original re-frame
