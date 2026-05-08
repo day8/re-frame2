@@ -8,6 +8,10 @@
 *.log
 pom.xml
 
+# shadow-cljs browser-build outputs (regenerable; e.g. counter example)
+/implementation/public/js/
+/implementation/public/**/cljs-runtime/
+
 # OS / editors
 .DS_Store
 Thumbs.db

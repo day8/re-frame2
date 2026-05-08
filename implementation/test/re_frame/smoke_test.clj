@@ -16,12 +16,13 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (rf/init!)
-  ;; Framework events / fx are registered at namespace-load time in
-  ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those
-  ;; registrations so :rf.route/navigate, :rf/hydrate, :rf.nav/push-url
-  ;; etc. resurrect across smoke tests.
+  ;; Framework events / fx / subs are registered at namespace-load time
+  ;; in routing.cljc, ssr.cljc, and machines.cljc; clear-all! wiped them.
+  ;; Re-eval those registrations so :rf.route/navigate, :rf/hydrate,
+  ;; :rf.nav/push-url, :rf/machine etc. resurrect across smoke tests.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
+  (require 're-frame.machines :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -622,6 +623,24 @@
                             {:frame f})
           (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/get-frame-db f)))
               "guarded multi-clause branch routed to :locked-out on 4th attempt"))))))
+
+(deftest rf-machine-sub
+  (testing "framework-shipped :rf/machine sub returns the snapshot for a registered machine"
+    (rf/reg-machine :test/tiny
+      {:initial :idle
+       :data    {:n 0}
+       :actions {:bump (fn [{:keys [data]} _] {:data (update data :n inc)})}
+       :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
+    (let [f (rf/make-frame {})]
+      (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
+      (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
+      (let [db (rf/get-frame-db f)]
+        (is (= {:state :idle :data {:n 2}}
+               (get-in db [:rf/machines :test/tiny]))
+            "machine snapshot exists at the spec'd path")
+        (is (= {:state :idle :data {:n 2}}
+               (rf/compute-sub [:rf/machine :test/tiny] db))
+            ":rf/machine sub returns the same snapshot")))))
 
 (deftest ssr-with-fx-override
   (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
