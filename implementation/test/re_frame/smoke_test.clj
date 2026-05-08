@@ -709,6 +709,45 @@
                (rf/compute-sub [:rf/machine :test/tiny] db))
             ":rf/machine sub returns the same snapshot")))))
 
+(deftest machines-introspection
+  (testing "(rf/machines) returns only ids whose registration was via reg-machine"
+    (let [tiny-spec   {:initial :idle
+                       :data    {:n 0}
+                       :doc     "A tiny test machine."
+                       :actions {:bump (fn [{:keys [data]} _]
+                                         {:data (update data :n inc)})}
+                       :states  {:idle {:on {:tick {:target :idle
+                                                    :action :bump}}}}}
+          other-spec  {:initial :off
+                       :states  {:off {:on {:flip :on}}
+                                 :on  {:on {:flip :off}}}}]
+      (rf/reg-machine :test/tiny  tiny-spec)
+      (rf/reg-machine :test/other other-spec)
+      ;; A regular event-handler must NOT show up in (rf/machines).
+      (rf/reg-event-db :test/regular (fn [db _] db))
+
+      (let [ids (set (rf/machines))]
+        (is (contains? ids :test/tiny)
+            "(rf/machines) lists machines registered via reg-machine")
+        (is (contains? ids :test/other)
+            "(rf/machines) lists every reg-machine id")
+        (is (not (contains? ids :test/regular))
+            "(rf/machines) excludes plain event handlers"))
+
+      (testing "(rf/machine-meta id) returns the spec map for registered machines"
+        (is (= tiny-spec (rf/machine-meta :test/tiny))
+            "machine-meta returns the spec map passed to reg-machine")
+        (is (= other-spec (rf/machine-meta :test/other)))
+        (is (= "A tiny test machine."
+               (:doc (rf/machine-meta :test/tiny)))
+            "the spec's :doc round-trips through machine-meta"))
+
+      (testing "(rf/machine-meta id) returns nil for unregistered or non-machine ids"
+        (is (nil? (rf/machine-meta :test/regular))
+            "non-machine event handlers return nil")
+        (is (nil? (rf/machine-meta :test/never-registered))
+            "unregistered ids return nil")))))
+
 (deftest ssr-with-fx-override
   (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
     (let [stub-fired? (atom false)]
