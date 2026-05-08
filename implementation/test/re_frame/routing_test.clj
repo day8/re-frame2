@@ -14,11 +14,12 @@
   - routing-nav-token-staleness  — two in-flight navigations; only the
                                    most recent token's result commits
   - routing-scroll-metadata-preserved — :scroll metadata on a route is
-                                   queryable via handler-meta. The
-                                   :rf.nav/scroll fx is not yet emitted
-                                   by routing.cljc (tracked as rf2-h5el);
-                                   this test pins what IS implemented:
-                                   metadata round-trips through registration.
+                                   queryable via handler-meta. Pins the
+                                   registration round-trip contract.
+  - routing-scroll-fx-emitted-on-navigate — every successful navigation
+                                   emits :rf.nav/scroll with the resolved
+                                   strategy / from / to / saved-pos /
+                                   fragment args; :scroll false suppresses.
   - routing-nested-layout-parent-link — :parent metadata is preserved by
                                    reg-route so views / handler-meta-driven
                                    tools can render the layout chain. The
@@ -199,12 +200,8 @@
 (deftest routing-scroll-metadata-preserved
   (testing "the :scroll metadata key is enumerable via handler-meta"
     ;; Per Spec 012 §Scroll restoration: a route may declare a :scroll
-    ;; strategy (:top / :restore / :preserve / map). The runtime is meant
-    ;; to emit a :rf.nav/scroll fx on navigation per the resolved strategy
-    ;; (filed as rf2-h5el). Until that lands, this test pins the
-    ;; baseline contract that conforming reads MUST satisfy: the :scroll
-    ;; key on registration round-trips through reg-route's metadata so
-    ;; tooling and future fx-emitting code can read it.
+    ;; strategy (:top / :restore / :preserve / map / false). Metadata is
+    ;; round-tripped through registration so tooling can enumerate it.
     (rf/reg-route :route/home
                   {:path   "/"
                    :scroll :top})
@@ -218,6 +215,89 @@
           ":scroll metadata is preserved as-declared")
       (is (= :restore (:scroll article-meta))
           ":scroll metadata is preserved per-route"))))
+
+(deftest routing-scroll-fx-emitted-on-navigate
+  (testing ":rf.route/navigate emits :rf.nav/scroll with the resolved strategy"
+    ;; Per Spec 012 §Scroll restoration: the runtime emits :rf.nav/scroll
+    ;; on every successful navigation, with args
+    ;; {:strategy :from :to :saved-pos :fragment}. Resolution order:
+    ;;   1. :scroll in :rf.route/navigate's opts (per-call override)
+    ;;   2. route metadata's :scroll
+    ;;   3. implicit default (:top for forward navigation)
+    ;; A :scroll value of `false` (opts or meta) suppresses the fx.
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/articles {:path "/articles"})
+    (rf/reg-route :route/article  {:path   "/articles/:id"
+                                   :params [:map [:id :string]]
+                                   :scroll :restore})
+    (rf/reg-route :route/profile  {:path   "/profile"
+                                   :scroll false})
+
+    (let [calls (atom [])]
+      ;; Override the spec's :platforms #{:client} default for the JVM
+      ;; test — re-register :rf.nav/scroll on both server+client so the
+      ;; do-fx interpreter actually invokes our capture.
+      (rf/reg-fx :rf.nav/scroll
+                 {:platforms #{:server :client}}
+                 (fn [_ args] (swap! calls conj args)))
+      ;; :rf.nav/push-url is :platforms #{:client} by default; suppress on
+      ;; the JVM the same way the other routing tests do.
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+
+      ;; 1. Forward navigation to a route with no :scroll metadata —
+      ;;    default :top.
+      (rf/dispatch-sync [:rf.route/navigate :route/articles])
+      (is (= 1 (count @calls)) "navigate emits exactly one :rf.nav/scroll fx")
+      (let [a (first @calls)]
+        (is (= :top (:strategy a))
+            "default forward strategy is :top")
+        (is (= {:id :route/articles} (:to a))
+            ":to descriptor identifies the destination"))
+
+      ;; 2. Navigate to a route with :scroll :restore — strategy carries.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
+      (let [a (first @calls)]
+        (is (= :restore (:strategy a))
+            "route's :scroll :restore wins over the implicit :top default")
+        (is (= {:id :route/article :params {:id "intro"}} (:to a))
+            ":to carries id + params")
+        (is (= {:id :route/articles} (:from a))
+            ":from is the previous route slice"))
+
+      ;; 3. Per-call :scroll override in opts trumps route metadata.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/navigate :route/article {:id "two"}
+                         {:scroll :preserve}])
+      (is (= :preserve (-> @calls first :strategy))
+          "opts :scroll wins over route metadata")
+
+      ;; 4. :scroll false on the route suppresses the fx entirely.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/navigate :route/profile])
+      (is (empty? @calls)
+          ":scroll false on the route suppresses the :rf.nav/scroll fx")
+
+      ;; 5. :rf/url-changed (URL-driven) also emits the fx — default :top.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf/url-changed "/articles"])
+      (is (= :top (-> @calls first :strategy))
+          ":rf/url-changed emits :rf.nav/scroll with default :top")
+
+      ;; 6. :rf.route/handle-url-change (popstate / initial) defaults to
+      ;;    :restore — the saved position trumps a forward-style :top.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles"])
+      (is (= :restore (-> @calls first :strategy))
+          ":rf.route/handle-url-change emits :rf.nav/scroll with default :restore")
+
+      ;; 7. Fragment in URL is forwarded in the fx args.
+      (reset! calls [])
+      (rf/dispatch-sync [:rf/url-changed "/articles/intro#section-2"])
+      (is (= "section-2" (-> @calls first :fragment))
+          "fragment from URL flows into :rf.nav/scroll args"))))
 
 ;; ---- Spec 012 §Nested layouts ---------------------------------------------
 

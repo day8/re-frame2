@@ -1,0 +1,76 @@
+;; Conformance fixture: routing/scroll-restoration
+;;
+;; Per Spec 012 §Scroll restoration: every successful navigation emits a
+;; :rf.nav/scroll fx whose args carry {:strategy :from :to :saved-pos
+;; :fragment}. The strategy resolves in this order:
+;;   1. :scroll key in :rf.route/navigate's opts (per-call override)
+;;   2. :scroll key on the route's metadata
+;;   3. implicit default — :top for forward navigation, :restore for
+;;      popstate / initial / SSR navigation
+;; A :scroll value of `false` (in opts or meta) suppresses the fx.
+;;
+;; Per [012 §Scroll restoration](../../012-Routing.md#scroll-restoration).
+
+{:fixture/id           :routing/scroll-restoration
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
+ :fixture/doc          "Navigation emits :rf.nav/scroll with the resolved strategy. Forward navigation defaults to :top; route metadata's :scroll wins; opts :scroll trumps both. :scroll false suppresses the fx."
+
+ :fixture/registry
+ {:route
+  {:route/home     {:path "/"}
+   :route/articles {:path "/articles"}
+   :route/article  {:path   "/articles/:id"
+                    :params [:map [:id :string]]
+                    :scroll :restore}
+   :route/profile  {:path   "/profile"
+                    :scroll false}}
+
+  :event
+  {:rf/init           {:doc "Seed."}
+   :rf.route/navigate {:doc "Programmatic navigation."}}
+
+  :fx
+  {:rf.nav/push-url    {:platforms #{:client}}
+   :rf.nav/replace-url {:platforms #{:client}}
+   :rf.nav/scroll      {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:fx {:rf.nav/push-url    [[:noop]]
+       :rf.nav/replace-url [[:noop]]
+       :rf.nav/scroll      [[:noop]]}}
+
+ :fixture/dispatches
+ [;; 1. Forward navigation to a route with no :scroll meta — default :top.
+  [:rf.route/navigate :route/articles]
+
+  ;; 2. Forward navigation to a route declaring :scroll :restore — meta wins.
+  [:rf.route/navigate :route/article {:id "intro"}]
+
+  ;; 3. :scroll false on the route suppresses the :rf.nav/scroll fx.
+  [:rf.route/navigate :route/profile]]
+
+ :fixture/expect
+ {:final-app-db
+  {:route {:id :route/profile :params {} :error nil}}
+
+  :effects-routed
+  ;; The push-url and scroll fxs interleave; what we assert is the
+  ;; presence and shape of each scroll-fx in source order, plus the
+  ;; absence of a third for the :scroll-false route.
+  [{:fx-id :rf.nav/push-url :args "/articles"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :top
+            :to       {:id :route/articles}}}
+   {:fx-id :rf.nav/push-url :args "/articles/intro"}
+   {:fx-id :rf.nav/scroll
+    :args  {:strategy :restore
+            :from     {:id :route/articles}
+            :to       {:id :route/article :params {:id "intro"}}}}
+   ;; :route/profile has :scroll false → no :rf.nav/scroll entry here.
+   {:fx-id :rf.nav/push-url :args "/profile"}]
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf.route/navigate}}
+   {:operation :event :tags {:event-id :rf.route/navigate}}
+   {:operation :event :tags {:event-id :rf.route/navigate}}]}}
