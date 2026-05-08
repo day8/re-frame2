@@ -107,11 +107,26 @@ npx shadow-cljs compile node-test && node out/node-test.js
 The shadow-cljs config builds an `:node-test` target that runs
 `cljs.test` under Node, exercising the Reagent adapter end-to-end.
 
+**CLJS in a real browser** (headless Chromium via Playwright):
+
+```sh
+cd implementation
+npm install
+npx playwright install chromium    # one-time, ~120 MB download
+npm run test:browser
+```
+
+This builds the `:browser-test` target into `out/browser-test/`,
+serves it on `http://localhost:8021` via `http-server`, then drives
+headless Chromium to the runner page and parses the `cljs.test`
+summary (`Ran N tests containing M assertions.`). Exits 0 on green,
+1 on red. The same test namespaces (`*_cljs_test.cljs`) are picked
+up under both `:node-test` and `:browser-test`, so the assertion
+counts should match. Use this build when verifying anything that
+depends on a real DOM, real browser timing, or React's
+DOM-rendering pipeline.
+
 ## What's not in scope
 
 - The migration agent (re-frame v1 → v2). That's a separate
   AI-driven task per `../docs/specification/MIGRATION.md`.
-- Browser-mounted CLJS tests (e.g. for `frame-provider` /
-  React-context resolution). The `:node-test` build covers all
-  non-DOM behaviour; verifying the React context bridge needs a
-  browser harness.

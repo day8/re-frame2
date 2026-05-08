@@ -7,4 +7,12 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
-   :compiler-options {:warnings {:redef false}}}}}
+   :compiler-options {:warnings {:redef false}}}
+
+  :browser-test
+  {:target    :browser-test
+   :ns-regexp "-cljs-test$"
+   :test-dir  "out/browser-test"
+   :runner-ns shadow.test.browser
+   :devtools  {:http-port 8021
+               :http-root "out/browser-test"}}}}
