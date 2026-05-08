@@ -24,10 +24,44 @@
 
 (defn build-frame-provider
   "Used by re-frame.substrate.reagent/register-context-provider. Returns
-  a Reagent component that scopes a frame keyword to its subtree."
+  a Reagent component that scopes a frame keyword to its subtree.
+
+  The build-time `_frame-keyword` arg is currently unused — the returned
+  Reagent component takes the frame keyword at render time so a single
+  built component services every frame. The substrate-side
+  `register-context-provider` slot still receives a frame-keyword on
+  call (per Spec 006 §Frame-provider via React context). Kept for
+  forward-compatibility with substrates that want per-frame
+  specialisation; flattening tracked separately."
   [_frame-keyword]
   (fn [frame-kw & children]
     (into [:> (.-Provider frame-context) {:value frame-kw}] children)))
+
+(defn frame-provider
+  "User-facing Reagent component that scopes a frame keyword to its
+  subtree. Inside the subtree, `(rf/dispatcher)` / `(rf/subscriber)`
+  capture the named frame; reg-view-registered descendants resolve to
+  it via React context.
+
+      [rf/frame-provider {:frame :session}
+       [header]
+       [main-area]
+       [footer]]
+
+  `props` is a map carrying `:frame frame-id`. Children render under
+  that frame (variadic — zero, one, or many).
+
+  When `:frame` is missing or `nil`, falls through to `:rf/default` —
+  matches the no-provider behaviour. This is the defensive default per
+  the rf2-sixo decision; an explicit error would catch typos but would
+  also break tooling-generated trees that elide the prop.
+
+  Per Spec 002 §What `frame-provider` is. `build-frame-provider` is the
+  lower-level substrate hook; this fn is the canonical user-facing
+  surface."
+  [props & children]
+  (let [frame-kw (or (:frame props) :rf/default)]
+    (into [(build-frame-provider frame-kw) frame-kw] children)))
 
 ;; ---- frame resolution at render time -------------------------------------
 

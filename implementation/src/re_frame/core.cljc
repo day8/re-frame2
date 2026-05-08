@@ -24,7 +24,8 @@
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
             [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            #?@(:cljs [[re-frame.views :as views]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -421,8 +422,14 @@
   (subscriber))
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
-;; reg-view, frame-provider, h, with-frame live in re-frame.views.cljs;
-;; users `:require [re-frame.views :as v]` for those.
+;; reg-view (the macro), h, with-frame live in re-frame.views-macros (CLJS-
+;; only macros — users `(:require-macros [re-frame.views-macros :refer ...])`).
+;; frame-provider is a Reagent component re-exported here so `rf/frame-provider`
+;; is the canonical user-facing surface (per Spec 002 §What `frame-provider` is
+;; and the API.md table); it lives in re-frame.views to keep React/Reagent off
+;; the JVM load path.
+
+#?(:cljs (def frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
 
