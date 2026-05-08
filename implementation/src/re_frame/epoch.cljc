@@ -241,15 +241,14 @@
 
 (defn- project-renders
   "Walk the captured trace events and build the `:renders` vector.
-  Renders are emitted by the view layer as `:render/run` (or similar)
-  trace events with `:render-key`, `:triggered-by`, and `:elapsed-ms`
-  tags. Per Spec-Schemas §`:rf/epoch-record`: `:render-key` identity
-  is TBD pending rf2-t5tx — treated as opaque.
-
-  No render trace is emitted by the runtime today; this projection
-  remains an empty vector until the view layer is wired to emit
-  per-render traces. The shape is contracted now so consumers can
-  rely on the slot existing."
+  Renders are emitted by the view layer as `:view/render` trace events
+  with `:render-key`, `:triggered-by`, and `:elapsed-ms` tags. Per
+  Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree primitives
+  (rf2-t5tx Option C / rf2-piag): `:render-key` is the tuple
+  `[<view-id> <instance-token>]` — the view-id names the kind, the
+  instance-token disambiguates concurrently-mounted instances. For
+  renders that bypass reg-view (plain Reagent fns), the trace recorder
+  emits `[:rf.view/anonymous nil]` as the documented fallback shape."
   [events]
   (into []
         (comp
@@ -258,7 +257,8 @@
                         (= :view/render (:operation ev)))))
           (map (fn [ev]
                  (let [t (:tags ev)]
-                   {:render-key   (:render-key t)
+                   {:render-key   (or (:render-key t)
+                                      [:rf.view/anonymous nil])
                     :triggered-by (:triggered-by t)
                     :elapsed-ms   (:elapsed-ms t)}))))
         events))
