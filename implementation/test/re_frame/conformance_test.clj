@@ -47,7 +47,15 @@
     :routing/blocking
     :routing/nav-token
     :actor/spawn
-    :actor/invoke})
+    :actor/invoke
+    ;; Flow capabilities — per Spec 013. The flow-*.edn fixtures
+    ;; (recompute-on-input-change, multi-input-topo, noop-on-value-equal-
+    ;; input, toggle-via-fx, hot-reload-preserves-output) declare these.
+    :flow/basic
+    :flow/topo
+    :flow/dirty-check
+    :flow/toggle
+    :flow/hot-reload})
 
 ;; ---- fixture loader -------------------------------------------------------
 
