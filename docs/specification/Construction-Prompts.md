@@ -318,7 +318,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ```clojure
 (deftest feature-component-name-renders
   (rf/with-frame [f (rf/make-frame {:on-create [:feature/initialise]})]
-    (let [hiccup ((rf/get-view :feature/component-name) "test-label" 42)
+    (let [hiccup ((rf/view :feature/component-name) "test-label" 42)
           html   (rf/render-to-string hiccup {:frame f})]
       (is (str/includes? html "test-label"))
       (is (str/includes? html "Count: 42")))))
@@ -956,7 +956,7 @@ The handler reads `(:route db)` for any path/query params it needs — the `:rou
                         :on-create    [:rf/server-init request]})]
       ;; rebound to f
       (let [final-db @(rf/get-frame-db f)
-            hiccup   ((rf/get-view :app/root))                ;; the registered root view
+            hiccup   ((rf/view :app/root))                ;; the registered root view
             html     (rf/render-to-string hiccup {:frame f})
             payload  {:rf/version "1.0"
                       :rf/frame-id frame-id
@@ -1009,7 +1009,7 @@ The drain settles before `with-frame` returns; the final state is captured.
     (when payload
       (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
     (rdc/render (.getElementById js/document "app")
-                [(rf/get-view :app/root)])))
+                [(rf/view :app/root)])))
 
 (boot!)
 ```

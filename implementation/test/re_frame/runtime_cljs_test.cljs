@@ -77,7 +77,7 @@
     ;; auto-derives the id from (keyword *ns* sym); the ^{:rf/id ...}
     ;; metadata override pins an explicit keyword for assertion.
     (reg-view ^{:rf/id :greet} greet [n] [:p "hi " n])
-    (is (some? (rf/get-view :greet))
+    (is (some? (rf/view :greet))
         "the view is registered under the :view kind")
     (is (fn? greet)
         "the macro defs the supplied symbol to a callable render fn")))
@@ -92,7 +92,7 @@
   (testing "the macro defs the symbol to a callable render fn"
     (reg-view ^{:rf/id :ns/widget} my-widget [n] [:span "w-" n])
     ;; The registered view is in the registry.
-    (is (some? (rf/get-view :ns/widget))
+    (is (some? (rf/view :ns/widget))
         ":ns/widget is in the :view registry")
     ;; The defn-shape sym is bound to a fn — usable as a hiccup head.
     (is (fn? my-widget)

@@ -512,7 +512,7 @@
           "with-frame expansion references *current-frame*"))
     ;; reg-view (defn-shape per Spec 004 §reg-view) defs the symbol and
     ;; registers under (keyword (str *ns*) (str sym)). The expansion is
-    ;; (do (binding [...] (reg-view* ...)) (def sym (get-view ...))).
+    ;; (do (binding [...] (reg-view* ...)) (def sym (view ...))).
     (let [exp (macroexpand `(re-frame.views-macros/reg-view
                               ~'my-widget [] :body))]
       (is (= 'do (first exp))
@@ -898,9 +898,9 @@
     (is (= "<p>hello <strong>world</strong></p>"
            (rf/render-to-string [:greet "world"]))
         "render-to-string resolves [:greet args] via the :view registry")
-    (is (fn? (rf/get-view :greet))
-        "get-view returns the registered render fn")
-    (is (nil? (rf/get-view :no-such-view)))))
+    (is (fn? (rf/view :greet))
+        "view returns the registered render fn")
+    (is (nil? (rf/view :no-such-view)))))
 
 (deftest ssr-render-to-string-basics
   (testing "basic hiccup → HTML"

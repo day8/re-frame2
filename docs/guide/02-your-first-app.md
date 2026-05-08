@@ -50,7 +50,7 @@ Here's the file, in full, with the surrounding ceremony removed:
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [(rf/get-view :counter)]))
+  (rdc/render root [(rf/view :counter)]))
 ```
 
 That's everything. Forty lines. Let's take it apart.
@@ -177,10 +177,10 @@ There's a tradeoff: plain Reagent functions also work, but they don't get frame-
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [(rf/get-view :counter)]))
+  (rdc/render root [(rf/view :counter)]))
 ```
 
-This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `(rf/get-view :counter)` looks up the registered render function and hands it back; `rdc/render` mounts it.
+This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `(rf/view :counter)` looks up the registered render function and hands it back; `rdc/render` mounts it.
 
 ## What just happened
 

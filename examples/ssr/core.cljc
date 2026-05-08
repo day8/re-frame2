@@ -108,7 +108,7 @@
 ;; reg-view (defn-shape per Spec 004 §reg-view) auto-defs the symbol and
 ;; registers under (keyword *ns* sym) — overridden here via
 ;; ^{:rf/id ...} so the legacy :pages/articles / :app/root ids stay
-;; intact for the get-view callers below.
+;; intact for the view callers below.
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
   (let [arts (rf/subscribe-value [:articles])]
     [:div.page
@@ -121,7 +121,7 @@
        [:p "No articles."])]))
 
 (rf/reg-view ^{:rf/id :app/root} root-view []
-  [(rf/get-view :pages/articles)])
+  [(rf/view :pages/articles)])
 
 ;; ============================================================================
 ;; SERVER ENTRY POINT
@@ -140,7 +140,7 @@
        (rf/with-frame f
          (fn []
            (let [final-db (rf/get-frame-db f)
-                 hiccup   ((rf/get-view :app/root))
+                 hiccup   ((rf/view :app/root))
                  ;; render-to-string with :emit-hash? embeds
                  ;; data-rf-render-hash="<hex>" on the root element. The
                  ;; client recomputes the hash after its first render and
@@ -205,7 +205,7 @@
    (defn ^:export run []
      (when-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload] {:frame :app/main}))
-     (rdc/render root [(rf/get-view :app/root)])))
+     (rdc/render root [(rf/view :app/root)])))
 
 ;; ============================================================================
 ;; HEADLESS TESTS  (JVM-runnable; exercises the server flow)
@@ -238,7 +238,7 @@
            ;; INSIDE render-to-string's tree walk; with-frame binds
            ;; *current-frame* across that walk so the sub reads from f
            ;; and not from :rf/default.
-           hiccup      ((rf/get-view :app/root))
+           hiccup      ((rf/view :app/root))
            html        (rf/with-frame f
                          (fn [] (rf/render-to-string hiccup {:emit-hash? true})))
            render-hash (rf/render-tree-hash hiccup)]
