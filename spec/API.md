@@ -9,11 +9,11 @@
   - Base values: `v1` (ships in v1), `v1 (preserved)` (exists in current re-frame; preserved unchanged), `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour), `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
   - Qualifier: `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
   - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
-  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test`, `re-frame.views-macros`).
+  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support`, `re-frame.views-macros`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
-- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test`, `re-frame.views-macros`).
+- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`, `re-frame.views-macros`).
 
 ---
 
@@ -80,6 +80,8 @@
 | `view` | Fn | `(view view-id)` → render-fn (runtime-lookup handle) | v1 | 001, 004 |
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
+
+`bound-fn` lives in `re-frame.views-macros`, one of the documented per-namespace exceptions to "all APIs live in `re-frame.core`" (see [Conventions](#conventions)). Users `:require-macros [re-frame.views-macros :refer [bound-fn]]`.
 
 ---
 
@@ -244,8 +246,8 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `register-trace-cb` | Fn | `(register-trace-cb key callback)` / `(register-trace-cb key callback opts)` | v1 (preserved) | 009 |
-| `remove-trace-cb` | Fn | `(remove-trace-cb key)` | v1 (preserved) | 009 |
+| `register-trace-cb!` | Fn | `(register-trace-cb! key callback)` / `(register-trace-cb! key callback opts)` | v1 (preserved) | 009 |
+| `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` | v1 (preserved) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
 | `trace-api-version` | Fn | `(trace-api-version)` → integer | v1 | 009 |
 | `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | 009 |
@@ -365,7 +367,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-`re-frame.test` re-exports `make-frame`/`destroy-frame`/`with-frame`/`dispatch-sync`. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+`re-frame.test-support` re-exports `make-frame`/`destroy-frame`/`with-frame`/`dispatch-sync`. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -529,10 +531,10 @@ See [007-Stories.md](007-Stories.md).
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
 | `frame-dispatcher` (proposed earlier) | Renamed to `bound-dispatcher` | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Bridge always active when tracing is on; production elides everything | 009 |
-| `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb` / `remove-trace-cb` | 009 |
+| `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb!` / `remove-trace-cb!` | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id | 004 |
 | `h` macro (proposed earlier) | Removed (rf2-n4um). Use the Var form `[my-view "args"]` or `[(rf/view :my-view) "args"]` | 004 |
-| `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb`. | MIGRATION M-17 |
+| `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb!`. | MIGRATION M-17 |
 | `clear-global-interceptor` | No replacement needed — re-register `reg-frame` with an updated `:interceptors` vector (absent-key semantics clear it). | MIGRATION M-17 |
 | `reg-sub-raw` | Use `reg-sub` (app-db reads), Pattern-AsyncEffect (non-app-db sources), state machines (lifecycle), or the [006](006-ReactiveSubstrate.md) adapter contract (bridging external reactivity). | MIGRATION M-18 |
 | `re-frame.alpha/reg` | Per-kind macros: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`. | MIGRATION M-23 |
