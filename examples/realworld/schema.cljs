@@ -67,6 +67,45 @@
 (def Tag :string)
 
 ;; ============================================================================
+;; WIRE-RESPONSE WRAPPERS
+;; ============================================================================
+;;
+;; The Conduit API wraps every payload in a singular/plural top-level key.
+;; These schemas describe the wire-shape envelope; they are passed as the
+;; `:decode` key to `:rf.http/managed` per Spec 014 §Schema-driven decode.
+
+(def UserResponse
+  "POST /users/login, POST /users (register), GET /user."
+  [:map [:user User]])
+
+(def ProfileResponse
+  "GET /profiles/:username, POST/DELETE /profiles/:username/follow."
+  [:map [:profile Profile]])
+
+(def ArticleResponse
+  "GET /articles/:slug, POST /articles, PUT /articles/:slug,
+   POST/DELETE /articles/:slug/favorite."
+  [:map [:article Article]])
+
+(def ArticlesResponse
+  "GET /articles, GET /articles/feed."
+  [:map
+   [:articles      [:vector Article]]
+   [:articlesCount {:optional true} :int]])
+
+(def CommentResponse
+  "POST /articles/:slug/comments."
+  [:map [:comment Comment]])
+
+(def CommentsResponse
+  "GET /articles/:slug/comments."
+  [:map [:comments [:vector Comment]]])
+
+(def TagsResponse
+  "GET /tags."
+  [:map [:tags [:vector :string]]])
+
+;; ============================================================================
 ;; APP-DB SLICES — Pattern-RemoteData shape per resource
 ;; ============================================================================
 ;;

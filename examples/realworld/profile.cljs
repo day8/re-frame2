@@ -9,8 +9,8 @@
    Follow/unfollow is optimistic and shared across the banner plus any
    article cards rendered from the profile routes."
   (:require [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing]
             [realworld.articles :as articles])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
@@ -39,6 +39,9 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :profile/load
+  {:doc "Load the public profile (username, bio, image, following).
+         Public endpoint; data-fetch retry."
+   :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (let [username (username-from-db db)]
       {:db (-> db
@@ -46,110 +49,134 @@
                          (if (get-in db [:profile :data]) :fetching :loading))
                (assoc-in [:profile :error] nil)
                (update-in [:profile :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        (str "/profiles/" username)
-                    :auth?      false
-                    :on-success [:profile/loaded]
-                    :on-error   [:profile/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       (str "/profiles/" username)
+                          :auth?      false
+                          :decode     schema/ProfileResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id [:profile/load username]
+                          :on-success [:profile/loaded]
+                          :on-failure [:profile/load-failed]})]]})))
 
 (rf/reg-event-db :profile/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:profile :status] :loaded)
-        (assoc-in [:profile :data] (:profile resp))
+        (assoc-in [:profile :data] (:profile value))
         (assoc-in [:profile :error] nil)
         (assoc-in [:profile :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :profile/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:profile :status] :error)
-        (assoc-in [:profile :error] err))))
+        (assoc-in [:profile :error] (rh/failure->message failure)))))
 
 (rf/reg-event-fx :profile.articles/load
+  {:doc "Load the profile's authored articles. Public; data-fetch retry."
+   :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
     (let [username (username-from-db db)]
       {:db (-> db
                (assoc-in [:profile.articles :status] :loading)
                (assoc-in [:profile.articles :error] nil)
                (update-in [:profile.articles :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        (str "/articles?author=" username)
-                    :auth?      false
-                    :on-success [:profile.articles/loaded]
-                    :on-error   [:profile.articles/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       (str "/articles?author=" username)
+                          :auth?      false
+                          :decode     schema/ArticlesResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id [:profile.articles/load username]
+                          :on-success [:profile.articles/loaded]
+                          :on-failure [:profile.articles/load-failed]})]]})))
 
 (rf/reg-event-db :profile.articles/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:profile.articles :status] :loaded)
-        (assoc-in [:profile.articles :data] (vec (:articles resp)))
+        (assoc-in [:profile.articles :data] (vec (:articles value)))
         (assoc-in [:profile.articles :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :profile.articles/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:profile.articles :status] :error)
-        (assoc-in [:profile.articles :error] err))))
+        (assoc-in [:profile.articles :error] (rh/failure->message failure)))))
 
 (rf/reg-event-fx :profile.favorites/load
+  {:doc "Load the profile's favorited articles. Public; data-fetch retry."
+   :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
     (let [username (username-from-db db)]
       {:db (-> db
                (assoc-in [:profile.favorites :status] :loading)
                (assoc-in [:profile.favorites :error] nil)
                (update-in [:profile.favorites :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        (str "/articles?favorited=" username)
-                    :auth?      false
-                    :on-success [:profile.favorites/loaded]
-                    :on-error   [:profile.favorites/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       (str "/articles?favorited=" username)
+                          :auth?      false
+                          :decode     schema/ArticlesResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id [:profile.favorites/load username]
+                          :on-success [:profile.favorites/loaded]
+                          :on-failure [:profile.favorites/load-failed]})]]})))
 
 (rf/reg-event-db :profile.favorites/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:profile.favorites :status] :loaded)
-        (assoc-in [:profile.favorites :data] (vec (:articles resp)))
+        (assoc-in [:profile.favorites :data] (vec (:articles value)))
         (assoc-in [:profile.favorites :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :profile.favorites/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:profile.favorites :status] :error)
-        (assoc-in [:profile.favorites :error] err))))
+        (assoc-in [:profile.favorites :error] (rh/failure->message failure)))))
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
 ;; ============================================================================
 
 (rf/reg-event-fx :profile/follow
+  {:doc "Optimistically mark the profile as followed; reconcile on reply."
+   :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (let [username (username-from-db db)]
       {:db (assoc-in db [:profile :data :following] true)
-       :fx [[:http {:method     :post
-                    :url        (str "/profiles/" username "/follow")
-                    :on-success [:profile/followed]
-                    :on-error   [:profile/follow-rollback false]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :post
+                          :path       (str "/profiles/" username "/follow")
+                          :decode     schema/ProfileResponse
+                          :on-success [:profile/followed]
+                          :on-failure [:profile/follow-rollback false]})]]})))
 
 (rf/reg-event-db :profile/followed
-  (fn [db [_ resp]]
-    (assoc-in db [:profile :data] (:profile resp))))
+  (fn [db [_ {:keys [value]}]]
+    (assoc-in db [:profile :data] (:profile value))))
 
 (rf/reg-event-fx :profile/unfollow
+  {:doc "Optimistically clear the followed flag; reconcile on reply."
+   :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
     (let [username (username-from-db db)]
       {:db (assoc-in db [:profile :data :following] false)
-       :fx [[:http {:method     :delete
-                    :url        (str "/profiles/" username "/follow")
-                    :on-success [:profile/unfollowed]
-                    :on-error   [:profile/follow-rollback true]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :delete
+                          :path       (str "/profiles/" username "/follow")
+                          :decode     schema/ProfileResponse
+                          :on-success [:profile/unfollowed]
+                          :on-failure [:profile/follow-rollback true]})]]})))
 
 (rf/reg-event-db :profile/unfollowed
-  (fn [db [_ resp]]
-    (assoc-in db [:profile :data] (:profile resp))))
+  (fn [db [_ {:keys [value]}]]
+    (assoc-in db [:profile :data] (:profile value))))
 
 (rf/reg-event-db :profile/follow-rollback
-  (fn [db [_ previous-value]]
+  (fn [db [_ previous-value _failure-payload]]
     (assoc-in db [:profile :data :following] previous-value)))
 
 ;; ============================================================================

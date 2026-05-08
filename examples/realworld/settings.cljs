@@ -7,8 +7,8 @@
    - write the returned user back through `:auth/store-session`
    - keep logout on the existing auth machine path"
   (:require [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -38,35 +38,38 @@
         (update-in [:settings :touched] (fnil conj #{}) field))))
 
 (rf/reg-event-fx :settings/submit
+  {:doc "Save the user-settings draft. NO retry — single user-initiated
+         submission per click (Spec 014)."
+   :rf.http/decode-schemas [schema/UserResponse]}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:settings :draft])]
       {:db (-> db
                (assoc-in [:settings :status] :submitting)
                (assoc-in [:settings :submitted] draft)
                (assoc-in [:settings :submit-error] nil))
-       :fx [[:http {:method     :put
-                    :url        "/user"
-                    :body       {:user (cond-> (select-keys draft [:image :username :bio :email])
-                                         (seq (:password draft))
-                                         (assoc :password (:password draft)))}
-                    :on-success [:settings/submit-success]
-                    :on-error   [:settings/submit-error]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :put
+                          :path       "/user"
+                          :body       {:user (cond-> (select-keys draft [:image :username :bio :email])
+                                               (seq (:password draft))
+                                               (assoc :password (:password draft)))}
+                          :decode     schema/UserResponse
+                          :on-success [:settings/submit-success]
+                          :on-failure [:settings/submit-error]})]]})))
 
 (rf/reg-event-fx :settings/submit-success
-  (fn [{:keys [db]} [_ resp]]
-    (let [user (:user resp)]
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [user (:user value)]
       {:db (assoc db :settings (settings-slice user))
        :fx [[:dispatch [:auth/store-session user]]
             [:dispatch [:rf.route/navigate :route/profile {:username (:username user)}]]]})))
 
 (rf/reg-event-db :settings/submit-error
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:settings :status] :idle)
         (assoc-in [:settings :submit-error]
-                  (or (some-> err :errors :body first)
-                      (:message err)
-                      "Couldn't save settings.")))))
+                  (rh/failure->message failure)))))
 
 (rf/reg-sub :settings/draft
   (fn [db _] (get-in db [:settings :draft])))

@@ -1,26 +1,23 @@
 (ns realworld.settings-test
   "Headless test for realworld.settings — settings save propagates new
-   user data into the auth slice. Extracted from realworld/settings.cljs
-   under rf2-4v73."
+   user data into the auth slice. Retrofitted under rf2-o8t6 to use
+   Spec 014's `:rf.http/managed` substrate via the framework-shipped
+   canned-stub fxs."
   (:require [re-frame.core :as rf]
-            [realworld.settings])
+            [realworld.settings]
+            [realworld.test-helpers :as th])
   (:require-macros [re-frame.views-macros :refer [with-frame]]))
 
 (defn settings-test []
-  (rf/reg-fx :http.canned-settings-save
-    {:platforms #{:client :server}}
-    (fn [{:keys [frame]} {:keys [on-success]}]
-      (when on-success
-        (rf/dispatch
-          (conj on-success {:user {:email "alice@example.com"
-                                   :token "jwt-2"
-                                   :username "alice"
-                                   :bio "New bio"
-                                   :image nil}})
-          {:frame frame}))))
+  (th/reg-canned-success! :rf.http/managed.canned-settings-save
+                          {:user {:email "alice@example.com"
+                                  :token "jwt-2"
+                                  :username "alice"
+                                  :bio "New bio"
+                                  :image nil}})
 
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:http :http.canned-settings-save}})]
+                                 :fx-overrides {:rf.http/managed :rf.http/managed.canned-settings-save}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"
                                             :username "alice"

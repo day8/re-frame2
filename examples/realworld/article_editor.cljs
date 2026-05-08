@@ -8,8 +8,8 @@
    - ordinary HTTP effects for create / update / delete"
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -62,30 +62,35 @@
     (assoc db :editor (editor-slice))))
 
 (rf/reg-event-fx :editor/load-article
+  {:doc "Load an existing article into the editor in :edit mode.
+         data-fetch retry policy applies (Spec 014)."
+   :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
     (let [slug (get-in db [:route :params :slug])]
       {:db (-> db
                (assoc :editor (assoc (editor-slice :edit slug blank-draft)
                                      :status :loading)))
-       :fx [[:http {:method     :get
-                    :url        (str "/articles/" slug)
-                    :on-success [:editor/loaded]
-                    :on-error   [:editor/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       (str "/articles/" slug)
+                          :decode     schema/ArticleResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id [:editor/load-article slug]
+                          :on-success [:editor/loaded]
+                          :on-failure [:editor/load-failed]})]]})))
 
 (rf/reg-event-db :editor/loaded
-  (fn [db [_ resp]]
-    (let [article  (:article resp)
-          draft    (draft-from-article article)]
+  (fn [db [_ {:keys [value]}]]
+    (let [article (:article value)
+          draft   (draft-from-article article)]
       (assoc db :editor (editor-slice :edit (:slug article) draft)))))
 
 (rf/reg-event-db :editor/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:editor :status] :error)
         (assoc-in [:editor :submit-error]
-                  (or (some-> err :errors :body first)
-                      (:message err)
-                      "Couldn't load article.")))))
+                  (rh/failure->message failure)))))
 
 (rf/reg-event-db :editor/edit-field
   (fn [db [_ field value]]
@@ -98,6 +103,10 @@
     (update-in db [:editor :touched] (fnil conj #{}) field)))
 
 (rf/reg-event-fx :editor/submit
+  {:doc "Save the article (POST for create, PUT for edit). NO retry — the
+         user's intent is one submission per click; surface errors so the
+         user can decide whether to retry (Spec 014)."
+   :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
     (let [{:keys [mode slug draft]} (:editor db)
           errors (validate-draft draft)]
@@ -110,39 +119,44 @@
                  (assoc-in [:editor :submitted] draft)
                  (assoc-in [:editor :errors] {})
                  (assoc-in [:editor :submit-error] nil))
-         :fx [[:http {:method     (if (= mode :edit) :put :post)
-                      :url        (if (= mode :edit)
-                                    (str "/articles/" slug)
-                                    "/articles")
-                      :body       (article-body draft)
-                      :on-success [:editor/submit-success]
-                      :on-error   [:editor/submit-error]}]]}))))
+         :fx [[:rf.http/managed
+               (rh/request {:method     (if (= mode :edit) :put :post)
+                            :path       (if (= mode :edit)
+                                          (str "/articles/" slug)
+                                          "/articles")
+                            :body       (article-body draft)
+                            :decode     schema/ArticleResponse
+                            :on-success [:editor/submit-success]
+                            :on-failure [:editor/submit-error]})]]}))))
 
 (rf/reg-event-fx :editor/submit-success
-  (fn [{:keys [db]} [_ resp]]
-    (let [article (:article resp)
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [article (:article value)
           draft   (draft-from-article article)]
       {:db (assoc db :editor (assoc (editor-slice :edit (:slug article) draft)
                                     :status :saved))
        :fx [[:dispatch [:rf.route/navigate :route/article {:slug (:slug article)}]]]})))
 
 (rf/reg-event-db :editor/submit-error
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:editor :status] :idle)
         (assoc-in [:editor :submit-error]
-                  (or (some-> err :errors :body first)
-                      (:message err)
-                      "Couldn't save article.")))))
+                  (rh/failure->message failure)))))
 
 (rf/reg-event-fx :editor/delete
+  {:doc "Delete the article. No retry — destructive action, one click."}
   (fn [{:keys [db]} _]
     (let [slug (get-in db [:editor :slug])]
       {:db (assoc-in db [:editor :status] :submitting)
-       :fx [[:http {:method     :delete
-                    :url        (str "/articles/" slug)
-                    :on-success [:editor/delete-success]
-                    :on-error   [:editor/delete-error]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :delete
+                          :path       (str "/articles/" slug)
+                          ;; The delete endpoint returns no body; :auto
+                          ;; handles 204/empty gracefully.
+                          :decode     :auto
+                          :on-success [:editor/delete-success]
+                          :on-failure [:editor/delete-error]})]]})))
 
 (rf/reg-event-fx :editor/delete-success
   (fn [{:keys [db]} _]
@@ -150,13 +164,11 @@
      :fx [[:dispatch [:rf.route/navigate :route/home]]]}))
 
 (rf/reg-event-db :editor/delete-error
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:editor :status] :idle)
         (assoc-in [:editor :submit-error]
-                  (or (some-> err :errors :body first)
-                      (:message err)
-                      "Couldn't delete article.")))))
+                  (rh/failure->message failure)))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

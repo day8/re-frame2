@@ -7,8 +7,8 @@
    - home-page tabs expressed as ordinary navigation events
    - view reuse across the home page and profile pages"
   (:require [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]
+            [realworld.schema :as schema]
+            [realworld.http :as rh]
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -36,38 +36,57 @@
 
 (rf/reg-event-fx :articles/load
   {:doc "Fetch the global articles list, optionally filtered by the route's
-         `?tag=` query parameter."}
+         `?tag=` query parameter. Uses :rf.http/managed (Spec 014) with
+         a Malli-decoded response and the standard data-fetch retry policy.
+         The request is tagged with `:request-id :articles/load` so a
+         re-issue (e.g., user changes tag mid-load) supersedes the prior
+         in-flight request and an `:articles/cancel` fx aborts cleanly."
+   :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
-    (let [tag      (get-in db [:route :query :tag])
-          url      (if tag
-                     (str "/articles?tag=" tag)
-                     "/articles")
+    (let [tag       (get-in db [:route :query :tag])
+          path      (if tag
+                      (str "/articles?tag=" tag)
+                      "/articles")
           has-data? (seq (get-in db [:articles :data]))]
       {:db (-> db
                (assoc-in [:articles :status] (if has-data? :fetching :loading))
                (assoc-in [:articles :error] nil)
                (update-in [:articles :attempt] (fnil inc 0)))
-       :fx [[:http {:method     :get
-                    :url        url
-                    :auth?      false
-                    :on-success [:articles/loaded]
-                    :on-error   [:articles/load-failed]}]]})))
+       :fx [[:rf.http/managed
+             (rh/request {:method     :get
+                          :path       path
+                          :auth?      false
+                          :decode     schema/ArticlesResponse
+                          :retry      rh/data-fetch-retry
+                          :request-id :articles/load
+                          :on-success [:articles/loaded]
+                          :on-failure [:articles/load-failed]})]]})))
 
 (rf/reg-event-db :articles/loaded
-  {:doc "Successful fetch. Replace the list and clear any prior error."}
-  (fn [db [_ resp]]
+  {:doc "Successful fetch. Replace the list and clear any prior error.
+         Receives `{:kind :success :value <ArticlesResponse>}` from
+         Spec 014's reply-addressing."}
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:articles :status] :loaded)
-        (assoc-in [:articles :data] (vec (:articles resp)))
+        (assoc-in [:articles :data] (vec (:articles value)))
         (assoc-in [:articles :error] nil)
         (assoc-in [:articles :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :articles/load-failed
-  {:doc "Failed fetch. Keep prior data when present and surface the error."}
-  (fn [db [_ err]]
+  {:doc "Failed fetch. Keep prior data when present and surface a
+         human-readable error message (projected from the Spec 014
+         failure map)."}
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:articles :status] :error)
-        (assoc-in [:articles :error] err))))
+        (assoc-in [:articles :error] (rh/failure->message failure)))))
+
+(rf/reg-event-fx :articles/cancel
+  {:doc "Abort an in-flight :articles/load. Useful when the user navigates
+         away from the home page mid-fetch (Spec 014 §Aborts)."}
+  (fn [_ _]
+    {:fx [[:rf.http/managed-abort :articles/load]]}))
 
 (rf/reg-event-db :articles/reset
   (fn [db _]
@@ -78,31 +97,37 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :tags/load
+  {:doc "Fetch the popular-tags list. Public endpoint; data-fetch retry."
+   :rf.http/decode-schemas [schema/TagsResponse]}
   (fn [{:keys [db]} _]
     {:db (-> db
              (assoc-in [:tags :status]
                        (if (seq (get-in db [:tags :data])) :fetching :loading))
              (assoc-in [:tags :error] nil)
              (update-in [:tags :attempt] (fnil inc 0)))
-     :fx [[:http {:method     :get
-                  :url        "/tags"
-                  :auth?      false
-                  :on-success [:tags/loaded]
-                  :on-error   [:tags/load-failed]}]]}))
+     :fx [[:rf.http/managed
+           (rh/request {:method     :get
+                        :path       "/tags"
+                        :auth?      false
+                        :decode     schema/TagsResponse
+                        :retry      rh/data-fetch-retry
+                        :request-id :tags/load
+                        :on-success [:tags/loaded]
+                        :on-failure [:tags/load-failed]})]]}))
 
 (rf/reg-event-db :tags/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:tags :status] :loaded)
-        (assoc-in [:tags :data] (vec (:tags resp)))
+        (assoc-in [:tags :data] (vec (:tags value)))
         (assoc-in [:tags :error] nil)
         (assoc-in [:tags :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :tags/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:tags :status] :error)
-        (assoc-in [:tags :error] err))))
+        (assoc-in [:tags :error] (rh/failure->message failure)))))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

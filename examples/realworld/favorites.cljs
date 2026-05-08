@@ -6,8 +6,8 @@
    Pattern-RemoteData slice so the home page can switch between feeds
    without throwing away already-loaded global articles."
   (:require [re-frame.core :as rf]
-            [realworld.schema]
-            [realworld.http]))
+            [realworld.schema :as schema]
+            [realworld.http :as rh]))
 
 (defn current-time-ms [] (.getTime (js/Date.)))
 
@@ -55,35 +55,53 @@
     (assoc db :feed (request-slice))))
 
 (rf/reg-event-fx :feed/load
+  {:doc "Fetch the authenticated user's feed. Tagged with
+         `:request-id :feed/load` so :feed/cancel can abort an in-flight
+         load when the user navigates away (Spec 014 §Aborts)."
+   :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
     {:db (-> db
              (assoc-in [:feed :status]
                        (if (seq (get-in db [:feed :data])) :fetching :loading))
              (assoc-in [:feed :error] nil)
              (update-in [:feed :attempt] (fnil inc 0)))
-     :fx [[:http {:method     :get
-                  :url        "/articles/feed"
-                  :on-success [:feed/loaded]
-                  :on-error   [:feed/load-failed]}]]}))
+     :fx [[:rf.http/managed
+           (rh/request {:method     :get
+                        :path       "/articles/feed"
+                        :decode     schema/ArticlesResponse
+                        :retry      rh/data-fetch-retry
+                        :request-id :feed/load
+                        :on-success [:feed/loaded]
+                        :on-failure [:feed/load-failed]})]]}))
+
+(rf/reg-event-fx :feed/cancel
+  {:doc "Abort an in-flight :feed/load. Useful when the user navigates
+         away mid-load (Spec 014 §Aborts)."}
+  (fn [_ _]
+    {:fx [[:rf.http/managed-abort :feed/load]]}))
 
 (rf/reg-event-db :feed/loaded
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:feed :status] :loaded)
-        (assoc-in [:feed :data] (vec (:articles resp)))
+        (assoc-in [:feed :data] (vec (:articles value)))
         (assoc-in [:feed :loaded-at] (current-time-ms)))))
 
 (rf/reg-event-db :feed/load-failed
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]
     (-> db
         (assoc-in [:feed :status] :error)
-        (assoc-in [:feed :error] err))))
+        (assoc-in [:feed :error] (rh/failure->message failure)))))
 
 ;; ============================================================================
 ;; FAVORITES
 ;; ============================================================================
 
 (rf/reg-event-fx :article/toggle-favorite
+  {:doc "Optimistically flip the favorited flag and bump the count, then
+         POST or DELETE the favorite. On failure the prior state is
+         restored (rollback)."
+   :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} [_ slug]]
     (if-let [article (find-article db slug)]
       (let [prior {:favorited      (:favorited article)
@@ -95,15 +113,17 @@
         {:db (patch-article-everywhere db slug
                                        #(assoc % :favorited (not favorited?)
                                                  :favoritesCount next-count))
-         :fx [[:http {:method     (if favorited? :delete :post)
-                      :url        (str "/articles/" slug "/favorite")
-                      :on-success [:article/favorite-synced slug]
-                      :on-error   [:article/favorite-rollback slug prior]}]]})
+         :fx [[:rf.http/managed
+               (rh/request {:method     (if favorited? :delete :post)
+                            :path       (str "/articles/" slug "/favorite")
+                            :decode     schema/ArticleResponse
+                            :on-success [:article/favorite-synced slug]
+                            :on-failure [:article/favorite-rollback slug prior]})]]})
       {})))
 
 (rf/reg-event-db :article/favorite-synced
-  (fn [db [_ slug resp]]
-    (if-let [article (:article resp)]
+  (fn [db [_ slug {:keys [value]}]]
+    (if-let [article (:article value)]
       (patch-article-everywhere db slug
                                 (fn [_]
                                   (select-keys article
@@ -113,7 +133,7 @@
       db)))
 
 (rf/reg-event-db :article/favorite-rollback
-  (fn [db [_ slug {:keys [favorited favoritesCount]}]]
+  (fn [db [_ slug {:keys [favorited favoritesCount]} _failure-payload]]
     (patch-article-everywhere db slug
                               #(assoc % :favorited favorited
                                         :favoritesCount favoritesCount))))
