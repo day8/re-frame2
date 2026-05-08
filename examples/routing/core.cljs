@@ -60,79 +60,62 @@
 ;; LINK VIEW
 ;; ============================================================================
 
-(def route-link
-  (reg-view :rf/route-link
-    (fn render-route-link [{:keys [to params]} & children]
-      (let [d   (rf/dispatcher)
-            url (rf/route-url to (or params {}))]
-        [:a {:href     url
-             :on-click (fn [e]
-                         (when (and (zero? (.-button e))
-                                    (not (.-metaKey e))
-                                    (not (.-ctrlKey e))
-                                    (not (.-shiftKey e)))
-                           (.preventDefault e)
-                           (d [:rf/url-requested
-                               {:url url :to to :params (or params {})}])))}
-         (into [:span] children)]))))
+(reg-view route-link [{:keys [to params]} & children]
+  (let [url (rf/route-url to (or params {}))]
+    [:a {:href     url
+         :on-click (fn [e]
+                     (when (and (zero? (.-button e))
+                                (not (.-metaKey e))
+                                (not (.-ctrlKey e))
+                                (not (.-shiftKey e)))
+                       (.preventDefault e)
+                       (dispatch [:rf/url-requested
+                                  {:url url :to to :params (or params {})}])))}
+     (into [:span] children)]))
 
 ;; ============================================================================
 ;; PAGES
 ;; ============================================================================
 
-(def home-page
-  (reg-view :pages/home
-    (fn render-home []
+(reg-view home-page []
+  [:div
+   [:h1 "Welcome"]
+   [:p [route-link {:to :route/articles} "See the articles →"]]])
+
+(reg-view articles-page []
+  [:div
+   [:h1 "Articles"]
+   [:ul
+    (for [{:keys [id title]} @(subscribe [:articles])]
+      ^{:key id}
+      [:li [route-link {:to :route/article-detail :params {:id id}} title]])]])
+
+(reg-view article-detail-page []
+  (let [id      (:id @(subscribe [:rf.route/params]))
+        article @(subscribe [:article-by-id id])]
+    (if article
       [:div
-       [:h1 "Welcome"]
-       [:p [route-link {:to :route/articles} "See the articles →"]]])))
+       [:h1 (:title article)]
+       [:p (:body article)]
+       [:p [route-link {:to :route/articles} "← Back"]]]
+      [:div
+       [:p "Article not found."]
+       [:p [route-link {:to :route/articles} "← Back"]]])))
 
-(def articles-page
-  (reg-view :pages/articles
-    (fn render-articles []
-      (let [s (rf/subscriber)]
-        [:div
-         [:h1 "Articles"]
-         [:ul
-          (for [{:keys [id title]} @(s [:articles])]
-            ^{:key id}
-            [:li [route-link {:to :route/article-detail :params {:id id}} title]])]]))))
+(reg-view not-found-page []
+  (let [url (:url @(subscribe [:rf.route/params]))]
+    [:div
+     [:h1 "Not found"]
+     [:p (str "No route matches: " url)]
+     [:p [route-link {:to :route/home} "Home"]]]))
 
-(def article-detail-page
-  (reg-view :pages/article-detail
-    (fn render-article-detail []
-      (let [s       (rf/subscriber)
-            id      (:id @(s [:rf.route/params]))
-            article @(s [:article-by-id id])]
-        (if article
-          [:div
-           [:h1 (:title article)]
-           [:p (:body article)]
-           [:p [route-link {:to :route/articles} "← Back"]]]
-          [:div
-           [:p "Article not found."]
-           [:p [route-link {:to :route/articles} "← Back"]]])))))
-
-(def not-found-page
-  (reg-view :pages/not-found
-    (fn render-not-found []
-      (let [s   (rf/subscriber)
-            url (:url @(s [:rf.route/params]))]
-        [:div
-         [:h1 "Not found"]
-         [:p (str "No route matches: " url)]
-         [:p [route-link {:to :route/home} "Home"]]]))))
-
-(def root-view
-  (reg-view :app/root
-    (fn render-root []
-      (let [s (rf/subscriber)]
-        (case @(s [:rf.route/id])
-          :route/home           [home-page]
-          :route/articles       [articles-page]
-          :route/article-detail [article-detail-page]
-          :rf.route/not-found   [not-found-page]
-          [not-found-page])))))
+(reg-view root-view []
+  (case @(subscribe [:rf.route/id])
+    :route/home           [home-page]
+    :route/articles       [articles-page]
+    :route/article-detail [article-detail-page]
+    :rf.route/not-found   [not-found-page]
+    [not-found-page]))
 
 ;; ============================================================================
 ;; ROUTER WIRING
@@ -172,10 +155,8 @@
 ;; MOUNT
 ;; ============================================================================
 
-;; The React root is named `react-root` (not `root`) so it does NOT
-;; collide with the local Var that `(reg-view :app/root ...)` defs:
-;; `(name :app/root)` is "root", and that latter `def` would otherwise
-;; overwrite the React root with the view fn.
+;; The React root is named `react-root`; `reg-view` defs `root-view`,
+;; which is what we render.
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 

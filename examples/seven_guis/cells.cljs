@@ -214,44 +214,38 @@
 ;; VIEW
 ;; ============================================================================
 
-(def cell-view
-  (reg-view :cells/cell
-    (fn render-cell [id]
-      (let [d          (rf/dispatcher)
-            s          (rf/subscriber)
-            editing-id @(s [:cells/editing-id])
-            editing?   (= editing-id id)
-            raw        @(s [:cells/raw   id])
-            value      @(s [:cells/value id])
-            display    (cond
-                         editing?                  raw
-                         (= value :error/parse)    "#PARSE"
-                         (= value :error/cycle)    "#CYCLE"
-                         (= value :error/eval)     "#EVAL"
-                         (= value :error/div-by-zero) "#DIV/0"
-                         :else                     (str value))]
-        [:td.cell {:on-click #(d [:cells/start-editing id])}
-         (if editing?
-           [:input {:type      "text"
-                    :auto-focus true
-                    :default-value raw
-                    :on-blur    #(d [:cells/commit id (.. % -target -value)])
-                    :on-key-down #(when (= "Enter" (.-key %))
-                                    (d [:cells/commit id (.. % -target -value)]))}]
-           display)]))))
+(reg-view cell-view [id]
+  (let [editing-id @(subscribe [:cells/editing-id])
+        editing?   (= editing-id id)
+        raw        @(subscribe [:cells/raw   id])
+        value      @(subscribe [:cells/value id])
+        display    (cond
+                     editing?                  raw
+                     (= value :error/parse)    "#PARSE"
+                     (= value :error/cycle)    "#CYCLE"
+                     (= value :error/eval)     "#EVAL"
+                     (= value :error/div-by-zero) "#DIV/0"
+                     :else                     (str value))]
+    [:td.cell {:on-click #(dispatch [:cells/start-editing id])}
+     (if editing?
+       [:input {:type      "text"
+                :auto-focus true
+                :default-value raw
+                :on-blur    #(dispatch [:cells/commit id (.. % -target -value)])
+                :on-key-down #(when (= "Enter" (.-key %))
+                                (dispatch [:cells/commit id (.. % -target -value)]))}]
+       display)]))
 
-(def cells-grid
-  (reg-view :cells/grid
-    (fn render-grid []
-      [:table.cells-grid
-       [:thead [:tr [:th] (for [c (range COLS)] ^{:key c} [:th (char (+ 65 c))])]]
-       [:tbody
-        (for [r (range 1 (inc ROWS))]
-          ^{:key r}
-          [:tr [:th r]
-           (for [c (range COLS)]
-             ^{:key c}
-             [cell-view (cell-id c r)])])]])))
+(reg-view cells-grid []
+  [:table.cells-grid
+   [:thead [:tr [:th] (for [c (range COLS)] ^{:key c} [:th (char (+ 65 c))])]]
+   [:tbody
+    (for [r (range 1 (inc ROWS))]
+      ^{:key r}
+      [:tr [:th r]
+       (for [c (range COLS)]
+         ^{:key c}
+         [cell-view (cell-id c r)])])]])
 
 ;; ============================================================================
 ;; HEADLESS TESTS

@@ -111,30 +111,27 @@
 ;; LINK VIEW
 ;; ============================================================================
 
-(def route-link
-  (reg-view :rf/route-link
-    {:doc "Anchor helper for the RealWorld example. Uses the runtime's
-           `:rf/url-requested` event so modifier-key and browser-navigation
-           semantics stay on the framework path."}
-    (fn render-route-link [{:keys [to params query fragment class]} & children]
-      (let [d        (rf/dispatcher)
-            base-url (rf/route-url to (or params {}) (or query {}))
-            url      (str base-url (when fragment (str "#" fragment)))]
-        [:a {:href     url
-             :class    class
-             :on-click (fn [e]
-                         (when (and (zero? (.-button e))
-                                    (not (.-metaKey e))
-                                    (not (.-ctrlKey e))
-                                    (not (.-shiftKey e)))
-                           (.preventDefault e)
-                           (d [:rf/url-requested
-                               {:url url
-                                :to to
-                                :params params
-                                :query query
-                                :fragment fragment}])))}
-         (into [:<>] children)]))))
+(reg-view ^{:doc "Anchor helper for the RealWorld example. Uses the runtime's
+                   `:rf/url-requested` event so modifier-key and browser-navigation
+                   semantics stay on the framework path."}
+          route-link [{:keys [to params query fragment class]} & children]
+  (let [base-url (rf/route-url to (or params {}) (or query {}))
+        url      (str base-url (when fragment (str "#" fragment)))]
+    [:a {:href     url
+         :class    class
+         :on-click (fn [e]
+                     (when (and (zero? (.-button e))
+                                (not (.-metaKey e))
+                                (not (.-ctrlKey e))
+                                (not (.-shiftKey e)))
+                       (.preventDefault e)
+                       (dispatch [:rf/url-requested
+                                  {:url url
+                                   :to to
+                                   :params params
+                                   :query query
+                                   :fragment fragment}])))}
+     (into [:<>] children)]))
 
 ;; ============================================================================
 ;; ROUTER WIRING

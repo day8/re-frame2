@@ -259,77 +259,69 @@
 ;; VIEWS
 ;; ============================================================================
 
-(def login-page
-  (reg-view :pages/login
-    {:doc "Login page."}
-    (fn render-login []
-      (let [d           (rf/dispatcher)
-            s           (rf/subscriber)
-            draft       @(s [:auth.login-form/draft])
-            submitting? @(s [:auth/submitting?])
-            err         @(s [:auth/error])]
-        [:div.auth-page
-         [:h1 "Sign in"]
-         [routing/route-link {:to :route/register} "Need an account?"]
-         (when err [:ul.error-messages [:li err]])
-         [:form
-          {:on-submit (fn [e]
-                        (.preventDefault e)
-                        (d [:auth.login-form/submit]))}
-          [:fieldset
-           [:fieldset.form-group
-            [:input {:type        "email"
-                     :placeholder "Email"
-                     :value       (:email draft)
-                     :disabled    submitting?
-                     :on-change   #(d [:auth.login-form/edit-field :email (.. % -target -value)])}]]
-           [:fieldset.form-group
-            [:input {:type        "password"
-                     :placeholder "Password"
-                     :value       (:password draft)
-                     :disabled    submitting?
-                     :on-change   #(d [:auth.login-form/edit-field :password (.. % -target -value)])}]]
-           [:button {:type "submit" :disabled submitting?}
-            (if submitting? "Signing in…" "Sign in")]]]]))))
+(reg-view ^{:doc "Login page."}
+          login-page []
+  (let [draft       @(subscribe [:auth.login-form/draft])
+        submitting? @(subscribe [:auth/submitting?])
+        err         @(subscribe [:auth/error])]
+    [:div.auth-page
+     [:h1 "Sign in"]
+     [routing/route-link {:to :route/register} "Need an account?"]
+     (when err [:ul.error-messages [:li err]])
+     [:form
+      {:on-submit (fn [e]
+                    (.preventDefault e)
+                    (dispatch [:auth.login-form/submit]))}
+      [:fieldset
+       [:fieldset.form-group
+        [:input {:type        "email"
+                 :placeholder "Email"
+                 :value       (:email draft)
+                 :disabled    submitting?
+                 :on-change   #(dispatch [:auth.login-form/edit-field :email (.. % -target -value)])}]]
+       [:fieldset.form-group
+        [:input {:type        "password"
+                 :placeholder "Password"
+                 :value       (:password draft)
+                 :disabled    submitting?
+                 :on-change   #(dispatch [:auth.login-form/edit-field :password (.. % -target -value)])}]]
+       [:button {:type "submit" :disabled submitting?}
+        (if submitting? "Signing in…" "Sign in")]]]]))
 
-(def register-page
-  (reg-view :pages/register
-    {:doc "Register page."}
-    (fn render-register []
-      (let [d           (rf/dispatcher)
-            s           (rf/subscriber)
-            draft       @(s [:auth.register-form/draft])
-            submitting? @(s [:auth/submitting?])
-            err         @(s [:auth/error])]
-        [:div.auth-page
-         [:h1 "Sign up"]
-         [routing/route-link {:to :route/login} "Have an account?"]
-         (when err [:ul.error-messages [:li err]])
-         [:form
-          {:on-submit (fn [e]
-                        (.preventDefault e)
-                        (d [:auth.register-form/submit]))}
-          [:fieldset
-           [:fieldset.form-group
-            [:input {:type        "text"
-                     :placeholder "Username"
-                     :value       (:username draft)
-                     :disabled    submitting?
-                     :on-change   #(d [:auth.register-form/edit-field :username (.. % -target -value)])}]]
-           [:fieldset.form-group
-            [:input {:type        "email"
-                     :placeholder "Email"
-                     :value       (:email draft)
-                     :disabled    submitting?
-                     :on-change   #(d [:auth.register-form/edit-field :email (.. % -target -value)])}]]
-           [:fieldset.form-group
-            [:input {:type        "password"
-                     :placeholder "Password"
-                     :value       (:password draft)
-                     :disabled    submitting?
-                     :on-change   #(d [:auth.register-form/edit-field :password (.. % -target -value)])}]]
-           [:button {:type "submit" :disabled submitting?}
-            (if submitting? "Signing up…" "Sign up")]]]]))))
+(reg-view ^{:doc "Register page."}
+          register-page []
+  (let [draft       @(subscribe [:auth.register-form/draft])
+        submitting? @(subscribe [:auth/submitting?])
+        err         @(subscribe [:auth/error])]
+    [:div.auth-page
+     [:h1 "Sign up"]
+     [routing/route-link {:to :route/login} "Have an account?"]
+     (when err [:ul.error-messages [:li err]])
+     [:form
+      {:on-submit (fn [e]
+                    (.preventDefault e)
+                    (dispatch [:auth.register-form/submit]))}
+      [:fieldset
+       [:fieldset.form-group
+        [:input {:type        "text"
+                 :placeholder "Username"
+                 :value       (:username draft)
+                 :disabled    submitting?
+                 :on-change   #(dispatch [:auth.register-form/edit-field :username (.. % -target -value)])}]]
+       [:fieldset.form-group
+        [:input {:type        "email"
+                 :placeholder "Email"
+                 :value       (:email draft)
+                 :disabled    submitting?
+                 :on-change   #(dispatch [:auth.register-form/edit-field :email (.. % -target -value)])}]]
+       [:fieldset.form-group
+        [:input {:type        "password"
+                 :placeholder "Password"
+                 :value       (:password draft)
+                 :disabled    submitting?
+                 :on-change   #(dispatch [:auth.register-form/edit-field :password (.. % -target -value)])}]]
+       [:button {:type "submit" :disabled submitting?}
+        (if submitting? "Signing up…" "Sign up")]]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

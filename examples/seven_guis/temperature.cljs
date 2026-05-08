@@ -120,23 +120,19 @@
 ;; VIEW
 ;; ============================================================================
 
-(def temperature-converter
-  (reg-view :temp/converter
-    {:doc "Two-input temperature converter."}
-    (fn render-temp-converter []
-      (let [d      (rf/dispatcher)
-            s      (rf/subscriber)
-            c-text @(s [:temp/celsius-text])
-            f-text @(s [:temp/fahrenheit-text])]
-        [:div.temperature
-         [:input {:type      "text"
-                  :value     (or c-text "")
-                  :on-change #(d [:temp/edit-celsius (.. % -target -value)])}]
-         [:label " °C  =  "]
-         [:input {:type      "text"
-                  :value     (or f-text "")
-                  :on-change #(d [:temp/edit-fahrenheit (.. % -target -value)])}]
-         [:label " °F"]]))))
+(reg-view ^{:doc "Two-input temperature converter."}
+          temperature-converter []
+  (let [c-text @(subscribe [:temp/celsius-text])
+        f-text @(subscribe [:temp/fahrenheit-text])]
+    [:div.temperature
+     [:input {:type      "text"
+              :value     (or c-text "")
+              :on-change #(dispatch [:temp/edit-celsius (.. % -target -value)])}]
+     [:label " °C  =  "]
+     [:input {:type      "text"
+              :value     (or f-text "")
+              :on-change #(dispatch [:temp/edit-fahrenheit (.. % -target -value)])}]
+     [:label " °F"]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

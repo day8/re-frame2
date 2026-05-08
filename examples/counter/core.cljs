@@ -37,32 +37,26 @@
 
 ;; -- Views -------------------------------------------------------------------
 ;;
-;; The `:counter-buttons` view holds the UI. Its body uses the injected
-;; `dispatch`/`subscribe` which resolve, at render time, to whichever frame
-;; the surrounding React context puts in scope.
+;; The `:counter-buttons` view holds the UI. Per Spec 004 §reg-view, the
+;; defn-shape macro auto-injects `dispatch` and `subscribe` as lexical
+;; bindings; both resolve at render time to the frame in scope (the
+;; default frame here, see the namespace docstring for the
+;; frame-provider variant parked behind rf2-kdwc).
+;;
+;; reg-view auto-defs a Var named after the supplied symbol and
+;; registers the view under (keyword *ns* sym).
 
-;; reg-view (the macro form from re-frame.views-macros) defs a local
-;; Var named after the keyword. The body's dispatch / subscribe both
-;; resolve through (current-frame) — bound by the enclosing
-;; frame-provider via React context.
+(reg-view counter-buttons []
+  [:div
+   [:button {:on-click #(dispatch [:counter/dec])} "-"]
+   [:span {:style {:margin "0 1em"}} @(subscribe [:count])]
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 
-(reg-view :counter-buttons
-  (fn []
-    (let [d (rf/dispatcher)
-          s (rf/subscriber)]
-      [:div
-       [:button {:on-click #(d [:counter/dec])} "-"]
-       [:span {:style {:margin "0 1em"}} @(s [:count])]
-       [:button {:on-click #(d [:counter/inc])} "+"]])))
+;; The root `counter-app` view renders `counter-buttons` against the
+;; default frame. Initialisation runs in `run` via `dispatch-sync`.
 
-;; The `:counter-app` view is the root — it just renders
-;; `:counter-buttons` against the default frame. Initialisation runs
-;; in `run` via `dispatch-sync`. (The earlier frame-provider variant
-;; is documented in the namespace docstring and parked behind rf2-kdwc.)
-
-(reg-view :counter-app
-  (fn []
-    [counter-buttons]))
+(reg-view counter-app []
+  [counter-buttons])
 
 ;; -- Mount -------------------------------------------------------------------
 
