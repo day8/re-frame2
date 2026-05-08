@@ -273,7 +273,8 @@ Conformance-corpus event/sub/view handler bodies are described as data so any ho
    [:tuple [:= :get]               [:vector :any]]                       ;; [:get path]               -- read; used in sub bodies / preds
    ;; --- event / cofx access ---
    [:tuple [:= :event-arg]         :int]                                 ;; [:event-arg N]            -- the Nth element of the event vector
-   [:tuple [:= :get-event-arg]     :int [:vector :any]]                  ;; [:get-event-arg N path]   -- (get-in (nth event N) path)
+   [:tuple [:= :get-event-arg]     :int :keyword]                        ;; [:get-event-arg N :key]            -- (get (nth event N) :key)
+   [:tuple [:= :get-event-arg]     :int :keyword :any]                   ;; [:get-event-arg N :key default]    -- key-access with default if missing/nil
    [:tuple [:= :cofx-without]      :keyword]                             ;; [:cofx-without :db]       -- assert :db absent (test fixture)
    ;; --- effects / dispatch ---
    [:tuple [:= :dispatch]          [:vector :any]]                       ;; [:dispatch [:event ...]]
@@ -299,7 +300,7 @@ The body of a fixture event handler / sub computation is a vector of these ops, 
 | `:merge-into-db` | event-db, event-fx | `(merge db m)` |
 | `:get` | sub, predicate | Read from current `db` — produces the sub's return value |
 | `:event-arg` | event, sub | Selects an event-vector argument by index |
-| `:get-event-arg` | event, sub | `(get-in (nth event N) path)` |
+| `:get-event-arg` | event, sub | `(get (nth event N) :key)` — single-key access into the Nth event arg; an optional 4th element is a default returned when the key is missing/nil |
 | `:cofx-without` | event-fx | Asserts a cofx key is absent — test fixture |
 | `:dispatch` | event-fx | Adds `[:dispatch event]` to the effect-map's `:fx` |
 | `:fx` | event-fx | Adds entries to the effect-map's `:fx` directly |
