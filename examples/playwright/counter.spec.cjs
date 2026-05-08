@@ -6,9 +6,10 @@
  * - Click '-' twice from 6: value becomes 4.
  *
  * This exercises:
- *   - frame-provider scoping (the :counter frame is created on mount and
- *     drives the subtree's dispatch / subscribe),
- *   - `:on-create` running on first render,
+ *   - reg-view frame-aware injection: dispatch / subscribe inside the
+ *     view body resolve to the surrounding frame (:rf/default here —
+ *     a frame-provider shell is parked behind rf2-kdwc),
+ *   - dispatch-sync seeding via :counter/initialise on mount,
  *   - dispatch round-trips re-rendering through the React substrate.
  */
 
