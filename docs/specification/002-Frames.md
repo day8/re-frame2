@@ -619,9 +619,12 @@ Implementation skeleton (Reagent flavour):
 ```clojure
 (defonce ^:private frame-context (js/React.createContext :rf/default))
 
-(defn frame-provider [{:keys [frame]} & children]
-  (into [:> (.-Provider frame-context) {:value frame}] children))
+(defn frame-provider [props & children]
+  (let [frame (or (:frame props) :rf/default)]
+    (into [:> (.-Provider frame-context) {:value frame}] children)))
 ```
+
+A missing or `nil` `:frame` falls through to `:rf/default` — matches the no-provider case (defensive default). An explicit `(rf/frame-provider {} ...)` is therefore equivalent to no provider at all; tooling-generated trees that elide the prop don't blow up.
 
 Other rendering substrates (UIx, Helix) use the same shape with their context primitive — adapter-style. Other-language ports realise this differently: a hooks-style `useFrame()` in TS, an explicit `Frame` parameter in Python, dependency injection in Kotlin. The *contract* — every view targets a specific frame — survives all of these; the *mechanism* is host-specific. See [000-Vision §The pattern](000-Vision.md#the-pattern-language-agnostic) and the View Ergonomics top-of-section banner above.
 
