@@ -130,6 +130,12 @@
 
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
+    ;; Per Spec 006 §Reference counting and disposal (rf2-s9dn): default
+    ;; disposal is deferred by a grace-period to bridge React re-render
+    ;; churn. For this synchronous-assertion test we set grace=0 so the
+    ;; slot disposes immediately — see sub_cache_test.clj for the
+    ;; deferred-dispose contract tests.
+    (rf/configure :sub-cache {:grace-period-ms 0})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
@@ -144,10 +150,13 @@
       (rf/unsubscribe [:n])
       (is (contains? @cache [:n]))
       (is (= 1 (get-in @cache [[:n] :ref-count])))
-      ;; Second unsubscribe drops to 0, slot evicted.
+      ;; Second unsubscribe drops to 0; with grace=0 the slot is evicted
+      ;; synchronously.
       (rf/unsubscribe [:n])
       (is (not (contains? @cache [:n]))
-          "cache slot is removed when ref-count reaches zero"))))
+          "cache slot is removed when ref-count reaches zero"))
+    ;; Restore the default for subsequent tests.
+    (rf/configure :sub-cache {:grace-period-ms 50})))
 
 (deftest flows-are-frame-scoped
   (testing "the same flow-id registered against two frames runs independently"

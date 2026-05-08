@@ -9,12 +9,24 @@
   Layer-3+: same shape as Layer-2 with deeper chains.
 
   The cache is per-frame, keyed by query-vector. Each entry holds:
-    {:value v :reaction r :inputs [...] :ref-count n :on-dispose [...]}
+    {:value v :reaction r :inputs [...] :ref-count n :on-dispose [...]
+     :pending-dispose <timer-handle-or-nil>}
 
   Invalidation runs as part of replace-container! — when app-db changes,
   the substrate adapter's reaction graph fires; layer-1 subs recompute
   if their reader's value changed by =, layer-2+ subs cascade
-  topologically."
+  topologically.
+
+  Disposal is **deferred ref-counting with a grace-period** (rf2-s9dn,
+  per Spec 006 §Reference counting and disposal). When the last subscriber
+  drops, the cache entry is scheduled for disposal after the configured
+  grace-period (default 50ms — see grace-period-ms / configure!). If a
+  new subscriber arrives within that window, disposal is cancelled and
+  the cached value is reused.
+
+  This is the only disposal algorithm — there are no pluggable lifecycle
+  policies. The v1 alpha namespace exposed `:safe`, `:no-cache`,
+  `:reactive`, and `:forever` lifecycles; v2 does not (rf2-7cb2 / rf2-s9dn)."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as adapter]
@@ -87,10 +99,45 @@
 
 (defn- cache-key
   "Per Spec 006 §Cache shape, the key is the query-vector itself.
-  v1 used a composite key with :re-frame/lifecycle for forward-compat;
-  v2 simplifies to the vector."
+  v2 has a single disposal algorithm (deferred ref-counting); the
+  v1-era composite-key / lifecycle-policy plumbing is removed
+  (rf2-7cb2 / rf2-s9dn)."
   [query-v]
   query-v)
+
+;; ---- grace-period configuration -------------------------------------------
+;;
+;; Per Spec 006 §Reference counting and disposal. When the last subscriber
+;; detaches, we don't dispose immediately — we wait grace-period-ms in case
+;; a new subscriber arrives (e.g. across a React re-render). The default
+;; is short enough not to leak under genuine disposal but long enough to
+;; bridge typical React render churn. Tests that want to assert on disposal
+;; configure a short or zero value via configure!.
+
+(def ^:private default-grace-period-ms 50)
+
+(defonce ^:private config
+  ;; Map shape so future :sub-cache configure-keys land additively.
+  (atom {:grace-period-ms default-grace-period-ms}))
+
+(defn configure!
+  "Update the sub-cache configuration. Currently supports
+  `{:grace-period-ms N}` — a non-negative integer (or 0 to dispose
+  synchronously when ref-count drops to zero). Per Spec 006."
+  [opts]
+  (when (map? opts)
+    (swap! config merge (select-keys opts [:grace-period-ms])))
+  nil)
+
+(defn current-config
+  "Return the current sub-cache configuration map. Public for tests
+  and tools that want to display the current grace-period."
+  []
+  @config)
+
+(defn- grace-period-ms
+  []
+  (or (:grace-period-ms @config) 0))
 
 (declare subscribe)
 
@@ -198,10 +245,11 @@
         cache (:sub-cache (frame/frame frame-id))
         k     (cache-key query-v)]
     (when cache
-      (swap! cache assoc k {:reaction      reaction
-                            :inputs        input-signals
-                            :ref-count     1
-                            :on-dispose    []})
+      (swap! cache assoc k {:reaction        reaction
+                            :inputs          input-signals
+                            :ref-count       1
+                            :on-dispose      []
+                            :pending-dispose nil})
       (interop/add-on-dispose! reaction
         (fn []
           (swap! cache (fn [m]
@@ -233,8 +281,20 @@
        (let [cache (:sub-cache frame-record)
              k     (cache-key query-v)]
          (if-let [entry (get @cache k)]
-           (do (swap! cache update-in [k :ref-count] (fnil inc 1))
-               (:reaction entry))
+           ;; Hit. If a deferred-dispose was pending (ref-count had dropped
+           ;; to zero), cancel it: a new subscriber arrived inside the
+           ;; grace-period window, so the cached value is reused. Per
+           ;; Spec 006 §Reference counting and disposal.
+           (let [pending (:pending-dispose entry)]
+             (when pending
+               (try (interop/clear-timeout! pending)
+                    (catch #?(:clj Throwable :cljs :default) _ nil)))
+             (swap! cache update k
+                    (fn [e]
+                      (-> e
+                          (update :ref-count (fnil inc 0))
+                          (assoc :pending-dispose nil))))
+             (:reaction entry))
            (compute-and-cache! frame-id query-v)))))))
 
 (declare unsubscribe)
@@ -290,10 +350,34 @@
           (catch #?(:clj Throwable :cljs :default) _
             nil))))))
 
+(defn- dispose-entry-now!
+  "Synchronous disposal: remove the cache slot for k iff its ref-count
+  is still <= 0 (no resubscribe arrived) and dispose the reaction.
+  Idempotent — a second call is a no-op because the slot is gone."
+  [cache k]
+  (let [reaction-to-dispose (atom nil)]
+    (swap! cache
+           (fn [m]
+             (if-let [entry (get m k)]
+               (if (<= (or (:ref-count entry) 0) 0)
+                 (do (reset! reaction-to-dispose (:reaction entry))
+                     (dissoc m k))
+                 ;; Resubscribe arrived between schedule and fire — keep entry.
+                 m)
+               m)))
+    (when-let [r @reaction-to-dispose]
+      (try (interop/dispose! r)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    nil))
+
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
-  When ref-count reaches 0, dispose the reaction and remove the
-  cache slot. Per Spec 006 §Reference counting and disposal.
+  When ref-count reaches 0, schedule the entry for disposal after the
+  configured grace-period (default 50ms; see configure!). If a new
+  subscriber arrives within the window, disposal is cancelled and the
+  cached value is reused. Per Spec 006 §Reference counting and disposal.
+
+  When grace-period is 0, disposal is synchronous — useful for tests.
 
   Reagent views auto-dispose via the reaction lifecycle and don't
   need to call this explicitly. Tests, REPL sessions, and tools that
@@ -302,20 +386,42 @@
   ([query-v] (unsubscribe (frame/current-frame) query-v))
   ([frame-id query-v]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (let [k                   (cache-key query-v)
-           reaction-to-dispose (atom nil)]
+     (let [k     (cache-key query-v)
+           grace (grace-period-ms)
+           dropped-to-zero? (atom false)]
        (swap! cache
               (fn [m]
                 (if-let [entry (get m k)]
                   (let [n (dec (or (:ref-count entry) 1))]
                     (if (<= n 0)
-                      (do (reset! reaction-to-dispose (:reaction entry))
-                          (dissoc m k))
+                      (do (reset! dropped-to-zero? true)
+                          (assoc m k (assoc entry :ref-count 0)))
                       (assoc-in m [k :ref-count] n)))
                   m)))
-       (when-let [r @reaction-to-dispose]
-         (try (interop/dispose! r)
-              (catch #?(:clj Throwable :cljs :default) _ nil)))
+       (when @dropped-to-zero?
+         (if (zero? grace)
+           ;; Grace = 0: dispose synchronously (the test/explicit-tear-down path).
+           (dispose-entry-now! cache k)
+           ;; Grace > 0: schedule deferred disposal. Stash the timer handle
+           ;; so a re-subscribe inside the window can cancel it.
+           (let [handle (interop/set-timeout!
+                          (fn []
+                            (dispose-entry-now! cache k))
+                          grace)]
+             (swap! cache
+                    (fn [m]
+                      (if-let [entry (get m k)]
+                        ;; Only stash the handle if ref-count is still 0 —
+                        ;; a subscriber may have arrived between our swap!
+                        ;; above and set-timeout! returning.
+                        (if (<= (or (:ref-count entry) 0) 0)
+                          (assoc m k (assoc entry :pending-dispose handle))
+                          (do (try (interop/clear-timeout! handle)
+                                   (catch #?(:clj Throwable :cljs :default) _ nil))
+                              m))
+                        (do (try (interop/clear-timeout! handle)
+                                 (catch #?(:clj Throwable :cljs :default) _ nil))
+                            m)))))))
        nil))))
 
 ;; ---- hot-reload invalidation ---------------------------------------------
@@ -331,15 +437,24 @@
   (when (= kind :sub)
     (doseq [frame-id (frame/frame-ids)]
       (when-let [cache (:sub-cache (frame/frame frame-id))]
-        (let [evictions (atom [])]
+        (let [evictions (atom [])
+              pending   (atom [])]
           (swap! cache
                  (fn [m]
                    (let [hit-keys (->> (keys m)
                                        (filter #(= id (first %))))]
                      (doseq [k hit-keys]
                        (when-let [r (get-in m [k :reaction])]
-                         (swap! evictions conj r)))
+                         (swap! evictions conj r))
+                       (when-let [h (get-in m [k :pending-dispose])]
+                         (swap! pending conj h)))
                      (apply dissoc m hit-keys))))
+          ;; Cancel any pending grace-period timers for the evicted slots —
+          ;; the reaction is being disposed now, so the deferred path
+          ;; would fire against a stale closure.
+          (doseq [h @pending]
+            (try (interop/clear-timeout! h)
+                 (catch #?(:clj Throwable :cljs :default) _ nil)))
           (doseq [r @evictions]
             (try (interop/dispose! r)
                  (catch #?(:clj Throwable :cljs :default) _ nil))))))))
@@ -349,11 +464,17 @@
       :installed))
 
 (defn clear-subscription-cache!
-  "Dispose every cached entry and clear the cache. Test fixtures use this."
+  "Dispose every cached entry and clear the cache. Test fixtures use this.
+  Cancels any pending grace-period timers before disposing — a deferred
+  disposal landing after this fn returned would close over a stale
+  reaction."
   ([] (clear-subscription-cache! :rf/default))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
      (doseq [[_k entry] @cache]
+       (when-let [h (:pending-dispose entry)]
+         (try (interop/clear-timeout! h)
+              (catch #?(:clj Throwable :cljs :default) _ nil)))
        (when-let [r (:reaction entry)]
          (try (interop/dispose! r)
               (catch #?(:clj Throwable :cljs :default) _ nil))))
