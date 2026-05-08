@@ -1,0 +1,129 @@
+(ns re-frame.hot-reload-cljs-test
+  "CLJS-side hot-reload coverage for Spec 001 §Hot-reload semantics.
+
+  Three of the five contract guarantees are pinned on the JVM in
+  hot_reload_test.clj. Rule 4 — view re-registration causes mounted
+  views to re-render — is Reagent-side and lives here.
+
+  The node-test runner has no DOM, so we don't mount through React.
+  Instead we exercise the contract at the layer the substrate cares
+  about: registry lookup of the wrapped render fn. After re-register,
+  re-frame.core/get-view (the lookup the substrate's render-cycle uses
+  to resolve a view by id) returns the new render fn — the next render
+  cycle invokes that, which is exactly what Reagent does on a mounted
+  view when the captured render fn changes via hot-reload.
+
+  A render-counter atom (mutated inside each render-fn body) makes the
+  observation crisp: pre-rereg renders bump the v1 counter; post-rereg
+  renders bump the v2 counter.
+
+  Fixture note: runtime_cljs_test installs a `reset-runtime` fixture
+  that calls `registrar/clear-all!`. We deliberately do NOT do that
+  here — clearing the registrar in this file's fixture would wipe
+  example apps (notably nine-states.core) whose registrations land at
+  namespace-load time and CANNOT be re-loaded under CLJS. Each test
+  uses unique keywords so cross-test interference inside this file is
+  impossible without a global wipe."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.substrate.adapter :as adapter]
+            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.views])
+  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+
+(defn ensure-adapter [test-fn]
+  ;; Don't wipe the registrar — see fixture note above. Just make sure
+  ;; the Reagent adapter is installed so reg-view's wrapping fns work.
+  (when-not (adapter/current-adapter)
+    (rf/init! reagent-adapter/adapter))
+  (test-fn))
+
+(use-fixtures :each ensure-adapter)
+
+;; ---- (4) :view re-register flips the next render to the new body --------
+
+(deftest view-re-register-causes-rerender
+  (testing "after re-registering a view, the next render uses the new body"
+    (let [v1-renders (atom 0)
+          v2-renders (atom 0)
+          ;; v1 of :rf.hot-reload-test/widget — a render fn that bumps the v1 counter and
+          ;; returns a hiccup tree tagged :v1.
+          v1-fn (fn [n]
+                  (swap! v1-renders inc)
+                  [:span.v1 "v1-" n])
+          v2-fn (fn [n]
+                  (swap! v2-renders inc)
+                  [:strong.v2 "v2-" n])]
+      ;; Use the function form (rf/reg-view) — it's the JVM-and-CLJS-shared
+      ;; surface. The macro form (re-frame.views-macros/reg-view) also
+      ;; works, but for hot-reload mechanics what matters is that the
+      ;; registrar's :view slot gets replaced.
+      (rf/reg-view :rf.hot-reload-test/widget v1-fn)
+      (let [render-v1 (rf/get-view :rf.hot-reload-test/widget)]
+        ;; First render uses v1.
+        (is (= [:span.v1 "v1-" 7] (render-v1 7))
+            "v1 render fn produces v1 hiccup")
+        (is (= 1 @v1-renders) "v1 was rendered once")
+        (is (= 0 @v2-renders) "v2 has not rendered")
+        ;; Re-register :rf.hot-reload-test/widget with v2 body.
+        (rf/reg-view :rf.hot-reload-test/widget v2-fn)
+        ;; The registry's :view slot now resolves to v2's wrapped fn.
+        ;; Reagent's render cycle re-resolves the head on each render
+        ;; (the captured Var or the get-view return), so the next render
+        ;; uses v2.
+        (let [render-v2 (rf/get-view :rf.hot-reload-test/widget)]
+          (is (= [:strong.v2 "v2-" 7] (render-v2 7))
+              "post-rereg lookup returns v2's render fn")
+          (is (= 1 @v1-renders)
+              "v1 was NOT re-invoked by the post-rereg render")
+          (is (= 1 @v2-renders)
+              "v2 was rendered once")
+          ;; Render again to confirm the new body sticks.
+          (render-v2 9)
+          (is (= 2 @v2-renders) "v2 keeps being the active render fn")))))
+
+  (testing "subscribed observer atom — proves the render BODY changed,
+            not just the wrapper, by routing observation through the
+            registered render fn rather than the captured Var"
+    (let [observed (atom nil)]
+      (rf/reg-view :rf.hot-reload-test/probe
+        (fn []
+          (reset! observed :body-v1)
+          [:p "v1"]))
+      ;; Simulate the substrate's render cycle: resolve via get-view
+      ;; (this is what re-frame.views/get-view does and what the h macro
+      ;; rewrites to) and invoke. After the call, observed reflects v1.
+      ((rf/get-view :rf.hot-reload-test/probe))
+      (is (= :body-v1 @observed))
+      ;; Re-register with a DIFFERENT body.
+      (rf/reg-view :rf.hot-reload-test/probe
+        (fn []
+          (reset! observed :body-v2)
+          [:p "v2"]))
+      ;; Next "render" — fresh registry resolution — runs v2.
+      ((rf/get-view :rf.hot-reload-test/probe))
+      (is (= :body-v2 @observed)
+          "after re-registration, the next render mutates observed to v2"))))
+
+(deftest view-re-register-via-macro-also-flips
+  (testing "the reg-view MACRO path also installs the new render fn into
+            the registry — verifying the contract holds for both surfaces"
+    ;; The macro auto-defs a local Var with the keyword's name. The
+    ;; underlying registration goes through re-frame.views/reg-view*,
+    ;; which calls registrar/register! with the wrapped fn. Hot-reload
+    ;; semantics ride on the registrar swap, so the macro form must
+    ;; respect the contract too.
+    (let [observed (atom nil)]
+      (reg-view :rf.hot-reload-test/banner
+        (fn [t]
+          (reset! observed [:m1 t])
+          [:h1.m1 t]))
+      ((rf/get-view :rf.hot-reload-test/banner) "hello")
+      (is (= [:m1 "hello"] @observed))
+      (reg-view :rf.hot-reload-test/banner
+        (fn [t]
+          (reset! observed [:m2 t])
+          [:h2.m2 t]))
+      ((rf/get-view :rf.hot-reload-test/banner) "world")
+      (is (= [:m2 "world"] @observed)
+          "post-rereg lookup invokes the new macro-installed body"))))
