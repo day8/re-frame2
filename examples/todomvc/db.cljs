@@ -8,18 +8,19 @@
 (def ls-key "todos-reframe2")
 
 (defn- normalise-todo [{:keys [id title completed]}]
-  {:id        (int id)
-   :title     (str title)
-   :completed (boolean completed)})
+  (when-let [id' (try (int id) (catch :default _ nil))]
+    {:id        id'
+     :title     (str title)
+     :completed (boolean completed)}))
 
 (defn- storage->todos [raw]
   (if-not (seq raw)
     (sorted-map)
     (try
       (into (sorted-map)
-            (map (fn [todo]
-                   (let [todo' (normalise-todo todo)]
-                     [(:id todo') todo'])))
+            (comp (map normalise-todo)
+                  (remove nil?)
+                  (map (fn [todo] [(:id todo) todo])))
             (js->clj (js/JSON.parse raw) :keywordize-keys true))
       (catch :default _
         (sorted-map)))))
