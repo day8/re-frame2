@@ -43,7 +43,11 @@
     :schemas/validate-cofx!      re-frame.schemas/validate-cofx!
     :schemas/validate-sub-return! re-frame.schemas/validate-sub-return!
     :subs/subscribe-value     re-frame.subs/subscribe-value
-    :ssr/render-tree-hash     re-frame.ssr/render-tree-hash"}
+    :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
+    :epoch/settle!            re-frame.epoch/settle!
+    :epoch/discard-buffer!    re-frame.epoch/discard-buffer!
+    :epoch/in-flight-buffer   re-frame.epoch/in-flight-buffer
+    :epoch/capture-event      re-frame.epoch/capture-event!"}
   hooks
   (atom {}))
 

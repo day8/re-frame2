@@ -189,13 +189,25 @@
 
   When the depth limit is hit, emit :rf.error/drain-depth-exceeded with
   :depth, :queue-size, and :last-event tags, then halt (the remaining
-  queued events are discarded)."
+  queued events are discarded).
+
+  Per Tool-Pair §Time-travel: every drain-settle (queue empty) appends
+  an `:rf/epoch-record` to the frame's epoch history. Atomic — partial
+  drains (e.g. depth-exceeded) discard the in-flight capture buffer
+  rather than commit a misleading record. The settle! / discard-buffer!
+  hooks are looked up through late-bind so this namespace stays free of
+  a require on re-frame.epoch."
   [frame-id]
   (let [frame-record (frame/frame frame-id)]
     (when frame-record
       (let [router       (:router frame-record)
             drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)
-            last-event-a (atom nil)]
+            last-event-a (atom nil)
+            ;; Per Tool-Pair §Time-travel: snapshot `:db-before` at the
+            ;; instant the drain begins so the eventual `:rf/epoch-record`
+            ;; can carry the pre-cascade state regardless of how many
+            ;; intermediate handlers commit `:db`.
+            db-before    (frame/frame-app-db-value frame-id)]
         (swap! router assoc :in-drain? true)
         (try
           (loop [depth 0]
@@ -208,12 +220,24 @@
                                     :queue-size (count queue)
                                     :last-event @last-event-a
                                     :recovery   :no-recovery})
-                (swap! router assoc :queue interop/empty-queue :scheduled? false))
+                (swap! router assoc :queue interop/empty-queue :scheduled? false)
+                ;; Per Tool-Pair §Time-travel: a depth-exceeded drain is
+                ;; a *partial* drain — discard the in-flight capture
+                ;; buffer rather than emit a misleading epoch record.
+                (when-let [discard! (late-bind/get-fn :epoch/discard-buffer!)]
+                  (discard! frame-id)))
 
               :else
               (let [{:keys [queue]} @router]
                 (if (empty? queue)
-                  (swap! router assoc :scheduled? false)
+                  (do
+                    (swap! router assoc :scheduled? false)
+                    ;; Drain settle: queue is empty after at least one
+                    ;; processed event. Commit the epoch record.
+                    (when (pos? depth)
+                      (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+                        (let [db-after (frame/frame-app-db-value frame-id)]
+                          (settle! frame-id db-before db-after)))))
                   (let [envelope (peek queue)]
                     (reset! last-event-a (:event envelope))
                     (swap! router update :queue pop)

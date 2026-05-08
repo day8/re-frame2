@@ -21,6 +21,7 @@
             [re-frame.machines :as machines]
             [re-frame.routing :as routing]
             [re-frame.trace :as trace]
+            [re-frame.epoch :as epoch]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -241,6 +242,34 @@
 (def register-trace-cb! trace/register-trace-cb!)
 (def remove-trace-cb!   trace/remove-trace-cb!)
 (def emit-trace!        trace/emit!)
+
+;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
+;;
+;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb`. Every
+;; drain-settle records an `:rf/epoch-record` per frame. The history is
+;; queryable; the listener API mirrors register-trace-cb!; restore-epoch
+;; rewinds the frame's app-db to a recorded epoch's `:db-after`.
+;;
+;; All elided in production via `interop/debug-enabled?`.
+
+(def epoch-history     epoch/epoch-history)
+(def restore-epoch     epoch/restore-epoch)
+(def register-epoch-cb epoch/register-epoch-cb!)
+(def remove-epoch-cb   epoch/remove-epoch-cb!)
+
+(defn configure
+  "Configure a runtime knob. Closed v1 keys (additive across versions
+  per Spec-ulation):
+
+    :epoch-history {:depth N}    — set the per-frame epoch ring depth
+                                    (default 50). 0 disables recording.
+
+  Per Tool-Pair §How AI tools attach. Future keys (e.g. :trace-buffer
+  per rf2-smee, :performance-api per Spec 009) will land additively."
+  [knob opts]
+  (case knob
+    :epoch-history (epoch/configure! opts)
+    nil))
 
 ;; ---- substrate adapter ----------------------------------------------------
 
