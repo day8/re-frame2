@@ -545,6 +545,78 @@
 
 ;; ---- standard handlers ----------------------------------------------------
 
+;; ---- scroll-restoration helpers -------------------------------------------
+;;
+;; Per Spec 012 §Scroll restoration: the runtime captures scroll positions
+;; per URL on every navigation so a later :restore strategy can re-apply
+;; them. The capture itself only makes sense on the client (DOM); on the
+;; JVM the map stays empty. We expose a small helper API so the CLJS fx
+;; implementation can populate it on every navigation, and so tests can
+;; seed values without poking the atom directly.
+
+(defonce ^:private saved-scroll-positions
+  ;; URL (string) → [x y]
+  (atom {}))
+
+(defn save-scroll-position!
+  "Record the current scroll position for a URL. Called by the CLJS host
+  on outgoing navigations so a future :restore can recover [x y]."
+  [url xy]
+  (swap! saved-scroll-positions assoc url xy))
+
+(defn lookup-scroll-position
+  "Return the saved [x y] for url, or nil if none."
+  [url]
+  (get @saved-scroll-positions url))
+
+(defn clear-scroll-positions!
+  "Test-time helper: reset the saved-position map."
+  []
+  (reset! saved-scroll-positions {}))
+
+(defn- route-descriptor
+  "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
+  :from / :to args from a :route slice (or nil if no slice yet)."
+  [route-slice]
+  (when (and route-slice (:id route-slice))
+    (cond-> {:id (:id route-slice)}
+      (seq (:params route-slice)) (assoc :params (:params route-slice))
+      (seq (:query route-slice))  (assoc :query  (:query route-slice)))))
+
+(defn- resolve-scroll-strategy
+  "Per Spec 012 §Scroll restoration, resolution order:
+    1. opts' :scroll (per-call override)
+    2. route metadata's :scroll
+    3. implicit default (caller-supplied — :top for forward, :restore
+       for popstate / initial)
+  Returns the resolved strategy, or ::suppress when the resolved value
+  is `false` (which means: do not emit the fx)."
+  [route-meta opts default]
+  (let [from-opts (when (and (map? opts) (contains? opts :scroll))
+                    (:scroll opts))
+        from-meta (:scroll route-meta)]
+    (cond
+      ;; per-call override wins; explicit `false` suppresses
+      (some? from-opts) (if (false? from-opts) ::suppress from-opts)
+      (false? from-meta) ::suppress
+      (some? from-meta) from-meta
+      :else             default)))
+
+(defn- scroll-fx-entry
+  "Build the [:rf.nav/scroll args] fx entry for a navigation, or nil
+  when the resolved strategy is ::suppress (no fx emission).
+
+  Per Spec 012 §Scroll restoration §`:rf.nav/scroll` integration the args
+  shape is {:strategy :from :to :saved-pos :fragment}."
+  [{:keys [strategy from to saved-pos fragment]}]
+  (when (not= ::suppress strategy)
+    [:rf.nav/scroll
+     (cond-> {:strategy strategy}
+       from      (assoc :from      from)
+       to        (assoc :to        to)
+       saved-pos (assoc :saved-pos saved-pos)
+       fragment  (assoc :fragment  fragment))]))
+
 (events/reg-event-fx :rf.route/navigate
   (fn [{:keys [db]} [_ target params opts]]
     (let [{:keys [route-id path-params query-params]}
@@ -565,7 +637,21 @@
           push-fx (if (:replace? opts)
                     [:rf.nav/replace-url url]
                     [:rf.nav/push-url    url])
-          on-match-vec (vec (or (:on-match route-meta) []))]
+          on-match-vec (vec (or (:on-match route-meta) []))
+          ;; Per Spec 012 §Scroll restoration: forward navigation defaults
+          ;; to :top. Resolve the strategy from opts → route-meta → default.
+          fragment    (:fragment opts)
+          to-route    (cond-> {:id route-id}
+                        (seq path-params)  (assoc :params path-params)
+                        (seq query-params) (assoc :query  query-params))
+          strategy    (resolve-scroll-strategy route-meta opts :top)
+          scroll-fx   (scroll-fx-entry
+                        {:strategy  strategy
+                         :from      (route-descriptor (:route db))
+                         :to        to-route
+                         :saved-pos (when (= :restore strategy)
+                                      (lookup-scroll-position url))
+                         :fragment  fragment})]
       {:db (assoc db :route
                   {:id         route-id
                    :params     path-params
@@ -573,7 +659,8 @@
                    :transition (if (seq on-match-vec) :loading :idle)
                    :error      nil})
        :fx (vec (concat [push-fx]
-                        (mapv (fn [ev] [:dispatch ev]) on-match-vec)))})))
+                        (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                        (when scroll-fx [scroll-fx])))})))
 
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns
@@ -597,11 +684,13 @@
 (defn reset-counters!
   "Reset the nav-token / pending-nav / route-registration counters to
   zero. Test-time helper so allocated ids are stable across fixture
-  runs."
+  runs. Also clears the saved-scroll-positions map per Spec 012
+  §Scroll restoration."
   []
   (reset! nav-token-counter 0)
   (reset! pending-nav-counter 0)
-  (reset! reg-counter 0))
+  (reset! reg-counter 0)
+  (reset! saved-scroll-positions {}))
 
 ;; ---- :rf/url-requested + can-leave gating + pending-nav protocol ----------
 ;;
@@ -710,7 +799,22 @@
         (some? m)
         (let [route-meta   (registrar/lookup :route (:route-id m))
               on-match-vec (vec (or (:on-match route-meta) []))
-              token        (alloc-nav-token)]
+              token        (alloc-nav-token)
+              ;; Per Spec 012 §Scroll restoration: a URL-driven navigation
+              ;; emits :rf.nav/scroll. URL changes from clicked links /
+              ;; programmatic pushes are forward-style (default :top); the
+              ;; route metadata's :scroll wins when declared.
+              to-route     (cond-> {:id (:route-id m)}
+                             (seq (:params m)) (assoc :params (:params m))
+                             (seq (:query m))  (assoc :query  (:query m)))
+              strategy     (resolve-scroll-strategy route-meta nil :top)
+              scroll-fx    (scroll-fx-entry
+                             {:strategy  strategy
+                              :from      (route-descriptor prev)
+                              :to        to-route
+                              :saved-pos (when (= :restore strategy)
+                                           (lookup-scroll-position url))
+                              :fragment  fragment})]
           (trace/emit! :event :route.nav-token/allocated
                        {:route-id  (:route-id m)
                         :nav-token token})
@@ -722,7 +826,8 @@
                        :transition :idle
                        :error      nil
                        :nav-token  token})
-           :fx (vec (mapv (fn [ev] [:dispatch ev]) on-match-vec))})
+           :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                            (when scroll-fx [scroll-fx])))})
 
         :else
         (do (trace/emit-error! :rf.error/no-such-handler
@@ -731,7 +836,8 @@
 
 (events/reg-event-fx :rf.route/handle-url-change
   (fn [{:keys [db]} [_ url]]
-    (let [m (match-url url)]
+    (let [[path-q fragment] (split-fragment url)
+          m                 (match-url path-q)]
       (when (nil? m)
         ;; Unmatched URL — fixture corpus calls this :rf.error/no-such-handler
         ;; in the routing context. The default error projector maps it to a
@@ -739,18 +845,32 @@
         (trace/emit-error! :rf.error/no-such-handler
                            {:url url
                             :recovery :replaced-with-default}))
-      (let [route-id   (or (:route-id m) :rf.route/not-found)
-            params     (or (:params m) {:url url})
-            query      (or (:query m) {})
-            route-meta (registrar/lookup :route route-id)
-            on-match-vec (vec (or (:on-match route-meta) []))]
+      (let [route-id     (or (:route-id m) :rf.route/not-found)
+            params       (or (:params m) {:url url})
+            query        (or (:query m) {})
+            route-meta   (registrar/lookup :route route-id)
+            on-match-vec (vec (or (:on-match route-meta) []))
+            ;; Per Spec 012 §Scroll restoration: popstate / initial / SSR
+            ;; navigations default to :restore — the saved position trumps.
+            to-route     (cond-> {:id route-id}
+                           (seq params) (assoc :params params)
+                           (seq query)  (assoc :query  query))
+            strategy     (resolve-scroll-strategy route-meta nil :restore)
+            scroll-fx    (scroll-fx-entry
+                           {:strategy  strategy
+                            :from      (route-descriptor (:route db))
+                            :to        to-route
+                            :saved-pos (when (= :restore strategy)
+                                         (lookup-scroll-position url))
+                            :fragment  fragment})]
         {:db (assoc db :route
                     {:id         route-id
                      :params     params
                      :query      query
                      :transition (if (seq on-match-vec) :loading :idle)
                      :error      nil})
-         :fx (vec (mapv (fn [ev] [:dispatch ev]) on-match-vec))}))))
+         :fx (vec (concat (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                          (when scroll-fx [scroll-fx])))}))))
 
 ;; ---- standard navigation fx ----------------------------------------------
 
@@ -769,6 +889,31 @@
     #?(:cljs (.replaceState js/window.history nil "" url)
        :clj  (trace/emit! :fx :rf.fx/skipped-on-platform
                           {:fx-id :rf.nav/replace-url :url url}))))
+
+(fx/reg-fx :rf.nav/scroll
+  {:platforms #{:client}
+   :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
+:to :saved-pos :fragment}. Standard strategies are :top, :restore,
+:preserve. Map-form strategies are host-extensible; the runtime treats
+unknown strategies as :preserve (no-op)."}
+  (fn [_ {:keys [strategy saved-pos fragment]}]
+    #?(:cljs
+       (case strategy
+         :top      (if-let [el (and fragment
+                                    (.getElementById js/document fragment))]
+                     (.scrollIntoView el)
+                     (.scrollTo js/window 0 0))
+         :restore  (when (and saved-pos (sequential? saved-pos))
+                     (.scrollTo js/window
+                                (first saved-pos)
+                                (second saved-pos)))
+         :preserve nil
+         ;; map-form / unknown → host-extensible; default no-op so the
+         ;; runtime doesn't blow up on a strategy it doesn't recognise.
+         nil)
+       :clj
+       (trace/emit! :fx :rf.fx/skipped-on-platform
+                    {:fx-id :rf.nav/scroll :strategy strategy}))))
 
 ;; ---- subs over the slice --------------------------------------------------
 ;; Will be picked up by re-frame.subs/reg-sub when this ns loads.
