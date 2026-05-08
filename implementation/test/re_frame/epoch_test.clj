@@ -502,6 +502,72 @@
       (is (= :error (:outcome ent)))
       (is (some? (:error-trace ent))))))
 
+(deftest effects-projection-records-success
+  (testing ":effects captures :ok outcomes for successful user fx (rf2-rrgq)"
+    (rf/reg-frame :test/main {})
+    (let [calls (atom 0)]
+      (rf/reg-fx :tally-fx (fn [_ args] (swap! calls + args)))
+      (rf/reg-event-fx :run
+        (fn [_ _] {:fx [[:tally-fx 5]]}))
+
+      (rf/dispatch-sync [:run] {:frame :test/main})
+
+      (is (= 5 @calls) "the fx ran")
+      (let [r       (last (rf/epoch-history :test/main))
+            effects (:effects r)
+            ent     (some #(when (= :tally-fx (:fx-id %)) %) effects)]
+        (is (some? ent) ":tally-fx surfaces in :effects on success")
+        (is (= :ok (:outcome ent)))
+        (is (= 5   (:args ent)))
+        (is (not (contains? ent :error-trace))
+            ":ok entries don't carry :error-trace")))))
+
+(deftest effects-projection-records-reserved-fx-success
+  (testing ":effects captures :ok outcomes for reserved fx-ids (:dispatch)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed   (fn [_ _]   {:n 0}))
+    (rf/reg-event-db :inc    (fn [db _]  (update db :n inc)))
+    (rf/reg-event-fx :outer
+      (fn [_ _] {:fx [[:dispatch [:inc]]
+                      [:dispatch [:inc]]]}))
+
+    (rf/dispatch-sync [:seed]  {:frame :test/main})
+    (rf/dispatch-sync [:outer] {:frame :test/main})
+
+    (let [r       (last (rf/epoch-history :test/main))
+          effects (:effects r)
+          dispatches (filterv #(= :dispatch (:fx-id %)) effects)]
+      (is (= 2 (count dispatches))
+          "two :dispatch fx → two :effects entries")
+      (is (every? #(= :ok (:outcome %)) dispatches)))))
+
+(deftest effects-projection-one-entry-per-fx
+  (testing "an epoch with N dispatched fx produces N :effects entries (rf2-rrgq)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-fx :ok-fx       (fn [_ _] :ok))
+    (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
+    (rf/reg-fx :client-only {:platforms #{:client}}
+               (fn [_ _] :nope))
+    (rf/reg-event-fx :run
+      (fn [_ _] {:fx [[:ok-fx       :a]
+                      [:throwing-fx :b]
+                      [:no/such-fx  :c]
+                      [:client-only :d]
+                      [:ok-fx       :e]]}))
+
+    (rf/dispatch-sync [:run] {:frame :test/main})
+
+    (let [r       (last (rf/epoch-history :test/main))
+          effects (:effects r)]
+      (is (= 5 (count effects))
+          "five dispatched fx → five projection entries, no double-count")
+      (is (= [:ok :error :error :skipped-on-platform :ok]
+             (mapv :outcome effects))
+          "outcomes preserved in dispatch order")
+      (is (= [:ok-fx :throwing-fx :no/such-fx :client-only :ok-fx]
+             (mapv :fx-id effects))
+          "fx-ids preserved in dispatch order"))))
+
 ;; ---- partial-drain semantics -----------------------------------------------
 
 (deftest depth-exceeded-discards-buffer
