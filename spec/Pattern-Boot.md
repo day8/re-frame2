@@ -46,7 +46,7 @@ For trivial boots (one or two steps, no error states, no progress UI), a state m
   (fn [db _] (assoc db :app/booted? true)))
 ```
 
-Each step is a Pattern-AsyncEffect interaction. The frame's `:on-create` fires `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame-is-atomic)), the chain runs to completion, the UI renders.
+Each step is a Pattern-AsyncEffect interaction. The frame's `:on-create` fires `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), the chain runs to completion, the UI renders.
 
 Use this form when the boot graph is **3 steps or fewer**, has **no error states**, and the UI does **not** show per-phase progress.
 
@@ -293,8 +293,8 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 
 ## Cross-references
 
-- [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame-is-atomic) — `:on-create` is the canonical entry point for boot.
+- [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) — `:on-create` is the canonical entry point for boot.
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:invoke` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
-- [examples/login/core.cljs](../../examples/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.
+- [examples/login/core.cljs](../examples/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.

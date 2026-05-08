@@ -1,6 +1,6 @@
 # RealWorld (Conduit) in re-frame2
 
-The canonical re-frame2 demo for **Spec 014 — `:rf.http/managed`** (per [rf2-kauy](../../docs/EPs/re-frame2/) and rf2-o8t6). Built on the [RealWorld spec](https://github.com/gothinkster/realworld), the de-facto cross-framework benchmark for SPA frameworks.
+The canonical re-frame2 demo for **Spec 014 — `:rf.http/managed`** (per rf2-kauy and rf2-o8t6). Built on the [RealWorld spec](https://github.com/gothinkster/realworld), the de-facto cross-framework benchmark for SPA frameworks.
 
 The goal here is breadth: show how the current re-frame2 surface composes across auth, routing, remote data, forms, machines, optimistic updates, and SSR-related payload concerns — all on top of `:rf.http/managed` for HTTP.
 

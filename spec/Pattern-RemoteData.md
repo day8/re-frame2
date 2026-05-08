@@ -264,10 +264,10 @@ Per [011-SSR.md](011-SSR.md):
 - [004-Views.md §Loading state is explicit, not implicit](004-Views.md#loading-state-is-explicit-not-implicit) — why re-frame2 surfaces loading state as data rather than via Suspense-style implicit suspension; this pattern is the canonical exemplar.
 - [011-SSR.md](011-SSR.md) — SSR-side fetch handling and `:platforms` metadata
 - [009-Instrumentation.md §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/fx-handler-exception` for failed fetches
-- [examples/login/core.cljs](../../examples/login/core.cljs) — the login feature uses a simplified version of this lifecycle
+- [examples/login/core.cljs](../examples/login/core.cljs) — the login feature uses a simplified version of this lifecycle
 - [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that composes this lifecycle into `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many`.
-- [examples/nine_states/](../../examples/nine_states/) — worked example exercising all five status states + data-shape variations (Empty / One / Some / Too Many).
-- [examples/realworld/articles.cljs](../../examples/realworld/articles.cljs) — the RealWorld (Conduit) article-list page is the canonical full-shape exercise: standard 5-key slice, four lifecycle events, convenience subs, route `:on-match` integration, headless tests covering load + revalidate + failure.
+- [examples/nine_states/](../examples/nine_states/) — worked example exercising all five status states + data-shape variations (Empty / One / Some / Too Many).
+- [examples/realworld/articles.cljs](../examples/realworld/articles.cljs) — the RealWorld (Conduit) article-list page is the canonical full-shape exercise: standard 5-key slice, four lifecycle events, convenience subs, route `:on-match` integration, headless tests covering load + revalidate + failure.
 
 ## Conformance checklist
 

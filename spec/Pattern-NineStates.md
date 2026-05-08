@@ -244,8 +244,8 @@ or from an explicit domain slot:
 
 The canonical worked example is:
 
-- [examples/nine_states/core.cljs](../../examples/nine_states/core.cljs)
-- [examples/nine_states/README.md](../../examples/nine_states/README.md)
+- [examples/nine_states/core.cljs](../examples/nine_states/core.cljs)
+- [examples/nine_states/README.md](../examples/nine_states/README.md)
 
 It demonstrates:
 
@@ -287,7 +287,7 @@ The point is not numerology. The point is to make the **important** UI states ex
 - [Pattern-Forms.md](Pattern-Forms.md) — validation and submission lifecycle behind states 7-8
 - [005-StateMachines.md](005-StateMachines.md) — terminal/frozen state behind state 9
 - [004-Views.md](004-Views.md#loading-state-is-explicit-not-implicit) — explicit-state view philosophy this pattern exemplifies
-- [examples/nine_states/README.md](../../examples/nine_states/README.md) — worked example
+- [examples/nine_states/README.md](../examples/nine_states/README.md) — worked example
 
 ## Conformance checklist
 
