@@ -1,7 +1,7 @@
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
          org.clojure/clojurescript {:mvn/version "1.11.132"}
-         reagent/reagent           {:mvn/version "1.2.0"}
+         reagent/reagent           {:mvn/version "2.0.1"}
          metosin/malli             {:mvn/version "0.13.0"}}
 
  :aliases
