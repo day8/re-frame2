@@ -242,6 +242,23 @@
               meta  (get fx-registry id {})
               handler (conformance/realise-fx-handler id body adapter-helpers)]
           (rf/reg-fx id (assoc meta :handler-fn handler) handler))))
+    ;; flow registrations — per Spec 013, flows are registered on the
+    ;; current frame with positional :output fns. The fixture corpus
+    ;; declares flow shape under :fixture/registry :flow (with :inputs /
+    ;; :path / :doc) and the body DSL under :fixture/flow-bodies
+    ;; (a parallel {flow-id [steps]} map). The harness realises each
+    ;; body into a positional output fn and calls reg-flow.
+    ;;
+    ;; Dynamic flow registration via :rf.fx/reg-flow is handled in the
+    ;; conformance DSL interpreter (see resolve-fx-args in conformance.cljc).
+    (let [flow-registry (get-in fixture [:fixture/registry :flow] {})
+          flow-bodies   (or (:fixture/flow-bodies fixture) {})]
+      (doseq [[flow-id flow-meta] flow-registry]
+        (when-let [body (get flow-bodies flow-id)]
+          (let [output-fn (conformance/realise-flow-output-fn body)]
+            (rf/reg-flow (-> flow-meta
+                             (assoc :id flow-id)
+                             (assoc :output output-fn)))))))
     ;; route registrations
     (doseq [[id meta] (get handlers-map :route)]
       (rf/reg-route id meta))

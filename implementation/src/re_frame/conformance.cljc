@@ -162,6 +162,57 @@
 
     :else (resolve-value form ctx)))
 
+;; ---- flow-body realisation -----------------------------------------------
+;;
+;; Per Spec 013, a flow's :output is a positional fn — `(fn [in1 in2 ...] ...)`.
+;; The conformance corpus describes flow bodies as DSL (e.g. `[[:fn :* [:event-arg 0] [:event-arg 1]]]`)
+;; so the same fixture is portable across implementations. The harness
+;; realises the body into a real fn whose positional args bind to
+;; `[:event-arg n]` references inside the DSL.
+;;
+;; This is the same evaluation shape as `eval-value*` (eager :fn application)
+;; lifted over a vector of body steps; the LAST step's resolved value is the
+;; output. Every step is evaluated for its side-effect-free value; non-final
+;; steps' values are discarded (matches the fixture corpus, where bodies are
+;; one-step expressions).
+
+(defn realise-flow-output-fn
+  "DSL body steps → flow :output fn taking positional inputs.
+
+  Each `[:event-arg n]` in the body resolves to the n-th positional input.
+  Returns a fn `(fn [& inputs] ...)` ready for `reg-flow`'s :output slot."
+  [steps]
+  (fn [& inputs]
+    (let [ctx       {:event (vec inputs) :db nil}
+          last-step (last steps)]
+      (cond
+        ;; Terminal :fn step — eager apply (mirrors eval-value*).
+        (and (vector? last-step) (= :fn (first last-step)))
+        (let [[_ k & extra-args] last-step
+              f         (builtin k)
+              resolved  (mapv #(resolve-value % ctx) extra-args)]
+          (apply f resolved))
+
+        :else
+        (resolve-value last-step ctx)))))
+
+(defn- resolve-fx-args
+  "Resolve fx args, leaving DSL fields that the conformance harness owns
+  alone. `:rf.fx/reg-flow`'s `:body` is itself a DSL body — it must NOT
+  be walked through resolve-value (which would treat `[:fn :k ...]` as
+  a value form and partially-apply it). Pull `:body` aside, resolve the
+  rest of the map normally, then realise `:body` into `:output`."
+  [fx-id args ctx]
+  (case fx-id
+    :rf.fx/reg-flow
+    (if (and (map? args) (contains? args :body))
+      (let [body          (:body args)
+            other-resolved (resolve-value (dissoc args :body) ctx)]
+        (assoc other-resolved :output (realise-flow-output-fn body)))
+      (resolve-value args ctx))
+
+    (resolve-value args ctx)))
+
 ;; ---- event-db / event-fx interpreter -------------------------------------
 
 (defn- apply-step
@@ -193,11 +244,16 @@
                  (cond
                    ;; Multi-form: [:fx [[fx-id args] ...]]
                    (and (vector? a) (every? vector? a))
-                   (assoc ctx :fx (into (or fx []) a))
+                   (assoc ctx :fx (into (or fx [])
+                                        (mapv (fn [[fx-id fx-args]]
+                                                [fx-id (resolve-fx-args fx-id fx-args ctx)])
+                                              a)))
 
                    ;; Single form: [:fx fx-id args]
                    :else
-                   (assoc ctx :fx (conj (or fx []) [a (resolve-value b ctx)]))))
+                   (assoc ctx :fx
+                          (conj (or fx [])
+                                [a (resolve-fx-args a b ctx)]))))
 
     :dispatch  (let [ev (resolve-value (second step) ctx)]
                  (assoc ctx :fx (conj (or fx []) [:dispatch ev])))
