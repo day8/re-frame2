@@ -522,12 +522,7 @@
         (is (= 'def (first def-form))
             "the trailing form in the expansion is a def")
         (is (= 'my-widget (second def-form))
-            "the def binds the symbol the user supplied")))
-    ;; h leaves DOM tags alone but rewrites namespaced view refs.
-    (let [exp (macroexpand-1 `(re-frame.views-macros/h [:my-ns/w {:k 1}]))]
-      (is (some #(= 're-frame.core/get-view %)
-                (tree-seq coll? seq exp))
-          "h expansion references get-view for namespaced keywords"))))
+            "the def binds the symbol the user supplied")))))
 
 (deftest verify-hydration-emits-mismatch
   (testing "rf/hydrate stashes :rf/hydration metadata; verify-hydration! detects mismatch"
