@@ -18,7 +18,7 @@
  * marker, so we locate them by row index + column index using nth().
  */
 
-const { expectVisible } = require('./_helpers.cjs');
+const { expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
 
 async function commitCell(page, row, col, value) {
   // row and col are zero-based, where row 0 is the header row in <thead>.

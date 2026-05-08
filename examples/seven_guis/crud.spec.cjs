@@ -16,7 +16,7 @@
  * size-6 multi-row <select> that backs the list.
  */
 
-const { expectVisible } = require('./_helpers.cjs');
+const { expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'crud (7guis #5)',

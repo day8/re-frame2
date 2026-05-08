@@ -12,7 +12,7 @@
  * 2 .article-preview cards on the home page.
  */
 
-const { expectVisible } = require('./_helpers.cjs');
+const { expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'realworld (Conduit)',
