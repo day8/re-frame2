@@ -22,7 +22,8 @@
    This example shows the canonical primitive pattern; productionising it is
    library work, not framework work."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -84,8 +85,8 @@
     (assoc db :drawer {:circles [] :dialog nil :undo [] :redo []})))
 
 (rf/reg-event-db :drawer/add-circle
-  {:doc          "Click on canvas. Adds a circle of default radius."
-   :interceptors [undoable]}
+  {:doc "Click on canvas. Adds a circle of default radius."}
+  [undoable]
   (fn handler-drawer-add-circle [db [_ x y]]
     (update-in db [:drawer :circles] conj
                {:id (random-uuid) :x x :y y :radius 30})))
@@ -108,11 +109,11 @@
     (assoc-in db [:drawer :dialog :draft-radius] new-radius)))
 
 (rf/reg-event-db :drawer/close-dialog
-  {:doc          "Dialog closed (committing the new radius). The :circles vector
-                  was untouched while the slider moved, so the undoable
-                  interceptor's prior-snapshot is exactly the pre-dialog state —
-                  the whole edit collapses into a single undo step."
-   :interceptors [undoable]}
+  {:doc "Dialog closed (committing the new radius). The :circles vector
+         was untouched while the slider moved, so the undoable
+         interceptor's prior-snapshot is exactly the pre-dialog state —
+         the whole edit collapses into a single undo step."}
+  [undoable]
   (fn handler-drawer-close-dialog [db _]
     (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db
@@ -220,8 +221,12 @@
 ;; MOUNT
 ;; ============================================================================
 
-(defonce root
+;; React root named `react-root` (not `root`) so it does NOT collide
+;; with the `drawer-view` reg-view above.
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [drawer-view]))
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:drawer/initialise])
+  (rdc/render react-root [drawer-view]))
