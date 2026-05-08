@@ -77,6 +77,7 @@ Patterns (worked-example conventions, not Specs):
 | Title | Type | One-liner |
 |---|---|---|
 | [Pattern — Async Effect](Pattern-AsyncEffect.md) | Pattern | The canonical six-step "register fx → return `:fx` → post work → async reply → dispatch → commit" shape every async-effecting feature follows. Foundational; specific patterns (RemoteData, WebSocket, Boot) cite it. |
+| [Pattern — Nine States of UI](Pattern-NineStates.md) | Pattern | Page-level convention for rendering blank / loading / cardinality / validation / success / terminal states explicitly by composing RemoteData, Forms, and machine/domain state. |
 | [Pattern — Remote Data](Pattern-RemoteData.md) | Pattern | Standard request-lifecycle slice + four standard events; SSR-friendly. The HTTP-specific case of Pattern-AsyncEffect. Convention, not Spec. |
 | [Pattern — Forms](Pattern-Forms.md) | Pattern | Standard form slice + seven standard events; per-field error display only on touched. Convention, not Spec. |
 | [Pattern — Stale Detection](Pattern-StaleDetection.md) | Pattern | The cross-cutting epoch idiom: capture, carry, check, suppress. Used by `:after` timers, navigation tokens, and any future async-shaped feature. |
@@ -88,7 +89,7 @@ Worked examples:
 
 | Title | Type | One-liner |
 |---|---|---|
-| [Worked examples](../../examples/) | Reference | The [7GUIs series](../../examples/7guis/README.md), a [login feature](../../examples/login/core.cljs), the [Nine States of UI](../../examples/nine-states/README.md) pedagogical exhaustive-states demo, and a [RealWorld (Conduit)](../../examples/realworld/README.md) cross-framework benchmark app. Demonstrates every construction prompt in working code. |
+| [Worked examples](../../examples/) | Reference | The [7GUIs series](../../examples/7guis/README.md), a [login feature](../../examples/login/core.cljs), the [Nine States of UI](../../examples/nine_states/README.md) pedagogical exhaustive-states demo, and a [RealWorld (Conduit)](../../examples/realworld/README.md) cross-framework benchmark app. Demonstrates every construction prompt in working code. |
 
 ## Reading paths
 
