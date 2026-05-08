@@ -1,0 +1,58 @@
+;; Conformance fixture: schemas/sub-return-validates
+;; Per Spec 010 §Validation order step 6 — a sub's return value is
+;; validated against its :spec AFTER each materialisation/recompute.
+;; Well-formed returns flow through to consumers; malformed returns
+;; emit :rf.error/schema-validation-failure with :where :sub-return.
+;; Default recovery is :replaced-with-default — the sub yields nil to
+;; its consumer (mirrors the per-step recovery for sub-exception in
+;; Spec 010 §Per-step recovery).
+;;
+;; This capability — :schemas/sub-return — is finer-grained than the
+;; baseline :schemas/runtime. Ports that have wired sub-return validation
+;; declare :schemas/sub-return alongside :schemas/runtime; ports that
+;; haven't are skipped on this fixture. The runtime gap is tracked as
+;; rf2-wcam.
+;;
+;; Dynamic-host only.
+
+{:fixture/id           :schemas/sub-return-validates
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/sub :core/error :schemas/runtime :schemas/sub-return}
+ :fixture/doc          "A reg-sub registered with a :spec validates the sub's return value after it computes. Well-formed returns reach the caller; malformed returns emit :rf.error/schema-validation-failure with :where :sub-return and the caller sees nil (default :replaced-with-default recovery)."
+ :fixture/dynamic-host-only? true
+
+ :fixture/registry
+ {:event {:items/init  {:doc "Seed a well-typed items vec."}
+          :items/break {:doc "Set :items to a value the sub will malform."}}
+  :sub   {:items
+          {:doc  "Layer-1 sub returning :items as-is."
+           :spec [:vector :string]}}}
+
+ :fixture/handlers
+ {:event {:items/init  [[:set [:items] ["a" "b" "c"]]]
+          :items/break [[:set [:items] [1 2 3]]]}
+  :sub   {:items [[:get [:items]]]}}
+
+ :fixture/frame-config {:on-create [:items/init]}
+
+ :fixture/dispatches
+ [[:items/break]]
+
+ :fixture/expect
+ ;; The :items slot in app-db holds whatever the handler wrote — the schema
+ ;; is on the SUB's return shape, not the slot. The sub's return is what's
+ ;; replaced with nil after validation fails.
+ {:final-app-db {:items [1 2 3]}
+
+  :sub-values   {[:items] nil}                 ;; :replaced-with-default
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :items/init}}
+   {:operation :event :tags {:event-id :items/break}}
+   {:operation :rf.error/schema-validation-failure
+    :op-type   :error
+    :tags      {:category   :rf.error/schema-validation-failure
+                :failing-id :items
+                :where      :sub-return
+                :sub-id     :items}
+    :recovery  :replaced-with-default}]}}
