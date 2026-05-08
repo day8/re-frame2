@@ -24,6 +24,10 @@
   - `:rf.http/managed` Spec 014 trace ops (`:rf.http/retry-attempt`,
     `:rf.warning/decode-defaulted`) — emitted only inside
     `(when interop/debug-enabled? ...)` branches.
+  - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch`,
+    `register-epoch-cb`, `remove-epoch-cb`, `configure :epoch-history`,
+    plus the `:rf.epoch/*` trace ops emitted by `settle!` and
+    `restore-epoch` (rf2-gox8 follow-up to rf2-shjf).
 
   Note the probe does NOT need to assert anything at runtime; it exists
   to root the dead-code-elimination graph at every surface. The grep
@@ -32,6 +36,7 @@
             [re-frame.registrar    :as registrar]
             [re-frame.schemas      :as schemas]
             [re-frame.trace        :as trace]
+            [re-frame.epoch        :as epoch]
             [re-frame.http-managed :as http-managed]))
 
 ;; ---- trace listener API ---------------------------------------------------
@@ -110,6 +115,55 @@
   ;; reachable; the probe doesn't actually issue a real request.
   (http-managed/clear-all-in-flight!))
 
+;; ---- Tool-Pair §Time-travel epoch surface (rf2-gox8) ----------------------
+
+(defn ^:export touch-epoch! []
+  ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb`, the
+  ;; epoch ns ships gated trace ops:
+  ;;
+  ;;   :rf.epoch/snapshotted              (settle! after drain-empty)
+  ;;   :rf.epoch/restored                 (restore-epoch happy path)
+  ;;   :rf.epoch/restore-during-drain     (failure mode 2)
+  ;;   :rf.epoch/restore-unknown-epoch    (failure mode 3)
+  ;;   :rf.epoch/restore-schema-mismatch  (failure mode 4)
+  ;;   :rf.epoch/restore-missing-handler  (failure mode 5)
+  ;;   :rf.epoch/restore-version-mismatch (failure mode 6)
+  ;;
+  ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
+  ;; (or guarded by an `if-not interop/debug-enabled?` early-return in
+  ;; restore-epoch) so under :advanced + goog.DEBUG=false the bodies
+  ;; DCE and the `:rf.epoch/*` string fragments must NOT appear in the
+  ;; production bundle.
+  ;;
+  ;; The probe roots the dependency graph for the epoch surface by:
+  ;;   1. requiring re-frame.epoch directly (forces the ns body — and
+  ;;      therefore every gated branch — into the bundle, where DCE can
+  ;;      then prove the bodies dead under goog.DEBUG=false);
+  ;;   2. referencing every public symbol surfaced via re-frame.core so
+  ;;      the listener / history / restore / configure entry points
+  ;;      stay live;
+  ;;   3. exercising the drain-settle path via the dispatch-sync calls
+  ;;      in touch-registrar! — the eventual queue-empty fires
+  ;;      `:rf.epoch/snapshotted` through trace/emit!, sourcing the
+  ;;      snapshotted sentinel.
+  (rf/configure :epoch-history {:depth 10})
+  (rf/register-epoch-cb ::probe-epoch (fn [_record] nil))
+  (let [_history (rf/epoch-history :rf/default)]
+    nil)
+  (rf/remove-epoch-cb ::probe-epoch)
+  ;; Drive a restore failure-mode emit site so the unknown-epoch
+  ;; sentinel has a path through a documented entry point. The
+  ;; remaining failure ops survive via their literal occurrence in
+  ;; the gated emit-restore-failure! call sites in re-frame.epoch.
+  (rf/restore-epoch :rf/default 999999)
+  ;; Reference epoch's lower-level entry points directly so the ns is
+  ;; not pruned even before DCE looks at the gated bodies.
+  (epoch/clear-history!)
+  (epoch/clear-frame-history! :rf/default)
+  (epoch/clear-epoch-cbs!)
+  (let [_cfg (epoch/current-config)]
+    nil))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -117,6 +171,7 @@
   (touch-schemas!)
   (touch-registrar!)
   (touch-http-managed!)
+  (touch-epoch!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
