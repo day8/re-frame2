@@ -23,7 +23,8 @@
 
    Kept as a single file here for brevity."
   (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf])
+            [re-frame.core :as rf]
+            [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -62,14 +63,34 @@
 ;; :http is server-and-client; the :platforms metadata gates SSR per [011].
 ;; :auth.session/store is client-only — localStorage is a browser API.
 
+;; The example demo runs against a canned in-process stub so it can be
+;; opened standalone (no backend required). Treat any login with a
+;; password matching :good-password as a success; anything else fails.
+;; The stub mirrors the shape a real :http effect would have.
+(def good-password "correct-horse")
+
 (rf/reg-fx :http
-  {:doc       "Issue an HTTP request. On completion, dispatch :on-success or :on-error."
+  {:doc       "Demo stub of an HTTP request. In a real app this would issue a fetch;
+               here we synthesise a canned response so the example is runnable
+               standalone."
    :platforms #{:server :client}}
-  (fn fx-http [m {:keys [method url body on-success on-error]}]
-    (let [frame-id (:frame m)]
-      (-> (perform-http-request method url body)
-          (.then  (fn [resp] (when on-success (rf/dispatch (conj on-success resp) {:frame frame-id}))))
-          (.catch (fn [err]  (when on-error  (rf/dispatch (conj on-error err)   {:frame frame-id}))))))))
+  (fn fx-http [{:keys [frame]} {:keys [body on-success on-error]}]
+    (let [success? (= good-password (:password body))]
+      ;; Simulate a small request latency so the :submitting state is
+      ;; observable in the UI before the response lands.
+      (js/setTimeout
+        (fn []
+          (cond
+            (and success? on-success)
+            (rf/dispatch (conj on-success {:user  {:id    (random-uuid)
+                                                   :email (:email body)}
+                                           :token "demo-token-123"})
+                         {:frame frame})
+
+            on-error
+            (rf/dispatch (conj on-error {:message "Invalid credentials."})
+                         {:frame frame})))
+        50))))
 
 (rf/reg-fx :auth.session/store
   {:doc       "Persist the session token in localStorage. Client only."
@@ -84,8 +105,9 @@
    :platforms #{:client :server}}
   (fn fx-http-canned-success [{:keys [frame]} {:keys [on-success]}]
     (when on-success
-      (rf/dispatch (conj on-success {:user {:id (random-uuid) :email "test@example.com"}
-                                     :token "test-token-123"}})
+      (rf/dispatch (conj on-success {:user  {:id    (random-uuid)
+                                             :email "test@example.com"}
+                                     :token "test-token-123"})
                    {:frame frame}))))
 
 ;; ============================================================================
@@ -304,8 +326,11 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
-(defonce root
+;; React root named `react-root` (not `root`) so it does NOT collide
+;; with the `root-view` reg-view above (rf2-562e).
+(defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rdc/render root [root-view]))
+  (rf/init! reagent-adapter/adapter)
+  (rdc/render react-root [root-view]))
