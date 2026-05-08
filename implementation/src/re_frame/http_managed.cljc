@@ -752,61 +752,71 @@
                         :internal-controller internal-controller})
            (.then (fn [{:keys [ok? status status-text headers body-text]}]
                     (let [ctx' (assoc ctx :url url)]
-                      (try
-                        (let [decoded (decode-response-body
-                                        {:body-text body-text
-                                         :headers   headers
-                                         :decode    decode
-                                         :decode-supplied? decode-supplied?
-                                         :request-id request-id
-                                         :url        url})]
-                          (cond
-                            (and (>= status 400) (< status 500))
-                            (maybe-retry! ctx'
-                                          (failure-map :rf.http/http-4xx
-                                                       {:status status
-                                                        :status-text status-text
-                                                        :body decoded
-                                                        :headers headers}))
+                      ;; Per Spec 014 §Failure categories: status classification
+                      ;; runs BEFORE decode. 4xx/5xx route to :rf.http/http-4xx /
+                      ;; :rf.http/http-5xx with the raw body-text — decode never
+                      ;; fires on a non-success response, so an HTML 404 from a
+                      ;; JSON endpoint classifies as :rf.http/http-4xx (not
+                      ;; :rf.http/decode-failure). Decode runs only on 2xx; if
+                      ;; that fails the failure category is :rf.http/decode-failure.
+                      (cond
+                        (and (>= status 400) (< status 500))
+                        (maybe-retry! ctx'
+                                      (failure-map :rf.http/http-4xx
+                                                   {:status status
+                                                    :status-text status-text
+                                                    :body body-text
+                                                    :headers headers}))
 
-                            (>= status 500)
-                            (maybe-retry! ctx'
-                                          (failure-map :rf.http/http-5xx
-                                                       {:status status
-                                                        :status-text status-text
-                                                        :body decoded
-                                                        :headers headers}))
+                        (>= status 500)
+                        (maybe-retry! ctx'
+                                      (failure-map :rf.http/http-5xx
+                                                   {:status status
+                                                    :status-text status-text
+                                                    :body body-text
+                                                    :headers headers}))
 
-                            ok?
-                            (let [accepted (run-accept accept decoded {:status status})]
-                              (cond
-                                (contains? accepted :ok)
-                                (finalise-success! ctx' accepted)
+                        ok?
+                        (try
+                          (let [decoded (decode-response-body
+                                          {:body-text body-text
+                                           :headers   headers
+                                           :decode    decode
+                                           :decode-supplied? decode-supplied?
+                                           :request-id request-id
+                                           :url        url})
+                                accepted (run-accept accept decoded {:status status})]
+                            (cond
+                              (contains? accepted :ok)
+                              (finalise-success! ctx' accepted)
 
-                                (contains? accepted :failure)
-                                (finalise-failure!
-                                  ctx'
-                                  (failure-map :rf.http/accept-failure
-                                               {:detail  (:failure accepted)
-                                                :decoded decoded
-                                                :request-id request-id}))))
+                              (contains? accepted :failure)
+                              (finalise-failure!
+                                ctx'
+                                (failure-map :rf.http/accept-failure
+                                             {:detail  (:failure accepted)
+                                              :decoded decoded
+                                              :request-id request-id}))))
+                          (catch :default e
+                            (let [d (ex-data e)]
+                              (maybe-retry!
+                                ctx'
+                                (failure-map :rf.http/decode-failure
+                                             {:body-text body-text
+                                              :cause     (.-message e)
+                                              :malli-error? (boolean (:malli-error? d))})))))
 
-                            :else
-                            (finalise-failure!
-                              ctx'
-                              (failure-map :rf.http/http-4xx
-                                           {:status status
-                                            :status-text status-text
-                                            :body decoded
-                                            :headers headers}))))
-                        (catch :default e
-                          (let [d (ex-data e)]
-                            (maybe-retry!
-                              ctx'
-                              (failure-map :rf.http/decode-failure
-                                           {:body-text body-text
-                                            :cause     (.-message e)
-                                            :malli-error? (boolean (:malli-error? d))})))))) ))
+                        :else
+                        ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx
+                        ;; that the runtime didn't follow) — surface as 4xx-shaped
+                        ;; failure with the raw body-text.
+                        (finalise-failure!
+                          ctx'
+                          (failure-map :rf.http/http-4xx
+                                       {:status status
+                                        :status-text status-text
+                                        :body body-text
+                                        :headers headers}))))))
            (.catch (fn [err]
                      (let [failure (classify-cljs-error err)]
                        (maybe-retry! (assoc ctx :url url) failure))))))))
@@ -959,54 +969,67 @@
 
                                 :else
                                 (let [{:keys [ok? status status-text headers body-text]} result]
-                                  (try
-                                    (let [decoded (decode-response-body
-                                                    {:body-text body-text
-                                                     :headers   headers
-                                                     :decode    decode
-                                                     :decode-supplied? decode-supplied?
-                                                     :request-id request-id
-                                                     :url        url})]
-                                      (cond
-                                        (and (>= status 400) (< status 500))
-                                        (maybe-retry-jvm!
-                                          ctx'
-                                          (failure-map :rf.http/http-4xx
-                                                       {:status status
-                                                        :status-text status-text
-                                                        :body decoded
-                                                        :headers headers}))
+                                  ;; Per Spec 014 §Failure categories: status
+                                  ;; classification runs BEFORE decode. 4xx/5xx
+                                  ;; route to :rf.http/http-4xx / :rf.http/http-5xx
+                                  ;; with the raw body-text — decode never fires
+                                  ;; on a non-success response, so an HTML 404 from
+                                  ;; a JSON endpoint classifies as :rf.http/http-4xx
+                                  ;; (not :rf.http/decode-failure). Decode runs
+                                  ;; only on 2xx; if that fails the failure category
+                                  ;; is :rf.http/decode-failure.
+                                  (cond
+                                    (and (>= status 400) (< status 500))
+                                    (maybe-retry-jvm!
+                                      ctx'
+                                      (failure-map :rf.http/http-4xx
+                                                   {:status status
+                                                    :status-text status-text
+                                                    :body body-text
+                                                    :headers headers}))
 
-                                        (>= status 500)
-                                        (maybe-retry-jvm!
-                                          ctx'
-                                          (failure-map :rf.http/http-5xx
-                                                       {:status status
-                                                        :status-text status-text
-                                                        :body decoded
-                                                        :headers headers}))
+                                    (>= status 500)
+                                    (maybe-retry-jvm!
+                                      ctx'
+                                      (failure-map :rf.http/http-5xx
+                                                   {:status status
+                                                    :status-text status-text
+                                                    :body body-text
+                                                    :headers headers}))
 
-                                        ok?
-                                        (let [accepted (run-accept accept decoded {:status status})]
-                                          (finalise-success-jvm!
-                                            (assoc ctx' :decoded decoded) accepted))
+                                    ok?
+                                    (try
+                                      (let [decoded (decode-response-body
+                                                      {:body-text body-text
+                                                       :headers   headers
+                                                       :decode    decode
+                                                       :decode-supplied? decode-supplied?
+                                                       :request-id request-id
+                                                       :url        url})
+                                            accepted (run-accept accept decoded {:status status})]
+                                        (finalise-success-jvm!
+                                          (assoc ctx' :decoded decoded) accepted))
+                                      (catch Throwable e
+                                        (let [d (ex-data e)]
+                                          (maybe-retry-jvm!
+                                            ctx'
+                                            (failure-map :rf.http/decode-failure
+                                                         {:body-text body-text
+                                                          :cause (.getMessage e)
+                                                          :malli-error? (boolean (:malli-error? d))})))))
 
-                                        :else
-                                        (finalise-failure-jvm!
-                                          ctx'
-                                          (failure-map :rf.http/http-4xx
-                                                       {:status status
-                                                        :status-text status-text
-                                                        :body decoded
-                                                        :headers headers}))))
-                                    (catch Throwable e
-                                      (let [d (ex-data e)]
-                                        (maybe-retry-jvm!
-                                          ctx'
-                                          (failure-map :rf.http/decode-failure
-                                                       {:body-text body-text
-                                                        :cause (.getMessage e)
-                                                        :malli-error? (boolean (:malli-error? d))})))))))))) )
+                                    :else
+                                    ;; Non-2xx that didn't fall in 4xx/5xx (e.g.
+                                    ;; 1xx/3xx that the runtime didn't follow) —
+                                    ;; surface as 4xx-shaped failure with the raw
+                                    ;; body-text.
+                                    (finalise-failure-jvm!
+                                      ctx'
+                                      (failure-map :rf.http/http-4xx
+                                                   {:status status
+                                                    :status-text status-text
+                                                    :body body-text
+                                                    :headers headers})))))))))
          (catch Throwable t
            (maybe-retry-jvm! ctx' (classify-jvm-error t)))))))
 

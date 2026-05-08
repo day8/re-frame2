@@ -183,6 +183,73 @@
           (is (= 404 (get-in db [:reply :failure :status]))))
         (finally (stop-server! srv))))))
 
+;; ---- 5b. HTML 404 with :decode :json — status check precedes decode ------
+;;
+;; Regression guard for rf2-lokk: a 4xx response whose body is HTML (or any
+;; shape that would FAIL :json decode) MUST classify as :rf.http/http-4xx,
+;; NOT :rf.http/decode-failure. Per Spec 014 §Failure categories, status
+;; classification runs BEFORE decode — decode never fires on a non-2xx
+;; response. The :body tag carries the raw response body-text.
+
+(deftest jvm-html-404-with-json-decode-routes-to-http-4xx
+  (testing "HTML 4xx response with :decode :json classifies as :rf.http/http-4xx (not :rf.http/decode-failure)"
+    (let [{:keys [server port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 404 "text/html"
+                               "<!doctype html><html><body><h1>Not Found</h1></body></html>")))]
+      (try
+        (rf/reg-event-fx :page/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/missing")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:page/load {}])
+        (let [db (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/http-4xx (:kind failure))
+              "status classification precedes decode: HTML body must NOT trigger :rf.http/decode-failure")
+          (is (= 404 (:status failure)))
+          ;; The :body is the RAW response body, not a decoded value.
+          (is (string? (:body failure))
+              ":body carries the raw response text on 4xx (decode skipped)")
+          (is (clojure.string/includes? (:body failure) "Not Found")))
+        (finally (stop-server! srv))))))
+
+;; ---- 5c. throwing decoder on 200 still routes to :rf.http/decode-failure -
+;;
+;; The complement of 5b: a 2xx response whose decode pipeline throws DOES land
+;; as :rf.http/decode-failure, since decode runs on success-eligible responses.
+;; We use a custom decoder fn that throws — the JVM's :json fallback parser is
+;; lenient (returns the raw string when malformed) so a thrown decoder is the
+;; portable way to exercise the decode-failure path.
+
+(deftest jvm-throwing-decoder-on-200-routes-to-decode-failure
+  (testing "200 response whose decode pipeline throws classifies as :rf.http/decode-failure"
+    (let [{:keys [server port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :page/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/ok")}
+                      :decode  (fn [_text _headers]
+                                 (throw (ex-info "boom" {})))}]]})))
+        (rf/dispatch-sync [:page/load {}])
+        (let [db (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/decode-failure (:kind failure))
+              "decode runs on 2xx; a thrown decoder surfaces as :rf.http/decode-failure"))
+        (finally (stop-server! srv))))))
+
 ;; ---- 6. retry exhaustion --------------------------------------------------
 
 (deftest jvm-retry-exhaustion
