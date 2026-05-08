@@ -62,6 +62,43 @@
   (when-let [meta (registrar/lookup :app-schema path)]
     (:schema meta)))
 
+(defn app-schemas
+  "Return every registered `app-schema-at` declaration as a
+  `{path → schema}` map. Pair tools and 10x panels read this to
+  introspect what schemas apply in a given frame.
+
+  Arities:
+
+    (app-schemas)              ;; sugar for (app-schemas {})
+    (app-schemas frame-id)     ;; sugar for (app-schemas {:frame frame-id})
+    (app-schemas opts)         ;; opts is a map; supports {:frame ...}
+                               ;; and is the place future opts will land
+
+  The `opts`-map arity is the configurable form; the keyword arity is
+  the common pair-tool case. Per Spec 010 §Schemas as a tooling and
+  agent surface.
+
+  Note: in the v1 reference implementation `:app-schema` is a
+  process-global registry kind (per [001 §Registry model]), so the
+  `:frame` opt is accepted for forward-compatibility (the spec calls
+  for per-frame schemas) but does not yet narrow the result. Returns
+  the same global map regardless of `:frame` until per-frame storage
+  lands."
+  ([] (app-schemas {}))
+  ([opts-or-frame-id]
+   (let [_opts (cond
+                 (keyword? opts-or-frame-id) {:frame opts-or-frame-id}
+                 (map?     opts-or-frame-id) opts-or-frame-id
+                 (nil?     opts-or-frame-id) {}
+                 :else
+                 (throw (ex-info ":rf.error/bad-app-schemas-arg"
+                                 {:received opts-or-frame-id
+                                  :expected "keyword frame-id or opts map"})))]
+     (reduce-kv (fn [acc path meta]
+                  (assoc acc path (:schema meta)))
+                {}
+                (registrar/handlers :app-schema)))))
+
 ;; ---- validation entry points ----------------------------------------------
 
 (defn- type-of-value [v]

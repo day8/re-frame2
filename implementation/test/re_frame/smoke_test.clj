@@ -267,6 +267,61 @@
                 @traces)
           "expected :rf.error/dispatch-sync-in-handler trace event"))))
 
+;; ---- snapshot-of (rf2-vvsh) ----------------------------------------------
+
+(deftest snapshot-of-reads-default-frame-app-db
+  (testing "snapshot-of returns the value at a path in the active frame's app-db"
+    (rf/reg-event-db :seed (fn [_ _] {:user {:id 7 :name "ada"}
+                                      :counts {:hits 3}}))
+    (rf/dispatch-sync [:seed])
+    (is (= 7        (rf/snapshot-of [:user :id]))
+        "single-arg form reads the active frame (defaults to :rf/default)")
+    (is (= "ada"    (rf/snapshot-of [:user :name])))
+    (is (= 3        (rf/snapshot-of [:counts :hits])))
+    (is (= {:hits 3} (rf/snapshot-of [:counts]))
+        "intermediate map paths are returned as-is")
+    (is (nil? (rf/snapshot-of [:does-not-exist]))
+        "missing paths return nil"))
+  (testing "snapshot-of accepts {:frame frame-id} in opts"
+    (rf/reg-frame :left  {:doc "left"})
+    (rf/reg-frame :right {:doc "right"})
+    (rf/reg-event-db :seed-n (fn [_ [_ n]] {:n n}))
+    (rf/dispatch-sync [:seed-n 11] {:frame :left})
+    (rf/dispatch-sync [:seed-n 99] {:frame :right})
+    (is (= 11 (rf/snapshot-of [:n] {:frame :left})))
+    (is (= 99 (rf/snapshot-of [:n] {:frame :right})))
+    (is (nil? (rf/snapshot-of [:n] {:frame :nonexistent}))
+        "missing frame yields nil rather than throwing")))
+
+;; ---- app-schemas (rf2-vvsh) ----------------------------------------------
+
+(deftest app-schemas-returns-registered-schema-map
+  (testing "app-schemas returns {path schema} for every reg-app-schema declaration"
+    (is (= {} (rf/app-schemas))
+        "fresh registry: no schemas registered")
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+    (rf/reg-app-schema [:todos] [:vector :string])
+    (let [m (rf/app-schemas)]
+      (is (= 2 (count m)))
+      (is (= [:map [:id :uuid]]   (get m [:user])))
+      (is (= [:vector :string]    (get m [:todos]))))
+    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user]))
+        "app-schema-at agrees with app-schemas for individual paths"))
+  (testing "keyword-arity is sugar over the opts-map arity"
+    ;; Per Spec 010 §Schemas as a tooling and agent surface: the
+    ;; (app-schemas frame-id) form is sugar for (app-schemas {:frame ...}).
+    ;; In v1 the registry is process-global so both arities return the
+    ;; same map; the keyword/opts-map arities must not throw.
+    (let [bare    (rf/app-schemas :rf/default)
+          opts    (rf/app-schemas {:frame :rf/default})
+          no-args (rf/app-schemas)]
+      (is (map? bare))
+      (is (= bare opts))
+      (is (= bare no-args))))
+  (testing "app-schemas rejects garbage input with a structured error"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (rf/app-schemas "not-a-keyword-or-map")))))
+
 ;; ---- subscription topology: glitch-freedom (JVM) -------------------------
 ;;
 ;; The CLJS reference uses Reagent reactions and asserts no transient

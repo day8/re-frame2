@@ -274,6 +274,11 @@
                     ~(:column m) (assoc :column ~(:column m)))]
           (schemas/reg-app-schema ~path ~schema)))))
 
+;; Schema introspection — pure fn aliases (no source-coord capture
+;; needed, these are read-only public queries).
+(def app-schema-at   schemas/app-schema-at)
+(def app-schemas     schemas/app-schemas)
+
 #?(:clj
    (defmacro reg-machine
      "Register a machine as an event handler. Per Spec 001 the
@@ -447,6 +452,42 @@
 (def frames       (fn [] (frame/frame-ids)))
 (def frame-meta   frame/frame-meta)
 (def get-frame-db frame/frame-app-db-value)
+
+(defn snapshot-of
+  "Return the value at `path` in a frame's app-db. Convenience wrapper
+  over `(get-in (rf/get-frame-db frame-id) path)` — Tool-Pair pins this
+  surface as the public, opt-aware app-db query.
+
+  Resolution chain for the frame:
+    1. `:frame` key in `opts`, when supplied;
+    2. `(current-frame)` — the active frame under `with-frame` /
+       a Reagent frame-provider, defaulting to `:rf/default`.
+
+  Returns `nil` if the frame is missing or the path resolves to nothing.
+  Per Spec 002 §The public registrar query API."
+  ([path] (snapshot-of path nil))
+  ([path opts]
+   (let [frame-id (or (:frame opts) (current-frame))]
+     (get-in (frame/frame-app-db-value frame-id) path))))
+
+;; sub-cache is CLJS-only — the reactive cache is materialised by the
+;; substrate adapter and only carries a useful :value on the JS side.
+;; The JVM definition returns nil so the symbol resolves under both
+;; targets. Per Spec 002 §The public registrar query API.
+(defn sub-cache
+  "Inspect a frame's runtime sub-cache. CLJS-only — returns
+  `{query-v {:value v :ref-count n}}` for every materialised
+  subscription in the named frame. On JVM the cache exists for
+  ref-counting purposes but the entries do not carry a deref-able
+  reaction value, so this fn returns `nil`.
+
+  No-arg form uses the active frame.
+
+  Pair tools call this to display what the running app is currently
+  subscribed to. Per Spec 002 §The public registrar query API."
+  ([] (sub-cache (current-frame)))
+  ([frame-id]
+   (subs/sub-cache-snapshot frame-id)))
 
 ;; ---- interceptors ---------------------------------------------------------
 

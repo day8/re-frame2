@@ -405,3 +405,36 @@
                        (= :error (:op-type ev))))
                 @traces)
           "expected :rf.error/dispatch-sync-in-handler trace"))))
+
+;; ---- sub-cache (rf2-vvsh) -------------------------------------------------
+
+(deftest sub-cache-projects-tool-pair-shape
+  (testing "(rf/sub-cache frame-id) returns {query-v {:value v :ref-count n}}
+           for every materialised subscription in the named frame"
+    (rf/reg-event-db :seed (fn [_ _] {:n 7 :name "ada"}))
+    (rf/reg-sub :n     (fn [db _] (:n db)))
+    (rf/reg-sub :name* (fn [db _] (:name db)))
+    (rf/dispatch-sync [:seed])
+    ;; Empty cache is the {} baseline.
+    (is (= {} (rf/sub-cache :rf/default))
+        "no subs materialised yet → empty map")
+    (let [r1 (rf/subscribe [:n])
+          r2 (rf/subscribe [:n])
+          r3 (rf/subscribe [:name*])
+          snapshot (rf/sub-cache :rf/default)]
+      (is (= 2 (count snapshot))
+          "snapshot contains one entry per materialised query-v")
+      (is (= 7     (get-in snapshot [[:n]     :value])))
+      (is (= "ada" (get-in snapshot [[:name*] :value])))
+      (is (= 2     (get-in snapshot [[:n]     :ref-count]))
+          "ref-count reflects two outstanding subscribes for [:n]")
+      (is (= 1     (get-in snapshot [[:name*] :ref-count])))
+      ;; Default no-arg form uses the active frame.
+      (is (= snapshot (rf/sub-cache))
+          "no-arg form returns the active frame's snapshot")
+      (rf/unsubscribe [:n])
+      (rf/unsubscribe [:n])
+      (rf/unsubscribe [:name*]))
+    ;; Missing frame yields nil rather than throwing.
+    (is (nil? (rf/sub-cache :no-such-frame))
+        "missing frame returns nil")))
