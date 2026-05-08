@@ -609,9 +609,25 @@
       (let [path     (snapshot-path machine-id)
             initial  {:state (:initial machine) :data (or (:data machine) {})}
             snapshot (or (get-in db path) initial)
-            inner-event (if (and (vector? event) (= 2 (count event)))
-                          (second event)  ;; the [:machine-id [:inner-ev ...]] form
-                          event)
+            ;; Sub-event routing per Spec 005 §Registration. The outer
+            ;; event is [:machine-id <inner-event> & extra-args]. Extra
+            ;; args are conj'd onto the inner event — that's the
+            ;; convention http-style fx callbacks rely on:
+            ;;   :on-success [:machine-id [:inner-id]]   →
+            ;;   (conj on-success response) yields
+            ;;   [:machine-id [:inner-id] response]      →
+            ;;   inner-event [:inner-id response]
+            inner-event (cond
+                          (and (vector? event)
+                               (>= (count event) 2)
+                               (vector? (second event)))
+                          (let [inner (second event)
+                                extra (drop 2 event)]
+                            (if (seq extra)
+                              (vec (concat inner extra))
+                              inner))
+
+                          :else event)
             [next-snapshot fx] (machine-transition machine snapshot inner-event)
             new-db (assoc-in db path next-snapshot)]
         (trace/emit! :machine :rf.machine/transition

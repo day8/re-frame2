@@ -338,6 +338,98 @@
       (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
           "root element carries the data-rf-render-hash attribute"))))
 
+(deftest login-machine-flow
+  (testing "Spec 005 machine pattern: login flow as a state machine, end-to-end"
+    ;; Stub fx that synthesises a successful or failed HTTP response.
+    (rf/reg-fx :http.canned-success
+      {:platforms #{:server :client}}
+      (fn [{:keys [frame]} {:keys [on-success]}]
+        (when on-success
+          (rf/dispatch (conj on-success {:user {:id "u1" :email "a@b.c"}
+                                         :token "t-1"})
+                       {:frame frame}))))
+    (rf/reg-fx :http.canned-failure
+      {:platforms #{:server :client}}
+      (fn [{:keys [frame]} {:keys [on-error]}]
+        (when on-error
+          (rf/dispatch (conj on-error {:message "bad creds"})
+                       {:frame frame}))))
+    ;; Real :http stays a no-op; the override redirects it for the test.
+    (rf/reg-fx :http {:platforms #{:server :client}} (fn [_ _] nil))
+    ;; Session storage stub: capture the token instead of writing to
+    ;; localStorage.
+    (let [stored (atom nil)]
+      (rf/reg-fx :auth.session/store
+        {:platforms #{:server :client}}
+        (fn [_ {:keys [token]}] (reset! stored token)))
+
+      ;; The login machine. Mirrors the structure of examples/login/core.cljs's
+      ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
+      (rf/reg-event-fx :auth.login/flow
+        (rf/create-machine-handler
+          {:id      :auth.login/flow
+           :initial :idle
+           :data    {:attempts 0 :error nil}
+           :guards
+           {:under-retry-limit
+            (fn [{:keys [data]} _] (< (:attempts data) 3))}
+           :actions
+           {:clear-error    (fn [_ _] {:data {:error nil}})
+            :issue-request  (fn [_ [_ creds]]
+                              {:fx [[:http {:method     :post
+                                            :url        "/api/login"
+                                            :body       creds
+                                            :on-success [:auth.login/flow [:auth.login/success]]
+                                            :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+            :record-error   (fn [{:keys [data]} [_ err]]
+                              {:data (-> data
+                                         (update :attempts inc)
+                                         (assoc :error (or (:message err) "Login failed.")))})
+            :lock-account   (fn [_ _] {:fx []})
+            :store-session  (fn [_ [_ {:keys [token]}]]
+                              {:fx [[:auth.session/store {:token token}]]})}
+           :states
+           {:idle        {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
+            :submitting  {:entry :issue-request
+                          :on    {:auth.login/success {:target :authed :action :store-session}
+                                  :auth.login/failure [{:target :error-shown :guard :under-retry-limit :action :record-error}
+                                                       {:target :locked-out :action :lock-account}]}}
+            :error-shown {:on {:auth.login/dismiss {:target :idle}
+                               :auth.login/submit  {:target :submitting}}}
+            :authed      {}
+            :locked-out  {}}}))
+
+      ;; Subs over the machine snapshot.
+      (rf/reg-sub :auth.login/state
+        (fn [db _] (get-in db [:rf/machines :auth.login/flow :state])))
+
+      (testing "happy path: idle → submitting → authed; session token stored"
+        (reset! stored nil)
+        (let [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
+          (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                               {:email "a@b.c" :password "secret"}]]
+                            {:frame f})
+          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/get-frame-db f)))
+              "machine landed in :authed after canned success")
+          (is (= "t-1" @stored)
+              "session token was stored via the :auth.session/store fx")))
+
+      (testing "retry-then-lockout: 3 failures land in :error-shown, 4th in :locked-out"
+        (reset! stored nil)
+        (let [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
+          (dotimes [_ 3]
+            (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                                 {:email "x@y.z" :password "wrong"}]]
+                              {:frame f})
+            (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
+          ;; 4th submit — :under-retry-limit fails; second clause's :locked-out
+          ;; target wins.
+          (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                               {:email "x@y.z" :password "wrong"}]]
+                            {:frame f})
+          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/get-frame-db f)))
+              "guarded multi-clause branch routed to :locked-out on 4th attempt"))))))
+
 (deftest ssr-with-fx-override
   (testing "SSR flow with :fx-overrides redirecting :http/get to a stub"
     (let [stub-fired? (atom false)]
