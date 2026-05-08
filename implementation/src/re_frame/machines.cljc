@@ -341,27 +341,46 @@
 (defn- common-prefix-length [a b]
   (count (take-while true? (map = a b))))
 
+;; Sentinel: when an action throws, run-action returns this map instead of
+;; an effects map. collect-actions / apply-transition-once / machine-transition
+;; propagate it; the outer event handler converts it into a no-:db return so
+;; the cascade halts without committing a snapshot. Per Spec 005 §Errors and
+;; Cross-Spec-Interactions §11 — Machine action throws.
+(defn- action-failure?
+  [x]
+  (and (map? x) (contains? x :rf.machine/action-failure)))
+
 (defn- run-action [machine snap action-ref event]
   (if action-ref
-    (let [f (resolve-action machine action-ref)
-          result (call-action f snap event)]
-      (or result {}))
+    (let [f (resolve-action machine action-ref)]
+      (try
+        (let [result (call-action f snap event)]
+          (or result {}))
+        (catch #?(:clj Throwable :cljs :default) e
+          {:rf.machine/action-failure
+           {:action-ref action-ref
+            :exception  e}})))
     {}))
 
 (defn- collect-actions
   "Walk action-refs in order, calling each with snap+event and threading
   the resulting :data updates forward (so each action sees the previous
-  one's data). Returns [final-snapshot fx-vec]."
+  one's data). Returns [final-snapshot fx-vec], or
+  [::action-failed failure-info] if any action threw — per Spec 005
+  §Errors, the cascade halts on the first throw and the snapshot does
+  not commit."
   [machine snap event action-refs]
   (reduce
     (fn [[s fx] aref]
       (if aref
-        (let [r          (run-action machine s aref event)
-              new-data   (cond-> (:data s)
-                           (contains? r :data) (merge (:data r)))
-              new-snap   (assoc s :data new-data)
-              new-fx     (vec (concat fx (or (:fx r) [])))]
-          [new-snap new-fx])
+        (let [r (run-action machine s aref event)]
+          (if (action-failure? r)
+            (reduced [::action-failed (:rf.machine/action-failure r)])
+            (let [new-data   (cond-> (:data s)
+                               (contains? r :data) (merge (:data r)))
+                  new-snap   (assoc s :data new-data)
+                  new-fx     (vec (concat fx (or (:fx r) [])))]
+              [new-snap new-fx])))
         [s fx]))
     [snap []]
     action-refs))
@@ -407,7 +426,18 @@
                             (map (fn [[_ n]] (:entry n)))))
         action-refs  [(:action transition)]
         all-refs     (concat exit-refs action-refs entry-refs)
-        [snap-after fx] (collect-actions machine snapshot event all-refs)
+        result       (collect-actions machine snapshot event all-refs)]
+    ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine
+    ;; action throws: if any action in the cascade threw, halt the
+    ;; cascade by short-circuiting out of apply-transition-once. The
+    ;; failure marker is propagated up to machine-transition which
+    ;; emits :rf.error/machine-action-exception and returns no commit.
+    (if (and (vector? result) (= ::action-failed (first result)))
+      [::action-failed (assoc (second result)
+                              :decl-path  decl-path
+                              :transition transition
+                              :state-path src-path)]
+      (let [[snap-after fx] result
         ;; Per Spec 005 §Delayed :after transitions §Hierarchy interaction:
         ;; the epoch advances iff any state being EXITED or ENTERED in this
         ;; transition declares an :after table (that's the in-flight timer
@@ -509,7 +539,7 @@
               [snap-final []]
               entered-nodes))
           all-fx (vec (concat fx (or destroy-fx []) spawn-fx))]
-      [snap-after-spawns all-fx])))
+      [snap-after-spawns all-fx])))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root
@@ -565,11 +595,19 @@
           ;; fx vector is appended to the pending list (NOT prepended)
           ;; per Spec 005 §Drain semantics §Level 3 step 3 — the raise
           ;; queue is drained depth-first, but new fx land at the end.
-          (let [[snap2 fx2] ((resolve `machine-transition) machine snap args)]
-            (recur (concat fx2 rest-pending)
-                   accum
-                   snap2
-                   (inc depth)))
+          (let [step-result ((resolve `machine-transition) machine snap args)]
+            (if (and (vector? step-result)
+                     (= ::action-failed (first step-result)))
+              ;; Per Spec 005 §Errors: an action throw inside a raised
+              ;; transition halts the whole cascade. Propagate the
+              ;; failure marker out of the drain so machine-transition's
+              ;; outer level can short-circuit.
+              step-result
+              (let [[snap2 fx2] step-result]
+                (recur (concat fx2 rest-pending)
+                       accum
+                       snap2
+                       (inc depth)))))
 
           ;; default: forward to do-fx
           (recur rest-pending
@@ -616,7 +654,7 @@
                           :delay  (:delay match)
                           :epoch  (:epoch match)
                           :fired? true}))
-        [snap-after-event fx-after-event]
+        result-after-event
         (cond
           (and match (:stale? match))
           [snapshot []]   ;; suppress: snapshot unchanged
@@ -627,38 +665,54 @@
             (assoc (:transition match) :decl-path (:decl-path match)))
 
           :else
-          [snapshot []])
-        ;; Step 3: drain :raise.
-        [snap-after-raise fx-after-raise]
-        (drain-raises machine snap-after-event fx-after-event raise-limit)]
-    ;; Step 4: :always microstep loop. Track visited state-paths so that,
-    ;; on depth-limit abort, we can report the path AND fully roll back to
-    ;; the original input snapshot — the macrostep is atomic per Spec 005.
-    (loop [snap    snap-after-raise
-           fx      fx-after-raise
-           depth   0
-           visited [(:state snap-after-raise)]]
-      (cond
-        (>= depth always-limit)
-        (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                               {:machine-id (:id machine)
-                                :depth      depth
-                                :path       visited
-                                :recovery   :no-recovery})
-            [snapshot []])
+          [snapshot []])]
+    ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine
+    ;; action throws: short-circuit the macrostep on failure. The
+    ;; sentinel `[::action-failed info]` propagates to create-machine-handler
+    ;; which emits the trace and returns no-:db (cascade halts, snapshot
+    ;; uncommitted, accumulated :fx dropped).
+    (if (and (vector? result-after-event)
+             (= ::action-failed (first result-after-event)))
+      result-after-event
+      (let [[snap-after-event fx-after-event] result-after-event
+            ;; Step 3: drain :raise.
+            [snap-after-raise fx-after-raise]
+            (drain-raises machine snap-after-event fx-after-event raise-limit)]
+        ;; Step 4: :always microstep loop. Track visited state-paths so that,
+        ;; on depth-limit abort, we can report the path AND fully roll back to
+        ;; the original input snapshot — the macrostep is atomic per Spec 005.
+        (loop [snap    snap-after-raise
+               fx      fx-after-raise
+               depth   0
+               visited [(:state snap-after-raise)]]
+          (cond
+            (>= depth always-limit)
+            (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                   {:machine-id (:id machine)
+                                    :depth      depth
+                                    :path       visited
+                                    :recovery   :no-recovery})
+                [snapshot []])
 
-        :else
-        (let [snap-path (state-path (:state snap))
-              always-m  (pick-always-transition machine snap-path snap)]
-          (if (nil? always-m)
-            [snap fx]
-            (let [[snap2 fx2] (apply-transition-once machine snap nil
-                                                     (:transition always-m))
-                  [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
-              (recur snap3
-                     (vec (concat fx fx3))
-                     (inc depth)
-                     (conj visited (:state snap3))))))))))
+            :else
+            (let [snap-path (state-path (:state snap))
+                  always-m  (pick-always-transition machine snap-path snap)]
+              (if (nil? always-m)
+                [snap fx]
+                (let [step-result (apply-transition-once machine snap nil
+                                                          (:transition always-m))]
+                  (if (and (vector? step-result)
+                           (= ::action-failed (first step-result)))
+                    ;; Per Cross-Spec §11: ":always microstep does not fire on
+                    ;; the failed cascade." Propagate the failure so the
+                    ;; handler emits the error and skips the commit.
+                    step-result
+                    (let [[snap2 fx2] step-result
+                          [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
+                      (recur snap3
+                             (vec (concat fx fx3))
+                             (inc depth)
+                             (conj visited (:state snap3))))))))))))))
 
 ;; ---- create-machine-handler -----------------------------------------------
 
@@ -740,26 +794,59 @@
                             inner))
 
                         :else event)
-          [next-snapshot fx] (machine-transition machine snapshot inner-event)
-          new-db (assoc-in db path next-snapshot)]
-      (trace/emit! :machine :rf.machine/transition
-                   {:machine-id  machine-id
-                    :event       inner-event
-                    :before      snapshot
-                    :after       next-snapshot})
-      ;; Per Spec 009 §:op-type vocabulary: :rf.machine/snapshot-updated
-      ;; fires whenever the handler writes the new snapshot to
-      ;; [:rf/machines machine-id]. Distinct from :rf.machine/transition
-      ;; in that it documents the app-db slot mutation specifically.
-      (when (not= snapshot next-snapshot)
-        (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
-                     {:machine-id machine-id
-                      :path       path
-                      :before     snapshot
-                      :after      next-snapshot
-                      :frame      (or frame :rf/default)}))
-      {:db new-db
-       :fx fx})))
+          step-result (machine-transition machine snapshot inner-event)]
+      ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine
+      ;; action throws: when the cascade halted on an action exception,
+      ;; emit `:rf.error/machine-action-exception` (NOT the generic
+      ;; `:rf.error/handler-exception`) with machine-scoped diagnostic
+      ;; detail. The snapshot does NOT commit (no :db effect) and any
+      ;; :fx accumulated earlier in the same cascade is dropped — the
+      ;; transition is all-or-nothing.
+      (if (and (vector? step-result)
+               (= ::action-failed (first step-result)))
+        (let [info       (second step-result)
+              ex         (:exception info)
+              ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
+                            :cljs (when ex (.-message ex)))
+              ex-data    (when ex (ex-data ex))
+              action-ref (:action-ref info)]
+          (trace/emit-error! :rf.error/machine-action-exception
+                             {:machine-id        machine-id
+                              :action-id         action-ref
+                              :state-path        (:state-path info)
+                              :transition        (:transition info)
+                              :event             inner-event
+                              :failing-id        machine-id
+                              :handler-id        machine-id
+                              :frame             (or frame :rf/default)
+                              :exception         ex
+                              :exception-message ex-msg
+                              :exception-data    ex-data
+                              :reason            "Machine action threw."
+                              :recovery          :no-recovery})
+          ;; No :db, no :fx — cascade halts atomically. The pre-action
+          ;; snapshot at [:rf/machines machine-id] is preserved.
+          {})
+        (let [[next-snapshot fx] step-result
+              new-db (assoc-in db path next-snapshot)]
+          (trace/emit! :machine :rf.machine/transition
+                       {:machine-id  machine-id
+                        :event       inner-event
+                        :before      snapshot
+                        :after       next-snapshot})
+          ;; Per Spec 009 §:op-type vocabulary: :rf.machine/snapshot-updated
+          ;; fires whenever the handler writes the new snapshot to
+          ;; [:rf/machines machine-id]. Distinct from :rf.machine/transition
+          ;; in that it documents the app-db slot mutation specifically.
+          (when (not= snapshot next-snapshot)
+            (trace/emit! :rf.machine/snapshot-updated :rf.machine/snapshot-updated
+                         {:machine-id machine-id
+                          :path       path
+                          :before     snapshot
+                          :after      next-snapshot
+                          :frame      (or frame :rf/default)}))
+          {:db new-db
+           :fx fx})))))
 
 ;; ---- reg-machine convenience ----------------------------------------------
 
