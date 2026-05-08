@@ -8,11 +8,13 @@
 
   Why .cljc: the chapter promises 'runs in microseconds on the JVM, no
   browser, no network.' The same code runs under shadow-cljs node-test
-  for the CLJS surface. The HTTP side is exercised via the id-valued
-  override seam (`:fx-overrides`) so no real network traffic happens.
+  for the CLJS surface. The HTTP side is exercised via the framework-
+  shipped `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`
+  stubs (Spec 014 §Testing) so no real network traffic happens.
 
   Read alongside docs/guide/05-state-machines.md."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
 ;; THE TRANSITION TABLE — chapter §The same flow as a machine
@@ -40,29 +42,35 @@
     (fn [_data _event] {:data {:error nil}})
 
     :issue-request
-    ;; Returns effects, not side-effects. The :http fx implementation
-    ;; conj's the response onto the :on-success template; the runtime
-    ;; folds the trailing arg onto the inner event.
+    ;; Returns effects, not side-effects. The `:rf.http/managed` fx
+    ;; (Spec 014) issues the request; the framework dispatches the
+    ;; explicit `:on-success` / `:on-failure` events with the reply
+    ;; payload appended as the last arg, so the inner sub-event lands
+    ;; back in this machine via :auth.login/flow's machine-id routing.
     (fn [_data [_ creds]]
-      {:fx [[:http {:method     :post
-                    :url        "/api/login"
-                    :body       creds
-                    :on-success [:auth.login/flow [:auth.login/success]]
-                    :on-error   [:auth.login/flow [:auth.login/failure]]}]]})
+      {:fx [[:rf.http/managed
+             {:request    {:method :post
+                           :url    "/api/login"
+                           :body   creds
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    (fn [data [_ err]]
+    (fn [data [_ {:keys [failure]}]]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message err) "Login failed.")))})
+                 (assoc :error (or (:message failure) "Login failed.")))})
 
     :lock-account
     (fn [_data _event]
-      {:fx [[:http {:method :post :url "/api/auth/lock"}]]})
+      {:fx [[:rf.http/managed
+             {:request {:method :post :url "/api/auth/lock"}}]]})
 
     :store-session
-    (fn [_data [_ {:keys [token]}]]
-      {:fx [[:auth.session/store {:token token}]]})}
+    (fn [_data [_ {:keys [value]}]]
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
 
    :states
    {:idle
@@ -90,33 +98,15 @@
 ;; FX — chapter §Wiring a machine into the rest of re-frame
 ;; ============================================================================
 ;;
-;; The :http and :auth.session/store fx are stubs for the example: they
-;; show the shape, not real network/storage. The smoke test below uses
-;; the id-valued override seam (`:fx-overrides`) to swap :http for a
-;; canned-success or canned-failure stub at frame-creation time.
-
-(rf/reg-fx :http
-  {:doc "Stub: a real implementation would call (js/fetch ...)."}
-  (fn [_m _args] nil))
+;; The `:auth.session/store` fx is a stub for the example: it shows the
+;; shape, not real localStorage. The smoke tests below exercise the
+;; managed-HTTP path via the framework-shipped canned-success /
+;; canned-failure stubs (Spec 014 §Testing), routed in via the
+;; `:fx-overrides` seam at frame creation.
 
 (rf/reg-fx :auth.session/store
   {:doc "Stub: a real implementation would write localStorage."}
   (fn [_m _args] nil))
-
-(rf/reg-fx :http.canned-success
-  {:doc "Test stub: every :http call resolves to a canned success."}
-  (fn [{:keys [frame]} {:keys [on-success]}]
-    (when on-success
-      (rf/dispatch (conj on-success {:user  {:id "test-user"}
-                                     :token "test-token"})
-                   {:frame frame}))))
-
-(rf/reg-fx :http.canned-failure
-  {:doc "Test stub: every :http call resolves to a canned failure."}
-  (fn [{:keys [frame]} {:keys [on-error]}]
-    (when on-error
-      (rf/dispatch (conj on-error {:message "bad creds"})
-                   {:frame frame}))))
 
 ;; ============================================================================
 ;; REGISTRATION — chapter §Wiring a machine into the rest of re-frame
@@ -148,6 +138,35 @@
   (fn [state _] (= :authed state)))
 
 ;; ============================================================================
+;; TEST STUBS — per-test wrappers that delegate to the framework-shipped
+;; canned-success / canned-failure stubs.
+;; ============================================================================
+;;
+;; Per Spec 014 §Testing, the framework ships `:rf.http/managed-canned-success`
+;; and `:rf.http/managed-canned-failure` fxs that synthesise the canonical
+;; reply shape. Per-test wrappers delegate to those stubs while supplying
+;; the test-specific `:value` (success) / failure category.
+
+(rf/reg-fx :auth.login/canned-success
+  {:doc "Test stub: every `:rf.http/managed` call resolves :success with a
+         canned user/token payload. Delegates to the framework-shipped
+         `:rf.http/managed-canned-success` per Spec 014 §Testing."}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+      (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
+                                              :token "test-token"})))))
+
+(rf/reg-fx :auth.login/canned-failure
+  {:doc "Test stub: every `:rf.http/managed` call resolves :failure.
+         Delegates to the framework-shipped `:rf.http/managed-canned-failure`
+         per Spec 014 §Testing."}
+  (fn [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      (stub frame-ctx (assoc args-map
+                             :kind :rf.http/http-4xx
+                             :tags {:message "bad creds" :status 401})))))
+
+;; ============================================================================
 ;; HEADLESS TESTS — chapter §Headless testing
 ;; ============================================================================
 ;;
@@ -156,10 +175,11 @@
 ;; 1. Pure machine-transition: pass a snapshot + event, get back the
 ;;    next snapshot. No frame, no app-db, no fx execution. JVM-runnable.
 ;;
-;; 2. Drain-level: spin up a frame with a fx-override, dispatch into
+;; 2. Drain-level: spin up a frame with a `:fx-overrides` map that
+;;    redirects `:rf.http/managed` to a per-test stub, dispatch into
 ;;    the machine id, read the resulting app-db slice. Exercises the
 ;;    full registration → drain → snapshot-write path including the
-;;    :on-success / :on-error callback fold.
+;;    :on-success / :on-failure callback fold.
 
 (defn pure-happy-path-test
   "Drives the transition table directly via machine-transition. No
@@ -172,11 +192,12 @@
     (assert (= :submitting (:state s1))
             (str "expected :submitting, got " (:state s1)))
     ;; Entering :submitting fires the :issue-request action's :fx.
-    (assert (= 1 (count fx1)) (str "expected one :http fx, got " fx1))
-    (assert (= :http (ffirst fx1)) (str "expected :http fx-id, got " (ffirst fx1)))
+    (assert (= 1 (count fx1)) (str "expected one :rf.http/managed fx, got " fx1))
+    (assert (= :rf.http/managed (ffirst fx1))
+            (str "expected :rf.http/managed fx-id, got " (ffirst fx1)))
 
     (let [[s2 _] (rf/machine-transition login-flow s1
-                                        [:auth.login/success {:token "t"}])]
+                                        [:auth.login/success {:value {:token "t"}}])]
       (assert (= :authed (:state s2))
               (str "expected :authed, got " (:state s2))))
     :ok))
@@ -190,17 +211,19 @@
   []
   (let [snapshot {:state :submitting :data {:attempts 3 :error nil}}
         [s _fx] (rf/machine-transition login-flow snapshot
-                                       [:auth.login/failure {:message "bad creds"}])]
+                                       [:auth.login/failure
+                                        {:failure {:kind :rf.http/http-4xx
+                                                   :message "bad creds"}}])]
     (assert (= :locked-out (:state s))
             (str "expected :locked-out at attempts=3, got " (:state s)))
     :ok))
 
 (defn drain-happy-path-test
   "Full drain: registers the machine, dispatches into it, asserts the
-  app-db landed at :authed. Uses the fx-overrides seam to swap :http
-  for a canned-success stub."
+  app-db landed at :authed. Uses the `:fx-overrides` seam to swap
+  `:rf.http/managed` for the per-test canned-success stub."
   []
-  (let [f (rf/make-frame {:fx-overrides {:http :http.canned-success}})]
+  (let [f (rf/make-frame {:fx-overrides {:rf.http/managed :auth.login/canned-success}})]
     (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                           {:email "a@b.com"
                                            :password "secret"}]]
@@ -214,7 +237,7 @@
   "Three failures cycle :submitting → :error-shown → :idle ×3, then a
   fourth :submit fails the guard and lands at :locked-out."
   []
-  (let [f (rf/make-frame {:fx-overrides {:http :http.canned-failure}})]
+  (let [f (rf/make-frame {:fx-overrides {:rf.http/managed :auth.login/canned-failure}})]
     (dotimes [_ 3]
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                             {:email "x@y.z" :password "wrong"}]]
