@@ -160,7 +160,7 @@
 ;; EVENTS — Pattern-RemoteData lifecycle  (states 1-6)
 ;; ============================================================================
 
-(rf/reg-event-db :app/initialise
+(rf/reg-event-db :nine-states.app/initialise
   {:doc "Seed both slices to defaults. Drives the app to State 1 (Nothing)."}
   (fn handler-app-initialise [db _]
     (-> db
@@ -518,7 +518,7 @@
   (let [done? @(subscribe [:ui.state/done?])]
     [:div.control-panel
      [:h3 "Drive the demo"]
-     [:button {:on-click #(dispatch [:app/initialise])
+     [:button {:on-click #(dispatch [:nine-states.app/initialise])
                :disabled done?} "1. Nothing"]
      [:button {:on-click #(dispatch [:todos/load-with-failure])
                :disabled done?} "Trigger error"]
@@ -590,7 +590,7 @@
 
 (defn test-state-1-nothing []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (is (in-state? f :ui.state/nothing?))
     (is (not (in-state? f :ui.state/loading?)))
@@ -598,7 +598,7 @@
 
 (defn test-state-2-loading []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     ;; Set status directly to :loading (the actual stub resolves synchronously,
     ;; so we assert against an explicit pre-loaded shape).
@@ -613,7 +613,7 @@
 
 (defn test-state-3-empty []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 0}] {:frame f})
     (is       (in-state? f :ui.state/empty?))
@@ -623,7 +623,7 @@
 
 (defn test-state-4-one []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 1}] {:frame f})
     (is       (in-state? f :ui.state/one?))
@@ -632,7 +632,7 @@
 
 (defn test-state-5-some []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (is       (in-state? f :ui.state/some?))
@@ -641,14 +641,14 @@
 
 (defn test-state-6-too-many []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 25}] {:frame f})
     (is       (in-state? f :ui.state/too-many?))
     (is (not (in-state? f :ui.state/some?)))))
 
 (defn test-state-7-incorrect []
-  (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+  (with-frame [f (rf/make-frame {:on-create [:nine-states.app/initialise]})]
     ;; Type a too-short title, then submit — should land in :error / :incorrect?
     (rf/dispatch-sync [:new-todo/edit-field :title "ab"] {:frame f})
     (rf/dispatch-sync [:new-todo/submit]                {:frame f})
@@ -657,7 +657,7 @@
 
 (defn test-state-8-correct []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 0}]                  {:frame f})
     (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
@@ -668,7 +668,7 @@
 
 (defn test-state-9-done []
   (with-frame [f (rf/make-frame
-                   {:on-create    [:app/initialise]
+                   {:on-create    [:nine-states.app/initialise]
                     :fx-overrides demo-overrides})]
     (rf/dispatch-sync [:todos/load {:n 4}] {:frame f})
     (rf/dispatch-sync [:todos/editor [:todos.editor/archive {:now 1}]] {:frame f})
@@ -714,6 +714,6 @@
   (rf/reg-frame :rf/default
     {:doc          "Nine-states demo frame."
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
-  (rf/dispatch-sync [:app/initialise])
+  (rf/dispatch-sync [:nine-states.app/initialise])
   (when react-root
     (rdc/render react-root [root-view])))

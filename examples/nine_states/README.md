@@ -8,7 +8,7 @@ single small domain: a **todos list**.
 
 | # | Name | What it shows | Trigger |
 |---|---|---|---|
-| 1 | **Nothing**   | Blank initial slate; never fetched. "Get started" CTA. | `[:app/initialise]` |
+| 1 | **Nothing**   | Blank initial slate; never fetched. "Get started" CTA. | `[:nine-states.app/initialise]` |
 | 2 | **Loading**   | First fetch in flight; no `:data` yet. Spinner / skeleton. | `[:todos/load {:n N}]` (transient) |
 | 3 | **Empty**     | Fetched, but the result is the empty list. "No results" CTA. | `[:todos/load {:n 0}]` |
 | 4 | **One**       | Exactly one item; focused single-item layout. | `[:todos/load {:n 1}]` |
