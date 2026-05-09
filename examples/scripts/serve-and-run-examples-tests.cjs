@@ -148,6 +148,22 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login_uix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-uix'),
   },
+  // rf2-2qit — Helix adapter smoke trio (Decision 7: counter + login,
+  // realworld skipped — the eight UIx decisions transfer unchanged).
+  // Different folders from the canonical Reagent and UIx versions so
+  // the bundle-isolation grep can confirm Helix code does NOT appear
+  // in Reagent / UIx-substrate examples and vice versa. Per rf2-kx74
+  // the Helix tree lives under examples/helix/.
+  {
+    build: 'examples/counter-helix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'counter_helix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'counter-helix'),
+  },
+  {
+    build: 'examples/login-helix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'login_helix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'login-helix'),
+  },
   {
     build: 'examples/realworld',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'realworld', 'index.html'),
