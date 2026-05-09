@@ -87,10 +87,32 @@
             ;; ssr API up through the late-bind hook table at call
             ;; time, which the ssr artefact populates from its own
             ;; ns-load.
+            ;;
+            ;; re-frame.epoch (Tool-Pair §Time-travel) ships as a
+            ;; separate Maven artefact (day8/re-frame-2-epoch,
+            ;; rf2-lt4e — the seventh and final per-feature split per
+            ;; rf2-5vjj Strategy B). The core artefact MUST NOT
+            ;; `:require [re-frame.epoch]` — that would pull the
+            ;; per-frame `:rf/epoch-record` ring buffer, the per-cascade
+            ;; trace-capture path, the `:sub-runs` / `:renders` /
+            ;; `:effects` projection walker, the schema-validate /
+            ;; machine-version / missing-reference predicates, and
+            ;; every `:rf.epoch/*` keyword string onto every consumer's
+            ;; classpath even when the pair-tool surface is unused.
+            ;; The re-export wrappers (`epoch-history`, `restore-epoch`,
+            ;; `register-epoch-cb`, `remove-epoch-cb`) and the
+            ;; `(rf/configure :epoch-history ...)` knob below look the
+            ;; epoch API up through the late-bind hook table at call
+            ;; time, which the epoch artefact populates from its own
+            ;; ns-load. Per Tool-Pair §Time-travel §Production elision
+            ;; the entire epoch surface is gated on
+            ;; `interop/debug-enabled?` whether or not the artefact is
+            ;; on the classpath; the wrappers degrade silently (empty
+            ;; vector / false / no-op) when it's absent so a release
+            ;; build that omits the artefact does not raise.
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
-            [re-frame.epoch :as epoch]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             ;; CLJS only: re-frame.views holds the Reagent-aware reg-view*
@@ -1083,12 +1105,57 @@
 ;; queryable; the listener API mirrors register-trace-cb!; restore-epoch
 ;; rewinds the frame's app-db to a recorded epoch's `:db-after`.
 ;;
-;; All elided in production via `interop/debug-enabled?`.
+;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
+;; Strategy B), the epoch surface ships in `day8/re-frame-2-epoch`; the
+;; four re-exports below late-bind through the hook table so core never
+;; statically requires it. When the epoch artefact is not on the
+;; classpath, the lookups return nil and the wrappers degrade quietly:
+;; `epoch-history` returns the empty vector, `restore-epoch` returns
+;; false, the listener register / remove return nil. The whole surface
+;; is still gated on `interop/debug-enabled?` (per Tool-Pair §Time-travel
+;; §Production elision), so production builds elide regardless of
+;; classpath presence.
 
-(def epoch-history     epoch/epoch-history)
-(def restore-epoch     epoch/restore-epoch)
-(def register-epoch-cb epoch/register-epoch-cb!)
-(def remove-epoch-cb   epoch/remove-epoch-cb!)
+(defn epoch-history
+  "Return the vector of `:rf/epoch-record` values for the frame, oldest-
+  first. Empty vector when the frame has no recorded epochs, when the
+  ring buffer's depth is 0 (recording disabled), or when the
+  `day8/re-frame-2-epoch` artefact is not on the classpath. Late-bound
+  via `:epoch/epoch-history`."
+  [frame-id]
+  (if-let [f (late-bind/get-fn :epoch/epoch-history)]
+    (f frame-id)
+    []))
+
+(defn restore-epoch
+  "Rewind the named frame's `app-db` to the named epoch's `:db-after`.
+  Per Tool-Pair §Time-travel: returns `true` on success, `false` on any
+  of the six documented failure modes (each emits a structured
+  `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
+  when the `day8/re-frame-2-epoch` artefact is not on the classpath.
+  Late-bound via `:epoch/restore-epoch`."
+  [frame-id epoch-id]
+  (if-let [f (late-bind/get-fn :epoch/restore-epoch)]
+    (f frame-id epoch-id)
+    false))
+
+(defn register-epoch-cb
+  "Register a callback fired once per drain-settle with the assembled
+  `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb`. Same-id
+  registrations replace; listener exceptions are isolated. Returns the
+  id. No-op (returns nil) when the `day8/re-frame-2-epoch` artefact is
+  not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
+  [id f]
+  (when-let [g (late-bind/get-fn :epoch/register-epoch-cb)]
+    (g id f)))
+
+(defn remove-epoch-cb
+  "Remove the listener registered under id. No-op when the
+  `day8/re-frame-2-epoch` artefact is not on the classpath. Late-bound
+  via `:epoch/remove-epoch-cb`."
+  [id]
+  (when-let [f (late-bind/get-fn :epoch/remove-epoch-cb)]
+    (f id)))
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
@@ -1176,7 +1243,13 @@
   per Spec 009) will land additively."
   [knob opts]
   (case knob
-    :epoch-history (epoch/configure! opts)
+    ;; :epoch-history is published by the `day8/re-frame-2-epoch`
+    ;; artefact (rf2-lt4e). When the artefact is not on the classpath
+    ;; the configure call is a silent no-op — the epoch surface is
+    ;; dev-tier, so an absent artefact means recording is already off
+    ;; and tuning the depth has no effect.
+    :epoch-history (when-let [f (late-bind/get-fn :epoch/configure!)]
+                     (f opts))
     :trace-buffer  (trace/configure-trace-buffer! opts)
     :sub-cache     (subs/configure! opts)
     nil))

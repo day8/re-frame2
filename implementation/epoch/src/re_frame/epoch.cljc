@@ -663,10 +663,30 @@
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; The router calls into settle! at drain-empty. Publishing through the
-;; late-bind registry keeps router.cljc free of a require on this ns.
+;; The router calls into settle! at drain-empty; the trace surface calls
+;; into capture-event! on every emit. Publishing through the late-bind
+;; registry keeps router.cljc / trace.cljc free of a require on this ns.
+;;
+;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
+;; Strategy B), this namespace ships in `day8/re-frame-2-epoch`; the
+;; core artefact MUST NOT statically `:require` it. Core's public
+;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
+;; `rf/register-epoch-cb`, `rf/remove-epoch-cb`) and the
+;; `(rf/configure :epoch-history ...)` knob look the producing fns up
+;; through the hook table at call time; when this artefact is not on
+;; the classpath those queries return nil / empty / false and the
+;; (rf/configure :epoch-history ...) call is a silent no-op — the
+;; epoch surface is dev-tier so an absent artefact degrades quietly
+;; rather than throwing.
 
-(late-bind/set-fn! :epoch/settle!          settle!)
-(late-bind/set-fn! :epoch/discard-buffer!  discard-buffer!)
-(late-bind/set-fn! :epoch/in-flight-buffer in-flight-buffer)
-(late-bind/set-fn! :epoch/capture-event    capture-event!)
+(late-bind/set-fn! :epoch/settle!            settle!)
+(late-bind/set-fn! :epoch/discard-buffer!    discard-buffer!)
+(late-bind/set-fn! :epoch/in-flight-buffer   in-flight-buffer)
+(late-bind/set-fn! :epoch/capture-event      capture-event!)
+(late-bind/set-fn! :epoch/epoch-history      epoch-history)
+(late-bind/set-fn! :epoch/restore-epoch      restore-epoch)
+(late-bind/set-fn! :epoch/register-epoch-cb  register-epoch-cb!)
+(late-bind/set-fn! :epoch/remove-epoch-cb    remove-epoch-cb!)
+(late-bind/set-fn! :epoch/configure!         configure!)
+(late-bind/set-fn! :epoch/clear-history!     clear-history!)
+(late-bind/set-fn! :epoch/clear-epoch-cbs!   clear-epoch-cbs!)

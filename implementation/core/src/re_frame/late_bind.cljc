@@ -91,7 +91,14 @@
     :epoch/settle!            re-frame.epoch/settle!
     :epoch/discard-buffer!    re-frame.epoch/discard-buffer!
     :epoch/in-flight-buffer   re-frame.epoch/in-flight-buffer
-    :epoch/capture-event      re-frame.epoch/capture-event!"}
+    :epoch/capture-event      re-frame.epoch/capture-event!
+    :epoch/epoch-history      re-frame.epoch/epoch-history
+    :epoch/restore-epoch      re-frame.epoch/restore-epoch
+    :epoch/register-epoch-cb  re-frame.epoch/register-epoch-cb!
+    :epoch/remove-epoch-cb    re-frame.epoch/remove-epoch-cb!
+    :epoch/configure!         re-frame.epoch/configure!
+    :epoch/clear-history!     re-frame.epoch/clear-history!
+    :epoch/clear-epoch-cbs!   re-frame.epoch/clear-epoch-cbs!"}
   hooks
   (atom {}))
 
