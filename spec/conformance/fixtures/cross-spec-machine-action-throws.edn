@@ -1,0 +1,70 @@
+;; Conformance fixture: cross-spec/machine-action-throws
+;;
+;; Cross-Spec Interaction #11 (Machines × Errors), per
+;; [Cross-Spec-Interactions §11 — Machine action throws](../../Cross-Spec-Interactions.md#11-machine-action-throws).
+;;
+;; Specs that meet: [005-StateMachines §Errors](../../005-StateMachines.md),
+;;                  [009-ErrorsAndTracing §Error categories](../../009-ErrorsAndTracing.md).
+;;
+;; Scenario: A machine action throws while the cascade is in flight.
+;; Behaviour: the action's exception is caught by the machine handler;
+;; the in-flight cascade halts atomically. The snapshot is NOT committed
+;; — the pre-action `app-db` slice at `[:rf/machines <id>]` remains.
+;; `:rf.error/machine-action-exception` traces with `:tags` carrying
+;; `:machine-id`, `:action-id`, `:state-path`, `:transition`, `:event`,
+;; `:exception-message`, and `:reason`. The generic
+;; `:rf.error/handler-exception` does NOT also fire — the machine layer
+;; catches the throw before it can bubble out as a handler exception.
+;;
+;; Pinned by rf2-msd4 (conformance runner :reg-machine + :throw op for
+;; machine-action bodies).
+
+{:fixture/id           :cross-spec/machine-action-throws
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/error}
+ :fixture/doc          "Cross-Spec #11 Machine action throws. The action's exception is caught by the machine handler; the cascade halts atomically. No snapshot commit, no :db effect, generic :rf.error/handler-exception does NOT also fire — only the machine-scoped :rf.error/machine-action-exception."
+
+ :fixture/registry
+ {:event {:test/m {:doc "Machine-as-event-handler. Dispatches go through create-machine-handler."}}
+  :machine-action
+  {:boom {:doc "Action body throws — exercises Cross-Spec §11."}}
+  ;; The machine spec is registered via re-frame.machines/reg-machine —
+  ;; the runtime stamps :rf/machine? true onto the event-registry slot.
+  ;; The runner merges the realised :machine-action bodies into the
+  ;; spec's :actions slot — keyword refs in :on transitions resolve via
+  ;; the spec's :actions map, so we leave :actions absent here and let
+  ;; the runner populate it.
+  :machine
+  {:test/m {:initial :idle
+            :data    {}
+            :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
+                      :angry {}}}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:boom [[:throw "kaboom"]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ ;; Inner-event sub-routing per Spec 005 §Registration: the outer event
+ ;; [:test/m [:bang]] yields inner-event [:bang] inside the handler. The
+ ;; inner :bang triggers the :idle → :angry transition whose action throws.
+ [[:test/m [:bang]]]
+
+ :fixture/expect
+ ;; Final app-db is empty: the machine snapshot was NEVER committed (the
+ ;; pre-action snapshot is the synthesised initial, which lives only inside
+ ;; the handler — it never reached app-db because :db was suppressed).
+ {:final-app-db {}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :test/m}}
+   ;; Machine-scoped error trace fires with the original message.
+   {:operation :rf.error/machine-action-exception
+    :op-type   :error
+    :tags      {:machine-id        :test/m
+                :action-id         :boom
+                :exception-message "kaboom"
+                :reason            "Machine action threw."}
+    :recovery  :no-recovery}]}}

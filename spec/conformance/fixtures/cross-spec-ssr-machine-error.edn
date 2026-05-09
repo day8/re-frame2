@@ -1,0 +1,79 @@
+;; Conformance fixture: cross-spec/ssr-machine-error
+;;
+;; Cross-Spec Interaction #17 (Errors × SSR), per
+;; [Cross-Spec-Interactions §17 — Machine error inside SSR](../../Cross-Spec-Interactions.md#17-machine-error-inside-ssr).
+;;
+;; Specs that meet: [005-StateMachines §Errors](../../005-StateMachines.md),
+;;                  [011-SSR §Server error projection](../../011-SSR.md),
+;;                  [009-ErrorsAndTracing §Error categories](../../009-ErrorsAndTracing.md).
+;;
+;; Composes Interactions #11 (action-throw → snapshot doesn't commit)
+;; and #16 (server projection). Behaviour: the machine snapshot does
+;; not commit (per §11); the active error projector projects the
+;; :rf.error/machine-action-exception trace and stamps :status onto the
+;; response accumulator (per §16 / §11 → §17).
+;;
+;; The machine-scoped :rf.error/machine-action-exception fires (NOT the
+;; generic :rf.error/handler-exception) — the machine layer catches the
+;; throw before it can bubble. The runtime's default error projector
+;; doesn't have a custom mapping for :rf.error/machine-action-exception
+;; so it falls through to the generic 500 (Spec 011 §Default projector
+;; says: "anything else → 500 :internal-error").
+;;
+;; Pinned by rf2-msd4 (conformance runner :reg-machine + :throw op).
+
+{:fixture/id           :cross-spec/ssr-machine-error
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/error :ssr/error-projection}
+ :fixture/doc          "Cross-Spec #17 Machine error inside SSR. Composes §11 (machine all-or-nothing — snapshot does not commit on action throw) with §16 (error projector runs on the server frame). Asserts the projector's output reaches the response accumulator AND that the machine-scoped :rf.error/machine-action-exception fires (generic :rf.error/handler-exception does NOT also fire)."
+
+ :fixture/registry
+ {:event {:rf/server-init {:platforms #{:server}}
+          :test/m         {:doc "Machine-as-event-handler under :ssr-server."}}
+  :machine-action
+  {:boom {:doc "Action body throws — exercises §11 inside an SSR drain."}}
+  ;; :actions populated by the runner from :fixture/handlers :machine-action.
+  :machine
+  {:test/m {:initial :idle
+            :data    {}
+            :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
+                      :angry {}}}}
+  :error-projector
+  {:rf.ssr/default-error-projector
+   {:doc "Built-in default projector — generic 500 covers machine-action-exception."}}}
+
+ :fixture/handlers
+ {:event {:rf/server-init [[:fx [[:dispatch [:test/m [:bang]]]]]]}
+  :machine-action
+  {:boom [[:throw "ssr-bang"]]}}
+
+ :fixture/frame-config {:on-create [:rf/server-init]
+                        :platform :server
+                        :ssr {:public-error-id   :rf.ssr/default-error-projector
+                              :dev-error-detail? false}}
+
+ :fixture/dispatches []
+
+ :fixture/expect
+ ;; Machine snapshot was NOT committed — no :rf/machines slot in app-db.
+ ;; The error projector ran and stamped :status 500 onto :rf/response.
+ {:final-app-db {:rf/response {:status 500 :redirect nil}}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :rf/server-init}}
+   {:operation :event :tags {:event-id :test/m}}
+   {:operation :rf.error/machine-action-exception
+    :op-type   :error
+    :tags      {:machine-id        :test/m
+                :action-id         :boom
+                :exception-message "ssr-bang"
+                :reason            "Machine action threw."}}]
+
+  ;; Public-error shape from the runtime's default projector — the
+  ;; generic 500 (no custom mapping for :rf.error/machine-action-exception
+  ;; in the default projector means it falls to "anything else → 500").
+  :ssr/public-error
+  {:status     500
+   :code       :internal-error
+   :message    "Something went wrong"
+   :retryable? false}}}
