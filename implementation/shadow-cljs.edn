@@ -1,11 +1,11 @@
 ;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e).
 ;;
 ;; Pulls in every published artefact's source path (core/, reagent/,
-;; uix/, schemas/, machines/, routing/, flows/, http/, ssr/) plus their
-;; test trees and the examples. The shadow build runs as a *consumer*
-;; of every artefact; the deps.edn at this level wires the classpath
-;; via :local/root for any clojure-tools-driven steps.
+;; uix/, schemas/, machines/, routing/, flows/, http/, ssr/, epoch/)
+;; plus their test trees and the examples. The shadow build runs as a
+;; *consumer* of every artefact; the deps.edn at this level wires the
+;; classpath via :local/root for any clojure-tools-driven steps.
 ;;
 ;; Per rf2-3yij the UIx adapter ships in implementation/uix; its
 ;; sources are added to :source-paths and com.pitch/uix.{core,dom} are
@@ -28,6 +28,8 @@
                 "http/test"
                 "ssr/src"
                 "ssr/test"
+                "epoch/src"
+                "epoch/test"
                 "../examples"
                 "../examples/7Guis"
                 "../examples/realworld/test"]
