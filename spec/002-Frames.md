@@ -851,10 +851,13 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
       ;; 3. Walk :fx in source order. Each entry's handler returns
       ;;    synchronously before the next begins. Errors trace and continue.
+      ;;    The originating envelope is threaded so reserved fxs that queue
+      ;;    children (`:dispatch`, `:dispatch-later`) can copy envelope fields
+      ;;    onto the child envelope, per [§Cascade propagation](#cascade-propagation).
       (doseq [[fx-id args] (:fx effects)]
         (try
           (let [fx-handler (lookup-fx frame fx-id)]    ;; honors :fx-overrides
-            (fx-handler frame args))
+            (fx-handler frame envelope args))
           (catch :default e
             (raise! :rf.error/fx-handler-exception
                     {:fx-id fx-id :event event :frame (:id frame) :ex e}))))
@@ -872,13 +875,27 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :raise / :spawn — machine-internal; routed by create-machine-handler
 ;;                   BEFORE :fx reaches do-fx (see machine pseudocode below).
 
-(defmethod do-fx :dispatch [frame ev]
-  (dispatch frame {:event ev}))                        ;; back of queue, FIFO
+;; Inheritable envelope fields — copied from parent to child when :dispatch /
+;; :dispatch-later queue a new envelope. This is the "envelope-field-copying
+;; when queueing children" mechanism named in [§Cascade propagation]
+;; (#cascade-propagation). `:event` and `:dispatched-at` are NOT inherited —
+;; the child gets its own. `:source` is preserved unless the queueing fx
+;; sets a more specific value (e.g. a timer fx might set `:source :timer`).
+(def ^:private inheritable-envelope-keys
+  [:frame :fx-overrides :interceptor-overrides :trace-id :origin :source])
 
-(defmethod do-fx :dispatch-later [frame {:keys [ms event]}]
-  (interop/set-timeout!
-    (fn [] (dispatch frame {:event event}))
-    ms))
+(defn- child-envelope [parent-envelope event]
+  (-> (select-keys parent-envelope inheritable-envelope-keys)
+      (assoc :event event)))
+
+(defmethod do-fx :dispatch [frame parent-envelope ev]
+  (dispatch frame (child-envelope parent-envelope ev))) ;; back of queue, FIFO
+
+(defmethod do-fx :dispatch-later [frame parent-envelope {:keys [ms event]}]
+  (let [child (child-envelope parent-envelope event)]
+    (interop/set-timeout!
+      (fn [] (dispatch frame child))
+      ms)))
 ```
 
 For machine events, `process-event!` step 1 lands inside the machine handler, which runs the Level-3 cascade before returning effects. The cascade is Level 3 in [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event):
