@@ -205,7 +205,7 @@ A `:preset` key on the metadata expands at registration time into a fixed bundle
    :drain-depth 1000})        ;; overrides the :test preset's drain-depth default
 ```
 
-The closed canonical set of four presets, with their exact expansions:
+The closed canonical set of four presets, with their exact expansions. The expansion *table itself* is normatively captured in [Spec-Schemas §`:rf/preset-expansion`](Spec-Schemas.md#rfpreset-expansion); the four sub-sections below mirror that schema for human readability.
 
 #### `:default`
 
@@ -253,7 +253,7 @@ At registration time, the runtime:
 1. Reads the `:preset` key from the user's metadata (if any).
 2. Looks up the expansion table (above).
 3. Constructs an effective metadata map: `(merge expansion user-supplied-metadata)`. **User keys win on conflict** — the preset is a default, not a closed bundle.
-4. The effective metadata is what `(frame-meta <id>)` returns; the original `:preset` is preserved as a metadata field for inspection.
+4. The effective metadata is what `(frame-meta <id>)` returns; the original `:preset` is preserved as a metadata field for inspection. The returned shape conforms to [Spec-Schemas §`:rf/frame-meta`](Spec-Schemas.md#rfframe-meta); the table-itself shape is [§`:rf/preset-expansion`](Spec-Schemas.md#rfpreset-expansion).
 
 Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; the `:preset` key is preserved verbatim so tools can inspect which preset was applied:
 
