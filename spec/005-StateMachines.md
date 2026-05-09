@@ -517,6 +517,36 @@ The fn `create-machine-handler` returns is the event handler. Crucially, the fac
 
 This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
 
+### `reg-machine` — public registration surface
+
+Alongside the underlying `reg-event-fx + create-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
+
+```clojure
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+   :guards  {:under-retry-limit (fn [data _] (< (:attempts data) 3))}
+   :actions {:begin-submit       (fn [_ [_ creds]] {:fx [[:http {...}]]})
+             :record-failure     (fn [data _]      {:data {:attempts (inc (:attempts data))}})}
+   :states  { ... }})
+```
+
+**Surface signature.** Two arities of two forms:
+
+- `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and stamps a per-element source-coord index onto the spec's `:rf.machine/source-coords` key (per [§Source-coord stamping](#source-coord-stamping-rf2-8bp3)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
+- `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (create-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
+
+Both forms live in `re-frame.machines` (the `day8/re-frame-2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
+
+**Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
+
+- `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(handlers :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
+- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source coords, the `:rf.machine/source-coords` index lives inside this spec map.
+
+Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping-rf2-8bp3) for the per-element index.
+
+`reg-machine` is itself **late-bound** — `re-frame.core` carries the macro and a stub fn that resolves the producer through the late-bind hook table at registration time. Apps that use `reg-machine` MUST add `day8/re-frame-2-machines` to their deps and require `re-frame.machines` at app boot; without it, the lookup throws `:rf.error/machines-artefact-missing`.
+
 ### `reg-machine` vs `reg-machine*`
 
 The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn` / `fn*` idiom:
