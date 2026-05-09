@@ -106,7 +106,7 @@
 
     (rf/reg-event-fx :rf/server-init
       (fn [{:keys [db]} [_ request]]
-        {:db (assoc db :request request :route {:id :route/articles})
+        {:db (assoc db :request request :rf/route {:id :route/articles})
          :fx [[:http/get {:url        "/api/articles"
                           :on-success [:articles/loaded]}]]}))
 
@@ -656,7 +656,7 @@
           ;; current verify-hydration! reads server-hash from there;
           ;; the head/body distinction lives in :failing-id below.)
           payload   {:rf/version     1
-                     :rf/app-db      {:route {:id :route/article :params {:id "123"}}}
+                     :rf/app-db      {:rf/route {:id :route/article :params {:id "123"}}}
                      :rf/render-hash "head-hash-server-A"}
           traces    (atom [])
           f         (rf/make-frame {:platform :client})]

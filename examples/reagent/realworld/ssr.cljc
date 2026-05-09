@@ -13,7 +13,7 @@
             #?(:cljs [cljs.reader :as reader])))
 
 (def ssr-slice-keys
-  [:route
+  [:rf/route
    :auth
    :articles
    :article

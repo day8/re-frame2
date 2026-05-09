@@ -121,7 +121,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 - The `app-db` reactive container is opaque to the core; the [substrate adapter](006-ReactiveSubstrate.md) decides what it is (Reagent ratom in CLJS reference; plain atom for JVM/SSR/headless).
 - The frame's full state is reconstructible from its `app-db` *value* — adapter-internal state (Reagent reactions, React fibers, etc.) is not part of the frame value (load-bearing for [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) per [006 §Revertibility constraints](006-ReactiveSubstrate.md#revertibility-constraints-on-adapters)).
 - `:rf/default` is always present; user code that omits a frame on dispatch lands here ([002 §`:rf/default`](002-Frames.md#rfdefault)).
-- Reserved `app-db` keys (`:rf/machines`, `:route`) are owned by the runtime ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)).
+- Reserved `app-db` keys (`:rf/machines`, `:rf/route`) are owned by the runtime ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)).
 
 ### 3. Router (per-frame FIFO)
 

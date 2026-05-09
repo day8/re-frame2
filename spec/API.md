@@ -151,7 +151,7 @@ Standard route-related subs:
 
 | Sub | Returns | Spec |
 |---|---|---|
-| `:route` | The full `:route` slice `{:id :params :query :transition :error}` | 012 |
+| `:rf/route` | The full `:rf/route` slice `{:id :params :query :transition :error}` | 012 |
 | `:rf.route/id` | Current route id | 012 |
 | `:rf.route/params` | Current path params | 012 |
 | `:rf.route/query` | Current query params | 012 |

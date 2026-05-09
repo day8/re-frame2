@@ -40,7 +40,7 @@
  ;; Slice ends up on :route/cart (the redirect target). :rf.route/navigate
  ;; overwrites the slice with the destination's id and params.
  {:final-app-db
-  {:route {:id :route/cart :params {} :query {} :error nil}}
+  {:rf/route {:id :route/cart :params {} :query {} :error nil}}
 
   :trace-emissions
   [;; Token allocated for the legacy route (:rf/url-changed branch).

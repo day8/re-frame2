@@ -1207,7 +1207,7 @@ Implementations rank candidates by descending `route-rank` then by ascending reg
 
 > **Layer:** Runtime
 
-The shape of `app-db`'s `:route` slice, per [012 §The `:route` slice](012-Routing.md#the-route-slice).
+The shape of `app-db`'s `:rf/route` slice, per [012 §The `:rf/route` slice](012-Routing.md#the-rfroute-slice).
 
 ```clojure
 (def RouteSlice
@@ -1282,7 +1282,7 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
    [:nav-token :any]])                                                    ;; the token captured at scheduling time (gensym or counter)
 ```
 
-Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the framework-provided `:nav-token` cofx checks the carried token against the current `:route` slice's `:nav-token`. Mismatch → suppress + emit `:route.nav-token/stale-suppressed` trace.
+Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the framework-provided `:nav-token` cofx checks the carried token against the current `:rf/route` slice's `:nav-token`. Mismatch → suppress + emit `:route.nav-token/stale-suppressed` trace.
 
 ### `:rf/hydration-payload`
 

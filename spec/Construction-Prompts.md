@@ -793,7 +793,7 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
                     :on-error   [:cart/load-failed]}]]})))
 ```
 
-The handler reads `(:route db)` for any path/query params it needs — the `:route` slice is already populated when `:on-match` events fire.
+The handler reads `(:rf/route db)` for any path/query params it needs — the `:rf/route` slice is already populated when `:on-match` events fire.
 
 **Template — route-aware root view:**
 
@@ -839,7 +839,7 @@ The handler reads `(:route db)` for any path/query params it needs — the `:rou
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
 - Server-side renders set the route via `:rf/url-changed` against the request URL; the same `:on-match` events run server-side.
-- Path params and query params are **separate maps** — `(:params (:route db))` and `(:query (:route db))`.
+- Path params and query params are **separate maps** — `(:params (:rf/route db))` and `(:query (:rf/route db))`.
 
 **AI-first checklist:**
 

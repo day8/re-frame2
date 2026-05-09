@@ -21,7 +21,7 @@
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
 (defn username-from-db [db]
-  (get-in db [:route :params :username]))
+  (get-in db [:rf/route :params :username]))
 
 ;; ============================================================================
 ;; INITIALISATION
@@ -197,13 +197,13 @@
 
 (rf/reg-sub :profile/current-tab
   (fn [db _]
-    (if (= :route/profile.favorites (get-in db [:route :id]))
+    (if (= :route/profile.favorites (get-in db [:rf/route :id]))
       :favorites
       :articles)))
 
 (rf/reg-sub :profile/current-articles
   (fn [db _]
-    (if (= :route/profile.favorites (get-in db [:route :id]))
+    (if (= :route/profile.favorites (get-in db [:rf/route :id]))
       (get-in db [:profile.favorites :data])
       (get-in db [:profile.articles :data]))))
 

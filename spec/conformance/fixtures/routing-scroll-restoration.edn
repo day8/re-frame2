@@ -57,7 +57,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:route {:id :route/profile :params {} :error nil}}
+  {:rf/route {:id :route/profile :params {} :error nil}}
 
   :effects-routed
   ;; The push-url and scroll fxs interleave; what we assert is the

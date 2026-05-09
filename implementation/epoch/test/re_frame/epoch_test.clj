@@ -421,10 +421,10 @@
 (deftest restore-failure-missing-handler-route
   (testing "restore-epoch on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
     (rf/reg-frame :test/main {})
-    ;; Register a route so the recorded :route reference resolves; we'll
+    ;; Register a route so the recorded :rf/route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
     (rf/reg-route :route/users {:path "/users"})
-    (rf/reg-event-db :route-to (fn [db _] (assoc db :route {:id :route/users})))
+    (rf/reg-event-db :route-to (fn [db _] (assoc db :rf/route {:id :route/users})))
     (rf/dispatch-sync [:route-to] {:frame :test/main})
     ;; A subsequent dispatch so the history holds at least one record
     ;; whose :db-after references :route/users.
@@ -980,27 +980,27 @@
     (rf/reg-route :route/home    {:path "/"})
     (rf/reg-route :route/article {:path "/articles/:id"})
     (rf/reg-event-db :go-home
-      (fn [db _] (assoc db :route {:id :route/home :params {}})))
+      (fn [db _] (assoc db :rf/route {:id :route/home :params {}})))
     (rf/reg-event-db :go-article
-      (fn [db [_ id]] (assoc db :route {:id :route/article :params {:id id}})))
-    (rf/reg-sub :current-route (fn [db _] (get-in db [:route :id])))
+      (fn [db [_ id]] (assoc db :rf/route {:id :route/article :params {:id id}})))
+    (rf/reg-sub :current-route (fn [db _] (get-in db [:rf/route :id])))
 
     (rf/dispatch-sync [:go-home]               {:frame :test/main})
     (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
     (is (= :route/article (rf/subscribe-value :test/main [:current-route])))
 
     (let [history (rf/epoch-history :test/main)
-          ;; The epoch whose db-after carries :route/home in :route :id.
+          ;; The epoch whose db-after carries :route/home in :rf/route :id.
           target  (some (fn [r]
-                          (when (= :route/home (get-in (:db-after r) [:route :id]))
+                          (when (= :route/home (get-in (:db-after r) [:rf/route :id]))
                             r))
                         history)]
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
-      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:route :id]))
-          "the :route slice is rewound by restore")
+      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:rf/route :id]))
+          "the :rf/route slice is rewound by restore")
       (is (= :route/home (rf/subscribe-value :test/main [:current-route]))
-          "a sub keyed on :route returns the restored value"))))
+          "a sub keyed on :rf/route returns the restored value"))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
 ;;

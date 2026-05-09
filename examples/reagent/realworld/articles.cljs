@@ -43,7 +43,7 @@
          in-flight request and an `:articles/cancel` fx aborts cleanly."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
-    (let [tag       (get-in db [:route :query :tag])
+    (let [tag       (get-in db [:rf/route :query :tag])
           path      (if tag
                       (str "/articles?tag=" tag)
                       "/articles")

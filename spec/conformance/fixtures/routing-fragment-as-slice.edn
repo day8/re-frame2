@@ -1,6 +1,6 @@
 ;; Conformance fixture: routing/fragment-as-slice
 ;;
-;; The URL #fragment is a first-class slot in the :route slice — populated
+;; The URL #fragment is a first-class slot in the :rf/route slice — populated
 ;; on initial navigation, updatable on fragment-only changes, and cleared
 ;; when the next URL has no fragment. This fixture isolates the slice
 ;; lifecycle separately from `route-fragment-change`'s on-match-doesn't-
@@ -12,7 +12,7 @@
 {:fixture/id           :routing/fragment-as-slice
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/fragment}
- :fixture/doc          "The :route slice's :fragment field tracks the URL #fragment. Initial navigation seeds it; same-path/different-fragment updates it; navigation to a URL without a fragment clears it (nil). The slice-level shape is the only thing this fixture asserts — on-match firing is covered by route-fragment-change."
+ :fixture/doc          "The :rf/route slice's :fragment field tracks the URL #fragment. Initial navigation seeds it; same-path/different-fragment updates it; navigation to a URL without a fragment clears it (nil). The slice-level shape is the only thing this fixture asserts — on-match firing is covered by route-fragment-change."
 
  :fixture/registry
  {:route
@@ -33,7 +33,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:route {:id       :route/docs
-           :params   {:page "routing"}
-           :query    {}
-           :fragment nil}}}}
+  {:rf/route {:id       :route/docs
+              :params   {:page "routing"}
+              :query    {}
+              :fragment nil}}}}

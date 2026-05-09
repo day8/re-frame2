@@ -44,7 +44,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:route      {:id :route/article :params {:id "B"} :query {} :fragment nil}
+  {:rf/route   {:id :route/article :params {:id "B"} :query {} :fragment nil}
    :load-count 2}                                          ;; A + B
 
   :trace-emissions

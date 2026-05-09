@@ -19,7 +19,7 @@
 ;; optional '!' for the legacy hashbang form) and dispatches
 ;; :rf.route/handle-url-change so the registered routes in events.cljs match
 ;; cleanly. Per Spec 012 §URL changes are events, the runtime updates
-;; app-db's :route slice from there.
+;; app-db's :rf/route slice from there.
 
 (defn- hash->path
   "Convert window.location.hash (e.g. \"#/active\", \"#!/completed\") to a

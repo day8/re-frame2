@@ -53,7 +53,7 @@
  :fixture/expect
  {:final-app-db
   ;; Original route is still active; no slice change. Pending-nav cleared.
-  {:route                 {:id :editor/article :params {:id "A"}
+  {:rf/route              {:id :editor/article :params {:id "A"}
                            :query {} :fragment nil
                            :transition :idle :error nil}
    :editor                {:dirty? true}

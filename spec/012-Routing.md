@@ -6,7 +6,7 @@
 
 Routing is **state plus events**, not a separate subsystem. The URL is a derivable view of `app-db`; navigation is an event. Browser back/forward, deep links, and SSR all flow through this single contract.
 
-The principle: routing does not get its own runtime. It uses the runtime that already exists — frames, events, subs, app-db. A route table is data; routes are registry entries; `:rf.route/navigate` is an event; `(rf/sub :route)` derives the active route from `app-db`. Nothing new at the foundation level.
+The principle: routing does not get its own runtime. It uses the runtime that already exists — frames, events, subs, app-db. A route table is data; routes are registry entries; `:rf.route/navigate` is an event; `(rf/sub :rf/route)` derives the active route from `app-db`. Nothing new at the foundation level.
 
 ## Normative surface inventory
 
@@ -20,7 +20,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### `app-db` slices
 
-- **`:route` slice** — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. See [§The `:route` slice](#the-route-slice).
+- **`:rf/route` slice** — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. See [§The `:rf/route` slice](#the-rfroute-slice).
 - **`:rf/pending-navigation` slot** — populated when a `:can-leave` guard rejects. Schema `:rf/pending-navigation`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 
 ### Events
@@ -48,7 +48,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 | Sub | Returns |
 |---|---|
-| `:route` | The full `:route` map. |
+| `:rf/route` | The full `:rf/route` map. |
 | `:rf.route/id` | The active route id. |
 | `:rf.route/params` | Path params. |
 | `:rf.route/query` | Query params. |
@@ -71,7 +71,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 - `:rf/route-pattern` — path-pattern grammar (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-pattern)).
 - `:rf/route-rank` — structural rank tuple (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-rank)).
-- `:rf/route-slice` — the `:route` slice shape (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
+- `:rf/route-slice` — the `:rf/route` slice shape (see [Spec-Schemas.md](Spec-Schemas.md#rfroute-slice)).
 - `:rf/pending-navigation` — the pending-nav slot shape (see [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)).
 
 ### Trace events
@@ -220,12 +220,12 @@ The pattern reserves these keys on `reg-route`'s metadata map. All are optional 
 | `:on-error` | event vector | Event the runtime dispatches if any `:on-match` event errors. See "Per-route error handling". |
 | `:scroll` | enum or map | Declarative scroll behaviour on entering this route. See "Scroll restoration". |
 
-### The `:route` slice
+### The `:rf/route` slice
 
-The runtime maintains a single slice in `app-db` under the `:route` key:
+The runtime maintains a single slice in `app-db` under the `:rf/route` key:
 
 ```clojure
-{:route
+{:rf/route
   {:id           :route/article             ;; current route id
    :params       {:id #uuid "..."}          ;; path params (matches :params schema)
    :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
@@ -258,13 +258,13 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
           push-fx-id (if (:replace? opts) :rf.nav/replace-url :rf.nav/push-url)
           nav-token  (rf/gen-nav-token)]
       {:db (-> db
-               (assoc :route {:id         route-id
-                              :params     path-params
-                              :query      query-params
-                              :fragment   fragment
-                              :transition (if (seq (:on-match route-meta)) :loading :idle)
-                              :error      nil
-                              :nav-token  nav-token}))
+               (assoc :rf/route {:id         route-id
+                                 :params     path-params
+                                 :query      query-params
+                                 :fragment   fragment
+                                 :transition (if (seq (:on-match route-meta)) :loading :idle)
+                                 :error      nil
+                                 :nav-token  nav-token}))
        :fx (into [[push-fx-id url]
                   [:rf/trace [:route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]
                   (when-let [scroll (resolve-scroll route-meta opts fragment)]
@@ -275,7 +275,7 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
 ```
 
 Three effect categories flow:
-1. `app-db`'s `:route` slice is updated (id, params, query, fragment, transition, nav-token).
+1. `app-db`'s `:rf/route` slice is updated (id, params, query, fragment, transition, nav-token).
 2. The browser URL is pushed via `:rf.nav/push-url` (a registered fx; `:platforms #{:client}`), or replaced via `:rf.nav/replace-url` when `opts` has `:replace? true`.
 3. The route's `:on-match` events (if any) are dispatched, and the route's `:scroll` strategy (if any) is emitted as a `:rf.nav/scroll` effect.
 
@@ -307,7 +307,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
   (fn handler-route-handle-url-change [{:keys [db]} [_ url]]
     (let [{:keys [route-id params query fragment validation-failed?]} (rf/match-url url)
           route-meta                                                  (rf/handler-meta :route route-id)
-          prev-route                                                  (:route db)
+          prev-route                                                  (:rf/route db)
           fragment-only?                                              (and prev-route
                                                                            (= route-id (:id prev-route))
                                                                            (= params   (:params prev-route))
@@ -319,36 +319,36 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
       (cond
         ;; No match → 404 route
         (nil? route-id)
-        {:db (assoc db :route {:id :rf.route/not-found
-                               :params {:url url}
-                               :query {} :fragment fragment
-                               :transition :idle :error nil
-                               :nav-token nav-token})}
+        {:db (assoc db :rf/route {:id :rf.route/not-found
+                                  :params {:url url}
+                                  :query {} :fragment fragment
+                                  :transition :idle :error nil
+                                  :nav-token nav-token})}
 
         ;; Validation failure → 404 (or, optionally, a configured error route)
         validation-failed?
-        {:db (assoc db :route {:id :rf.route/not-found
-                               :params {:url url :reason :validation}
-                               :query {} :fragment fragment
-                               :transition :idle :error nil
-                               :nav-token nav-token})}
+        {:db (assoc db :rf/route {:id :rf.route/not-found
+                                  :params {:url url :reason :validation}
+                                  :query {} :fragment fragment
+                                  :transition :idle :error nil
+                                  :nav-token nav-token})}
 
         ;; Fragment-only change — update the slice; emit :rf.route/url-changed
         ;; trace; do NOT re-fire :on-match. See "Fragments" below.
         fragment-only?
-        {:db (assoc-in db [:route :fragment] fragment)
+        {:db (assoc-in db [:rf/route :fragment] fragment)
          :fx [[:rf/trace [:rf.route/url-changed {:route-id route-id
                                                  :prev-fragment (:fragment prev-route)
                                                  :next-fragment fragment}]]]}
 
         :else
-        {:db (assoc db :route {:id         route-id
-                               :params     params
-                               :query      query
-                               :fragment   fragment
-                               :transition (if (seq (:on-match route-meta)) :loading :idle)
-                               :error      nil
-                               :nav-token  nav-token})
+        {:db (assoc db :rf/route {:id         route-id
+                                  :params     params
+                                  :query      query
+                                  :fragment   fragment
+                                  :transition (if (seq (:on-match route-meta)) :loading :idle)
+                                  :error      nil
+                                  :nav-token  nav-token})
          :fx (into [[:rf/trace [:route.nav-token/allocated {:route-id route-id :nav-token nav-token}]]]
                    (for [ev (:on-match route-meta)]
                      [:dispatch ev]))}))))
@@ -372,32 +372,32 @@ Users who want plain anchors to be interceptable register their own delegating h
 ### Reading the route is a sub
 
 ```clojure
-(rf/reg-sub :route
+(rf/reg-sub :rf/route
   {:doc "The current route map: {:id :params :query :transition :error}"}
-  (fn sub-route [db _] (:route db)))
+  (fn sub-route [db _] (:rf/route db)))
 
 (rf/reg-sub :rf.route/id
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:id route)))
 
 (rf/reg-sub :rf.route/params
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:params route)))
 
 (rf/reg-sub :rf.route/query
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:query route)))
 
 (rf/reg-sub :rf.route/fragment
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:fragment route)))     ;; URL #fragment string, or nil
 
 (rf/reg-sub :rf.route/transition
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:transition route)))    ;; :idle | :loading | :error
 
 (rf/reg-sub :rf.route/error
-  :<- [:route]
+  :<- [:rf/route]
   (fn [route _] (:error route)))
 
 (rf/reg-sub :rf/pending-navigation
@@ -445,7 +445,7 @@ The two boundaries where route params enter the runtime — **programmatic navig
 | Boundary | Source | Validation failure |
 |---|---|---|
 | **Programmatic** — `(route-url route-id path-params query-params)` | Caller supplies the params map directly. | **Throws** `:rf.error/route-url-validation` (caller bug; not user input). The schema-explanation is on the exception's data; the trace event is emitted at the same time. |
-| **Programmatic** — `[:rf.route/navigate target params opts]` | Caller dispatches an event. | The event-boundary validation interceptor runs the route's `:params` / `:query` schema on the supplied maps **before transitioning**. Failure emits `:rf.error/schema-validation-failure` (per [009 §Error categories](009-Instrumentation.md#error-categories-initial-set), `:where :event`) and the navigation is **rejected** — the `:route` slice does not change. |
+| **Programmatic** — `[:rf.route/navigate target params opts]` | Caller dispatches an event. | The event-boundary validation interceptor runs the route's `:params` / `:query` schema on the supplied maps **before transitioning**. Failure emits `:rf.error/schema-validation-failure` (per [009 §Error categories](009-Instrumentation.md#error-categories-initial-set), `:where :event`) and the navigation is **rejected** — the `:rf/route` slice does not change. |
 | **URL-driven** — `(match-url url)` | Browser URL (popstate, link click, deep link). | `:validation-failed? true` in the result; `:rf.route/handle-url-change` routes to `:rf.route/not-found` with `:reason :validation`. |
 
 The asymmetry is deliberate. Programmatic navigation is *caller code* — schema failures are bugs and should be surfaced loudly (throw / reject). URL-driven navigation is *user input* — schema failures are 404s, not exceptions. Both paths share the same `:params` / `:query` schemas (per [Spec 010](010-Schemas.md)), so a route that compiles cleanly with one validates the same way against the other.
@@ -466,15 +466,15 @@ A route may declare a vector of events the runtime dispatches whenever the route
 
 Semantics:
 
-1. When `:rf.route/handle-url-change` (URL-driven) or `:rf.route/navigate` (programmatic) makes this route the active route, the runtime dispatches each event in `:on-match`, **in order**, after writing the `:route` slice and before any view renders that depend on the loaded data.
+1. When `:rf.route/handle-url-change` (URL-driven) or `:rf.route/navigate` (programmatic) makes this route the active route, the runtime dispatches each event in `:on-match`, **in order**, after writing the `:rf/route` slice and before any view renders that depend on the loaded data.
 2. The runtime sets `:rf.route/transition` to `:loading` while these dispatches drain, and back to `:idle` when they complete (per the run-to-completion drain semantics, this is observable through trace events; see [009](009-Instrumentation.md)).
-3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical params do not re-fire — the runtime compares the post-update `:route` slice against the pre-update slice and skips dispatch when nothing relevant changed.
+3. Same-route-id navigations with **changed `:params` or `:query`** *do* re-fire `:on-match` (the route is becoming active again under new inputs). Same-route-id navigations with identical params do not re-fire — the runtime compares the post-update `:rf/route` slice against the pre-update slice and skips dispatch when nothing relevant changed.
 4. `:on-match` events run **server- and client-side**. SSR populates server-rendered data via the same vector. Hydration does *not* re-fire `:on-match` events — the seeded `app-db` already contains the data.
 5. Each `:on-match` event is an ordinary event vector. Handlers may emit any `:fx` (typically `:http`, etc.). The events are also enumerable: `(rf/handler-meta :route :route/cart)` returns the metadata, so tooling can render route-loading dependency graphs.
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?" `:on-match` is the canonical surface.
 
-> **Why not parameterise events explicitly with route params?** Each `:on-match` event runs with full access to `app-db` via cofx, including the freshly-written `:route` slice. Handlers read `(:route db)` for params/query as needed. Hard-wiring param substitution into the event vector would re-introduce a string-DSL where data already suffices.
+> **Why not parameterise events explicitly with route params?** Each `:on-match` event runs with full access to `app-db` via cofx, including the freshly-written `:rf/route` slice. Handlers read `(:rf/route db)` for params/query as needed. Hard-wiring param substitution into the event vector would re-introduce a string-DSL where data already suffices.
 
 ## Route-not-found — `:rf.route/not-found` (canonical)
 
@@ -491,7 +491,7 @@ The `:on-match` list is the **enumerable, machine-readable** answer to "what loa
 
 Semantics:
 
-1. **Trigger.** When `match-url` returns `nil` (no path-pattern matches), or when validation failure routes to "not found" (per [§Param validation at the call site](#param-validation-at-the-call-site)), the runtime sets `:route` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
+1. **Trigger.** When `match-url` returns `nil` (no path-pattern matches), or when validation failure routes to "not found" (per [§Param validation at the call site](#param-validation-at-the-call-site)), the runtime sets `:rf/route` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
 2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:on-error`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
 3. **Required by contract.** Apps **must** register a `:rf.route/not-found` route. If no `:rf.route/not-found` is registered when an unmatched URL arrives, the runtime emits a `:rf.warning/no-not-found-route` trace event and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 4. **Validation failures.** A URL that matches a route's path but fails the route's `:params` / `:query` schema also routes to `:rf.route/not-found`, with `:reason :validation` in the `:params` slice (per [§URL changes are events](#url-changes-are-events)).
@@ -505,7 +505,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 1. Sets `:rf.route/transition` to `:error`.
 2. Populates `:rf.route/error` with the structured error map (schema: `:rf/error` per [009](009-Instrumentation.md#error-contract)).
-3. If the route declares an `:on-error` event, dispatches it. The error map is available to the handler via `(:error (:route db))`.
+3. If the route declares an `:on-error` event, dispatches it. The error map is available to the handler via `(:error (:rf/route db))`.
 
 ```clojure
 (rf/reg-route :route/cart
@@ -515,7 +515,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
 
 (rf/reg-event-fx :route/cart-load-failed
   (fn [{:keys [db]} _]
-    (let [error (get-in db [:route :error])]
+    (let [error (get-in db [:rf/route :error])]
       ;; surface a contextual error UI; toast; redirect; whatever the app needs.
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
@@ -528,7 +528,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 ### Mechanism
 
-1. **Allocation.** When `:rf/url-changed` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:route` slice alongside the new id/params/query/fragment.
+1. **Allocation.** When `:rf/url-changed` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 2. **Carry.** Each `:on-match` dispatch receives the current `:nav-token` in cofx (under the key `:nav-token`):
 
    ```clojure
@@ -546,7 +546,7 @@ When a route is loading and the user navigates away before the load completes, t
            :nav-token (:nav-token cofx)}]]}
    ```
 
-4. **Validation.** When the receiving handler runs, the framework-provided `:nav-token` cofx checks the carried token against the *current* `:route` slice's `:nav-token`:
+4. **Validation.** When the receiving handler runs, the framework-provided `:nav-token` cofx checks the carried token against the *current* `:rf/route` slice's `:nav-token`:
    - **Match.** The token is current; the result is committed normally.
    - **Mismatch.** The token has been superseded; the runtime emits `:route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the handler does NOT run — no `:db` write, no `:fx`, no transition.
 
@@ -556,17 +556,17 @@ The validating cofx is shared infrastructure: any handler whose registration dec
 
 ```clojure
 ;; Step 1: User navigates to :route/article id="A". nav-token = "nav-1".
-{:route {:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}}
+{:rf/route {:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}}
 
 ;; Step 2: While the load is in flight, user navigates to :route/article id="B".
 ;; A fresh nav-token is allocated.
-{:route {:id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}}
+{:rf/route {:id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}}
 
 ;; Step 3: The "A" load completes; its dispatched [:article/loaded "A" payload] carries
 ;; nav-token "nav-1". Current is "nav-2". Mismatch → suppressed; trace fires; no commit.
 
 ;; Step 4: The "B" load completes; carries "nav-2". Match → commit.
-{:route {:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}}
+{:rf/route {:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}}
 ```
 
 ### Cancellation as optimisation, not correctness
@@ -672,7 +672,7 @@ The path syntax is the *primary* binding. Query strings are bound separately via
 |---|---|---|
 | Source | `:name` / `*name` segments in `:path` | `?key=value&...` after the path |
 | Schema slot | `:params` | `:query` |
-| In `:route` slice | `(:params (:route db))` | `(:query (:route db))` |
+| In `:rf/route` slice | `(:params (:rf/route db))` | `(:query (:rf/route db))` |
 | Required by URL? | Yes (URL doesn't match without them) | No (every key is optional from the URL's perspective) |
 | Defaults | n/a (absence = no match) | `:query-defaults` map |
 
@@ -686,14 +686,14 @@ The URL `#fragment` is a first-class part of the routing contract — anchor nav
 
 ### Fragment in the slice
 
-The `:route` slice carries `:fragment` (string or `nil`):
+The `:rf/route` slice carries `:fragment` (string or `nil`):
 
 ```clojure
-{:route {:id       :route/docs
-         :params   {:page "routing"}
-         :query    {}
-         :fragment "scroll-restoration"
-         ...}}
+{:rf/route {:id       :route/docs
+            :params   {:page "routing"}
+            :query    {}
+            :fragment "scroll-restoration"
+            ...}}
 ```
 
 Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by `:rf.route/handle-url-change`, and emitted by `route-url` when the 4-arity form is used (or when `:rf.route/navigate` is called with a `:fragment` opt or target-map key).
@@ -702,14 +702,14 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
-1. Updates `:fragment` in the `:route` slice.
+1. Updates `:fragment` in the `:rf/route` slice.
 2. Emits a `:rf.route/url-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
 The reason: `:on-match` exists to re-load route-scoped data when path or query changes. A fragment-only change does not change loaded data — only the in-page anchor target. Re-firing the loaders would re-fetch unchanged data on every `#section` jump, which is exactly the kind of thrash users complain about.
 
-Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:route` for the whole slice). The `:rf/url-changed` event still fires for fragment-only changes — the surface for "the URL is now different" — but `:rf.route/handle-url-change`'s default behaviour distinguishes the cases.
+Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). The `:rf/url-changed` event still fires for fragment-only changes — the surface for "the URL is now different" — but `:rf.route/handle-url-change`'s default behaviour distinguishes the cases.
 
 ### `:rf.nav/scroll` integration
 
@@ -741,11 +741,11 @@ Hosts that ship a custom map-form scroll strategy may interpret `:fragment` per 
 [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}]
 ```
 
-Either form ends up in the `:route` slice's `:fragment`.
+Either form ends up in the `:rf/route` slice's `:fragment`.
 
 ### SSR
 
-Browsers do **not** send `#fragment` to the server — `window.location.hash` is client-only. For browser-initiated SSR requests, the server-side `:fragment` is therefore typically `nil`, regardless of what the user typed in the address bar. The exceptions are static-site generators, server-side test harnesses, and crawlers that synthesise URLs with explicit fragments (e.g., for anchored documentation pages); when the host's request abstraction exposes a `#fragment`, SSR includes it in the seeded `:route` slice. See [011 §Fragments under SSR](011-SSR.md#fragments-under-ssr) for the full SSR-side contract.
+Browsers do **not** send `#fragment` to the server — `window.location.hash` is client-only. For browser-initiated SSR requests, the server-side `:fragment` is therefore typically `nil`, regardless of what the user typed in the address bar. The exceptions are static-site generators, server-side test harnesses, and crawlers that synthesise URLs with explicit fragments (e.g., for anchored documentation pages); when the host's request abstraction exposes a `#fragment`, SSR includes it in the seeded `:rf/route` slice. See [011 §Fragments under SSR](011-SSR.md#fragments-under-ssr) for the full SSR-side contract.
 
 The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}` per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server). The first client render after hydration sees the same `:fragment` value the server seeded (typically `nil` for browser requests), so view code that reads `:rf.route/fragment` produces structurally-identical output on both sides. A subsequent `:rf.nav/scroll` (post-hydrate) is the host's choice — the contract leaves it to the host to decide whether to perform the initial scroll-to-fragment after hydration.
 
@@ -850,7 +850,7 @@ The sub returns `true` when the route is OK to leave; `false` to block. The conv
 4. **Guard returns `false`** → BLOCK:
    a. Generate a `pending-nav-id` (gensym).
    b. Write `:rf/pending-navigation` with `{:id <id> :requested-by-event <ev> :requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id>}`.
-   c. **The URL does not change.** No `pushState`, no `:route` slice update, no `:on-match`.
+   c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`.
    d. Dispatch `[:rf.route/navigation-blocked pending-nav]`. Apps may register their own handler (default is a no-op trace; the value is in the slot, which a sub reads).
    e. Emit `:rf.route/navigation-blocked` trace event.
 5. UI renders the confirmation dialog by subscribing to `:rf/pending-navigation`.
@@ -876,7 +876,7 @@ Fixture `route-navigation-blocked.edn` exercises:
 1. Register a route with `:can-leave [:editor/can-leave?]`.
 2. Set `:editor/dirty?` to `true` (sub returns `false`).
 3. Dispatch `[:rf/url-requested {:url "/cart"}]`.
-4. Assert `:rf/pending-navigation` is set; `:rf.nav/push-url` did NOT fire; `:rf.route/navigation-blocked` trace event fired; `:route` slice unchanged.
+4. Assert `:rf/pending-navigation` is set; `:rf.nav/push-url` did NOT fire; `:rf.route/navigation-blocked` trace event fired; `:rf/route` slice unchanged.
 5. Dispatch `[:rf.route/continue pending-nav-id]`.
 6. Assert `:rf/pending-navigation` is `nil`; the URL is `/cart`; `:route/cart` is the active route.
 
@@ -922,17 +922,17 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 
 - `(rf/handlers :route)` enumerates every registered route. Tools and agents enumerate them; AI scaffolding consults this before generating new routes to avoid collisions.
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is **enumerable** — tools render route-loading dependency graphs without parsing handler bodies.
-- The `:route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
+- The `:rf/route` sub gives the entire route map; `:rf.route/id`, `:rf.route/params`, `:rf.route/query`, `:rf.route/transition`, `:rf.route/error` are conveniences.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)); tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
 
 ## Multi-frame routing
 
-Each frame has its own `:route` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
+Each frame has its own `:rf/route` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
 
-1. Every frame's `app-db` may have a `:route` slice (it's a regular `app-db` path, not a special concept).
+1. Every frame's `app-db` may have a `:rf/route` slice (it's a regular `app-db` path, not a special concept).
 2. The default frame (`:rf/default`) is **URL-bound**: `:rf.route/navigate` events on that frame fire `:rf.nav/push-url`; `popstate` listeners fire `[:rf.route/handle-url-change url] {:frame :rf/default}`. The browser URL reflects the default frame's route.
-3. Non-default frames are **not URL-bound** by default. `:rf.route/navigate` updates their `:route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
+3. Non-default frames are **not URL-bound** by default. `:rf.route/navigate` updates their `:rf/route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
 4. Opt-in URL binding for non-default frames via `(rf/reg-frame :my-frame {:url-bound? true})`. The runtime enforces "only one frame can own the URL at a time" — re-registering a second `:url-bound? true` frame is a `:rf.error/duplicate-url-binding` trace event.
 
 The story / devcard / SSR cases all benefit:

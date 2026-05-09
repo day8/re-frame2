@@ -93,7 +93,7 @@
                cofx, dispatches setup events. Server only."
    :platforms #{:server}}
   (fn handler-rf-server-init [{:keys [db]} [_ request]]
-    {:db (assoc db :route {:id :route/articles :params {}})
+    {:db (assoc db :rf/route {:id :route/articles :params {}})
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/articles"}
             :decode     :json
