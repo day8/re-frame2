@@ -1000,8 +1000,6 @@ Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re
 
 If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the helpers in the core artefact (no separate coordinate to require).
 
----
-
 ### M-26. Drift-sweep drops — v1 surfaces with no v2 equivalent or absorbed by canonical surfaces
 
 **Type A** (mechanical) for the symbols whose canonical replacement is a direct rewrite; **Type B** (semantic flag) for `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` where the v2 surface differs in shape.
@@ -1043,13 +1041,42 @@ For `make-restore-fn`, `init-platform`, the SSR-head trio (`reg-head` / `render-
 
 ---
 
-**Reporting M-12 through M-26.** These fifteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing fifteen separate preambles.
+### M-27. Schemas (Spec 010) ship in a separate artefact — `day8/re-frame-2-schemas`
+
+**Type A** (mechanical, dep-only).
+
+Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame-2-schemas`. The core artefact (`day8/re-frame-2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
+
+**What to look for** in the codebase:
+
+- Any call to `re-frame.core/reg-app-schema`, `re-frame.core/app-schema-at`, or `re-frame.core/app-schemas`.
+- A direct `(:require [re-frame.schemas])` clause.
+- Use of the `:rf.error/schema-validation-failure` trace op (i.e. the app reads the validation outcome).
+
+**What to do.** Add the schemas artefact alongside the core dep:
+
+```clojure
+;; deps.edn for an app that uses Spec 010 schemas
+{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
+        day8/re-frame-2-reagent {:mvn/version "<latest>"}
+        day8/re-frame-2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
+```
+
+CLJS apps additionally require `malli.core` somewhere in their boot path — `re-frame.schemas`'s validate fn is found via `(resolve 'malli.core/validate)` and only resolves a var that has already been loaded into the runtime. The schemas artefact carries Malli as a `:deps` entry so the namespace is available; the app's `:require [malli.core]` is what loads it.
+
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-app-schema ...)`, `(rf/app-schema-at ...)`, `(rf/app-schemas ...)` still work, the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
+
+**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-p7va](#).
+
+---
+
+**Reporting M-12 through M-27.** These sixteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing sixteen separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**.
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
