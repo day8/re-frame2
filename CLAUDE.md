@@ -61,6 +61,7 @@ bd close <id>         # Complete work
 
 ## Workflow
 
+- **Always dispatch beads to a background agent when sensible.** Don't ask permission for clear-cut implementation work, mechanical fixes, or follow-on tasks where the direction is set. Keep the work flowing. Only pause for genuine decisions Mike hasn't made.
 - **Keep local `main` in sync with `origin/main`.** After each PR merge, run `git pull --ff-only` so Mike sees the latest code in his checkout. He glances at the working tree to track progress.
 - **Stash before pull when needed.** `decision-beads.md` and `.beads/issues.jsonl` may carry uncommitted local edits; stash before pulling and pop after if necessary.
 
