@@ -1,0 +1,108 @@
+;; day8/re-frame-2-epoch — epoch artefact (rf2-lt4e,
+;; seventh and final per-feature split per rf2-5vjj Strategy B).
+;;
+;; Per Tool-Pair §Time-travel and Spec-Schemas §`:rf/epoch-record` the
+;; epoch surface — the per-frame `:rf/epoch-record` ring buffer
+;; (`epoch-history`), the `(rf/configure :epoch-history {:depth N})`
+;; knob, the `register-epoch-cb` / `remove-epoch-cb` listener API, the
+;; `restore-epoch` rewind with its six documented failure modes
+;; (`:rf.epoch/restore-unknown-epoch`,
+;; `:rf.epoch/restore-schema-mismatch`,
+;; `:rf.epoch/restore-missing-handler`,
+;; `:rf.epoch/restore-version-mismatch`,
+;; `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler`
+;; for the unknown-frame case), the per-cascade trace-capture buffer
+;; the router and the trace surface feed via `:epoch/capture-event` /
+;; `:epoch/settle!` / `:epoch/discard-buffer!` / `:epoch/in-flight-buffer`
+;; late-bind hooks, the `:rf.epoch/snapshotted` and `:rf.epoch/restored`
+;; trace events, and the `:sub-runs` / `:renders` / `:effects`
+;; per-cascade projections — ships as a separate Maven artefact so apps
+;; that don't consume the time-travel / pair-tool surface don't drag
+;; the namespace, the per-frame ring buffer, the trace-capture path,
+;; the projection walker, the schema-validate / machine-version /
+;; missing-reference predicates, or any of the `:rf.epoch/*` trace
+;; strings onto the classpath.
+;;
+;; The entire surface is gated on `interop/debug-enabled?` (per
+;; Tool-Pair §Time-travel §Production elision) — production builds
+;; (`:advanced` + `goog.DEBUG=false`) elide every recorded shape,
+;; the projection walker, and the restore predicates whether or not
+;; the artefact is on the classpath. The split is therefore *also* a
+;; dev-time bundle-shape improvement: development builds that don't
+;; opt into the pair-tool surface no longer carry the namespace at
+;; all.
+;;
+;; Consumers add this artefact alongside the core artefact:
+;;
+;;   {:deps {day8/re-frame-2       {:mvn/version "..."}
+;;           day8/re-frame-2-epoch {:mvn/version "..."}}}
+;;
+;; And require `re-frame.epoch` in any namespace that calls
+;; `rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-cb`,
+;; `rf/remove-epoch-cb`, or `(rf/configure :epoch-history ...)` —
+;; loading the namespace publishes the four late-bind hooks
+;; (`:epoch/settle!`, `:epoch/discard-buffer!`,
+;; `:epoch/in-flight-buffer`, `:epoch/capture-event`) that the
+;; router and the trace surface look up at drain-settle and per-trace
+;; emit time, plus the four query / control hooks
+;; (`:epoch/epoch-history`, `:epoch/restore-epoch`,
+;; `:epoch/register-epoch-cb`, `:epoch/remove-epoch-cb`,
+;; `:epoch/configure!`) that core's re-exports late-bind to.
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; rf2-p7va extension to per-feature splits): this artefact depends on
+;; core; core never depends on this artefact. The cross-references
+;; from core to epoch (`re-frame.core`'s `epoch-history` /
+;; `restore-epoch` / `register-epoch-cb` / `remove-epoch-cb` re-exports
+;; and the `(rf/configure :epoch-history ...)` knob) flow through
+;; `re-frame.late-bind` exactly as the schemas / machines / routing /
+;; flows / http / ssr hooks already do.
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         ;; The epoch JVM tests' reset-runtime fixture touches
+         ;; `re-frame.flows/flows` and `re-frame.schemas/schemas-by-frame`
+         ;; AND reloads `re-frame.routing` so its ns-load-time
+         ;; registrations resurrect after `(registrar/clear-all!)`.
+         ;; The schema-mismatch failure-mode test exercises the
+         ;; schemas surface (a registered app-schema that the recorded
+         ;; db-after no longer satisfies) and the version-mismatch
+         ;; test exercises the machines surface (a registered machine
+         ;; whose snapshot-version drifted from the recorded snapshot).
+         ;; Pull schemas / flows / routing / machines in as test-only
+         ;; deps so the fixture loads cleanly. Mirrors the pattern in
+         ;; core/deps.edn, routing/deps.edn, flows/deps.edn,
+         ;; http/deps.edn, and ssr/deps.edn. None of these is required
+         ;; for production epoch builds.
+         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
+                       day8/re-frame-2-flows    {:local/root "../flows"}
+                       day8/re-frame-2-routing  {:local/root "../routing"}
+                       day8/re-frame-2-machines {:local/root "../machines"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-epoch
+   :main     re-frame.epoch
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
