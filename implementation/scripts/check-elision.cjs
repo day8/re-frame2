@@ -174,6 +174,18 @@ const DEV_ONLY_SENTINELS = [
   // production bundles.
   { source: 're-frame.core/reg-machine (rf.machine/source-coords stamping)',
     sentinel: 'rf.machine/source-coords' }
+  // Note (rf2-d3k3): re-frame.views/maybe-warn-plain-fn-under-non-
+  // default-frame! emits :rf.warning/plain-fn-under-non-default-frame-
+  // once gated on interop/debug-enabled?. We do NOT add a sentinel
+  // entry here because the elision-probe runs outside Reagent's render
+  // cycle — `(r/current-component)` is nil — and closure compiler's
+  // dataflow analysis under :advanced determines the inner emit branch
+  // is unreachable, so the keyword's literal string is dropped from
+  // the control build too. The methodology check would be vacuous.
+  // The browser-test (re-frame.cross-spec-cljs-test/plain-fn-under-
+  // non-default-frame) is the load-bearing assertion that the gate is
+  // wired up under DEBUG=true; under :advanced + goog.DEBUG=false the
+  // gate is constant-folded false and the body DCE's regardless.
 ];
 
 // ----- helpers ---------------------------------------------------------------

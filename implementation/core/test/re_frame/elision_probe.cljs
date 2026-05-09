@@ -226,6 +226,25 @@
   ;; gated branches dead; the public surface itself remains).
   (let [_t (views/mint-instance-token!)
         _k (views/current-render-key)]
+    nil)
+  ;; Per Spec 004 §Plain Reagent fns and Spec 006 §Plain-fn-under-non-
+  ;; default-frame warning (rf2-d3k3): the warn-once helper sits inside
+  ;; `(when interop/debug-enabled? ...)`. Touch the helper's public
+  ;; entry points so the reachability graph keeps the ns body — the
+  ;; trace-emit branch itself is gated on `(some? (r/current-component))`
+  ;; which is nil at probe time (no Reagent render in flight), so the
+  ;; emit-site keyword is DCE'd from BOTH bundles by closure dataflow.
+  ;; The browser-runner test
+  ;; (re-frame.cross-spec-cljs-test/plain-fn-under-non-default-frame) is
+  ;; the load-bearing assertion that the gate fires under DEBUG=true;
+  ;; production elision rests on the surrounding
+  ;; `(when interop/debug-enabled? ...)` constant-folding to false the
+  ;; same way every other warn site does.
+  (rf/reg-sub :probe/sub (fn [_db _q] nil))
+  (let [_r (rf/subscribe [:probe/sub])]
+    (views/clear-plain-fn-warned-pairs!)
+    (views/maybe-warn-plain-fn-under-non-default-frame!
+      :rf/default [:probe/sub])
     nil))
 
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------

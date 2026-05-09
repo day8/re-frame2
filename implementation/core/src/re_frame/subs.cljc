@@ -287,8 +287,27 @@
   "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
   build-and-cache on miss; reuse on hit. The 1-arity form resolves
   the active frame via re-frame.frame/current-frame so subscribe
-  inside a with-frame or under a frame-provider auto-routes."
-  ([query-v] (subscribe (frame/current-frame) query-v))
+  inside a with-frame or under a frame-provider auto-routes.
+
+  Per Spec 006 §Plain-fn-under-non-default-frame warning (rf2-d3k3):
+  the 1-arity form runs the plain-fn detection check — if the
+  surrounding React-context Provider names a non-default frame and the
+  rendering component is NOT reg-view-wrapped (so its subscribe call
+  has fallen through to :rf/default), `:rf.warning/plain-fn-under-
+  non-default-frame-once` fires once per (component-id, frame-id)
+  pair. The check is late-bound through re-frame.views (CLJS-only) so
+  the JVM build never loads it; production (`:advanced` +
+  `goog.DEBUG=false`) elides via `interop/debug-enabled?`."
+  ([query-v]
+   #?(:cljs
+      (let [frame-id (frame/current-frame)]
+        (when interop/debug-enabled?
+          (when-let [warn! (late-bind/get-fn
+                            :views/maybe-warn-plain-fn-under-non-default-frame!)]
+            (warn! frame-id query-v)))
+        (subscribe frame-id query-v))
+      :clj
+      (subscribe (frame/current-frame) query-v)))
   ([frame-id query-v]
    (let [frame-record (frame/frame frame-id)]
      (cond
