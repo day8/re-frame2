@@ -1,9 +1,10 @@
 ;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij).
 ;;
 ;; The published artefacts are
 ;;   - core/     (day8/re-frame-2)
 ;;   - reagent/  (day8/re-frame-2-reagent)
+;;   - uix/      (day8/re-frame-2-uix,      rf2-3yij)
 ;;   - schemas/  (day8/re-frame-2-schemas,  rf2-p7va)
 ;;   - machines/ (day8/re-frame-2-machines, rf2-xbtj)
 ;;   - routing/  (day8/re-frame-2-routing,  rf2-k682)
@@ -24,6 +25,7 @@
 {:paths []
  :deps  {day8/re-frame-2          {:local/root "core"}
          day8/re-frame-2-reagent  {:local/root "reagent"}
+         day8/re-frame-2-uix      {:local/root "uix"}
          day8/re-frame-2-schemas  {:local/root "schemas"}
          day8/re-frame-2-machines {:local/root "machines"}
          day8/re-frame-2-routing  {:local/root "routing"}
@@ -38,6 +40,7 @@
   :test
   {:extra-paths ["core/test"
                  "reagent/test"
+                 "uix/test"
                  "schemas/test"
                  "machines/test"
                  "routing/test"

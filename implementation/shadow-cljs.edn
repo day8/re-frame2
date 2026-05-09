@@ -1,15 +1,21 @@
 ;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij).
 ;;
 ;; Pulls in every published artefact's source path (core/, reagent/,
-;; schemas/, machines/, routing/, flows/, http/, ssr/) plus their test
-;; trees and the examples. The shadow build runs as a *consumer* of
-;; every artefact; the deps.edn at this level wires the classpath via
-;; :local/root for any clojure-tools-driven steps.
+;; uix/, schemas/, machines/, routing/, flows/, http/, ssr/) plus their
+;; test trees and the examples. The shadow build runs as a *consumer*
+;; of every artefact; the deps.edn at this level wires the classpath
+;; via :local/root for any clojure-tools-driven steps.
+;;
+;; Per rf2-3yij the UIx adapter ships in implementation/uix; its
+;; sources are added to :source-paths and com.pitch/uix.{core,dom} are
+;; added to :dependencies so the per-example UIx builds resolve.
 {:source-paths ["core/src"
                 "core/test"
                 "reagent/src"
                 "reagent/test"
+                "uix/src"
+                "uix/test"
                 "schemas/src"
                 "schemas/test"
                 "machines/src"
@@ -25,8 +31,10 @@
                 "../examples"
                 "../examples/7Guis"
                 "../examples/realworld/test"]
- :dependencies [[reagent       "2.0.1"]
-                [metosin/malli "0.13.0"]]
+ :dependencies [[reagent           "2.0.1"]
+                [metosin/malli     "0.13.0"]
+                [com.pitch/uix.core "1.4.4"]
+                [com.pitch/uix.dom  "1.4.4"]]
 
  :builds
  {:node-test
@@ -200,6 +208,24 @@
    :output-dir "out/examples/login"
    :asset-path "."
    :modules    {:main {:init-fn login.core/run}}}
+
+  ;; rf2-3yij — UIx-substrate smoke trio (counter + login per Decision 7).
+  ;; Each example has its own per-example shadow-cljs build, mirroring the
+  ;; Reagent variants, so the bundle-isolation grep can verify a Reagent
+  ;; example's main.js carries NO UIx code and vice versa. Per Spec 006
+  ;; §Substrate-adapter shipping convention.
+
+  :examples/counter-uix
+  {:target     :browser
+   :output-dir "out/examples/counter-uix"
+   :asset-path "."
+   :modules    {:main {:init-fn counter-uix.core/run}}}
+
+  :examples/login-uix
+  {:target     :browser
+   :output-dir "out/examples/login-uix"
+   :asset-path "."
+   :modules    {:main {:init-fn login-uix.core/run}}}
 
   :examples/realworld
   {:target     :browser
