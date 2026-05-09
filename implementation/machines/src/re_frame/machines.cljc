@@ -832,7 +832,18 @@
           initial-decl  (:initial machine)
           initial-path  (initial-cascade machine (state-path initial-decl))
           initial-state (denormalise-state initial-path initial-decl)
-          initial    {:state initial-state :data (or (:data machine) {})}
+          ;; Per Spec 005 §Snapshot shape (`{:state :data :meta?}`) and
+          ;; §Versioned via :meta: a machine's spec-level :meta (e.g.
+          ;; `:rf/snapshot-version`, user introspection tags) propagates
+          ;; into the lazily-synthesised initial snapshot so the 3-arity
+          ;; ctx (and any downstream version-check) sees the same :meta
+          ;; the spec declares. Without this, a `:meta` declared on the
+          ;; spec is invisible until a transition explicitly seeds it
+          ;; via an action's `:meta` write — divergent with the
+          ;; pure-surface harness which receives the spec :meta directly.
+          initial    (cond-> {:state initial-state
+                              :data  (or (:data machine) {})}
+                       (some? (:meta machine)) (assoc :meta (:meta machine)))
           snapshot   (or (get-in db path) initial)
           ;; Sub-event routing per Spec 005 §Registration. The outer
           ;; event is [:machine-id <inner-event> & extra-args]. Extra

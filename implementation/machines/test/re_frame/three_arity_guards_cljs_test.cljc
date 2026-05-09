@@ -1,6 +1,7 @@
 (ns re-frame.three-arity-guards-cljs-test
   "Coverage for the machine guard / action 3-arity escape hatch (rf2-1e0n,
-  discovered-from rf2-o423; CLJS arity convergence rf2-l04j).
+  discovered-from rf2-o423; CLJS arity + initial-snapshot meta
+  convergence rf2-l04j).
 
   Per Spec 005 and `re-frame.machines`'s contract documented at
   `machines.cljc` lines 74-121, guards and actions accept two canonical
@@ -32,6 +33,12 @@
   previously-divergent assertions below are now consistent across
   platforms.
 
+  rf2-l04j also fixes the live initial-snapshot synthesis at
+  `machines.cljc:808` so a spec-level `:meta` propagates into the
+  initial snapshot. The CLJS live tests can now assert a non-nil
+  user-tagged `:meta` in ctx — the same payload the JVM pure-surface
+  tests pin.
+
   This file uses reader conditionals so its assertions run on both
   JVM and CLJS:
 
@@ -40,13 +47,9 @@
       a snapshot's :meta directly so the 3-arity ctx assertion can
       pin the full {:state :meta} payload.
     - CLJS uses the live `reg-machine` + `dispatch-sync` surface, which
-      is the same path real apps use. Because the runtime synthesises
-      the initial snapshot from `{:state ... :data ...}` only — it
-      never propagates a spec's `:meta` (machines.cljc:808) — the live
-      tests assert `:meta` is `nil` rather than user-tagged. The
-      documented behaviour holds either way: ctx is always
-      `{:state ... :meta ...}`; whether `:meta` is non-nil depends on
-      the snapshot, not the spec.
+      is the same path real apps use. With the rf2-l04j initial-
+      snapshot fix, a spec-level `:meta` is reflected in the synthesised
+      snapshot, so the live ctx now carries the user's tag.
 
   The file is named `*-cljs-test.cljc` so it's discovered by both:
     - cognitect.test-runner's default `.*-test$` regex (JVM).
@@ -150,10 +153,17 @@
   "Build a machine whose :go transition's :guard slot IS exactly
   `guard-fn` (no wrapper) — so the dispatcher classifies it on its real
   arity surface. The :action is a plain 2-arity bumper so the snapshot's
-  :data evolves observably when the transition fires."
+  :data evolves observably when the transition fires.
+
+  A spec-level `:meta {:user-tag :probe}` is seeded so the live CLJS
+  tests can assert that the rf2-l04j initial-snapshot fix propagates
+  the spec's `:meta` into the synthesised snapshot — the 3-arity ctx
+  thus carries `{:state ... :meta {:user-tag :probe}}` rather than a
+  nil :meta."
   [guard-fn]
   {:initial :idle
    :data    {:bumps 0}
+   :meta    {:user-tag :probe}
    :states
    {:idle {:on {:go {:target :gone
                      :guard  guard-fn
@@ -164,10 +174,14 @@
 (defn- machine-with-action
   "Build a machine whose :go transition's :action slot IS exactly
   `action-fn` — so the dispatcher classifies it on its real arity
-  surface. The :guard is omitted (defaults to `(constantly true)`)."
+  surface. The :guard is omitted (defaults to `(constantly true)`).
+
+  A spec-level `:meta {:user-tag :probe}` is seeded for the same
+  reason as `machine-with-guard`."
   [action-fn]
   {:initial :idle
    :data    {:bumps 0}
+   :meta    {:user-tag :probe}
    :states
    {:idle {:on {:go {:target :gone
                      :action action-fn}}}
@@ -183,11 +197,11 @@
 ;; `declares-3-arity?` check itself, which IS platform-specific and is
 ;; covered by the unit tests above.
 ;;
-;; The pure surface also lets us seed `:meta` directly on the snapshot,
-;; which the live event handler doesn't do (machines.cljc:808
-;; synthesises only `{:state :data}`). That's why the JVM tests below
-;; pin a non-nil :meta in ctx, while the CLJS live tests assert :meta
-;; is nil.
+;; The pure surface also lets us seed `:meta` directly on the snapshot.
+;; Post-rf2-l04j the live event handler also propagates a spec-level
+;; `:meta` into the synthesised initial snapshot, so the JVM-pure and
+;; CLJS-live assertions both pin the same `{:state ... :meta {...}}`
+;; ctx shape — platform parity.
 
 #?(:clj
    (deftest plain-3-arity-guard-receives-ctx
@@ -312,11 +326,11 @@
 ;; runtime path real apps use. The machine spec is value-identical to
 ;; the JVM cases above.
 ;;
-;; Note on :meta: the live initial-snapshot synthesis (machines.cljc:808)
-;; builds `{:state ... :data ...}` and does NOT propagate a spec-level
-;; `:meta` into the snapshot. So the 3-arity ctx's `:meta` is `nil` in
-;; these live tests — which is itself a documented-vs-actual divergence
-;; recorded under "behaviour-vs-docstring observations" in the PR body.
+;; Note on :meta: per rf2-l04j, the live initial-snapshot synthesis
+;; (`machines.cljc:808`) now propagates a spec-level `:meta` into the
+;; synthesised snapshot. The 3-arity ctx therefore carries the spec's
+;; `:meta {:user-tag :probe}` (seeded by `machine-with-guard` /
+;; `machine-with-action`), matching the JVM pure-surface assertions.
 
 #?(:cljs
    (defn- snapshot-of
@@ -343,12 +357,13 @@
            (is (= 1 (get-in snap [:data :bumps])))
            (is (= {:bumps 0} data))
            (is (= [:go] event))
-           ;; Live initial-snapshot synthesis seeds {:state :data}
-           ;; only — :meta is nil in the ctx (machines.cljc:808).
-           (is (= {:state :idle :meta nil} ctx)
+           ;; Per rf2-l04j the live initial-snapshot synthesis now
+           ;; propagates the spec's `:meta` into the snapshot, so the
+           ;; 3-arity ctx carries the user-tagged :meta — matching the
+           ;; JVM pure-surface assertions.
+           (is (= {:state :idle :meta {:user-tag :probe}} ctx)
                "live event surface: the 3-arity guard saw {:state :meta}
-                ctx; :meta is nil because the live initial-snapshot
-                builder doesn't propagate a spec-level :meta"))))))
+                ctx; :meta carries the spec-level :meta after rf2-l04j"))))))
 
 #?(:cljs
    (deftest plain-3-arity-action-cljs-receives-ctx
@@ -371,7 +386,9 @@
            (let [{:keys [data event ctx]} @seen]
              (is (= {:bumps 0} data))
              (is (= [:go] event))
-             (is (= {:state :idle :meta nil} ctx))))))))
+             (is (= {:state :idle :meta {:user-tag :probe}} ctx)
+                 "live event surface: 3-arity action's ctx carries the
+                  spec-level :meta after rf2-l04j")))))))
 
 #?(:cljs
    (deftest variadic-from-zero-guard-cljs-routes-as-2-arity
