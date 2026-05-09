@@ -10,7 +10,7 @@
 
 A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + create-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, and the `:raise` / `:spawn` reserved fx-ids that the machine handler routes locally.
 
-For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lays out the points of contrast.
+For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lists the divergences inline and forward-points to [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) for the full divergence table.
 
 ## Why machines
 
@@ -68,6 +68,8 @@ For the registration `(rf/reg-event-fx :drawer/editor (rf/create-machine-handler
 ;; in the frame's app-db, after initialisation:
 {:rf/machines {:drawer/editor {:state :idle :data {:circle-id nil ...}}}}
 ```
+
+> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in db [:rf/machines <id>]) <initial-from-spec>)` — so before the first event, `(get-in app-db [:rf/machines :drawer/editor])` returns `nil` and `@(rf/sub-machine :drawer/editor)` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in `app-db` yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or seed a fixed initial state via `:on-create` if appearance-without-event is required).
 
 For a spawned actor whose gensym'd id is `:request/protocol#42`:
 
@@ -260,6 +262,8 @@ The 3-arity overload is **opt-in** by declaring a third parameter:
 
 `{:state :meta}` is the snapshot's introspection slot — the discrete state and any user `:meta`. Use it for the rare guard or action that needs to branch on the current state name (e.g. dispatch on `:state` itself rather than `:data`). The vast majority of guards and actions are state-blind and don't need the third arg; declaring it is the explicit signal to the runtime that introspection is wanted.
 
+**Why opt-in.** The 99% case stays monomorphic on `[data event]`, so most fns avoid `:keys [data]` destructure boilerplate at the call site (see the rationale at [§Naming — `:state` and `:data`](#naming--state-and-data)). The 3-arity overload exists precisely so the introspection slot does not bleed into bodies that don't need it. Implementation-wise, structural arity-detection works because both JVM (Java reflection on declared invoke methods) and CLJS (`.-length` / `cljs$core$IFn$_invoke$arity$3`) expose declared-fixed-arity at runtime; multi-arity and variadic fn forms are treated as 2-arity and called without the introspection slot.
+
 Implementations arity-detect the fn at call time: a fn that declares a fixed 3-arg invocation is called with `[data event {:state :meta}]`; everything else (the canonical 2-arity, plus variadic helpers like `(constantly true)`) is called with `[data event]`. The detection is structural — no metadata needed on the fn — so inline `(fn [data ev ctx] ...)` vs `(fn [data ev] ...)` is the only declaration the user makes.
 
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
@@ -394,8 +398,12 @@ Every callback the user supplies inside a machine body — guards, actions, `:on
 | `:guard` | `(fn [data event] boolean)` | the `:data` map | a boolean |
 | `:action` | `(fn [data event] effects)` | the `:data` map | `{:data ... :fx ...}` (or `nil`) |
 | `:on-spawn` | `(fn [data spawned-id] new-data)` | the `:data` map | the new `:data` map |
+| `:after` delay-fn | `(fn [snapshot] ms)` | the **whole snapshot** (`{:state :data :meta?}`) | a positive-int millisecond delay |
+| `:invoke :data` fn | `(fn [snapshot event] data)` | the **whole snapshot** plus the entering event vector | the child's initial data map |
 
 The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
+
+> **Asymmetry note — the last two rows take the whole snapshot, not `:data`.** `:after` delay-fns and `:invoke :data` fns receive the wrapping snapshot because they need access to `:state` (the entering leaf path) for parameterising delay or child-data on hierarchical position; the 3-arity escape hatch on `:guard` / `:action` exists for the same reason but as opt-in. The deliberate asymmetry is documented here so port authors implement it explicitly. Bodies that only need `:data` should pull it via `(:data snapshot)` at the call site.
 
 The same principle holds for any data DSL the conformance corpus or a tooling layer interprets on top of the surface: a `:set` step inside a body operates on `:data`, so its path is data-relative. `[:set [:pending] x]` writes `data.:pending = x`. `[:set [:data :pending] x]` would write `data.:data.:pending = x`, which is virtually never what's wanted.
 
@@ -434,6 +442,7 @@ Reference resolution:
 - `:guard (fn [...] ...)` → inline fn, called directly.
 - `:action :clear-error` → `(get-in spec [:actions :clear-error])`.
 - `:action (fn [...] ...)` → inline fn, called directly.
+- `:on-spawn :record-pending` (when `:on-spawn` appears as a keyword reference, e.g. inside an `:invoke` slot) → resolved against an optional `:on-spawn-actions` map at the spec root if present, then falling back to `:actions`. Inline fns work as for `:action`. The `:on-spawn-actions` map is intended for spawn-callbacks whose role is the parent's id-recording side, distinct from transition-time `:actions`; declaring it is optional and the fallback to `:actions` keeps single-map machines simple.
 
 `create-machine-handler` walks the transition table at construction time and verifies every keyword reference under a `:guard` or `:action` slot (in `:on`, `:always`, `:entry`, `:exit`) resolves to a key in the spec's `:guards` / `:actions` map. A miss fails registration with `:rf.error/machine-unresolved-guard` or `:rf.error/machine-unresolved-action` carrying `:tags {:guard-id <id> :machine-id <id>}` (or `:action-id`). This catches typos and undeclared references at registration time, not at runtime.
 
@@ -1075,6 +1084,8 @@ Per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca), 
 
 **Implementation note:** the epoch is per-machine, not per-level. A leaf-only sibling-transition advances the epoch even though the parent's state is unchanged — but that's fine: the parent's `:after` was scheduled *before* the leaf transition, and re-entry of the leaf doesn't re-schedule the parent's timers. To keep parent timers live across leaf transitions, implementations track which `:after` entries belong to which level on the path and only re-schedule the level(s) that the cascade newly enters. The contract is *external* — "parent `:after` outlives sibling-leaf transitions" — and `create-machine-handler` is responsible for upholding it.
 
+**Normative rule (external contract).** A parent state's `:after` timer is suspended-but-not-stale while the snapshot is in any child of the parent: leaf-only sibling transitions inside the same parent MUST NOT cause that parent's pending `:after` timer to fire as stale on its next match. Conversely, a transition whose LCA is at-or-above the parent MUST advance the epoch such that any of the parent's pending `:after` timers (from the just-exited visit) all observe a mismatch and silently drop. Implementations that cannot satisfy both clauses with a single per-machine epoch (because a leaf transition advances it) MUST track which `:after` entries belong to which level on the active path and selectively re-schedule only the levels the cascade newly enters. The per-level re-scheduling sketch above is the recommended implementation; the contract is the observable behaviour, not the implementation strategy.
+
 ### Multiple `:after` per state
 
 All entries in an `:after` map run **independently**. Whichever timer fires first (and matches its `:guard`) triggers its transition; the resulting state exit advances the epoch and the remaining timers all go stale. Order between simultaneously-firing timers is implementation-defined — authors should not rely on tie-break behaviour for two timers with the same delay.
@@ -1095,6 +1106,8 @@ If `:loaded` or `:failed` arrives before 5s, the machine transitions out of `:lo
 
 This is consistent with `:platforms` gating on `reg-fx` (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)): timer scheduling is conceptually a `:client`-only concern. The first client render after hydration can re-fire entry actions to begin scheduling, depending on the implementation's hydration policy — the spec leaves the hydration-handoff timing to the host so long as the snapshot value is preserved.
 
+**Spawn under SSR.** `:spawn` and `:invoke`-driven spawns are also SSR-conditional in the v1 reference: the canonical guidance is that long-lived child actors which exist primarily to drive client-side async work (`:http/post`, websocket protocols, polling) should be gated on the surrounding event handler running client-side, exactly as with `reg-fx :platforms`. Server-rendered machine snapshots that happen to land in a state whose `:invoke` would spawn such an actor should rely on the standard `:platforms`-style suppression at the spawn-fx layer rather than expecting the runtime to silently no-op the spawn. The hydration payload covers the snapshot value itself; child-actor handlers are not part of the wire shape and re-establish on the client side via the post-hydration entry replay (per [011-SSR](011-SSR.md)).
+
 ### Clock abstraction
 
 The clock primitives live in **`re-frame.interop`** — the existing clj/cljs-split interop layer that already houses platform-dependent atoms, `next-tick`, etc. Three primitives:
@@ -1107,13 +1120,14 @@ The CLJS realisation uses `js/Date.now` and `js/setTimeout` / `js/clearTimeout`.
 
 ### Trace events
 
-The runtime emits three trace events around every `:after`:
+The runtime emits four trace events around every `:after`:
 
 - **`:rf.machine.timer/scheduled`** — emitted when a timer is scheduled at state entry. `:tags {:machine-id <id> :state <state> :delay <ms> :epoch <e>}`. One event per `:after` entry per state entry.
 - **`:rf.machine.timer/fired`** — emitted when a live (epoch-matching) timer's transition resolves. `:tags {:machine-id <id> :state <state> :delay <ms> :epoch <e> :fired? <bool>}`. `:fired? false` indicates the guard was checked and returned false; the transition was suppressed.
 - **`:rf.machine.timer/stale-after`** — emitted when a stale (epoch-mismatched) timer fires. `:tags {:machine-id <id> :state <state> :delay <ms> :scheduled-epoch <e1> :current-epoch <e2>}`. The transition does not fire.
+- **`:rf.machine.timer/skipped-on-server`** — emitted in SSR mode when a state's `:after` entry is reached but timer scheduling is suppressed (per [§SSR mode](#ssr-mode)). `:tags {:machine-id <id> :state <state> :delay <ms>}`. Diagnostic: lets server-side tooling see which timers a real client run would have scheduled.
 
-Tools subscribe to whichever granularity they need: `:scheduled` for timeline visualisation, `:fired` for the externally-observable transition, `:stale-after` for diagnosing "a timer should have fired but didn't" symptoms.
+Tools subscribe to whichever granularity they need: `:scheduled` for timeline visualisation, `:fired` for the externally-observable transition, `:stale-after` for diagnosing "a timer should have fired but didn't" symptoms, `:skipped-on-server` for confirming SSR no-op behaviour.
 
 ### Worked example
 
@@ -1155,6 +1169,8 @@ External observers see one machine event per externally-visible transition; the 
 If machines are event handlers and actors are machines, then **each spawned actor gets a dynamically-registered event handler whose id is the actor's address.** The mailbox / addressing semantics fall out of `dispatch` — no new primitive.
 
 > **Frame-local registration is load-bearing.** A spawn registers its handler in the **frame-local** tier of the two-tier registry, not in the central boot-time tier. This is what makes spawning compatible with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): when a frame's value is reverted to a prior point, every actor spawned since that point disappears with it (its frame-local handler entry rolls back along with its `[:rf/machines <id>]` snapshot). If spawn instead added entries to the central registry, undo would leave dangling handlers behind, and the AI / undo / time-travel guarantees in [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) would not hold.
+>
+> **v1 status — partial.** The snapshot side of the contract holds: a frame revert restores `[:rf/machines <id>]` atomically with the rest of `app-db`. The handler-registration side currently relaxes to the **global registrar** in the v1 CLJS reference (a frame revert does not yet clear the actor's event-handler entry); a separate tracking bead covers the migration to the frame-local tier. Reads of the spec that conclude "frame revert wipes spawned actor handlers entirely" should treat that as the post-v1 target shape, not the v1 behaviour. Snapshot-side revert is unaffected.
 
 Symmetry between singleton and spawned:
 
@@ -2037,11 +2053,11 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
-- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/raised`, etc.).
+- Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list).
 - The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, and `:rf.error/machine-unresolved-action` error categories.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
-- The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{ms-or-fn → transition-spec}`, epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` trace events.
+- The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{ms-or-fn → transition-spec}`, epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/skipped-on-server` trace events.
 
 ### Post-v1 — the `re-frame.machines` library
 
