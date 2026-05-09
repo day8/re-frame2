@@ -491,6 +491,56 @@
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
 
+;; ---- static topology ------------------------------------------------------
+;;
+;; Per Spec 002 §The public registrar query API and Spec 006 §Subscription
+;; topology vs subscription tracking. `sub-topology` is the static ":<- chain"
+;; you can derive from registrations alone — pure data over the registrar,
+;; no app-db, no reactive runtime, no per-frame cache. JVM-runnable.
+;;
+;; Shape (per Spec 002 §The public registrar query API row): a map of
+;;   sub-id → {:inputs [<input-sub-ids>] :doc <str?> :ns sym :line int :file str}
+;; with :inputs always present (empty vector for layer-1 / direct-app-db subs)
+;; and the source-coord / :doc keys included only when the registration
+;; carries them.
+
+(defn sub-topology
+  "Return the static dependency graph of every registered subscription.
+
+  Pure data over the registrar — no app-db, no per-frame cache, no
+  reactive runtime. Per Spec 002 §The public registrar query API and
+  Spec 006 §Subscription topology vs subscription tracking.
+
+  Shape: `{sub-id {:inputs [<input-sub-ids>] :doc ... :ns ... :line ... :file ...}}`.
+
+  - `:inputs` is the vector of upstream sub-ids declared via `:<-` at
+    registration time. It is always present; layer-1 subs (which read
+    `app-db` directly) report `:inputs []`. The order matches the
+    declaration order so that downstream tools can reconstruct the
+    chain shape the body fn expects.
+  - `:doc`, `:ns`, `:line`, `:file` are present when the registration
+    carried them (`:ns` / `:line` / `:file` are auto-captured by the
+    `reg-sub` macro per Spec 001 §Source-coordinate capture; `:doc`
+    is user-supplied via the meta-map first arg).
+
+  Returns `{}` when no subs are registered.
+
+  JVM-runnable. The runtime cache state (`sub-cache`) is the dynamic
+  counterpart and is CLJS-only."
+  []
+  (let [subs-meta (registrar/handlers :sub)]
+    (reduce-kv
+      (fn [acc sub-id meta]
+        (let [inputs (mapv first (:input-signals meta))
+              entry  (cond-> {:inputs inputs}
+                       (contains? meta :doc)  (assoc :doc  (:doc  meta))
+                       (contains? meta :ns)   (assoc :ns   (:ns   meta))
+                       (contains? meta :line) (assoc :line (:line meta))
+                       (contains? meta :file) (assoc :file (:file meta)))]
+          (assoc acc sub-id entry)))
+      {}
+      subs-meta)))
+
 (defn sub-cache-snapshot
   "Public read-only snapshot of a frame's sub-cache, projected to a
   Tool-Pair-friendly shape: `{query-v {:value v :ref-count n}}`.
