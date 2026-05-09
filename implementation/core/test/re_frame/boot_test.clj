@@ -166,6 +166,154 @@
       (is (identical? tenant-before (get @frame/frames :tenant-x))
           "ensure-default-frame! leaves unrelated frames untouched"))))
 
+;; ---- (rf/init!) default-adapter resolver (rf2-84po) ----------------------
+;;
+;; Per rf2-84po (resolves rf2-4cb6), `(rf/init!)` with no args resolves
+;; through the default-adapter registry populated by substrate-adapter
+;; ns-loads. The resolver has three branches:
+;;
+;;   1 registered    → install it
+;;   0 registered    → :rf.error/no-adapter-registered
+;;   N>1 registered  → :rf.error/multiple-default-adapters
+;;
+;; These tests drive each branch by manipulating the registry directly
+;; (the production wiring is the substrate ns's defonce; tests need the
+;; cold-start ergonomics that explicit register/unregister provide).
+
+(deftest init-no-arg-resolves-single-registered-default
+  (testing "(rf/init!) with no args picks the only registered default"
+    ;; Cold start: registry carries plain-atom from JVM ns-load. The
+    ;; cold-start fixture cleared the installed-adapter slot so init!
+    ;; will install fresh.
+    (is (nil? (adapter/current-adapter))
+        "precondition: no adapter installed")
+    (is (contains? (adapter/registered-default-adapters) :plain-atom)
+        "precondition: plain-atom auto-registered as the JVM default")
+    ;; No-arg init!: should resolve to plain-atom.
+    (rf/init!)
+    (is (some? (adapter/current-adapter))
+        "init! installed an adapter via the default-adapter registry")
+    (is (= 1 (default-frame-count))
+        ":rf/default frame is present after the resolved init!")))
+
+(deftest init-zero-registered-raises-no-adapter-registered
+  (testing "(rf/init!) with no args + zero registered defaults raises :rf.error/no-adapter-registered"
+    ;; Drain the registry so we hit the zero-case branch. We must
+    ;; restore plain-atom afterwards so subsequent tests in the suite
+    ;; (and the cold-start fixture) start from a known baseline.
+    (let [restore-key   :plain-atom
+          restore-spec  (get (adapter/registered-default-adapters) restore-key)]
+      (try
+        (adapter/unregister-default-adapter! restore-key)
+        (is (empty? (adapter/registered-default-adapters))
+            "precondition: registry is empty after the unregister")
+        (let [thrown (try
+                       (rf/init!)
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "rf/init! with no args raises when zero adapters registered")
+          (is (= ":rf.error/no-adapter-registered"
+                 (some-> thrown ex-message))
+              "the thrown exception carries the :rf.error/no-adapter-registered tag")
+          (let [data (ex-data thrown)]
+            (is (= 'init! (:where data))
+                "ex-data identifies the calling fn")
+            (is (= :no-recovery (:recovery data))
+                "ex-data flags :no-recovery — the call must be re-issued with an arg")
+            (is (string? (:reason data))
+                "ex-data carries a :reason string explaining the recovery path"))
+          ;; Slot was untouched by the failed init!.
+          (is (nil? (adapter/current-adapter))
+              "the failed init! did NOT install any adapter"))
+        (finally
+          (when restore-spec
+            (adapter/register-default-adapter! restore-key restore-spec)))))))
+
+(deftest init-multiple-registered-raises-multiple-default-adapters
+  (testing "(rf/init!) with no args + >1 registered defaults raises :rf.error/multiple-default-adapters"
+    ;; Simulate a mixed-substrate app: register a second adapter
+    ;; alongside plain-atom. The second one is just a copy of plain-atom
+    ;; under a different key — the test cares about the resolver's
+    ;; arity, not the adapter's behaviour.
+    (let [synth-key   :test-fake-substrate
+          synth-spec  plain-atom/adapter]
+      (try
+        (adapter/register-default-adapter! synth-key synth-spec)
+        (is (= 2 (count (adapter/registered-default-adapters)))
+            "precondition: two adapters registered as defaults")
+        (let [thrown (try
+                       (rf/init!)
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "rf/init! with no args raises when >1 adapters registered")
+          (is (= ":rf.error/multiple-default-adapters"
+                 (some-> thrown ex-message))
+              "the thrown exception carries the :rf.error/multiple-default-adapters tag")
+          (let [data (ex-data thrown)]
+            (is (= 'init! (:where data))
+                "ex-data identifies the calling fn")
+            (is (= :no-recovery (:recovery data))
+                "ex-data flags :no-recovery — the call must be re-issued with a key")
+            (is (every? keyword? (:keys data))
+                "ex-data :keys is a vector of registered adapter keys")
+            (is (= #{:plain-atom synth-key} (set (:keys data)))
+                "ex-data enumerates exactly the registered keys so the consumer can disambiguate")
+            (is (string? (:reason data))
+                "ex-data carries a :reason string pointing the consumer at (rf/init! :key)"))
+          (is (nil? (adapter/current-adapter))
+              "the failed init! did NOT install any adapter"))
+        (finally
+          (adapter/unregister-default-adapter! synth-key))))))
+
+(deftest init-keyword-form-disambiguates-multi-adapter
+  (testing "(rf/init! :keyword) bypasses default-resolution and looks up by key"
+    ;; Same setup as the multi-adapter case above: two registered, but
+    ;; instead of no-args we pass a key. Should resolve cleanly to the
+    ;; named adapter.
+    (let [synth-key   :test-fake-substrate-2
+          synth-spec  plain-atom/adapter]
+      (try
+        (adapter/register-default-adapter! synth-key synth-spec)
+        (is (= 2 (count (adapter/registered-default-adapters)))
+            "precondition: two adapters registered as defaults")
+        ;; Keyword form: explicit :plain-atom pick.
+        (rf/init! :plain-atom)
+        (is (some? (adapter/current-adapter))
+            "init! :plain-atom installed an adapter")
+        (is (= 1 (default-frame-count))
+            ":rf/default frame is present after the keyworded init!")
+        (finally
+          (adapter/unregister-default-adapter! synth-key))))))
+
+(deftest init-keyword-unknown-raises
+  (testing "(rf/init! :unknown-key) raises :rf.error/unknown-adapter-key"
+    (let [thrown (try
+                   (rf/init! :no-such-adapter)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown)
+          "rf/init! with an unknown key raises")
+      (is (= ":rf.error/unknown-adapter-key"
+             (some-> thrown ex-message))
+          "the thrown exception carries the :rf.error/unknown-adapter-key tag")
+      (let [data (ex-data thrown)]
+        (is (= :no-such-adapter (:key data))
+            "ex-data echoes the offending key")
+        (is (vector? (:known data))
+            "ex-data lists the :known registered keys for diagnostic")))
+    (is (nil? (adapter/current-adapter))
+        "the failed init! did NOT install any adapter")))
+
+(deftest init-map-form-installs-literal-spec
+  (testing "(rf/init! adapter-map) installs the literal adapter — bypasses registry entirely"
+    (rf/init! plain-atom/adapter)
+    (is (identical? plain-atom/adapter (adapter/current-adapter))
+        "init! with a literal adapter map installs that exact spec")
+    (is (= 1 (default-frame-count))
+        ":rf/default frame is present after the literal-adapter init!")))
+
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
     ;; Boot under adapter A (plain-atom), register a handler, register a
