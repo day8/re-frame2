@@ -961,15 +961,54 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 **Why?** Two view call-site forms is enough; three was drifty (P1 violation flagged in [AI-Audit §G-E](AI-Audit.md#g-e-view-invocation-has-two-forms--var-canonical-view-id-for-late-binding)). Same surface-shrinking principle as rf2-7cb2 (drop alpha) and rf2-iyzm (Var-ref canonical for views): when two surfaces cover every case the third was solving, the third is excess.
 
+### M-25. `re-frame.test` helpers renamed to `re-frame.test-support`
+
+**Type A** (mechanical).
+
+Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. The three test-flavoured helpers — `dispatch-sequence`, `assert-state`, `run-test-sync` — keep their v1 names and ship under the new ns; the move is a mechanical require-rewrite.
+
+**What to look for** in the codebase:
+
+```clojure
+(:require [re-frame.test :as rf-test])
+(:require [re-frame.test :refer [run-test-sync dispatch-sequence assert-state]])
+;; or referencing day8/re-frame-test directly:
+(:require [day8.re-frame.test :as rf-test])
+```
+
+**What to do:**
+
+```clojure
+;; before
+(:require [re-frame.test :as rf-test])
+(rf-test/run-test-sync ...)
+(rf-test/dispatch-sequence ...)
+(rf-test/assert-state ...)
+
+;; after — single mechanical require-rewrite; helper names unchanged
+(:require [re-frame.test-support :as ts])
+(ts/run-test-sync ...)
+(ts/dispatch-sequence ...)
+(ts/assert-state ...)
+```
+
+**Signature notes** (the v2 helpers are frame-aware; v1 helpers were single-frame implicit):
+
+- `(dispatch-sequence events)` / `(dispatch-sequence events {:after-each f :frame f-id})` — v1's frame-implicit form maps to the no-opts arity; tests targeting a non-default frame supply `{:frame ...}`.
+- `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` is the path form; the full-db form and `:frame` opt are v2 additions.
+- `(run-test-sync body...)` — v2's `dispatch-sync` already drains synchronously, so the macro is largely a body wrapper that snapshots/restores the registrar. v1 callers see no behavioural difference.
+
+If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the helpers in the core artefact (no separate coordinate to require).
+
 ---
 
-**Reporting M-12 through M-24.** These thirteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing thirteen separate preambles.
+**Reporting M-12 through M-25.** These fourteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing fourteen separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.

@@ -12,7 +12,7 @@ The testing surface is built entirely from foundation primitives in [002-Frames.
 
 ## Normative surface
 
-The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runtime)](000-Vision.md#goals). Every entry below is a re-export from `re-frame.core` and re-exported again from the convenience namespace `re-frame.test` (per [§Built-in test-runner namespace](#built-in-test-runner-namespace)) — the inventory is single-source-of-truth.
+The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runtime)](000-Vision.md#goals). Every entry below is a re-export from `re-frame.core` and gathered alongside the test-flavoured helpers in the convenience namespace `re-frame.test-support` (per [§Built-in test-runner namespace](#built-in-test-runner-namespace)) — the inventory is single-source-of-truth.
 
 | Need | API |
 |---|---|
@@ -29,7 +29,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Machine cleanup on destroy | `(rf/destroy-frame f)` — disposes sub-cache, stops router, clears overrides |
 | Static sub-graph inspection | `(rf/sub-topology)` |
 | Sub computation against an `app-db` | `(rf/compute-sub query-v db)` — query-v is `[:sub-id arg1 arg2]`, JVM-runnable |
-| Test-flavoured helpers | `(rf/dispatch-sequence frame events)` — chained `dispatch-sync`; `(rf/assert-state frame path expected)` — assertion macro. Both ship with `re-frame.test`. |
+| Test-flavoured helpers | `(ts/dispatch-sequence events)` — chained `dispatch-sync`; `(ts/assert-state path expected)` — clojure.test-aware assertion; `(ts/run-test-sync body...)` — v1 compatibility wrapper. All ship with `re-frame.test-support`. |
 
 ### `with-frame` call shapes
 
@@ -337,7 +337,7 @@ No special integration — works because `cljs.test` and `clojure.test` work. Ka
 
 ### `re-frame-test` (existing community library)
 
-The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 ships a *re-frame2-aware* version: `run-test-sync` is a thin wrapper over `with-frame` + `dispatch-sync`. Migration of existing `re-frame-test` users is mechanical — same API shape, frame-aware under the hood.
+The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. re-frame2 ships a *re-frame2-aware* version: `re-frame.test-support/run-test-sync` is a thin macro over the registrar snapshot/restore bracket. Because v2's `dispatch-sync` already drains synchronously to fixed point, the macro is largely a body wrapper — its job is registrar isolation, not synchronicity. Migration of existing `re-frame-test` users is mechanical — same API shape, frame-aware under the hood; v1's `re-frame.test/run-test-sync` becomes `re-frame.test-support/run-test-sync` per [MIGRATION §M-25](MIGRATION.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support).
 
 ## Forward compatibility with stories
 
@@ -400,19 +400,64 @@ This is library territory, not framework. See [005 §Future](005-StateMachines.m
 
 ### Built-in test-runner namespace
 
-re-frame2 ships a `re-frame.test` convenience namespace. The canonical helper inventory is:
+re-frame2 ships a `re-frame.test-support` convenience namespace (renamed from v1's `re-frame.test` per rf2-8hcb). Users `(:require [re-frame.test-support :as ts])` once and reach the full testing surface. The canonical helper inventory is:
 
 | Helper | Origin | Purpose |
 |---|---|---|
 | `with-frame`, `make-frame`, `destroy-frame`, `reset-frame`, `dispatch-sync`, `get-frame-db`, `snapshot-of`, `compute-sub`, `sub-topology`, `machine-transition` | re-export from `re-frame.core` | Same primitives the rest of the framework uses; gathered here for one require. |
-| `dispatch-sequence` | test-flavoured | `(dispatch-sequence frame [event-1 event-2 ...])` — dispatch-syncs each event in order against `frame`. Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
-| `assert-state` | test-flavoured macro | `(assert-state frame [:auth :state] :validating)` — assertion macro reading `(get-in (get-frame-db frame) path)` and checking equality. Reports the actual value on failure. |
+| `dispatch-sequence` | test-flavoured fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
+| `assert-state` | test-flavoured fn | `(assert-state expected-db)` for a full-db check, or `(assert-state path expected-val)` for a path check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). |
+| `run-test-sync` | test-flavoured macro | `(run-test-sync body...)` — v1 compatibility shim for `re-frame-test/run-test-sync`. v2's `dispatch-sync` already drains synchronously to fixed point, so the macro is largely a body wrapper that snapshots/restores the registrar around the body. Included for mechanical migration of v1 test code; new tests don't need it. |
+| `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `reset-runtime-fixture` | fixture machinery | Snapshot/restore the registrar (and per-process state — frames, flows, schemas, trace listeners) around a test or fixture. The standard `:each` fixture for re-frame2 test suites. |
 
 This is the full surface. Anything else a test needs is composed from `dispatch-sync` / `get-frame-db` / `compute-sub` / `machine-transition` directly — there is no hidden helper layer.
 
+#### `dispatch-sequence` example
+
+```clojure
+(rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+(rf/reg-event-db :counter/dec (fn [db _] (update db :n dec)))
+
+(deftest counter-walk
+  (rf/dispatch-sync [:counter/init])
+  (let [final (ts/dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])]
+    (is (= 1 (:n final)))))
+```
+
+Capturing intermediate states:
+
+```clojure
+(let [seen (atom [])]
+  (ts/dispatch-sequence [[:counter/inc] [:counter/inc]]
+                        {:after-each (fn [db ev] (swap! seen conj [ev db]))}))
+```
+
+#### `assert-state` example
+
+```clojure
+(rf/dispatch-sync [:auth/login-pressed])
+(ts/assert-state [:auth :state] :validating)
+;; or full-db form:
+(ts/assert-state {:auth {:state :validating}})
+;; with a non-default frame:
+(ts/assert-state [:auth :state] :validating {:frame :test/auth-flow})
+```
+
+#### `run-test-sync` example (v1 mechanical port)
+
+```clojure
+(deftest legacy-flow
+  (ts/run-test-sync
+    (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:counter/inc])
+    (is (= 1 (:n (rf/get-frame-db :rf/default))))))
+```
+
+The macro snapshots the registrar before the body and restores it on exit (success or exception), so test-local registrations don't leak into the next test.
+
 ### `re-frame-test` library compatibility
 
-re-frame2 ships a compatibility wrapper for `day8/re-frame-test`'s `run-test-sync` API. The wrapper delegates to `with-frame` + `dispatch-sync`. Existing test suites built against `re-frame-test` work unchanged after the migration; new tests use the API directly.
+re-frame2 ships a compatibility wrapper for `day8/re-frame-test`'s `run-test-sync` API as `re-frame.test-support/run-test-sync` (rf2-0l3s / rf2-hkr5). The macro snapshots the registrar around the body and restores on exit; v2's `dispatch-sync` already drains synchronously, so the macro is largely a body wrapper. Existing test suites built against `re-frame-test` work after a mechanical `re-frame.test → re-frame.test-support` namespace rename (per [MIGRATION §M-25](MIGRATION.md#m-25-re-frametest-helpers-renamed-to-re-frametest-support)); new tests use the API directly.
 
 ### Headless rendering for visual regression
 
