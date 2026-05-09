@@ -205,10 +205,8 @@ Use case: production single-frame app; multi-instance widgets.
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:url-bound? false` | URL changes do not affect this frame; navigation events are no-ops | Tests should not couple to browser URL |
-| `:fx-overrides` | `{:http :rf.test/stub-http :dispatch-later :rf.test/clock-controlled :rf.nav/push-url :rf.test/no-op :rf.nav/replace-url :rf.test/no-op :rf.nav/scroll :rf.test/no-op}` | Network and clock stubbed via the `re-frame.interop` test-clock; navigation fxs no-op since `:url-bound?` is false |
-| `:platforms` | `#{:test}` (added to the active platform set) | Allows registering test-only fxs gated to `:platforms #{:test}` |
-| `:drain-depth` | `100` | Sane default; test code may dispatch deeper cascades than production |
+| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing (clock-controlled timers, navigation no-ops) supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. |
+| `:drain-depth` | `100` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, drain bounded at 100" from `(frame-meta <id>)` without inspecting the global default. |
 
 Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 
@@ -216,10 +214,8 @@ Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:url-bound? false` | Stories do not navigate; URL is irrelevant | Story frames are isolated demonstrations, not routed pages |
-| `:fx-overrides` | `{:http :rf.story/stub-http :rf.nav/push-url :rf.story/no-op :rf.nav/replace-url :rf.story/no-op}` | Network stubbed; navigation no-op'd. **Time-based fxs are NOT stubbed** — stories animate in real time |
-| `:isolation/global-state false` | Story frames do not read or write process-global state outside their own `app-db` | Stories must run side-by-side without leaks |
-| `:platforms` | `#{:story :client}` | Allows story-only fxs |
+| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | Network stubbed via the canonical Spec 014 redirect. **Time-based fxs are NOT stubbed** — stories animate in real time. Story-specific stubs (navigation no-op, etc.) are user-supplied; not shipped in the v1 closed set. |
+| `:drain-depth` | `16` | Tighter bound than the framework default (100). Stories are interactive demos; a runaway dispatch cascade should fail fast under a story rather than spinning up to the production limit. |
 
 Use case: story / variant frames (per the post-v1 [007-Stories](007-Stories.md) library).
 
@@ -227,10 +223,10 @@ Use case: story / variant frames (per the post-v1 [007-Stories](007-Stories.md) 
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:url-bound? false` | Server does not navigate; route is parsed once from the request cofx | Per-request frames are stateless w.r.t. URL after request handling |
-| `:platforms` | `#{:server}` | Only `:server`-platforms fxs run; client-only fxs no-op via the `:platforms` mechanism (per [011-SSR](011-SSR.md)) |
-| `:fx-overrides` | `{:dispatch-later :rf.server/no-op :rf.nav/push-url :rf.server/no-op :rf.nav/replace-url :rf.server/no-op :rf.nav/scroll :rf.server/no-op}` | Server has no clock-driven UI; no DOM; no navigation |
-| `:on-create` | `[:rf/server-init]` (default; user may override) | Standard server-side init handshake |
+| `:platform` | `:server` | The frame runs on the `:server` platform. `:server`-gated fxs run; non-`:server` fxs no-op via the `:platforms` mechanism on `reg-fx` (per [011-SSR](011-SSR.md)). Single keyword — one active platform per frame. |
+| `:on-error` | `:rf.error/server-projection` | Server-side handler exceptions surface through the dedicated server error projection so the request handler can reconstruct an error response from the trace stream rather than crashing the SSR drain. |
+
+The `:on-create` event is **user-supplied** rather than preset-defaulted. The standard pattern is `(rf/make-frame {:preset :ssr-server :on-create [:rf/server-init request]})` — the user owns the init event so the request payload can be threaded through (see [011-SSR](011-SSR.md)). The framework does not ship a `:rf/server-init` handler.
 
 Use case: per-request server-side render frame (per [011-SSR.md](011-SSR.md)).
 
@@ -243,14 +239,12 @@ At registration time, the runtime:
 3. Constructs an effective metadata map: `(merge expansion user-supplied-metadata)`. **User keys win on conflict** — the preset is a default, not a closed bundle.
 4. The effective metadata is what `(frame-meta <id>)` returns; the original `:preset` is preserved as a metadata field for inspection.
 
-Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; an `:rf/preset` key in the returned metadata records which preset was applied. Tools can inspect:
+Reading `(rf/frame-meta :test/auth-flow)` returns the *effective* map; the `:preset` key is preserved verbatim so tools can inspect which preset was applied:
 
 ```clojure
 (rf/frame-meta :test/auth-flow)
-;; → {:preset :test
-;;    :url-bound? false
-;;    :fx-overrides {:http :rf.test/stub-http ...}
-;;    :platforms   #{:test}
+;; → {:preset      :test
+;;    :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
 ;;    :drain-depth 100}
 ```
 
