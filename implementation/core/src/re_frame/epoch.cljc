@@ -344,6 +344,17 @@
                              [eid])}))
           events)))
 
+(defn- current-schema-digest
+  "Return the live digest of the named frame's registered app-schema set,
+  or nil when the schemas namespace has not registered its late-bind
+  hook (e.g. an embedding host that ships no schema layer). Per Spec 010
+  §Per-frame schemas the digest is frame-scoped — restore-mismatch
+  reasoning runs against the frame the epoch belongs to."
+  [frame-id]
+  (when-let [digest (late-bind/get-fn :schemas/app-schemas-digest)]
+    (try (digest frame-id)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn- build-record
   [frame-id db-before db-after events]
   (let [{:keys [event-id event]} (find-trigger-event events)]
@@ -354,6 +365,12 @@
      :trigger-event event
      :db-before     db-before
      :db-after      db-after
+     ;; Per Spec 010 §Schema digest — pinned at record time so a later
+     ;; restore can compare 'recorded vs current' digests in the
+     ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
+     ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
+     ;; produces nil; consumers tolerate the absent slot).
+     :schema-digest (current-schema-digest frame-id)
      :trace-events  events
      :sub-runs      (project-sub-runs events)
      :renders       (project-renders events)
@@ -600,11 +617,17 @@
                 ;; (4) Schema mismatch?
                 (not (schema-validate-ok? frame-id db-target))
                 (do
+                  ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
+                  ;; the trace carries both the digest pinned on the
+                  ;; epoch record (recorded) and the current frame's
+                  ;; live digest, so pair tools can pinpoint *what
+                  ;; changed* about the schema set, not merely *that*
+                  ;; it changed.
                   (emit-restore-failure! :rf.epoch/restore-schema-mismatch
                                          {:frame                  frame-id
                                           :epoch-id               epoch-id
-                                          :schema-digest-recorded nil
-                                          :schema-digest-current  nil
+                                          :schema-digest-recorded (:schema-digest epoch)
+                                          :schema-digest-current  (current-schema-digest frame-id)
                                           :failing-paths          (failing-paths-for frame-id db-target)})
                   false)
 
