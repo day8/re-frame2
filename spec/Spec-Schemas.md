@@ -1047,6 +1047,30 @@ Each registered machine contributes one entry. The runtime composes `Machines`'s
 
 Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry in `:rf/machines`.
 
+### `:rf/spawned` (reserved app-db key)
+
+> **Layer:** Runtime
+
+`[:rf/spawned]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) and rf2-t07u (Option A revised), the runtime tracks each declarative-`:invoke` spawn at `[:rf/spawned <parent-machine-id> <invoke-id>]` so the matching destroy cascade can locate the spawned id without depending on the user's `:on-spawn` callback having stashed it under any particular `:data` slot.
+
+```clojure
+(def Spawned
+  ;; A two-level map: parent-machine-id → invoke-id → spawned-id.
+  ;; The invoke-id is the absolute prefix-path of the :invoke-bearing
+  ;; state node — a vector of keywords (e.g. [:authenticating],
+  ;; [:cart :loading]). Two states named `:loading` in different parents
+  ;; are disambiguated by their full prefix-paths.
+  [:map-of :keyword                                                          ;; parent-machine-id
+           [:map-of [:vector :keyword] :keyword]])                           ;; invoke-id → spawned-id
+
+;; registered by the runtime at boot:
+(rf/reg-app-schema [:rf/spawned] Spawned)
+```
+
+Allocated lazily — absent until the first declarative-`:invoke` spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:spawn ...]` calls (where the user owns the destroy via hand-emitted `[:destroy-machine actor-id]`) leave the slot untouched.
+
+Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spawned` map; same parent-id + invoke-id in different frames do not collide. Frame revertibility is inherited (the slot walks back atomically with `app-db` on a frame revert).
+
 ### `:rf/route-pattern`
 
 > **Layer:** Public
@@ -1358,16 +1382,38 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def SpawnFxArgs
   [:map
    ;; one of :machine-id (registered) or :definition (inline transition table)
-   [:machine-id  {:optional true} :keyword]
-   [:definition  {:optional true} :any]                                     ;; an inline TransitionTable
-   [:id-prefix   {:optional true} :keyword]                                 ;; defaults to :machine-id; base for the gensym'd actor id
-   [:data        {:optional true} :map]                                     ;; initial data; overrides definition default
-   [:on-spawn    {:optional true} fn?]                                      ;; (fn [data id] new-data) — required for from-action spawns
-   [:start       {:optional true} [:vector :any]]                           ;; event vector dispatched to the new actor immediately after spawn
-   [:system-id   {:optional true} :keyword]])                               ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+   [:machine-id    {:optional true} :keyword]
+   [:definition    {:optional true} :any]                                   ;; an inline TransitionTable
+   [:id-prefix     {:optional true} :keyword]                               ;; defaults to :machine-id; base for the gensym'd actor id
+   [:data          {:optional true} :map]                                   ;; initial data; overrides definition default
+   [:on-spawn      {:optional true} fn?]                                    ;; (fn [data id] new-data) — advisory user-side bookkeeping per rf2-t07u
+   [:start         {:optional true} [:vector :any]]                         ;; event vector dispatched to the new actor immediately after spawn
+   [:system-id     {:optional true} :keyword]                               ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+   ;; Runtime-stamped on declarative-:invoke spawns (per rf2-t07u; not user-supplied).
+   ;; The pair addresses the runtime-owned spawn registry slot at
+   ;; [:rf/spawned <parent-id> <invoke-id>]; absent on imperative from-action
+   ;; spawns (those user-owned destroys are still hand-emitted with the actor id).
+   [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
+   [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; absolute prefix-path of the :invoke-bearing state node
+   [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the same id :on-spawn observed (rf2-suue)
 
 ;; The spawned actor's snapshot lives at [:rf/machines <gensym'd-id>] in the
 ;; active frame's app-db — runtime-managed; not part of the spawn-spec.
+
+;; :destroy-machine — reserved fx-id used inside a machine action's :fx to
+;; tear down a dynamic actor. Per [005 §Spawning] and rf2-t07u (Option A
+;; revised). Two argument shapes:
+;;   - a bare actor-id keyword — the legacy / imperative form (action emits
+;;     `[:destroy-machine actor-id]` with the recorded id directly).
+;;   - a `{:rf/parent-id :rf/invoke-id}` map — the declarative-:invoke
+;;     exit-cascade form. The fx handler reads the spawned id back from
+;;     `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down
+;;     whatever id is currently bound there.
+(def DestroyMachineFxArgs
+  [:or :keyword
+       [:map
+        [:rf/parent-id :keyword]
+        [:rf/invoke-id [:vector :keyword]]]])
 
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
@@ -1415,6 +1461,7 @@ These are registered under spec ids:
 | `:rf.fx/nav/replace-url-args` | `:rf.nav/replace-url` |
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:spawn` (reserved fx-id inside a machine action's `:fx`; per [005](005-StateMachines.md)) |
+| `:rf.fx/destroy-machine-args` | `:destroy-machine` (reserved fx-id inside a machine action's `:fx`; per [005](005-StateMachines.md) and rf2-t07u — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |

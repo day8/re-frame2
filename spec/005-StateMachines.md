@@ -1374,7 +1374,7 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
            :failed    {:target :error}}}}
 ```
 
-While in `:loading`, an actor of `:request/protocol` exists at `[:rf/machines <gensym'd-id>]`, addressable by the id stored in `(:pending data)`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears.
+While in `:loading`, an actor of `:request/protocol` exists at `[:rf/machines <gensym'd-id>]`, addressable through the id the user's `:on-spawn` recorded in `(:pending data)` AND through the runtime-owned registry at `[:rf/spawned <parent-machine-id> [:loading]]`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, no longer requires the user to have written the id under any specific `:data` key.
 
 ### Spec-spec keys
 
@@ -1396,13 +1396,17 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 **Path convention.** The `:on-spawn` callback receives the snapshot's `:data` directly and returns a new `:data` map. The runtime patches the result back into the snapshot. Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), this is uniform with `:guard` and `:action`: the body operates on `:data`, never on the wrapping snapshot. A typical body is `(assoc data :pending id)` or `(update data :workers (fnil conj []) id)` — *not* `(assoc-in snap [:data :pending] id)`.
 
+**`:on-spawn` is purely advisory.** Per rf2-t07u (Option A revised), the runtime tracks each declarative-`:invoke` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` (where `<invoke-id>` is the absolute prefix-path of the `:invoke`-bearing state node). The `:on-spawn` callback runs because most apps want a user-side handle on the id (so other transitions can address the child by name in their own bookkeeping) — but the runtime no longer depends on it for the destroy-side resolution. Apps can omit `:on-spawn` entirely when no user-side bookkeeping is needed; the parent's `:exit` cascade still tears down the spawned child via the runtime registry.
+
 ### Desugaring rules
 
 `create-machine-handler` walks every state node at construction time. For each `:invoke`-bearing state, it:
 
-1. **Composes** an `:rf.invoke/spawn-<state>` registered action that emits a `:spawn` fx whose args are the `:invoke` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal).
-2. **Composes** an `:rf.invoke/destroy-<state>` registered action that emits a `:destroy-machine` fx for the actor id (resolved either from the parent's `:data` via the `:on-spawn` key — the runtime tracks which key the user's `:on-spawn` wrote — or from the `:invoke-id` literal).
+1. **Composes** an `:rf.invoke/spawn-<state>` registered action that emits a `:spawn` fx whose args are the `:invoke` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/invoke-id` (the absolute prefix-path of the `:invoke`-bearing state node) onto the spawn args; the `:spawn` fx handler binds the spawned id at `[:rf/spawned <parent-id> <invoke-id>]` in the frame's app-db.
+2. **Composes** an `:rf.invoke/destroy-<state>` registered action that emits a `:destroy-machine` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:invoke-id` literals — the explicit-id case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
 3. **Wires** the composed actions into the state's `:entry` and `:exit` slots, after any user-supplied `:entry` / `:exit` (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)).
+
+The runtime-owned spawn registry at `[:rf/spawned ...]` is sibling to `[:rf/system-ids]` (per [§Named addressing via `:system-id`](#named-addressing-via-system-id)) — same lazy-allocation invariant (absent until the first declarative-`:invoke` spawn), same per-frame isolation (each frame's `app-db` carries its own slot), same revertibility (the slot walks back atomically with `app-db` on a frame revert).
 
 Before / after:
 
@@ -1419,18 +1423,28 @@ Before / after:
 ;; create-machine-handler rewrites to (runtime sees this):
 {:loading
  {:entry (fn [data _ev]
-           {:fx [[:spawn {:machine-id :request/protocol
-                          :id-prefix  :request/protocol
-                          :data       {:url (:endpoint data)}
-                          :on-spawn   (fn [d id] (assoc d :pending id))
-                          :start      [:begin]}]]})
-  :exit  (fn [data _]
-           {:fx [[:destroy-machine (:pending data)]]})
+           {:fx [[:spawn {:machine-id   :request/protocol
+                          :id-prefix    :request/protocol
+                          :data         {:url (:endpoint data)}
+                          :on-spawn     (fn [d id] (assoc d :pending id))
+                          :start        [:begin]
+                          ;; Stamped by the runtime — addresses the
+                          ;; runtime-owned spawn registry slot at
+                          ;; [:rf/spawned <parent-id> <invoke-id>].
+                          :rf/parent-id <parent-machine-id>
+                          :rf/invoke-id [:loading]}]]})
+  :exit  (fn [_data _]
+           ;; Per rf2-t07u (Option A revised) — the destroy fx no longer
+           ;; reads the actor id from `:data`. The fx handler resolves
+           ;; the id from [:rf/spawned <parent-id> <invoke-id>] in the
+           ;; frame's app-db at call time.
+           {:fx [[:destroy-machine {:rf/parent-id <parent-machine-id>
+                                    :rf/invoke-id [:loading]}]]})
   :on    {:succeeded :loaded
           :failed    :error}}}
 ```
 
-From outside, an `:invoke`-using machine is indistinguishable from one that wrote the entry/exit by hand. The pure-factory invariant on `create-machine-handler` is preserved — no global state, no new registry, no new lifecycle hook.
+From outside, an `:invoke`-using machine is indistinguishable from one that wrote the entry/exit by hand — except that the runtime no longer requires the user's `:on-spawn` callback to write the spawned id under any particular `:data` slot. The pure-factory invariant on `create-machine-handler` is preserved — no global state, no new registry kind, no new lifecycle hook (the `[:rf/spawned ...]` slot lives inside `app-db` per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys); not a separate registry).
 
 ### Composition with explicit `:entry` / `:exit`
 
@@ -1439,7 +1453,7 @@ A state may declare both `:invoke` AND user-supplied `:entry` / `:exit`. The use
 - **On enter:** the user's `:entry` action runs, then the auto-spawn fx is emitted.
 - **On exit:** the user's `:exit` action runs, then the auto-destroy fx is emitted.
 
-Rationale: the user's `:entry` is for setup work that must happen before the child starts (e.g., normalising data, recording a start timestamp). The spawn happens after that setup completes, so the child sees the post-setup snapshot. On exit, the user's `:exit` action gets to read the actor's final snapshot via the parent's recorded id (`(get-in db [:rf/machines (:pending data)])`) before the auto-destroy clears it — useful for capturing the child's last reported value.
+Rationale: the user's `:entry` is for setup work that must happen before the child starts (e.g., normalising data, recording a start timestamp). The spawn happens after that setup completes, so the child sees the post-setup snapshot. On exit, the user's `:exit` action gets to read the actor's final snapshot before the auto-destroy clears it — useful for capturing the child's last reported value. Address the child either through whatever id the user's `:on-spawn` recorded in `:data`, or via the runtime registry: `(get-in db [:rf/spawned <parent-machine-id> <invoke-id>])` resolves to the gensym'd id, and `(get-in db [:rf/machines <id>])` reads the snapshot from there.
 
 The composition is **wire-level concatenation, not nesting** — the action ordering is `[user-entry, auto-spawn]` for entry and `[user-exit, auto-destroy]` for exit. Each runs as a normal action, returning its own `{:data :fx}` effect map; the runtime drains them in order per [§Drain semantics — Level 2](#level-2--across-the-action-slots-in-one-transition).
 
@@ -1499,10 +1513,10 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
 The walk-through:
 
 1. User submits → state moves `:idle` → `:authenticating`.
-2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the `:on-spawn` fn binds the actor's id under `:auth-actor`.
+2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf/spawned :login [:authenticating]]` in the frame's app-db, and the `:on-spawn` fn (advisory; per rf2-t07u) records the id under `:auth-actor` so other transitions in the parent can address the child by name.
 3. The HTTP child runs; on success, it dispatches `[:login [:auth/succeeded ...]]` (where `:login` is the parent machine's id).
 4. The login machine handles `:auth/succeeded`; transitions to `:authenticated`.
-5. Leaving `:authenticating` triggers the desugared exit: destroy the actor stored at `:auth-actor`. The HTTP child's snapshot is removed from `[:rf/machines]` automatically.
+5. Leaving `:authenticating` triggers the desugared exit: the runtime reads the actor id back from `[:rf/spawned :login [:authenticating]]`, destroys it, clears the slot. The HTTP child's snapshot is removed from `[:rf/machines]` automatically. (The `:auth-actor` value left in the parent's `:data` is now stale; user code may clear it in a subsequent action if it cares — the runtime does not.)
 6. If the user abandons mid-flight (a different transition fires `:authenticating` → `:idle`), the exit cascade still runs; the in-flight HTTP child is destroyed; no actor leaks.
 
 The key property: the parent does not have to *remember* to destroy the child. The lifecycle binding is declared once at the state level, and the exit cascade enforces it on every code path out of the state — including ones the author hasn't yet thought of.
@@ -1921,7 +1935,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Own state + message ports** — actor identity is the registered event id; the state lives at `[:rf/machines <id>]` | Prose: §Where snapshots live, §Strict encapsulation; Schema: `:rf/machine-snapshot`, `:rf/machines`; Fixtures: machine-transition, machine-actor-isolation | ✓ claimed | Already specced. |
 | **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (and the machine-internal `[:spawn ...]` / `[:destroy-machine ...]` fx-ids inside a machine action's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
-| **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit` | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:spawn` / `:destroy-machine` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). |
+| **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:spawn` / `:destroy-machine` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
 | **`:system-id` named-machine addressing** — a `:spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
 
