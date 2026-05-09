@@ -558,6 +558,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:installed :any]
    [:attempted :any]])
 
+(def NoAdapterRegisteredTags
+  ;; Per rf2-84po: (rf/init!) raised because no substrate adapter has
+  ;; registered as a default. Surfaced as a thrown ex-info, not a trace.
+  [:map
+   [:category :keyword]
+   [:where    [:or :symbol :string]]
+   [:reason   :string]])
+
+(def MultipleDefaultAdaptersTags
+  ;; Per rf2-84po: (rf/init!) raised because more than one substrate
+  ;; adapter has registered as a default. The consumer must disambiguate
+  ;; via the keyword form. Surfaced as a thrown ex-info, not a trace.
+  [:map
+   [:category :keyword]
+   [:where    [:or :symbol :string]]
+   [:keys     [:vector :keyword]]
+   [:reason   :string]])
+
+(def UnknownAdapterKeyTags
+  ;; Per rf2-84po: (rf/init! :key) raised because the keyword is not in
+  ;; the default-adapter registry. Surfaced as a thrown ex-info, not a
+  ;; trace.
+  [:map
+   [:category :keyword]
+   [:where    [:or :symbol :string]]
+   [:key      :keyword]
+   [:known    [:vector :keyword]]
+   [:reason   :string]])
+
 (def RenderOnHeadlessAdapterTags
   [:map
    [:category :keyword]
