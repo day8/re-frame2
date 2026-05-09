@@ -7,62 +7,63 @@ directory is that one-shot.
 
 ## Status
 
-**JVM:**
-- 43 / 43 conformance fixtures pass (full corpus green).
-- 20 smoke tests / 51 assertions pass.
-
-**CLJS** (Reagent adapter, shadow-cljs `:node-test` build):
-- 14 smoke tests / 29 assertions pass.
-
-Beads tracking known gaps live in `../.beads/`. The four open beads are
-all design decisions or different-infrastructure items, not
-implementation work.
+The full conformance corpus runs green on every commit; the JVM and
+CLJS suites are required CI checks. Open implementation beads live in
+`../.beads/`.
 
 ## Layout
 
+The implementation is split into per-Maven-artefact subdirectories per
+[Conventions §Substrate-adapter shipping convention](../spec/Conventions.md#substrate-adapter-shipping-convention)
+(rf2-0hxm). Each subdirectory carries its own `deps.edn`; the top-level
+`deps.edn` and `shadow-cljs.edn` are build coordinators that pull both
+artefacts onto a single classpath for the cross-substrate builds
+(browser tests, elision probe, examples).
+
 ```
 implementation/
-  deps.edn                   Clojure deps (clojure, clojurescript, reagent, malli)
-  package.json               npm deps for the CLJS test target (shadow-cljs, react)
-  shadow-cljs.edn            :node-test build that runs cljs.test under node
-  src/re_frame/
-    interop.clj              JVM host primitives
-    interop.cljs             CLJS host primitives
-    registrar.cljc           (kind, id) → metadata + replacement-hooks
-    frame.cljc               Frame container, reg-frame, destroy-frame
-    router.cljc              Per-frame FIFO router + drain scheduling
-                             + :rf.error/dispatch-sync-in-handler guard
-    fx.cljc                  Effect interpreter + per-call fx-overrides
-                             + :rf.fx/skipped-on-platform / no-such-fx
-    events.cljc              reg-event-db / -fx / -ctx
-    subs.cljc                Sub cache with ref-counting + hot-reload eviction
-    interceptor.cljc         Interceptor chain runtime
-    std_interceptors.cljc    path, unwrap, inject-cofx, ->interceptor primitive
-    cofx.cljc                reg-cofx + standard cofx
-    trace.cljc               Trace event emission + listener API
-    schemas.cljc             Malli runtime validation (validate-app-db! after :db)
-    machines.cljc            Hierarchical FSM, :always microsteps,
-                             :after delayed transitions with epoch-stale,
-                             declarative :invoke / spawn / destroy
-    flows.cljc               reg-flow, topo-sort, dirty-check + hot-reload
-    routing.cljc             reg-route, 6-rule rank cascade, query coercion,
-                             nav-token + can-leave + pending-nav protocol
-    ssr.cljc                 Hiccup → HTML5 emitter, :rf/hydrate +
-                             hydration-mismatch, :rf.server/* fx,
-                             default error projector
-    conformance.cljc         DSL interpreter for fixture handler bodies
-    views.cljs               reg-view*, React frame-context bridge
-    views_macros.clj         reg-view, with-frame, bound-fn, h macros
-    substrate/
-      adapter.cljc           Adapter contract (the 9 functions)
-      reagent.cljs           Reagent adapter
-      plain_atom.cljc        Plain-atom adapter (JVM, SSR, headless)
-    core.cljc                Public API surface (re-frame.core equivalent)
-  test/re_frame/
-    smoke_test.clj           JVM smoke tests
-    runtime_cljs_test.cljs   CLJS smoke tests (Reagent adapter)
-    conformance_test.clj     Loads + runs every fixture in
-                             ../spec/conformance/fixtures/
+  deps.edn                   Top-level coordinator: :local/root deps for both artefacts.
+  package.json               npm deps for the CLJS test targets (shadow-cljs, react, playwright).
+  shadow-cljs.edn            Top-level shadow build: pulls core/ and reagent/ src+test paths
+                             plus ../examples for the cross-substrate test and example bundles.
+
+  core/                      day8/re-frame-2 — the core artefact.
+    deps.edn                 Core's own deps (clojure, clojurescript, reagent, malli).
+    src/re_frame/
+      interop.{clj,cljs}     JVM / CLJS host primitives.
+      registrar.cljc         (kind, id) → metadata + replacement-hooks.
+      frame.cljc             Frame container, reg-frame, destroy-frame.
+      router.cljc            Per-frame FIFO router + drain + dispatch-sync-in-handler guard.
+      fx.cljc                Effect interpreter + fx-overrides + :rf.fx/skipped-on-platform.
+      events.cljc            reg-event-db / -fx / -ctx.
+      subs.cljc              Sub cache with ref-counting + hot-reload eviction.
+      interceptor.cljc       Interceptor chain runtime.
+      std_interceptors.cljc  path, unwrap, inject-cofx, ->interceptor primitive.
+      cofx.cljc              reg-cofx + standard cofx.
+      trace.cljc             Trace event emission + listener API.
+      schemas.cljc           Malli runtime validation.
+      machines.cljc          Hierarchical FSM, :always, :after, :invoke / spawn / destroy.
+      flows.cljc             reg-flow, topo-sort, dirty-check + hot-reload.
+      routing.cljc           reg-route, 6-rule rank cascade, query coercion, nav protocol.
+      ssr.cljc               Hiccup → HTML5 emitter, :rf/hydrate, :rf.server/* fx, error projector.
+      conformance.cljc       DSL interpreter for fixture handler bodies.
+      views.cljs             reg-view*, React frame-context bridge (CLJS-only).
+      views_macros.clj       reg-view, with-frame, bound-fn macros.
+      substrate/
+        adapter.cljc         The 9-fn adapter contract.
+        plain_atom.cljc      Plain-atom adapter (JVM, SSR, headless).
+      core.cljc              Public API surface (re-frame.core).
+    test/re_frame/           JVM tests + the substrate-agnostic CLJS tests
+                             (conformance, hash-check, elision-probe).
+
+  reagent/                   day8/re-frame-2-reagent — the Reagent adapter artefact.
+    deps.edn                 :local/root dep on ../core.
+    src/re_frame/substrate/
+      reagent.cljs           The Reagent substrate adapter.
+    test/re_frame/           CLJS tests that exercise the Reagent adapter end-to-end
+                             (cross-spec, events, hot-reload, http-managed, machines,
+                             nine-states, realworld, render-key, routing, runtime,
+                             schemas).
 ```
 
 ## Status by spec area
@@ -84,47 +85,46 @@ implementation/
 
 ## Running tests
 
-**JVM** (no setup beyond Clojure CLI):
+**Per-artefact JVM** (no setup beyond Clojure CLI):
 
 ```sh
-cd implementation
+# core artefact
+cd implementation/core
+clojure -M:test
+
+# reagent artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
+cd implementation/reagent
 clojure -M:test
 ```
 
-This runs the smoke tests in `test/re_frame/smoke_test.clj` plus the
-conformance fixture runner in `test/re_frame/conformance_test.clj`,
-which loads every `.edn` in `../spec/conformance/fixtures/`
-and runs the runnable subset against this implementation.
+The core run executes the full JVM suite — smoke, conformance, drain,
+schemas, SSR end-to-end, etc. — loading every `.edn` in
+`../../spec/conformance/fixtures/` and running the runnable subset
+against this implementation.
 
-**CLJS** (one-time `npm install`, then iterate):
-
-```sh
-cd implementation
-npm install
-npx shadow-cljs compile node-test && node out/node-test.js
-```
-
-The shadow-cljs config builds an `:node-test` target that runs
-`cljs.test` under Node, exercising the Reagent adapter end-to-end.
-
-**CLJS in a real browser** (headless Chromium via Playwright):
+**CLJS** (one-time `npm install` at the implementation/ root, then iterate):
 
 ```sh
 cd implementation
 npm install
-npx playwright install chromium    # one-time, ~120 MB download
-npm run test:browser
+npm run test:cljs       # node-test build, both core + reagent test trees
+npm run test:browser    # browser-test build, headless Chromium via Playwright
+npm run test:elision    # production-elision contract (Spec 009 §Production builds)
+npm run test:examples   # example-app browser tests
 ```
 
-This builds the `:browser-test` target into `out/browser-test/`,
-serves it on `http://localhost:8021` via `http-server`, then drives
-headless Chromium to the runner page and parses the `cljs.test`
-summary (`Ran N tests containing M assertions.`). Exits 0 on green,
-1 on red. The same test namespaces (`*_cljs_test.cljs`) are picked
-up under both `:node-test` and `:browser-test`, so the assertion
-counts should match. Use this build when verifying anything that
-depends on a real DOM, real browser timing, or React's
-DOM-rendering pipeline.
+`npm run test:cljs` builds the `:node-test` target via shadow-cljs and
+runs `cljs.test` under Node. Both artefact subtrees are on the
+classpath, so the core's substrate-agnostic CLJS tests AND the Reagent
+artefact's adapter-coupled tests run together.
+
+`npm run test:browser` builds the `:browser-test` target into
+`out/browser-test/`, serves it on `http://localhost:8021` via
+`http-server`, then drives headless Chromium to the runner page and
+parses the `cljs.test` summary (`Ran N tests containing M assertions.`).
+Exits 0 on green, 1 on red. Use this when verifying anything that
+depends on a real DOM, real browser timing, or React's DOM-rendering
+pipeline.
 
 ## What's not in scope
 

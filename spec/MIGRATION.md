@@ -62,14 +62,21 @@ re-frame          {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — o
 [re-frame "1.x.x"]                            ;; project.clj — Lein vector form
 ```
 
-**Replacement.** Swap the entire coord (not just the version) — the artefact name changes:
+**Replacement.** Swap the entire coord (not just the version) — the artefact name changes — AND add a substrate-adapter artefact alongside the core (rf2-0hxm). v1 was a single `re-frame/re-frame` artefact; v2 ships core and adapter as siblings, so a Reagent app needs both:
 
 ```clojure
-day8/re-frame-2 {:mvn/version "<latest>"}    ;; deps.edn / shadow-cljs.edn / bb.edn
-[day8/re-frame-2 "<latest>"]                  ;; project.clj
+;; deps.edn / shadow-cljs.edn / bb.edn
+day8/re-frame-2         {:mvn/version "<latest>"}
+day8/re-frame-2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
+
+;; project.clj
+[day8/re-frame-2         "<latest>"]
+[day8/re-frame-2-reagent "<latest>"]
 ```
 
-`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). The `re-frame.core` namespace and `:require` lines are unchanged; only the dep coord moves.
+`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.substrate.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
+
+**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame-2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame-2-uix` or `day8/re-frame-2-helix` instead. Per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention).
 
 **If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
 
