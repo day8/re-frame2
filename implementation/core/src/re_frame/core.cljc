@@ -16,7 +16,15 @@
             [re-frame.subs :as subs]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
-            [re-frame.schemas :as schemas]
+            ;; re-frame.schemas (Spec 010) ships as a separate Maven
+            ;; artefact (day8/re-frame-2-schemas, rf2-p7va). The core
+            ;; artefact MUST NOT `:require [re-frame.schemas]` — that
+            ;; would pull schemas (and its Malli dep) onto every
+            ;; consumer's classpath even when no schema is registered.
+            ;; The re-export wrappers below look the schemas API up
+            ;; through the late-bind hook table at call time, which the
+            ;; schemas artefact populates from its own ns-load.
+            [re-frame.late-bind :as late-bind]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.routing :as routing]
@@ -376,7 +384,14 @@
      Per Spec 010 §Per-frame schemas this registration is frame-scoped.
      The frame to register against comes from the optional `opts`
      map's `:frame` key; default is `(re-frame.frame/current-frame)` —
-     usually `:rf/default` unless called inside `(with-frame ...)`."
+     usually `:rf/default` unless called inside `(with-frame ...)`.
+
+     Per rf2-p7va the schemas implementation lives in the
+     `day8/re-frame-2-schemas` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `reg-app-schema` MUST add
+     `day8/re-frame-2-schemas` to their deps; without it, the lookup
+     returns `nil` and the call throws a clear error."
      {:arglists '([path schema] [path schema opts])}
      [path schema & [opts]]
      (let [m       (meta &form)
@@ -393,13 +408,45 @@
                     ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
-          (schemas/reg-app-schema ~path ~schema ~opts')))))
+          (if-let [f# (late-bind/get-fn :schemas/reg-app-schema)]
+            (f# ~path ~schema ~opts')
+            (throw (ex-info ":rf.error/schemas-artefact-missing"
+                            {:where    'reg-app-schema
+                             :path     ~path
+                             :recovery :no-recovery
+                             :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))))
 
-;; Schema introspection — pure fn aliases (no source-coord capture
-;; needed, these are read-only public queries).
-(def app-schema-at      schemas/app-schema-at)
-(def app-schemas        schemas/app-schemas)
-(def app-schemas-digest schemas/app-schemas-digest)
+;; Schema introspection — pure fn re-exports (no source-coord capture
+;; needed, these are read-only public queries). Late-bound through the
+;; hook table so core does not statically require re-frame.schemas
+;; (rf2-p7va).
+(defn app-schema-at
+  "Return the registered schema for a path in a frame, or nil. Per Spec
+  010 §Schemas as a tooling and agent surface. Returns nil when the
+  schemas artefact is not on the classpath."
+  ([path] (app-schema-at path {}))
+  ([path opts]
+   (when-let [f (late-bind/get-fn :schemas/app-schema-at)]
+     (f path opts))))
+
+(defn app-schemas
+  "Return every registered `app-schema-at` declaration for a frame as a
+  `{path → schema}` map. Per Spec 010 §Per-frame schemas. Returns `{}`
+  when the schemas artefact is not on the classpath."
+  ([] (app-schemas {}))
+  ([opts-or-frame-id]
+   (if-let [f (late-bind/get-fn :schemas/app-schemas)]
+     (f opts-or-frame-id)
+     {})))
+
+(defn app-schemas-digest
+  "Return a stable digest of the registered schemas for a frame. Per
+  Spec 010 §Digest algorithm. Returns `nil` when the schemas artefact
+  is not on the classpath."
+  ([] (app-schemas-digest {}))
+  ([opts-or-frame-id]
+   (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
+     (f opts-or-frame-id))))
 
 #?(:clj
    (defmacro reg-machine
@@ -425,7 +472,19 @@
    (do
      (def reg-flow        flows/reg-flow)
      (def reg-route       routing/reg-route)
-     (def reg-app-schema  schemas/reg-app-schema)
+     ;; reg-app-schema is late-bound via the hook table so core does not
+     ;; statically require re-frame.schemas (rf2-p7va — schemas ships
+     ;; in day8/re-frame-2-schemas).
+     (defn reg-app-schema
+       ([path schema] (reg-app-schema path schema {}))
+       ([path schema opts]
+        (if-let [f (late-bind/get-fn :schemas/reg-app-schema)]
+          (f path schema opts)
+          (throw (ex-info ":rf.error/schemas-artefact-missing"
+                          {:where    'reg-app-schema
+                           :path     path
+                           :recovery :no-recovery
+                           :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
      (def reg-machine     machines/reg-machine)))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind

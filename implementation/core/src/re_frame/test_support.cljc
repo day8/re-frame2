@@ -55,7 +55,14 @@
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
-            [re-frame.schemas :as schemas]
+            ;; re-frame.schemas (Spec 010) ships as a separate artefact
+            ;; (day8/re-frame-2-schemas, rf2-p7va). The reset fixture
+            ;; touches the per-frame schema registry through the
+            ;; late-bind hook table — when the schemas artefact is not
+            ;; on the classpath the lookups return nil and the schema
+            ;; steps no-op (correct: there is no schema state to
+            ;; preserve).
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
             [re-frame.router :as router]
             [re-frame.substrate.adapter :as adapter]
@@ -183,11 +190,19 @@
   ([{:keys [adapter init-fn clear-kinds]}]
    (fn [test-fn]
      (let [snap          (snapshot-registrar)
-           schemas-snap  @schemas/schemas-by-frame]
+           ;; Late-bind: when the schemas artefact is loaded, snap and
+           ;; restore the per-frame schema registry. When it isn't,
+           ;; the hooks return nil and the schema steps no-op. Per
+           ;; rf2-p7va — schemas ships in day8/re-frame-2-schemas and
+           ;; this namespace must not statically require it.
+           snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
+           clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
+           restore-fn    (late-bind/get-fn :schemas/restore-by-frame!)
+           schemas-snap  (when snapshot-fn (snapshot-fn))]
        (try
          (reset! frame/frames {})
          (reset! flows/flows {})
-         (reset! schemas/schemas-by-frame {})
+         (when clear-fn (clear-fn))
          (adapter/dispose-adapter!)
          (machines/reset-counters!)
          (trace/clear-trace-cbs!)
@@ -198,13 +213,13 @@
            (registrar/clear-kind! k)
            ;; Per-frame schema map is the authoritative store; clear it
            ;; in lockstep when the caller asks for an :app-schema reset.
-           (when (= k :app-schema)
-             (reset! schemas/schemas-by-frame {})))
+           (when (and (= k :app-schema) clear-fn)
+             (clear-fn)))
          (when init-fn (init-fn))
          (test-fn)
          (finally
            (restore-registrar! snap)
-           (reset! schemas/schemas-by-frame schemas-snap)
+           (when restore-fn (restore-fn schemas-snap))
            (reset! frame/frames {})
            (reset! flows/flows {})))))))
 
