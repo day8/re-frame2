@@ -116,6 +116,7 @@ spec/                          Full specification (AI-targeted; the primary arte
   conformance/                 EDN fixture corpus
 docs/
   guide/                       Human-facing guide (marketing voice)
+  release-process.md           Operational doc — multi-artefact release pipeline (rf2-w05l / rf2-ace2)
 examples/                      Worked examples
 implementation/                CLJS reference implementation — split into per-artefact subdirs
                                (per Conventions §Packaging conventions; tier rollout per rf2-0hxm
