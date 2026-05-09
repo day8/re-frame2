@@ -1,0 +1,60 @@
+;; day8/re-frame-2-machines — state-machine artefact (rf2-xbtj,
+;; second per-feature split per rf2-5vjj Strategy B).
+;;
+;; Per Spec 005 §State machines the machine grammar
+;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
+;; the `:rf/machine` framework sub, the `:spawn` / `:destroy-machine`
+;; effect handlers, the per-process spawn-counter) ships as a separate
+;; Maven artefact so apps that don't register any machines don't drag
+;; the namespace, the `:rf/machines` app-db slot's runtime support, or
+;; the machine-transition engine onto the classpath.
+;;
+;; Consumers add this artefact alongside the core artefact:
+;;
+;;   {:deps {day8/re-frame-2          {:mvn/version "..."}
+;;           day8/re-frame-2-machines {:mvn/version "..."}}}
+;;
+;; And require `re-frame.machines` in any namespace that calls
+;; `rf/reg-machine` or relies on the `:rf/machine` framework sub —
+;; loading the namespace registers its late-bind hooks and the
+;; `:spawn` / `:destroy-machine` reserved fxs.
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; rf2-p7va extension to per-feature splits): this artefact depends on
+;; core; core never depends on this artefact. The cross-references
+;; from core to machines (e.g. `re-frame.core`'s `reg-machine` /
+;; `create-machine-handler` / `machine-transition` re-exports,
+;; `re-frame.test-support`'s reset-runtime fixture's
+;; `(machines/reset-counters!)` step) flow through `re-frame.late-bind`
+;; exactly as the schemas / router / flows hooks already do.
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-machines
+   :main     re-frame.machines
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
