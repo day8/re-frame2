@@ -413,13 +413,15 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 
 ## Testing
 
-`re-frame.test-support` re-exports `make-frame`/`destroy-frame`/`with-frame`/`dispatch-sync`. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
+`re-frame.test-support` ships the test-flavoured helpers below alongside re-exports of `make-frame`/`destroy-frame`/`with-frame`/`dispatch-sync` for one-stop import. See [008-Testing.md](008-Testing.md) for fixtures, framework adapters, and `re-frame-test` compatibility.
 
-| API | M/Fn | Signature | Status | Spec |
-|---|---|---|---|---|
-| `dispatch-sequence` | Fn | `(dispatch-sequence frame events)` | v1 | 008 |
-| `assert-state` | M | `(assert-state frame path expected-value)` | v1 | 008 |
-| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 |
+| API | M/Fn | Signature | Status | Spec | Notes |
+|---|---|---|---|---|---|
+| `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
+| `assert-state` | Fn | `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` opts | v1 | 008 | Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. |
+| `run-test-sync` | M | `(run-test-sync body...)` | v1 | 008 | v1 compatibility shim. Snapshots/restores the registrar around `body`; v2's `dispatch-sync` is already synchronous so synchronicity is not added. Lives in `re-frame.test-support`. |
+| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
+| `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
 
 ---
 
