@@ -139,6 +139,47 @@ Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps
 
 The `reg-event-*` interceptor chain is **not** a metadata-map key — it is the positional vector slot between the metadata-map and the handler. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-), `:interceptors` inside this map is silently ignored and the runtime emits `:rf.warning/interceptors-in-metadata-map`. (`reg-frame`'s metadata-map *does* carry an `:interceptors` key — that's a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 
+### `:rf/source-coord-meta`
+
+> **Layer:** Public
+
+The registration-metadata source-coord sub-shape captured at `reg-*` macro-expansion time. Returned (as a sub-map of `:rf/registration-metadata`) from `(rf/handler-meta kind id)` and `(rf/frame-meta id)`; pair-shaped tools and IDE jump-to-source consumers read it for click-back-to-code resolution per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code).
+
+```clojure
+(def SourceCoordMeta
+  [:map
+   [:ns      :symbol]                                                       ;; the namespace symbol of the call site
+   [:line    nat-int?]                                                      ;; integer source line
+   [:column  nat-int?]                                                      ;; integer source column
+   [:file    [:maybe :string]]])                                            ;; absolute or classpath-relative source file; nil when not captured
+```
+
+The four keys are the canonical source-coord shape. The CLJS reference fills all four from `(meta &form)` (`:line`, `:column`) and the compile-time `*ns*` / `*file*` (per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). Programmatic registrations that bypass the macro path may carry a partial shape (e.g. only `:ns` resolved); consumers handle missing keys defensively. Companion shape: `:rf/source-coord-attr` below — a string-encoded contraction of this map suitable for DOM-attribute emission.
+
+### `:rf/source-coord-attr`
+
+> **Layer:** Public
+
+The DOM-attribute string contract emitted by Reagent / SSR adapters as the value of `data-rf2-source-coord` on rendered view roots (per [Spec 006 §Attribute value format](006-ReactiveSubstrate.md#attribute-value-format) and [011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr)). A 4-segment colon-separated string:
+
+```
+<ns>:<sym>:<line>:<col>
+```
+
+- `<ns>` — the registered handler-id's namespace (string-encoded).
+- `<sym>` — the registered handler-id's name (string-encoded). Note this is the **registry handler-id**, not a file path.
+- `<line>` — integer source line, or the literal `?` for programmatic registrations whose macro-captured coord is absent.
+- `<col>` — integer source column, or the literal `?` for programmatic registrations whose macro-captured coord is absent.
+
+```clojure
+(def SourceCoordAttr
+  [:re #"^[^:]+:[^:]+:(?:\d+|\?):(?:\d+|\?)$"])                             ;; pragmatic regex; consumers parse 4 segments
+```
+
+Consumers parse the four segments pragmatically (split on `:` from the right twice to recover `<line>` and `<col>`, then on `:` once more for `<ns>`/`<sym>`). To recover the full `:rf/source-coord-meta` shape — including `:file` — look up the handler-id via `(rf/handler-meta :view <handler-id>)` and read its source-coord sub-map; `:file` is **not** recoverable by parsing the attribute alone (it is not encoded in the 4-segment string).
+
+The string format is committed as a public contract (rf2-q7r0): pair-shaped tools, conformance harnesses, and CDP-driven test runners all parse it directly. Future extensions are additive — additional trailing segments may appear; consumers MUST handle the 4-segment shape and tolerate (ignore) trailing segments they do not recognise.
+
 ### `:rf/effect-map`
 
 > **Layer:** Runtime
