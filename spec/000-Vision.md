@@ -177,6 +177,10 @@ The CLJS reference makes the following bindings to the language-agnostic pattern
 
 A TypeScript reference would make different choices for each row (e.g., signals or `useSyncExternalStore` for state, Zod for schema, React or Vue or Svelte for substrate, JSX-as-data for render-tree, hooks or context for view-routing). A Python reference different again. The pattern survives the substitution.
 
+### What re-frame2 ships
+
+re-frame2 ships as **multiple Maven artefacts in three tiers**: a **core** artefact (`day8/re-frame-2` — registry, drain, fx, dispatch, subscribe, frame-provider, trace); **per-feature** artefacts (`day8/re-frame-2-<feature-id>` — machines, flows, routing, http, ssr, schemas, epoch); and **per-substrate** artefacts (`day8/re-frame-2-<substrate>` — reagent, uix, helix). A user picks the artefacts their app needs; bundle isolation is structural — the wrong feature or the wrong substrate is *absent from the classpath*, not eliminated by a hopeful dead-code-elimination pass. Independence between artefacts is enforced: core does not transitively `:require` any per-feature or per-substrate ns. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) for the artefact tiers, the independence rule, the naming convention, and the bundle-isolation conformance check.
+
 The reference implementation also inherits an additional constraint not borne by the pattern: **a re-frame application must be upgradable by an agent following mechanical rules** — the contents of [MIGRATION.md](MIGRATION.md). This is C1 below.
 
 ## Hard constraints (on the reference implementation)
