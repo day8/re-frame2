@@ -20,7 +20,7 @@ If you're an AI agent or implementor, you want the [specification](../../spec/) 
 | 08 | [From re-frame v1](08-from-re-frame-v1.md) | What's the same, what's different, what to do. |
 | 09 | [The dynamic-model story](09-the-dynamic-model.md) | The deeper essay on *why* less-powerful is more. |
 
-After the chapters: read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login), then benchmarks (7GUIs, nine-states), then the RealWorld scaffold.
+After the chapters: read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login, routing, ssr, managed-http-counter, state-machine-walkthrough), then benchmarks (todomvc, 7GUIs, nine-states), then the RealWorld scaffold. Fifteen examples total, each with a Playwright smoke spec; the catalogue maps each one to the Specs it exercises.
 
 If you're impatient, read [01](01-why-re-frame2.md) and skip to [02](02-your-first-app.md). If you're skeptical, [01](01-why-re-frame2.md) is where the argument lives.
 
