@@ -1,0 +1,54 @@
+;; day8/re-frame-2-uix — UIx substrate adapter (rf2-3yij).
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention: each substrate
+;; adapter ships in its own Maven artefact so a UIx-only app does not
+;; transitively pull in Reagent or Helix code (and vice versa). This
+;; artefact supplies the re-frame.substrate.uix ns and depends on the
+;; core artefact for everything else.
+;;
+;; Per rf2-3yij Decision 2 the React frame-context lives in
+;; re-frame.substrate.context (CLJS-only file in core); both this UIx
+;; adapter and the Reagent adapter read that *same* createContext
+;; object so frame-provider chains compose across substrates in
+;; mixed-substrate apps.
+;;
+;; Per rf2-3yij Decision 8 we target UIx 2.x (hooks-based). UIx 1.x
+;; back-compat is explicitly out of scope.
+;;
+;; UIx itself is a CLJS-only library; this artefact is therefore
+;; CLJS-only. The :test alias exists for classpath-probe parity with
+;; the other per-substrate artefacts (Reagent's :test alias is also
+;; classpath-probe-only).
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}
+         com.pitch/uix.core {:mvn/version "1.4.4"}
+         com.pitch/uix.dom  {:mvn/version "1.4.4"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on the Reagent adapter's flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-uix
+   :main     re-frame.substrate.uix
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
