@@ -329,6 +329,7 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 |---|---|---|---|---|
 | `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records | v1 (dev-only) | Tool-Pair |
 | `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success) | v1 (dev-only) | Tool-Pair |
+| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection) | v1 (dev-only) | Tool-Pair |
 | `register-epoch-cb` | Fn | `(register-epoch-cb key callback-fn)` — assembled-epoch listener | v1 (dev-only) | Tool-Pair, 009 |
 | `remove-epoch-cb` | Fn | `(remove-epoch-cb key)` | v1 (dev-only) | Tool-Pair, 009 |
 | `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
@@ -339,11 +340,14 @@ Trace events emitted by epoch-history machinery:
 |---|---|
 | `:rf.epoch/snapshotted` | `:frame`, `:epoch-id`, `:event-id` |
 | `:rf.epoch/restored` | `:frame`, `:epoch-id` |
+| `:rf.epoch/db-replaced` | `:frame`, `:epoch-id` |
 | `:rf.epoch/restore-unknown-epoch` | `:frame`, `:epoch-id`, `:history-size` |
 | `:rf.epoch/restore-schema-mismatch` | `:frame`, `:epoch-id`, `:failing-paths` |
 | `:rf.epoch/restore-missing-handler` | `:frame`, `:epoch-id`, `:missing` |
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
+| `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
+| `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 

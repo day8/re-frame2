@@ -207,7 +207,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.machine.timer/skipped-on-server` | State-machine `:after` entry reached under SSR; timer scheduling suppressed per [005 §SSR mode](005-StateMachines.md#ssr-mode) | 005 |
 | `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` | Registrar mutations | 001 / 009 |
 | `:view/render` | View render (per [Spec 004 §Render-tree primitives](004-Views.md)) | 004 / 009 |
-| `:rf.epoch/snapshotted`, `:rf.epoch/restored` | Tool-Pair epoch operations | Tool-Pair |
+| `:rf.epoch/snapshotted`, `:rf.epoch/restored`, `:rf.epoch/db-replaced` | Tool-Pair epoch operations (the latter is the rf2-zq55 pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)) | Tool-Pair |
 | `:route.nav-token/allocated` | A new navigation token was allocated for an `:rf/url-changed` / `:rf.route/navigate` cascade. `:tags {:route-id <id> :nav-token <token>}` | 012 |
 | `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result was silently suppressed. `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}` | 012 |
 | `:rf.route/url-changed` | The runtime emitted `:rf/url-changed` for a fragment-only navigation (path and query unchanged); `:on-match` was NOT re-fired. `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}` | 012 |
@@ -220,7 +220,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`) | 009 / 014 |
 | `:registry` | Registrar mutation events (handler-registered/cleared/replaced) | 001 / 009 |
 | `:machine` | Machine-substrate events (transitions, lifecycle, timers) | 005 |
-| `:rf.epoch` | Epoch-history events (snapshotted, restored) | Tool-Pair |
+| `:rf.epoch` | Epoch-history events (snapshotted, restored, db-replaced) | Tool-Pair |
 | `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
 
 The error category schemas in [009 §Error contract](009-Instrumentation.md#error-contract) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
@@ -695,6 +695,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]
    [:frame    :keyword]
    [:epoch-id :any]])
+
+;; --- rf2-zq55: Tool-Pair §Pair-tool writes — reset-frame-db! ---
+
+(def DbReplacedTags
+  ;; :rf.epoch/db-replaced — fired by reset-frame-db! on the success
+  ;; path. :op-type :rf.epoch (not :error). Carries the synthetic
+  ;; record's epoch-id so consumers can correlate the trace with the
+  ;; recorded epoch in epoch-history.
+  [:map
+   [:frame    :keyword]
+   [:epoch-id :any]])
+
+(def ResetFrameDbDuringDrainTags
+  ;; :rf.epoch/reset-frame-db-during-drain — failure mode: caller
+  ;; invoked reset-frame-db! while the frame's drain was in flight.
+  ;; Mirrors RestoreDuringDrainTags' shape (no :epoch-id slot — the
+  ;; injection was rejected before any synthetic record was assembled).
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]])
+
+(def ResetFrameDbSchemaMismatchTags
+  ;; :rf.epoch/reset-frame-db-schema-mismatch — failure mode: the
+  ;; new-db argument failed the frame's currently-registered app-schema
+  ;; set. :failing-paths enumerates the paths that did not validate.
+  [:map
+   [:category      :keyword]
+   [:frame         :keyword]
+   [:failing-paths [:vector :any]]])
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
