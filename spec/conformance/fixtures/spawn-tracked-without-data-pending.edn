@@ -1,0 +1,105 @@
+;; Conformance fixture: machine/spawn-tracked-without-data-pending
+;;
+;; Per rf2-t07u (Option A revised): the runtime tracks each declarative-
+;; `:invoke` spawn-id at the reserved app-db slot
+;; `[:rf/spawned <parent-id> <invoke-id>]` so the matching destroy cascade
+;; can locate the spawned id WITHOUT depending on the user's `:on-spawn`
+;; callback having stashed it under any particular `:data` key.
+;;
+;; The two pure-machine-transition assertions below exercise the
+;; observation half of that contract:
+;;
+;;   1. Entering an :invoke-bearing state emits a :spawn fx whose args
+;;      carry runtime-stamped :rf/parent-id (sentinel :rf/transition-pure
+;;      under pure-call mode) and :rf/invoke-id (the absolute prefix-path
+;;      of the :invoke-bearing state node — here `[:authenticating]`).
+;;
+;;   2. Exiting the same state emits a :destroy-machine fx whose args
+;;      carry the SAME {:rf/parent-id :rf/invoke-id} pair — NOT the actor
+;;      id directly. The runtime's destroy-machine fx handler then reads
+;;      the spawned id from `[:rf/spawned <parent-id> <invoke-id>]` at
+;;      call time (out-of-scope for the pure machine-transition fixture
+;;      — covered by the integration-level test in machines artefact's
+;;      spawn_registry_test.clj).
+;;
+;; Critically, the parent's `:data` does NOT need to record the spawned
+;; id under any particular slot. The fixture's machine has NO `:on-spawn`
+;; callback at all — pre-rf2-t07u this configuration silently leaked the
+;; spawned actor on state-exit (the runtime had no `:data :pending` to
+;; read); after rf2-t07u the destroy cascade works correctly.
+;;
+;; Per [005 §Declarative :invoke (sugar over spawn) §Desugaring rules]
+;; (../../005-StateMachines.md#desugaring-rules) and rf2-t07u.
+
+{:fixture/id           :machine/spawn-tracked-without-data-pending
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke}
+ :fixture/doc          "rf2-t07u (Option A revised) — the runtime tracks each declarative-:invoke spawn-id at [:rf/spawned <parent-id> <invoke-id>]. The fixture's machine omits :on-spawn entirely; the destroy fx still resolves the actor on state-exit because the runtime no longer reads :data :pending."
+
+ :fixture/registry
+ {:machine
+  {:http/post {:doc "Stub child machine — only the spawn/destroy fx pair is observed at the pure-call layer."}}}
+
+ :fixture/calls
+ ;; ---- (1) Spawn fx emission ----------------------------------------------
+ ;;
+ ;; Entering :authenticating from :idle on [:submit] runs the auto-entry
+ ;; emitting :spawn. The args carry runtime-stamped :rf/parent-id and
+ ;; :rf/invoke-id (used by the spawn fx handler to bind the registry slot).
+ [{:call         :machine-transition
+   :definition
+   {:initial :idle
+    :data    {}
+    :states
+    {:idle
+     {:on {:submit :authenticating}}
+
+     :authenticating
+     ;; NO :on-spawn — the user doesn't care about the id user-side; the
+     ;; runtime tracks it internally.
+     {:invoke {:machine-id :http/post
+               :data       {:url "/api/login"}}
+      :on    {:auth/succeeded :authenticated
+              :auth/failed    :idle}}
+
+     :authenticated {}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:submit]
+   ;; Snapshot's :data is unchanged — there's no :on-spawn callback, so
+   ;; the parent's :data carries no spawn-related bookkeeping.
+   :expect-next-snapshot {:state :authenticating :data {}}
+   :expect-effects       [[:spawn {:machine-id    :http/post
+                                   :id-prefix     :http/post
+                                   :data          {:url "/api/login"}
+                                   :rf/spawned-id :http/post#1
+                                   :rf/parent-id  :rf/transition-pure
+                                   :rf/invoke-id  [:authenticating]}]]}
+
+  ;; ---- (2) Destroy fx emission ----------------------------------------
+  ;;
+  ;; Exiting :authenticating via :auth/failed runs the auto-exit emitting
+  ;; :destroy-machine. The args are a {:rf/parent-id :rf/invoke-id} map —
+  ;; NOT the actor-id directly. The fx handler resolves the actor id from
+  ;; [:rf/spawned ...] in app-db at fx-call time (integration-level
+  ;; assertion lives in machines/spawn_registry_test.clj on JVM and
+  ;; machines_cljs_test.cljs on CLJS).
+  {:call         :machine-transition
+   :definition
+   {:initial :idle
+    :data    {}
+    :states
+    {:idle
+     {:on {:submit :authenticating}}
+
+     :authenticating
+     {:invoke {:machine-id :http/post
+               :data       {:url "/api/login"}}
+      :on    {:auth/succeeded :authenticated
+              :auth/failed    :idle}}
+
+     :authenticated {}}}
+   :snapshot     {:state :authenticating :data {}}
+   :event        [:auth/failed]
+   :expect-next-snapshot {:state :idle :data {}}
+   :expect-effects       [[:destroy-machine {:rf/parent-id :rf/transition-pure
+                                             :rf/invoke-id [:authenticating]}]]}]}

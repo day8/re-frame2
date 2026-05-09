@@ -70,4 +70,6 @@
                                    :data          {:url "/api/x"}
                                    :on-spawn      :supervisor/record-actor-id
                                    :start         [:begin]
-                                   :rf/spawned-id :http/post#1}]]}]}
+                                   :rf/spawned-id :http/post#1
+                                   :rf/parent-id  :rf/transition-pure
+                                   :rf/invoke-id  [:working]}]]}]}
