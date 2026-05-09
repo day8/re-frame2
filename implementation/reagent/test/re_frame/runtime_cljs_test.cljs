@@ -16,6 +16,14 @@
             ;; fire before this ns's reg-flow call.
             [re-frame.flows]
             [re-frame.ssr :as ssr]
+            ;; rf2-lt4e: epoch ships in day8/re-frame-2-epoch.
+            ;; Required here so its load-time hook publications
+            ;; (`:epoch/settle!`, `:epoch/capture-event`,
+            ;; `:epoch/epoch-history`, `:epoch/restore-epoch`,
+            ;; `:epoch/register-epoch-cb`, `:epoch/remove-epoch-cb`)
+            ;; fire before the epoch-history-cljs / restore-* tests
+            ;; below reach into the late-bind table at call time.
+            [re-frame.epoch]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
