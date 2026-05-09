@@ -244,6 +244,14 @@
     ;; from the registrar, surfacing :rf.registry/handler-cleared so tools
     ;; tracking the live registry observe the slot freed.
     (registrar/unregister! :frame id)
+    ;; Per Tool-Pair §Surface behaviour against destroyed frames
+    ;; (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
+    ;; for every register-epoch-cb listener that previously observed
+    ;; this frame. Late-bound through the hook table so core never
+    ;; statically requires the epoch artefact.
+    (when-let [on-destroyed (late-bind/get-fn :epoch/on-frame-destroyed)]
+      (try (on-destroyed id)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
     nil))
 
 (defn reset-frame!

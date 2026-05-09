@@ -118,6 +118,17 @@
 
 (defonce ^:private listeners (atom {}))
 
+;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+;; track which frames each cb has been delivered records for. When a
+;; frame is destroyed, every cb whose observed-frames set contains
+;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
+;; trace. The frame is then dropped from the cb's entry so a
+;; re-registration of a same-keyed frame (e.g. `reset-frame :app/main`)
+;; can re-arm the silencing trace for a future destroy.
+(defonce ^:private observed-frames-by-cb
+  ;; cb-id → #{frame-id ...}
+  (atom {}))
+
 (defn register-epoch-cb!
   "Register a callback fired once per drain-settle with the assembled
   `:rf/epoch-record`. The id can be any comparable value; passing the
@@ -135,27 +146,80 @@
   Returns the id."
   [id f]
   (swap! listeners assoc id f)
+  ;; A re-registration under the same id resets the observed-frames set
+  ;; so the new callback's silencing trace fires fresh against frames
+  ;; the new callback observes.
+  (swap! observed-frames-by-cb dissoc id)
   id)
 
 (defn remove-epoch-cb!
   "Remove the listener registered under id."
   [id]
   (swap! listeners dissoc id)
+  (swap! observed-frames-by-cb dissoc id)
   nil)
 
 (defn clear-epoch-cbs!
   []
   (reset! listeners {})
+  (reset! observed-frames-by-cb {})
   nil)
 
+(defn- record-observation! [cb-id frame-id]
+  (when frame-id
+    (swap! observed-frames-by-cb update cb-id (fnil conj #{}) frame-id)))
+
 (defn- notify-listeners! [record]
-  (doseq [[_ f] @listeners]
-    (try
-      (f record)
-      (catch #?(:clj Throwable :cljs :default) _
-        ;; Per Spec 009 §Listener invocation rules: listener failures
-        ;; are isolated. Continue notifying.
-        nil))))
+  (let [frame-id (:frame record)]
+    (doseq [[id f] @listeners]
+      (record-observation! id frame-id)
+      (try
+        (f record)
+        (catch #?(:clj Throwable :cljs :default) _
+          ;; Per Spec 009 §Listener invocation rules: listener failures
+          ;; are isolated. Continue notifying.
+          nil)))))
+
+(defn on-frame-destroyed!
+  "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+
+    1. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
+       observed-frames set contains `frame-id`, then drop `frame-id`
+       from each cb's entry so a re-registration of a same-keyed frame
+       re-arms the silencing trace for a future destroy.
+    2. Drop the destroyed frame's per-frame ring buffer so subsequent
+       `(rf/epoch-history frame-id)` calls return the empty vector
+       (the read-empty shape the contract commits to).
+
+  Called from `re-frame.frame/destroy-frame!` via the
+  `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
+  repeated destroys of the same frame — once a cb's entry no longer
+  contains the frame-id, no further trace fires for that pair, and
+  the (already-cleared) ring-buffer entry stays absent."
+  [frame-id]
+  (when interop/debug-enabled?
+    (let [silenced-cbs (->> @observed-frames-by-cb
+                            (keep (fn [[cb-id frames]]
+                                    (when (contains? frames frame-id) cb-id)))
+                            vec)]
+      (doseq [cb-id silenced-cbs]
+        (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                     {:frame-id frame-id
+                      :cb-id    cb-id}))
+      (swap! observed-frames-by-cb
+             (fn [m]
+               (reduce-kv (fn [acc cb-id frames]
+                            (let [frames' (disj frames frame-id)]
+                              (if (empty? frames')
+                                (dissoc acc cb-id)
+                                (assoc acc cb-id frames'))))
+                          {}
+                          m))))
+    ;; Drop the per-frame ring buffer; epoch-history returns [] from
+    ;; here on. (`reset-frame :app/main` calls destroy-frame! followed
+    ;; by reg-frame, so the ring buffer for the new same-keyed frame
+    ;; starts empty per Spec 002 §reset-frame.)
+    (swap! histories dissoc frame-id)))
 
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;
@@ -768,15 +832,16 @@
 ;; epoch surface is dev-tier so an absent artefact degrades quietly
 ;; rather than throwing.
 
-(late-bind/set-fn! :epoch/settle!            settle!)
-(late-bind/set-fn! :epoch/discard-buffer!    discard-buffer!)
-(late-bind/set-fn! :epoch/in-flight-buffer   in-flight-buffer)
-(late-bind/set-fn! :epoch/capture-event      capture-event!)
-(late-bind/set-fn! :epoch/epoch-history      epoch-history)
-(late-bind/set-fn! :epoch/restore-epoch      restore-epoch)
-(late-bind/set-fn! :epoch/reset-frame-db!    reset-frame-db!)
-(late-bind/set-fn! :epoch/register-epoch-cb  register-epoch-cb!)
-(late-bind/set-fn! :epoch/remove-epoch-cb    remove-epoch-cb!)
-(late-bind/set-fn! :epoch/configure!         configure!)
-(late-bind/set-fn! :epoch/clear-history!     clear-history!)
-(late-bind/set-fn! :epoch/clear-epoch-cbs!   clear-epoch-cbs!)
+(late-bind/set-fn! :epoch/settle!             settle!)
+(late-bind/set-fn! :epoch/discard-buffer!     discard-buffer!)
+(late-bind/set-fn! :epoch/in-flight-buffer    in-flight-buffer)
+(late-bind/set-fn! :epoch/capture-event       capture-event!)
+(late-bind/set-fn! :epoch/epoch-history       epoch-history)
+(late-bind/set-fn! :epoch/restore-epoch       restore-epoch)
+(late-bind/set-fn! :epoch/reset-frame-db!     reset-frame-db!)
+(late-bind/set-fn! :epoch/register-epoch-cb   register-epoch-cb!)
+(late-bind/set-fn! :epoch/remove-epoch-cb     remove-epoch-cb!)
+(late-bind/set-fn! :epoch/configure!          configure!)
+(late-bind/set-fn! :epoch/clear-history!      clear-history!)
+(late-bind/set-fn! :epoch/clear-epoch-cbs!    clear-epoch-cbs!)
+(late-bind/set-fn! :epoch/on-frame-destroyed  on-frame-destroyed!)

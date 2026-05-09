@@ -98,7 +98,8 @@
     :epoch/remove-epoch-cb    re-frame.epoch/remove-epoch-cb!
     :epoch/configure!         re-frame.epoch/configure!
     :epoch/clear-history!     re-frame.epoch/clear-history!
-    :epoch/clear-epoch-cbs!   re-frame.epoch/clear-epoch-cbs!"}
+    :epoch/clear-epoch-cbs!   re-frame.epoch/clear-epoch-cbs!
+    :epoch/on-frame-destroyed re-frame.epoch/on-frame-destroyed!"}
   hooks
   (atom {}))
 
