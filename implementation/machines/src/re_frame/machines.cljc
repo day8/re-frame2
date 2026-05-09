@@ -24,6 +24,8 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
+            [re-frame.fx :as fx]
+            [re-frame.late-bind :as late-bind]
             [re-frame.subs :as subs]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -937,3 +939,70 @@
 (subs/reg-sub :rf/machine
   (fn [db [_ machine-id]]
     (get-in db [:rf/machines machine-id])))
+
+;; ---- machine-internal effect handlers ------------------------------------
+;;
+;; Per Spec 005 §Declarative :invoke (sugar over spawn) the runtime
+;; effects `:spawn` and `:destroy-machine` are emitted into the fx
+;; vector by `apply-transition-once` whenever entry/exit cascades cross
+;; an :invoke-bearing state. Per rf2-xbtj these handlers live in this
+;; namespace (rather than `re-frame.fx`'s reserved case-block) so an app
+;; that doesn't pull in `day8/re-frame-2-machines` carries neither the
+;; trace strings (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor
+;; the handler symbols on its production-elision bundle.
+;;
+;; The fns are `defn`s (not `fn`s passed inline to `reg-fx`) so the
+;; late-bind hook table can publish them under
+;; `:machines/spawn-fx` / `:machines/destroy-machine-fx` for any
+;; downstream namespace that wants to invoke them programmatically (the
+;; conformance corpus does not — it consumes the fx vector directly —
+;; but the hooks keep the producer surface uniform with the rest of the
+;; machines namespace's late-bound entry points).
+
+(defn spawn-fx
+  "fx handler for `:spawn`. Emits `:rf.machine/spawned`. The runtime
+  layer here just records the spawn intent; full actor lifecycle
+  (auto-start, message routing, supervision) is the user's
+  responsibility for now."
+  [{:keys [frame]} args]
+  (trace/emit! :machine :rf.machine/spawned
+               {:frame      frame
+                :machine-id (:machine-id args)
+                :id-prefix  (:id-prefix args)
+                :start      (:start args)
+                :on-spawn   (:on-spawn args)}))
+
+(defn destroy-machine-fx
+  "fx handler for `:destroy-machine`. Emits `:rf.machine/destroyed`.
+  Per Spec 005, dispatched on exit from an :invoke-bearing state."
+  [{:keys [frame]} args]
+  (trace/emit! :machine :rf.machine/destroyed
+               {:frame    frame
+                :actor-id args}))
+
+(fx/reg-fx :spawn           spawn-fx)
+(fx/reg-fx :destroy-machine destroy-machine-fx)
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; Per rf2-xbtj the machines surface ships in
+;; `day8/re-frame-2-machines`. `re-frame.core` and `re-frame.test-support`
+;; MUST NOT `:require [re-frame.machines]` — the artefact is optional, and
+;; a static require would force every consumer of the core artefact to
+;; drag the namespace's `:rf/machine` sub registration (and the spawn
+;; counter, the `:spawn` / `:destroy-machine` fx handlers, the
+;; transition machinery) onto the classpath. The public-API re-exports
+;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
+;; `machines`, `machine-meta`) and the test-support reset helper are
+;; published through the late-bind table; consumers without the
+;; machines artefact see the hooks unregistered and the surface
+;; throws / returns safe defaults cleanly.
+
+(late-bind/set-fn! :machines/reg-machine            reg-machine)
+(late-bind/set-fn! :machines/create-machine-handler create-machine-handler)
+(late-bind/set-fn! :machines/machine-transition     machine-transition)
+(late-bind/set-fn! :machines/machines               machines)
+(late-bind/set-fn! :machines/machine-meta           machine-meta)
+(late-bind/set-fn! :machines/reset-counters!        reset-counters!)
+(late-bind/set-fn! :machines/spawn-fx               spawn-fx)
+(late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
