@@ -19,6 +19,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.trace :as trace]
@@ -1000,3 +1001,229 @@
           "the :route slice is rewound by restore")
       (is (= :route/home (rf/subscribe-value :test/main [:current-route]))
           "a sub keyed on :route returns the restored value"))))
+
+;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
+;;
+;; Per Tool-Pair §Pair-tool writes: reset-frame-db! is the canonical
+;; Tool-Pair write surface for state injection. The invariants below
+;; cover the contract the spec commits to:
+;;
+;; 1. Replaces the frame's app-db with new-db.
+;; 2. Records a synthetic :rf/epoch-record so restore-epoch can rewind.
+;; 3. Drain-check: rejects a call from inside a drain.
+;; 4. Schema validation: rejects a new-db that fails the frame's
+;;    registered app-schemas.
+;; 5. Trace emission: :rf.epoch/db-replaced fires on success with
+;;    :frame and :epoch-id.
+;; 6. Listeners: register-epoch-cb fires with the assembled record.
+;; 7. Unknown frame: :rf.error/no-such-handler (kind :frame).
+
+(deftest reset-frame-db!-replaces-container
+  (testing "reset-frame-db! replaces the underlying app-db value"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (is (= {:n 0} (rf/get-frame-db :test/main)))
+
+    (is (true? (rf/reset-frame-db! :test/main {:n 99 :injected? true})))
+    (is (= {:n 99 :injected? true} (rf/get-frame-db :test/main))
+        "container holds the injected value")))
+
+(deftest reset-frame-db!-records-undo-epoch
+  (testing "reset-frame-db! records a synthetic epoch so restore-epoch
+            can rewind to the prior state"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [pre-history-count (count (rf/epoch-history :test/main))
+          _                 (rf/reset-frame-db! :test/main {:n 999})
+          history           (rf/epoch-history :test/main)
+          fresh-record      (last history)]
+      (is (= (inc pre-history-count) (count history))
+          "a new record was appended")
+      (is (= :rf.epoch/db-replaced (:event-id fresh-record))
+          "the synthetic record's event-id sentinels the pair-tool injection")
+      (is (= [:rf.epoch/db-replaced] (:trigger-event fresh-record))
+          "trigger-event mirrors the sentinel")
+      (is (= {:n 7}   (:db-before fresh-record)) "db-before captured")
+      (is (= {:n 999} (:db-after fresh-record))  "db-after captured")
+
+      ;; restore-epoch on the synthetic record rewinds to db-after of
+      ;; the synthetic record (not its db-before). To rewind PAST the
+      ;; injection, the caller restores an earlier epoch in the history.
+      (let [pre-injection (some (fn [r]
+                                  (when (= :seed (:event-id r)) r))
+                                history)]
+        (is (some? pre-injection))
+        (is (true? (rf/restore-epoch :test/main (:epoch-id pre-injection))))
+        (is (= {:n 7} (rf/get-frame-db :test/main))
+            "restoring the seed epoch rewinds past the pair-tool injection")))))
+
+(deftest reset-frame-db!-emits-trace
+  (testing "reset-frame-db! emits :rf.epoch/db-replaced on success with
+            :frame and :epoch-id tags"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [recorded (record-trace!)
+          _        (rf/reset-frame-db! :test/main {:n 1})
+          ev       (some (fn [ev]
+                           (when (= :rf.epoch/db-replaced (:operation ev))
+                             ev))
+                         @recorded)]
+      (is (some? ev) ":rf.epoch/db-replaced fired")
+      (is (= :rf.epoch (:op-type ev)))
+      (is (= :test/main (:frame (:tags ev))))
+      (is (number? (:epoch-id (:tags ev)))
+          "trace carries the synthetic record's epoch-id"))))
+
+(deftest reset-frame-db!-fires-listeners
+  (testing "reset-frame-db! fans out the assembled synthetic record to
+            register-epoch-cb listeners"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [received (atom [])]
+      (rf/register-epoch-cb ::reset-listener
+                            (fn [r] (swap! received conj r)))
+      (try
+        (rf/reset-frame-db! :test/main {:n 42})
+        (let [r (last @received)]
+          (is (some? r) "a record was delivered to the listener")
+          (is (= :test/main (:frame r)))
+          (is (= :rf.epoch/db-replaced (:event-id r)))
+          (is (= {:n 42} (:db-after r)))
+          (is (= {:n 0}  (:db-before r))))
+        (finally
+          (rf/remove-epoch-cb ::reset-listener))))))
+
+(deftest reset-frame-db!-failure-unknown-frame
+  (testing "reset-frame-db! on an unknown frame returns false and emits
+            :rf.error/no-such-handler (kind :frame); no-op on app-db"
+    (let [recorded (record-trace!)
+          ok?      (rf/reset-frame-db! :no/such/frame {:any 'value})]
+      (is (false? ok?))
+      (is (has-error-op? @recorded :rf.error/no-such-handler))
+      (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                     @recorded)]
+        (is (= :frame (:kind (:tags ev))))
+        (is (= :no/such/frame (:frame-id (:tags ev))))))))
+
+(deftest reset-frame-db!-failure-during-drain
+  (testing "reset-frame-db! called from inside a drain returns false and
+            emits :rf.epoch/reset-frame-db-during-drain; app-db unchanged
+            by the rejected call"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [recorded (record-trace!)
+          attempt  (atom nil)]
+      (rf/reg-event-db :try-reset
+        (fn [db _]
+          (reset! attempt (rf/reset-frame-db! :test/main {:n 999}))
+          ;; If reset succeeded we'd see {:n 999} after settle (the
+          ;; drain's :db-after returned by this handler is {:n 0}).
+          db))
+      (rf/dispatch-sync [:try-reset] {:frame :test/main})
+
+      (is (false? @attempt) "reset returned false from inside the drain")
+      (is (= {:n 0} (rf/get-frame-db :test/main))
+          "app-db unchanged — the in-drain reset was rejected")
+      (let [ev (some (fn [ev]
+                       (when (= :rf.epoch/reset-frame-db-during-drain
+                                (:operation ev))
+                         ev))
+                     @recorded)]
+        (is (some? ev) ":rf.epoch/reset-frame-db-during-drain fired")
+        (is (= :test/main (:frame (:tags ev))))))))
+
+(deftest reset-frame-db!-failure-schema-mismatch
+  (testing "reset-frame-db! with a new-db that fails the frame's
+            registered schemas returns false; emits
+            :rf.epoch/reset-frame-db-schema-mismatch; app-db unchanged"
+    (rf/reg-frame :test/main {})
+    ;; Per Spec 010 §Per-frame schemas — schema is frame-scoped.
+    (rf/reg-app-schema [:n] [:int] {:frame :test/main})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    (let [pre      (rf/get-frame-db :test/main)
+          recorded (record-trace!)
+          ok?      (rf/reset-frame-db! :test/main {:n "not-an-int"})]
+      (is (false? ok?) "reset rejected on schema mismatch")
+      (is (= pre (rf/get-frame-db :test/main))
+          "app-db unchanged after a rejected reset")
+      (let [ev (some (fn [ev]
+                       (when (= :rf.epoch/reset-frame-db-schema-mismatch
+                                (:operation ev))
+                         ev))
+                     @recorded)]
+        (is (some? ev) ":rf.epoch/reset-frame-db-schema-mismatch fired")
+        (is (= :test/main (:frame (:tags ev))))
+        (is (vector? (:failing-paths (:tags ev)))
+            "trace carries the failing schema paths")
+        (is (some #{[:n]} (:failing-paths (:tags ev)))
+            "[:n] is the failing path")))))
+
+(deftest reset-frame-db!-no-validation-when-no-schemas
+  (testing "When the frame has no registered schemas, reset-frame-db!
+            accepts any new-db (the validation step is a no-op)"
+    (rf/reg-frame :test/loose {})
+    (rf/reg-event-db :seed (fn [_ _] {:anything 'goes}))
+    (rf/dispatch-sync [:seed] {:frame :test/loose})
+
+    (is (true? (rf/reset-frame-db! :test/loose {:totally :different :shape true})))
+    (is (= {:totally :different :shape true}
+           (rf/get-frame-db :test/loose)))))
+
+(deftest reset-frame-db!-subs-re-fire
+  (testing "Subscribers route off the post-reset app-db value (the
+            substrate's reactive container drives sub re-evaluation,
+            same as restore-epoch's happy path)"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (is (= 0 (rf/subscribe-value :test/main [:n])))
+    (is (= 0 (rf/subscribe-value :test/main [:n*2])))
+
+    (rf/reset-frame-db! :test/main {:n 21})
+    (is (= 21 (rf/subscribe-value :test/main [:n]))
+        "layer-1 sub returns the post-reset value")
+    (is (= 42 (rf/subscribe-value :test/main [:n*2]))
+        "derived sub re-computes against the post-reset value")))
+
+(deftest reset-frame-db!-raises-when-epoch-artefact-missing
+  (testing "Per the rf2-5b6x missing-artefact error contract:
+            rf/reset-frame-db! raises :rf.error/epoch-artefact-missing
+            when the :epoch/reset-frame-db! late-bind hook is nil
+            (i.e. the day8/re-frame-2-epoch artefact is not loaded).
+            Unlike restore-epoch / register-epoch-cb (which degrade
+            silently), reset-frame-db! cannot — its caller's invariant
+            is 'undo works after this call', so absence must be loud."
+    (let [hook-key  :epoch/reset-frame-db!
+          original  (late-bind/get-fn hook-key)]
+      (try
+        (late-bind/set-fn! hook-key nil)
+        (let [thrown (try (rf/reset-frame-db! :any/frame {})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "reset-frame-db! throws when the epoch artefact is absent")
+          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown))
+              "the documented error category appears in the message")
+          (let [data (ex-data thrown)]
+            (is (= 'reset-frame-db! (:where data))
+                "ex-data carries :where = 'reset-frame-db!")
+            (is (= :no-recovery (:recovery data))
+                "ex-data carries :recovery = :no-recovery")
+            (is (string? (:reason data))
+                "ex-data carries :reason as a string")))
+        (finally
+          (late-bind/set-fn! hook-key original))))))

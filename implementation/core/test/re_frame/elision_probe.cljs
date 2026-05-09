@@ -127,13 +127,16 @@
   ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb`, the
   ;; epoch ns ships gated trace ops:
   ;;
-  ;;   :rf.epoch/snapshotted              (settle! after drain-empty)
-  ;;   :rf.epoch/restored                 (restore-epoch happy path)
-  ;;   :rf.epoch/restore-during-drain     (failure mode 2)
-  ;;   :rf.epoch/restore-unknown-epoch    (failure mode 3)
-  ;;   :rf.epoch/restore-schema-mismatch  (failure mode 4)
-  ;;   :rf.epoch/restore-missing-handler  (failure mode 5)
-  ;;   :rf.epoch/restore-version-mismatch (failure mode 6)
+  ;;   :rf.epoch/snapshotted                       (settle! after drain-empty)
+  ;;   :rf.epoch/restored                          (restore-epoch happy path)
+  ;;   :rf.epoch/restore-during-drain              (failure mode 2)
+  ;;   :rf.epoch/restore-unknown-epoch             (failure mode 3)
+  ;;   :rf.epoch/restore-schema-mismatch           (failure mode 4)
+  ;;   :rf.epoch/restore-missing-handler           (failure mode 5)
+  ;;   :rf.epoch/restore-version-mismatch          (failure mode 6)
+  ;;   :rf.epoch/db-replaced                       (rf2-zq55 — reset-frame-db! happy path)
+  ;;   :rf.epoch/reset-frame-db-during-drain       (rf2-zq55 — failure mode A)
+  ;;   :rf.epoch/reset-frame-db-schema-mismatch    (rf2-zq55 — failure mode B)
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
   ;; (or guarded by an `if-not interop/debug-enabled?` early-return in
@@ -162,6 +165,16 @@
   ;; remaining failure ops survive via their literal occurrence in
   ;; the gated emit-restore-failure! call sites in re-frame.epoch.
   (rf/restore-epoch :rf/default 999999)
+  ;; rf2-zq55 — reset-frame-db! is the Tool-Pair §Pair-tool-writes
+  ;; surface. The body is gated by an `(if-not interop/debug-enabled?
+  ;; false ...)` early-return — the success branch fires
+  ;; :rf.epoch/db-replaced, the in-drain rejection fires
+  ;; :rf.epoch/reset-frame-db-during-drain, the schema-mismatch
+  ;; rejection fires :rf.epoch/reset-frame-db-schema-mismatch. All
+  ;; three string fragments must elide under :advanced + goog.DEBUG=
+  ;; false. Calling against a frame ID without forcing an actual
+  ;; replace is enough — the literal sentinels live in the gated body.
+  (rf/reset-frame-db! :rf/default {})
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
   (epoch/clear-history!)
