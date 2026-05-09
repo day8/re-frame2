@@ -24,11 +24,17 @@ const http = require('http');
 const path = require('path');
 
 const PORT = 8030;
-const IMPL_ROOT = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
+// __dirname is <repo>/examples/scripts. IMPL_ROOT is <repo>/implementation
+// (where shadow-cljs runs and node_modules lives); REPO_ROOT is <repo>.
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
-const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server');
+// http-server is a devDependency of implementation/package.json. Resolve
+// it from there explicitly so this script can be invoked from any cwd.
+const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
+  paths: [IMPL_ROOT],
+});
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 
@@ -43,17 +49,17 @@ const EXAMPLES = [
   },
   {
     build: 'examples/temperature',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'temperature.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'temperature', 'temperature.html'),
     outDir: path.join(OUT_ROOT, 'temperature'),
   },
   {
     build: 'examples/flight-booker',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'flight_booker.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'flight_booker', 'flight_booker.html'),
     outDir: path.join(OUT_ROOT, 'flight-booker'),
   },
   {
     build: 'examples/timer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'timer.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'timer', 'timer.html'),
     outDir: path.join(OUT_ROOT, 'timer'),
   },
   {
@@ -98,17 +104,17 @@ const EXAMPLES = [
   // Phase 3 — rf2-w3vn.
   {
     build: 'examples/crud',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'crud.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'crud', 'crud.html'),
     outDir: path.join(OUT_ROOT, 'crud'),
   },
   {
     build: 'examples/circle-drawer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'circle_drawer.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'circle_drawer', 'circle_drawer.html'),
     outDir: path.join(OUT_ROOT, 'circle-drawer'),
   },
   {
     build: 'examples/cells',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'seven_guis', 'cells.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'cells', 'cells.html'),
     outDir: path.join(OUT_ROOT, 'cells'),
   },
   {

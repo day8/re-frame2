@@ -12,6 +12,7 @@
                 "schemas/src"
                 "schemas/test"
                 "../examples"
+                "../examples/7Guis"
                 "../examples/realworld/test"]
  :dependencies [[reagent       "2.0.1"]
                 [metosin/malli "0.13.0"]]
@@ -79,7 +80,7 @@
   ;; from the same directory. The serve-and-run-examples script builds the
   ;; site layout, serves it, and runs the Playwright specs that sit
   ;; alongside each example (examples/<name>/<name>.spec.cjs, plus the
-  ;; flat 7GUIs cluster under examples/seven_guis/).
+  ;; per-example 7GUIs sub-folders under examples/7Guis/).
   ;;
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
@@ -96,19 +97,19 @@
   {:target     :browser
    :output-dir "out/examples/temperature"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.temperature/run}}}
+   :modules    {:main {:init-fn temperature.temperature/run}}}
 
   :examples/flight-booker
   {:target     :browser
    :output-dir "out/examples/flight-booker"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.flight-booker/run}}}
+   :modules    {:main {:init-fn flight-booker.flight-booker/run}}}
 
   :examples/timer
   {:target     :browser
    :output-dir "out/examples/timer"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.timer/run}}}
+   :modules    {:main {:init-fn timer.timer/run}}}
 
   :examples/nine-states
   {:target     :browser
@@ -145,19 +146,19 @@
   {:target     :browser
    :output-dir "out/examples/crud"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.crud/run}}}
+   :modules    {:main {:init-fn crud.crud/run}}}
 
   :examples/circle-drawer
   {:target     :browser
    :output-dir "out/examples/circle-drawer"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.circle-drawer/run}}}
+   :modules    {:main {:init-fn circle-drawer.circle-drawer/run}}}
 
   :examples/cells
   {:target     :browser
    :output-dir "out/examples/cells"
    :asset-path "."
-   :modules    {:main {:init-fn seven-guis.cells/run}}}
+   :modules    {:main {:init-fn cells.cells/run}}}
 
   :examples/login
   {:target     :browser

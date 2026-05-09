@@ -7,9 +7,10 @@
  * directory by the orchestrator). This runner spins up a Chromium
  * browser and executes the *.spec.cjs files that sit alongside each
  * example's source (examples/<name>/<name>.spec.cjs, plus
- * examples/seven_guis/<name>.spec.cjs for the flat 7GUIs cluster).
- * Each spec navigates to the example's URL and asserts a user-visible
- * behaviour (initial render + an interaction + post-interaction state).
+ * examples/7Guis/<name>/<name>.spec.cjs for the per-example 7GUIs
+ * sub-folders). Each spec navigates to the example's URL and asserts
+ * a user-visible behaviour (initial render + an interaction +
+ * post-interaction state).
  *
  * Why a hand-rolled runner rather than @playwright/test:
  *   - Mirrors the run-browser-tests.cjs pattern already used by rf2-zoem
@@ -31,16 +32,24 @@
 
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+
+// playwright is a devDependency of implementation/package.json — there
+// is no examples/package.json by design (rf2-gqm7). Resolve playwright
+// out of implementation/node_modules explicitly so the runner can be
+// invoked from any cwd.
+const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');
+const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
-const EXAMPLES_ROOT = path.resolve(__dirname, '..', '..', 'examples');
+// __dirname is <repo>/examples/scripts; the example tree sits at
+// <repo>/examples (one level up).
+const EXAMPLES_ROOT = path.resolve(__dirname, '..');
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 
 // Specs live alongside the example they exercise, one or two levels
 // under examples/ — e.g. examples/counter/counter.spec.cjs, or
-// examples/seven_guis/cells.spec.cjs (flat 7GUIs cluster). Walk the
-// tree and pick up every *.spec.cjs we find.
+// examples/7Guis/<name>/<name>.spec.cjs for the per-example 7GUIs
+// sub-folders. Walk the tree and pick up every *.spec.cjs we find.
 function listSpecFiles(root) {
   if (!fs.existsSync(root)) {
     console.error(`Examples root does not exist: ${root}`);

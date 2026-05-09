@@ -1,4 +1,4 @@
-(ns seven-guis.temperature
+(ns temperature.temperature
   "7GUIs #2 — Temperature Converter.
 
    Two text fields; entering a value in either updates the other via the

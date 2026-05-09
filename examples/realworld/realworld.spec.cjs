@@ -14,7 +14,7 @@
  *   - Clicking an article preview navigates to the article detail page.
  */
 
-const { expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectVisible } = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'realworld (Conduit) — Spec 014 demo',

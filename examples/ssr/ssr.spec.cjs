@@ -23,7 +23,7 @@
 const {
   expectTextContains,
   expectVisible,
-} = require('../../implementation/scripts/spec-helpers.cjs');
+} = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'ssr (hydration)',

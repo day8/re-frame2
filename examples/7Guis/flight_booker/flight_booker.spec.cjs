@@ -15,7 +15,7 @@
  * graph rather than poking app-db directly.
  */
 
-const { expectAttribute, expectInputValue } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectAttribute, expectInputValue } = require('../../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'flight-booker (7guis #3)',
