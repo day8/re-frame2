@@ -6,7 +6,28 @@ on:
   pull_request:
     branches: [main]
 
+# Per-artefact JVM jobs and the CLJS / browser / elision / examples
+# jobs all run in parallel — none `needs:` another, by design (per
+# rf2-ace2 audit). The lockstep-version-verify job below also runs in
+# parallel; it is fast (single bash script over seven deps.edn files)
+# and adds no critical-path latency. We deliberately do NOT gate the
+# test jobs on lockstep verify so a drift report and a test failure
+# surface together rather than serialising.
+
 jobs:
+  # PR-time drift detection for the lockstep-version contract
+  # (rf2-ace2 / rf2-w05l). Fast — the script is shared with
+  # release.yml's pre-deploy gate so the contract has a single source
+  # of truth.
+  verify-version-lockstep:
+    name: Verify lockstep version contract (rf2-ace2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Verify lockstep version contract
+        run: ./.github/scripts/verify-version-lockstep.sh
+
   jvm-core:
     name: JVM core (clojure -M:test)
     runs-on: ubuntu-latest
