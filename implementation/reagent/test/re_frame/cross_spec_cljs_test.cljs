@@ -19,6 +19,7 @@
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.late-bind]
             ;; rf2-k682: routing ships in day8/re-frame-2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
@@ -419,27 +420,165 @@
 ;; spec/Cross-Spec-Interactions.md#10-plain-reagent-fn-under-a-non-default-frame
 ;; ---------------------------------------------------------------------------
 
-(deftest plain-fn-under-non-default-frame-placeholder
+(deftest plain-fn-under-non-default-frame
   "#10 Plain Reagent fn under a non-default frame —
-   ;; HALTED for rf2-o83z: this is a runtime gap, NOT a browser-test
-   ;; gap. Spec 004 §Plain Reagent fns and Spec 009 §Trace catalog define
-   ;; the warning operation `:rf.warning/plain-fn-under-non-default-frame
-   ;; -once` (with `:fn-name`, `:rendered-under`, `:routed-to` tags),
-   ;; emitted at most once per `(component-id, non-default-frame-id)`
-   ;; pair when a plain (non-`reg-view`) Reagent fn renders inside a
-   ;; non-default frame-provider. The runtime does NOT yet emit this
-   ;; trace; promoting the placeholder to a real assertion would have
-   ;; nothing to assert against. Tracking under the rf2-o83z follow-up
-   ;; bead (filed by the same PR that promoted #4 and #8) — the
-   ;; emission must land in re-frame.views' resolution chain at the
-   ;; point a plain fn falls through to :rf/default while a non-default
-   ;; React-context frame is in scope. Once emission lands, the test
-   ;; here can become a real browser assertion (mount under
-   ;; frame-provider, render a plain fn that subscribes, capture
-   ;; traces, assert exactly one warning per (fn, frame) pair across
-   ;; multiple renders)."
-  (is true
-      "placeholder; HALTED on runtime gap — see comment above (rf2-o83z follow-up)"))
+   a plain (non-`reg-view`) Reagent fn that renders inside a non-default
+   `frame-provider` lacks the `:contextType` wiring `reg-view` attaches,
+   so its `(rf/subscribe ...)` call cannot read the surrounding React-
+   context frame and falls through to `:rf/default`. Per Spec 004
+   §Plain Reagent fns and Spec 006 §Plain-fn-under-non-default-frame
+   warning (rf2-d3k3): the runtime emits
+   `:rf.warning/plain-fn-under-non-default-frame-once` at most once per
+   `(component-id, non-default-frame-id)` pair across renders.
+
+   Browser-only — requires a real React render so the React-context
+   tier actually pushes the Provider's value. Promoted from the
+   rf2-o83z placeholder once rf2-d3k3 landed the runtime emission."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-plain-fn-warn]
+      (rf/reg-frame target-frame {:doc "non-default frame for plain-fn warn-once test"})
+      (rf/reg-event-db :seed-plain-fn (fn [_ _] {:n 7}))
+      (rf/dispatch-sync [:seed-plain-fn] {:frame target-frame})
+      (rf/reg-sub :plain-fn-test/n (fn [db _] (:n db)))
+      ;; Reset the warn-once cache so this test starts from a clean
+      ;; slate. Per Spec 004 §The suppression cache is per-frame-instance.
+      (when-let [clear! (re-frame.late-bind/get-fn
+                          :views/clear-plain-fn-warned-pairs!)]
+        (clear!))
+      (let [render-counts (atom {})
+            ;; Two distinct plain Reagent fns. Neither is registered via
+            ;; reg-view, so neither carries the `:contextType` wiring;
+            ;; both will fall through to :rf/default at subscribe time.
+            plain-fn-a   (fn plain-fn-a-impl []
+                           (swap! render-counts update :a (fnil inc 0))
+                           (let [_ @(rf/subscribe [:plain-fn-test/n])]
+                             [:div.plain-a "a"]))
+            plain-fn-b   (fn plain-fn-b-impl []
+                           (swap! render-counts update :b (fnil inc 0))
+                           (let [_ @(rf/subscribe [:plain-fn-test/n])]
+                             [:div.plain-b "b"]))
+            mount-node   (make-mount-node!)
+            traces       (collect-traces ::xspec-10)
+            root         (rdc/create-root mount-node)]
+        (try
+          ;; Render the tree multiple times so the warn-once contract is
+          ;; exercised across re-renders. The Provider scopes the
+          ;; non-default frame; both plain fns subscribe inside that
+          ;; subtree on every render.
+          (dotimes [_ 3]
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root
+                            [rf/frame-provider {:frame target-frame}
+                             [:div
+                              [plain-fn-a]
+                              [plain-fn-b]]]))))
+          (stop-traces ::xspec-10)
+          (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
+                                   (:operation %))
+                              @traces)]
+            (is (>= (get @render-counts :a 0) 1)
+                "plain-fn-a rendered at least once")
+            (is (>= (get @render-counts :b 0) 1)
+                "plain-fn-b rendered at least once")
+            ;; Two distinct plain fns under the same non-default frame
+            ;; → two warnings (one per pair), regardless of how many
+            ;; times each rendered.
+            (is (= 2 (count warns))
+                (str "expected EXACTLY TWO :rf.warning/plain-fn-under-"
+                     "non-default-frame-once events (one per (fn, frame) "
+                     "pair, not per render); got " (count warns)
+                     " across " (apply + (vals @render-counts))
+                     " total renders"))
+            ;; Each warning carries the documented payload keys per
+            ;; Spec 009 §Error categories.
+            (is (every? #(contains? (:tags %) :fn-name) warns)
+                "every warning carries :fn-name")
+            (is (every? #(= target-frame (get-in % [:tags :rendered-under])) warns)
+                "every warning carries :rendered-under = the non-default frame id")
+            (is (every? #(= :rf/default (get-in % [:tags :routed-to])) warns)
+                "every warning records :routed-to = :rf/default (the frame the subscribe call actually used)")
+            (is (= :warning (-> warns first :op-type))
+                "the trace event uses op-type :warning"))
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+(deftest plain-fn-under-default-frame-no-warning
+  "Negative case — a plain Reagent fn rendered under the :rf/default
+   frame (or no frame-provider at all) must NOT trigger the warning.
+   Per Spec 004 §Plain Reagent fns: 'plain fns are safe in single-frame
+   apps (no different from today) and in default-frame portions of
+   multi-frame apps.' The warning is reserved for the non-default-
+   frame case."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (do
+      (rf/reg-event-db :seed-plain-default (fn [_ _] {:m 9}))
+      (rf/dispatch-sync [:seed-plain-default])
+      (rf/reg-sub :plain-default-test/m (fn [db _] (:m db)))
+      (when-let [clear! (re-frame.late-bind/get-fn
+                          :views/clear-plain-fn-warned-pairs!)]
+        (clear!))
+      (let [plain-default (fn plain-default-impl []
+                            (let [_ @(rf/subscribe [:plain-default-test/m])]
+                              [:div "default"]))
+            mount-node (make-mount-node!)
+            traces     (collect-traces ::xspec-10b)
+            root       (rdc/create-root mount-node)]
+        (try
+          (dotimes [_ 2]
+            (react-dom/flushSync
+              (fn []
+                ;; No frame-provider — the React-context tier resolves
+                ;; to :rf/default (the context's default value).
+                (rdc/render root [plain-default]))))
+          (stop-traces ::xspec-10b)
+          (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
+                                   (:operation %))
+                              @traces)]
+            (is (empty? warns)
+                "no warning fires for plain fns rendered under :rf/default"))
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+(deftest reg-view-under-non-default-frame-no-warning
+  "Negative case — a properly-registered view (reg-view*) renders inside
+   a non-default frame-provider WITHOUT triggering the warning. The
+   warning targets the plain-fn footgun specifically; reg-view'd
+   components carry the `:contextType` wiring that lets them read the
+   Provider's frame, so their subscribe calls route correctly."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-reg-view-no-warn]
+      (rf/reg-frame target-frame {:doc "non-default frame for reg-view negative test"})
+      (rf/reg-event-db :seed-reg-view (fn [_ _] {:k 11}))
+      (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
+      (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
+      (when-let [clear! (re-frame.late-bind/get-fn
+                          :views/clear-plain-fn-warned-pairs!)]
+        (clear!))
+      (rf/reg-view* :rf.cross-spec-10/registered-view
+                    (fn registered-impl []
+                      (let [_ @(rf/subscribe [:reg-view-test/k])]
+                        [:div "reg-view"])))
+      (let [render-fn  (rf/view :rf.cross-spec-10/registered-view)
+            mount-node (make-mount-node!)
+            traces     (collect-traces ::xspec-10c)
+            root       (rdc/create-root mount-node)]
+        (try
+          (react-dom/flushSync
+            (fn []
+              (rdc/render root [rf/frame-provider {:frame target-frame}
+                                [render-fn]])))
+          (stop-traces ::xspec-10c)
+          (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
+                                   (:operation %))
+                              @traces)]
+            (is (empty? warns)
+                "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 11 — Machine action throws
