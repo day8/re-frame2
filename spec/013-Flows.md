@@ -171,6 +171,22 @@ Three implications:
 2. **Path-overlap is sufficient, not necessary, for re-firing.** A flow whose inputs sit at `[:user :profile :name]` does not re-fire when an unrelated path like `[:cart :items]` changes. The dirty-check is per-flow, not per-app-db-change.
 3. **First evaluation always fires.** A newly-registered flow's `last-inputs` is uninitialised; its first walk recomputes unconditionally and produces the initial output value.
 
+## Flow tracing
+
+Every flow lifecycle event emits a structured trace event under op-type `:flow`. The full taxonomy lives in [009 §Flow trace events](009-Instrumentation.md#flow-trace-events); the summary:
+
+| `:operation` | Fires when |
+|---|---|
+| `:rf.flow/registered` | `reg-flow` (or `:rf.fx/reg-flow`) successfully registers a flow against a frame, after cycle detection passes. |
+| `:rf.flow/computed` | A flow's `:output` fn ran and the result was written to `:path` (dirty-check observed input value-difference). |
+| `:rf.flow/skip` | The dirty-check found inputs `=`-equal to the previous run; the recompute was suppressed (§[Dirty-check semantics](#dirty-check-semantics) above; rf2-719e value-equal recompute suppression). |
+| `:rf.flow/cleared` | `clear-flow` (or `:rf.fx/clear-flow`) removed the flow from the per-frame registry and dissoc-in'd its output path. |
+| `:rf.flow/failed` | A flow's `:output` fn threw during recompute. The exception is re-thrown after the trace fires so the router's outer catch emits the cascade-level `:rf.error/flow-eval-exception` (per [009 §Error contract](009-Instrumentation.md#error-contract)). |
+
+Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, 10x v2's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
+
+The whole flow trace surface, like the rest of trace, is compile-time eliminated in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
+
 ## Dynamic toggle via fx
 
 Two reserved fx-ids let event handlers register and clear flows during normal event processing:
@@ -279,5 +295,6 @@ No opt-out. Stale derived values are confusing; vacating the slot is the natural
 - [002-Frames §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode) — where the flow after-interceptor sits.
 - [006-ReactiveSubstrate](006-ReactiveSubstrate.md) — sub-cache invalidation; flows trigger sub-cache invalidation when they write.
 - [009-Instrumentation §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/flow-cycle` namespace.
+- [009-Instrumentation §Flow trace events](009-Instrumentation.md#flow-trace-events) — full taxonomy and payloads for the `:rf.flow/*` event vocabulary; cross-referenced from [§Flow tracing](#flow-tracing) above.
 - [Conventions](Conventions.md) — `:rf.fx/reg-flow` and `:rf.fx/clear-flow` reserved fx-ids.
 - [MIGRATION §M-19](MIGRATION.md) — generic call-shape migration; `:inputs` is positional vector matching the v1 `on-changes` form.

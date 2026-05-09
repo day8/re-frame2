@@ -156,6 +156,35 @@ Two listener shapes coexist by design: `register-trace-cb!` is the **raw** strea
 
 This is **dev-only** end-to-end — every primitive listed above elides in production builds (per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)). Pair-shaped tools do not ship in production binaries.
 
+### Subscribing to a slice of the trace stream
+
+`register-trace-cb!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
+
+```clojure
+;; A tool (re-frame-10x v2's flow panel, a pair-tool flow inspector,
+;; a custom dashboard) subscribes to JUST the flow trace stream.
+;; Per Spec 009 §Flow trace events, every flow lifecycle event carries
+;; :op-type :flow with the per-event identity in :operation
+;; (:rf.flow/registered, :rf.flow/computed, :rf.flow/skip,
+;; :rf.flow/cleared, :rf.flow/failed).
+
+(rf/register-trace-cb!
+  :my-tool/flow-panel
+  (fn [ev]
+    (when (= :flow (:op-type ev))
+      (case (:operation ev)
+        :rf.flow/registered  (track-flow-registration! ev)
+        :rf.flow/computed    (record-flow-computation! ev)
+        :rf.flow/skip        (note-skip! ev)               ;; (per rf2-719e value-equal recompute suppression)
+        :rf.flow/cleared     (drop-flow-state! ev)
+        :rf.flow/failed      (surface-flow-error! ev)
+        nil))))
+```
+
+The same pattern works for any subsystem with a dedicated op-type — `:machine` for state-machine activity, `:event` for the dispatch / drain stream, `:sub/run` and `:sub/create` for subscription work, `:fx` for effect handlers. New op-types are additive (per [009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)); tools ignore op-types they don't understand.
+
+For per-cascade structured projections (sub-cache hit/miss, render attribution, effect outcome), tools route off `register-epoch-cb`'s assembled `:rf/epoch-record` instead — the §[Time-travel](#time-travel-epoch-snapshots-and-undo) projection slots already pre-fold the per-cascade trace into the `:sub-runs` / `:renders` / `:effects` shape. The raw-stream filter pattern above is the right shape for fine-grained per-event consumption.
+
 ### Implications for downstream tools
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
