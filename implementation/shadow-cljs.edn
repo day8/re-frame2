@@ -1,13 +1,16 @@
-;; Top-level shadow-cljs build (rf2-0hxm).
+;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va).
 ;;
-;; Pulls in both published artefacts' source paths (core/ and reagent/)
-;; plus their test trees and the examples. The shadow build runs as a
-;; *consumer* of both artefacts; the deps.edn at this level wires the
-;; classpath via :local/root for any clojure-tools-driven steps.
+;; Pulls in every published artefact's source path (core/, reagent/,
+;; schemas/) plus their test trees and the examples. The shadow build
+;; runs as a *consumer* of every artefact; the deps.edn at this level
+;; wires the classpath via :local/root for any clojure-tools-driven
+;; steps.
 {:source-paths ["core/src"
                 "core/test"
                 "reagent/src"
                 "reagent/test"
+                "schemas/src"
+                "schemas/test"
                 "../examples"
                 "../examples/realworld/test"]
  :dependencies [[reagent       "2.0.1"]

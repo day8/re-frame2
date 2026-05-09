@@ -2,8 +2,11 @@
 ;;
 ;; Per Spec 006 §Substrate-adapter shipping convention: substrate adapters
 ;; ship as separate Maven artefacts; this is the core (registry, drain,
-;; machines, flows, routing, fx, schemas, trace) and excludes substrate-
-;; specific code. The Reagent adapter lives in implementation/reagent/.
+;; machines, flows, routing, fx, trace) and excludes substrate-specific
+;; code. The Reagent adapter lives in implementation/reagent/. Per
+;; rf2-p7va (the first per-feature split per rf2-5vjj Strategy B) the
+;; Spec 010 schema-attachment surface lives in implementation/schemas/
+;; (`day8/re-frame-2-schemas`).
 ;;
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
 ;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
@@ -11,15 +14,32 @@
 ;; views.cljs layer; the *substrate* adapter ns (re-frame.substrate.reagent)
 ;; lives in the Reagent artefact. The full substrate-config plumbing
 ;; unification is deferred to rf2-3yij (UIx adapter).
+;;
+;; metosin/malli is intentionally NOT a dep of this artefact: per
+;; rf2-p7va the schemas artefact owns the Malli relationship. The
+;; runtime resolves of `malli.core/validate` in `re-frame.epoch` and
+;; `re-frame.http-managed` are intentional best-effort `(resolve ...)`
+;; calls that no-op when Malli is absent — apps that opt into managed
+;; HTTP decode-schemas or epoch-restore schema validation pull in the
+;; schemas artefact (which carries Malli) alongside core.
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
          org.clojure/clojurescript {:mvn/version "1.11.132"}
-         reagent/reagent           {:mvn/version "2.0.1"}
-         metosin/malli             {:mvn/version "0.13.0"}}
+         reagent/reagent           {:mvn/version "2.0.1"}}
 
  :aliases
- {:test {:extra-paths ["test" "../../examples"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
+ {;; The core artefact's tests historically exercised schema-aware
+  ;; paths (every reset-runtime fixture rolled the per-frame schema
+  ;; registry; many test files require re-frame.schemas to set up their
+  ;; data shapes). Per rf2-p7va those tests stay in core/test/ and
+  ;; pull schemas in as a test-only dep — so the core artefact's test
+  ;; classpath includes schemas (and its Malli dep) while the
+  ;; published library jar carries neither. Keeps the per-test
+  ;; coverage intact without smuggling schemas into the production
+  ;; classpath. See implementation/schemas/deps.edn.
+  :test {:extra-paths ["test" "../../examples"]
+         :extra-deps  {day8/re-frame-2-schemas {:local/root "../schemas"}
+                       io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
 
