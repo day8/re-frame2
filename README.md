@@ -118,14 +118,16 @@ docs/
   guide/                       Human-facing guide (marketing voice)
 examples/                      Worked examples
 implementation/                CLJS reference implementation — split into per-artefact subdirs
-                               (rf2-0hxm; per Conventions §Substrate-adapter shipping convention).
-  core/                        day8/re-frame-2 — registry, drain, machines, flows, routing, fx,
-                               schemas, trace, the substrate-adapter contract, the headless
-                               plain-atom adapter
+                               (per Conventions §Packaging conventions; tier rollout per rf2-0hxm
+                               for the substrate split, rf2-5vjj for the per-feature splits).
+  core/                        day8/re-frame-2 — registry, drain, fx, dispatch, subscribe,
+                               frame-provider, trace; today still carries machines, flows, routing,
+                               http, ssr, schemas, epoch (per-feature splits pending — see
+                               Ownership.md "Artefact" column for the per-surface bead).
   reagent/                     day8/re-frame-2-reagent — the Reagent substrate adapter (browser default)
-  shadow-cljs.edn              top-level build coordinator: pulls both artefacts onto one classpath
+  shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
                                for the browser/elision/examples builds
-  deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for both
+  deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
 skills/                        Claude skills (planned; pair-improver and friends)
 ```
 
