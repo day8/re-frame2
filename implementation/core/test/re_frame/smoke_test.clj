@@ -617,7 +617,8 @@
                                      {:platforms #{:server :client}}
                                      (fn [_ _] nil))
                           ;; Inside the handler, capture spawned ids by
-                          ;; intercepting the :spawn fx via a trace.
+                          ;; intercepting the :rf.machine/spawn fx via a
+                          ;; trace.
                           acc))
           ;; Reset counters so this test starts clean.
           _ ((requiring-resolve 're-frame.machines/reset-counters!))]
@@ -633,13 +634,13 @@
         (let [spawn-traces (filter #(= :rf.machine/spawned (:operation %)) @traces)
               ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
           (is (= 2 (count spawn-traces))
-              "two :spawn traces — one per frame")
+              "two :rf.machine/spawned traces — one per frame")
           (is (every? #(= :worker %) ids)
               "both spawned the :worker machine")
-          ;; The actor IDs themselves come through the [:spawn args] fx
-          ;; whose args carry :id-prefix and the runtime stamps the id.
-          ;; Frame-scoping is verified via the spawn-counter staying at 1
-          ;; for each [frame :worker] key.
+          ;; The actor IDs themselves come through the
+          ;; [:rf.machine/spawn args] fx whose args carry :id-prefix and
+          ;; the runtime stamps the id. Frame-scoping is verified via
+          ;; the spawn-counter staying at 1 for each [frame :worker] key.
           (let [counter @(deref (resolve 're-frame.machines/spawn-counter))]
             (is (= 1 (get counter [:left :worker]))
                 "left frame's :worker counter is 1 (independent)")
@@ -647,15 +648,15 @@
                 "right frame's :worker counter is 1 (independent)")))))))
 
 (deftest spawn-and-destroy-machine-fx
-  (testing ":spawn and :destroy-machine traverse fx without :rf.error/no-such-fx"
+  (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]
       (rf/register-trace-cb! ::spawn (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :do-spawn
-        (fn [_ _] {:fx [[:spawn {:machine-id :worker
-                                 :id-prefix  :worker
-                                 :start      [:begin]
-                                 :on-spawn   :record}]
-                        [:destroy-machine :worker#1]]}))
+        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
+                                            :id-prefix  :worker
+                                            :start      [:begin]
+                                            :on-spawn   :record}]
+                        [:rf.machine/destroy :worker#1]]}))
       (rf/dispatch-sync [:do-spawn])
       (rf/remove-trace-cb! ::spawn)
       (is (some #(= :rf.machine/spawned (:operation %)) @traces)
@@ -663,7 +664,7 @@
       (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
           "expected :rf.machine/destroyed trace")
       (is (not-any? #(= :rf.error/no-such-fx (:operation %)) @traces)
-          ":spawn / :destroy-machine should not raise no-such-fx"))))
+          ":rf.machine/spawn / :rf.machine/destroy should not raise no-such-fx"))))
 
 (deftest login-machine-flow
   (testing "Spec 005 machine pattern: login flow as a state machine, end-to-end"
