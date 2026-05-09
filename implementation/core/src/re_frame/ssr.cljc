@@ -46,8 +46,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]
-            #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])
-            #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
+            #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
 
 (defn- escape-html [s]
   (-> (str s)
@@ -268,11 +267,14 @@
       (str "<!DOCTYPE html>" body)
       body)))
 
-;; Wire our render-to-string into both adapters so callers using
-;; rf/render-to-string (which delegates through the substrate adapter)
-;; get this implementation on either runtime. JVM apps use the
-;; plain-atom adapter; CLJS apps use the Reagent adapter; both reach
-;; this fn via their adapter's :render-to-string slot.
+;; Wire our render-to-string into the plain-atom adapter so callers
+;; using rf/render-to-string (which delegates through the substrate
+;; adapter) get this implementation. The Reagent adapter — when present
+;; — wires itself by calling re-frame.ssr/install-render-to-string!
+;; from its own ns init (per Spec 006 §Substrate-adapter shipping
+;; convention; rf2-0hxm). Core deliberately does *not* :require the
+;; Reagent adapter ns — that ns lives in a separate Maven artefact
+;; (day8/re-frame-2-reagent) and may not be on the classpath.
 #?(:clj
    (try
      (require 're-frame.substrate.plain-atom)
@@ -281,9 +283,17 @@
      (catch Throwable _ nil)))
 
 #?(:cljs
-   (do
-     (plain-atom-cljs/set-hiccup-emitter! render-to-string)
-     (reagent-adapter/set-hiccup-emitter! render-to-string)))
+   (plain-atom-cljs/set-hiccup-emitter! render-to-string))
+
+(defn install-render-to-string!
+  "Install this ns's render-to-string into a substrate adapter's
+  :render-to-string slot. Called by adapter namespaces that ship in
+  their own artefact (e.g. re-frame.substrate.reagent) so they can wire
+  themselves up at load time without core having to :require them.
+  Per Spec 006 §Substrate-adapter shipping convention (rf2-0hxm)."
+  [set-hiccup-emitter!-fn]
+  (set-hiccup-emitter!-fn render-to-string)
+  nil)
 
 ;; ---- hydrate event + mismatch detection ----------------------------------
 ;;

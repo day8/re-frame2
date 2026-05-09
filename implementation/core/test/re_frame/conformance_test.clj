@@ -90,7 +90,14 @@
 ;; ---- fixture loader -------------------------------------------------------
 
 (def fixtures-dir
-  (io/file "../spec/conformance/fixtures"))
+  ;; The corpus lives under spec/conformance/fixtures at the repo root.
+  ;; Per rf2-0hxm the JVM tests run from implementation/core/, so the
+  ;; relative path is ../../spec/conformance/fixtures. Fall back to the
+  ;; pre-split layout for transitional REPLs running from
+  ;; implementation/ — whichever exists first wins.
+  (let [nested  (io/file "../../spec/conformance/fixtures")
+        legacy  (io/file "../spec/conformance/fixtures")]
+    (if (.exists nested) nested legacy)))
 
 (defn- load-fixture [file]
   (try
