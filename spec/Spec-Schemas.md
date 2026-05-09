@@ -382,7 +382,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:id-prefix  {:optional true} :keyword]                                  ;; defaults to :machine-id; base for the gensym'd actor id
    [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
-   [:invoke-id  {:optional true} :keyword]])                                ;; explicit id instead of gensym (per-state singleton actor)
+   [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
+   [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
 ;; — runtime-managed and not part of the transition-table grammar. See
@@ -808,7 +809,8 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:id-prefix   {:optional true} :keyword]                                 ;; defaults to :machine-id; base for the gensym'd actor id
    [:data        {:optional true} :map]                                     ;; initial data; overrides definition default
    [:on-spawn    {:optional true} fn?]                                      ;; (fn [data id] new-data) — required for from-action spawns
-   [:start       {:optional true} [:vector :any]]])                         ;; event vector dispatched to the new actor immediately after spawn
+   [:start       {:optional true} [:vector :any]]                           ;; event vector dispatched to the new actor immediately after spawn
+   [:system-id   {:optional true} :keyword]])                               ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
 
 ;; The spawned actor's snapshot lives at [:rf/machines <gensym'd-id>] in the
 ;; active frame's app-db — runtime-managed; not part of the spawn-spec.

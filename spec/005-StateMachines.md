@@ -1107,6 +1107,7 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 | `:data` | initial data for the new machine (overrides definition's default) | optional |
 | `:on-spawn` | `(fn [data id] new-data)` — how the parent records the new id | required for from-action spawns; ignored for top-level boot-time spawns |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
+| `:system-id` | bind the spawned actor to a per-frame name in the `[:rf/system-ids]` reverse index; lookup with `(rf/machine-by-system-id sid)`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id). | optional |
 
 The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
@@ -1169,6 +1170,65 @@ The `:on-spawn` shape is general enough to subsume binding-as-key (`(assoc d :k 
 - **Hot-reload.** Live spawned instances pick up new table interpretations on next event.
 - **Cross-machine messaging.** Parent → child is `[:fx [[:dispatch [child-id [:event]]]]]`. Child → parent is the same. No `sendTo` / `sendParent` distinction — `dispatch` already addresses any id.
 - **`:raise` lowers to self-dispatch with atomic semantics.** `[:raise [:event]]` ≡ `[:fx [[:dispatch [<self-id> [:event]]]]]` *with* "processed before commit." The former is sugar.
+
+### Named addressing via `:system-id`
+
+A spawn whose `:system-id` key is supplied **also** binds a name in the per-frame `[:rf/system-ids]` reverse index. Users (and other machines) can then look up the spawned actor by that name, without having to thread the gensym'd id through their own `:data`. The mechanism is opt-in and orthogonal to gensym'd ids — it sits *alongside* the existing addressing-by-id, never replaces it.
+
+```clojure
+;; Imperative spawn (action :fx) with a :system-id binding.
+:action (fn [_ _]
+          {:fx [[:spawn {:machine-id :request/protocol
+                         :system-id  :primary-request    ;; bind the name
+                         :data       {:url "/api/foo"}
+                         :on-spawn   (fn [d id] (assoc d :pending id))
+                         :start      [:begin]}]]})
+
+;; The same :system-id key works on declarative :invoke:
+{:loading
+ {:invoke {:machine-id :request/protocol
+           :system-id  :primary-request
+           :data       (fn [snap _] {:url (-> snap :data :endpoint)})
+           :on-spawn   (fn [d id] (assoc d :pending id))}}}
+
+;; Anywhere in the same frame:
+(rf/machine-by-system-id :primary-request)
+;; → :request/protocol#42 (the gensym'd id)
+```
+
+The mapping lives at `[:rf/system-ids <name>]` in the spawning frame's `app-db` — same place the snapshot lives, so the reverse index inherits frame revertibility for free (the index walks back along with the rest of `app-db`).
+
+**Lifecycle.**
+
+- On spawn, the runtime writes `[:rf/system-ids <name>] = <gensym'd-id>` and emits `:rf.machine/system-id-bound`.
+- On destroy (whether by `:invoke` exit cascade or hand-emitted `[:destroy-machine actor-id]`), the runtime clears the slot AND emits `:rf.machine/system-id-released`.
+- A spawn under an already-bound name **rebinds** (last-write-wins) and emits `:rf.error/system-id-collision` so observers can see the displacement. The previously-bound machine's snapshot is NOT auto-destroyed by the rebind; it stays at its `[:rf/machines <id>]` slot, just unnamed. (Symmetric with `reg-event-fx` re-registration: replacing a handler doesn't cancel any in-flight work that addressed the previous fn; it just means the next *named* dispatch routes to the new one.)
+
+**`:system-id` is orthogonal to `:invoke-id`.**
+
+- `:invoke-id` is a per-state singleton actor id — the *machine-id* of the spawned actor is fixed by name (no gensym).
+- `:system-id` is a *frame-level reverse index* that resolves to whichever spawned actor currently owns the name.
+
+A spawn may declare both: `:invoke-id` fixes the actor-id (no gensym), and `:system-id` registers a separate name in the frame's reverse index. Most uses pick one or the other.
+
+### Cross-machine messaging by name
+
+The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event]]]]]` — `dispatch` already addresses any registered id. With `:system-id` bound, the addressing call site becomes a name lookup:
+
+```clojure
+;; Inside a machine action's :fx — dispatch by name
+:action (fn [_ _]
+          {:fx [[:dispatch [(rf/machine-by-system-id :primary-request)
+                            [:cancel]]]]})
+
+;; Sugar — dispatches via the lookup, no-ops when the name is unbound:
+:action (fn [_ _]
+          {:fx [[:dispatch-to-system :primary-request [:cancel]]]})
+```
+
+The sender doesn't have to capture the gensym'd id at the spawn site, doesn't have to carry it through `:data`, doesn't even have to be the spawning machine — anything in the frame that knows the name can address the actor.
+
+The pattern composes naturally with the standard reply convention ([§Reply patterns](#reply-patterns)): include the reply event in the request, addressed by name on the request side, by id on the reply side (so the reply lands in a specific spawned correlator, not whichever machine currently owns the name).
 
 ## Declarative `:invoke` (sugar over spawn)
 
@@ -1352,6 +1412,13 @@ The framework therefore ships two thin lookup fns — **derived views over the e
 ;; Implementation: (handler-meta :event :drawer/editor), with the
 ;; standard metadata-map shape; machine-specific keys (e.g.
 ;; :rf/transition-table) are present iff :rf/machine? is true.
+
+(rf/machine-by-system-id :primary-request)
+;; → :request/protocol#42 (the gensym'd id), or nil if no spawn
+;;   under the active frame is currently bound to that :system-id.
+;;   Implementation: (get-in app-db [:rf/system-ids :primary-request])
+;;   in the active frame's app-db. See [§Named addressing via
+;;   :system-id](#named-addressing-via-system-id).
 ```
 
 Both are pure functions over the registry. Both are JVM-runnable (they touch only the central registry). Both are stable across hot-reload because they re-read on each call.
@@ -1729,6 +1796,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (and the machine-internal `[:spawn ...]` / `[:destroy-machine ...]` fx-ids inside a machine action's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
 | **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit` | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:spawn` / `:destroy-machine` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). |
+| **`:system-id` named-machine addressing** — a `:spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
 
 ### How conformance is graded
@@ -1744,7 +1812,8 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
-                 :actor/invoke}}
+                 :actor/invoke
+                 :actor/system-id}}
 ```
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
