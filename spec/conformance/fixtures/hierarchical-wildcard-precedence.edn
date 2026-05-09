@@ -1,0 +1,94 @@
+;; Conformance fixture: machine/hierarchical-wildcard-precedence
+;;
+;; Per-level transition resolution with wildcards. Verifies the rule that
+;; was clarified for rf2-fhb9: at each level, an explicit-event match beats
+;; `:*`; only if neither matches does the runtime walk up to the parent. So
+;; a leaf's `:*` SHADOWS a parent's explicit handler for the same event,
+;; because the leaf level's `:*` lookup happens before the runtime walks
+;; up to the parent.
+;;
+;; This fixture pins the divergence point between the (now reworded)
+;; §Wildcard transitions list at L213 and the canonical §Transition
+;; resolution list at L877. Per rf2-fhb9 / rf2-goxn audit finding #9.
+;;
+;; Per [005 §Wildcard transitions]
+;; (../../005-StateMachines.md#wildcard-transitions) and
+;; [005 §Transition resolution — deepest-wins with parent fallthrough]
+;; (../../005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough).
+
+{:fixture/id           :machine/hierarchical-wildcard-precedence
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "Per-level wildcard precedence in a hierarchical machine. (1) Leaf has `:*`, parent has explicit `:help` — leaf `:*` wins, parent shadowed. (2) Leaf has neither, parent has explicit `:help` and `:*` — explicit wins at parent. (3) Leaf has neither, parent has `:*` only — parent `:*` fires."
+
+ :fixture/registry
+ {:machine-action
+  {:wp/leaf-wildcard   {:doc "Action declared at the leaf for `:*`."}
+   :wp/parent-explicit {:doc "Action declared at the parent for explicit `:help`."}
+   :wp/parent-wildcard {:doc "Action declared at the parent for `:*`."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:wp/leaf-wildcard   [[:fx :log {:msg "leaf :* fired"}]]
+   :wp/parent-explicit [[:fx :log {:msg "parent explicit :help fired"}]]
+   :wp/parent-wildcard [[:fx :log {:msg "parent :* fired"}]]}}
+
+ :fixture/calls
+ ;; Case 1: leaf `:*` SHADOWS parent's explicit `:help`. The runtime checks
+ ;; leaf-explicit (miss) then leaf-`:*` (hit) and stops walking — parent's
+ ;; explicit handler does NOT fire.
+ [{:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :wp/parent-explicit}}      ;; explicit at parent
+      :states
+      {:dashboard
+       {:on {:* {:action :wp/leaf-wildcard}}}}}}}         ;; :* at leaf
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:help]
+   ;; Walk: leaf [:authenticated :dashboard] — explicit :help miss, :* hit.
+   ;; Stop. Parent's explicit :help is shadowed by the leaf's :*.
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       [[:log {:msg "leaf :* fired"}]]}
+
+  ;; Case 2: leaf has nothing; parent has explicit AND `:*`. At the parent
+  ;; level, explicit beats `:*`, so the parent's explicit handler fires.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :wp/parent-explicit}
+                :*    {:action :wp/parent-wildcard}}
+      :states
+      {:dashboard {}}}}}                                  ;; leaf has no :on
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:help]
+   ;; Walk: leaf — no :on, miss; walk up. Parent — explicit :help hit; stop.
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       [[:log {:msg "parent explicit :help fired"}]]}
+
+  ;; Case 3: leaf has nothing; parent has only `:*`. Falls through to it.
+  {:call         :machine-transition
+   :definition
+   {:initial :authenticated
+    :data    {}
+    :states
+    {:authenticated
+     {:initial :dashboard
+      :on      {:help {:action :wp/parent-explicit}
+                :*    {:action :wp/parent-wildcard}}
+      :states
+      {:dashboard {}}}}}
+   :snapshot     {:state [:authenticated :dashboard] :data {}}
+   :event        [:unknown-event]
+   ;; Walk: leaf — no :on, miss; walk up. Parent — explicit :unknown-event
+   ;; miss; parent :* hit. Stop.
+   :expect-next-snapshot {:state [:authenticated :dashboard] :data {}}
+   :expect-effects       [[:log {:msg "parent :* fired"}]]}]}

@@ -159,6 +159,66 @@
           "internal transition — snapshot unchanged")
       (is (= [:leaf] @log) "leaf's :help action fired; parent shadowed"))))
 
+;; ---- (1b) wildcard precedence in hierarchical machines (rf2-fhb9) ---------
+;; Per Spec 005 §Wildcard transitions and §Transition resolution: at each
+;; level, explicit-event match beats `:*`; only if neither matches does the
+;; runtime walk up to the parent. So a leaf's `:*` SHADOWS a parent's
+;; explicit handler for the same event — wildcard wins at the deeper level
+;; before parent fallthrough kicks in. This is the divergence point that
+;; the §Wildcard transitions list at L213-218 used to muddle (rf2-fhb9).
+(deftest machine-hierarchical-wildcard-precedence-cljs
+  (testing "leaf :* shadows parent's explicit handler for the same event"
+    (let [log (atom [])
+          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          machine
+          {:initial :authenticated
+           :data    {}
+           :actions {:parent-explicit (tag :parent-explicit)
+                     :leaf-wildcard   (tag :leaf-wildcard)}
+           :states
+           {:authenticated
+            {:initial :dashboard
+             :on      {:help {:action :parent-explicit}}    ;; explicit at parent
+             :states
+             {:dashboard
+              {:on {:* {:action :leaf-wildcard}}}}}}}]      ;; :* at leaf
+      (rf/reg-machine :rf2-fhb9/precedence machine)
+      (reset! log [])
+      (rf/dispatch-sync [:rf2-fhb9/precedence [:help]])
+      ;; At leaf [:authenticated :dashboard]: explicit miss → :* hit. The
+      ;; runtime stops walking; parent's explicit :help is shadowed.
+      (is (= [:leaf-wildcard] @log)
+          "leaf-level :* fired, parent's explicit :help shadowed (per-level rule)")
+      (is (not (some #{:parent-explicit} @log))
+          "parent's explicit handler must NOT fire when leaf :* matched")))
+
+  (testing "parent fallthrough still works when leaf has neither explicit nor :*"
+    (let [log (atom [])
+          tag (fn [k] (fn [_ _] (swap! log conj k) {}))
+          machine
+          {:initial :authenticated
+           :data    {}
+           :actions {:parent-explicit (tag :parent-explicit)
+                     :parent-wildcard (tag :parent-wildcard)}
+           :states
+           {:authenticated
+            {:initial :dashboard
+             :on      {:help {:action :parent-explicit}
+                       :*    {:action :parent-wildcard}}    ;; both at parent
+             :states
+             {:dashboard {}}}}}]                            ;; leaf has no :on
+      (rf/reg-machine :rf2-fhb9/parent-walk machine)
+      (reset! log [])
+      ;; :help at parent — explicit beats parent's own :*.
+      (rf/dispatch-sync [:rf2-fhb9/parent-walk [:help]])
+      (is (= [:parent-explicit] @log)
+          "explicit at the matching level beats :* at the same level")
+      ;; :unknown at parent — falls through to parent's :*.
+      (reset! log [])
+      (rf/dispatch-sync [:rf2-fhb9/parent-walk [:unknown]])
+      (is (= [:parent-wildcard] @log)
+          "no explicit anywhere — parent's :* fires"))))
+
 ;; ---- (2) :always microsteps -----------------------------------------------
 ;; Mirrors always-single-microstep.edn (single guarded fire, atomic commit)
 ;; and always-depth-exceeded.edn (cycle hits the bounded depth limit).
