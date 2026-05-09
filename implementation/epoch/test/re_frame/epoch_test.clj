@@ -1227,3 +1227,194 @@
                 "ex-data carries :reason as a string")))
         (finally
           (late-bind/set-fn! hook-key original))))))
+
+;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
+;;
+;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
+;;   - read-shaped surfaces return empty/nil:
+;;       (rf/epoch-history destroyed)  → []
+;;       (rf/get-frame-db   destroyed) → nil
+;;   - mutate-shaped surfaces raise :rf.error/no-such-handler (kind :frame):
+;;       (rf/restore-epoch    destroyed _) → false + :rf.error/no-such-handler
+;;       (rf/reset-frame-db!  destroyed _) → false + :rf.error/no-such-handler
+;;   - listener silencing emits one-shot :rf.epoch.cb/silenced-on-frame-destroy
+;;     when a frame previously observed by a register-epoch-cb callback is
+;;     destroyed.
+
+(deftest destroyed-frame-epoch-history-returns-empty
+  (testing "(rf/epoch-history frame-id) returns [] for a destroyed frame
+            and for a never-registered frame — the read-empty contract"
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (is (seq (rf/epoch-history :test/short-lived))
+        "before destroy, the frame has at least one recorded epoch")
+
+    (rf/destroy-frame :test/short-lived)
+    (is (= [] (rf/epoch-history :test/short-lived))
+        "after destroy, epoch-history returns the empty vector")
+    (is (= [] (rf/epoch-history :no/such/frame))
+        "for a never-registered frame, epoch-history returns the empty vector")))
+
+(deftest destroyed-frame-get-frame-db-returns-nil
+  (testing "(rf/get-frame-db frame-id) returns nil for a destroyed frame
+            and for a never-registered frame"
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (is (some? (rf/get-frame-db :test/short-lived))
+        "before destroy, get-frame-db returns the live app-db")
+
+    (rf/destroy-frame :test/short-lived)
+    (is (nil? (rf/get-frame-db :test/short-lived))
+        "after destroy, get-frame-db returns nil")
+    (is (nil? (rf/get-frame-db :no/such/frame))
+        "for a never-registered frame, get-frame-db returns nil")))
+
+(deftest destroyed-frame-restore-epoch-raises-no-such-handler
+  (testing "(rf/restore-epoch destroyed _) emits :rf.error/no-such-handler
+            (kind :frame) and returns false"
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (let [eid (-> (rf/epoch-history :test/short-lived) first :epoch-id)]
+      (rf/destroy-frame :test/short-lived)
+      (let [recorded (record-trace!)
+            ok?      (rf/restore-epoch :test/short-lived eid)]
+        (is (false? ok?)
+            "restore returns false for a destroyed frame")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev)))
+              "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame-id (:tags ev)))
+              "tags carry :frame-id"))))))
+
+(deftest destroyed-frame-reset-frame-db!-raises-no-such-handler
+  (testing "(rf/reset-frame-db! destroyed _) emits :rf.error/no-such-handler
+            (kind :frame) and returns false — already covered by
+            reset-frame-db!-failure-unknown-frame; this test pins the
+            destroyed-frame race specifically (the frame existed, then
+            was destroyed)"
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (rf/destroy-frame :test/short-lived)
+
+    (let [recorded (record-trace!)
+          ok?      (rf/reset-frame-db! :test/short-lived {:n 999})]
+      (is (false? ok?)
+          "reset-frame-db! returns false for a destroyed frame")
+      (is (has-error-op? @recorded :rf.error/no-such-handler)
+          ":rf.error/no-such-handler fired")
+      (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                     @recorded)]
+        (is (= :frame (:kind (:tags ev))))
+        (is (= :test/short-lived (:frame-id (:tags ev))))))))
+
+(deftest destroyed-frame-silences-epoch-cb-listener
+  (testing "A register-epoch-cb callback that observed a frame receives
+            a one-shot :rf.epoch.cb/silenced-on-frame-destroy trace when
+            that frame is destroyed. Subsequent destroys of the same
+            frame do not re-emit. The callback registration itself
+            remains in place."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+
+    (let [received (atom [])
+          recorded (record-trace!)]
+      (rf/register-epoch-cb ::watcher
+                            (fn [r] (swap! received conj r)))
+      ;; Drive a cascade so the cb observes the frame.
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (is (= 1 (count @received))
+          "the cb received the seed cascade record")
+      (is (= :test/short-lived (:frame (first @received)))
+          "the observed record was for :test/short-lived")
+
+      ;; Destroy the frame; expect a single silencing trace.
+      (rf/destroy-frame :test/short-lived)
+      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                 (:operation %))
+                             @recorded)]
+        (is (= 1 (count silenced))
+            "exactly one :rf.epoch.cb/silenced-on-frame-destroy fired")
+        (let [ev (first silenced)]
+          (is (= :rf.epoch.cb (:op-type ev))
+              ":op-type is :rf.epoch.cb")
+          (is (= :test/short-lived (:frame-id (:tags ev)))
+              "tags carry :frame-id")
+          (is (= ::watcher (:cb-id (:tags ev)))
+              "tags carry :cb-id")))
+
+      ;; The cb is still registered — re-create the frame, drive a
+      ;; cascade, the cb fires again.
+      (rf/reg-frame :test/short-lived {})
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (is (= 2 (count @received))
+          "the same cb continues to fire after the frame is re-registered")
+
+      ;; Destroying again emits a fresh silencing trace (the cb's
+      ;; observation set was re-armed when the second cascade landed).
+      (rf/destroy-frame :test/short-lived)
+      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                 (:operation %))
+                             @recorded)]
+        (is (= 2 (count silenced))
+            "a second silencing trace fires for the second destroy")))))
+
+(deftest destroyed-frame-silenced-trace-is-one-shot
+  (testing "A repeat destroy of an already-destroyed frame does NOT
+            re-emit :rf.epoch.cb/silenced-on-frame-destroy"
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+
+    (let [recorded (record-trace!)]
+      (rf/register-epoch-cb ::watcher (fn [_] nil))
+      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+      (rf/destroy-frame :test/short-lived)
+
+      (let [silenced-after-first (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                             (:operation %))
+                                         @recorded)]
+        (is (= 1 (count silenced-after-first)))
+
+        ;; The frame is already destroyed; calling destroy again should be
+        ;; a no-op (the frame record is gone). Verify no new silencing trace.
+        (rf/destroy-frame :test/short-lived)
+        (let [silenced-after-second (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                                (:operation %))
+                                            @recorded)]
+          (is (= 1 (count silenced-after-second))
+              "second destroy does NOT re-emit the silencing trace"))))))
+
+(deftest destroyed-frame-silencing-skipped-when-cb-never-observed
+  (testing "A register-epoch-cb callback that has never received a record
+            for the destroyed frame does NOT receive a silencing trace
+            (there is nothing to silence)"
+    (rf/reg-frame :test/observed     {})
+    (rf/reg-frame :test/never-seen-by-cb {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+
+    (let [recorded (record-trace!)]
+      (rf/register-epoch-cb ::watcher (fn [_] nil))
+      ;; cb observes :test/observed but NOT :test/never-seen-by-cb
+      (rf/dispatch-sync [:seed] {:frame :test/observed})
+
+      ;; Destroy the frame the cb never saw — no silencing trace.
+      (rf/destroy-frame :test/never-seen-by-cb)
+      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                 (:operation %))
+                             @recorded)]
+        (is (= 0 (count silenced))
+            "no silencing trace for a frame the cb never observed"))
+
+      ;; Destroying the cb's observed frame DOES emit silencing.
+      (rf/destroy-frame :test/observed)
+      (let [silenced (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
+                                 (:operation %))
+                             @recorded)]
+        (is (= 1 (count silenced))
+            "silencing fires for the observed frame")))))
