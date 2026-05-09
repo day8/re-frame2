@@ -830,6 +830,31 @@ The CLJS-reference code follows the same per-contract-fn shape as the Reagent ad
 
 Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent adapter's — the contract is genuinely substrate-agnostic.
 
+## CLJS reference: Helix as alternative substrate (rf2-2qit)
+
+The Helix adapter ships in `day8/re-frame-2-helix` and implements the same nine-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
+
+Per [rf2-2qit](#) the locked decisions (2026-05-10) transfer one-for-one from [rf2-3yij](#) — the React + hooks substrate model is the same:
+
+1. **Hook naming.** `use-subscribe` (matches the React/Helix idiom).
+2. **Frame propagation.** Reads the same React Context object the Reagent and UIx adapters consume (`re-frame.substrate.context/frame-context` in core).
+3. **Auto-injection.** None. Components call `(use-subscribe [:foo])` and `(rf/dispatcher)` directly.
+4. **`reg-view` macro scope.** Stays Reagent-only; Helix users register registry-keyed views via `reg-view*` (the plain-fn surface) when they need it. Most Helix components are bare `defnc` and don't need registry addressing.
+5. **Source-coord DOM annotation.** The Helix adapter wraps user components in a thin layer that calls `React.cloneElement` to add `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element when `interop/debug-enabled?` is true. Production-elision contract per rf2-z7f7: under `:advanced` + `goog.DEBUG=false` the entire wrapper branch DCEs. Same Fragment / non-DOM-root exemption as the UIx adapter.
+6. **Render flush for tests.** `flush-views!` wrapping React's `act()` — same surface as the UIx adapter.
+7. **Smoke-test example set.** counter + login (under `examples/helix/counter_helix/` and `examples/helix/login_helix/`). Realworld is skipped — same rationale as UIx (heavy with Reagent-flavoured idioms; deferred until a Helix user wants it).
+8. **Helix version target.** Helix 0.2.x (the latest published Helix release line). Older Helix versions are explicitly out of scope.
+
+Implementation notes:
+
+- `make-state-container` returns a `clojure.core/atom` rather than a Reagent `r/atom` — Helix has no built-in reactive atom primitive (same as UIx). View-side reactivity flows through `useSyncExternalStore` in `use-subscribe`.
+- `make-derived-value` returns an `IDeref`+`IWatchable` wrapper that recomputes on deref and broadcasts changes via the source containers' watch machinery — structurally identical to the UIx adapter.
+- `render` wraps `react-dom/client.createRoot` + `root.render` (Helix doesn't ship a `helix.dom/render-root` wrapper of its own; the lower-level call is the cross-version-stable path).
+- `register-context-provider` returns a Helix `defnc` component reading the shared `frame-context` via `helix.hooks/use-context`.
+- `use-subscribe` calls `React.useSyncExternalStore` directly because `helix.hooks` doesn't ship a `use-syncExternalStore` wrapper (Helix is the minimal-wrapper substrate); deps are wired through `helix.hooks/use-memo*` / `use-callback*` (the function-form hooks) so the adapter doesn't pull in Helix's macro layer.
+
+Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent and UIx adapters' — the contract is genuinely substrate-agnostic, and the Helix port surfaces no friction against the rf2-3yij decision set.
+
 ## Subscription topology vs subscription tracking
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
@@ -863,7 +888,7 @@ The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Convent
 - **`day8/re-frame-2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per [rf2-3yij](#) Decision 2) the shared React frame Context object at `re-frame.substrate.context` that every React-shaped substrate adapter consumes.
 - **`day8/re-frame-2-reagent`** — the **Reagent adapter** (browser default).
 - **`day8/re-frame-2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
-- **`day8/re-frame-2-helix`** — the Helix adapter, when [rf2-2qit](#) lands.
+- **`day8/re-frame-2-helix`** — the **Helix adapter** (rf2-2qit). Targets Helix 0.2.x; ships the same `use-subscribe` hook, `flush-views!` test-flush helper, source-coord wrapping component, and shared-context `frame-provider` as the UIx adapter. Apps written for Helix call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model.
 
 Per-host adapters for non-CLJS implementations (TS+React, TS+Solid, Vue, Python+RxPy, etc.) ship as separate packages, implementing the same contract — the per-substrate-artefact pattern is host-language-agnostic.
 

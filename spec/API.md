@@ -104,6 +104,26 @@ The shared React Context that backs `frame-provider` lives in `re-frame.substrat
 
 ---
 
+## Helix adapter (Spec 006, rf2-2qit)
+
+Helix-specific surfaces live in `re-frame.substrate.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.substrate.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `helix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
+| `helix-adapter/use-subscribe` | Fn (Helix hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
+| `helix-adapter/use-current-frame` | Fn (Helix hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
+| `helix-adapter/frame-provider` | Fn (Helix component) | `($ helix-adapter/frame-provider {:frame :session :children […]})` | v1 | 002, 006 |
+| `helix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
+| `helix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
+| `helix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent and UIx adapters' late-bind seam) | v1 | 006, 011 |
+
+Per rf2-2qit (transferring rf2-3yij Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
+
+The shared React Context that backs `frame-provider` lives in `re-frame.substrate.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent, UIx, and Helix adapters all consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
+
+---
+
 ## Routing (Spec 012)
 
 | API | M/Fn | Signature | Status | Spec |
