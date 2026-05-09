@@ -1554,6 +1554,26 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
+### O-14. Switch a Reagent app to Helix via the `day8/re-frame-2-helix` adapter (rf2-2qit)
+
+re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
+
+**What changes.**
+
+- **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-helix` (lockstep version with core).
+- **Adapter install.** Drop the `[re-frame.substrate.reagent]` `:require` and add `[re-frame.substrate.helix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
+- **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-2qit Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
+- **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
+- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
+- **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(helix.hooks/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body.
+- **Frame-provider.** `[rf/frame-provider {:frame :session} children…]` becomes the Helix adapter's `($ helix-adapter/frame-provider {:frame :session :children […]})`. All three React-shaped adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
+- **Test flush.** Reagent tests calling `r/flush` become Helix tests calling `(helix-adapter/flush-views!)` — wraps React's `act()`.
+- **DOM helpers.** Helix ships `helix.dom` (`d/div`, `d/span`, `d/button`, etc.) as the idiomatic way to emit React elements from CLJS without the `$ :div ...` shape. UIx users keep the `$ :div` form; the choice is per-substrate idiom, not a re-frame contract.
+
+**What stays the same.** Same as O-13 (UIx) — events, subs, fx, machines, schemas, routing, flows, http-managed, ssr, and trace surfaces are substrate-agnostic per [Spec 006 §The boundary](006-ReactiveSubstrate.md#the-boundary). Migration cost lives entirely in the view layer.
+
+The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
+
 ---
 
 ## What stays the same (do not change these)
