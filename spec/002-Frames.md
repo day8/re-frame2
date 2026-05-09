@@ -141,6 +141,7 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 - Stops the router.
 - Fires `:on-destroy` events before teardown if specified.
 - Subsequent `(dispatch [...] {:frame :todo})` / `(subscribe [...] {:frame :todo})` to a destroyed frame throws a clear, machine-readable error: `{:reason :frame-destroyed :frame :todo}`.
+- Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); listener silencing emits a one-shot trace) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
 ### Re-registration — surgical update
 
