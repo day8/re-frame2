@@ -34,6 +34,14 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            ;; rf2-k682: this test lives in the routing artefact's test
+            ;; classpath, so requiring re-frame.routing here is the
+            ;; primary trigger that loads the namespace and fires its
+            ;; late-bind hook registrations + framework `:rf.route/*`
+            ;; reg-sub installations. Without this require the
+            ;; rf/reg-route call below would throw
+            ;; :rf.error/routing-artefact-missing.
+            [re-frame.routing]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]))
 

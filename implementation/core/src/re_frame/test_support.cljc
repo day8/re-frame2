@@ -12,7 +12,8 @@
   which is fundamentally hostile to CLJS isolation:
 
     - `re-frame.routing` registers `:rf/url-changed`, `:rf.route/navigate`,
-      `:rf.nav/scroll` (and friends) at ns-load.
+      `:rf.nav/scroll`, the `:rf/route` and `:rf.route/{id,params,query,
+      transition,error}` reg-subs (and friends) at ns-load.
     - `re-frame.machines` registers the `:rf/machine` sub at ns-load.
     - Example apps (e.g. `nine-states.core`) register their handlers /
       subs / views / machines at ns-load.
@@ -144,8 +145,10 @@
        the test (or to a separate fixture).
     7. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter live
-       — e.g. resetting routing counters via
-       `(routing/reset-counters!)`.
+       — e.g. seeding test data into the just-installed adapter's
+       app-db. (Routing's reg-counter and the machines spawn-counter
+       are reset automatically when their respective artefacts are on
+       the classpath; see steps 4 and the late-bind block above.)
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
    10. Resets `frame/frames`, `flows/flows`, and
@@ -213,6 +216,14 @@
          ;; no-op (correct: there is no counter state to reset).
          ;; Per rf2-xbtj — machines ships in day8/re-frame-2-machines.
          (when-let [reset-counters! (late-bind/get-fn :machines/reset-counters!)]
+           (reset-counters!))
+         ;; Late-bind: when the routing artefact is loaded, reset the
+         ;; route registration counter so reg-index is deterministic
+         ;; across fixture runs. When it isn't, the hook returns nil
+         ;; and this is a no-op (correct: there is no counter state to
+         ;; reset). Per rf2-k682 — routing ships in
+         ;; day8/re-frame-2-routing.
+         (when-let [reset-counters! (late-bind/get-fn :routing/reset-counters!)]
            (reset-counters!))
          (trace/clear-trace-cbs!)
          (when adapter
