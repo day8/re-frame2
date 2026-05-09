@@ -122,6 +122,21 @@ const DEV_ONLY_SENTINELS = [
   // from the currently-registered machine's :version. Must elide.
   { source: 're-frame.epoch/restore-epoch (rf.epoch/restore-version-mismatch)',
     sentinel: 'rf.epoch/restore-version-mismatch' },
+  // re-frame.epoch — :rf.epoch/db-replaced trace op (Tool-Pair §Pair-tool
+  // writes, rf2-zq55). Emitted by reset-frame-db! on the success path.
+  // The whole reset-frame-db! body is gated by an
+  // `(if-not interop/debug-enabled? false ...)` early-return; the success
+  // arm and its string sentinel must elide under :advanced.
+  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/db-replaced)',
+    sentinel: 'rf.epoch/db-replaced' },
+  // re-frame.epoch — :rf.epoch/reset-frame-db-during-drain failure mode
+  // (rf2-zq55). Same elision gate as the success path.
+  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/reset-frame-db-during-drain)',
+    sentinel: 'rf.epoch/reset-frame-db-during-drain' },
+  // re-frame.epoch — :rf.epoch/reset-frame-db-schema-mismatch failure
+  // mode (rf2-zq55). Same elision gate.
+  { source: 're-frame.epoch/reset-frame-db! (rf.epoch/reset-frame-db-schema-mismatch)',
+    sentinel: 'rf.epoch/reset-frame-db-schema-mismatch' },
   // re-frame.views — :view/render trace op (Spec 004 §Render-tree
   // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit
