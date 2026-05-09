@@ -641,3 +641,72 @@
                         [[:n] :pending-dispose]))
           "resubscribe cancels the pending-dispose"))
     (rf/configure :sub-cache {:grace-period-ms 50})))
+
+;; ---- restore-epoch reactive surfaces (Tool-Pair §Time-travel, rf2-2fat) ---
+;;
+;; Per Tool-Pair §Time-travel + Spec 006 §Subscription cache:
+;; restore-epoch goes through adapter/replace-container! — the same
+;; choke point used by the drain loop's :db commit. On the Reagent
+;; substrate, that means a reaction held across a restore observes
+;; the rewound value through Reagent's reactive graph, exactly as
+;; it does for a normal event commit.
+;;
+;; The JVM-side epoch_test.clj covers subscribe-value / pinned-reaction
+;; semantics under the plain-atom adapter (every deref recomputes,
+;; so observable equivalence is straightforward). This test pins the
+;; same contract under the Reagent reactive substrate where the
+;; reaction itself caches and only re-runs when its source changes
+;; by =.
+
+(deftest restore-rewinds-reagent-reaction
+  (testing "a Reagent-backed reaction held across restore-epoch derefs
+  to the restored value — proving the restore goes through the same
+  reactive-graph notification path as a drain :db commit."
+    (rf/reg-frame :restore/cljs {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    (rf/dispatch-sync [:seed] {:frame :restore/cljs})  ;; n=0
+    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=1
+    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=2
+    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=3
+
+    (let [r       (rf/subscribe :restore/cljs [:n])
+          _       (is (= 3 @r) "the reaction sees current value before restore")
+          history (rf/epoch-history :restore/cljs)
+          target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
+                        history)]
+      (is (true? (rf/restore-epoch :restore/cljs (:epoch-id target))))
+      (is (= 1 @r)
+          "the same reaction handle observes the rewound value after restore")
+      (rf/unsubscribe :restore/cljs [:n]))))
+
+(deftest restore-reagent-frame-isolation
+  (testing "restoring frame A does not cause frame B's reactions to
+  re-derive to a different value. Frame-isolation under the reactive
+  substrate."
+    (rf/reg-frame :restore/a {})
+    (rf/reg-frame :restore/b {})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    (rf/dispatch-sync [:seed 0]   {:frame :restore/a})
+    (rf/dispatch-sync [:inc]      {:frame :restore/a})  ;; a-n=1
+    (rf/dispatch-sync [:inc]      {:frame :restore/a})  ;; a-n=2
+    (rf/dispatch-sync [:seed 100] {:frame :restore/b})
+    (rf/dispatch-sync [:inc]      {:frame :restore/b})  ;; b-n=101
+
+    (let [a-r       (rf/subscribe :restore/a [:n])
+          b-r       (rf/subscribe :restore/b [:n])
+          _         (is (= 2   @a-r))
+          _         (is (= 101 @b-r))
+          a-history (rf/epoch-history :restore/a)
+          a-target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
+                          a-history)]
+      (is (true? (rf/restore-epoch :restore/a (:epoch-id a-target))))
+      (is (= 1   @a-r) "frame A's reaction sees the rewound value")
+      (is (= 101 @b-r) "frame B's reaction is unaffected by the cross-frame restore")
+      (rf/unsubscribe :restore/a [:n])
+      (rf/unsubscribe :restore/b [:n]))))
