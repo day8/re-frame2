@@ -38,7 +38,7 @@
  ;; the route ids and params are. This isolates the multi-frame property
  ;; from per-fixture nav-token allocation order.
  {:final-app-dbs
-  {:tab.left  {:route {:id :route/home :params {} :query {} :fragment nil
-                       :transition :idle :error nil}}
-   :tab.right {:route {:id :route/article :params {:id "intro"} :query {}
-                       :fragment nil :transition :idle :error nil}}}}}
+  {:tab.left  {:rf/route {:id :route/home :params {} :query {} :fragment nil
+                          :transition :idle :error nil}}
+   :tab.right {:rf/route {:id :route/article :params {:id "intro"} :query {}
+                          :fragment nil :transition :idle :error nil}}}}}

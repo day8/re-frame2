@@ -4,12 +4,12 @@
 {:fixture/id           :routing/navigate
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler :core/fx}
- :fixture/doc          "User-initiated navigation: dispatch [:rf.route/navigate :route-id params]. Updates app-db's :route slice and emits a :rf.nav/push-url effect with the URL."
+ :fixture/doc          "User-initiated navigation: dispatch [:rf.route/navigate :route-id params]. Updates app-db's :rf/route slice and emits a :rf.nav/push-url effect with the URL."
 
  :fixture/registry
  {:event {:rf/init        {:doc "Seed."}
           :rf.route/navigate {:doc "Navigate to a registered route."}}
-  :sub   {:route          {:doc "Current route."}}
+  :sub   {:rf/route       {:doc "Current route."}}
   :route {:route/home          {:path "/"}
           :route/articles      {:path "/articles"}
           :route/article-detail {:path "/articles/:id"
@@ -21,8 +21,8 @@
  ;; route-url and emits :rf.nav/push-url, which is exactly what
  ;; :effects-routed asserts.
  :fixture/handlers
- {:event {:rf/init [[:set [:route] {:id :route/home :params {}}]]}
-  :sub   {:route [[:get [:route]]]}
+ {:event {:rf/init [[:set [:rf/route] {:id :route/home :params {}}]]}
+  :sub   {:rf/route [[:get [:rf/route]]]}
   :fx    {:rf.nav/push-url [[:noop]]}}
 
  ;; :rf.nav/push-url declares :platforms #{:client}; the frame runs on the
@@ -40,13 +40,13 @@
  ;; :error. The :final-app-db submap match tolerates the additional keys;
  ;; the :sub-values check is exact, so the expected slice mirrors what
  ;; the runtime writes.
- {:final-app-db {:route {:id :route/article-detail :params {:id "intro"}}}
+ {:final-app-db {:rf/route {:id :route/article-detail :params {:id "intro"}}}
 
-  :sub-values   {[:route] {:id         :route/article-detail
-                           :params     {:id "intro"}
-                           :query      {}
-                           :transition :idle
-                           :error      nil}}
+  :sub-values   {[:rf/route] {:id         :route/article-detail
+                              :params     {:id "intro"}
+                              :query      {}
+                              :transition :idle
+                              :error      nil}}
 
   :effects-routed
   [{:fx-id :rf.nav/push-url :args "/articles"}

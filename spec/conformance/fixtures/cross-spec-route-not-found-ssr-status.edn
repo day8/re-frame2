@@ -50,11 +50,11 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Submap match: the :route slice carries the not-found marker, the
+ ;; Submap match: the :rf/route slice carries the not-found marker, the
  ;; on-match analytics ran, and :rf/response carries the projector's
  ;; locked 404 status.
  {:final-app-db
-  {:route       {:id     :rf.route/not-found
+  {:rf/route    {:id     :rf.route/not-found
                  :params {:url "/missing"}
                  :query  {}
                  :error  nil}

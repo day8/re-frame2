@@ -15,7 +15,7 @@
 {:fixture/id           :routing/stale-nav-token-suppression
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/nav-token}
- :fixture/doc          "Load route :route/article id=A; before A's :on-match dispatches a continuation, navigate to id=B (fresh token). A's continuation arrives carrying the stale token; the framework cofx checks it against the current token and suppresses; trace event :route.nav-token/stale-suppressed emits; no commit, no transition. The :route slice reflects only the B navigation."
+ :fixture/doc          "Load route :route/article id=A; before A's :on-match dispatches a continuation, navigate to id=B (fresh token). A's continuation arrives carrying the stale token; the framework cofx checks it against the current token and suppresses; trace event :route.nav-token/stale-suppressed emits; no commit, no transition. The :rf/route slice reflects only the B navigation."
 
  :fixture/registry
  {:route
@@ -40,7 +40,7 @@
                   :url    "/api/articles"
                   :on-success [:rf.route/with-nav-token
                                {:do        [:dispatch [:article/loaded "captured-id" "payload"]]
-                                :nav-token [:get [:route :nav-token]]}]}]]]]
+                                :nav-token [:get [:rf/route :nav-token]]}]}]]]]
 
    :article/loaded
    ;; The receiving handler runs ONLY if the :nav-token cofx-validator passed.
@@ -70,9 +70,9 @@
 
  :fixture/expect
  {:final-app-db
-  {:route   {:id :route/article :params {:id "B"} :query {} :fragment nil
-             :transition :idle :error nil :nav-token "nav-2"}
-   :article "B-payload"}                              ;; A's payload was suppressed
+  {:rf/route {:id :route/article :params {:id "B"} :query {} :fragment nil
+              :transition :idle :error nil :nav-token "nav-2"}
+   :article  "B-payload"}                             ;; A's payload was suppressed
 
   :trace-emissions
   [;; Token allocated for A

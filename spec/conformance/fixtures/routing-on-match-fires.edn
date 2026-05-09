@@ -41,7 +41,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:route    {:id :route/cart :params {} :query {} :fragment nil
+  {:rf/route {:id :route/cart :params {} :query {} :fragment nil
               :transition :idle :error nil}
    :load-log [:cart/load-items :user/load-prefs]}
 

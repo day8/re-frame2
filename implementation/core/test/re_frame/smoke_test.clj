@@ -840,7 +840,7 @@
 
       (rf/reg-event-fx :rf/server-init
         (fn [{:keys [db]} [_ _request]]
-          {:db (assoc db :route {:id :route/articles})
+          {:db (assoc db :rf/route {:id :route/articles})
            :fx [[:http/get {:url "/api/articles"
                             :on-success [:articles/loaded]}]]}))
       (rf/reg-event-db :articles/loaded

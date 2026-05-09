@@ -9,7 +9,7 @@
   (:require [re-frame.core :as rf]))
 
 (defn home-query [db]
-  (get-in db [:route :query] {}))
+  (get-in db [:rf/route :query] {}))
 
 (rf/reg-event-fx :home/load
   (fn [{:keys [db]} _]

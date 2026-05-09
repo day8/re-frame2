@@ -3,7 +3,7 @@
 
   Routes are registry entries (kind :route) keyed by user route-id.
   Navigation is an event (:rf.route/navigate); URL changes are events
-  (:rf/url-changed). The :route slice in app-db carries
+  (:rf/url-changed). The :rf/route slice in app-db carries
   {:id :params :query :fragment :transition :error :nav-token}.
 
   Path-pattern grammar (per Spec 012):
@@ -553,7 +553,7 @@
 ;; Per Spec 012 §Scroll restoration: the runtime captures scroll positions
 ;; per URL on every navigation so a later :restore strategy can re-apply
 ;; them. Per Spec 012 §Multi-frame routing the saved-position map is
-;; per-frame (each frame's :route slice is independent and the URL it
+;; per-frame (each frame's :rf/route slice is independent and the URL it
 ;; remembers is its own). The map lives in app-db at
 ;; [:rf.route/scroll-positions]; helpers below work against a db value.
 
@@ -572,7 +572,7 @@
 
 (defn- route-descriptor
   "Build the {:id :params :query} descriptor used by :rf.nav/scroll's
-  :from / :to args from a :route slice (or nil if no slice yet)."
+  :from / :to args from a :rf/route slice (or nil if no slice yet)."
   [route-slice]
   (when (and route-slice (:id route-slice))
     (cond-> {:id (:id route-slice)}
@@ -645,12 +645,12 @@
           ;; reads the per-frame map under [:rf.route/scroll-positions].
           scroll-fx   (scroll-fx-entry
                         {:strategy  strategy
-                         :from      (route-descriptor (:route db))
+                         :from      (route-descriptor (:rf/route db))
                          :to        to-route
                          :saved-pos (when (= :restore strategy)
                                       (lookup-scroll-position db url))
                          :fragment  fragment})]
-      {:db (assoc db :route
+      {:db (assoc db :rf/route
                   {:id         route-id
                    :params     path-params
                    :query      query-params
@@ -724,7 +724,7 @@
 (events/reg-event-fx :rf/url-requested
   (fn [{:keys [db frame]} [_ {:keys [url] :as request}]]
     (let [m              (match-url url)
-          current-route  (:route db)
+          current-route  (:rf/route db)
           current-meta   (registrar/lookup :route (:id current-route))
           ok?            (can-leave? (or frame :rf/default) current-meta)]
       (cond
@@ -758,7 +758,7 @@
 ;; allocates a fresh nav-token on every full navigation. Async handlers
 ;; (typically :http :on-success) capture the token at request time and
 ;; thread it back when their response arrives. The runtime checks the
-;; carried token against the current :route.:nav-token; mismatch means
+;; carried token against the current :rf/route :nav-token; mismatch means
 ;; the navigation has moved on and the response is stale — suppress.
 ;;
 ;; :rf.test/simulate-http-resolution is a test-only event the conformance
@@ -768,7 +768,7 @@
 
 (events/reg-event-fx :rf.test/simulate-http-resolution
   (fn [{:keys [db]} [_ {:keys [on-success-event carried-nav-token]}]]
-    (let [current (get-in db [:route :nav-token])]
+    (let [current (get-in db [:rf/route :nav-token])]
       (cond
         (= carried-nav-token current)
         ;; Token matches — dispatch the continuation.
@@ -793,7 +793,7 @@
     ;; nav-token, write new slice, fire :on-match.
     (let [[path-q fragment] (split-fragment url)
           m                 (match-url path-q)
-          prev              (:route db)
+          prev              (:rf/route db)
           fragment-only?    (and prev m
                                  (= (:id prev)     (:route-id m))
                                  (= (:params prev) (:params m))
@@ -813,7 +813,7 @@
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})
-            {:db (assoc-in db [:route :fragment] fragment)})
+            {:db (assoc-in db [:rf/route :fragment] fragment)})
 
         (some? m)
         (let [route-meta    (registrar/lookup :route (:route-id m))
@@ -840,7 +840,7 @@
           (trace/emit! :event :route.nav-token/allocated
                        {:route-id  (:route-id m)
                         :nav-token token})
-          {:db (assoc db' :route
+          {:db (assoc db' :rf/route
                       {:id         (:route-id m)
                        :params     (:params m)
                        :query      (:query m)
@@ -883,12 +883,12 @@
             strategy     (resolve-scroll-strategy route-meta nil :restore)
             scroll-fx    (scroll-fx-entry
                            {:strategy  strategy
-                            :from      (route-descriptor (:route db))
+                            :from      (route-descriptor (:rf/route db))
                             :to        to-route
                             :saved-pos (when (= :restore strategy)
                                          (lookup-scroll-position db url))
                             :fragment  fragment})]
-        {:db (assoc db :route
+        {:db (assoc db :rf/route
                     {:id         route-id
                      :params     params
                      :query      query
@@ -943,7 +943,7 @@ unknown strategies as :preserve (no-op)."}
 ;; ---- framework-shipped subs over the slice -------------------------------
 ;;
 ;; Per Spec 012 the framework ships `:rf/route` (the layer-1 read of the
-;; :route slice) and the layer-2 derivations `:rf.route/{id,params,query,
+;; :rf/route slice) and the layer-2 derivations `:rf.route/{id,params,query,
 ;; transition,error}`. Per rf2-k682 these subs ship in this artefact
 ;; (rather than `re-frame.core`) so apps that don't pull
 ;; `day8/re-frame-2-routing` carry neither the registration metadata nor
@@ -955,11 +955,11 @@ unknown strategies as :preserve (no-op)."}
 ;; namespace's `:rf/machine` reg-sub uses.
 
 (defn route-sub-fn
-  "Layer-1 sub fn for :route — reads the slice from app-db. Exposed
+  "Layer-1 sub fn for :rf/route — reads the slice from app-db. Exposed
   publicly so external callers (smoke tests, tooling) can recover the
   same projection without re-deriving it."
   [db _query]
-  (:route db))
+  (:rf/route db))
 
 (subs/reg-sub :rf/route route-sub-fn)
 (subs/reg-sub :rf.route/id         :<- [:rf/route] (fn [route _] (:id route)))

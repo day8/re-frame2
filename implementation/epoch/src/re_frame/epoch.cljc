@@ -582,7 +582,7 @@
       (when-not (machine-registration machine-id)
         (swap! missing conj {:kind :machine :id machine-id})))
     ;; Active route
-    (when-let [route-id (get-in db [:route :id])]
+    (when-let [route-id (get-in db [:rf/route :id])]
       (when-not (registrar/lookup :route route-id)
         (swap! missing conj {:kind :route :id route-id})))
     @missing))

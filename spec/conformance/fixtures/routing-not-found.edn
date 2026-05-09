@@ -38,7 +38,7 @@
   ;; :transition is implementation-defined here (some runtimes leave
   ;; :loading after on-match drain; others normalise to :idle). Partial-
   ;; match — assert the locked fields only.
-  {:route     {:id     :rf.route/not-found
+  {:rf/route  {:id     :rf.route/not-found
                :params {:url "/garbage/path"}
                :query  {}
                :error  nil}

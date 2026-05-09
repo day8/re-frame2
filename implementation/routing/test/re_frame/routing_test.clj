@@ -5,7 +5,7 @@
   pin a few behaviours the conformance DSL doesn't express directly:
 
   - routing-bootstrap            — reg-route + dispatch :rf.route/navigate
-                                   updates the :route slice end-to-end
+                                   updates the :rf/route slice end-to-end
   - routing-pending-nav-protocol — full pause / continue / cancel
                                    walk-through (the conformance fixtures
                                    cover continue and cancel separately;
@@ -63,9 +63,9 @@
 ;; ---- Spec 012 §Navigation is an event -------------------------------------
 
 (deftest routing-bootstrap
-  (testing "reg-route + dispatch :rf.route/navigate writes the :route slice"
+  (testing "reg-route + dispatch :rf.route/navigate writes the :rf/route slice"
     ;; Per Spec 012 §Navigation is an event: dispatching :rf.route/navigate
-    ;; with a route-id + params updates :route.{id,params,query,...} and
+    ;; with a route-id + params updates :rf/route.{id,params,query,...} and
     ;; emits a :rf.nav/push-url effect.
     (rf/reg-route :route/home    {:path "/"})
     (rf/reg-route :route/article {:path   "/articles/:id"
@@ -76,9 +76,9 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
-      (let [slice (:route (rf/get-frame-db :rf/default))]
+      (let [slice (:rf/route (rf/get-frame-db :rf/default))]
         (is (= :route/article (:id slice))
-            "the :route slice carries the navigation target")
+            "the :rf/route slice carries the navigation target")
         (is (= {:id "intro"} (:params slice))
             ":params from the navigate vector landed in the slice")
         (is (= :idle (:transition slice))
@@ -115,7 +115,7 @@
     ;; 1. Land on the editor route. nav-token allocates; slice is set.
     (rf/dispatch-sync [:rf/url-changed "/editor/articles/A"])
     (is (= :editor/article (get-in (rf/get-frame-db :rf/default)
-                                   [:route :id]))
+                                   [:rf/route :id]))
         "initial nav landed on :editor/article")
 
     ;; 2. Dirty the form so :can-leave? returns false.
@@ -129,15 +129,15 @@
       (is (= "/cart" (get-in pending [:request :url]))
           "the requested URL is captured for resume")
       (is (= :editor/article
-             (get-in (rf/get-frame-db :rf/default) [:route :id]))
-          "the :route slice does NOT change when blocked"))
+             (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
+          "the :rf/route slice does NOT change when blocked"))
 
     ;; 4. CANCEL — slot clears; original route stays active.
     (rf/dispatch-sync [:rf.route/cancel "pn-1"])
     (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
         "cancel clears :rf/pending-navigation")
     (is (= :editor/article
-           (get-in (rf/get-frame-db :rf/default) [:route :id]))
+           (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
         "cancel does NOT navigate")
 
     ;; 5. Now block again — and CONTINUE this time.
@@ -147,7 +147,7 @@
     (rf/dispatch-sync [:rf.route/continue "pn-2"])
     (is (nil? (:rf/pending-navigation (rf/get-frame-db :rf/default)))
         "continue clears :rf/pending-navigation")
-    (is (= :route/cart (get-in (rf/get-frame-db :rf/default) [:route :id]))
+    (is (= :route/cart (get-in (rf/get-frame-db :rf/default) [:rf/route :id]))
         "continue completes the original navigation")))
 
 ;; ---- Spec 012 §Navigation tokens — stale-result suppression --------------
@@ -171,13 +171,13 @@
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
       (rf/dispatch-sync [:rf/url-changed "/articles/A"])
       (is (= "nav-1" (get-in (rf/get-frame-db :rf/default)
-                             [:route :nav-token]))
+                             [:rf/route :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's response lands, navigate to /articles/B → "nav-2".
       (rf/dispatch-sync [:rf/url-changed "/articles/B"])
       (is (= "nav-2" (get-in (rf/get-frame-db :rf/default)
-                             [:route :nav-token]))
+                             [:rf/route :nav-token]))
           "second navigation advanced the epoch to nav-2")
 
       ;; 3. A's stale response carries "nav-1"; current is "nav-2";

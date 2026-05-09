@@ -1,6 +1,6 @@
 ;; Conformance fixture: routing/fragment-change
 ;;
-;; The :route slice carries :fragment from the URL. Fragment-only changes update
+;; The :rf/route slice carries :fragment from the URL. Fragment-only changes update
 ;; the slice and emit :rf.route/url-changed but do NOT re-fire :on-match. Path
 ;; changes (with or without a different fragment) DO re-fire :on-match.
 ;;
@@ -40,7 +40,7 @@
 
  :fixture/expect
  {:final-app-db
-  {:route      {:id         :route/instrumentation
+  {:rf/route   {:id         :route/instrumentation
                 :params     {}
                 :query      {}
                 :fragment   "scroll-restoration"

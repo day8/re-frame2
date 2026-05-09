@@ -66,7 +66,7 @@
          data-fetch retry policy applies (Spec 014)."
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} _]
-    (let [slug (get-in db [:route :params :slug])]
+    (let [slug (get-in db [:rf/route :params :slug])]
       {:db (-> db
                (assoc :editor (assoc (editor-slice :edit slug blank-draft)
                                      :status :loading)))

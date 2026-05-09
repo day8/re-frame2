@@ -6,7 +6,7 @@
                                            drive the slice under the Reagent
                                            adapter; subscriptions resolve.
   - routing-frame-provider-routing-cljs  — multi-frame routing: each frame's
-                                           :route slice is independent, the
+                                           :rf/route slice is independent, the
                                            registry is shared, subscriptions
                                            resolve per-frame.
 
@@ -43,11 +43,11 @@
   (testing ":rf/url-changed drives the slice on CLJS"
     ;; Per Spec 012 §URL changes are events: the runtime's URL-driven
     ;; entry point is :rf/url-changed (or :rf.route/handle-url-change for
-    ;; SSR-equivalent code paths). Both write the :route slice from the
+    ;; SSR-equivalent code paths). Both write the :rf/route slice from the
     ;; URL and dispatch :on-match events. Subscriptions over the slice
     ;; resolve under the Reagent adapter.
     ;;
-    ;; Test isolation: a fresh frame so prior tests' :route slices don't
+    ;; Test isolation: a fresh frame so prior tests' :rf/route slices don't
     ;; leak in.
     (let [f (rf/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
@@ -59,9 +59,9 @@
       (rf/reg-event-db :cljs/article-load
                        (fn [db _] (assoc db :article-loaded? true)))
       (rf/reg-sub :rf.cljs.route/id
-                  (fn [db _] (get-in db [:route :id])))
+                  (fn [db _] (get-in db [:rf/route :id])))
       (rf/reg-sub :rf.cljs.route/params
-                  (fn [db _] (get-in db [:route :params])))
+                  (fn [db _] (get-in db [:rf/route :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf/url-changed "/cljs/articles/intro"] {:frame f})
@@ -79,14 +79,14 @@
       (is (= {:id "welcome"}
              (rf/subscribe-value f [:rf.cljs.route/params]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/get-frame-db f) [:route :nav-token]))
+      (is (some? (get-in (rf/get-frame-db f) [:rf/route :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------
 
 (deftest routing-frame-provider-routing-cljs
-  (testing "two frames carry independent :route slices over a shared registry"
-    ;; Per Spec 012 §Multi-frame routing: each frame's :route slice is
+  (testing "two frames carry independent :rf/route slices over a shared registry"
+    ;; Per Spec 012 §Multi-frame routing: each frame's :rf/route slice is
     ;; independent — same registered routes, different active route per
     ;; frame. Subscriptions resolve per-frame. This is the contract React
     ;; context-aware routing components rely on (story-variant frames,
@@ -95,7 +95,7 @@
     (rf/reg-route :route.cljs2/articles      {:path "/cljs2/articles"})
     (rf/reg-route :route.cljs2/article       {:path   "/cljs2/articles/:id"
                                               :params [:map [:id :string]]})
-    (rf/reg-sub :rf.cljs2/route (fn [db _] (:route db)))
+    (rf/reg-sub :rf.cljs2/route (fn [db _] (:rf/route db)))
 
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]
@@ -109,9 +109,9 @@
       (let [left-route  (rf/subscribe-value left  [:rf.cljs2/route])
             right-route (rf/subscribe-value right [:rf.cljs2/route])]
         (is (= :route.cljs2/articles (:id left-route))
-            "left frame's :route is :route.cljs2/articles")
+            "left frame's :rf/route is :route.cljs2/articles")
         (is (= :route.cljs2/article  (:id right-route))
-            "right frame's :route is :route.cljs2/article")
+            "right frame's :rf/route is :route.cljs2/article")
         (is (= {} (:params left-route))
             "left frame has no :params (collection route)")
         (is (= {:id "intro"} (:params right-route))
