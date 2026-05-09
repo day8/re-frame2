@@ -179,6 +179,14 @@
   ;; :advanced + goog.DEBUG=false the body must DCE; the operation
   ;; keyword's "view/render" string fragment must NOT survive.
   ;;
+  ;; Also per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1):
+  ;; the wrapper's source-coord injection branch sits inside the same
+  ;; `interop/debug-enabled?` gate; the format-source-coord output and
+  ;; the literal `data-rf2-source-coord` string fragment must NOT
+  ;; survive in the production bundle. The probe touches both the
+  ;; format helper (via reg-view*) and the wrapper render path so
+  ;; both are reachable in the control build but DCE'd in production.
+  ;;
   ;; The probe roots reachability by:
   ;;   1. requiring re-frame.views directly (forces the ns body and the
   ;;      gated emit-render-trace! body into the bundle);
@@ -187,6 +195,7 @@
   ;;   3. invoking the wrapper so the wrapper's body — including the
   ;;      gated emit — is reachable code, not just declared-but-dead.
   (rf/reg-view* :probe/render-key
+    {:ns 're-frame.elision-probe :file "probe.cljs" :line 1 :column 1}
     (fn render-probe [] [:span "probe"]))
   (let [wrapper (rf/view :probe/render-key)]
     (when wrapper (wrapper)))

@@ -118,8 +118,14 @@
     (let [f (rf/view :my.ns/my-view)]
       (is (fn? f)
           "(rf/view id) returns a fn for a registered view")
-      (is (= [:p "body"] (f))
-          "calling the looked-up fn yields the registered view's hiccup")))
+      ;; Per Spec 006 §Source-coord annotation (rf2-z7f7), the wrapper
+      ;; splices :data-rf2-source-coord into the root attrs map under
+      ;; interop/debug-enabled?. The view's body content remains
+      ;; structurally the registered hiccup (root tag, children).
+      (let [out (f)]
+        (is (= :p (first out)) "root tag preserved by the wrapper")
+        (is (= ["body"] (drop 2 out))
+            "children preserved by the wrapper"))))
   (testing "(rf/view :nope) is nil for an unregistered id (no error)"
     (is (nil? (rf/view :nope/not-registered)))))
 
@@ -155,9 +161,14 @@
       ;; view's body — proving no interception happens.
       (is (not= h-keyword-form h-via-var)
           "[:foo/intercept-me 1] does not render as the registered view's body — no registry interception")
-      ;; Sanity — explicit Var-reference DOES produce the registered body.
-      (is (= [:span "view-body-" 1] (intercept-me-view 1))
-          "Var-reference resolves to the registered render fn"))))
+      ;; Sanity — explicit Var-reference DOES produce the registered body
+      ;; (the wrapper splices :data-rf2-source-coord into the root attrs
+      ;; per Spec 006 §Source-coord annotation, but the structural shape
+      ;; — root tag, children — matches the registered render fn).
+      (let [out (intercept-me-view 1)]
+        (is (= :span (first out)) "Var-reference resolves to the registered root tag")
+        (is (= ["view-body-" 1] (drop 2 out))
+            "Var-reference resolves to the registered children")))))
 
 
 ;; ---- frame isolation ------------------------------------------------------

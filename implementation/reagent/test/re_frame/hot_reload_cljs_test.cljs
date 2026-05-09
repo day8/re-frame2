@@ -59,8 +59,14 @@
       (rf/reg-view* :rf.hot-reload-test/widget v1-fn)
       (let [render-v1 (rf/view :rf.hot-reload-test/widget)]
         ;; First render uses v1.
-        (is (= [:span.v1 "v1-" 7] (render-v1 7))
-            "v1 render fn produces v1 hiccup")
+        ;; Per Spec 006 §Source-coord annotation (rf2-z7f7), the
+        ;; reg-view* wrapper splices :data-rf2-source-coord into the
+        ;; root attrs map under interop/debug-enabled?. Match the
+        ;; first / last slots structurally so the test stays focused
+        ;; on the v1-vs-v2 hot-reload contract.
+        (let [out (render-v1 7)]
+          (is (= :span.v1 (first out)) "v1 render fn produces v1 hiccup root tag")
+          (is (= ["v1-" 7] (drop 2 out)) "v1 render fn produces v1 children"))
         (is (= 1 @v1-renders) "v1 was rendered once")
         (is (= 0 @v2-renders) "v2 has not rendered")
         ;; Re-register :rf.hot-reload-test/widget with v2 body.
@@ -70,8 +76,9 @@
         ;; (the captured Var or the view return), so the next render
         ;; uses v2.
         (let [render-v2 (rf/view :rf.hot-reload-test/widget)]
-          (is (= [:strong.v2 "v2-" 7] (render-v2 7))
-              "post-rereg lookup returns v2's render fn")
+          (let [out (render-v2 7)]
+            (is (= :strong.v2 (first out)) "post-rereg lookup returns v2's root tag")
+            (is (= ["v2-" 7] (drop 2 out)) "post-rereg lookup returns v2's children"))
           (is (= 1 @v1-renders)
               "v1 was NOT re-invoked by the post-rereg render")
           (is (= 1 @v2-renders)

@@ -130,7 +130,16 @@ const DEV_ONLY_SENTINELS = [
   // along with the instance-token mint, the *render-key* binding,
   // and the late-bind lookup.
   { source: 're-frame.views/reg-view* frame-aware-view (view/render)',
-    sentinel: 'view/render' }
+    sentinel: 'view/render' },
+  // re-frame.views — source-coord DOM annotation (Spec 006 §Source-coord
+  // annotation, rf2-z7f7 / rf2-z9n1). The reg-view* wrapper merges
+  // `:data-rf2-source-coord` onto the rendered root DOM element when
+  // `interop/debug-enabled?` is true. The format-source-coord helper
+  // and the entire inject-source-coord-attr branch sit inside the
+  // same gate; the literal "data-rf2-source-coord" string fragment
+  // must NOT appear in :advanced + goog.DEBUG=false bundles.
+  { source: 're-frame.views/reg-view* (data-rf2-source-coord injection)',
+    sentinel: 'data-rf2-source-coord' }
 ];
 
 // ----- helpers ---------------------------------------------------------------
