@@ -22,14 +22,22 @@ The shape is documented below.
 
 ```clojure
 {:id        <int>            ;; auto-incrementing trace id; unique per process
- :operation <kw-or-vec>      ;; what's being traced — typically the event-id, sub-id, etc.
- :op-type   <kw>             ;; discriminator: :event, :sub/run, :sub/create, :render, :raf,
-                              ;;   :event/do-fx, :reagent/quiescent, :rf.machine/transition, etc.
+ :operation <kw>              ;; what's being traced — namespaced keyword identifying
+                              ;;   the emit site (e.g. :event/dispatched, :rf.machine/transition,
+                              ;;   :rf.error/no-such-sub). The event-id / sub-id / fx-id
+                              ;;   that motivates the emit rides under :tags. Per
+                              ;;   Spec-Schemas §:rf/trace-event.
+ :op-type   <kw>             ;; discriminator: :event, :sub/run, :sub/create, :event/do-fx,
+                              ;;   :view/render, :rf.machine/transition, :error, :warning, etc.
+                              ;;   The full vocabulary is enumerated in §:op-type vocabulary
+                              ;;   below and in Spec-Schemas §:rf/trace-event.
  :time      <ms>             ;; emit timestamp (host clock)
  :tags      {...}}           ;; open-ended bag for op-type-specific fields
 ```
 
 The runtime emits each trace event at the *moment of interest* with the host clock time captured in `:time`. The shape is **event-at-a-time**, not span-shaped: there is no separate start/end pair, no `:duration`, and no `:child-of` parent-id. Tools that need cascade correlation use the dispatch-id correlation fields documented under [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id) instead.
+
+**`:op-type` versus `:operation`.** `:op-type` is the discriminator a consumer branches on — a small, stable vocabulary of ~20 values (enumerated in [§`:op-type` vocabulary](#op-type-vocabulary) below and in [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event)). Tools route on `:op-type` to subscribe to a slice (e.g. `:event`, `:sub/run`, `:error`). `:operation` is the specific identity of the emit site within that slice — typically a namespaced keyword like `:event/dispatched`, `:rf.machine/transition`, or `:rf.error/no-such-sub`. A consumer subscribing to all errors filters `:op-type :error`; a consumer hunting one category branches further on `:operation`.
 
 ### Re-frame2 additions (additive, optional)
 
@@ -84,6 +92,9 @@ Additional values for re-frame2 concerns:
 - `:frame/created` / `:frame/re-registered` / `:frame/destroyed` — frame lifecycle.
 - `:rf.machine.lifecycle/created` / `:rf.machine.lifecycle/destroyed` — machine instance lifecycle.
 - `:rf.machine/event-received` / `:rf.machine/transition` / `:rf.machine/snapshot-updated` — machine activity.
+- `:rf.machine.microstep/transition` — per-microstep transition emitted alongside the outer `:rf.machine/transition` for `:always`-driven cascades; one event per microstep with `:tags {:machine-id <id> :from <state> :to <state> :microstep-index <n>}` (per [005 §Trace events](005-StateMachines.md#trace-events) and [Spec-Schemas §`:rf/trace-event`](Spec-Schemas.md#rftrace-event)).
+- `:rf.machine/spawned` / `:rf.machine/destroyed` — machine instance spawn/destroy events emitted by `fx.cljc` on the spawn / destroy fx-id paths. Distinct from `:rf.machine.lifecycle/created` / `-destroyed` (which are emitted by `frame.cljc` on the underlying registrar lifecycle); the `:rf.machine/*` pair is the fx-substrate observation, the `:rf.machine.lifecycle/*` pair is the registrar-substrate observation. Tools that just want "did a machine appear/disappear?" can subscribe to either; tools building causal graphs subscribe to both and disambiguate by the `:tags :emitted-from` axis.
+- `:rf.machine/system-id-bound` / `:rf.machine/system-id-released` — `:system-id` reverse-index lifecycle (per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)). `-bound` fires on every `:system-id`-bound spawn (including the rebound case that also emits the `:rf.error/system-id-collision` warning); `-released` fires on the matching destroy. `:tags {:frame <id> :system-id <name> :machine-id <gensym'd-id>}`.
 - `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` — state-machine `:after` timer lifecycle (per [005 §Trace events](005-StateMachines.md#trace-events)). The `*/stale-*` form is the canonical naming for [§stale-detection trace events](Pattern-StaleDetection.md) — see also `:route.nav-token/stale-suppressed` below.
 - `:route.nav-token/allocated` / `:route.nav-token/stale-suppressed` — navigation-token lifecycle (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)). `*-allocated` fires when a navigation cascade begins; `*-stale-suppressed` fires when an async result arrives carrying a now-superseded token. Same epoch idiom as the machine-`:after` timer events.
 - `:route.url/fragment-changed` / `:rf.route/navigation-blocked` — fragment-only URL change emission (per [012 §Fragments](012-Routing.md#fragments); distinct from the runtime event `:rf/url-changed` which fires on every URL transition) and pending-nav protocol blockage (per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol)).
@@ -152,6 +163,30 @@ The canonical listener API has one shape:
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
 
+**Re-registration semantics.** `register-trace-cb!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-cb` re-registration under an existing key.
+
+**Worked example.** A minimal recorder that prints every error trace to the console:
+
+```clojure
+(rf/register-trace-cb!
+  :my-app/error-logger
+  (fn [trace-event]
+    (when (= :error (:op-type trace-event))
+      (println (:operation trace-event)
+               (-> trace-event :tags :reason)))))
+```
+
+The same pattern with `register-epoch-cb` to log one assembled cascade per drain-settle:
+
+```clojure
+(rf/register-epoch-cb
+  :my-app/cascade-logger
+  (fn [epoch-record]
+    (println (:event-id epoch-record)
+             "→" (count (:effects epoch-record)) "fx"
+             "/" (count (:sub-runs epoch-record)) "sub-runs")))
+```
+
 #### `register-epoch-cb` — assembled-epoch listener
 
 Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-trace-cb!` delivers each raw event as it is emitted, `register-epoch-cb` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
@@ -190,7 +225,7 @@ The two listener APIs are independent: tools may register either, both, or neith
 
 - **Synchronous, event-at-a-time.** Every registered listener is invoked once per emitted trace event, on the runtime's emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD return quickly; expensive work belongs on a tool-owned timer or rAF.
 - **In-order.** Listeners see events in emission order — i.e. the order the runtime fired them.
-- **Exception isolation.** An exception thrown by a listener is caught and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools.
+- **Exception isolation.** An exception thrown by a listener is caught and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools. The caught exception is logged via `re-frame.interop/log-error` (or the host equivalent) and otherwise discarded; the runtime does NOT emit a self-referential trace event for the failed listener (which would risk a re-entrant trace-emit storm). The same handling applies to exceptions thrown by an `register-epoch-cb` callback.
 - **No buffering between listeners and the runtime.** The framework does not retain a delivery buffer; the retain-N ring buffer described next is independent and exists for late-attaching tools.
 
 ### Retain-N trace ring buffer (dev-only)
@@ -212,6 +247,8 @@ Semantics:
 - **Same events as delivery.** Every event delivered to listeners also lands in the ring buffer. Ring-buffer events are the same maps the listeners receive.
 - **Independent of listeners.** A tool that attaches *after* events have fired can read the most-recent N from the ring buffer to bootstrap its view; a tool that wants a continuous live feed registers a `register-trace-cb!` listener as well.
 - **Production elision.** The ring buffer, like the rest of the trace surface, is compile-time eliminated in production builds (per [§Production builds](#production-builds-zero-overhead-zero-code)). `(rf/trace-buffer)` returns an empty vector in production, and the buffer itself is not allocated.
+- **Depth-zero semantics.** When configured with `{:depth 0}`, the ring buffer is disabled but the surface remains live: `(rf/trace-buffer)` returns `[]`, `(rf/trace-buffer opts)` returns `[]`, and `(rf/clear-trace-buffer!)` is a no-op (returns `nil`). Synchronous-delivery to registered listeners continues to fire — only the queryable history is suppressed.
+- **Lowering depth on a populated buffer.** `(rf/configure :trace-buffer {:depth N})` applied while the buffer holds more than `N` events drops the oldest events first to fit the new depth (same eviction order as the ring discipline). Raising the depth keeps existing events and grows the slot count.
 
 Why this is a framework primitive (not a 10x-specific concern): pair-shaped tools, REPL companions, and any non-10x consumer needs recent-history access. Locating the buffer in the framework means external tools depend on a stable framework primitive rather than on 10x's internal data structures. See [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) for the full consumption pattern.
 
@@ -244,7 +281,7 @@ The framework emits trace events from these call sites:
 - `router.cljc` — `:event :event` (`:run-start` and `:run-end` phases), `:event :event/dispatched`, `:event :event/db-changed`, `:rf.error/handler-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:rf.error/dispatch-sync-in-handler`, `:rf.error/frame-destroyed`, `:rf.error/flow-eval-exception`, `:rf.frame/drain-aborted` (lifecycle event emitted when the drain loop detects a destroyed frame mid-cycle; per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning)).
 - `frame.cljc` — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.machine.lifecycle/destroyed`.
 - `registrar.cljc` — `:rf.registry/handler-registered`, `:rf.registry/handler-replaced`, `:rf.registry/handler-cleared`.
-- `machines.cljc` — `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine.lifecycle/created`, `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, plus the machine-error categories.
+- `machines.cljc` — `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine.microstep/transition` (one per microstep on `:always`-driven cascades, per [005 §Trace events](005-StateMachines.md#trace-events)), `:rf.machine/snapshot-updated`, `:rf.machine.lifecycle/created`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released` (per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)), `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/skipped-on-server` (under SSR; per [005 §SSR mode](005-StateMachines.md#ssr-mode)), plus the machine-error categories.
 - `routing.cljc` — `:route.url/fragment-changed`, `:rf.route/url-changed`, `:rf.route/navigation-blocked`, `:route.nav-token/allocated`, `:route.nav-token/stale-suppressed`, `:rf.fx/skipped-on-platform` (route-fx platform skips), `:warning :rf.warning/route-shadowed-by-equal-score`.
 - `flows.cljc` — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed` (per [013 §Flow tracing](013-Flows.md#flow-tracing)). All carry `:op-type :flow`.
 - `schemas.cljc` — `:rf.error/schema-validation-failure` (from `validate-app-db!` / `validate-event!` / `validate-cofx!` / `validate-sub-return!`).
@@ -605,6 +642,11 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.warning/head-mismatch` | Client-computed head model differs from server-supplied head; client re-renders and replaces. Per [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) | `:server-hash`, `:client-hash`, `:head-id` |
 | `:rf.warning/interceptors-in-metadata-map` | A `reg-event-*` registration carried `:interceptors` inside its metadata-map; the chain is silently dropped. Per [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) and rf2-bbea | `:reg-fn` (the fn's name as a string), `:id`, `:offending-keys`, `:reason` |
 | `:rf.error/sanitised-on-projection` | The active error projector threw or returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 public shape. Per [011 §Where sanitisation happens — before render](011-SSR.md#where-sanitisation-happens--before-render) | `:projector-id`, `:original-operation`, `:projection-failure-reason` |
+| `:rf.epoch/restore-unknown-epoch` | `restore-epoch` was called with an `epoch-id` that is not in the frame's current epoch history (either never recorded or aged out by `:depth`). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:history-size` |
+| `:rf.epoch/restore-schema-mismatch` | The recorded `:db-after` no longer validates against the currently-registered `app-schemas` set (a schema was added, tightened, or replaced since the snapshot was taken). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
+| `:rf.epoch/restore-missing-handler` | The recorded `app-db` references a registered-id (e.g. an active machine at `[:rf/machines <id>]`, a registered route currently in `:route`) that is no longer present in the registrar. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:missing` (vector of `{:kind :id}`) |
+| `:rf.epoch/restore-version-mismatch` | The frame's recorded `:rf/snapshot-version` (per [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)) is incompatible with the currently-loaded machine definition. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
+| `:rf.epoch/restore-during-drain` | `restore-epoch` was called while the frame's run-to-completion drain is still in flight (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Restore is rejected; the user retries after settle. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id` |
 
 `:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
 
@@ -720,6 +762,11 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.warning/head-mismatch` | `:warned-and-replaced` | Client renders its head; server's is replaced. |
 | `:rf.warning/interceptors-in-metadata-map` | `:ignored` | The mis-placed `:interceptors` chain is dropped; registration completes with no positional interceptors. |
 | `:rf.error/sanitised-on-projection` | `:replaced-with-default` | Runtime falls back to the locked generic-500 public-error shape. |
+| `:rf.epoch/restore-unknown-epoch` | `:no-recovery` | Restore rejected; the frame's state is unchanged. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel). |
+| `:rf.epoch/restore-schema-mismatch` | `:no-recovery` | Restore rejected; the frame's state is unchanged. |
+| `:rf.epoch/restore-missing-handler` | `:no-recovery` | Restore rejected; the frame's state is unchanged. |
+| `:rf.epoch/restore-version-mismatch` | `:no-recovery` | Restore rejected; the frame's state is unchanged. |
+| `:rf.epoch/restore-during-drain` | `:no-recovery` | Restore rejected; the user retries after settle. |
 
 #### Style rubric for `:reason` strings (non-normative)
 
