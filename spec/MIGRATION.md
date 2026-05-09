@@ -1486,7 +1486,7 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 **What changes.**
 
 - **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-uix` (lockstep version with core).
-- **Adapter install.** `(rf/init! reagent-adapter/adapter)` becomes `(rf/init! uix-adapter/adapter)` at app entry.
+- **Adapter install.** Drop the `[re-frame.substrate.reagent]` `:require` and add `[re-frame.substrate.uix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-3yij Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.

@@ -186,15 +186,15 @@ This is the part that's not really re-frame2 — it's the React/Reagent runtime 
 > (ns counter.core
 >   (:require [reagent.dom.client :as rdc]
 >             [re-frame.core :as rf]
->             [re-frame.substrate.reagent :as reagent-adapter]))
+>             [re-frame.substrate.reagent]))   ;; ns-load registers Reagent as the default
 >
 > (defn ^:export run []
->   (rf/init! reagent-adapter/adapter)        ;; wire the substrate
->   (rf/dispatch-sync [:counter/initialise])  ;; seed app-db
+>   (rf/init!)                                  ;; wire the substrate (resolved via the registry)
+>   (rf/dispatch-sync [:counter/initialise])    ;; seed app-db
 >   (rdc/render root [counter]))
 > ```
 >
-> `init!` tells re-frame2 which substrate adapter to use (Reagent here; SSR and tests use other adapters). `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+> Requiring `re-frame.substrate.reagent` fires its ns-load side-effect, which registers the Reagent adapter as the default-resolution candidate (per [rf2-84po](#)); `(rf/init!)` with no args picks it up. Mixed-substrate apps that require both Reagent and UIx disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)`. `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
 
 ## What just happened
 
