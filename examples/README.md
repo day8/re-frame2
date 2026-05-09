@@ -5,17 +5,9 @@
 
 > **Status reminder.** These examples target the current `re-frame-2` API. Their maturity varies: some are aligned closely enough to run against the reference implementation, some are pedagogical sketches, and the RealWorld scaffold is now a broad worked sketch rather than a partially empty placeholder set. Treat the per-example README or docstring as the source of truth for how complete each one is.
 
-## Maturity
+## Layout — grouped by substrate
 
-Each example carries one of three maturity tags. New readers should pick examples by what they want to learn:
-
-| Tag | What it means |
-|---|---|
-| **Pedagogical sketch** | Single-file, one-mechanism focused. Smallest possible demonstration. The first stop after reading the guide. |
-| **Benchmark** | Exhaustive demonstration of a class of UI tasks. Useful for "what does the pattern look like across a wide surface?" |
-| **Worked scaffold** | Substantial app. Shows how the primitives compose into a real-world codebase, even when some parts are still sketch-level rather than production-polished. The README inside each scaffold is the source of truth for what is demonstrated concretely. |
-
-## Layout
+Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx is the second substrate adapter ([rf2-3yij](#) Decision 7) and ships a curated smoke-test subset rather than a 1:1 mirror.
 
 ```
 examples/
@@ -23,32 +15,36 @@ examples/
     serve-and-run-examples-tests.cjs    <-- compiles, stages, serves, runs (entry point of `npm run test:examples`)
     run-examples-tests.cjs              <-- Playwright runner (walks the tree, picks up *.spec.cjs)
     spec-helpers.cjs                    <-- shared assertion helpers used by every spec
-  counter/
-    core.cljs
-    counter.spec.cjs
-    index.html
-  todomvc/
-    ...
-  realworld/
-    ...
-  7Guis/                                <-- 7GUIs benchmark cluster (one sub-folder per task)
-    cells/
-      cells.cljs
-      cells.html
-      cells.spec.cjs
-    circle_drawer/
-    crud/
-    flight_booker/
-    temperature/
-    timer/
-  ...
+  reagent/                              <-- canonical substrate (full set)
+    counter/
+      core.cljs
+      counter.spec.cjs
+      index.html
+    todomvc/
+    realworld/
+    7Guis/                              <-- 7GUIs benchmark cluster (one sub-folder per task)
+      cells/
+      circle_drawer/
+      crud/
+      flight_booker/
+      temperature/
+      timer/
+    state_machine_walkthrough/
+    nine_states/
+    routing/
+    ssr/
+    managed_http_counter/
+    login/
+  uix/                                  <-- UIx adapter smoke-test set (counter + login)
+    counter/
+    login/
 ```
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
 
-## The catalogue
+## Reagent
 
-Fifteen examples ship in this directory. Each is paired with a Playwright smoke spec (`<name>.spec.cjs`) and a shadow-cljs build id; the orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every build, stages the example's hand-written `index.html`, serves the lot, and runs the specs against a real Chromium. Run the full sweep from `implementation/`:
+The full set of worked examples — fifteen in total, each paired with a Playwright smoke spec (`<name>.spec.cjs`) and a shadow-cljs build id. The orchestrator at [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs) compiles every build, stages the example's hand-written `index.html`, serves the lot, and runs the specs against a real Chromium. Run the full sweep from `implementation/`:
 
 ```bash
 npm run test:examples
@@ -56,37 +52,50 @@ npm run test:examples
 
 | # | Example | Maturity | Build id | Spec(s) it exercises | What it demonstrates |
 |---|---|---|---|---|---|
-| 1 | [`counter/`](counter/) | Pedagogical sketch | `examples/counter` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | The smallest possible app — one event, one sub, one view. The "hello world" of the pattern. |
-| 2 | [`login/`](login/) | Pedagogical sketch | `examples/login` | [005 StateMachines](../spec/005-StateMachines.md), [014 HTTPRequests](../spec/014-HTTPRequests.md), [010 Schemas](../spec/010-Schemas.md), [008 Testing](../spec/008-Testing.md) | Single-feature scaffold — events + subs + views + machine + tests, all in one file, for a typical login flow. |
-| 3 | [`todomvc/`](todomvc/README.md) | Benchmark | `examples/todomvc` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md), [012 Routing](../spec/012-Routing.md) | Canonical cross-framework todo app: persistence (localStorage), editing, bulk actions, remaining count, and hash-routing filters. |
-| 4 | [`routing/`](routing/) | Pedagogical sketch | `examples/routing` | [012 Routing](../spec/012-Routing.md) | Three-page app demonstrating `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf/url-requested`, and route-not-found handling. The CP-7 worked example. |
-| 5 | [`ssr/`](ssr/) | Pedagogical sketch | `examples/ssr` | [011 SSR](../spec/011-SSR.md), [004 Views](../spec/004-Views.md) | Minimal SSR + hydration walkthrough. The CP-9 worked example. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). |
-| 6 | [`managed_http_counter/`](managed_http_counter/) | Pedagogical sketch | `examples/managed-http-counter` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [Pattern-AsyncEffect](../spec/Pattern-AsyncEffect.md) | A counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. The compact, single-feature complement to RealWorld for Spec 014. |
-| 7 | [`state_machine_walkthrough/`](state_machine_walkthrough/) | Pedagogical sketch | `examples/state-machine-walkthrough` | [005 StateMachines](../spec/005-StateMachines.md), [014 HTTPRequests](../spec/014-HTTPRequests.md), [008 Testing](../spec/008-Testing.md) | Runnable companion to [docs/guide/05-state-machines.md](../docs/guide/05-state-machines.md). The chapter's login flow as code; the browser layer drives the canonical lockout scenario (three failures → `:locked-out`). |
-| 8 | [`nine_states/`](nine_states/README.md) | Benchmark | `examples/nine-states` | [Pattern-NineStates](../spec/Pattern-NineStates.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md), [005 StateMachines](../spec/005-StateMachines.md) | The nine canonical UI states (nothing / loading / empty / one / some / too many / incorrect / correct / done) for a single domain. Pedagogically exhaustive. |
-| 9 | [`7Guis/temperature/`](7Guis/temperature/temperature.cljs) | Benchmark | `examples/temperature` | [004 Views](../spec/004-Views.md), [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md) | 7GUIs #2 — Temperature converter. Bidirectional derivations; one source of truth. |
-| 10 | [`7Guis/flight_booker/`](7Guis/flight_booker/flight_booker.cljs) | Benchmark | `examples/flight-booker` | [004 Views](../spec/004-Views.md), [Pattern-Forms](../spec/Pattern-Forms.md) | 7GUIs #3 — Flight booker. Form validation; layered subs deriving the Book button's enabled state. |
-| 11 | [`7Guis/timer/`](7Guis/timer/timer.cljs) | Benchmark | `examples/timer` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | 7GUIs #4 — Timer. `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time. |
-| 12 | [`7Guis/crud/`](7Guis/crud/crud.cljs) | Benchmark | `examples/crud` | [004 Views](../spec/004-Views.md) | 7GUIs #5 — CRUD. List operations (add / update / delete), selection-as-state, derived filtered list. |
-| 13 | [`7Guis/circle_drawer/`](7Guis/circle_drawer/circle_drawer.cljs) | Benchmark | `examples/circle-drawer` | [004 Views](../spec/004-Views.md), [002 Frames](../spec/002-Frames.md) | 7GUIs #6 — Circle drawer. Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state. |
-| 14 | [`7Guis/cells/`](7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
-| 15 | [`realworld/`](realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
+| 1 | [`reagent/counter/`](reagent/counter/) | Pedagogical sketch | `examples/counter` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | The smallest possible app — one event, one sub, one view. The "hello world" of the pattern. |
+| 2 | [`reagent/login/`](reagent/login/) | Pedagogical sketch | `examples/login` | [005 StateMachines](../spec/005-StateMachines.md), [014 HTTPRequests](../spec/014-HTTPRequests.md), [010 Schemas](../spec/010-Schemas.md), [008 Testing](../spec/008-Testing.md) | Single-feature scaffold — events + subs + views + machine + tests, all in one file, for a typical login flow. |
+| 3 | [`reagent/todomvc/`](reagent/todomvc/README.md) | Benchmark | `examples/todomvc` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md), [012 Routing](../spec/012-Routing.md) | Canonical cross-framework todo app: persistence (localStorage), editing, bulk actions, remaining count, and hash-routing filters. |
+| 4 | [`reagent/routing/`](reagent/routing/) | Pedagogical sketch | `examples/routing` | [012 Routing](../spec/012-Routing.md) | Three-page app demonstrating `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf/url-requested`, and route-not-found handling. The CP-7 worked example. |
+| 5 | [`reagent/ssr/`](reagent/ssr/) | Pedagogical sketch | `examples/ssr` | [011 SSR](../spec/011-SSR.md), [004 Views](../spec/004-Views.md) | Minimal SSR + hydration walkthrough. The CP-9 worked example. JVM-runnable; the browser side hydrates against a baked `<script id="__rf_payload">` block in the static `index.html` (standing in for a real Clojure server in front). |
+| 6 | [`reagent/managed_http_counter/`](reagent/managed_http_counter/) | Pedagogical sketch | `examples/managed-http-counter` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [Pattern-AsyncEffect](../spec/Pattern-AsyncEffect.md) | A counter where each button issues a `:rf.http/managed` request: success, 4xx failure, retry-recover (canned-stub), and abort. The compact, single-feature complement to RealWorld for Spec 014. |
+| 7 | [`reagent/state_machine_walkthrough/`](reagent/state_machine_walkthrough/) | Pedagogical sketch | `examples/state-machine-walkthrough` | [005 StateMachines](../spec/005-StateMachines.md), [014 HTTPRequests](../spec/014-HTTPRequests.md), [008 Testing](../spec/008-Testing.md) | Runnable companion to [docs/guide/05-state-machines.md](../docs/guide/05-state-machines.md). The chapter's login flow as code; the browser layer drives the canonical lockout scenario (three failures → `:locked-out`). |
+| 8 | [`reagent/nine_states/`](reagent/nine_states/README.md) | Benchmark | `examples/nine-states` | [Pattern-NineStates](../spec/Pattern-NineStates.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md), [005 StateMachines](../spec/005-StateMachines.md) | The nine canonical UI states (nothing / loading / empty / one / some / too many / incorrect / correct / done) for a single domain. Pedagogically exhaustive. |
+| 9 | [`reagent/7Guis/temperature/`](reagent/7Guis/temperature/temperature.cljs) | Benchmark | `examples/temperature` | [004 Views](../spec/004-Views.md), [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md) | 7GUIs #2 — Temperature converter. Bidirectional derivations; one source of truth. |
+| 10 | [`reagent/7Guis/flight_booker/`](reagent/7Guis/flight_booker/flight_booker.cljs) | Benchmark | `examples/flight-booker` | [004 Views](../spec/004-Views.md), [Pattern-Forms](../spec/Pattern-Forms.md) | 7GUIs #3 — Flight booker. Form validation; layered subs deriving the Book button's enabled state. |
+| 11 | [`reagent/7Guis/timer/`](reagent/7Guis/timer/timer.cljs) | Benchmark | `examples/timer` | [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md) | 7GUIs #4 — Timer. `:dispatch-later` periodic tick; controlled slider; one source of truth for elapsed time. |
+| 12 | [`reagent/7Guis/crud/`](reagent/7Guis/crud/crud.cljs) | Benchmark | `examples/crud` | [004 Views](../spec/004-Views.md) | 7GUIs #5 — CRUD. List operations (add / update / delete), selection-as-state, derived filtered list. |
+| 13 | [`reagent/7Guis/circle_drawer/`](reagent/7Guis/circle_drawer/circle_drawer.cljs) | Benchmark | `examples/circle-drawer` | [004 Views](../spec/004-Views.md), [002 Frames](../spec/002-Frames.md) | 7GUIs #6 — Circle drawer. Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state. |
+| 14 | [`reagent/7Guis/cells/`](reagent/7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
+| 15 | [`reagent/realworld/`](reagent/realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
 
-For the 7GUIs cluster's own narrative (entries 9–14 above plus the counter from entry 1), see the cluster README at [`7Guis/README.md`](7Guis/README.md).
+For the 7GUIs cluster's own narrative (entries 9–14 above plus the counter from entry 1), see the cluster README at [`reagent/7Guis/README.md`](reagent/7Guis/README.md).
+
+## UIx
+
+The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Substrate-adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+
+| # | Example | Maturity | Build id | What it demonstrates |
+|---|---|---|---|---|
+| 1 | [`uix/counter/`](uix/counter/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
+| 2 | [`uix/login/`](uix/login/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
+
+The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx code and vice versa.
 
 ## Reading order
 
 If you've finished the guide and want to see code:
 
-1. **Start with [`counter/`](counter/)** — the smallest possible app. Establishes the basic shape.
-2. **Then [`login/`](login/)** — adds a state machine, async effects, and form handling. Single-feature scope; full shape.
-3. **Then [`todomvc/`](todomvc/README.md)** — classic benchmark shape: persistence, editing, filters, and browser routing pressure.
-4. **Then [`routing/`](routing/)** or [`ssr/`](ssr/) — pick whichever is closer to your interest.
-5. **Then [`managed_http_counter/`](managed_http_counter/)** — the smallest possible Spec 014 demo, before the broader RealWorld surface.
-6. **Then [`state_machine_walkthrough/`](state_machine_walkthrough/)** — the ch.05 prose as runnable code, with smoke tests for every section.
-7. **Then [`7Guis/`](7Guis/)** — survey of the pattern across many UI shapes.
-8. **Then [`nine_states/`](nine_states/README.md)** — the page-level cardinality / lifecycle conventions wired together.
-9. **Then [`realworld/`](realworld/)** — substantial-app shape across the widest surface in the repo.
+1. **Start with [`reagent/counter/`](reagent/counter/)** — the smallest possible app. Establishes the basic shape.
+2. **Then [`reagent/login/`](reagent/login/)** — adds a state machine, async effects, and form handling. Single-feature scope; full shape.
+3. **Then [`reagent/todomvc/`](reagent/todomvc/README.md)** — classic benchmark shape: persistence, editing, filters, and browser routing pressure.
+4. **Then [`reagent/routing/`](reagent/routing/)** or [`reagent/ssr/`](reagent/ssr/) — pick whichever is closer to your interest.
+5. **Then [`reagent/managed_http_counter/`](reagent/managed_http_counter/)** — the smallest possible Spec 014 demo, before the broader RealWorld surface.
+6. **Then [`reagent/state_machine_walkthrough/`](reagent/state_machine_walkthrough/)** — the ch.05 prose as runnable code, with smoke tests for every section.
+7. **Then [`reagent/7Guis/`](reagent/7Guis/)** — survey of the pattern across many UI shapes.
+8. **Then [`reagent/nine_states/`](reagent/nine_states/README.md)** — the page-level cardinality / lifecycle conventions wired together.
+9. **Then [`reagent/realworld/`](reagent/realworld/)** — substantial-app shape across the widest surface in the repo.
+
+If you're building on UIx, read [`uix/counter/`](uix/counter/) and [`uix/login/`](uix/login/) alongside their Reagent siblings — the dataflow is identical; the view layer differs.
 
 ## End-to-end verification
 
@@ -104,7 +113,7 @@ Each spec module exports `{name, url, run}`; `run` is an `async (page) => ...` t
 
 ### Adding a new example
 
-1. Create `examples/<name>/` with the source, a hand-written `index.html`, and a Playwright spec `<name>.spec.cjs`.
+1. Create `examples/<substrate>/<name>/` with the source, a hand-written `index.html`, and a Playwright spec `<name>.spec.cjs`.
 2. Add a shadow-cljs build target to `implementation/shadow-cljs.edn` under the existing `:examples/...` block.
 3. Append an entry to the `EXAMPLES` array in `examples/scripts/serve-and-run-examples-tests.cjs` declaring `{build, htmlSrc, outDir, extraFiles?}`.
 4. Update this catalogue and any per-Spec cross-references that the new example exercises.
