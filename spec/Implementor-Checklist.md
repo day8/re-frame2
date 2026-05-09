@@ -295,7 +295,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### E2. Error reporting to tools
 
-- **Why it matters.** Errors are emitted as structured trace events (per [009 §Error contract](009-Instrumentation.md#error-contract)) — tools branch on `:op-type :error` and `:operation` prefix. `reg-event-error-handler` is the single-slot policy mechanism.
+- **Why it matters.** Errors are emitted as structured trace events (per [009 §Error contract](009-Instrumentation.md#error-contract)) — tools branch on `:op-type :error` and `:operation` prefix. The per-frame `:on-error` slot in `reg-frame` metadata is the policy mechanism.
 - **Options by host.** Falls out of **T1** (trace delivery).
 - **Reference-impl picks.** CLJS routes errors through the trace stream.
 - **Trade-offs.** Strings as errors are out — every error has an `:operation` namespaced keyword and a `:tags` map per the error category.

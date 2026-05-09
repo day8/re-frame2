@@ -52,7 +52,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `create-machine-handler`, `machine-transition`, `spawn-machine`, the reserved fx-ids `:raise` / `:spawn`, the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `create-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-ids `:raise` / `:spawn` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -206,7 +206,7 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | `ActorRef` runtime objects | Snapshots at `[:rf/machines <id>]` in `app-db` | Data orientation; agent-friendliness; no leak footguns |
 | Per-actor mailboxes | One per-frame router queue | Simpler model; drain at the frame level is the granularity that matters |
 | `raise` (self-event) vs `sendTo` (other-actor) | Single `dispatch`; `:raise` is sugar for self-dispatch with atomic semantics | One pipeline; no per-actor mailbox to put events at the front of |
-| Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event-fx`; dynamic via `spawn-machine`) | Lifetime is encoded in `app-db` shape and registration lifetime |
+| Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event-fx`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in `app-db` shape and registration lifetime |
 | Machine hierarchy as a structural concept | Hierarchy encoded in `app-db` nested structure | Stay data-oriented; no new framework primitive |
 | Event-as-object API | Event vector + envelope metadata | Compatible with re-frame's existing event shape |
 | `:context` for extended state | `:data` | Avoid the triply-overloaded "context" name; align with `gen_statem` vocabulary |

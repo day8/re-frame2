@@ -207,7 +207,7 @@ The framework emits trace events through one entry point: `re-frame.trace/emit!`
 ;; registered listener.
 ```
 
-The shape is synchronous and side-effecting: the emit returns once every listener has been invoked. There is no with-trace/merge-trace!/finish-trace span machinery — events are emitted at the moment of interest with all relevant tags already populated.
+The shape is synchronous and side-effecting: the emit returns once every listener has been invoked. There is no span-shape machinery — events are emitted at the moment of interest with all relevant tags already populated. (For codebases migrating from a span-shaped tracing library, see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
 ### Compile-time elision
 
@@ -529,32 +529,33 @@ The `:recovery` field on the trace event tells consumers (dev panels, error-moni
 - `:warned-and-replaced` — the runtime emitted the warning and did its default action anyway (e.g., `:rf.ssr/hydration-mismatch` warn-and-replace mode).
 - `:logged-and-skipped` — the runtime emitted the trace and dropped the offending input; sibling inputs still apply (e.g., `:rf.error/effect-map-shape` drops the offending top-level effect-map key while `:db` / `:fx` still apply).
 
-A registered error-handler (per `reg-event-error-handler`) can intercept any error category and decide policy. The default error-handler routes everything to the trace stream and proceeds with the documented per-category recovery.
+A user-registered error-handler can intercept any error category and decide policy. The default error-handler routes everything to the trace stream and proceeds with the documented per-category recovery. Error-handler policy is registered per-frame via the `:on-error` slot in `reg-frame` metadata (per [002-Frames §`:on-error`](002-Frames.md)); for cross-frame observation, `register-trace-cb!` filtering on `:op-type :error` (or on the `:rf.error/*` `:operation` namespace) sees every error event without modifying behaviour. (The v1 process-wide `reg-event-error-handler` surface is dropped — see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
-### `reg-event-error-handler`
+### Error-handler policy (`:on-error` per frame)
 
 ```clojure
-(rf/reg-event-error-handler
-  (fn handle-error [error-event]
-    ;; error-event conforms to :rf/trace-event with :op-type :error.
-    ;; Return a map with :recovery telling the runtime how to proceed.
-    ;; Returning nil = no policy override; the runtime falls back to its default.
-    (case (:operation error-event)
-      :rf.error/handler-exception
-      (do (log-to-monitoring error-event)
-          {:recovery :no-recovery})
+(rf/reg-frame :rf/default
+  {:on-error
+   (fn handle-error [error-event]
+     ;; error-event conforms to :rf/trace-event with :op-type :error.
+     ;; Return a map with :recovery telling the runtime how to proceed.
+     ;; Returning nil = no policy override; the runtime falls back to its default.
+     (case (:operation error-event)
+       :rf.error/handler-exception
+       (do (log-to-monitoring error-event)
+           {:recovery :no-recovery})
 
-      :rf.error/schema-validation-failure
-      (do (log-to-monitoring error-event)
-          {:recovery :replaced-with-default
-           :replacement (:default-value (:tags error-event))})
+       :rf.error/schema-validation-failure
+       (do (log-to-monitoring error-event)
+           {:recovery :replaced-with-default
+            :replacement (:default-value (:tags error-event))})
 
-      :rf.error/no-such-handler
-      ;; ignore — the default :replaced-with-default behaviour is fine
-      nil
+       :rf.error/no-such-handler
+       ;; ignore — the default :replaced-with-default behaviour is fine
+       nil
 
-      ;; default: trust the runtime's per-category recovery
-      nil)))
+       ;; default: trust the runtime's per-category recovery
+       nil))})
 ```
 
 The error-handler:
@@ -563,7 +564,7 @@ The error-handler:
 - Returns either `nil` (no policy override; runtime applies its default per-category recovery) or a map with at least `:recovery` set to one of the documented recovery keywords.
 - Optional keys in the return map: `:replacement` (a value to use when `:recovery` is `:replaced-with-default`) and `:notes` (a string surfaced in the resulting trace). The framework does not ship a `:retried` recovery — handlers cannot ask the runtime to re-execute the failed operation. If retry semantics are wanted, the user dispatches a fresh event from inside the error-handler (see "Composition with libraries" below).
 
-Only **one** error-handler is registered at a time per process. Replacing it replaces the policy. The default error-handler is registered automatically; user calls to `reg-event-error-handler` override it.
+Each frame has at most one `:on-error` handler. Re-registering the frame replaces the policy; the default error-handler applies until a `:on-error` is registered.
 
 #### Default behaviour by category
 
@@ -628,16 +629,17 @@ Implementations that omit a `:reason` (returning the empty string) are conforman
 
 #### Composition with libraries (Sentry, Honeybadger, etc.)
 
-Error-monitoring libraries integrate by registering an error-handler that forwards the structured error event to the monitoring service AND returns `nil` to delegate recovery:
+Error-monitoring libraries integrate by registering an `:on-error` handler that forwards the structured error event to the monitoring service AND returns `nil` to delegate recovery:
 
 ```clojure
-(rf/reg-event-error-handler
-  (fn forward-and-defer [error-event]
-    (sentry/capture-event (sentry-shape error-event))
-    nil))                                          ;; runtime applies default recovery
+(rf/reg-frame :rf/default
+  {:on-error
+   (fn forward-and-defer [error-event]
+     (sentry/capture-event (sentry-shape error-event))
+     nil)})                                         ;; runtime applies default recovery
 ```
 
-Multiple monitoring concerns compose in user code (one error-handler that fans out to several services). The runtime exposes one slot.
+Multiple monitoring concerns compose in user code (one `:on-error` handler that fans out to several services). For cross-frame observation that doesn't modify recovery, prefer `register-trace-cb!` filtered on `:op-type :error`.
 
 ## Notes
 

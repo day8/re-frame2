@@ -19,7 +19,7 @@ Machines serve two distinct use cases:
 1. **High-level workflow.** Multi-step user flows (signup → verify → onboard → home), modal dismissal logic, wizard navigation. Without machines these get smeared across many event handlers and an `:app/screen` keyword in `app-db`; the smearing is the pain.
 2. **Low-level protocols.** Async resource lifecycles (HTTP request: `idle → loading → success/error/retry`), websocket connection states, animation transitions. Without machines these live as ad-hoc keywords in some sub-tree of `app-db`, with handlers that have to remember "if state is `:loading`, ignore another `:fetch`."
 
-Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `create-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event-fx`; a dynamic instance is registered at run time via `spawn-machine`.
+Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `create-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event-fx`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
 
 ## Naming — `:state` and `:data`
 
@@ -120,7 +120,7 @@ A transition table is pure data. Top-level shape:
 
 The snapshot's location in `app-db` is `[:rf/machines <id>]` — runtime-managed and not part of the transition-table grammar. See [§Where snapshots live](#where-snapshots-live).
 
-> **The transition-table spec map MUST NOT carry `:id`.** A machine's id is the surrounding registration's event-id (the first arg to `reg-event-fx` or `spawn-machine`), not a field on the spec map. The runtime derives the id at handler-call time from the dispatched event vector's first element. Keeping `:id` out of the spec map keeps it a pure description of behaviour and lets the same spec value register against multiple ids if the application wants two independent machines with the same body.
+> **The transition-table spec map MUST NOT carry `:id`.** A machine's id is the surrounding registration's event-id (the first arg to `reg-event-fx` or, for dynamic instances, the gensym'd id allocated by the `[:rf.machine/spawn ...]` fx), not a field on the spec map. The runtime derives the id at handler-call time from the dispatched event vector's first element. Keeping `:id` out of the spec map keeps it a pure description of behaviour and lets the same spec value register against multiple ids if the application wants two independent machines with the same body.
 
 #### Transition table top-level keys
 
@@ -504,7 +504,7 @@ The fn `create-machine-handler` returns is the event handler. Crucially, the fac
 
 - **Registers nothing.** No `reg-*` side effects at construction time.
 - **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
-- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event-fx` (or by `spawn-machine` for dynamic instances).
+- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event-fx` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
 
 This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
 
@@ -544,7 +544,7 @@ Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaf
 - **Three-way conceptual split:** definition (data), instance (snapshot at the runtime-managed `[:rf/machines <id>]`), frame (actor-system boundary).
 - **Snapshot shape:** `{:state <fsm-keyword> :data <map>}`. `:state` is the discrete FSM keyword (`:idle`, `:editing`, ...); `:data` is the extended state — the machine's own private memory.
 - **Pure transition contract:** `(machine-transition definition snapshot event) → [next-snapshot effects]`.
-- **Pure factory:** `(create-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `spawn-machine`-supplied id) is bound by the caller.
+- **Pure factory:** `(create-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
 - **Definition shape:** transition table is pure data; guards/actions referenced by id or supplied as fns; both forms are first-class.
 - **Inspection:** lifecycle/transition events emitted on the existing trace surface with `:source :machine`.
 - **Composition:** ordinary `dispatch` between machines, made deterministic by drain semantics.
@@ -1081,7 +1081,7 @@ Symmetry between singleton and spawned:
 | | id form | snapshot location | handler |
 |---|---|---|---|
 | Singleton | `:drawer/editor` (explicit) | `[:rf/machines :drawer/editor]` | registered at boot via `reg-event-fx` |
-| Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf/machines :request/protocol#42]` | registered dynamically by `spawn-machine` |
+| Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf/machines :request/protocol#42]` | registered dynamically by `[:rf.machine/spawn ...]` fx |
 
 Both are event handlers. Both addressable by `dispatch`. Both visible to `(handlers :event)`. Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`.
 
@@ -1105,19 +1105,26 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 | `:machine-id` *or* `:definition` | which machine to instantiate (registered id, or inline spec map) | one of these |
 | `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
 | `:data` | initial data for the new machine (overrides definition's default) | optional |
-| `:on-spawn` | `(fn [data id] new-data)` — how the parent records the new id | required for from-action spawns; ignored for top-level `spawn-machine` calls |
+| `:on-spawn` | `(fn [data id] new-data)` — how the parent records the new id | required for from-action spawns; ignored for top-level boot-time spawns |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
 
 The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
-### Top-level `spawn-machine` (rare)
+### Top-level boot-time spawn (rare)
+
+The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an event handler's `:fx`. From outside a handler (e.g. boot-time), wrap the spawn in a one-shot bootstrap event:
 
 ```clojure
-(def actor-id
-  (rf/spawn-machine
-    {:definition request-protocol           ;; or :machine-id if reusing a registered definition
-     :id-prefix  :request/protocol           ;; → :request/protocol#42
-     :data       {:url "/foo" :attempt 0}}))
+(rf/reg-event-fx
+  :app/spawn-request-protocol
+  (fn [_ [_ url]]
+    {:fx [[:rf.machine/spawn
+           {:definition request-protocol           ;; or :machine-id if reusing a registered definition
+            :id-prefix  :request/protocol           ;; → :request/protocol#42
+            :data       {:url url :attempt 0}
+            :on-spawn   (fn [data id] (assoc data :request-id id))}]]}))
+
+(rf/dispatch-sync [:app/spawn-request-protocol "/foo"])
 
 ;; snapshot lives at [:rf/machines :request/protocol#42] in the active frame's app-db.
 
@@ -1125,12 +1132,17 @@ The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the run
 (rf/dispatch [actor-id [:retry]])
 (rf/dispatch [actor-id [:cancel]])
 
-;; destroy
-(rf/destroy-machine actor-id)
+;; destroy — emit the canonical destroy fx from a handler
+(rf/reg-event-fx
+  :app/destroy-request-protocol
+  (fn [_ [_ actor-id]]
+    {:fx [[:rf.machine/destroy actor-id]]}))
 ;; Internally: run :exit action, dissoc the snapshot at [:rf/machines actor-id],
 ;; clear-event actor-id. (No per-machine sub to clear — reads go through the
 ;; framework-registered :rf/machine sub, parameterised on actor-id.)
 ```
+
+(The v1 public fns `spawn-machine` / `destroy-machine` are dropped — see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
 ### Spawning multiple, dynamic counts
 
@@ -1714,7 +1726,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | Capability | Coverage required | v1 CLJS reference | Notes |
 |---|---|---|---|
 | **Own state + message ports** — actor identity is the registered event id; the state lives at `[:rf/machines <id>]` | Prose: §Where snapshots live, §Strict encapsulation; Schema: `:rf/machine-snapshot`, `:rf/machines`; Fixtures: machine-transition, machine-actor-isolation | ✓ claimed | Already specced. |
-| **Imperative spawn / destroy** — `spawn-machine`, `destroy-machine`, `[:spawn ...]` fx-id | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
+| **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (and the machine-internal `[:spawn ...]` / `[:destroy-machine ...]` fx-ids inside a machine action's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
 | **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit` | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:spawn` / `:destroy-machine` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
@@ -1786,7 +1798,7 @@ Resolved: machine-scoped. Guards and actions live in the machine's `:guards` / `
 
 ### Auto-cleanup of orphaned actors
 
-When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `destroy-machine` for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
+When a view spawns an actor and unmounts, what stops the leak? Lean: explicit `[:rf.machine/destroy actor-id]` fx for v1 (matches `make-frame`); opt-in `:owned-by` for post-v1.
 
 ## Resolved decisions
 
@@ -1868,7 +1880,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 - `(create-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf/machines <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
 - `(machine-transition definition snapshot event)` → `[next-snapshot effects]` — pure function. JVM-runnable. No re-frame dependencies; guard/action references resolve against the definition's own `:guards` / `:actions` maps.
-- `(spawn-machine spec)` and `(destroy-machine actor-id)` — dynamic actor lifecycle.
+- The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` and `:spawn` reserved fx-ids inside `:fx`.
 - `[:rf/machines <id>]` as the reserved app-db storage scheme; `:rf/machine?` registration-metadata flag.
 - `(rf/machines)` and `(rf/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).

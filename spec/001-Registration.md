@@ -201,7 +201,7 @@ The kinds are listed in the order they appear in [§Registry model — the canon
 | `:cofx` | Replace the cofx handler fn | Cofx already injected into an interceptor chain are bound to the old fn for that event; subsequent events see the new fn | None | `:rf.registry/handler-replaced` |
 | `:machine-action` | Replace the action fn for this id | Microsteps already executing finish against the old fn; next microstep on any active instance resolves the new fn | None | `:rf.registry/handler-replaced` |
 | `:machine-guard` | Replace the guard fn for this id | Guards evaluated this microstep finish against the old fn; next microstep resolves the new fn | None | `:rf.registry/handler-replaced` |
-| `:machine` (definition itself) | Replace the machine **definition** in the registrar | **Active instances are not affected** — they continue running with the definition captured at construction time. The next `spawn-machine` (or `:invoke`) creates instances against the new definition. | None for the def; active instance snapshots remain at `[:rf/machines <id>]` | `:rf.registry/handler-replaced` (with `:tags {:active-instances <count>}` for visibility) |
+| `:machine` (definition itself) | Replace the machine **definition** in the registrar | **Active instances are not affected** — they continue running with the definition captured at construction time. The next `[:rf.machine/spawn ...]` (or `:invoke`) creates instances against the new definition. | None for the def; active instance snapshots remain at `[:rf/machines <id>]` | `:rf.registry/handler-replaced` (with `:tags {:active-instances <count>}` for visibility) |
 | `:view` | Replace the view fn | Currently-rendering views finish against the old fn; the substrate's next render cycle picks up the new fn | None | `:rf.registry/handler-replaced` |
 | `:frame` | Surgical update of the frame's metadata; live `app-db`, sub-cache, queue all preserved | Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update) | None disposed | `:rf.registry/handler-replaced` (frame metadata semantics owned by 002) |
 | `:app-schema` | Replace the schema attached at the path | In-flight validation finishes against the old schema; next event-handler completion validates against the new schema | None | `:rf.registry/handler-replaced` |
@@ -219,7 +219,7 @@ The runtime can be configured to warn at registration time when an id is reassig
 
 Machine instances are a special case worth pinning, because v1 has no analogue. The instance's behaviour is defined by **three** kinds of references:
 
-1. **The machine definition** itself (`:machine` registry kind) — captured at `spawn-machine` time. Re-registering the definition does not touch in-flight instances; they continue running with the captured definition. New spawns use the new definition.
+1. **The machine definition** itself (`:machine` registry kind) — captured at spawn time (when the `[:rf.machine/spawn ...]` fx fires). Re-registering the definition does not touch in-flight instances; they continue running with the captured definition. New spawns use the new definition.
 2. **Machine-scoped actions/guards** — declared inline in the machine's `:actions` / `:guards` map. These are part of the captured definition; re-registering the machine def replaces them for new spawns only.
 3. **Globally-registered machine actions/guards** (`:machine-action` and `:machine-guard` registry kinds) — looked up from the registrar on every microstep. Re-registering these takes effect on the next microstep of every active instance.
 

@@ -87,7 +87,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Role.** Hold every registered handler, sub, fx, cofx, view, machine action, machine guard, route, head, and error projector. Look-up is `(kind, id) → metadata-map`. The metadata map carries the handler fn under a closed key per [001 §Registration grammar](001-Registration.md#registration-grammar).
 
-**Inputs.** Calls from `reg-event-fx`, `reg-event-db`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine-action`, `reg-machine-guard`, `reg-machine`, `reg-frame`, `reg-route`, `reg-head`, `reg-event-error-handler` — the closed registry-kind set in [001](001-Registration.md).
+**Inputs.** Calls from `reg-event-fx`, `reg-event-db`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine-action`, `reg-machine-guard`, `reg-machine`, `reg-frame`, `reg-route`, `reg-head` — the closed registry-kind set in [001](001-Registration.md). Per-frame error policy is registered via `reg-frame`'s `:on-error` slot (per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame)).
 
 **Outputs.** Lookup returns the metadata map (or `nil`); query API returns id sets per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api).
 
@@ -279,7 +279,7 @@ Most of these components have v1 ancestors. The CLJS-reference implementor can l
 | `do-fx` | `:fx` walking, fx handler resolution | Source-order rule made normative; per-frame and per-call `:fx-overrides`; `:platforms` metadata for SSR |
 | Sub-cache | Layer-1/2/3 caching algorithm; invalidation on app-db change | Per-frame caches (v1 is global), explicit disposal-on-frame-destroy, derived-container contract on the substrate adapter |
 | Reactive substrate adapter | Implicit Reagent fusion | The boundary itself — substrate decoupling, the closed nine-fn contract, plain-atom adapter for JVM/SSR/headless, revertibility constraints |
-| Trace bus | Trace-event idea, listener registration | Closed core fields, structured error contract, `reg-event-error-handler`, server error projection, `:platforms` on advisories |
+| Trace bus | Trace-event idea, listener registration | Closed core fields, structured error contract, per-frame `:on-error` policy, server error projection, `:platforms` on advisories |
 | Interop layer | Most of `re-frame.interop` carries over | Extended slightly for machine-clock primitives ([002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)) |
 
 For a non-CLJS implementor: the components are the same shape, but **the boundaries between them are the load-bearing ones**. Implement each component as an independent module that talks to its neighbours through the surfaces named here; do not fuse the substrate adapter into the drain loop, do not put sub-cache invalidation behind a substrate primitive, do not let the trace bus see the registrar's internal map. The decoupling is what makes the reference adapter swappable, the testing infrastructure JVM-runnable, and Goal 3 (revertibility) achievable.
