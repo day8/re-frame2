@@ -1099,7 +1099,37 @@ Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/
 
 ---
 
-**Reporting M-12 through M-28.** These seventeen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing seventeen separate preambles.
+### M-29. Routing (Spec 012) ships in a separate artefact — `day8/re-frame-2-routing`
+
+**Type A** (mechanical, dep-only).
+
+Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf/url-changed` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame-2-routing`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+
+**What to look for** in the codebase:
+
+- Any call to `re-frame.core/reg-route`, `re-frame.core/match-url`, or `re-frame.core/route-url`.
+- Any dispatch of `:rf.route/navigate`, `:rf/url-changed`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
+- Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
+- A direct `(:require [re-frame.routing])` clause.
+
+**What to do.** Add the routing artefact alongside the core dep:
+
+```clojure
+;; deps.edn for an app that uses Spec 012 routing
+{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
+        day8/re-frame-2-reagent {:mvn/version "<latest>"}
+        day8/re-frame-2-routing {:mvn/version "<latest>"}}}  ;; ← new in v2
+```
+
+Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` events / subscribes to the `:rf/route` family) MUST `(:require [re-frame.routing])` so the namespace's load-time hook registrations and `:rf.route/*` reg-event-fx + reg-sub installations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-route` resolves and the wrapper raises `:rf.error/routing-artefact-missing` with a clear "add the routing artefact" message; without the framework events the dispatches resolve to `:rf.error/no-such-handler`.
+
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-route ...)`, `(rf/match-url ...)`, `(rf/route-url ...)` still work, the wrappers in core late-bind through the hook table to the routing artefact's implementations. The active surfaces throw `:rf.error/routing-artefact-missing` when the routing artefact is absent.
+
+**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-k682](#).
+
+---
+
+**Reporting M-12 through M-29.** These eighteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing eighteen separate preambles.
 
 ---
 

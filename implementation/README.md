@@ -22,13 +22,13 @@ artefacts onto a single classpath for the cross-substrate builds
 
 ```
 implementation/
-  deps.edn                   Top-level coordinator: :local/root deps for both artefacts.
+  deps.edn                   Top-level coordinator: :local/root deps for every artefact.
   package.json               npm deps for the CLJS test targets (shadow-cljs, react, playwright).
-  shadow-cljs.edn            Top-level shadow build: pulls core/ and reagent/ src+test paths
+  shadow-cljs.edn            Top-level shadow build: pulls every artefact's src+test paths
                              plus ../examples for the cross-substrate test and example bundles.
 
   core/                      day8/re-frame-2 — the core artefact.
-    deps.edn                 Core's own deps (clojure, clojurescript, reagent, malli).
+    deps.edn                 Core's own deps (clojure, clojurescript, reagent).
     src/re_frame/
       interop.{clj,cljs}     JVM / CLJS host primitives.
       registrar.cljc         (kind, id) → metadata + replacement-hooks.
@@ -41,10 +41,8 @@ implementation/
       std_interceptors.cljc  path, unwrap, inject-cofx, ->interceptor primitive.
       cofx.cljc              reg-cofx + standard cofx.
       trace.cljc             Trace event emission + listener API.
-      schemas.cljc           Malli runtime validation.
-      machines.cljc          Hierarchical FSM, :always, :after, :invoke / spawn / destroy.
+      late_bind.cljc         Late-binding hook table for cross-artefact references.
       flows.cljc             reg-flow, topo-sort, dirty-check + hot-reload.
-      routing.cljc           reg-route, 6-rule rank cascade, query coercion, nav protocol.
       ssr.cljc               Hiccup → HTML5 emitter, :rf/hydrate, :rf.server/* fx, error projector.
       conformance.cljc       DSL interpreter for fixture handler bodies.
       views.cljs             reg-view*, React frame-context bridge (CLJS-only).
@@ -64,6 +62,23 @@ implementation/
                              (cross-spec, events, hot-reload, http-managed, machines,
                              nine-states, realworld, render-key, routing, runtime,
                              schemas).
+
+  schemas/                   day8/re-frame-2-schemas — schemas (Spec 010, rf2-p7va).
+    deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
+    src/re_frame/schemas.cljc      Malli runtime validation.
+    test/re_frame/                 JVM + CLJS schema tests.
+
+  machines/                  day8/re-frame-2-machines — state machines (Spec 005, rf2-xbtj).
+    deps.edn                 :local/root dep on ../core.
+    src/re_frame/machines.cljc     Hierarchical FSM, :always, :after, :invoke / spawn / destroy.
+    test/re_frame/                 CLJS machine tests.
+
+  routing/                   day8/re-frame-2-routing — routing (Spec 012, rf2-k682).
+    deps.edn                 :local/root dep on ../core.
+    src/re_frame/routing.cljc      reg-route, 6-rule rank cascade, query coercion,
+                                   nav protocol, :rf.route/* events, :rf.nav/* fxs,
+                                   :rf/route reg-sub family.
+    test/re_frame/                 JVM routing tests.
 ```
 
 ## Status by spec area
@@ -95,10 +110,22 @@ clojure -M:test
 # reagent artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
 cd implementation/reagent
 clojure -M:test
+
+# schemas artefact
+cd implementation/schemas
+clojure -M:test
+
+# machines artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
+cd implementation/machines
+clojure -M:test
+
+# routing artefact
+cd implementation/routing
+clojure -M:test
 ```
 
 The core run executes the full JVM suite — smoke, conformance, drain,
-schemas, SSR end-to-end, etc. — loading every `.edn` in
+SSR end-to-end, etc. — loading every `.edn` in
 `../../spec/conformance/fixtures/` and running the runnable subset
 against this implementation.
 
