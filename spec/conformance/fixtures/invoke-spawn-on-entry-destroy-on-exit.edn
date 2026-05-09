@@ -68,12 +68,13 @@
    :expect-next-snapshot {:state :authenticating
                           :data  {:credentials {:user "alice" :pass "secret"}
                                   :pending     :http/post#1}}
-   :expect-effects       [[:spawn {:machine-id :http/post
-                                   :id-prefix  :http/post
-                                   :data       {:url "/api/login"
-                                                :body {:user "alice" :pass "secret"}}
-                                   :on-spawn   :auth/record-actor
-                                   :start      [:begin]}]]}
+   :expect-effects       [[:spawn {:machine-id    :http/post
+                                   :id-prefix     :http/post
+                                   :data          {:url "/api/login"
+                                                   :body {:user "alice" :pass "secret"}}
+                                   :on-spawn      :auth/record-actor
+                                   :start         [:begin]
+                                   :rf/spawned-id :http/post#1}]]}
 
   ;; ---- (3) Exiting :authenticating: destroy fx is emitted with the
   ;;          recorded child id from the parent's :data.

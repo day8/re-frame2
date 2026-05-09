@@ -1,0 +1,66 @@
+;; Conformance fixture: machine/system-id-collision-warns-and-rebinds
+;;
+;; Per [005 §Named addressing via :system-id]
+;; (../../005-StateMachines.md#named-addressing-via-system-id),
+;; [009 §Error contract] (../../009-Instrumentation.md#error-contract), and
+;; rf2-suue.
+;;
+;; A second `:spawn` whose `:system-id` is already bound emits
+;; `:rf.error/system-id-collision` and rebinds the slot to the new
+;; spawned-id (last-write-wins, matching standard re-registration
+;; semantics under hot-reload).
+;;
+;; This fixture spawns twice under the same name; the index ends up
+;; pointing at the second spawn's id.
+
+{:fixture/id           :machine/system-id-collision-warns-and-rebinds
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/system-id}
+ :fixture/doc          "Re-spawning under an already-bound :system-id emits :rf.error/system-id-collision and rebinds the slot (last-write-wins)."
+
+ :fixture/registry
+ {:event
+  {:sup/spawn-once {:doc "Imperative spawn under :primary."}}
+  :machine
+  {:worker/proc {:initial :running :data {} :states {:running {}}}}
+  :machine-action {}}
+
+ :fixture/handlers
+ {:event
+  {:sup/spawn-once
+   [[:fx :spawn {:machine-id :worker/proc
+                 :id-prefix  :worker/proc
+                 :system-id  :primary}]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ ;; Spawn twice; both target :primary. The second binding shadows the
+ ;; first; the runtime emits :rf.error/system-id-collision.
+ [[:sup/spawn-once] [:sup/spawn-once]]
+
+ :fixture/expect
+ ;; The reverse index ends up bound to :worker/proc#2 (the latest spawn).
+ ;; The first spawned actor's snapshot is NOT auto-destroyed by the
+ ;; collision — the previous actor lives on under its gensym'd id, just
+ ;; without the named binding. (Symmetric with re-registration semantics:
+ ;; replacing a handler doesn't cancel in-flight work; it just means the
+ ;; next dispatch routes to the new fn.)
+ {:final-app-db
+  {:rf/machines
+   {:worker/proc#1 {:state :running :data {}}
+    :worker/proc#2 {:state :running :data {}}}
+   :rf/system-ids
+   {:primary :worker/proc#2}}
+
+  :trace-emissions
+  [{:operation :rf.machine/system-id-bound
+    :tags      {:system-id :primary :machine-id :worker/proc#1}}
+   {:operation :rf.error/system-id-collision
+    :op-type   :error
+    :tags      {:system-id        :primary
+                :existing-machine :worker/proc#1
+                :rebound-to       :worker/proc#2}
+    :recovery  :warned-and-replaced}
+   {:operation :rf.machine/system-id-bound
+    :tags      {:system-id :primary :machine-id :worker/proc#2}}]}}

@@ -1,0 +1,65 @@
+;; Conformance fixture: machine/destroy-machine-clears-system-id-index
+;;
+;; Per [005 §Named addressing via :system-id]
+;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
+;;
+;; When a `:system-id`-bound machine is destroyed (whether by exit from
+;; an :invoke-bearing state or by a hand-emitted `:destroy-machine` fx),
+;; the runtime clears the `[:rf/system-ids]` slot AND the
+;; `[:rf/machines <id>]` snapshot, and emits
+;; `:rf.machine/system-id-released`.
+;;
+;; This fixture exercises the declarative path: the parent transitions
+;; out of the :invoke-bearing state, the auto-destroy fx fires, and
+;; both the snapshot and the system-id binding disappear.
+
+{:fixture/id           :machine/destroy-machine-clears-system-id-index
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/system-id}
+ :fixture/doc          "Destroying a :system-id-bound machine clears [:rf/system-ids] and [:rf/machines <id>] atomically; emits :rf.machine/system-id-released."
+
+ :fixture/registry
+ {:event {:sup/flow {}}
+  :machine
+  {:worker/proc {:initial :running :data {} :states {:running {}}}
+   :sup/flow    {:initial :idle
+                 :data    {}
+                 :states
+                 {:idle    {:on {:start :working}}
+                  :working {:invoke {:machine-id :worker/proc
+                                     :system-id  :worker
+                                     :on-spawn   :auth/record-actor}
+                            :on    {:done :idle}}}}}
+  :machine-action
+  {:auth/record-actor {}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ ;; (1) Spawn the worker (binds :worker → :worker/proc#1).
+ ;; (2) Transition back to :idle — auto-destroy fires.
+ [[:sup/flow [:start]]
+  [:sup/flow [:done]]]
+
+ :fixture/expect
+ ;; Post-destroy: :rf/system-ids slot cleared, worker's snapshot gone,
+ ;; only the parent's snapshot (now :idle) remains. The :pending key on
+ ;; the parent is the latest-known id; the destroy fx clears the snapshot
+ ;; itself but the user code is responsible for clearing :data.:pending.
+ {:final-app-db
+  {:rf/machines
+   {:sup/flow {:state :idle :data {:pending :worker/proc#1}}}
+   :rf/system-ids {}}
+
+  :trace-emissions
+  [{:operation :rf.machine/system-id-bound
+    :tags      {:system-id :worker :machine-id :worker/proc#1}}
+   {:operation :rf.machine/destroyed
+    :tags      {:actor-id  :worker/proc#1
+                :system-id :worker}}
+   {:operation :rf.machine/system-id-released
+    :tags      {:system-id :worker :machine-id :worker/proc#1}}]}}
