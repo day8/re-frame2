@@ -36,7 +36,7 @@ The story / variant / workspace id syntax is **locked** and used consistently th
 
 Rules:
 
-1. The `:story.<...>` and `:Workspace.<...>` prefixes are reserved (see [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+1. The `:story.<...>` and `:Workspace.<...>` prefixes are **library-owned** by the post-v1 stories library — they are not framework-reserved under `:rf/*` (see [Conventions §Library-owned prefixes](Conventions.md#library-owned-prefixes)). User code MUST NOT register stories/workspaces under conflicting prefixes when this library is loaded.
 2. The dotted path segments organise the tree the story tool renders — split on `.` to build the navigator.
 3. Variant names go after `/`. A variant id always belongs to exactly one story; the story id is everything before `/`.
 4. Tools enumerate via `(rf/handlers :story)`, `(rf/handlers :variant)`, `(rf/handlers :workspace)`. The hierarchy is recoverable from the id alone — no separate `:title` field is required.

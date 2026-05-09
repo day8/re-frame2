@@ -1569,7 +1569,7 @@ User-facing call sites:
 ;;    ...)
 ```
 
-See also [API.md §Machines](API.md#machines) and Conventions.md §Reading machines.
+See also [API.md §Machines](API.md#machines).
 
 ## Subscribing to machines via `sub-machine`
 

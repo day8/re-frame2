@@ -55,6 +55,17 @@ Migration entries: [MIGRATION §M-23](MIGRATION.md#m-23-re-framealpha-is-removed
 
 User-defined route ids are **not** namespaced under any framework prefix. Routes are user-facing names; pick a feature prefix per the [feature-modularity convention](#feature-modularity-prefix-convention) below — `:cart/show`, `:auth/login-page`, `:account.profile/show`. The framework's routing concerns (events that drive navigation, subs that read the route slice) live under `:rf.route/*`; user route ids share the user-feature namespace with their adjacent events and subs. This stops the framework prefix from leaking into app code and removes the `:route/*` ambiguity (was it a framework operation or a user route-id? — the v2 answer is unambiguously the latter has no `:route/*` prefix at all).
 
+### Library-owned prefixes
+
+A handful of canonical libraries reserve prefixes outside the framework `:rf/*` root. These prefixes are **library-owned** (canonical when the library is loaded), not **framework-reserved** (closed by Spec change). The distinction matters: framework-reserved names are fixed-and-additive in the table above; library-owned prefixes belong to the library's own surface and would only collide with user code that loads the library and ignores its convention.
+
+| Library-owned prefix | Library | Used for | Spec |
+|---|---|---|---|
+| `:story.<...>` | post-v1 stories library | Story ids (`:story.auth.login-form`) and variant ids (`:story.auth.login-form/empty`) | [007](007-Stories.md) |
+| `:Workspace.<...>` | post-v1 stories library | Workspace ids (`:Workspace.Auth/all-states`) | [007](007-Stories.md) |
+
+Library-owned prefixes do **not** violate the single-root invariant on framework-reserved ids (the rule that framework names live under `:rf/*` only) — they are user-space names that the library claims by convention. The framework's own assertion-event vocabulary used by the stories library's play functions and test runner is `:rf.assert/*` (per the table above) and remains framework-reserved.
+
 ### Discipline
 
 - **User-registered ids must not collide.** A user may not `(reg-event-fx :rf/hydrate ...)` to override a framework event without going through the documented `:on-create` / re-registration extension points. The linter rule is: `:rf/*` and any `:rf.X/*` sub-namespace is reserved.
