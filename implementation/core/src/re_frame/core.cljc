@@ -397,8 +397,9 @@
 
 ;; Schema introspection — pure fn aliases (no source-coord capture
 ;; needed, these are read-only public queries).
-(def app-schema-at   schemas/app-schema-at)
-(def app-schemas     schemas/app-schemas)
+(def app-schema-at      schemas/app-schema-at)
+(def app-schemas        schemas/app-schemas)
+(def app-schemas-digest schemas/app-schemas-digest)
 
 #?(:clj
    (defmacro reg-machine

@@ -42,6 +42,8 @@
     :schemas/validate-app-db!    re-frame.schemas/validate-app-db!
     :schemas/validate-cofx!      re-frame.schemas/validate-cofx!
     :schemas/validate-sub-return! re-frame.schemas/validate-sub-return!
+    :schemas/frame-schema-entries re-frame.schemas/frame-schema-entries
+    :schemas/app-schemas-digest  re-frame.schemas/app-schemas-digest
     :subs/subscribe-value     re-frame.subs/subscribe-value
     :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
     :epoch/settle!            re-frame.epoch/settle!
