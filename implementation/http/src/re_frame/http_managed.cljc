@@ -26,7 +26,24 @@
   Trace events (`:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`,
   the `:rf.error/*` from failures) gate on `interop/debug-enabled?`.
   The `:rf.http/managed` fx itself is dev+prod (user-facing). The canned
-  stub fxs gate on `interop/debug-enabled?` so they elide in production."
+  stub fxs gate on `interop/debug-enabled?` so they elide in production.
+
+  ## Artefact (rf2-5kpd, fifth per-feature split per rf2-5vjj Strategy B)
+
+  This namespace ships in `day8/re-frame-2-http`, separate from the core
+  artefact (`day8/re-frame-2`). The core artefact's `re-frame.core`
+  re-exports of `install-managed-request-stubs!` /
+  `uninstall-managed-request-stubs!` / `with-managed-request-stubs*` /
+  `with-managed-request-stubs` look this namespace's entry points up via
+  the `re-frame.late-bind` hook table — loading this namespace publishes
+  the hooks AND registers the `:rf.http/managed`,
+  `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, and
+  `:rf.http/managed-canned-failure` fxs. Apps that don't issue any
+  managed-HTTP requests don't drag the in-flight request registry, the
+  Fetch / HttpClient transport adapters, the encode / decode pipeline,
+  the retry-with-backoff machinery, the eight-category `:rf.http/*`
+  failure taxonomy, or any of the `:rf.http/*` keyword strings onto the
+  classpath."
   (:require [re-frame.fx        :as fx]
             [re-frame.interop   :as interop]
             [re-frame.late-bind :as late-bind]
@@ -1224,3 +1241,17 @@
      Per Spec 014 §Testing."
      [stubs & body]
      `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; re-frame.core needs to call into the test-time helpers but per
+;; rf2-5kpd ships in the core artefact — it cannot `:require` this
+;; namespace because the http artefact is optional (apps that don't
+;; issue any managed-HTTP requests don't carry it). Publish entry
+;; points through the late-bind hook registry; consumers look the fns
+;; up at call time. See re-frame.late-bind.
+
+(late-bind/set-fn! :http/install-managed-request-stubs!   install-managed-request-stubs!)
+(late-bind/set-fn! :http/uninstall-managed-request-stubs! uninstall-managed-request-stubs!)
+(late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)
+(late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)

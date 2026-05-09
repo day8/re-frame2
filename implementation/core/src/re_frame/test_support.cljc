@@ -73,6 +73,13 @@
             ;; on the classpath the lookups return nil and the schema
             ;; steps no-op (correct: there is no schema state to
             ;; preserve).
+            ;; re-frame.http-managed (Spec 014) ships as a separate
+            ;; artefact (day8/re-frame-2-http, rf2-5kpd). The reset
+            ;; fixture clears the in-flight request registry through
+            ;; the late-bind hook table — when the http artefact is
+            ;; not on the classpath the lookup returns nil and the
+            ;; clear step no-ops (correct: there is no request state
+            ;; to clear).
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
             [re-frame.router :as router]
@@ -243,6 +250,14 @@
          ;; day8/re-frame-2-routing.
          (when-let [reset-counters! (late-bind/get-fn :routing/reset-counters!)]
            (reset-counters!))
+         ;; Late-bind: when the http artefact is loaded, drop the
+         ;; in-flight request registry so a stale handle from a
+         ;; sibling test cannot survive into this one. When it isn't,
+         ;; the hook returns nil and this is a no-op (correct: there
+         ;; is no request state to clear). Per rf2-5kpd — http ships
+         ;; in day8/re-frame-2-http.
+         (when-let [clear-in-flight! (late-bind/get-fn :http/clear-all-in-flight!)]
+           (clear-in-flight!))
          (trace/clear-trace-cbs!)
          (when adapter
            (adapter/install-adapter! adapter)
