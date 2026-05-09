@@ -5,6 +5,32 @@
 
 This file is intentionally **kept separate** from Construction-Prompts.md so that CP-5 reads as a parallel sibling to CP-1/CP-2/CP-3/CP-4 rather than a doc-within-a-doc. Read CP-5 first; consult this file when the prompt's checklist sends you here.
 
+## Registration — `reg-machine` and `reg-machine*`
+
+Two equivalent surfaces register a machine; CP-5-generated scaffolds default to **`reg-machine`** (the macro). Both register the same thing — an event handler whose body interprets the transition table — and both stamp the registry slot with `:rf/machine? true` and `:rf/machine <spec>` so that `(rf/machines)` and `(rf/machine-meta id)` see the registration (per [005 §Querying machines](005-StateMachines.md#querying-machines)).
+
+```clojure
+;; Standard form — the macro (preferred).
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :data    {...}
+   :guards  {...}
+   :actions {...}
+   :states  {...}})
+
+;; Plain-fn surface — for code-gen, REPL, fixture-synthesised specs.
+(rf/reg-machine* machine-id (build-spec-from-edn fixture))
+```
+
+| Form | Shape | Source-coord stamping | Use case |
+|---|---|---|---|
+| `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot AND per-element coord index walked from the literal spec form (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)) | The default. Use whenever the spec is a literal map at the call site. |
+| `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the spec is opaque data at the call site | Code-gen pipelines, REPL exploration, conformance harnesses that synthesise specs from EDN fixtures. |
+
+Both forms live in `re-frame.machines` (the `day8/re-frame-2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
+
+The older `reg-event-fx + create-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
+
 ## The inline-fn escape hatch
 
 CP-5 says: **default to named guards and actions**; inline fns are an escape hatch for trivial logic, not the default form. The test for "trivial" is **single non-branching expression**.
