@@ -1,23 +1,27 @@
-;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj).
+;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj, rf2-k682).
 ;;
 ;; The published artefacts are
 ;;   - core/     (day8/re-frame-2)
 ;;   - reagent/  (day8/re-frame-2-reagent)
 ;;   - schemas/  (day8/re-frame-2-schemas, rf2-p7va)
 ;;   - machines/ (day8/re-frame-2-machines, rf2-xbtj)
+;;   - routing/  (day8/re-frame-2-routing, rf2-k682)
 ;; see implementation/core/deps.edn, implementation/reagent/deps.edn,
-;; implementation/schemas/deps.edn, and implementation/machines/deps.edn.
+;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
+;; and implementation/routing/deps.edn.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every artefact onto a single
 ;; classpath for the shadow-cljs builds (browser-test, elision-probe,
-;; examples) that exercise core + Reagent + Schemas + Machines together.
-;; Per-artefact JVM tests run via the per-artefact deps.edn directly.
+;; examples) that exercise core + Reagent + Schemas + Machines + Routing
+;; together. Per-artefact JVM tests run via the per-artefact deps.edn
+;; directly.
 {:paths []
  :deps  {day8/re-frame-2          {:local/root "core"}
          day8/re-frame-2-reagent  {:local/root "reagent"}
          day8/re-frame-2-schemas  {:local/root "schemas"}
-         day8/re-frame-2-machines {:local/root "machines"}}
+         day8/re-frame-2-machines {:local/root "machines"}
+         day8/re-frame-2-routing  {:local/root "routing"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -28,6 +32,7 @@
                  "reagent/test"
                  "schemas/test"
                  "machines/test"
+                 "routing/test"
                  "../examples"
                  "../examples/realworld/test"]
    :extra-deps  {io.github.cognitect-labs/test-runner
