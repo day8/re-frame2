@@ -936,7 +936,7 @@ Built-in fns the `[:fn :name]` form resolves to: `:inc`, `:dec`, `:identity`, `:
 
 The op vocabulary is **closed for v1** of the corpus. The conformance corpus's `:fixture/handlers` shape (per [conformance/README.md](conformance/README.md)) consumes this DSL — `:rf/handler-body-dsl` and `:rf/fixture-handler-body` are synonyms; this entry is canonical.
 
-State-machine transition-table guards and actions are referenced by **inline fn or keyword reference into the machine's local `:guards` / `:actions` map** in `:rf/transition-table` below; those are the *runtime* grammar for machine transitions per [005-StateMachines.md](005-StateMachines.md), not part of this conformance handler-body DSL. Transition slots take fn-valued or keyword-valued `:guard` and `:action` slots — keyword values resolve **machine-locally** against the spec's `:guards` / `:actions` map (no global registry); effects emitted by an action — including the reserved fx-ids `:raise` and `:spawn` — appear inside the action's returned `:fx` vector.
+State-machine transition-table guards and actions are referenced by **inline fn or keyword reference into the machine's local `:guards` / `:actions` map** in `:rf/transition-table` below; those are the *runtime* grammar for machine transitions per [005-StateMachines.md](005-StateMachines.md), not part of this conformance handler-body DSL. Transition slots take fn-valued or keyword-valued `:guard` and `:action` slots — keyword values resolve **machine-locally** against the spec's `:guards` / `:actions` map (no global registry); effects emitted by an action — including the reserved fx-id `:raise` and the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` — appear inside the action's returned `:fx` vector.
 
 ### `:rf/transition-table`
 
@@ -994,7 +994,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 
 ;; The :invoke spec on a state node. Per [005 §Declarative :invoke (sugar over spawn)]
 ;; (005-StateMachines.md#declarative-invoke-sugar-over-spawn), `create-machine-handler`
-;; rewrites this slot into entry/exit actions emitting :spawn / :destroy-machine fx
+;; rewrites this slot into entry/exit actions emitting :rf.machine/spawn / :rf.machine/destroy fx
 ;; at registration time; the runtime sees only the desugared form. Constraint:
 ;; **exactly one of :machine-id or :definition** must be supplied — `create-machine-handler`
 ;; rejects any other shape at registration time as a malformed transition table.
@@ -1046,8 +1046,10 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; Actions are one inline fn or one keyword reference resolved against the
 ;; machine's local :actions map, returning the {:data :fx} effect map. No
 ;; action-vector form ([a1 a2 a3]) — multi-step actions are fn composition.
-;; The action's returned :fx may contain reserved fx-ids :raise and :spawn,
-;; which the machine handler routes locally (per :rf.fx/spawn-args below).
+;; The action's returned :fx may contain the reserved fx-id :raise (which
+;; the machine handler routes locally) and the canonical actor-lifecycle
+;; fx-ids :rf.machine/spawn / :rf.machine/destroy (which reach the standard
+;; do-fx through :rf.fx/spawn-args below).
 (def ActionRef
   [:or :keyword fn?])
 ```
@@ -1137,7 +1139,7 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 (rf/reg-app-schema [:rf/spawned] Spawned)
 ```
 
-Allocated lazily — absent until the first declarative-`:invoke` spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:spawn ...]` calls (where the user owns the destroy via hand-emitted `[:destroy-machine actor-id]`) leave the slot untouched.
+Allocated lazily — absent until the first declarative-`:invoke` spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
 
 Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spawned` map; same parent-id + invoke-id in different frames do not collide. Frame revertibility is inherited (the slot walks back atomically with `app-db` on a frame revert).
 
@@ -1444,9 +1446,11 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:to        {:optional true} [:map [:id :keyword] [:params {:optional true} :map] [:query {:optional true} :map]]]
    [:saved-pos {:optional true} [:tuple :int :int]]])                        ;; runtime-captured saved position (for :restore)
 
-;; :spawn — reserved fx-id used inside a machine action's :fx to spawn a
-;; dynamic actor. Per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors).
-;; The :raise reserved fx-id (also recognised by the machine handler) takes a
+;; :rf.machine/spawn — canonical actor-lifecycle fx-id (registered globally by
+;; re-frame.machines); usable inside any event handler's :fx (machine actions
+;; and ordinary handlers alike) to spawn a dynamic actor. Per
+;; [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors). The :raise
+;; reserved fx-id (machine-internal, routed by the machine handler) takes a
 ;; bare event vector — same shape as :dispatch — and so does not need its own
 ;; args schema.
 (def SpawnFxArgs
@@ -1470,11 +1474,12 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; The spawned actor's snapshot lives at [:rf/machines <gensym'd-id>] in the
 ;; active frame's app-db — runtime-managed; not part of the spawn-spec.
 
-;; :destroy-machine — reserved fx-id used inside a machine action's :fx to
-;; tear down a dynamic actor. Per [005 §Spawning] and rf2-t07u (Option A
-;; revised). Two argument shapes:
+;; :rf.machine/destroy — canonical actor-destroy fx-id (registered globally
+;; by re-frame.machines); usable inside any event handler's :fx (machine
+;; actions and ordinary handlers alike) to tear down a dynamic actor. Per
+;; [005 §Spawning] and rf2-t07u (Option A revised). Two argument shapes:
 ;;   - a bare actor-id keyword — the legacy / imperative form (action emits
-;;     `[:destroy-machine actor-id]` with the recorded id directly).
+;;     `[:rf.machine/destroy actor-id]` with the recorded id directly).
 ;;   - a `{:rf/parent-id :rf/invoke-id}` map — the declarative-:invoke
 ;;     exit-cascade form. The fx handler reads the spawned id back from
 ;;     `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down
@@ -1530,8 +1535,8 @@ These are registered under spec ids:
 | `:rf.fx/nav/push-url-args` | `:rf.nav/push-url` (per [012](012-Routing.md)) |
 | `:rf.fx/nav/replace-url-args` | `:rf.nav/replace-url` |
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
-| `:rf.fx/spawn-args` | `:spawn` (reserved fx-id inside a machine action's `:fx`; per [005](005-StateMachines.md)) |
-| `:rf.fx/destroy-machine-args` | `:destroy-machine` (reserved fx-id inside a machine action's `:fx`; per [005](005-StateMachines.md) and rf2-t07u — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
+| `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
+| `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and rf2-t07u — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |
@@ -1660,7 +1665,7 @@ The `:db-before` / `:db-after` pair lets pair tools display diffs cheaply.
 
 - `:sub-runs` — every sub the cascade re-ran. `:recomputed?` is `true` for every entry: under the value-equality rule in [Spec 006 §Invalidation algorithm](006-ReactiveSubstrate.md#invalidation-algorithm) (rf2-719e), a sub whose inputs are value-equal to the prior call does not re-run its body and therefore does not emit `:sub/run`, so cache-hit subs are absent from this projection. The slot answers "which subs moved this cascade?" without re-deriving from the trace. (rf2-7e2y dropped a `:result-changed?` slot that was structurally always true under the same semantics — consumers wanting the input-changed-but-value-equal distinction must consume the raw trace until that distinction is wired through as a separate signal.)
 - `:renders` — every render that fired during the cascade. `:triggered-by` names the sub-id whose value-change triggered the render, or is `nil` for the initial mount / a render driven by something other than a sub change. `:elapsed-ms` is the render's wall-clock duration. `:render-key` is a **tuple** `[<view-id> <instance-token>]` (rf2-t5tx). The first slot is the `reg-view` registry id, or `:rf.view/anonymous` for plain Reagent fns (implementations may derive a tooling-friendly substitute from `(.-displayName fn)` when cheap); the second slot is an integer instance-token minted at mount time from a runtime counter atom. Tools that aggregate by view use the first slot; tools that distinguish per-mount activity use the second. Cross-run correlation (replay) is out of scope — instance-tokens regenerate per mount; alternative keys (positional path, parent context) are an open question if Tool-Pair replay grows that need.
-- `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:spawn`, `:destroy-machine`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
+- `:effects` — every effect dispatched in the cascade's `:event/do-fx` step. **Every dispatched fx surfaces exactly one entry**, regardless of outcome — successes, warnings, and errors are all recorded so per-event fx attribution is available without re-folding the raw trace stream. `:outcome` is `:ok` on success, `:error` if the effect threw or returned a structured error, `:skipped-on-platform` when the effect is registered with `:platforms` that exclude the current host (per [011](011-SSR.md)). `:error-trace` (when present, on `:error` outcomes) references the corresponding error trace event by `:id`. The `:fx-id`s of reserved runtime fx (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.machine/spawn`, `:rf.machine/destroy`) appear in `:effects` alongside user-registered fx — one entry per dispatched pair, in source order.
 - `:schema-digest` (rf2-0z1z) — the canonical wire form (per [010 §Schema digest](010-Schemas.md#schema-digest)) of the frame's app-schema set at the moment this epoch was recorded. Pinned per-epoch so `restore-epoch`'s `:rf.epoch/restore-schema-mismatch` trace can carry both the **recorded** digest and the frame's **current** digest, letting pair tools attribute restore failures to schema drift. `nil` on hosts that ship no runtime schema layer (the slot is optional and tolerated absent).
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.

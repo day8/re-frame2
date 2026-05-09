@@ -412,7 +412,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### M2. Spawn primitive
 
-- **Why it matters.** `:spawn` fx creates a new machine instance under a generated id; `:destroy-machine` fx tears it down (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)).
+- **Why it matters.** `:rf.machine/spawn` fx creates a new machine instance under a generated id; `:rf.machine/destroy` fx tears it down (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)).
 - **Options by host.** Per [005](005-StateMachines.md). Spawn is a registered fx; the runtime updates frame-local registry.
 - **Reference-impl picks.** CLJS uses gensym'd machine ids.
 - **Trade-offs.** Spawn registers in the frame-local tier (per [Goal 3](000-Vision.md#frame-state-revertibility)); undo rolls back spawned actors.

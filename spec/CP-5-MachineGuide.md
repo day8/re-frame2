@@ -78,7 +78,7 @@ For the third case (compound predicate), prefer naming the compound — `:eligib
 
 ## v1 grammar subset
 
-v1 ships the **machine-as-event-handler foundation** — `create-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-ids `:raise` / `:spawn` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
+v1 ships the **machine-as-event-handler foundation** — `create-machine-handler`, `machine-transition`, the `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` lifecycle fx, the reserved fx-id `:raise` (machine-internal), the `[:rf/machines <id>]` storage scheme, four-level drain, machine-scoped `:guards` / `:actions` declaration with registration-time validation, and the discovery lens (`(rf/machines)` / `(rf/machine-meta id)`).
 
 The grammar this foundation interprets (per [005 §Capability matrix](005-StateMachines.md#capability-matrix)):
 
@@ -88,7 +88,7 @@ The grammar this foundation interprets (per [005 §Capability matrix](005-StateM
 - transition shape `{:target :guard :action :meta}` with **single-fn-or-keyword-reference** `:guard` and `:action` slots
 - per-state `:entry` / `:exit` as single fns or keyword references
 - `:*` wildcard, self-transitions
-- the reserved fx-ids `:raise` / `:spawn` inside the action's returned `:fx`
+- the reserved fx-id `:raise` (machine-internal) plus the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` inside the action's returned `:fx`
 
 The snapshot location is fixed at `[:rf/machines <id>]` — no `:path` key in the spec.
 

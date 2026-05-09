@@ -176,7 +176,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 If an `:fx` entry's handler throws, subsequent entries **continue** ([002 §Error during `:fx`](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — `:fx` ordering means *order*, not *dependency*. The thrown error traces as `:rf.error/fx-handler-exception`.
 
-**Reserved fx-ids inside machines.** `:raise` and `:spawn` are machine-internal — the machine handler routes them locally before forwarding the rest to `do-fx` ([Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), [005 §Reserved fx-ids inside `:fx`](005-StateMachines.md#raise-spawn-and-destroy-machine-are-reserved-fx-ids-inside-fx)).
+**Reserved fx-ids inside machines.** `:raise` is machine-internal — the machine handler routes it locally before forwarding the rest to `do-fx`. The `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids are registered globally and reach `do-fx` like any other fx ([Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids), [005 §Reserved fx-ids inside `:fx`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx)).
 
 ### 6. Sub-cache
 

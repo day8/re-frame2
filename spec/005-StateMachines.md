@@ -8,7 +8,7 @@
 
 ## Abstract
 
-A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + create-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, and the `:raise` / `:spawn` reserved fx-ids that the machine handler routes locally.
+A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + create-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
 
 For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lists the divergences inline and forward-points to [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) for the full divergence table.
 
@@ -163,7 +163,7 @@ All keys are optional except `:initial` (which is required when `:states` is pre
 
 `:entry` and `:exit` are **single fns or single keyword references into the machine's `:actions` map** — never vectors. To run multiple actions on entry, write a fn that calls them in order (or name a compound entry in the machine's `:actions` map; the named id is richer for tooling).
 
-`:invoke` is **declarative sugar** that `create-machine-handler` desugars into entry/exit `:spawn` / `:destroy-machine` fx at registration time; per-state at most one `:invoke`. See [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
+`:invoke` is **declarative sugar** that `create-machine-handler` desugars into entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` fx at registration time; per-state at most one `:invoke`. See [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) for the spec-spec keys, desugaring rules, composition with explicit `:entry` / `:exit`, and the deliberate omissions vs xstate.
 
 ### Transitions
 
@@ -325,29 +325,29 @@ Two keys. **Symmetric with `reg-event-fx`'s `{:db :fx}`** — same shape, differ
 
 When N action slots fire in one transition (`:exit` → `:action` → `:entry`), `:data` updates merge in slot order; `:fx` vectors concatenate left-to-right.
 
-### `:raise`, `:spawn`, and `:destroy-machine` are reserved fx-ids inside `:fx`
+### `:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`
 
 Not separate top-level keys. The machine handler walks `:fx` left-to-right and routes by fx-id:
 
 ```clojure
-{:fx [[:raise           [:event-1]]                                          ;; back into THIS machine, atomic, pre-commit
-      [:raise           [:event-2]]
-      [:spawn           {:machine-id :request/protocol
-                         :on-spawn   (fn [data id] (assoc data :child id)) ;; how the parent records the new id
-                         :start      [:begin]}]                              ;; child actor (see §Spawning)
-      [:destroy-machine actor-id]                                            ;; tear down a spawned actor
-      [:dispatch        [:other-machine [:notify]]]                          ;; standard re-frame :dispatch
-      [:http            {...}]]}                                             ;; any other registered fx
+{:fx [[:raise              [:event-1]]                                          ;; back into THIS machine, atomic, pre-commit
+      [:raise              [:event-2]]
+      [:rf.machine/spawn   {:machine-id :request/protocol
+                            :on-spawn   (fn [data id] (assoc data :child id)) ;; how the parent records the new id
+                            :start      [:begin]}]                              ;; child actor (see §Spawning)
+      [:rf.machine/destroy actor-id]                                            ;; tear down a spawned actor
+      [:dispatch           [:other-machine [:notify]]]                          ;; standard re-frame :dispatch
+      [:http               {...}]]}                                             ;; any other registered fx
 ```
 
 Routing rules (per [§Drain semantics](#drain-semantics)):
 
 - `[:raise <event-vec>]` — appended to the machine's local pre-commit raise-queue.
-- `[:spawn <spawn-spec>]` — registers a new handler immediately; the new id is fed through the spec's `:on-spawn` to update `:data`; if `:start` is present, an event is queued to the new actor.
-- `[:destroy-machine <actor-id>]` — runs the actor's `:exit` action, dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:spawn`. Used directly by user actions and emitted by the desugaring of `:invoke` on state exit.
+- `[:rf.machine/spawn <spawn-spec>]` — registers a new handler immediately; the new id is fed through the spec's `:on-spawn` to update `:data`; if `:start` is present, an event is queued to the new actor.
+- `[:rf.machine/destroy <actor-id>]` — runs the actor's `:exit` action, dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:rf.machine/spawn`. Used directly by user actions and emitted by the desugaring of `:invoke` on state exit.
 - Any other `[fx-id args]` — forwarded to the standard `do-fx` for runtime processing.
 
-Reserving `:raise`, `:spawn`, and `:destroy-machine` as machine-only fx-ids matches re-frame's existing reserved unqualified fx names (`:dispatch`, `:dispatch-later`). They are listed in [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids).
+`:raise` is machine-internal and unqualified, matching re-frame's existing reserved unqualified fx names (`:dispatch`, `:dispatch-later`). `:rf.machine/spawn` and `:rf.machine/destroy` are namespaced under the framework's `:rf.<feature>/...` convention so user code can register them globally as canonical actor-lifecycle fxs (per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)). They are listed in [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids).
 
 ## Strict encapsulation — actions only see their own data
 
@@ -359,7 +359,7 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 - **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `(fn [data event {:state :meta}] boolean)`.
 - **What the fn sees:** the snapshot's `:data` slot directly (a map). The full `{:state :data :meta}` snapshot is reachable only via the 3-arity opt-in. Never `app-db`; never cofx.
 
-The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `create-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
+The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `create-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
 
 **Cross-cutting reads via the event payload.** A view that needs to pass the circle's current radius into the editor includes it in the dispatch:
 
@@ -680,12 +680,12 @@ An action returns `{:data ... :fx [...]}`. The two keys are independent:
 - **`:data`** — a single map; merged into the current data map (last write wins on key collision).
 - **`:fx`** — a vector of `[fx-id args]` pairs; processed **in vector order**. The machine handler's effect-map composer walks `:fx` and routes by fx-id:
   - `[:raise <event-vec>]` → appended to the local pre-commit raise-queue.
-  - `[:spawn <spawn-spec>]` → registers a new handler immediately (each spawn happens before the next `:fx` entry is processed; the spawned id is fed through the spec's `:on-spawn` callback to update `:data`; if `:start` is present, an event is queued to the new actor).
+  - `[:rf.machine/spawn <spawn-spec>]` → registers a new handler immediately (each spawn happens before the next `:fx` entry is processed; the spawned id is fed through the spec's `:on-spawn` callback to update `:data`; if `:start` is present, an event is queued to the new actor).
   - any other `[fx-id args]` → forwarded to the standard `do-fx` for runtime processing.
 
 The relative order of `:raise` entries in `:fx` is the order they enter the local raise-queue. The relative order of non-raise fx entries is the order they reach `do-fx`.
 
-This Level-1 walk is the machine-layer instance of the runtime-wide [`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) — `:db` (here, the lowered `:data` write) commits before any `:fx` entry, `:fx` entries process in source order, each entry's fx-handler returns before the next begins, and an fx-handler exception traces independently without halting subsequent entries. `:raise` and `:spawn` are reserved fx-ids routed locally before the rest reach `do-fx` (see [§`:raise` and `:spawn` are reserved fx-ids inside `:fx`](#raise-spawn-and-destroy-machine-are-reserved-fx-ids-inside-fx)).
+This Level-1 walk is the machine-layer instance of the runtime-wide [`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) — `:db` (here, the lowered `:data` write) commits before any `:fx` entry, `:fx` entries process in source order, each entry's fx-handler returns before the next begins, and an fx-handler exception traces independently without halting subsequent entries. `:raise` is routed locally to the machine's pre-commit queue; `:rf.machine/spawn` and `:rf.machine/destroy` reach `do-fx` like any other registered fx (see [§`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx)).
 
 ### Level 2 — across the action slots in one transition
 
@@ -711,7 +711,7 @@ Self-transitions: if `:target` names the same state as the source, the transitio
 Composition across all action slots' returned effect maps:
 
 - `:data` updates merge in slot order — exit-cascade (deepest-first) → action → entry-cascade (shallowest-first) → initial-cascade. Last write wins on key collision.
-- `:fx` entries concatenate in slot order. Within the concatenated `:fx`, the Level-1 walk (`:raise` → local queue, `:spawn` → register, rest → `do-fx`) preserves order.
+- `:fx` entries concatenate in slot order. Within the concatenated `:fx`, the Level-1 walk (`:raise` → local queue, `:rf.machine/spawn` / `:rf.machine/destroy` and the rest → `do-fx`) preserves order.
 
 ### Level 3 — within a single machine event
 
@@ -719,7 +719,7 @@ When a machine receives an event:
 
 1. Resolve which transition fires (guards evaluated left-to-right; first match wins).
 2. Run the action group (Level 2).
-3. **Drain the raise-queue**: pop the front, dispatch it through the same machinery (Level 3 recursion), accumulate its `:fx` / `:spawn` into the same outer accumulator. Continue until the raise-queue is empty.
+3. **Drain the raise-queue**: pop the front, dispatch it through the same machinery (Level 3 recursion), accumulate its `:fx` (including any `:rf.machine/spawn` / `:rf.machine/destroy` entries) into the same outer accumulator. Continue until the raise-queue is empty.
 4. **Microstep loop — check `:always`**: inspect the current state node's (and, for hierarchical compounds, every entered ancestor's deepest-first) `:always` vector. If a guarded entry matches (first-match-wins), apply that transition (run its `:action`, update the in-flight snapshot, accumulate its `:fx`) — then **loop back to step 3** to drain any new `:raise` queue, then re-check `:always`. Continue until a fixed point is reached (no `:always` matches in the current state). See [§Eventless `:always` transitions](#eventless-always-transitions) for the full microstep semantics.
 5. Commit the snapshot (state-keyword + merged data) to `app-db` at `[:rf/machines <id>]`, in a single `:db` write.
 6. Emit the accumulated `:fx` as the event handler's return value, which the standard re-frame interceptor pipeline's `do-fx` then processes.
@@ -1134,7 +1134,7 @@ If `:loaded` or `:failed` arrives before 5s, the machine transitions out of `:lo
 
 This is consistent with `:platforms` gating on `reg-fx` (per [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server)): timer scheduling is conceptually a `:client`-only concern. The first client render after hydration can re-fire entry actions to begin scheduling, depending on the implementation's hydration policy — the spec leaves the hydration-handoff timing to the host so long as the snapshot value is preserved.
 
-**Spawn under SSR.** `:spawn` and `:invoke`-driven spawns are also SSR-conditional in the v1 reference: the canonical guidance is that long-lived child actors which exist primarily to drive client-side async work (`:http/post`, websocket protocols, polling) should be gated on the surrounding event handler running client-side, exactly as with `reg-fx :platforms`. Server-rendered machine snapshots that happen to land in a state whose `:invoke` would spawn such an actor should rely on the standard `:platforms`-style suppression at the spawn-fx layer rather than expecting the runtime to silently no-op the spawn. The hydration payload covers the snapshot value itself; child-actor handlers are not part of the wire shape and re-establish on the client side via the post-hydration entry replay (per [011-SSR](011-SSR.md)).
+**Spawn under SSR.** `:rf.machine/spawn` and `:invoke`-driven spawns are also SSR-conditional in the v1 reference: the canonical guidance is that long-lived child actors which exist primarily to drive client-side async work (`:http/post`, websocket protocols, polling) should be gated on the surrounding event handler running client-side, exactly as with `reg-fx :platforms`. Server-rendered machine snapshots that happen to land in a state whose `:invoke` would spawn such an actor should rely on the standard `:platforms`-style suppression at the spawn-fx layer rather than expecting the runtime to silently no-op the spawn. The hydration payload covers the snapshot value itself; child-actor handlers are not part of the wire shape and re-establish on the client side via the post-hydration entry replay (per [011-SSR](011-SSR.md)).
 
 ### Clock abstraction
 
@@ -1213,11 +1213,11 @@ Both are event handlers. Both addressable by `dispatch`. Both visible to `(handl
 
 ```clojure
 :action (fn [_ [_ url]]
-          {:fx [[:spawn {:machine-id :request/protocol
-                         :id-prefix  :request/protocol
-                         :data       {:url url}
-                         :on-spawn   (fn [data id] (assoc data :pending-request id))
-                         :start      [:begin]}]]})
+          {:fx [[:rf.machine/spawn {:machine-id :request/protocol
+                                    :id-prefix  :request/protocol
+                                    :data       {:url url}
+                                    :on-spawn   (fn [data id] (assoc data :pending-request id))
+                                    :start      [:begin]}]]})
 ```
 
 After this action, `(:pending-request data)` *is* the actor's id. Subsequent transitions can `[:fx [[:dispatch [(:pending-request data) [:retry]]]]]`.
@@ -1271,15 +1271,15 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
 
 ### Spawning multiple, dynamic counts
 
-Multiple `[:spawn ...]` entries in `:fx` work independently; each runs its `:on-spawn` against the current data (post-previous-spawn). For dynamic-count spawning, build the `:fx` vector with `mapv`:
+Multiple `[:rf.machine/spawn ...]` entries in `:fx` work independently; each runs its `:on-spawn` against the current data (post-previous-spawn). For dynamic-count spawning, build the `:fx` vector with `mapv`:
 
 ```clojure
 :action (fn [_ [_ jobs]]
           {:fx (mapv (fn [job]
-                       [:spawn {:machine-id :worker
-                                :data       job
-                                :on-spawn   (fn [data id]
-                                              (update data :workers (fnil conj []) id))}])
+                       [:rf.machine/spawn {:machine-id :worker
+                                           :data       job
+                                           :on-spawn   (fn [data id]
+                                                         (update data :workers (fnil conj []) id))}])
                      jobs)})
 ;; → after action: (:workers data) is [<id-0> <id-1> <id-2> ...]
 ```
@@ -1302,11 +1302,11 @@ A spawn whose `:system-id` key is supplied **also** binds a name in the per-fram
 ```clojure
 ;; Imperative spawn (action :fx) with a :system-id binding.
 :action (fn [_ _]
-          {:fx [[:spawn {:machine-id :request/protocol
-                         :system-id  :primary-request    ;; bind the name
-                         :data       {:url "/api/foo"}
-                         :on-spawn   (fn [d id] (assoc d :pending id))
-                         :start      [:begin]}]]})
+          {:fx [[:rf.machine/spawn {:machine-id :request/protocol
+                                    :system-id  :primary-request    ;; bind the name
+                                    :data       {:url "/api/foo"}
+                                    :on-spawn   (fn [d id] (assoc d :pending id))
+                                    :start      [:begin]}]]})
 
 ;; The same :system-id key works on declarative :invoke:
 {:loading
@@ -1325,7 +1325,7 @@ The mapping lives at `[:rf/system-ids <name>]` in the spawning frame's `app-db` 
 **Lifecycle.**
 
 - On spawn, the runtime writes `[:rf/system-ids <name>] = <gensym'd-id>` and emits `:rf.machine/system-id-bound`.
-- On destroy (whether by `:invoke` exit cascade or hand-emitted `[:destroy-machine actor-id]`), the runtime clears the slot AND emits `:rf.machine/system-id-released`.
+- On destroy (whether by `:invoke` exit cascade or hand-emitted `[:rf.machine/destroy actor-id]`), the runtime clears the slot AND emits `:rf.machine/system-id-released`.
 - A spawn under an already-bound name **rebinds** (last-write-wins) and emits `:rf.error/system-id-collision` so observers can see the displacement. The previously-bound machine's snapshot is NOT auto-destroyed by the rebind; it stays at its `[:rf/machines <id>]` slot, just unnamed. (Symmetric with `reg-event-fx` re-registration: replacing a handler doesn't cancel any in-flight work that addressed the previous fn; it just means the next *named* dispatch routes to the new one.)
 
 **`:system-id` is orthogonal to `:invoke-id`.**
@@ -1358,7 +1358,7 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
 
 `:invoke` on a state node is **declarative sugar** for "spawn this child actor on entry; destroy it on exit." The child's lifetime is bound to the state's lifetime: while the machine is in this state, the child runs; when the machine leaves the state (by any transition, including a parent-level cascade), the child is destroyed.
 
-`:invoke` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:invoke` slot into entry/exit actions emitting `:spawn` and `:destroy-machine` fx. The runtime sees only the desugared form — no new mechanics, no new lifecycle event, no new error category.
+`:invoke` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:invoke` slot into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy` fx. The runtime sees only the desugared form — no new mechanics, no new lifecycle event, no new error category.
 
 ### The pattern
 
@@ -1400,8 +1400,8 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 `create-machine-handler` walks every state node at construction time. For each `:invoke`-bearing state, it:
 
-1. **Composes** an `:rf.invoke/spawn-<state>` registered action that emits a `:spawn` fx whose args are the `:invoke` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/invoke-id` (the absolute prefix-path of the `:invoke`-bearing state node) onto the spawn args; the `:spawn` fx handler binds the spawned id at `[:rf/spawned <parent-id> <invoke-id>]` in the frame's app-db.
-2. **Composes** an `:rf.invoke/destroy-<state>` registered action that emits a `:destroy-machine` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:invoke-id` literals — the explicit-id case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
+1. **Composes** an `:rf.invoke/spawn-<state>` registered action that emits a `:rf.machine/spawn` fx whose args are the `:invoke` spec, with `:data` materialised (call the fn if `:data` is a fn, else use the literal). The runtime stamps `:rf/parent-id` (the parent machine's registration-id) and `:rf/invoke-id` (the absolute prefix-path of the `:invoke`-bearing state node) onto the spawn args; the `:rf.machine/spawn` fx handler binds the spawned id at `[:rf/spawned <parent-id> <invoke-id>]` in the frame's app-db.
+2. **Composes** an `:rf.invoke/destroy-<state>` registered action that emits a `:rf.machine/destroy` fx whose args carry the same `{:rf/parent-id ... :rf/invoke-id ...}`. The fx handler reads the spawned id back from `[:rf/spawned <parent-id> <invoke-id>]` at call time and tears down whatever id is currently bound there. (For `:invoke-id` literals — the explicit-id case — the runtime uses that id directly; the registry slot still binds it for symmetry.)
 3. **Wires** the composed actions into the state's `:entry` and `:exit` slots, after any user-supplied `:entry` / `:exit` (see [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit)).
 
 The runtime-owned spawn registry at `[:rf/spawned ...]` is sibling to `[:rf/system-ids]` (per [§Named addressing via `:system-id`](#named-addressing-via-system-id)) — same lazy-allocation invariant (absent until the first declarative-`:invoke` spawn), same per-frame isolation (each frame's `app-db` carries its own slot), same revertibility (the slot walks back atomically with `app-db` on a frame revert).
@@ -1421,23 +1421,23 @@ Before / after:
 ;; create-machine-handler rewrites to (runtime sees this):
 {:loading
  {:entry (fn [data _ev]
-           {:fx [[:spawn {:machine-id   :request/protocol
-                          :id-prefix    :request/protocol
-                          :data         {:url (:endpoint data)}
-                          :on-spawn     (fn [d id] (assoc d :pending id))
-                          :start        [:begin]
-                          ;; Stamped by the runtime — addresses the
-                          ;; runtime-owned spawn registry slot at
-                          ;; [:rf/spawned <parent-id> <invoke-id>].
-                          :rf/parent-id <parent-machine-id>
-                          :rf/invoke-id [:loading]}]]})
+           {:fx [[:rf.machine/spawn {:machine-id   :request/protocol
+                                     :id-prefix    :request/protocol
+                                     :data         {:url (:endpoint data)}
+                                     :on-spawn     (fn [d id] (assoc d :pending id))
+                                     :start        [:begin]
+                                     ;; Stamped by the runtime — addresses the
+                                     ;; runtime-owned spawn registry slot at
+                                     ;; [:rf/spawned <parent-id> <invoke-id>].
+                                     :rf/parent-id <parent-machine-id>
+                                     :rf/invoke-id [:loading]}]]})
   :exit  (fn [_data _]
            ;; Per rf2-t07u (Option A revised) — the destroy fx no longer
            ;; reads the actor id from `:data`. The fx handler resolves
            ;; the id from [:rf/spawned <parent-id> <invoke-id>] in the
            ;; frame's app-db at call time.
-           {:fx [[:destroy-machine {:rf/parent-id <parent-machine-id>
-                                    :rf/invoke-id [:loading]}]]})
+           {:fx [[:rf.machine/destroy {:rf/parent-id <parent-machine-id>
+                                       :rf/invoke-id [:loading]}]]})
   :on    {:succeeded :loaded
           :failed    :error}}}
 ```
@@ -1931,10 +1931,10 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | Capability | Coverage required | v1 CLJS reference | Notes |
 |---|---|---|---|
 | **Own state + message ports** — actor identity is the registered event id; the state lives at `[:rf/machines <id>]` | Prose: §Where snapshots live, §Strict encapsulation; Schema: `:rf/machine-snapshot`, `:rf/machines`; Fixtures: machine-transition, machine-actor-isolation | ✓ claimed | Already specced. |
-| **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (and the machine-internal `[:spawn ...]` / `[:destroy-machine ...]` fx-ids inside a machine action's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
+| **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (the canonical actor-lifecycle fx-ids; emitted by `:invoke` desugar and authored by hand inside a machine action's `:fx` or any user event handler's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
-| **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:spawn` / `:destroy-machine` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
-| **`:system-id` named-machine addressing** — a `:spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
+| **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
+| **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
 
 ### How conformance is graded
@@ -2075,7 +2075,7 @@ See [008-Testing.md §Future](008-Testing.md) for the testing-side forward-point
 
 ### Declarative state-scoped child machines
 
-The post-v1 `re-frame.machines` library may surface a `:child-machine` slot on a state node that desugars to entry/exit actions which spawn / destroy a child via the standard `:spawn` / `destroy-machine` mechanism. No new substrate; pure sugar over the v1 surface.
+The post-v1 `re-frame.machines` library may surface a `:child-machine` slot on a state node that desugars to entry/exit actions which spawn / destroy a child via the standard `:rf.machine/spawn` / `:rf.machine/destroy` mechanism. No new substrate; pure sugar over the v1 surface.
 
 ## Disposition
 
@@ -2085,10 +2085,10 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 ### v1 ships the machine-as-event-handler foundation
 
-- `(create-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf/machines <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
+- `(create-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf/machines <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:rf.machine/spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
 - `(machine-transition definition snapshot event)` → `[next-snapshot effects]` — pure function. JVM-runnable. No re-frame dependencies; guard/action references resolve against the definition's own `:guards` / `:actions` maps.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
-- The `:raise` and `:spawn` reserved fx-ids inside `:fx`.
+- The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.
 - `[:rf/machines <id>]` as the reserved app-db storage scheme; `:rf/machine?` registration-metadata flag.
 - `(rf/machines)` and `(rf/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).
 - The framework-registered `:rf/machine` parametric sub and its `sub-machine` wrapper.
@@ -2106,7 +2106,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 Richer scaffolding on top of the v1 foundation. None of the items below add a new substrate — each desugars into the v1 surface:
 
 - **Advanced grammar:** parallel state nodes, history states, final states with `onDone`. (Hierarchical state nodes, `:always`, `:after`, and `:invoke` are v1; see the v1 ship list above.)
-- **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:spawn` / `destroy-machine`).
+- **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`).
 - **Stately.ai compatibility:** `(machine->xstate-json definition)` converter, paste-and-render parity, Stately-Inspector wire-format mapping.
 - **Visualisation tooling:** `machine->mermaid`, `machine->d2`, `machine->xstate-json` exporters.
 - **Model-based testing harness:** `@xstate/test`-style graph traversal over the transition table.

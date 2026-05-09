@@ -9,12 +9,13 @@
 ;; The two pure-machine-transition assertions below exercise the
 ;; observation half of that contract:
 ;;
-;;   1. Entering an :invoke-bearing state emits a :spawn fx whose args
-;;      carry runtime-stamped :rf/parent-id (sentinel :rf/transition-pure
-;;      under pure-call mode) and :rf/invoke-id (the absolute prefix-path
-;;      of the :invoke-bearing state node — here `[:authenticating]`).
+;;   1. Entering an :invoke-bearing state emits a :rf.machine/spawn fx
+;;      whose args carry runtime-stamped :rf/parent-id (sentinel
+;;      :rf/transition-pure under pure-call mode) and :rf/invoke-id (the
+;;      absolute prefix-path of the :invoke-bearing state node — here
+;;      `[:authenticating]`).
 ;;
-;;   2. Exiting the same state emits a :destroy-machine fx whose args
+;;   2. Exiting the same state emits a :rf.machine/destroy fx whose args
 ;;      carry the SAME {:rf/parent-id :rf/invoke-id} pair — NOT the actor
 ;;      id directly. The runtime's destroy-machine fx handler then reads
 ;;      the spawned id from `[:rf/spawned <parent-id> <invoke-id>]` at
@@ -44,7 +45,7 @@
  ;; ---- (1) Spawn fx emission ----------------------------------------------
  ;;
  ;; Entering :authenticating from :idle on [:submit] runs the auto-entry
- ;; emitting :spawn. The args carry runtime-stamped :rf/parent-id and
+ ;; emitting :rf.machine/spawn. The args carry runtime-stamped :rf/parent-id and
  ;; :rf/invoke-id (used by the spawn fx handler to bind the registry slot).
  [{:call         :machine-transition
    :definition
@@ -68,17 +69,17 @@
    ;; Snapshot's :data is unchanged — there's no :on-spawn callback, so
    ;; the parent's :data carries no spawn-related bookkeeping.
    :expect-next-snapshot {:state :authenticating :data {}}
-   :expect-effects       [[:spawn {:machine-id    :http/post
-                                   :id-prefix     :http/post
-                                   :data          {:url "/api/login"}
-                                   :rf/spawned-id :http/post#1
-                                   :rf/parent-id  :rf/transition-pure
-                                   :rf/invoke-id  [:authenticating]}]]}
+   :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
+                                              :id-prefix     :http/post
+                                              :data          {:url "/api/login"}
+                                              :rf/spawned-id :http/post#1
+                                              :rf/parent-id  :rf/transition-pure
+                                              :rf/invoke-id  [:authenticating]}]]}
 
   ;; ---- (2) Destroy fx emission ----------------------------------------
   ;;
   ;; Exiting :authenticating via :auth/failed runs the auto-exit emitting
-  ;; :destroy-machine. The args are a {:rf/parent-id :rf/invoke-id} map —
+  ;; :rf.machine/destroy. The args are a {:rf/parent-id :rf/invoke-id} map —
   ;; NOT the actor-id directly. The fx handler resolves the actor id from
   ;; [:rf/spawned ...] in app-db at fx-call time (integration-level
   ;; assertion lives in machines/spawn_registry_test.clj on JVM and
@@ -101,5 +102,5 @@
    :snapshot     {:state :authenticating :data {}}
    :event        [:auth/failed]
    :expect-next-snapshot {:state :idle :data {}}
-   :expect-effects       [[:destroy-machine {:rf/parent-id :rf/transition-pure
-                                             :rf/invoke-id [:authenticating]}]]}]}
+   :expect-effects       [[:rf.machine/destroy {:rf/parent-id :rf/transition-pure
+                                                :rf/invoke-id [:authenticating]}]]}]}

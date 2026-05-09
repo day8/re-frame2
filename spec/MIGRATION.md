@@ -1074,7 +1074,7 @@ CLJS apps additionally require `malli.core` somewhere in their boot path — `re
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:spawn` and `:destroy-machine` machine-internal fxs, the per-process spawn-counter, and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame-2-machines`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the per-process spawn-counter, and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame-2-machines`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1257,12 +1257,12 @@ Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/registe
 Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:invoke` spawn-id at the reserved app-db slot `[:rf/spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
 
 1. **`:on-spawn` becomes purely advisory.** Users may still record the spawned id in their own `:data` (so other transitions can address the child by name), but the runtime no longer requires it for the destroy-side resolution. Apps that omit `:on-spawn` entirely now correctly destroy the spawned child on state-exit.
-2. **The `:destroy-machine` fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:destroy-machine actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:invoke` desugar now emits `[:destroy-machine {:rf/parent-id ... :rf/invoke-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
+2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:invoke` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
 
 **What to look for** in the codebase:
 
 - Machine specs that declared `:invoke` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-beta these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
-- Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [data _] {:fx [[:destroy-machine (:pending data)]]})`) — these continue to work unchanged (the keyword form of `:destroy-machine` is preserved).
+- Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [data _] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
 - User-supplied `:exit` action bodies that read `(get-in db [:rf/machines (:pending data)])` to peek at the child's last snapshot before the auto-destroy fires — these continue to work unchanged. The composition rule ([§Composition with explicit `:entry` / `:exit`](005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 
 **What to do.** Type B because the rewrite depends on intent: an `:invoke` without `:on-spawn` was silently broken pre-rf2-t07u (the actor leaked); after rf2-t07u it works correctly. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `:rf/machines` has a stale entry after exit) needs explicit triage.
@@ -1273,13 +1273,46 @@ Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:
 
 ---
 
-**Reporting M-12 through M-34.** These twenty-three rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-three separate preambles.
+### M-35. Actor-lifecycle fx-ids renamed — `:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy`
+
+**Type A** (mechanical, name-rename).
+
+Per [rf2-m83v](#), the actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are renamed to the framework-canonical `:rf.<feature>/...` form. The bare unqualified pair (`:spawn` / `:destroy-machine`) is dropped — they are no longer registered, and using them in `:fx` raises `:rf.error/no-such-fx`. The new pair (`:rf.machine/spawn` / `:rf.machine/destroy`) is the single canonical surface; it is emitted by the `:invoke` desugar and may be authored by hand inside any event handler's `:fx` (machine actions and ordinary handlers alike). Per [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) and [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids).
+
+**What to look for** in the codebase:
+
+- `[:fx [[:spawn ...]]]` or `[:fx [[:destroy-machine ...]]]` entries inside any event-handler return value or machine action.
+- `(reg-fx :spawn ...)` or `(reg-fx :destroy-machine ...)` user overrides — both names were unbound in core and registered only by `re-frame.machines`; user overrides under those names are now stale.
+
+**What to do.** Mechanical rename:
+
+```clojure
+;; before
+{:fx [[:spawn           {:machine-id :worker
+                         :id-prefix  :worker
+                         :on-spawn   (fn [d id] (assoc d :pending id))}]
+      [:destroy-machine actor-id]]}
+
+;; after
+{:fx [[:rf.machine/spawn   {:machine-id :worker
+                            :id-prefix  :worker
+                            :on-spawn   (fn [d id] (assoc d :pending id))}]
+      [:rf.machine/destroy actor-id]]}
+```
+
+The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfspawned-): the rf2-t07u runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/invoke-id ...}` for declarative — is orthogonal to this rename.)
+
+**Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:invoke` desugar (and the [§Top-level boot-time spawn](005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) rule and the L1116 worked example raised `:rf.error/no-such-fx` on a literal copy. Per [rf2-m83v](#) (audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased).
+
+---
+
+**Reporting M-12 through M-35.** These twenty-four rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-four separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1434,7 +1467,7 @@ This entry is preserved as a pointer for users searching for `:dispatch-n` migra
 
 re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue / rf2-ecv4, a spawn whose args carry `:system-id` binds a name in the per-frame `[:rf/system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
 
-- `:system-id` is an additive key on `[:spawn ...]` and on `:invoke` slots; existing spawns / invokes continue to work unchanged.
+- `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:invoke` slots; existing spawns / invokes continue to work unchanged.
 - `[:rf/system-ids]` is a runtime-managed reserved app-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
 - The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame-2-machines`.
 
@@ -1443,15 +1476,15 @@ If a codebase has any pattern of "spawn an actor and thread its id through a sib
 ```clojure
 ;; before
 :action (fn [data _]
-          {:fx [[:spawn {:machine-id :notifier
-                         :on-spawn   (fn [d id] (assoc d :notifier-id id))}]]})
+          {:fx [[:rf.machine/spawn {:machine-id :notifier
+                                    :on-spawn   (fn [d id] (assoc d :notifier-id id))}]]})
 :action (fn [data _]
           {:fx [[:dispatch [(:notifier-id data) [:notify "..."]]]]})
 
 ;; after
 :action (fn [data _]
-          {:fx [[:spawn {:machine-id :notifier
-                         :system-id  :notifier}]]})
+          {:fx [[:rf.machine/spawn {:machine-id :notifier
+                                    :system-id  :notifier}]]})
 :action (fn [data _]
           {:fx [[:dispatch-to-system :notifier [:notify "..."]]]})
 ```
