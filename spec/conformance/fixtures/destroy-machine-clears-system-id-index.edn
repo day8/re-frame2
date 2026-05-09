@@ -4,8 +4,8 @@
 ;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
 ;;
 ;; When a `:system-id`-bound machine is destroyed (whether by exit from
-;; an :invoke-bearing state or by a hand-emitted `:destroy-machine` fx),
-;; the runtime clears the `[:rf/system-ids]` slot AND the
+;; an :invoke-bearing state or by a hand-emitted `:rf.machine/destroy`
+;; fx), the runtime clears the `[:rf/system-ids]` slot AND the
 ;; `[:rf/machines <id>]` snapshot, and emits
 ;; `:rf.machine/system-id-released`.
 ;;

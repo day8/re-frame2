@@ -2,34 +2,34 @@
 ;;
 ;; Imperative destroy from an action. Per [005 §Capability matrix §Actor-model
 ;; axis, "Imperative spawn / destroy"](../../005-StateMachines.md#capability-matrix):
-;; an action can return :fx [[:destroy-machine actor-id]] to imperatively tear
+;; an action can return :fx [[:rf.machine/destroy actor-id]] to imperatively tear
 ;; down a child actor — the same fx the declarative :invoke desugar emits on
 ;; state-exit.
 ;;
 ;; This fixture exercises the action-emitted form. The runtime adapter is
 ;; responsible for the actual app-db cleanup at [:rf/machines actor-id]
 ;; (mirroring how the runtime stamps [:rf/machines actor-id] on spawn);
-;; at the pure machine-transition layer we observe the [:destroy-machine
+;; at the pure machine-transition layer we observe the [:rf.machine/destroy
 ;; actor-id] fx pair the action surfaced.
 
 {:fixture/id           :machine/destroy-clears-snapshot
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn}
- :fixture/doc          "An action returns :fx [[:destroy-machine actor-id]]; pure machine-transition surfaces the destroy fx. The runtime's :destroy-machine fx handler removes [:rf/machines actor-id] from app-db; here we verify the fx-emission half of that contract."
+ :fixture/doc          "An action returns :fx [[:rf.machine/destroy actor-id]]; pure machine-transition surfaces the destroy fx. The runtime's :rf.machine/destroy fx handler removes [:rf/machines actor-id] from app-db; here we verify the fx-emission half of that contract."
 
  :fixture/registry
  {:machine-action
-  {:supervisor/destroy-worker {:doc "Action — emits :destroy-machine for the recorded child id."}}}
+  {:supervisor/destroy-worker {:doc "Action — emits :rf.machine/destroy for the recorded child id."}}}
 
  :fixture/handlers
  {:machine-action
-  ;; The action emits a :destroy-machine fx targeting the recorded
+  ;; The action emits a :rf.machine/destroy fx targeting the recorded
   ;; child id. Per rf2-8vo0, the runner now passes :fx args through
   ;; `eval-value`, so the reflection form `[:get [:child-id]]` resolves
   ;; against the snapshot's :data at action-eval time — letting the
   ;; fixture express the natural data-flow rather than hardcoding the id.
   {:supervisor/destroy-worker
-   [[:fx :destroy-machine [:get [:child-id]]]]}}
+   [[:fx :rf.machine/destroy [:get [:child-id]]]]}}
 
  :fixture/calls
  [{:call         :machine-transition
@@ -41,4 +41,4 @@
    :snapshot     {:state :running :data {:child-id :worker#1}}
    :event        [:terminate]
    :expect-next-snapshot {:state :idle :data {:child-id :worker#1}}
-   :expect-effects       [[:destroy-machine :worker#1]]}]}
+   :expect-effects       [[:rf.machine/destroy :worker#1]]}]}

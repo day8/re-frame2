@@ -5,7 +5,7 @@
 ;; [009 §Error contract] (../../009-Instrumentation.md#error-contract), and
 ;; rf2-suue.
 ;;
-;; A second `:spawn` whose `:system-id` is already bound emits
+;; A second `:rf.machine/spawn` whose `:system-id` is already bound emits
 ;; `:rf.error/system-id-collision` and rebinds the slot to the new
 ;; spawned-id (last-write-wins, matching standard re-registration
 ;; semantics under hot-reload).
@@ -28,9 +28,9 @@
  :fixture/handlers
  {:event
   {:sup/spawn-once
-   [[:fx :spawn {:machine-id :worker/proc
-                 :id-prefix  :worker/proc
-                 :system-id  :primary}]]}}
+   [[:fx :rf.machine/spawn {:machine-id :worker/proc
+                            :id-prefix  :worker/proc
+                            :system-id  :primary}]]}}
 
  :fixture/frame-config {:on-create []}
 

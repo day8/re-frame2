@@ -3,9 +3,10 @@
 ;; The :on-spawn callback receives the just-allocated actor-id. Per
 ;; [005 §Declarative :invoke (sugar over spawn)]
 ;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn): when the
-;; runtime processes a :spawn fx (whether from declarative :invoke desugar
-;; or an action's hand-emitted :spawn), it allocates a deterministic actor
-;; id and threads (data, spawned-id) through the user-supplied :on-spawn
+;; runtime processes a :rf.machine/spawn fx (whether from declarative
+;; :invoke desugar or an action's hand-emitted :rf.machine/spawn), it
+;; allocates a deterministic actor id and threads (data, spawned-id)
+;; through the user-supplied :on-spawn
 ;; callback. The callback returns an updated :data map — typically recording
 ;; the actor-id so later transitions can reference it. The runtime patches
 ;; the returned :data back into the parent's snapshot.
@@ -65,11 +66,11 @@
    ;; :http/post#1) under :data.:born-with-id.
    :expect-next-snapshot {:state :working
                           :data  {:born-with-id :http/post#1}}
-   :expect-effects       [[:spawn {:machine-id    :http/post
-                                   :id-prefix     :http/post
-                                   :data          {:url "/api/x"}
-                                   :on-spawn      :supervisor/record-actor-id
-                                   :start         [:begin]
-                                   :rf/spawned-id :http/post#1
-                                   :rf/parent-id  :rf/transition-pure
-                                   :rf/invoke-id  [:working]}]]}]}
+   :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
+                                              :id-prefix     :http/post
+                                              :data          {:url "/api/x"}
+                                              :on-spawn      :supervisor/record-actor-id
+                                              :start         [:begin]
+                                              :rf/spawned-id :http/post#1
+                                              :rf/parent-id  :rf/transition-pure
+                                              :rf/invoke-id  [:working]}]]}]}

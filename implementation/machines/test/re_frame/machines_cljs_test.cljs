@@ -568,14 +568,14 @@
       ;; First spawn under :primary
       (rf/reg-event-fx ::spawn1
         (fn [_ _]
-          {:fx [[:spawn {:machine-id :w/proc
-                         :id-prefix  :w/proc
-                         :system-id  :primary}]]}))
+          {:fx [[:rf.machine/spawn {:machine-id :w/proc
+                                    :id-prefix  :w/proc
+                                    :system-id  :primary}]]}))
       (rf/reg-event-fx ::spawn2
         (fn [_ _]
-          {:fx [[:spawn {:machine-id :w/proc
-                         :id-prefix  :w/proc
-                         :system-id  :primary}]]}))
+          {:fx [[:rf.machine/spawn {:machine-id :w/proc
+                                    :id-prefix  :w/proc
+                                    :system-id  :primary}]]}))
       (rf/register-trace-cb! ::col (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [::spawn1])
       (rf/dispatch-sync [::spawn2])
@@ -599,7 +599,7 @@
       (rf/reg-machine :w2/proc child)
       (rf/reg-event-fx ::spawn-anon
         (fn [_ _]
-          {:fx [[:spawn {:machine-id :w2/proc :id-prefix :w2/proc}]]}))
+          {:fx [[:rf.machine/spawn {:machine-id :w2/proc :id-prefix :w2/proc}]]}))
       (rf/dispatch-sync [::spawn-anon])
       (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/system-ids]))
           "[:rf/system-ids] not allocated when no spawns carry :system-id")

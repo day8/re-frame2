@@ -144,7 +144,7 @@
   (require 're-frame.ssr :reload)
   ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
   (require 're-frame.http-managed :reload)
-  ;; Spec 005 — re-register :spawn / :destroy-machine fx and the :rf/machine
+  ;; Spec 005 — re-register :rf.machine/spawn / :rf.machine/destroy fx and the :rf/machine
   ;; sub after clear-all!. Per rf2-suue the spawn/destroy fx now wire the
   ;; live actor handler + snapshot, so the runtime side of the spawn must
   ;; be present for the system-id fixtures to observe app-db state.
