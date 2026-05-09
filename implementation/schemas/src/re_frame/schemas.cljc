@@ -493,10 +493,54 @@
 ;; schema validation but cannot `:require` this namespace without a
 ;; cyclic load order. Publish entry points through the late-bind hook
 ;; registry. See re-frame.late-bind.
+;;
+;; Per rf2-p7va (the schemas artefact split), `re-frame.core` and
+;; `re-frame.test-support` MUST NOT `:require [re-frame.schemas]` either
+;; — the schemas artefact is an optional dep, and a static require would
+;; force every consumer of the core artefact to drag its symbols (and
+;; the Malli dep) onto the classpath. The public-API re-exports
+;; (`reg-app-schema`, `app-schema-at`, `app-schemas`) and the
+;; test-support reset / snapshot helpers are published through the same
+;; late-bind table; consumers without the schemas artefact see the
+;; hooks unregistered and the surface no-ops cleanly.
 
+;; Validation hot-path hooks (consumed by router / cofx / subs / epoch).
 (late-bind/set-fn! :schemas/validate-app-db!     validate-app-db!)
 (late-bind/set-fn! :schemas/validate-event!      validate-event!)
 (late-bind/set-fn! :schemas/validate-sub-return! validate-sub-return!)
 (late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
+
+;; Public-API re-export hooks (consumed by re-frame.core).
+(late-bind/set-fn! :schemas/reg-app-schema       reg-app-schema)
+(late-bind/set-fn! :schemas/app-schema-at        app-schema-at)
+(late-bind/set-fn! :schemas/app-schemas          app-schemas)
 (late-bind/set-fn! :schemas/app-schemas-digest   app-schemas-digest)
+
+;; Test-support hooks (consumed by re-frame.test-support's
+;; reset-runtime-fixture). The fixture wants to capture and restore
+;; the `schemas-by-frame` atom around each test, so it asks for a
+;; snapshot before the test, a clear in the middle, and a restore
+;; afterwards. When the schemas artefact is not on the classpath
+;; these hooks are nil and the fixture no-ops the schema steps —
+;; correct, because there is no schema state to preserve.
+
+(defn snapshot-schemas-by-frame
+  "Return a snapshot value of the per-frame schema registry."
+  []
+  @schemas-by-frame)
+
+(defn restore-schemas-by-frame!
+  "Reset the per-frame schema registry to the supplied snapshot."
+  [snap]
+  (reset! schemas-by-frame snap))
+
+(defn clear-schemas-by-frame!
+  "Reset the per-frame schema registry to `{}`. Used by test fixtures
+  and by `reset-runtime-fixture`'s `:clear-kinds [:app-schema]` path."
+  []
+  (reset! schemas-by-frame {}))
+
+(late-bind/set-fn! :schemas/snapshot-by-frame    snapshot-schemas-by-frame)
+(late-bind/set-fn! :schemas/restore-by-frame!    restore-schemas-by-frame!)
+(late-bind/set-fn! :schemas/clear-by-frame!      clear-schemas-by-frame!)
