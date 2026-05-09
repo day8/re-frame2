@@ -10,9 +10,9 @@
     - :after delayed transitions with per-machine :rf/after-epoch
       tracking; the synthetic :rf.machine.timer/after-elapsed event
       fires the transition only when the carried epoch matches.
-    - Declarative :invoke that desugars into [:spawn args] on entry
-      and [:destroy-machine actor-id] on exit; deterministic actor ids
-      via a per-process counter.
+    - Declarative :invoke that desugars into [:rf.machine/spawn args]
+      on entry and [:rf.machine/destroy actor-id] on exit; deterministic
+      actor ids via a per-process counter.
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - Snapshot at [:rf/machines <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
@@ -150,9 +150,10 @@
 ;; ---- spawn counter --------------------------------------------------------
 ;;
 ;; Per Spec 005 §Declarative :invoke (sugar over spawn): on entry to an
-;; :invoke-bearing state the runtime emits a :spawn fx and assigns the
-;; spawned actor a deterministic id of the form `<machine-id>#<n>`. The
-;; counter is per machine-id so independent invokes don't cross-contaminate.
+;; :invoke-bearing state the runtime emits a :rf.machine/spawn fx and
+;; assigns the spawned actor a deterministic id of the form
+;; `<machine-id>#<n>`. The counter is per machine-id so independent
+;; invokes don't cross-contaminate.
 
 (defonce ^:private spawn-counter
   ;; Keyed by [frame-id machine-id] so independent frames don't share
@@ -546,13 +547,14 @@
                                {:state leaf-state :delay delay :epoch epoch}))))))))
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn) and rf2-t07u
     ;; (Option A revised): nodes being EXITED with :invoke emit
-    ;; :destroy-machine carrying `{:rf/parent-id ... :rf/invoke-id ...}` so
-    ;; the destroy-machine fx handler resolves the live actor id from the
-    ;; runtime-owned [:rf/spawned <parent-id> <invoke-id>] slot in app-db
-    ;; (no longer reads `:data.:pending`); nodes being ENTERED with :invoke
-    ;; emit :spawn carrying the same `{:rf/parent-id :rf/invoke-id}` keys
-    ;; and run the user's :on-spawn callback (now purely advisory — the
-    ;; runtime tracks the spawn-id itself).
+    ;; :rf.machine/destroy carrying `{:rf/parent-id ... :rf/invoke-id ...}`
+    ;; so the destroy-machine fx handler resolves the live actor id from
+    ;; the runtime-owned [:rf/spawned <parent-id> <invoke-id>] slot in
+    ;; app-db (no longer reads `:data.:pending`); nodes being ENTERED with
+    ;; :invoke emit :rf.machine/spawn carrying the same
+    ;; `{:rf/parent-id :rf/invoke-id}` keys and run the user's :on-spawn
+    ;; callback (now purely advisory — the runtime tracks the spawn-id
+    ;; itself).
     ;;
     ;; The "invoke-id" is the absolute prefix-path of the :invoke-bearing
     ;; state node — that disambiguates two states named e.g. `:loading` in
@@ -567,8 +569,8 @@
               (mapcat
                 (fn [[prefix n]]
                   (when (:invoke n)
-                    [[:destroy-machine {:rf/parent-id parent-id
-                                        :rf/invoke-id (vec prefix)}]]))
+                    [[:rf.machine/destroy {:rf/parent-id parent-id
+                                           :rf/invoke-id (vec prefix)}]]))
                 exited-pairs)))
           [snap-after-spawns spawn-fx]
           (if internal?
@@ -616,7 +618,7 @@
                                           (assoc s :data new-data)
                                           s))
                                       s)]
-                    [s' (conj acc-fx [:spawn spawn-args])])
+                    [s' (conj acc-fx [:rf.machine/spawn spawn-args])])
                   [s acc-fx]))
               [snap-final []]
               entered-pairs))
@@ -856,8 +858,9 @@
                             ;; Per rf2-t07u (Option A revised): stamp the
                             ;; surrounding registration's event-id (the
                             ;; machine-id, derived from event[0]) so
-                            ;; apply-transition-once can emit :spawn /
-                            ;; :destroy-machine fx whose args carry
+                            ;; apply-transition-once can emit
+                            ;; :rf.machine/spawn / :rf.machine/destroy
+                            ;; fx whose args carry
                             ;; :rf/parent-id (used by the fx handlers to
                             ;; address the runtime-owned [:rf/spawned
                             ;; <parent-id> <invoke-id>] registry slot).
@@ -1044,13 +1047,14 @@
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;
 ;; Per Spec 005 §Declarative :invoke (sugar over spawn) the runtime
-;; effects `:spawn` and `:destroy-machine` are emitted into the fx
-;; vector by `apply-transition-once` whenever entry/exit cascades cross
-;; an :invoke-bearing state. Per rf2-xbtj these handlers live in this
-;; namespace (rather than `re-frame.fx`'s reserved case-block) so an app
-;; that doesn't pull in `day8/re-frame-2-machines` carries neither the
-;; trace strings (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor
-;; the handler symbols on its production-elision bundle.
+;; effects `:rf.machine/spawn` and `:rf.machine/destroy` are emitted
+;; into the fx vector by `apply-transition-once` whenever entry/exit
+;; cascades cross an :invoke-bearing state. Per rf2-xbtj these handlers
+;; live in this namespace (rather than `re-frame.fx`'s reserved
+;; case-block) so an app that doesn't pull in
+;; `day8/re-frame-2-machines` carries neither the trace strings
+;; (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor the handler
+;; symbols on its production-elision bundle.
 ;;
 ;; The fns are `defn`s (not `fn`s passed inline to `reg-fx`) so the
 ;; late-bind hook table can publish them under
@@ -1062,12 +1066,13 @@
 
 ;; ---- spawn / destroy live-handler wiring ---------------------------------
 ;;
-;; `apply-transition-once` emits `[:spawn args]` and `[:destroy-machine
-;; actor-id]` into the fx vector whenever entry/exit cascades cross an
-;; :invoke-bearing state. Until rf2-suue, `spawn-fx` and `destroy-machine-fx`
-;; were trace-only stubs — the spawned actor was a deterministic id, but
-;; no event handler was registered against that id and no snapshot lived
-;; under [:rf/machines <id>]. Per Spec 005 §Spawning the actor is itself
+;; `apply-transition-once` emits `[:rf.machine/spawn args]` and
+;; `[:rf.machine/destroy actor-id]` into the fx vector whenever
+;; entry/exit cascades cross an :invoke-bearing state. Until rf2-suue,
+;; `spawn-fx` and `destroy-machine-fx` were trace-only stubs — the
+;; spawned actor was a deterministic id, but no event handler was
+;; registered against that id and no snapshot lived under
+;; [:rf/machines <id>]. Per Spec 005 §Spawning the actor is itself
 ;; an event handler whose id is the actor address; this section closes
 ;; that gap.
 ;;
@@ -1092,7 +1097,8 @@
   (or (:invoke-id args)
       (:rf/spawned-id args)
       ;; Fallback: re-allocate (shouldn't happen for declarative :invoke,
-      ;; but supports hand-emitted [:spawn args] forms from action :fx).
+      ;; but supports hand-emitted [:rf.machine/spawn args] forms from
+      ;; action :fx).
       (next-spawn-id frame-id (or (:id-prefix args) (:machine-id args)))))
 
 (defn- update-frame-app-db!
@@ -1122,7 +1128,7 @@
                       (:rf/machine m))))))
 
 (defn spawn-fx
-  "fx handler for `:spawn`. Per Spec 005 §Spawning, the spawned actor
+  "fx handler for `:rf.machine/spawn`. Per Spec 005 §Spawning, the spawned actor
   is itself an event handler at `<spawned-id>`; its snapshot lives at
   `[:rf/machines <spawned-id>]` in the spawning frame's app-db.
 
@@ -1160,9 +1166,10 @@
         ;; Per rf2-t07u (Option A revised): the runtime tracks each
         ;; declarative-:invoke spawn at [:rf/spawned <parent-id> <invoke-id>]
         ;; — populated only when the spawn carries both. Imperative
-        ;; from-action `[:spawn ...]` calls leave these absent and the slot
-        ;; is left untouched (the user owns destroy via hand-emitted
-        ;; `[:destroy-machine actor-id]` in those cases, exactly as before).
+        ;; from-action `[:rf.machine/spawn ...]` calls leave these absent
+        ;; and the slot is left untouched (the user owns destroy via
+        ;; hand-emitted `[:rf.machine/destroy actor-id]` in those cases,
+        ;; exactly as before).
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
         track?     (and parent-id invoke-id)]
@@ -1231,7 +1238,7 @@
     spawned-id))
 
 (defn destroy-machine-fx
-  "fx handler for `:destroy-machine`. Per Spec 005 §Spawning, destroy
+  "fx handler for `:rf.machine/destroy`. Per Spec 005 §Spawning, destroy
   unregisters the spawned actor's event handler, clears its snapshot at
   `[:rf/machines <id>]` in the spawning frame's app-db, and (if the
   actor was system-id-bound) clears the `[:rf/system-ids]` reverse
@@ -1240,7 +1247,7 @@
 
   Per rf2-t07u (Option A revised), `args` can be either:
     - a keyword `actor-id` — the legacy / imperative form (action emits
-      `[:destroy-machine actor-id]` directly with the recorded id), OR
+      `[:rf.machine/destroy actor-id]` directly with the recorded id), OR
     - a map `{:rf/parent-id ... :rf/invoke-id ...}` — the declarative-
       `:invoke` exit-cascade form, where the runtime resolves the actor
       id from `[:rf/spawned <parent-id> <invoke-id>]` in the frame's
@@ -1325,8 +1332,8 @@
    (when-let [container (frame/get-frame-db frame-id)]
      (get-in (adapter/read-container container) [:rf/system-ids system-id]))))
 
-(fx/reg-fx :spawn           spawn-fx)
-(fx/reg-fx :destroy-machine destroy-machine-fx)
+(fx/reg-fx :rf.machine/spawn   spawn-fx)
+(fx/reg-fx :rf.machine/destroy destroy-machine-fx)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -1335,7 +1342,7 @@
 ;; MUST NOT `:require [re-frame.machines]` — the artefact is optional, and
 ;; a static require would force every consumer of the core artefact to
 ;; drag the namespace's `:rf/machine` sub registration (and the spawn
-;; counter, the `:spawn` / `:destroy-machine` fx handlers, the
+;; counter, the `:rf.machine/spawn` / `:rf.machine/destroy` fx handlers, the
 ;; transition machinery) onto the classpath. The public-API re-exports
 ;; (`reg-machine*`, `create-machine-handler`, `machine-transition`,
 ;; `machines`, `machine-meta`) and the test-support reset helper are
