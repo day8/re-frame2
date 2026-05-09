@@ -374,7 +374,10 @@
       (when (seq machine-registry)
         (let [{:keys [actions guards on-spawn-actions]}
               (realise-machine-handlers fixture)
-              reg-machine (requiring-resolve 're-frame.machines/reg-machine)]
+              ;; Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3) the
+              ;; runtime registrar is `reg-machine*` (the macro lives at
+              ;; the re-frame.core boundary).
+              reg-machine (requiring-resolve 're-frame.machines/reg-machine*)]
           (doseq [[machine-id machine-spec] machine-registry]
             (let [merged (-> machine-spec
                              (update :actions          #(merge actions %))

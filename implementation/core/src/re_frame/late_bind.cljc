@@ -64,7 +64,7 @@
     :schemas/snapshot-by-frame    re-frame.schemas/snapshot-schemas-by-frame
     :schemas/restore-by-frame!    re-frame.schemas/restore-schemas-by-frame!
     :schemas/clear-by-frame!      re-frame.schemas/clear-schemas-by-frame!
-    :machines/reg-machine             re-frame.machines/reg-machine
+    :machines/reg-machine             re-frame.machines/reg-machine* ;; rf2-8bp3 — plain-fn surface
     :machines/create-machine-handler  re-frame.machines/create-machine-handler
     :machines/machine-transition      re-frame.machines/machine-transition
     :machines/machines                re-frame.machines/machines
