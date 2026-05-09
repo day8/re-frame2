@@ -19,7 +19,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | `:rf.fx/*` | Effect-resolution advisories (`:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`); reserved fx-ids in machine `:fx` (`:rf.fx/spawn-args`) | 002 / 009 |
 | `:rf.error/*` | Error trace operations (handler exception, sub exception, fx exception, etc.) | 009 |
 | `:rf.warning/*` | Warning trace operations (e.g. `:rf.warning/plain-fn-under-non-default-frame-once`) | 009 |
-| `:rf.machine/*` | Machine lifecycle and transition trace operations (`:rf.machine/transition`, `:rf.machine/snapshot-updated`); machine framework subs (`[:rf.machine <id>]`) | 005 |
+| `:rf.machine/*` | Machine lifecycle and transition trace operations (`:rf.machine/transition`, `:rf.machine/snapshot-updated`); machine framework subs (`[:rf/machine <id>]`) | 005 |
 | `:rf.machine.lifecycle/*`, `:rf.machine.timer/*`, `:rf.machine.event/*`, `:rf.machine.microstep/*` | Sub-areas of machine traces (further hierarchy under `:rf.machine`) | 005 |
 | `:rf.route/*` | Framework routing events (`:rf.route/navigate`, `:rf.route/url-changed`, `:rf.route/handle-url-change`, `:rf.route/not-found`, `:rf.route/navigation-blocked`, `:rf.route/continue`, `:rf.route/cancel`); framework route subs (`[:rf.route/id]`, `[:rf.route/params]`, etc.); route trace operations | 012 |
 | `:rf.nav/*` | Navigation fx ids (`:rf.nav/push-url`, `:rf.nav/replace-url`, `:rf.nav/scroll`, `:rf.nav/external`) | 012 |
@@ -128,7 +128,7 @@ The reserved set of framework-shipped sub-ids:
 
 | Reserved sub-id | Returns | Spec |
 |---|---|---|
-| `[:rf.machine <machine-id>]` | The named machine's snapshot, or `nil` if not initialised. | 005 |
+| `[:rf/machine <machine-id>]` | The named machine's snapshot, or `nil` if not initialised. | 005 |
 | `[:rf/route]` / `[:rf.route/id]` / `[:rf.route/params]` / `[:rf.route/query]` / `[:rf.route/transition]` / `[:rf.route/error]` / `[:rf.route/chain]` | Route-related reads | 012 |
 
 For the user-facing API surface (signatures, status, cross-references) see [API.md](API.md). For machine read mechanics see [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
