@@ -10,6 +10,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; Required here so its load-time hook + reg-sub
+            ;; registrations fire before this ns's reg-route calls.
+            [re-frame.routing]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]

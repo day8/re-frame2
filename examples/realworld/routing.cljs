@@ -13,6 +13,11 @@
    - `:rf/url-requested`"
   (:require [clojure.string]
             [re-frame.core :as rf]
+            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; Requiring re-frame.routing here triggers its load-time
+            ;; hook + reg-sub registrations; without it, the rf/reg-route
+            ;; calls below throw :rf.error/routing-artefact-missing.
+            [re-frame.routing]
             [realworld.schema])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 

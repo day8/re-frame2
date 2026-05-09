@@ -7,6 +7,10 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
+            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; Required here so its load-time hook + reg-sub
+            ;; registrations fire before this ns's reg-route call.
+            [re-frame.routing]
             [re-frame.ssr :as ssr]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]

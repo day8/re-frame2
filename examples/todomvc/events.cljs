@@ -1,6 +1,11 @@
 (ns todomvc.events
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; Requiring re-frame.routing here triggers its load-time
+            ;; hook + reg-sub registrations; without it, the rf/reg-route
+            ;; calls below throw :rf.error/routing-artefact-missing.
+            [re-frame.routing]
             [todomvc.db :as db]))
 
 ;; ---- routes (Spec 012) ----------------------------------------------------
