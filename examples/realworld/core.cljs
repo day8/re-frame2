@@ -37,6 +37,14 @@
             ;; :rf.error/no-such-fx. RealWorld is the canonical Spec 014
             ;; demo so the require is mandatory here.
             [re-frame.http-managed]
+            ;; rf2-uo7v: SSR ships in day8/re-frame-2-ssr. Requiring
+            ;; re-frame.ssr at app boot publishes the late-bind hooks
+            ;; (`:ssr/render-tree-hash` etc.) and registers the
+            ;; `:rf/hydrate` handler — the RealWorld ssr.cljc helper
+            ;; calls `rf/render-tree-hash` and dispatches
+            ;; `:rf/hydrate`. Without the require those calls raise
+            ;; :rf.error/ssr-artefact-missing.
+            [re-frame.ssr]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.reagent :as reagent-adapter]
             [realworld.schema]
