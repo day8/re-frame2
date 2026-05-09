@@ -36,6 +36,7 @@
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
+            [re-frame.subs :as subs]
             [re-frame.trace :as trace]))
 
 ;; ---- url encoding / decoding ---------------------------------------------
@@ -939,14 +940,49 @@ unknown strategies as :preserve (no-op)."}
        (trace/emit! :fx :rf.fx/skipped-on-platform
                     {:fx-id :rf.nav/scroll :strategy strategy}))))
 
-;; ---- subs over the slice --------------------------------------------------
-;; Will be picked up by re-frame.subs/reg-sub when this ns loads.
-
-;; (We can't call reg-sub here directly because of dep direction; the
-;; user's app calls re-frame.core/init which forwards into this.
-;; For now, expose helpers and let the public API wire them.)
+;; ---- framework-shipped subs over the slice -------------------------------
+;;
+;; Per Spec 012 the framework ships `:rf/route` (the layer-1 read of the
+;; :route slice) and the layer-2 derivations `:rf.route/{id,params,query,
+;; transition,error}`. Per rf2-k682 these subs ship in this artefact
+;; (rather than `re-frame.core`) so apps that don't pull
+;; `day8/re-frame-2-routing` carry neither the registration metadata nor
+;; the `:rf.route/*` keyword strings on their production-elision bundle.
+;;
+;; Lives in this namespace (rather than core.cljc) so the smoke-test
+;; fixture's `require :reload` re-installs the registrations after
+;; `registrar/clear-all!` — exactly the same ergonomic the machines
+;; namespace's `:rf/machine` reg-sub uses.
 
 (defn route-sub-fn
-  "Layer-1 sub fn for :route — reads the slice from app-db."
+  "Layer-1 sub fn for :route — reads the slice from app-db. Exposed
+  publicly so external callers (smoke tests, tooling) can recover the
+  same projection without re-deriving it."
   [db _query]
   (:route db))
+
+(subs/reg-sub :rf/route route-sub-fn)
+(subs/reg-sub :rf.route/id         :<- [:rf/route] (fn [route _] (:id route)))
+(subs/reg-sub :rf.route/params     :<- [:rf/route] (fn [route _] (:params route)))
+(subs/reg-sub :rf.route/query      :<- [:rf/route] (fn [route _] (:query route)))
+(subs/reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
+(subs/reg-sub :rf.route/error      :<- [:rf/route] (fn [route _] (:error route)))
+
+;; ---- late-bind hook registration ------------------------------------------
+;;
+;; Per rf2-k682 the routing surface ships in `day8/re-frame-2-routing`.
+;; `re-frame.core` MUST NOT `:require [re-frame.routing]` — the artefact
+;; is optional, and a static require would force every consumer of the
+;; core artefact to drag the namespace, the route-rank / pattern-compile
+;; / nav-token machinery, the `:rf/route` reg-sub family, and every
+;; `:rf.route/*` / `:rf.nav/*` trace/event keyword onto the classpath.
+;; The public-API re-exports (`reg-route`, `match-url`, `route-url`) are
+;; published through the late-bind table; consumers without the routing
+;; artefact see the hooks unregistered and the active surfaces throw
+;; cleanly while the read-only surfaces return safe defaults.
+
+(late-bind/set-fn! :routing/reg-route        reg-route)
+(late-bind/set-fn! :routing/match-url        match-url)
+(late-bind/set-fn! :routing/route-url        route-url)
+(late-bind/set-fn! :routing/reset-counters!  reset-counters!)
+(late-bind/set-fn! :routing/route-sub-fn     route-sub-fn)

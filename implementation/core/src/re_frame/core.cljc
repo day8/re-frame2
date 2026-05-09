@@ -35,7 +35,17 @@
             ;; below look the machines API up through the late-bind
             ;; hook table at call time, which the machines artefact
             ;; populates from its own ns-load.
-            [re-frame.routing :as routing]
+            ;;
+            ;; re-frame.routing (Spec 012) ships as a separate Maven
+            ;; artefact (day8/re-frame-2-routing, rf2-k682). The core
+            ;; artefact MUST NOT `:require [re-frame.routing]` — that
+            ;; would pull the namespace, the route-rank / pattern-compile
+            ;; / nav-token machinery, the `:rf/route` reg-sub family,
+            ;; and every `:rf.route/*` / `:rf.nav/*` keyword string onto
+            ;; every consumer's classpath even when no route is
+            ;; registered. The re-export wrappers below look the routing
+            ;; API up through the late-bind hook table at call time,
+            ;; which the routing artefact populates from its own ns-load.
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
@@ -65,8 +75,10 @@
 ;; coords into the registered metadata.
 ;;
 ;; JVM side: defmacro form. Direct fn-form access is preserved via
-;; events/reg-event-db etc. — internal callers (re-frame.routing,
-;; re-frame.ssr) reach the fn directly and don't pay the macro tax.
+;; events/reg-event-db etc. — internal callers (re-frame.ssr) reach the
+;; fn directly and don't pay the macro tax. Per rf2-k682 the routing
+;; namespace lives in a separate artefact and uses events/reg-event-fx
+;; directly rather than the macro layer.
 ;;
 ;; CLJS side: keep the existing fn-alias form. The macro path is a
 ;; future addition (a re-frame.core-macros companion ns following
@@ -367,7 +379,15 @@
    (defmacro reg-route
      "Register a route. Per Spec 001 the metadata stamped onto the
      registry slot includes :ns / :line / :file captured at this call
-     site."
+     site.
+
+     Per rf2-k682 the routing implementation lives in the
+     `day8/re-frame-2-routing` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `reg-route` MUST add
+     `day8/re-frame-2-routing` to their deps and require
+     `re-frame.routing` at app boot; without it, the lookup returns
+     nil and the call throws a clear error."
      [id metadata]
      (let [m       (meta &form)
            ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
@@ -381,7 +401,13 @@
                     ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
-          (routing/reg-route ~id ~metadata)))))
+          (if-let [f# (late-bind/get-fn :routing/reg-route)]
+            (f# ~id ~metadata)
+            (throw (ex-info ":rf.error/routing-artefact-missing"
+                            {:where    'reg-route
+                             :route-id ~id
+                             :recovery :no-recovery
+                             :reason   "rf/reg-route requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))))
 
 #?(:clj
    (defmacro reg-app-schema
@@ -493,7 +519,18 @@
 #?(:cljs
    (do
      (def reg-flow        flows/reg-flow)
-     (def reg-route       routing/reg-route)
+     ;; reg-route is late-bound via the hook table so core does not
+     ;; statically require re-frame.routing (rf2-k682 — routing ships in
+     ;; day8/re-frame-2-routing).
+     (defn reg-route
+       [id metadata]
+       (if-let [f (late-bind/get-fn :routing/reg-route)]
+         (f id metadata)
+         (throw (ex-info ":rf.error/routing-artefact-missing"
+                         {:where    'reg-route
+                          :route-id id
+                          :recovery :no-recovery
+                          :reason   "rf/reg-route requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
      ;; reg-app-schema is late-bound via the hook table so core does not
      ;; statically require re-frame.schemas (rf2-p7va — schemas ships
      ;; in day8/re-frame-2-schemas).
@@ -656,9 +693,40 @@
 #?(:cljs (def frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
+;;
+;; Per rf2-k682 the routing surface lives in the
+;; `day8/re-frame-2-routing` artefact. The re-exports below late-bind
+;; through the hook table so core does not statically require
+;; re-frame.routing. When the routing artefact is not on the classpath
+;; the lookups return nil and the wrappers raise
+;; :rf.error/routing-artefact-missing.
 
-(def match-url routing/match-url)
-(def route-url routing/route-url)
+(defn match-url
+  "Per Spec 012 §Bidirectional URL ↔ params. Match a URL against
+  registered routes; return `{:route-id :params :query
+  :validation-failed?}` for the first match, or `nil` if no route
+  matches. Late-bound via :routing/match-url."
+  [url]
+  (if-let [f (late-bind/get-fn :routing/match-url)]
+    (f url)
+    (throw (ex-info ":rf.error/routing-artefact-missing"
+                    {:where    'match-url
+                     :recovery :no-recovery
+                     :reason   "rf/match-url requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
+
+(defn route-url
+  "Per Spec 012 §Bidirectional URL ↔ params. Inverse of `match-url` —
+  build a URL string from a route-id + path-params (and optional
+  query-params). Late-bound via :routing/route-url."
+  ([route-id path-params] (route-url route-id path-params {}))
+  ([route-id path-params query-params]
+   (if-let [f (late-bind/get-fn :routing/route-url)]
+     (f route-id path-params query-params)
+     (throw (ex-info ":rf.error/routing-artefact-missing"
+                     {:where    'route-url
+                      :route-id route-id
+                      :recovery :no-recovery
+                      :reason   "rf/route-url requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
@@ -865,15 +933,13 @@
    nil))
 
 ;; ---- self-registration of framework subs ----------------------------------
-
-(reg-sub :rf/route routing/route-sub-fn)
-(reg-sub :rf.route/id     :<- [:rf/route] (fn [route _] (:id route)))
-(reg-sub :rf.route/params :<- [:rf/route] (fn [route _] (:params route)))
-(reg-sub :rf.route/query  :<- [:rf/route] (fn [route _] (:query route)))
-(reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
-(reg-sub :rf.route/error  :<- [:rf/route] (fn [route _] (:error route)))
-
-;; :rf/machine reg-sub lives in re-frame.machines and registers at that
-;; namespace's load time, so the smoke-test fixture's require :reload
-;; recovers it after registrar/clear-all!. Per Spec 005 §Subscribing to
-;; machines via sub-machine.
+;;
+;; The `:rf/route` / `:rf.route/{id,params,query,transition,error}`
+;; reg-subs live in `re-frame.routing` and register at that namespace's
+;; load time, so the smoke-test fixture's `require :reload` recovers them
+;; after `registrar/clear-all!`. Per rf2-k682 — routing ships in
+;; `day8/re-frame-2-routing`.
+;;
+;; The `:rf/machine` reg-sub lives in `re-frame.machines` and registers
+;; at that namespace's load time, similarly. Per Spec 005 §Subscribing
+;; to machines via sub-machine and rf2-xbtj.
