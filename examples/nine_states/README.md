@@ -58,13 +58,23 @@ views.cljs / machines.cljs / events_test.cljs`).
 
 ## How to run
 
+The example is wired into the canonical examples harness. From `implementation/`:
+
 ```bash
-# From the project root
-shadow-cljs watch nine-states
-# then open the served page (per the example harness setup)
+npm run test:examples
 ```
 
-The headless test suite runs JVM-side:
+That compiles every example (this one builds under shadow-cljs id `examples/nine-states`), stages its `index.html` into `out/examples/nine-states/`, serves the lot, and runs the Playwright smoke spec at [`nine_states.spec.cjs`](nine_states.spec.cjs).
+
+To iterate on the source alone, watch the build directly from `implementation/`:
+
+```bash
+shadow-cljs watch examples/nine-states
+```
+
+(Run `npm run test:examples` at least once first so `out/examples/nine-states/index.html` is staged; subsequent watch builds reuse it.)
+
+The headless tests run JVM-side from a CLJS REPL:
 
 ```clojure
 (nine-states.core/run-all-tests)

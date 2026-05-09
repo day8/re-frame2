@@ -58,14 +58,22 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTP
 
 ## How to run
 
-The example assumes a shadow-cljs build aliased `examples/realworld` (typical
-`:modules {:realworld {:entries [realworld.core] :init-fn realworld.core/run}}`).
+The example is wired into the canonical examples harness. From `implementation/`:
+
+```bash
+npm run test:examples
+```
+
+That compiles every example (this one builds under shadow-cljs id `examples/realworld`), stages its `index.html` into `out/examples/realworld/`, serves the lot on port 8030, and runs [`realworld.spec.cjs`](realworld.spec.cjs) against it.
 
 In production point `realworld.http/api-base` at <https://api.realworld.io/api>; for local development, the spec ships a Node/Postgres reference backend that listens on `http://localhost:3000/api`. The demo entry installs an in-process `:rf.http/managed` override (`:rf.http/managed.realworld-demo`) that synthesises canned responses for the common reads (global feed, tags, profile) — Spec 014 §Testing — so the headless smoke and Playwright run without a network.
 
+To iterate on the source alone, watch the build directly from `implementation/`:
+
 ```bash
 shadow-cljs watch examples/realworld
-# then open the served HTML and click around
+# then visit http://127.0.0.1:8030/realworld/ once the harness is running, or
+# stage the index.html into out/examples/realworld/ by running the harness once first.
 ```
 
 ## Headless tests
