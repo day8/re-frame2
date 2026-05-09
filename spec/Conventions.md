@@ -30,6 +30,10 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | `:rf.test/*` | Test-runner-internal events and fx-stub ids | 008 |
 | `:rf.http/*` | Managed-HTTP fx ids (`:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`); reply-payload `:kind` values for the closed eight-category failure taxonomy (`:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`, `:rf.http/aborted`); registration metadata key `:rf.http/decode-schemas`; trace operations (`:rf.http/retry-attempt`). Reserved whether or not the implementation ships Spec 014 — ports that omit `:rf.http/managed` MUST NOT register the namespace for any other purpose. | 014 |
 
+### Error-id and warning-id grammar
+
+Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>` — a single-segment kebab-case category under the reserved sub-namespace. The `:rf.error/*` and `:rf.warning/*` table rows above reserve the namespaces; the per-category vocabulary (the closed set of `<category>` values, what each one means, and which trace `:operation` it maps to) is enumerated in [009 §Error namespace convention](009-Instrumentation.md#error-namespace-convention). The same `:rf.<prefix>/<category>` shape applies to `:rf.fx/*` advisories, `:rf.ssr/*` advisories, and `:rf.epoch/*` operations — Conventions reserves the prefixes; 009 owns the per-prefix grammar.
+
 ### v1-compat alias
 
 | Compat namespace | Status |
@@ -69,6 +73,7 @@ re-frame2 reserves a small set of *unqualified* fx-ids — the runtime, the mach
 | `:dispatch-later` | runtime `do-fx` | Delayed dispatch | 002 |
 | `:raise` | machine handler (`create-machine-handler`) | Self-event addressed to the same machine; processed atomically pre-commit. **Outside a machine action's `:fx`, `:raise` is unbound** and `:rf.error/no-such-handler` is the failure mode. | 005 |
 | `:spawn` | machine handler (`create-machine-handler`) | Spawn a dynamic actor; record its id into the parent's `:data` via `:on-spawn`. **Outside a machine action's `:fx`, `:spawn` is unbound.** Args per `:rf.fx/spawn-args`. | 005 |
+| `:destroy-machine` | machine handler (`create-machine-handler`) | Destroy a dynamic actor: runs the actor's `:exit` action, dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears its event handler from the frame-local registry. Symmetric counterpart to `:spawn`. **Outside a machine action's `:fx`, `:destroy-machine` is unbound.** Per [005 §`:raise`, `:spawn`, and `:destroy-machine` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-spawn-and-destroy-machine-are-reserved-fx-ids-inside-fx). | 005 |
 | `:rf.fx/reg-flow` | runtime `do-fx` | Register a flow at runtime (per [013 §Dynamic toggle via fx](013-Flows.md#dynamic-toggle-via-fx)). Args: a flow map. | 013 |
 | `:rf.fx/clear-flow` | runtime `do-fx` | Clear a registered flow; `dissoc-in` on its `:path`. Args: a flow id. | 013 |
 
@@ -101,6 +106,7 @@ A small set of keys at the root of every frame's `app-db` are **reserved** — t
 | `:rf/machines` | machine runtime | Map of `<machine-id> → :rf/machine-snapshot`. Each registered machine's snapshot lives at `[:rf/machines <id>]`; per-frame isolation is automatic (each frame's `app-db` has its own `:rf/machines`). Locating snapshots inside `app-db` is the named mechanism by which machine state inherits [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) (Goal 2). | 005 |
 | `:rf/system-ids` | machine runtime | Per-frame reverse index for `:system-id` named-machine addressing — a map of `<system-id> → <gensym'd-machine-id>`. A spawn whose args carry `:system-id` writes a slot here; destroy clears it. `(rf/machine-by-system-id sid)` reads against this slot. Allocated lazily — absent until the first system-id-bound spawn. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue. | 005 |
 | `:rf/route` | routing runtime | The current route slice `{:id :params :query :transition :error}`. | 012 |
+| `:rf/pending-navigation` | routing runtime | The pending-navigation slot, populated by the runtime when a `:can-leave` guard rejects a navigation; cleared by `:rf.route/continue` or `:rf.route/cancel`. Schema `:rf/pending-navigation`. Allocated lazily — absent until the first guard rejection. Per [012 §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol). | 012 |
 
 User registrations and writes must avoid the reserved keys. The migration agent flags any user-registered `app-db` schema or write under `:rf/machines` as a Type-B migration. Schema-bearing implementations (re-frame2 reference) register the reserved keys' schemas at boot — `(rf/app-schema-at [:rf/machines])` returns `[:map-of :keyword :rf/machine-snapshot]`, with per-machine refinements composed from registered machines' `:data` shapes.
 
@@ -320,4 +326,4 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.
 - [Principles.md](Principles.md) — the discipline principles that motivate these conventions.
 - [001-Registration.md](001-Registration.md) — registration metadata-map shape; what each `reg-*` accepts.
-- [MIGRATION.md](MIGRATION.md) — the collision-audit migration rule.
+- [MIGRATION.md](MIGRATION.md) — framework-keyword consolidation under `:rf/*` ([§M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) and the Type-A vs Type-B migration classification.
