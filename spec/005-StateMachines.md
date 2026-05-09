@@ -1496,7 +1496,7 @@ Full integration — error categories, trace events, drain semantics. **Required
 The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machine; canvas-add and undo/redo stay as ordinary handlers (orthogonal concerns).
 
 ```clojure
-(ns seven-guis.circle-drawer-machine
+(ns circle-drawer.machine
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]))
 
