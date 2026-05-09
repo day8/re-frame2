@@ -1306,7 +1306,17 @@ The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Sch
 
 ---
 
-**Reporting M-12 through M-35.** These twenty-four rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-four separate preambles.
+### M-36. Cross-spec drift on `:rf/route` reconciled — no user-side action
+
+**Type A — note only** (no codebase rewrite needed; the v1→v2 rename target was already canonical).
+
+Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the routing slot key — `:route` (legacy) and `:rf/route` (canonical). The drift spanned 012-Routing.md, Spec-Schemas.md, Runtime-Architecture.md, API.md, Cross-Spec-Interactions.md, and 011-SSR.md. The reconciliation pins `:rf/route` corpus-wide. The same sweep aligned two adjacent Conventions table cells: the framework machine sub-id is `[:rf/machine <id>]` (was `[:rf.machine <id>]`), and the `:rf.route/*` row's enumeration of routing events lists `:rf/url-changed` (was `:rf.route/url-changed`, which is a trace-event flavour, not the runtime event) per rf2-sjnf D2 / D3.
+
+**No user-side migration.** The v1→v2 rename table above (`app-db [:route]` → `app-db [:rf/route]`, `[:route]` framework sub → `[:rf/route]`) was already correct — the drift was internal to the v2 corpus, not a change to the rename target. Codebases following [M-20](#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix) land at `:rf/route` regardless.
+
+---
+
+**Reporting M-12 through M-36.** These twenty-five rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-five separate preambles.
 
 ---
 
