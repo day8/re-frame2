@@ -1,36 +1,77 @@
-# Release workflow (rf2-r382; extended per rf2-p7va, rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd):
-# publish to Clojars on tag push.
+# Release workflow (rf2-r382; restructured for multi-artefact lockstep
+# deploy in rf2-ace2 / rf2-w05l).
 #
-# Modeled on re-frame v1's continuous-deployment-workflow.yml. The
-# pipeline gates the deploy on the same checks the regular `tests.yml`
-# runs (JVM, CLJS, elision probe), then deploys every published
-# artefact in sequence using `clojure -M:clein deploy` per artefact
-# directory:
+# # Topological deploy DAG
 #
-#   - day8/re-frame-2          (implementation/core)
-#   - day8/re-frame-2-reagent  (implementation/reagent)
-#   - day8/re-frame-2-schemas  (implementation/schemas, rf2-p7va)
-#   - day8/re-frame-2-machines (implementation/machines, rf2-xbtj)
-#   - day8/re-frame-2-routing  (implementation/routing,  rf2-k682)
-#   - day8/re-frame-2-flows    (implementation/flows,    rf2-tfw3)
-#   - day8/re-frame-2-http     (implementation/http,     rf2-5kpd)
+#   verify-version-lockstep ──► test ──► deploy-core
+#                                         │
+#                                         ├── deploy-schemas
+#                                         ├── deploy-reagent
+#                                         ├── deploy-machines
+#                                         ├── deploy-routing
+#                                         ├── deploy-flows
+#                                         └── deploy-http
+#                                                  │
+#                                                  ▼
+#                                          github-release
 #
-# Versioning. The repo-root VERSION file is the single source of truth.
-# A release commit updates VERSION and tags the commit `v<contents>`
-# (e.g. VERSION=0.0.1.beta → tag v0.0.1.beta). Each artefact's
-# :clein/build alias reads ../../VERSION.
+# Every per-feature artefact's *published* :deps depends only on core
+# (`day8/re-frame-2`); cross-feature references at runtime are wired
+# through `re-frame.late-bind` per Spec 006 §Substrate-adapter shipping
+# convention and the Conventions §Packaging conventions §Independence
+# rule. The DAG above reflects that: once core has shipped, every leaf
+# artefact is publishable independently and they fan out in parallel.
+# When ssr (rf2-uo7v) and epoch (rf2-lt4e) split, they slot in alongside
+# the existing leaves.
 #
-# Tag pattern. Matches re-frame v1's trailing-glob pattern; accepts
-# both strict semver (v1.0.0) and pre-release suffixes (v0.0.1.beta).
+# # Lockstep versioning policy through 1.0
 #
-# Secrets. CLOJARS_USERNAME and CLOJARS_PASSWORD must be configured at
-# the repository level. Per re-frame v1 convention, CLOJARS_PASSWORD
+# Per the rf2-w05l decision: pre-1.0, every artefact ships at the same
+# version, sourced from the repo-root VERSION file via :clein/build
+# :version "../../VERSION" in each artefact's deps.edn. The
+# `verify-version-lockstep` job enforces the contract before we touch
+# Clojars. Independent versioning is revisited post-1.0 (rf2-w05l
+# §Decision §1).
+#
+# # Failure recovery
+#
+# Clojars does not support yanking a published version. If the deploy
+# DAG fails part-way through (e.g. core ships but deploy-schemas
+# crashes), DO NOT attempt to re-run with the same tag — Clojars will
+# 409 on the duplicate core upload and the workflow will appear stuck.
+# Recovery procedure (per docs/release-process.md §Recovery):
+#
+#   1. Diagnose & fix the cause locally.
+#   2. Bump VERSION in a release-recovery commit (e.g. 0.0.1.beta →
+#      0.0.1.beta-1, or vX.Y.Z → vX.Y.Z+1).
+#   3. Re-tag with the bumped VERSION.
+#   4. Re-run; the workflow ships every artefact at the new version,
+#      preserving the lockstep contract. The partial-release artefacts
+#      from the failed run are tombstoned-by-supersession on the
+#      consumer side: the next release ships every artefact at the
+#      bumped version, so a consumer pinning the bumped version pulls a
+#      coherent set.
+#
+# # Modeled on re-frame v1's continuous-deployment-workflow.yml
+#
+# Same shape: tag-push trigger, gated on the same checks the regular
+# `tests.yml` runs (JVM, CLJS, elision probe). Each artefact's own
+# directory carries its `:clein/build` descriptor; deploy is
+# `clojure -M:clein deploy` from that directory, with the
+# :local/root → :mvn/version rewrite happening on the throwaway runner
+# checkout (see the Rewrite step in each per-artefact deploy job).
+#
+# # Secrets
+#
+# CLOJARS_USERNAME and CLOJARS_PASSWORD are configured at the
+# repository level. Per re-frame v1 convention, CLOJARS_PASSWORD
 # carries a Clojars deploy token (the username sees the token as the
 # password) — neither is committed; both are GHA secrets.
 #
-# First publish protocol. Mike runs the first deploy manually after
-# reviewing the workflow on a tagged commit. Subsequent releases run
-# automatically on tag push.
+# # First publish protocol
+#
+# Mike runs the first deploy manually after reviewing the workflow on a
+# tagged commit. Subsequent releases run automatically on tag push.
 
 name: release
 
@@ -40,8 +81,43 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 1. Lockstep version contract gate (rf2-ace2 / rf2-w05l).
+  #
+  # Asserts every artefact's :clein/build :version points at the
+  # repo-root VERSION file, and every non-core artefact references core
+  # via {:local/root "../core"}. Fails fast if a hand-edit has broken
+  # the lockstep contract.
+  # ─────────────────────────────────────────────────────────────────
+  verify-version-lockstep:
+    name: Verify lockstep version contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Verify VERSION matches tag
+        # Sanity check: the pushed tag must match the repo-root VERSION
+        # file content (prefixed with `v`). Catches accidental tags.
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match VERSION '$expected'"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+
+      - name: Verify lockstep version contract (rf2-ace2)
+        run: ./.github/scripts/verify-version-lockstep.sh
+
+  # ─────────────────────────────────────────────────────────────────
+  # 2. Pre-release test gate. Same checks as the regular tests
+  #    workflow; gates every deploy job below.
+  # ─────────────────────────────────────────────────────────────────
   test:
     name: Pre-release test gate
+    needs: verify-version-lockstep
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
@@ -75,19 +151,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-clj-release-
             ${{ runner.os }}-clj-
-
-      - name: Verify VERSION matches tag
-        # Sanity check: the pushed tag must match the repo-root VERSION
-        # file content (prefixed with `v`). Catches accidental tags.
-        run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          version="$(tr -d '[:space:]' < VERSION)"
-          expected="v${version}"
-          if [ "$tag" != "$expected" ]; then
-            echo "::error::tag '$tag' does not match VERSION '$expected'"
-            exit 1
-          fi
-          echo "tag $tag matches VERSION $expected — proceeding"
 
       - name: JVM tests (core artefact)
         working-directory: implementation/core
@@ -129,10 +192,18 @@ jobs:
         working-directory: implementation
         run: npm run test:elision
 
-  release:
-    name: Deploy to Clojars
+  # ─────────────────────────────────────────────────────────────────
+  # 3. Deploy core. The lockstep root: every other deploy job depends
+  #    on this one because their published poms reference
+  #    `day8/re-frame-2 {:mvn/version <VERSION>}` which the per-leaf
+  #    rewrite step produces from this published version.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-core:
+    name: Deploy day8/re-frame-2
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -175,34 +246,79 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  # ─────────────────────────────────────────────────────────────────
+  # 4. Per-leaf deploy jobs. All depend on deploy-core; none depend on
+  #    each other (per Conventions §Packaging conventions §Independence
+  #    rule). They run in parallel; a single leaf failure does NOT
+  #    halt sibling leaves — by design, since the published-pom DAG
+  #    has no edges between leaves and a partial-leaf-success is
+  #    coherent (a consumer that pins schemas + core only is unaffected
+  #    by a flows-deploy failure). The github-release job depends on
+  #    every leaf, so a partial deploy means no GitHub Release is
+  #    cut and the next step is the recovery procedure documented at
+  #    the top of this file.
+  #
+  #    Each leaf:
+  #      - re-installs core into the runner's local ~/.m2/repository so
+  #        the leaf's pom dep on day8/re-frame-2 ${{ version }} resolves
+  #        without waiting for Clojars' index;
+  #      - rewrites :local/root "../core" → :mvn/version "${VERSION}"
+  #        in its own deps.edn (throwaway runner checkout, never
+  #        committed);
+  #      - deploys with `clojure -M:clein deploy`.
+  # ─────────────────────────────────────────────────────────────────
+  deploy-reagent:
+    name: Deploy day8/re-frame-2-reagent
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
       - name: Install core to runner ~/.m2
-        # The reagent build's pom step resolves day8/re-frame-2 from
-        # Maven; installing locally first means the runner doesn't have
-        # to wait for Clojars' index to refresh and avoids a window
-        # where the deploy succeeded but the artefact isn't yet
-        # discoverable. Local install is cheap on top of the just-built
-        # jar in target/.
+        # The leaf's pom dep on day8/re-frame-2 ${{ needs.deploy-core.outputs.version }}
+        # resolves from Maven Central / Clojars. Installing locally
+        # first means the runner doesn't have to wait for Clojars'
+        # index to refresh and avoids a window where deploy-core
+        # succeeded but the artefact isn't yet discoverable. Local
+        # install is cheap on top of the just-built jar in target/.
         working-directory: implementation/core
         run: clojure -M:clein install
 
       - name: Rewrite reagent :local/root → :mvn/version
-        # The reagent artefact's deps.edn declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. The checkout is throwaway so this rewrite is local
-        # to the runner and never committed.
         working-directory: implementation/reagent
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
             echo "::error::expected ':local/root \"../core\"' substring not found in implementation/reagent/deps.edn"
             exit 1
           fi
-          # Use python with stdin-fed source to avoid sed-vs-quote escaping.
           BEFORE=':local/root "../core"' \
           AFTER=":mvn/version \"${VERSION}\"" \
           python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
@@ -216,17 +332,46 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  deploy-schemas:
+    name: Deploy day8/re-frame-2-schemas
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
       - name: Rewrite schemas :local/root → :mvn/version
-        # Same rationale as the reagent rewrite above (rf2-p7va).
-        # implementation/schemas/deps.edn declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. Local to the runner; never committed.
         working-directory: implementation/schemas
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
@@ -246,17 +391,46 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  deploy-machines:
+    name: Deploy day8/re-frame-2-machines
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
       - name: Rewrite machines :local/root → :mvn/version
-        # Same rationale as the reagent / schemas rewrites above (rf2-xbtj).
-        # implementation/machines/deps.edn declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. Local to the runner; never committed.
         working-directory: implementation/machines
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
@@ -276,17 +450,46 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  deploy-routing:
+    name: Deploy day8/re-frame-2-routing
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
       - name: Rewrite routing :local/root → :mvn/version
-        # Same rationale as the reagent / schemas / machines rewrites
-        # above (rf2-k682). implementation/routing/deps.edn declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. Local to the runner; never committed.
         working-directory: implementation/routing
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
@@ -306,18 +509,46 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  deploy-flows:
+    name: Deploy day8/re-frame-2-flows
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
       - name: Rewrite flows :local/root → :mvn/version
-        # Same rationale as the reagent / schemas / machines / routing
-        # rewrites above (rf2-tfw3). implementation/flows/deps.edn
-        # declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. Local to the runner; never committed.
         working-directory: implementation/flows
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
@@ -337,18 +568,46 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  deploy-http:
+    name: Deploy day8/re-frame-2-http
+    needs: deploy-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Install core to runner ~/.m2
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
       - name: Rewrite http :local/root → :mvn/version
-        # Same rationale as the reagent / schemas / machines / routing /
-        # flows rewrites above (rf2-5kpd). implementation/http/deps.edn
-        # declares
-        #   day8/re-frame-2 {:local/root "../core"}
-        # which is correct for in-repo dev/test but produces an
-        # unresolvable pom dependency for downstream consumers. Swap to
-        # the just-published :mvn/version coordinate before clein writes
-        # the pom. Local to the runner; never committed.
         working-directory: implementation/http
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../core"' deps.edn; then
@@ -368,6 +627,25 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+  # ─────────────────────────────────────────────────────────────────
+  # 5. GitHub Release. Cuts only after every leaf has shipped — a
+  #    partial deploy means no Release is created and the next step is
+  #    the recovery procedure documented at the top of this file.
+  # ─────────────────────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    needs:
+      - deploy-core
+      - deploy-reagent
+      - deploy-schemas
+      - deploy-machines
+      - deploy-routing
+      - deploy-flows
+      - deploy-http
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
       - name: Create GitHub Release
         # Mirrors re-frame v1's release-notes pattern — minimal body
         # with a link back to the CHANGELOG. Mike updates CHANGELOG.md
@@ -380,13 +658,13 @@ jobs:
             See [CHANGELOG.md](https://github.com/day8/re-frame2/blob/main/CHANGELOG.md) for release notes.
 
             Artefacts published to Clojars:
-            - `day8/re-frame-2` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-reagent` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-schemas` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-machines` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-routing` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-flows` ${{ steps.version.outputs.version }}
-            - `day8/re-frame-2-http` ${{ steps.version.outputs.version }}
+            - `day8/re-frame-2` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-reagent` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-schemas` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-machines` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-routing` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-flows` ${{ needs.deploy-core.outputs.version }}
+            - `day8/re-frame-2-http` ${{ needs.deploy-core.outputs.version }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
         env:
