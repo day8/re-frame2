@@ -448,3 +448,92 @@
     (is (= (rf/app-schemas :test/k)
            (rf/app-schemas {:frame :test/k}))
         "keyword form == opts-map form")))
+
+;; ---- rf2-0z1z — app-schemas-digest --------------------------------------
+
+(deftest app-schemas-digest-is-canonical-wire-form
+  (testing "Per Spec 010 §Digest algorithm — the digest is the literal
+            prefix \"sha256:\" followed by 16 lowercase hex characters."
+    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (let [d (rf/app-schemas-digest)]
+      (is (string? d))
+      (is (re-matches #"sha256:[0-9a-f]{16}" d)
+          "digest is exactly \"sha256:\" + 16 lowercase hex chars"))))
+
+(deftest app-schemas-digest-is-stable
+  (testing "Per Spec 010 §Digest algorithm — registering the same schema
+            set produces the same digest (cross-runtime byte-stable)."
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+    (rf/reg-app-schema [:todos] [:vector :string])
+    (let [d1 (rf/app-schemas-digest)]
+      ;; Re-register the SAME schemas — last-write-wins, but the map is
+      ;; structurally identical, so the digest must not move.
+      (rf/reg-app-schema [:todos] [:vector :string])
+      (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+      (is (= d1 (rf/app-schemas-digest))
+          "byte-identical schema set → byte-identical digest"))))
+
+(deftest app-schemas-digest-changes-on-schema-change
+  (testing "A schema-set change perturbs the digest. Two different schema
+            sets must produce distinct digests."
+    (rf/reg-app-schema [:user] [:map [:id :uuid]])
+    (let [before (rf/app-schemas-digest)]
+      (rf/reg-app-schema [:user] [:map [:id :string]])
+      (is (not= before (rf/app-schemas-digest))
+          "tightening / changing a schema flips the digest"))))
+
+(deftest app-schemas-digest-frame-isolated
+  (testing "Per Spec 010 §Per-frame schemas — two frames with different
+            schema sets produce different digests; a frame with no schemas
+            has a stable empty-set digest distinct from any non-empty
+            frame's digest."
+    (rf/reg-frame :test/a {})
+    (rf/reg-frame :test/b {})
+    (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :test/a})
+    ;; :test/b has no schemas registered.
+    (let [da (rf/app-schemas-digest :test/a)
+          db (rf/app-schemas-digest :test/b)]
+      (is (not= da db)
+          "frames with different schema sets have different digests")
+      (is (= db (rf/app-schemas-digest :test/b))
+          "the empty-schema digest is stable across calls")
+      (is (= db (rf/app-schemas-digest {:frame :test/b}))
+          "keyword-sugar arity equals opts-map arity"))))
+
+(deftest app-schemas-digest-keyword-and-opts-arities-agree
+  (testing "(app-schemas-digest frame-id) is sugar for
+            (app-schemas-digest {:frame frame-id}); both must return the
+            same string."
+    (rf/reg-frame :test/d {})
+    (rf/reg-app-schema [:k] [:int] {:frame :test/d})
+    (is (= (rf/app-schemas-digest :test/d)
+           (rf/app-schemas-digest {:frame :test/d}))
+        "keyword form == opts-map form")))
+
+(deftest app-schemas-digest-empty-set-is-defined
+  (testing "Empty schema set has a defined, stable digest (the SHA-256 of
+            the empty string, prefixed). Hosts with no schemas registered
+            still get a usable digest, not nil."
+    (rf/reg-frame :test/empty {})
+    (let [d (rf/app-schemas-digest :test/empty)]
+      (is (string? d))
+      (is (re-matches #"sha256:[0-9a-f]{16}" d))
+      ;; SHA-256 of "" is e3b0c44298fc1c14...; first 16 hex chars are
+      ;; e3b0c44298fc1c14.
+      (is (= "sha256:e3b0c44298fc1c14" d)
+          "empty schema set hashes the empty concatenation per Spec 010"))))
+
+(deftest app-schemas-digest-independent-of-registration-order
+  (testing "Per Spec 010 §Digest algorithm step 4 — lines are sorted
+            lexicographically before final hashing, so the registration
+            order of schemas must not affect the digest."
+    (rf/reg-frame :test/o1 {})
+    (rf/reg-frame :test/o2 {})
+    ;; Same schemas, different registration order.
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]]   {:frame :test/o1})
+    (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o1})
+    (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o2})
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]]   {:frame :test/o2})
+    (is (= (rf/app-schemas-digest :test/o1)
+           (rf/app-schemas-digest :test/o2))
+        "same schema set, different registration order → same digest")))
