@@ -807,7 +807,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is fixed-and-additive per [Spec-ulation](Principles.md): existing categories cannot be renamed or removed; new categories appear additively.
 
-The schemas above are *open* (Malli's default `[:map ...]`) — consumers receive payloads that conform to the listed keys plus any additive keys the implementation adds. Validation against these schemas is non-fatal in production: a `validate` failure is logged via the same trace stream (per [009](009-Instrumentation.md)) but does not abort the consumer.
+The schemas above are *open* (Malli's default `[:map ...]`) — consumers receive payloads that conform to the listed keys plus any additive keys the implementation adds. Validation against these schemas is non-fatal in dev: a `validate` failure is logged via the same trace stream (per [009](009-Instrumentation.md)) but does not abort the consumer. In production, both validation and the trace stream are compile-time elided (per [009](009-Instrumentation.md) lead claim and [Spec 000 C-000.35](000-Vision.md)) — there is no runtime validation cost and no trace emission.
 
 ### `:rf/handler-body-dsl`
 
