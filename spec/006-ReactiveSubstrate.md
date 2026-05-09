@@ -506,6 +506,7 @@ Three contract guarantees this enforces:
 - **Drain-loop integration** ([002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)): invalidation fires once per `process-event!` step 2, after the `:db` write and before the `:fx` walk. A handler can rely on subscriptions reflecting the new `app-db` from inside `do-fx`.
 - **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body. Tracked with the rest of hot-reload semantics in the bead-tracked work.
 - **Machine subscriptions** ([005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)): a machine's snapshot lives at `[:rf/machines <id>]` and is read like any other slice of `app-db`; `sub-machine` is a thin convenience over `reg-sub`. Sub-cache invalidation works the same.
+- **`clear-sub` is a registry-only operation** (rf2-79tl): `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (ref-count + grace-period, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-subscription-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-subscription-cache!` afterwards."
 
 ### Per-host implementation notes
 
@@ -532,6 +533,8 @@ The behaviour is environment-specific:
 - **In strict mode** (`:strict-subs` config), the unresolved-input error escalates to a thrown exception so the bug is loud during dev.
 
 The subscription's body still runs with `nil` substituted for the unresolved input. This is intentional: it keeps the trace stream readable (the agent sees one error event rather than a chain of cascading throws) and lets the caller handle the missing data gracefully if it can.
+
+A related case is `subscribe` itself naming an unregistered sub-id — most often a boot-order or lazy-load race where the consumer subscribes before the registering namespace has loaded. The runtime emits the same `:rf.error/no-such-sub` trace event, returns a nil-yielding reaction (recovery `:replaced-with-default`), and **does not** populate the per-frame sub-cache. Skipping the cache on miss preserves the v1 semantic that a later registration is observed by the next subscribe — no stale `nil`-reaction lingers (rf2-l9u5).
 
 ## CLJS reference: Reagent as default adapter
 
