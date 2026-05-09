@@ -54,6 +54,16 @@ bd close <id>         # Complete work
 
 - **No AI attribution in commits or PRs.** Do not add `Co-Authored-By: Claude ...`, `🤖 Generated with [Claude Code]`, or any similar trailer to commit messages or PR descriptions. Commit and PR text should read as the user's own work.
 
+## Local working files
+
+- **`decision-beads.md` at repo root** — Mike's personal dashboard listing open beads that need his decision. Categorised by urgency; carries Claude's read on each. Update whenever a decision bead is filed, resolved, or surfaced as pending. Never commit; it lives in `.git/info/exclude` (local-only ignore — not `.gitignore`, since the rule is purely Mike's).
+- **Timestamp format**: full datetime with timezone, not just date. e.g. `2026-05-09 13:30:57 AUSEST`. Use `date "+%Y-%m-%d %H:%M:%S %Z"` to fetch.
+
+## Workflow
+
+- **Keep local `main` in sync with `origin/main`.** After each PR merge, run `git pull --ff-only` so Mike sees the latest code in his checkout. He glances at the working tree to track progress.
+- **Stash before pull when needed.** `decision-beads.md` and `.beads/issues.jsonl` may carry uncommitted local edits; stash before pulling and pop after if necessary.
+
 ## Build & Test
 
 _Add your build and test commands here_
