@@ -34,20 +34,33 @@
 
   ## Public API
 
+  ### Fixture machinery
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
   - [[reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows / adapter / machine
-    counters / trace listeners."
+    counters / trace listeners.
+
+  ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5)
+  - [[dispatch-sequence]] — fire a vector of events synchronously,
+    optionally observing intermediate state via `:after-each`.
+  - [[assert-state]] — assert against the current frame's app-db (full
+    db or `path` form); failure is reported via `clojure.test/is`.
+  - [[run-test-sync]] — v1 compatibility shim. v2's `dispatch-sync`
+    drain is already synchronous so the macro is largely a body
+    wrapper; included for mechanical migration of v1 test code."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
             [re-frame.schemas :as schemas]
             [re-frame.trace :as trace]
-            [re-frame.substrate.adapter :as adapter]))
+            [re-frame.router :as router]
+            [re-frame.substrate.adapter :as adapter]
+            #?(:clj  [clojure.test :as ctest]
+               :cljs [cljs.test :as ctest :include-macros true])))
 
 ;; ---- registrar snapshot/restore -------------------------------------------
 
@@ -194,3 +207,151 @@
            (reset! schemas/schemas-by-frame schemas-snap)
            (reset! frame/frames {})
            (reset! flows/flows {})))))))
+
+;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
+;;
+;; Three thin wrappers over `dispatch-sync!` and `frame-app-db-value` for
+;; ergonomic test code. The fixture machinery above carries the heavy
+;; lifting; these helpers are composition sugar.
+;;
+;; Per Spec 008 §Built-in test-runner namespace, all three live under
+;; re-frame.test-support so users `(:require [re-frame.test-support :as t])`
+;; once and reach the full testing surface — including dispatch-sequence,
+;; assert-state, run-test-sync — without an additional require.
+
+(defn- resolve-frame
+  "Frame-resolution chain shared by the helpers below:
+     1. `:frame` key in opts when supplied;
+     2. `(frame/current-frame)` — picks up `with-frame` bindings,
+        defaults to `:rf/default`."
+  [opts]
+  (or (:frame opts) (frame/current-frame)))
+
+(defn dispatch-sequence
+  "Fire each event in `events` synchronously, in order, against the
+  resolved frame. Returns the final app-db value.
+
+  Each event is delivered via `dispatch-sync!`, which runs the handler
+  and drains the queue to fixed point before returning. The drain
+  settles between events, so observable state between calls reflects
+  committed effects.
+
+  Options (all optional):
+    :after-each — fn of `(db, event)` invoked after each event's drain
+                  settles. Useful for capturing intermediate states or
+                  per-step assertions.
+    :frame      — frame id. Defaults to `(current-frame)`, which is
+                  `:rf/default` outside a `with-frame` binding.
+
+  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s decision.
+
+  Example — assert final state:
+
+      (dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])
+      ;; => {:counter/value 1}
+
+  Example — capture intermediate states:
+
+      (let [seen (atom [])]
+        (dispatch-sequence [[:counter/inc] [:counter/inc]]
+                           {:after-each (fn [db ev] (swap! seen conj [ev db]))})
+        @seen)"
+  ([events] (dispatch-sequence events {}))
+  ([events {:keys [after-each] :as opts}]
+   (let [frame-id (resolve-frame opts)
+         dispatch-opts (cond-> {:frame frame-id}
+                         (contains? opts :origin) (assoc :origin (:origin opts)))]
+     (doseq [ev events]
+       (router/dispatch-sync! ev dispatch-opts)
+       (when after-each
+         (after-each (frame/frame-app-db-value frame-id) ev)))
+     (frame/frame-app-db-value frame-id))))
+
+(defn assert-state
+  "Assert against the resolved frame's `app-db`. Mismatch is reported
+  via `clojure.test/is` — the failure carries the actual value so the
+  diagnostic is one line.
+
+  Two call shapes:
+
+    (assert-state expected-db)
+    ;; full-db form: (= expected-db (frame-app-db-value frame))
+
+    (assert-state path expected-val)
+    ;; path form:    (= expected-val (get-in (frame-app-db-value frame) path))
+
+  Both shapes accept a trailing options map:
+
+    (assert-state expected-db {:frame :test/foo})
+    (assert-state path expected-val {:frame :test/foo})
+
+  Frame-resolution chain matches `dispatch-sequence`: `:frame` opt →
+  `(current-frame)` → `:rf/default`.
+
+  Returns `true` when the assertion passes, `false` otherwise — the
+  `clojure.test` failure has already been reported in either case, so
+  callers rarely care about the boolean.
+
+  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s decision."
+  ([expected-db]
+   (assert-state expected-db nil))
+  ([path-or-expected expected-or-opts]
+   ;; Disambiguate by shape of the second arg:
+   ;; - if path-or-expected is a vector (path), the second arg is the
+   ;;   expected value;
+   ;; - otherwise the second arg, if a map, is opts (full-db form).
+   (cond
+     (and (vector? path-or-expected)
+          (not (map? expected-or-opts)))
+     (assert-state path-or-expected expected-or-opts nil)
+
+     :else
+     (let [opts        (or expected-or-opts {})
+           frame-id    (resolve-frame opts)
+           actual      (frame/frame-app-db-value frame-id)
+           expected-db path-or-expected
+           pass?       (= expected-db actual)]
+       (ctest/do-report
+         {:type     (if pass? :pass :fail)
+          :message  (str "assert-state full-db mismatch on frame " frame-id)
+          :expected expected-db
+          :actual   actual})
+       pass?)))
+  ([path expected-val opts]
+   (let [opts     (or opts {})
+         frame-id (resolve-frame opts)
+         actual   (get-in (frame/frame-app-db-value frame-id) path)
+         pass?    (= expected-val actual)]
+     (ctest/do-report
+       {:type     (if pass? :pass :fail)
+        :message  (str "assert-state mismatch at path " (pr-str path)
+                       " on frame " frame-id)
+        :expected expected-val
+        :actual   actual})
+     pass?)))
+
+#?(:clj
+   (defmacro run-test-sync
+     "v1 compatibility shim for `re-frame-test/run-test-sync`. In v2
+     `dispatch-sync` already drains synchronously to fixed point, so this
+     macro is largely a body wrapper — it exists so v1 test code that
+     called `re-frame.test/run-test-sync` ports to v2 by a mechanical
+     namespace rename (per [MIGRATION §M-25](MIGRATION.md), and rf2-8hcb's
+     `re-frame.test` → `re-frame.test-support` rename).
+
+     The macro snapshots and restores the registrar around `body` so
+     test-local registrations are rolled back even if the body throws.
+     This matches v1's `run-test-sync` behaviour of giving each test
+     block a fresh registrar baseline.
+
+     Example:
+
+         (deftest legacy-flow
+           (run-test-sync
+             (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+             (rf/dispatch-sync [:counter/inc])
+             (is (= 1 (:n (rf/get-frame-db :rf/default))))))
+
+     Per Spec 008 §`re-frame-test` library compatibility."
+     [& body]
+     `(with-fresh-registrar (fn [] ~@body))))
