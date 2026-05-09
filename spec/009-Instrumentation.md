@@ -101,6 +101,10 @@ Additional values for re-frame2 concerns:
 - `:rf.registry/handler-registered` / `:rf.registry/handler-cleared` / `:rf.registry/handler-replaced` — registration changes (hot reload). The canonical trio: `-registered` for a fresh id, `-cleared` for an explicit removal, `-replaced` when re-registration overwrote an existing id (the typical hot-reload case).
 - `:flow` — flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)). The op-type for the whole flow trace stream; per-flow events live under `:rf.flow/*` operations (`:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed` — see [§Flow trace events](#flow-trace-events) below). Tools filter `op-type :flow` to subscribe to the whole flow stream.
 - `:error` / `:warning` — universal severity discriminators for failure events. The category-specific identity lives in `:operation` (e.g. `:rf.error/handler-exception`); see [§Error contract](#error-contract) for the authoritative model.
+- `:info` — informational advisories the runtime emits without warning or error severity (e.g. `:rf.http/retry-attempt` per [014 §Retry semantics](014-HTTPRequests.md#retry-semantics)). Tools that filter for issues subscribe to `:warning` / `:error`; tools that surface activity timelines subscribe to `:info` as well.
+- `:rf.machine/destroyed-on-frame-exit` — operation emitted by `frame.cljc` when a frame's destroy walks each surviving machine instance and tears it down. Pairs with `:rf.machine.lifecycle/destroyed` (which carries the same per-machine teardown signal under the lifecycle op-type); both fire from the same destroy walk so consumers see the registrar substrate's observation and the frame substrate's observation as a coherent pair. `:tags {:frame <id> :machine-id <id> :last-state <state>}`.
+- `:rf.frame/drain-aborted` — lifecycle event emitted by `router.cljc` when the drain loop detects `(:destroyed? (:lifecycle frame))` mid-cycle and drops remaining queued events. `:op-type :event`. `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning).
+- `:rf.epoch/snapshotted` / `:rf.epoch/restored` — epoch-history operations under `:op-type :rf.epoch`. `-snapshotted` fires after each drain-settle when the runtime has appended a fresh `:rf/epoch-record`; `-restored` fires after a successful `restore-epoch`. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel). `:tags {:frame <id> :epoch-id <id> :event-id <id>?}`.
 
 Consumers filter by `:op-type` (or `:source`, or `(get-in ev [:tags :frame])`) to get the slice they care about. Adding new `:op-type` values is non-breaking — tools ignore what they don't understand.
 
@@ -647,6 +651,50 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.epoch/restore-missing-handler` | The recorded `app-db` references a registered-id (e.g. an active machine at `[:rf/machines <id>]`, a registered route currently in `:route`) that is no longer present in the registrar. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:missing` (vector of `{:kind :id}`) |
 | `:rf.epoch/restore-version-mismatch` | The frame's recorded `:rf/snapshot-version` (per [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)) is incompatible with the currently-loaded machine definition. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `restore-epoch` was called while the frame's run-to-completion drain is still in flight (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Restore is rejected; the user retries after settle. Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel) | `:frame`, `:epoch-id` |
+| `:rf.error/no-such-fx` | A dispatched fx-id has no registered handler (and was not redirected by `:fx-overrides`). Per [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees). Emitted by `re-frame.fx/handle-one-fx` after override resolution and reserved-id matching both miss | `:fx-id`, `:fx-args`, `:frame` |
+| `:rf.error/frame-destroyed` | A `dispatch` / `dispatch-sync` / `subscribe` arrived against a frame whose `(:lifecycle frame-record)` carries `:destroyed? true`. Per [002 §Frame lifecycle](002-Frames.md#frame-lifecycle). The router rejects the call; for `subscribe` the result is `nil`. Emitted from router.cljc and subs.cljc | `:frame`, `:event` (when called from dispatch), `:query-v` (when called from subscribe) |
+| `:rf.error/flow-eval-exception` | A flow's `:output` fn threw during the recompute walk inside an event handler's interceptor pipeline (per [013 §Flow tracing](013-Flows.md#flow-tracing)). Distinct from `:rf.flow/failed`, which is the per-flow op-type-`:flow` trace; this is the cascade-level error event the router emits when the throw escapes the flow walk | `:frame`, `:event`, `:exception` |
+| `:rf.error/unwrap-bad-event-shape` | The `:rf/unwrap` interceptor saw an event vector that does not conform to the expected `[event-id payload-map]` shape (per [Conventions §Unwrap interceptor](Conventions.md)) | `:event`, `:expected` (the contract string) |
+| `:rf.error/machine-raise-depth-exceeded` | A machine action's `:raise` cascade exceeded its depth limit (default 16). Per [005 §Bounded depth](005-StateMachines.md#bounded-depth). The cascade halts; the snapshot is not committed | `:machine-id`, `:depth` |
+| `:rf.error/machine-always-depth-exceeded` | A machine's `:always` microstep loop exceeded its depth limit (default 16). Per [005 §Bounded depth](005-StateMachines.md#bounded-depth). The cascade halts; the snapshot is not committed | `:machine-id`, `:depth`, `:path` (the visited-states vector) |
+| `:rf.error/machine-unresolved-guard` | A machine's `:guard` reference is a keyword that does not resolve in the machine's `:guards` map. Per [005 §Guards](005-StateMachines.md#guards) and [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table). Surfaced at registration time (registration fails) and as a fallback at transition time | `:guard` (the unresolved keyword), `:machine-id` |
+| `:rf.error/machine-unresolved-action` | A machine's `:action` reference is a keyword that does not resolve in the machine's `:actions` map. Per [005 §Actions](005-StateMachines.md#actions) and [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table). Surfaced at registration time (registration fails) and as a fallback at transition time | `:action` (the unresolved keyword), `:machine-id` |
+| `:rf.error/machine-bad-guard-form` | A machine's `:guard` value is neither a keyword nor a fn (per [005 §Guards](005-StateMachines.md#guards)). Surfaced at registration time | `:guard` (the offending value) |
+| `:rf.error/machine-bad-action-form` | A machine's `:action` value is neither a keyword nor a fn (per [005 §Actions](005-StateMachines.md#actions)). Surfaced at registration time | `:action` (the offending value) |
+| `:rf.error/machine-bad-state-form` | A snapshot's `:state` is neither a keyword nor a vector path (per [005 §State paths](005-StateMachines.md)). Surfaced at runtime when normalising the snapshot's state | `:state` (the offending value) |
+| `:rf.error/machine-bad-on-clause` | A state-node's `:on <event-id>` value is not one of the four legal shapes (keyword target, vector path target, vector of guarded transition maps, or single transition map; per [005 §Transitions](005-StateMachines.md)). Surfaced at registration time | `:value` (the offending shape) |
+| `:rf.error/machine-action-wrote-db` | A machine action's effect map contained `:db`. Per [005 §Hard-disallow `:db`](005-StateMachines.md). The runtime drops the `:db` key; remaining effects flow through | `:machine-id`, `:action-id`, `:state-path`, `:offending-value` |
+| `:rf.error/machine-grammar-not-in-v1` | A machine definition uses a v1-out-of-scope grammar feature (e.g. `:type :parallel`, `:history`) that the implementation does not claim per the [005 §Capability matrix](005-StateMachines.md#capability-matrix). Registration is rejected | `:machine-id`, `:feature` (the unsupported key), `:substitute` (pointer to the recommended pattern) |
+| `:rf.error/machine-unhandled-event` | An event arrived at a machine and no transition matched at any state along the active path. Per [005](005-StateMachines.md). Advisory; the snapshot is unchanged | `:machine-id`, `:event`, `:state` |
+| `:rf.error/machine-state-not-in-definition` | A snapshot's `:state` references a state-id that is not declared in the machine's `:states` definition (e.g. a snapshot from an older version of the machine). Per [005](005-StateMachines.md) | `:machine-id`, `:state` |
+| `:rf.error/machine-snapshot-version-mismatch` | A persisted machine snapshot's `:rf/snapshot-version` is incompatible with the currently-loaded machine definition (per [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)). Distinct from `:rf.epoch/restore-version-mismatch`, which is the epoch-history restore path | `:machine-id`, `:version-recorded`, `:version-current` |
+| `:rf.error/machine-always-self-loop` | An `:always` entry's `:target` resolves to the declaring state itself with the same `:guard` reference (or no guard). Per [005 §Self-loop forbidden at registration](005-StateMachines.md#self-loop-forbidden-at-registration). Registration is rejected | `:state` (the declaring state-keyword), `:machine-id` |
+| `:rf.error/machine-compound-state-missing-initial` | A compound state declares `:states` but no `:initial`. Per [005 §Initial-state cascading](005-StateMachines.md#initial-state-cascading). Registration is rejected | `:machine-id`, `:state` |
+| `:rf.error/no-such-route` | A `route-url` call (or one of its callers) addressed a `:route-id` that is not in the routing registrar (per [012](012-Routing.md)) | `:route-id` |
+| `:rf.error/missing-route-param` | A `route-url` build-from-pattern call did not supply a value for a required path parameter (per [012 §URL building](012-Routing.md)) | `:param` (the missing param keyword), `:route-id` |
+| `:rf.error/bad-app-schemas-arg` | `app-schemas` was called with a non-keyword, non-map, non-nil argument (per [010 §App-db schemas](010-Schemas.md)) | `:received` (the offending value), `:expected` (the contract string) |
+| `:rf.error/unknown-preset` | `reg-frame` metadata's `:preset` value is not in the closed set `#{:default :test :story :ssr-server}` (per [Spec-Schemas §`:rf/preset-expansion`](Spec-Schemas.md#rfpreset-expansion)) | `:preset` (the offending value), `:valid` (the closed set) |
+| `:rf.error/adapter-already-installed` | A second `install-adapter!` call was made without an intervening `dispose-adapter!` (per [006 §Single adapter per process](006-Substrate.md)) | `:installed` (the existing adapter), `:attempted` (the offending second adapter) |
+| `:rf.error/render-on-headless-adapter` | `render` was called on the plain-atom (JVM/SSR) adapter, which only supports `render-to-string` (per [006](006-Substrate.md)) | `:reason` |
+| `:rf.error/no-hiccup-emitter-bound` | `render-to-string` was called before the SSR namespace bound the hiccup emitter via `set-hiccup-emitter!` (per [011](011-SSR.md)) | `:reason`, `:render-tree` |
+| `:rf.error/flow-cycle` | A flow registration introduced a cycle in the flow-dependency graph (per [013 §Topological ordering](013-Flows.md)). Registration is rejected | `:cycle` (the offending flow ids) |
+| `:rf.error/flow-missing-id` | A `reg-flow` call's flow map omitted `:id` (per [013](013-Flows.md)) | `:flow` (the offending map) |
+| `:rf.error/flow-bad-inputs` | A `reg-flow` call's flow `:inputs` was not a vector of paths (per [013](013-Flows.md)) | `:flow`, `:reason` |
+| `:rf.error/flow-bad-output` | A `reg-flow` call's flow `:output` was not a fn (per [013](013-Flows.md)) | `:flow`, `:reason` |
+| `:rf.error/flow-bad-path` | A `reg-flow` call's flow `:path` was not a vector (per [013](013-Flows.md)) | `:flow`, `:reason` |
+| `:rf.error/flows-artefact-missing` | A flow API (`reg-flow`, `clear-flow`, the flow fxs) was called but the optional `day8/re-frame-2-flows` artefact is not on the classpath. Per [MIGRATION §M-31 artefact splits](MIGRATION.md). Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/ssr-artefact-missing` | An SSR API (`render-to-string`, `render-tree-hash`, `reg-error-projector`, `project-error`) was called but the optional `day8/re-frame-2-ssr` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/routing-artefact-missing` | A routing API (`reg-route`, `match-url`, `route-url`) was called but the optional `day8/re-frame-2-routing` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/schemas-artefact-missing` | A schemas API (`reg-app-schema`) was called but the optional `day8/re-frame-2-schemas` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:path`, `:reason` |
+| `:rf.error/machines-artefact-missing` | A machines API (`reg-machine`, `reg-machine*`) was called but the optional `day8/re-frame-2-machines` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:machine-id`, `:reason` |
+| `:rf.error/http-artefact-missing` | A managed-HTTP API was called but the optional `day8/re-frame-2-http` artefact (per [014 §Implementation status](014-HTTPRequests.md#implementation-status)) is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.warning/route-shadowed-by-equal-score` | A `reg-route` registered a pattern whose [`:rf/route-rank`](Spec-Schemas.md#rfroute-rank) tuple equals an already-registered pattern's; the new route shadows the old per stable sort order (per [Spec-Schemas §`:rf/route-rank`](Spec-Schemas.md#rfroute-rank) and [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm)) | `:route-id` (the new id), `:shadowed` (the displaced id) |
+| `:rf.warning/decode-defaulted` | A managed-HTTP request fell through to the default `:auto` decode pipeline because no `:decode` was supplied (per [014 §Default decode](014-HTTPRequests.md)). Informational; the auto-decode is supported | `:request-id`, `:url`, `:content-type`, `:resolved-decoder` |
+| `:rf.warning/write-after-destroy` | The substrate adapter's `replace-container!` was called with a nil container — the frame was likely destroyed mid-drain or before a scheduled write fired. Per [006](006-Substrate.md) | `:reason` |
+| `:rf.http/cljs-only-key-ignored-on-jvm` | A managed-HTTP request supplied a CLJS-only request key (`:mode`, `:cache`, `:referrer`, `:integrity`) that the JVM transport cannot honour. The key is ignored. Per [014](014-HTTPRequests.md). `:op-type :warning` | `:key`, `:url` |
+| `:rf.http/retry-attempt` | A managed-HTTP attempt failed with a retryable category and the runtime is scheduling another attempt. Per [014 §Retry semantics](014-HTTPRequests.md#retry-semantics). `:op-type :info` | `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure` (a `:rf.http/*` failure-category map), `:next-backoff-ms` |
+| `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result is silently suppressed. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). `:op-type :error` (the suppression is the failure mode the consumer needs to see) | `:carried-token`, `:current-token`, `:event-id` |
+| `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning). Lifecycle event, not error-shaped: `:op-type :event`, no `:recovery` | `:frame`, `:dropped-count` |
 
 `:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
 
@@ -767,6 +815,50 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.epoch/restore-missing-handler` | `:no-recovery` | Restore rejected; the frame's state is unchanged. |
 | `:rf.epoch/restore-version-mismatch` | `:no-recovery` | Restore rejected; the frame's state is unchanged. |
 | `:rf.epoch/restore-during-drain` | `:no-recovery` | Restore rejected; the user retries after settle. |
+| `:rf.error/no-such-fx` | `:no-recovery` | The fx is dropped; cascade continues with remaining `:fx` entries. |
+| `:rf.error/frame-destroyed` | `:no-recovery` | Dispatch / subscribe is rejected; cascade halts (or returns nil for the subscribe path). |
+| `:rf.error/flow-eval-exception` | `:no-recovery` | The cascade halts; the snapshot is uncommitted. The per-flow `:rf.flow/failed` op-type-`:flow` event also fires for attribution. |
+| `:rf.error/unwrap-bad-event-shape` | `:no-recovery` | The interceptor returns the original ctx unchanged; the downstream handler receives the unwrapped vector unmodified. |
+| `:rf.error/machine-raise-depth-exceeded` | `:no-recovery` | The `:raise` cascade halts; the snapshot is not committed. |
+| `:rf.error/machine-always-depth-exceeded` | `:no-recovery` | The `:always` microstep loop halts; the snapshot is not committed. |
+| `:rf.error/machine-unresolved-guard` | `:no-recovery` | Registration fails (or, at runtime fallback, the transition is rejected). |
+| `:rf.error/machine-unresolved-action` | `:no-recovery` | Registration fails (or, at runtime fallback, the action is skipped). |
+| `:rf.error/machine-bad-guard-form` | `:no-recovery` | Registration fails. |
+| `:rf.error/machine-bad-action-form` | `:no-recovery` | Registration fails. |
+| `:rf.error/machine-bad-state-form` | `:no-recovery` | The snapshot's state is rejected at normalisation; downstream walks halt. |
+| `:rf.error/machine-bad-on-clause` | `:no-recovery` | Registration fails. |
+| `:rf.error/machine-action-wrote-db` | `:logged-and-skipped` | The `:db` key is dropped from the action's effect map; remaining effects flow through. Per [005 §Hard-disallow `:db`](005-StateMachines.md). |
+| `:rf.error/machine-grammar-not-in-v1` | `:no-recovery` | Registration is rejected. |
+| `:rf.error/machine-unhandled-event` | `:ignored` | Advisory; the snapshot is unchanged. |
+| `:rf.error/machine-state-not-in-definition` | `:no-recovery` | The transition is rejected. |
+| `:rf.error/machine-snapshot-version-mismatch` | `:no-recovery` | The snapshot is rejected. |
+| `:rf.error/machine-always-self-loop` | `:no-recovery` | Registration is rejected. |
+| `:rf.error/machine-compound-state-missing-initial` | `:no-recovery` | Registration is rejected. |
+| `:rf.error/no-such-route` | `:no-recovery` | The call throws; the caller chooses how to surface the failure. |
+| `:rf.error/missing-route-param` | `:no-recovery` | The call throws; the caller chooses how to surface the failure. |
+| `:rf.error/bad-app-schemas-arg` | `:no-recovery` | The call throws. |
+| `:rf.error/unknown-preset` | `:no-recovery` | The call throws; registration of the offending frame fails. |
+| `:rf.error/adapter-already-installed` | `:no-recovery` | The call throws; the existing adapter remains installed. |
+| `:rf.error/render-on-headless-adapter` | `:no-recovery` | The call throws; user should use `render-to-string` on this adapter. |
+| `:rf.error/no-hiccup-emitter-bound` | `:no-recovery` | The call throws; SSR namespace must be required so `set-hiccup-emitter!` runs. |
+| `:rf.error/flow-cycle` | `:no-recovery` | Flow registration is rejected. |
+| `:rf.error/flow-missing-id` | `:no-recovery` | Flow registration is rejected. |
+| `:rf.error/flow-bad-inputs` | `:no-recovery` | Flow registration is rejected. |
+| `:rf.error/flow-bad-output` | `:no-recovery` | Flow registration is rejected. |
+| `:rf.error/flow-bad-path` | `:no-recovery` | Flow registration is rejected. |
+| `:rf.error/flows-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-flows` to deps. |
+| `:rf.error/ssr-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-ssr` to deps. |
+| `:rf.error/routing-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-routing` to deps. |
+| `:rf.error/schemas-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-schemas` to deps. |
+| `:rf.error/machines-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-machines` to deps. |
+| `:rf.error/http-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-http` to deps. |
+| `:rf.warning/route-shadowed-by-equal-score` | `:warned-and-replaced` | The new route registers; equal-score sibling is shadowed by stable sort. |
+| `:rf.warning/decode-defaulted` | `:ignored` | Informational; auto-decode proceeds normally. |
+| `:rf.warning/write-after-destroy` | `:no-recovery` | The write is dropped; the substrate's `replace-container!` is not invoked. |
+| `:rf.http/cljs-only-key-ignored-on-jvm` | `:ignored` | The unsupported key is dropped; the request proceeds with the remaining keys. |
+| `:rf.http/retry-attempt` | `:retried` | A new attempt is scheduled; the consumer sees the trace and the eventual final outcome via `:on-failure` / `:on-success`. |
+| `:route.nav-token/stale-suppressed` | `:logged-and-skipped` | The async reply is suppressed; the active navigation cascade continues unchanged. |
+| `:rf.frame/drain-aborted` | n/a | Lifecycle event, not error-shaped. Remaining queued events are dropped silently. |
 
 #### Style rubric for `:reason` strings (non-normative)
 
