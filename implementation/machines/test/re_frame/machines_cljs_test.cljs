@@ -407,8 +407,9 @@
 
 ;; ---- (4) declarative :invoke ----------------------------------------------
 ;; Mirrors invoke-spawn-on-entry-destroy-on-exit.edn — entering a state with
-;; :invoke emits a :spawn fx (observable as :rf.machine/spawned trace);
-;; exiting emits :destroy-machine (observable as :rf.machine/destroyed trace).
+;; :invoke emits a :rf.machine/spawn fx (observable as :rf.machine/spawned
+;; trace); exiting emits :rf.machine/destroy (observable as
+;; :rf.machine/destroyed trace).
 ;;
 ;; The on-spawn callback fires inline during apply-transition-once so the
 ;; child id can be recorded into the parent machine's :data — we assert via
@@ -443,9 +444,9 @@
       (rf/reg-machine :auth3/flow machine)
       ;; Initial state :idle with the credentials fixture data is
       ;; synthesised on first dispatch; no seed required.
-      ;; Entering :authenticating: :spawn fx fires (→ :rf.machine/spawned
-      ;; trace), :on-spawn callback records the deterministic actor id
-      ;; into :data.:pending.
+      ;; Entering :authenticating: :rf.machine/spawn fx fires
+      ;; (→ :rf.machine/spawned trace), :on-spawn callback records the
+      ;; deterministic actor id into :data.:pending.
       (rf/register-trace-cb! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
@@ -456,9 +457,9 @@
                   (and (= :rf.machine/spawned (:operation ev))
                        (= :http/post (:machine-id (:tags ev)))))
                 @traces)
-          "expected :rf.machine/spawned trace from the :spawn fx")
-      ;; Exiting :authenticating via :auth/failed: :destroy-machine fx fires
-      ;; targeting the recorded actor id.
+          "expected :rf.machine/spawned trace from the :rf.machine/spawn fx")
+      ;; Exiting :authenticating via :auth/failed: :rf.machine/destroy fx
+      ;; fires targeting the recorded actor id.
       (reset! traces [])
       (rf/dispatch-sync [:auth3/flow [:auth/failed]])
       (rf/remove-trace-cb! ::inv)
