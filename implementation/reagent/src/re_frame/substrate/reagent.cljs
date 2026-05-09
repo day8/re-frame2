@@ -1,10 +1,18 @@
 (ns re-frame.substrate.reagent
   "The Reagent adapter — browser default. Per Spec 006 §CLJS reference:
-  Reagent as default adapter."
+  Reagent as default adapter.
+
+  Ships in its own Maven artefact (day8/re-frame-2-reagent) per
+  Spec 006 §Substrate-adapter shipping convention (rf2-0hxm). Apps that
+  use Reagent depend on both day8/re-frame-2 (core) and this artefact;
+  apps targeting a different substrate (UIx, Helix) depend on the
+  matching adapter artefact instead. Core does *not* :require this ns —
+  the dependency direction is adapter → core."
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as interop]
+            [re-frame.ssr :as ssr]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -86,3 +94,10 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
+
+;; Wire core's render-to-string into this adapter's :render-to-string
+;; slot. Core can't :require this ns (reverse dependency direction —
+;; this artefact depends on core, not vice versa); this ns's load
+;; order calls back into core. Per Spec 006 §Substrate-adapter shipping
+;; convention (rf2-0hxm).
+(ssr/install-render-to-string! set-hiccup-emitter!)
