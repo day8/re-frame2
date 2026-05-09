@@ -97,16 +97,23 @@
 ;;   :default :test :story :ssr-server
 
 (defn- preset-expansion [preset]
-  ;; NOTE: these expansions are a minimal subset of what Spec 002 §Frame
-  ;; presets describes. The full spec adds keys like :url-bound? false,
-  ;; :platforms #{:test}, :drain-depth 100 (for :test), and similar for
-  ;; :story/:ssr-server. Tracked under bead rf2-0m0c (impl/spec gap on
-  ;; preset expansion). Until that lands, the impl ships the canonical
-  ;; Spec 014 HTTP stub redirect (:rf.http/managed -> :rf.http/managed-canned-success)
-  ;; which is the load-bearing piece tests rely on.
+  ;; Per Spec 002 §Frame presets and Spec-Schemas §:rf/preset-expansion.
+  ;; The four canonical expansions:
+  ;;   :default    -> {} (explicit no-op; identical to omitting :preset)
+  ;;   :test       -> redirect :rf.http/managed to its canned-success stub
+  ;;                  (Spec 014); explicit :drain-depth 100 (matches the
+  ;;                  framework default — surfaced so tooling can read the
+  ;;                  bound off frame-meta without consulting the global default).
+  ;;   :story      -> same HTTP redirect as :test; tighter :drain-depth 16
+  ;;                  so a runaway dispatch cascade fails fast under a story.
+  ;;   :ssr-server -> :platform :server (gates fx via reg-fx :platforms);
+  ;;                  :on-error :rf.error/server-projection (server-side
+  ;;                  exception projection per Spec 011).
+  ;; User-supplied keys win on conflict; see expand-preset.
   (case preset
     :default    {}
-    :test       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}
+    :test       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
+                 :drain-depth  100}
     :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                  :drain-depth  16}
     :ssr-server {:platform     :server
