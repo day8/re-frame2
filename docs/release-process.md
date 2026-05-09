@@ -6,6 +6,16 @@
 
 re-frame2 ships as a coordinated set of Maven artefacts, all driven from a single repo-root [`VERSION`](../VERSION) file. This doc is the operational guide for how a release flows through CI, what gates exist, and how to recover when something goes wrong mid-deploy.
 
+## Policy
+
+The release pipeline reflects a small set of decisions Mike made up front (rf2-r382). They are recorded here so future contributors don't have to re-derive them from the workflow.
+
+1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships ten — and are documented in [§Topological deploy DAG](#topological-deploy-dag).
+2. **Channel gating — pre-1.0 = beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.beta` (and `v0.0.1.beta-N` / `v0.0.2.beta` etc. for subsequent betas). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
+3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.beta` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full ten-artefact set** (core + schemas + reagent + uix + machines + routing + flows + http + ssr + epoch); no artefact "comes later" — they all ship together at every release per the lockstep contract below.
+4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
+5. **Artefact set ships together at lockstep VERSION.** All 10 artefacts ship at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract (rf2-w05l) is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh). Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep.
+
 ## Tag format
 
 | Channel | Tag pattern | VERSION file content | Example |
@@ -37,16 +47,22 @@ graph TD
   T --> C[deploy-core]
   C --> S[deploy-schemas]
   C --> R[deploy-reagent]
+  C --> U[deploy-uix]
   C --> M[deploy-machines]
   C --> RT[deploy-routing]
   C --> F[deploy-flows]
   C --> H[deploy-http]
+  C --> SS[deploy-ssr]
+  C --> E[deploy-epoch]
   S --> GR[github-release]
   R --> GR
+  U --> GR
   M --> GR
   RT --> GR
   F --> GR
   H --> GR
+  SS --> GR
+  E --> GR
 ```
 
 ASCII fallback:
@@ -56,16 +72,19 @@ verify-version-lockstep ──► test ──► deploy-core
                                        │
                                        ├── deploy-schemas
                                        ├── deploy-reagent
+                                       ├── deploy-uix
                                        ├── deploy-machines
                                        ├── deploy-routing
                                        ├── deploy-flows
-                                       └── deploy-http
+                                       ├── deploy-http
+                                       ├── deploy-ssr
+                                       └── deploy-epoch
                                                 │
                                                 ▼
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, halving wall-clock at the cost of a marginally wider failure surface (see Recovery below). When future per-feature splits land — ssr ([rf2-uo7v](#)), epoch ([rf2-lt4e](#)) — they slot in alongside the existing leaves.
+**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the substrate-adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
 
 ## Pre-flight checklist
 
