@@ -2,12 +2,21 @@
   "Cross-Spec interaction edge cases. One deftest per documented case in
   spec/Cross-Spec-Interactions.md.
 
-  Each deftest's docstring carries the section anchor from the doc; if a
-  case requires a real DOM / browser harness it is left as a placeholder
-  test pointing at rf2-443l (browser-test runner).
+  Each deftest's docstring carries the section anchor from the doc.
+
+  Browser-runner promotion (rf2-o83z): Interactions whose contracts
+  require a real React render now run live on the :browser-test target
+  instead of returning a placeholder `(is true)`. The same ns is loaded
+  by :node-test (it matches the `cljs-test$` regex) AND :browser-test
+  (it matches `-cljs-test$`); browser-only branches gate on
+  `(browser?)` and exit early under :node-test. The interactions that
+  cite a runtime gap (e.g. #10 plain-fn warning emission) keep a
+  documented placeholder until the gap closes.
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [reagent.dom.client :as rdc]
+            ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             ;; rf2-k682: routing ships in day8/re-frame-2-routing.
@@ -18,6 +27,30 @@
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]))
+
+;; True only on the :browser-test runner. The :node-test target loads
+;; the same ns but has no DOM, so any test that mounts through React
+;; gates on this predicate and returns early under :node-test (where it
+;; would crash on `js/document`). Per rf2-o83z (this bead): the cross-
+;; spec tests that REQUIRE a real React render are promoted from inert
+;; placeholders to live assertions on the browser runner only.
+(defn- browser? []
+  (and (exists? js/document)
+       (some? (.-createElement js/document))))
+
+;; ---- per-test mount-point helper (browser-only) ---------------------------
+;;
+;; Each browser-only test that needs to mount creates a fresh detached
+;; <div> rather than sharing a global root. Detached nodes still pass
+;; React's "must be in a Document" check (the elements ARE owned by the
+;; ambient `js/document`) but don't mutate the test page's visible DOM.
+;; This keeps tests independent — no race over a shared mount slot — and
+;; matches the per-test cleanup the `reset-runtime-fixture` already gives
+;; us at the runtime layer.
+
+(defn- make-mount-node! []
+  (when (browser?)
+    (.createElement js/document "div")))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT
 ;; call (registrar/clear-all!): CLJS has no runtime (require :reload), so
@@ -125,16 +158,50 @@
 (deftest after-noop-shape-under-ssr-server-preset
   "#4 Machines under SSR (allowed-subset) —
    the :ssr-server preset stamps :platform :server on the frame, which
-   is the channel through which `:after` is suppressed.
-
-   ;; TODO browser harness — rf2-443l: the full :after no-op end-to-end
-   ;; verification needs a real timer harness."
+   is the channel through which `:after` is suppressed. Per rf2-o83z
+   the `:after`-no-op end-to-end check fires through the trace channel
+   (`:rf.machine.timer/skipped-on-server`) — no real timer harness is
+   needed because the gate emits a synchronous, observable trace at
+   schedule time. See machines.cljc §`:after`-scheduling, where the
+   `:server` branch emits `:rf.machine.timer/skipped-on-server` in
+   place of `:rf.machine.timer/scheduled`."
   (rf/reg-frame :req {:preset :ssr-server})
   (let [meta (rf/frame-meta :req)]
     (is (= :server (get-in meta [:config :platform]))
         ":ssr-server preset sets :platform :server on the frame config")
     (is (= :rf.error/server-projection (get-in meta [:config :on-error]))
-        ":ssr-server preset wires :on-error to :rf.error/server-projection")))
+        ":ssr-server preset wires :on-error to :rf.error/server-projection"))
+  ;; Register a machine whose `:loading` state declares an `:after` table.
+  ;; The transition `:idle → :loading` enters an `:after`-bearing state;
+  ;; on a non-SSR frame this would emit `:rf.machine.timer/scheduled`. On
+  ;; the `:ssr-server` frame it must emit
+  ;; `:rf.machine.timer/skipped-on-server` and NOT schedule a real timer
+  ;; (per Cross-Spec-Interactions §4 and Spec 005 §SSR mode). The trace
+  ;; channel is the observable end-to-end signal — no timer harness is
+  ;; required because the gate fires synchronously at schedule time.
+  (rf/reg-machine :ssr/timed
+    {:initial :idle
+     :data    {}
+     :states  {:idle    {:on {:fetch {:target :loading}}}
+               :loading {:after {500 :awake}}
+               :awake   {}}})
+  (let [traces (collect-traces ::xspec-4-after)]
+    (rf/dispatch-sync [:ssr/timed [:fetch]] {:frame :req})
+    (stop-traces ::xspec-4-after)
+    (let [skipped   (filter #(= :rf.machine.timer/skipped-on-server
+                                (:operation %))
+                            @traces)
+          scheduled (filter #(= :rf.machine.timer/scheduled
+                                (:operation %))
+                            @traces)]
+      (is (seq skipped)
+          ":after on :ssr-server emits :rf.machine.timer/skipped-on-server")
+      (is (some #(= :server (get-in % [:tags :platform])) skipped)
+          "the skipped-on-server trace records :platform :server")
+      (is (some #(= 500 (get-in % [:tags :delay])) skipped)
+          "the trace carries the declared :after delay")
+      (is (empty? scheduled)
+          "no :rf.machine.timer/scheduled trace fires on :ssr-server — :after is a true no-op, not a deferred schedule"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 5 — Hydration with machine snapshots
@@ -219,13 +286,111 @@
 ;; spec/Cross-Spec-Interactions.md#8-frame-disposal-during-render
 ;; ---------------------------------------------------------------------------
 
-(deftest frame-destroy-during-render-placeholder
+(deftest frame-destroy-during-render
   "#8 Frame disposal during render —
-   ;; TODO browser harness — rf2-443l. Requires a real React render
-   ;; pass to be in flight at the moment destroy-frame is called; the
-   ;; node-test runner has no DOM."
-  (is true
-      "placeholder; mid-render destroy needs the browser-test runner (rf2-443l)"))
+   The current render pass completes against the snapshot it began with;
+   after the render commits, the disposal runs (sub-cache disposes; the
+   substrate releases the frame-scoped subtree; subsequent dispatch /
+   subscribe against the destroyed frame raises :rf.error/frame-destroyed).
+
+   Per rf2-o83z this case is promoted from a placeholder to a real
+   browser-runner test. The :node-test target also loads this ns (it
+   matches both the `cljs-test$` and `-cljs-test$` regex), so we gate
+   the DOM-mounting branch on `(browser?)` and exit early under
+   :node-test where `js/document` is absent."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [render-count (atom 0)
+          render-error (atom nil)
+          target-frame :tenant-render
+          mount-node   (make-mount-node!)
+          ;; Plain Reagent component (Form-1). It derefs the frame
+          ;; container so it rebinds Reagent's reactive watcher to the
+          ;; frame's app-db; if the frame is alive at render time the
+          ;; deref returns the current value, if the frame has just been
+          ;; destroyed the frame-container is still referenceable (its
+          ;; rAtom outlives the registry entry). The component itself
+          ;; calls destroy-frame! during its FIRST render — that's the
+          ;; "mid-render destroy" the spec describes — so the second
+          ;; render (if any) and the surrounding test code observe the
+          ;; commit-then-dispose ordering.
+          render-fn    (fn []
+                         (let [n (swap! render-count inc)
+                               container (frame/get-frame-db target-frame)
+                               db (when container @container)]
+                           (when (= 1 n)
+                             ;; Mid-render destroy. Per Spec 002 §Destroy
+                             ;; this synchronously disposes the frame —
+                             ;; the React commit cycle that's currently
+                             ;; running cannot be interrupted, so this
+                             ;; returns and the render completes against
+                             ;; the snapshot the render fn read above.
+                             (rf/destroy-frame target-frame))
+                           [:div.x {:data-render-count n
+                                    :data-db          (pr-str db)}
+                            "ok"]))]
+      (rf/reg-frame target-frame {:doc "frame destroyed mid-render"})
+      (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+      (rf/dispatch-sync [:seed] {:frame target-frame})
+      (let [traces (collect-traces ::xspec-8)
+            ;; Mount under frame-provider so the subtree is scoped to
+            ;; target-frame in the React-context tier — even though the
+            ;; render fn reads via frame/get-frame-db directly, the
+            ;; provider-mount path is the documented user-facing shape
+            ;; (per Spec 004 §frame-provider) and exercises the same
+            ;; substrate code-path the spec describes.
+            root   (rdc/create-root mount-node)
+            ;; Reagent 2's render is flushSync — by the time `rdc/render`
+            ;; returns, the first render pass has committed. The
+            ;; render-fn's destroy-frame! call therefore ran inside the
+            ;; commit cycle.
+            _      (try
+                     ;; Hiccup head is the frame-provider fn; Reagent
+                     ;; treats `[fn-head args & children]` as an inline
+                     ;; component invocation.
+                     ;;
+                     ;; React 18's root.render() is asynchronous by
+                     ;; default — wrapping in flushSync forces the
+                     ;; commit cycle to complete before the call
+                     ;; returns. This is what lets the test observe the
+                     ;; mid-render destroy synchronously, the same
+                     ;; ordering the spec describes (Spec 002 §Destroy:
+                     ;; render commits, then disposal runs).
+                     (react-dom/flushSync
+                       (fn []
+                         (rdc/render root [rf/frame-provider
+                                           {:frame target-frame}
+                                           [render-fn]])))
+                     (catch :default e
+                       ;; If destroy-during-render bubbled an exception
+                       ;; the render itself would throw — record it for
+                       ;; the assertion below.
+                       (reset! render-error (ex-message e))))]
+        (stop-traces ::xspec-8)
+        (try
+          (is (nil? @render-error)
+              (str "render did not throw mid-destroy; got: " (pr-str @render-error)))
+          (is (>= @render-count 1)
+              "render fn ran at least once — mid-render destroy did not abort the render pass")
+          (is (some #(and (= :frame/destroyed (:operation %))
+                          (= target-frame (get-in % [:tags :frame])))
+                    @traces)
+              ":frame/destroyed trace fired — destroy-frame! ran the disposal pipeline")
+          (is (nil? (frame/frame target-frame))
+              "the frame is gone from the registry after destroy")
+          ;; Post-destroy dispatch raises :rf.error/frame-destroyed (per
+          ;; Spec 002 §Destroy). The trace channel is the public surface.
+          (let [post-traces (collect-traces ::xspec-8b)]
+            (rf/dispatch-sync [:seed] {:frame target-frame})
+            (stop-traces ::xspec-8b)
+            (is (some #(= :rf.error/frame-destroyed (:operation %))
+                      @post-traces)
+                "subsequent dispatch against the destroyed frame emits :rf.error/frame-destroyed"))
+          (finally
+            ;; Clean up the React root so its internal effects don't
+            ;; leak across tests. The mount node is detached and will be
+            ;; GC'd with this scope.
+            (try (rdc/unmount root) (catch :default _ nil))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 9 — Reactive substrate without React-context
@@ -256,12 +421,25 @@
 
 (deftest plain-fn-under-non-default-frame-placeholder
   "#10 Plain Reagent fn under a non-default frame —
-   ;; TODO browser harness — rf2-443l. The :rf.warning/plain-fn-under-
-   ;; non-default-frame-once trace fires when a plain fn renders inside
-   ;; a non-default frame-provider; verifying the once-per-(fn,frame)
-   ;; suppression requires a real React render."
+   ;; HALTED for rf2-o83z: this is a runtime gap, NOT a browser-test
+   ;; gap. Spec 004 §Plain Reagent fns and Spec 009 §Trace catalog define
+   ;; the warning operation `:rf.warning/plain-fn-under-non-default-frame
+   ;; -once` (with `:fn-name`, `:rendered-under`, `:routed-to` tags),
+   ;; emitted at most once per `(component-id, non-default-frame-id)`
+   ;; pair when a plain (non-`reg-view`) Reagent fn renders inside a
+   ;; non-default frame-provider. The runtime does NOT yet emit this
+   ;; trace; promoting the placeholder to a real assertion would have
+   ;; nothing to assert against. Tracking under the rf2-o83z follow-up
+   ;; bead (filed by the same PR that promoted #4 and #8) — the
+   ;; emission must land in re-frame.views' resolution chain at the
+   ;; point a plain fn falls through to :rf/default while a non-default
+   ;; React-context frame is in scope. Once emission lands, the test
+   ;; here can become a real browser assertion (mount under
+   ;; frame-provider, render a plain fn that subscribes, capture
+   ;; traces, assert exactly one warning per (fn, frame) pair across
+   ;; multiple renders)."
   (is true
-      "placeholder; warning emission needs the browser-test runner (rf2-443l)"))
+      "placeholder; HALTED on runtime gap — see comment above (rf2-o83z follow-up)"))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 11 — Machine action throws
