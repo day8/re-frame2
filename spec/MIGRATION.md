@@ -1189,13 +1189,44 @@ Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs 
 
 ---
 
-**Reporting M-12 through M-31.** These twenty rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty separate preambles.
+### M-32. SSR & hydration (Spec 011) ships in a separate artefact — `day8/re-frame-2-ssr`
+
+**Type A** (mechanical, dep-only).
+
+Per [rf2-uo7v](#) (the sixth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame-2-ssr`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
+
+**What to look for** in the codebase:
+
+- Any call to `re-frame.core/render-to-string` / `render-tree-hash` / `reg-error-projector` / `project-error`.
+- Any `:rf.server/set-status` / `:rf.server/set-header` / `:rf.server/append-header` / `:rf.server/set-cookie` / `:rf.server/delete-cookie` / `:rf.server/redirect` entry inside an `:fx` vector or effect map.
+- Any `[:rf/hydrate ...]` dispatch.
+- A direct `(:require [re-frame.ssr])` clause.
+- Any reference to `:rf/response` / `:rf/render-hash` / `:rf/app-db` payload keys consumed by SSR hosts.
+
+**What to do.** Add the ssr artefact alongside the core dep:
+
+```clojure
+;; deps.edn for an app that uses Spec 011 SSR
+{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
+        day8/re-frame-2-reagent {:mvn/version "<latest>"}
+        day8/re-frame-2-ssr     {:mvn/version "<latest>"}}}  ;; ← new in v2
+```
+
+Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/reg-error-projector` / `rf/project-error`, dispatches `:rf/hydrate`, or registers a `:rf.server/*` fx call site MUST `(:require [re-frame.ssr])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four core re-exports raise `:rf.error/ssr-artefact-missing` with a clear "add the ssr artefact" message; the `:rf/hydrate` event resolves to no handler.
+
+**Public API** (in `re-frame.core`) is unchanged — `(rf/render-to-string ...)`, `(rf/render-tree-hash ...)`, `(rf/reg-error-projector ...)` and `(rf/project-error ...)` still work, the wrappers in core late-bind through the hook table to the ssr artefact's implementations.
+
+**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-uo7v](#).
+
+---
+
+**Reporting M-12 through M-32.** These twenty-one rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-one separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
