@@ -263,6 +263,53 @@ If any value differs, the adapter is holding state outside the frame value — a
 
 Cross-reference: [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility) names the goal; this section locks the adapter-contract obligation that follows from it.
 
+## Source-coord annotation (mandatory; rf2-z7f7 / rf2-z9n1)
+
+Every substrate adapter MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. The annotation is a **normative entry on the adapter contract** — devtools and pair-shaped tools (re-frame-pair, re-frame-10x, IDE jump-to-source per [Tool-Pair §Source-mapping UI clicks back to code](Tool-Pair.md#source-mapping-ui-clicks-back-to-code)) consume it to map a clicked DOM node back to the reg-view call site. Without this annotation an adapter is non-conformant.
+
+### Capture mechanism
+
+Source coordinates are captured at `reg-view` macro-expansion time from `(meta &form)` (`:line`, `:column`) and the compile-time `*ns*` / `*file*` (per [Spec 001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). The macro stamps them onto the registry slot's metadata; the substrate adapter reads them at render time when wiring the wrapper that produces the annotated DOM element. No runtime cost in the hot path: the coord string is computed once at registration time, then merged into attrs each render.
+
+### Attribute value format
+
+The attribute value is a colon-separated four-segment string:
+
+```
+data-rf2-source-coord="<ns>:<sym>:<line>:<col>"
+```
+
+- `<ns>` is the keyword id's namespace — typically `(namespace (registry-id))`.
+- `<sym>` is the keyword id's name — `(name (registry-id))`.
+- `<line>` is the integer source line; `?` when not captured.
+- `<col>` is the integer source column; `?` when not captured.
+
+A registration that bypassed the macro path (programmatic `reg-view*` with no captured coords) still annotates with `<ns>:<sym>:?:?` — degrading gracefully so pair tools can still resolve `<ns>/<sym>` via the registrar's `:rf/id` lookup.
+
+### Production elision (mandatory)
+
+The annotation site MUST sit inside `(when interop/debug-enabled? ...)` (the CLJS mirror of `goog.DEBUG`). Production builds (`:advanced` + `goog.DEBUG=false`) MUST NOT emit the attribute — the entire injection branch dead-code-eliminates so the literal `data-rf2-source-coord` string fragment does not appear in the bundle. Per [Spec 009 §Production builds](009-Instrumentation.md), the elision is verified by a grep against the production bundle (`scripts/check-elision.cjs`); the `data-rf2-source-coord` sentinel is part of the standard sentinel set.
+
+### Documented exemption: non-DOM roots
+
+A registered view whose root element is one of:
+
+- a React Fragment (`:<>`),
+- a host-component head (`:>` in Reagent — the React-interop marker),
+- a function/component head (e.g. another reg-view'd component),
+
+…is **exempt** from the annotation. The adapter MUST emit a one-shot warning per id (so the developer learns the pair-tool footgun without spamming the console on re-render) and MUST NOT inject the attribute in these cases. Pair tools fall back to `(rf/handler-meta :view id)` for these nodes — the registry slot still carries the captured `:ns` / `:line` / `:file`; only the DOM-node-level mapping is skipped.
+
+The exemption is principled: a Fragment has no DOM element to annotate, and a `[:> Cmp …]` interop call hands the props map straight through to React's component (which may not be a DOM-tag, may not accept arbitrary HTML attributes, and certainly should not have framework-derived strings inserted into it). Annotating these would either be a no-op (Fragment) or risk mutating semantics (interop).
+
+### Form-2 handling
+
+When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape per [Spec 004 §Form-2](004-Views.md#form-2-closure--supported-prefer-form-1--explicit-setup-event)), the adapter wraps the returned fn so the inner-fn's hiccup output is annotated on the next call. Annotation lands on the eventual rendered DOM root, not on the outer fn (which is not a DOM element).
+
+### Cross-host
+
+Substrate adapters that do not expose a DOM-attribute concept (Solid scopes, function-arg-explicit, headless test adapters) are exempt. Adapters whose host is React-shaped (Reagent, UIx [rf2-3yij], Helix [rf2-2qit]) MUST honour this contract. The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
+
 ## Subscription cache — contract and operational semantics
 
 A subscription's value lives in the per-frame **sub-cache**. This section defines the contract: the cache shape, the lookup algorithm, the invalidation algorithm, the ref-counting and disposal rules, the layer-1/2/3 sub semantics, and the lifetime contract that ties them together. The contract is host-agnostic; the [Reagent reference adapter §Sub-cache wiring](#sub-cache-wiring-reagent-realisation) shows the CLJS realisation.

@@ -322,9 +322,9 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
 
-### DOM source-coord annotations (CLJS reference, opt-in)
+### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
-Per [Tool-Pair §Source-mapping](Tool-Pair.md), the CLJS reference can annotate rendered DOM with a `data-rf2-source-coord` attribute pointing back to the registration that produced it. Configured via `(rf/configure :dom-source-annotations? true)` (per [§Configure keys](#configure-keys)). Dev-only. Off by default.
+Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) and [Tool-Pair §Source-mapping](Tool-Pair.md), every substrate adapter whose host has a DOM-attribute concept MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in Spec 006 §Source-coord annotation. Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the same contract per [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
 
 ### Error contract
 
@@ -487,7 +487,7 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
-| `:dom-source-annotations?` | boolean — emit `data-rf2-source-coord` on rendered DOM | `false` | v1 (dev-only) | Tool-Pair |
+| `:dom-source-annotations?` | boolean — historical opt-in flag; superseded by mandatory injection per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1). Setting this false has no effect — the gate is `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via DCE | n/a (always-on under dev) | v1 (dev-only) | 006, Tool-Pair |
 | `:performance-api` | boolean — bridge trace events to the host's Performance API | `true` (when tracing is on) | planned (unimplemented at v1) | 009 |
 | `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
 | `:ssr` | `{:public-error-id :detect-mismatch? :on-mismatch :on-view-exception :dev-error-detail?}` (see [011](011-SSR.md) for each) | per [011](011-SSR.md) | v1 | 011 |
