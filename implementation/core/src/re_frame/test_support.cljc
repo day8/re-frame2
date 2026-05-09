@@ -258,6 +258,16 @@
          ;; in day8/re-frame-2-http.
          (when-let [clear-in-flight! (late-bind/get-fn :http/clear-all-in-flight!)]
            (clear-in-flight!))
+         ;; Late-bind: when the epoch artefact is loaded, drop the
+         ;; per-frame epoch ring buffer and any registered listeners
+         ;; so a previous test's recorded epochs / callbacks cannot
+         ;; survive into this one. When it isn't, the hooks return
+         ;; nil and these are no-ops (correct: there is no epoch state
+         ;; to clear). Per rf2-lt4e — epoch ships in day8/re-frame-2-epoch.
+         (when-let [clear-history! (late-bind/get-fn :epoch/clear-history!)]
+           (clear-history!))
+         (when-let [clear-epoch-cbs! (late-bind/get-fn :epoch/clear-epoch-cbs!)]
+           (clear-epoch-cbs!))
          (trace/clear-trace-cbs!)
          (when adapter
            (adapter/install-adapter! adapter)
