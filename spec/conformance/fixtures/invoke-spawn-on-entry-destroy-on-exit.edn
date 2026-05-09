@@ -5,26 +5,40 @@
 ;; exit) fx. Verify:
 ;;
 ;;   1. Entering the :invoke-bearing state emits a :spawn fx whose args carry
-;;      the user-declared :machine-id, :data, :on-spawn, and :start keys.
-;;   2. The :on-spawn callback fires with (data, spawned-id) and the parent's
-;;      :data is updated accordingly (here: :pending bound to the actor id).
-;;   3. Exiting the state emits a :destroy-machine fx targeting the recorded
-;;      child id (read out of the parent's :data via the key the :on-spawn
-;;      installed).
+;;      the user-declared :machine-id, :data, :on-spawn, and :start keys —
+;;      AND the runtime-supplied :rf/parent-id + :rf/invoke-id used by the
+;;      runtime spawn-registry slot at [:rf/spawned <parent-id> <invoke-id>]
+;;      (per rf2-t07u Option A revised — runtime tracks the spawn-id itself
+;;      so :on-spawn becomes purely advisory user-side bookkeeping).
+;;   2. The :on-spawn callback fires with (data, spawned-id). It is purely
+;;      advisory — users typically still record the id in :data so other
+;;      transitions can read it (here: under :pending) — but the runtime no
+;;      longer depends on this for the destroy-side resolution.
+;;   3. Exiting the state emits a :destroy-machine fx whose args carry
+;;      :rf/parent-id + :rf/invoke-id (NOT the actor id directly). The fx
+;;      handler reads [:rf/spawned <parent-id> <invoke-id>] from the
+;;      frame's app-db at call time and tears down whatever spawned id is
+;;      currently bound there.
 ;;
 ;; Per [005 §Declarative :invoke (sugar over spawn)]
-;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn).
+;; (../../005-StateMachines.md#declarative-invoke-sugar-over-spawn) and
+;; rf2-t07u (Option A revised; "Spawn-id tracking moved from :data :pending
+;; to runtime-owned [:rf/spawned ...]").
 ;;
 ;; The fixture exercises the desugared shape directly via :machine-transition
 ;; calls — the :spawn / :destroy-machine fx the runtime emits are observable
 ;; at the same level as any other fx. Hosts whose harness can simulate the
 ;; :spawn fx (assigning a deterministic id) can verify (3) by chaining a
-;; second call with the recorded id; hosts that don't simulate spawn validate
-;; (1) and (2) only and report (3) as not-exercised.
+;; second call; hosts that don't simulate spawn validate (1) and (2) only
+;; and report (3) as not-exercised.
 ;;
 ;; The :on-spawn callback is supplied as a registered :machine-action body so
 ;; the host's handler-body DSL can drive it as data — it follows the same
 ;; convention as inline actions elsewhere in the corpus.
+;;
+;; Pure-call machine-transition (the conformance harness's runner) carries
+;; no parent registration, so :rf/parent-id is the sentinel
+;; :rf/transition-pure (matches the spawn-counter sentinel).
 
 {:fixture/id           :machine/invoke-spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"
@@ -74,7 +88,9 @@
                                                    :body {:user "alice" :pass "secret"}}
                                    :on-spawn      :auth/record-actor
                                    :start         [:begin]
-                                   :rf/spawned-id :http/post#1}]]}
+                                   :rf/spawned-id :http/post#1
+                                   :rf/parent-id  :rf/transition-pure
+                                   :rf/invoke-id  [:authenticating]}]]}
 
   ;; ---- (3) Exiting :authenticating: destroy fx is emitted with the
   ;;          recorded child id from the parent's :data.
@@ -102,7 +118,12 @@
                   :data  {:pending :http/post#1}}
    :event        [:auth/failed]
    :expect-next-snapshot {:state :idle :data {:pending :http/post#1}}
-   :expect-effects       [[:destroy-machine :http/post#1]]}]
+   ;; Per rf2-t07u (Option A revised): destroy fx no longer carries the
+   ;; actor-id directly. The fx handler reads [:rf/spawned <parent-id>
+   ;; <invoke-id>] from the frame's app-db at call time and tears down
+   ;; whatever spawned id is currently bound there.
+   :expect-effects       [[:destroy-machine {:rf/parent-id :rf/transition-pure
+                                             :rf/invoke-id [:authenticating]}]]}]
 
  :fixture/handlers
  {:machine-action
