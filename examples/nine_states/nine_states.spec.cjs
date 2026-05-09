@@ -10,7 +10,7 @@
  * - Click "9. Archive (Done)": archived state, control buttons disabled.
  */
 
-const { expectTextContains, expectAttribute } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectTextContains, expectAttribute } = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'nine-states',

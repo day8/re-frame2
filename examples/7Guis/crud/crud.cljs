@@ -1,4 +1,4 @@
-(ns seven-guis.crud
+(ns crud.crud
   "7GUIs #5 — CRUD.
 
    A name list with a prefix filter, two text inputs (surname / name), and

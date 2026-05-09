@@ -25,7 +25,7 @@
  *   - The canned-stub fx-id resolves under Reagent the same as on the JVM.
  */
 
-const { expectTextEquals, expectVisible } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectTextEquals, expectVisible } = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'managed-http-counter',

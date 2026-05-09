@@ -1,4 +1,4 @@
-(ns seven-guis.circle-drawer
+(ns circle-drawer.circle-drawer
   "7GUIs #6 — Circle Drawer.
 
    A canvas. Click to add a circle at the click position with a default

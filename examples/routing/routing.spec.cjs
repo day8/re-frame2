@@ -17,7 +17,7 @@
  * even though the URLs would 404 on a refresh.
  */
 
-const { expectTextContains } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectTextContains } = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'routing',

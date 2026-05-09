@@ -17,7 +17,7 @@
  *   - On success the banner switches to "Welcome!".
  */
 
-const { expectVisible, expectTextContains } = require('../../implementation/scripts/spec-helpers.cjs');
+const { expectVisible, expectTextContains } = require('../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'login (state-machine demo)',

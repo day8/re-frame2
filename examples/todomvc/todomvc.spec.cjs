@@ -17,7 +17,7 @@ const {
   expectInputValue,
   expectTextContains,
   expectTextEquals,
-} = require('../../implementation/scripts/spec-helpers.cjs');
+} = require('../scripts/spec-helpers.cjs');
 
 async function expectCount(locator, expected, timeoutMs = 5000) {
   const start = Date.now();

@@ -1,4 +1,4 @@
-(ns seven-guis.cells
+(ns cells.cells
   "7GUIs #7 — Cells.
 
    A small spreadsheet with cells A1..Z99. Each cell holds either a literal
