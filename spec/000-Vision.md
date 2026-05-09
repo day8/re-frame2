@@ -566,6 +566,8 @@ This summary captures the small set of clauses that introduce checkable obligati
 >
 > - **C-000.27** (MUST). The CLJS reference's `core` artefact MUST NOT transitively `:require` any per-feature or per-substrate namespace. Bundle isolation MUST be structural (absent from the classpath), not a property dependent on dead-code elimination.
 >
+> - **C-000.35** (MUST). Production elision of dev-time instrumentation (trace, schema/type validation) MUST NOT alter the value of a frame's state nor the order or identity of dispatched events. Elision is a build-time substitution, not a behavioural change. Grounded by [Spec 009](009-Instrumentation.md)'s strict-elision contract — production builds contain zero trace and zero validation code, so the recovery dispositions in [009 §Default behaviour by category](009-Instrumentation.md#default-behaviour-by-category) apply only in dev.
+>
 > - **C-000.45** (MUST). Runtime data shapes that flow on the wire — dispatch envelopes, effect maps, registration metadata, trace events, hydration payloads — MUST be open: producers MAY add new keys, and consumers MUST tolerate unknown keys (ignore-or-pass-through; a consumer that destructures and rejects on unknown keys is non-conformant).
 >
 > - **C-000.49** (MUST). At the pattern level, every view call MUST be addressable to a specific frame at the call site (frame as parameter or property). React-context-driven view injection is a CLJS-reference-specific optimisation and MUST NOT be required of any other host implementation.

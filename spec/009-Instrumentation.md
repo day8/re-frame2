@@ -793,6 +793,8 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 
 #### Default behaviour by category
 
+(Every recovery in this table applies in dev only — trace emission and schema/type validation are both production-elided per the lead claim above, so production builds never reach these recovery paths. See [Spec 000 §Contract C-000.35](000-Vision.md) for the production-elision-equivalence clause this section grounds.)
+
 | Category | Default `:recovery` | Notes |
 |---|---|---|
 | `:rf.error/handler-exception` | `:no-recovery` | The exception propagates; the cascade halts. |
@@ -800,7 +802,7 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.error/fx-handler-exception` | `:no-recovery` | The fx is skipped; cascade continues if other fx independent. |
 | `:rf.error/sub-exception` | `:replaced-with-default` | The sub returns `nil`; views see no value. |
 | `:rf.error/no-such-sub` | `:replaced-with-default` | The unresolved input is substituted with `nil`; the sub's body still runs. Strict mode (`:strict-subs` config) escalates to a thrown exception. |
-| `:rf.error/schema-validation-failure` | `:no-recovery` (dev) / `:replaced-with-default` (prod) | Dev: hard-fail to surface bugs early. Prod: log and proceed with the offending value (validation at boundaries should already have rejected it). |
+| `:rf.error/schema-validation-failure` | `:no-recovery` | Hard-fail to surface bugs early. Production builds elide the validation entirely (per the lead claim — see C-000.35), so this row applies only in dev. |
 | `:rf.error/drain-depth-exceeded` | `:no-recovery` | Always indicates a bug; halt the cascade. |
 | `:rf.error/no-such-handler` | `:replaced-with-default` | No-op; emit the trace. |
 | `:rf.error/dispatch-sync-in-handler` | `:no-recovery` | The call is rejected. Use `:fx [[:dispatch event]]` in the effect map. |
