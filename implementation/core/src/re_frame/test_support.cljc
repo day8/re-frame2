@@ -41,8 +41,9 @@
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
   - [[reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
-    per-process state held by frames / flows / adapter / machine
-    counters / trace listeners.
+    per-process state held by frames / flows (when the flows artefact
+    is loaded, rf2-tfw3) / adapter / machine counters / trace
+    listeners.
 
   ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5)
   - [[dispatch-sequence]] — fire a vector of events synchronously,
@@ -54,7 +55,13 @@
     wrapper; included for mechanical migration of v1 test code."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
+            ;; re-frame.flows (Spec 013) ships as a separate artefact
+            ;; (day8/re-frame-2-flows, rf2-tfw3). The reset fixture
+            ;; touches the per-frame flows registry and the dirty-check
+            ;; `last-inputs` map through the late-bind hook table —
+            ;; when the flows artefact is not on the classpath the
+            ;; lookups return nil and the flow reset steps no-op
+            ;; (correct: there is no flow state to preserve).
             ;; re-frame.machines (Spec 005) ships as a separate artefact
             ;; (day8/re-frame-2-machines, rf2-xbtj) — the reset fixture
             ;; touches the machines spawn-counter through the late-bind
@@ -135,8 +142,10 @@
     1. Captures the current registrar (so user-test registrations can be
        rolled back without losing ns-load-time framework / example
        registrations).
-    2. Resets `frame/frames`, `flows/flows`, and `schemas/schemas-by-frame`
-       to `{}`.
+    2. Resets `frame/frames` to `{}`, plus `flows/flows` and
+       `schemas/schemas-by-frame` (when those artefacts are loaded —
+       reset is late-bound so JVM tests that don't pull them in are
+       unaffected).
     3. Disposes the currently-installed substrate adapter.
     4. Resets the machines spawn-counter.
     5. Clears trace listeners.
@@ -151,8 +160,8 @@
        the classpath; see steps 4 and the late-bind block above.)
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
-   10. Resets `frame/frames`, `flows/flows`, and
-       `schemas/schemas-by-frame` back to `{}` for symmetry.
+   10. Resets `frame/frames` back to `{}` for symmetry, and (when their
+       artefacts are loaded) `flows/flows` and `schemas/schemas-by-frame`.
 
   Steps 9–10 run in a `finally` block so they fire even on test
   exceptions.
@@ -207,7 +216,16 @@
            schemas-snap  (when snapshot-fn (snapshot-fn))]
        (try
          (reset! frame/frames {})
-         (reset! flows/flows {})
+         ;; Late-bind: when the flows artefact is loaded, clear the
+         ;; per-frame flow registry and the dirty-check `last-inputs`
+         ;; map. When it isn't, the hooks return nil and the flow
+         ;; reset steps no-op (correct: there is no flow state to
+         ;; reset). Per rf2-tfw3 — flows ships in
+         ;; day8/re-frame-2-flows.
+         (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
+           (reset-flows!))
+         (when-let [reset-li! (late-bind/get-fn :flows/reset-last-inputs!)]
+           (reset-li!))
          (when clear-fn (clear-fn))
          (adapter/dispose-adapter!)
          ;; Late-bind: when the machines artefact is loaded, reset the
@@ -241,7 +259,8 @@
            (restore-registrar! snap)
            (when restore-fn (restore-fn schemas-snap))
            (reset! frame/frames {})
-           (reset! flows/flows {})))))))
+           (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
+             (reset-flows!))))))))
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;

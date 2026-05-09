@@ -9,7 +9,19 @@
   Flows are deliberately a NICHE convenience — not a sub replacement,
   not a new dataflow paradigm. Use a sub if the value is consumed by
   views; use a flow only if it must live in app-db for SSR / time-travel
-  / inspector reasons."
+  / inspector reasons.
+
+  ## Artefact (rf2-tfw3, fourth per-feature split per rf2-5vjj Strategy B)
+
+  This namespace ships in `day8/re-frame-2-flows`, separate from the
+  core artefact (`day8/re-frame-2`). The core artefact's `re-frame.core`
+  re-exports of `reg-flow` / `clear-flow`, and the `:rf.fx/reg-flow` /
+  `:rf.fx/clear-flow` runtime fxs in `re-frame.fx`, look this
+  namespace's entry points up via the `re-frame.late-bind` hook table —
+  loading this namespace publishes the hooks. Apps that don't register
+  any flows don't drag the per-frame flow registry, the topological-
+  sort engine, the dirty-check `last-inputs` map, or the post-drain
+  `run-flows!` walker onto the classpath."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
@@ -253,12 +265,43 @@
                   [new-db dirty?] (evaluate-flow! frame-id db flow)]
               (recur (rest remaining) new-db (or any-dirty? dirty?)))))))))
 
+;; ---- last-inputs reset (test-fixture support) ----------------------------
+
+(defn reset-last-inputs!
+  "Test-only: clear the dirty-check `last-inputs` map. The flows
+  reset-runtime fixture uses this to drop stale per-flow state between
+  tests so re-registration does not silently no-op when new-inputs
+  =-equal a stale entry from a sibling test. Per rf2-tfw3 (the fourth
+  per-feature split): this is published through the late-bind hook
+  table so `re-frame.test-support`'s reset-runtime fixture can call it
+  without statically requiring `re-frame.flows`."
+  []
+  (reset! last-inputs {})
+  nil)
+
+(defn reset-flows!
+  "Test-only: clear the per-frame flow registry. Pairs with
+  `reset-last-inputs!` for the test-fixture reset bracket. Per
+  rf2-tfw3 — exposed via the late-bind hook table so
+  `re-frame.test-support` can reset state without a static require on
+  this namespace."
+  []
+  (reset! flows {})
+  nil)
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; re-frame.fx and re-frame.router need to call into flows but cannot
-;; `:require` this namespace without a cyclic load order. Publish entry
-;; points through the late-bind hook registry. See re-frame.late-bind.
+;; re-frame.core, re-frame.fx, re-frame.router and re-frame.test-support
+;; need to call into flows but per rf2-tfw3 ship in the core artefact
+;; — they cannot `:require` this namespace because the flows artefact
+;; is optional (apps that don't register flows don't carry it). Publish
+;; entry points through the late-bind hook registry; consumers look the
+;; fns up at call time. See re-frame.late-bind.
 
-(late-bind/set-fn! :flows/reg-flow-fx!    reg-flow-fx!)
-(late-bind/set-fn! :flows/clear-flow-fx!  clear-flow-fx!)
-(late-bind/set-fn! :flows/run-flows!      run-flows!)
+(late-bind/set-fn! :flows/reg-flow         reg-flow)
+(late-bind/set-fn! :flows/clear-flow       clear-flow)
+(late-bind/set-fn! :flows/reg-flow-fx!     reg-flow-fx!)
+(late-bind/set-fn! :flows/clear-flow-fx!   clear-flow-fx!)
+(late-bind/set-fn! :flows/run-flows!       run-flows!)
+(late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
+(late-bind/set-fn! :flows/reset-flows!     reset-flows!)
