@@ -23,6 +23,7 @@
   stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit)."
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
+            [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
@@ -478,16 +479,30 @@
     ;; level didn't already host an active timer (i.e. nodes BELOW the LCA
     ;; on the entry side). This skips sibling-leaf transitions that didn't
     ;; cross the :after-bearing parent.
+    ;;
+    ;; Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR),
+    ;; :after is a no-op under :platform :server: the timer is not scheduled
+    ;; and the synthetic timer-elapsed event is never queued. Emit
+    ;; :rf.machine.timer/skipped-on-server in place of :scheduled so observers
+    ;; see the gate fired.
     (when-not internal?
-      (doseq [n entered-nodes]
-        (when-let [after-map (:after n)]
-          (let [epoch      (get-in snap-final [:data :rf/after-epoch])
-                ;; Find the state-id whose node IS n.
-                leaf-state (some (fn [[p node]] (when (= node n) (last p)))
-                                 (nodes-along-path machine target-leaf))]
-            (doseq [[delay _target] after-map]
-              (trace/emit! :machine :rf.machine.timer/scheduled
-                           {:state leaf-state :delay delay :epoch epoch}))))))
+      (let [server? (= :server (:rf/platform machine))]
+        (doseq [n entered-nodes]
+          (when-let [after-map (:after n)]
+            (let [epoch      (get-in snap-final [:data :rf/after-epoch])
+                  ;; Find the state-id whose node IS n.
+                  leaf-state (some (fn [[p node]] (when (= node n) (last p)))
+                                   (nodes-along-path machine target-leaf))]
+              (doseq [[delay _target] after-map]
+                (if server?
+                  (trace/emit! :machine :rf.machine.timer/skipped-on-server
+                               {:state    leaf-state
+                                :delay    delay
+                                :epoch    epoch
+                                :platform :server
+                                :recovery :skipped})
+                  (trace/emit! :machine :rf.machine.timer/scheduled
+                               {:state leaf-state :delay delay :epoch epoch}))))))))
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn): nodes being
     ;; EXITED with :invoke emit :destroy-machine (reading the recorded
     ;; actor id from :data.:pending — the conventional slot the user's
@@ -762,7 +777,15 @@
                           :frame      (or frame :rf/default)})
           ;; Stamp the live frame onto the machine def so spawn-id
           ;; allocation (frame-scoped per Spec 002) gets the right key.
-          machine    (assoc machine :rf/frame (or frame :rf/default))
+          ;; Also stamp :rf/platform — read from the frame's :config so
+          ;; :after timer scheduling can gate on :server (per Spec 005
+          ;; §SSR mode and Cross-Spec-Interactions §4).
+          frame-id   (or frame :rf/default)
+          platform   (or (get-in (frame/frame-meta frame-id) [:config :platform])
+                         :client)
+          machine    (assoc machine
+                            :rf/frame    frame-id
+                            :rf/platform platform)
           path       (snapshot-path machine-id)
           ;; Per Spec 005 §Initial-state cascading: when the snapshot is
           ;; first synthesised, descend the declared :initial through any
