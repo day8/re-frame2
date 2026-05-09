@@ -880,17 +880,33 @@
           {:db new-db
            :fx fx})))))
 
-;; ---- reg-machine convenience ----------------------------------------------
+;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 
-(defn reg-machine
-  "Convenience: register a machine as an event handler under
-  machine-id. Equivalent to
-  (reg-event-fx machine-id (create-machine-handler machine)).
+(defn reg-machine*
+  "Plain-fn surface beneath the `reg-machine` macro. Registers a machine
+  as an event handler under `machine-id`. Equivalent to
+  `(reg-event-fx machine-id (create-machine-handler machine))`.
+
+  Per Spec 005 §reg-machine vs reg-machine*: the macro `reg-machine`
+  walks the literal spec form at expansion time and stamps per-element
+  source coordinates onto the spec's `:rf.machine/source-coords` key.
+  This fn assumes no such walking — it accepts whatever spec map the
+  caller has already constructed (which may or may not carry an
+  `:rf.machine/source-coords` index pre-stamped by the macro path or
+  by a code-gen pipeline). Use this fn for runtime registration with
+  computed ids, fixture-synthesised specs, or REPL workflows.
 
   Per Spec 005 §Querying machines, the registration metadata is stamped
   with :rf/machine? true and :rf/machine (the spec map). (rf/machines)
   filters the :event registry by :rf/machine?; (rf/machine-meta id)
-  reads the spec back out via the standard registrar query API."
+  reads the spec back out via the standard registrar query API.
+
+  Per Spec 001 §Source-coordinate capture, the call-site `:ns` /
+  `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`
+  (set by the `reg-machine` macro) is merged into the registration
+  metadata via the `reg-event-fx` defn's `merge-coords` call. Programmatic
+  callers that bypass the macro see no top-level coords — that's the
+  documented Spec 001 behaviour for programmatic registration."
   [machine-id machine]
   (let [handler-fn (create-machine-handler machine)]
     (events/reg-event-fx machine-id
@@ -1181,13 +1197,20 @@
 ;; drag the namespace's `:rf/machine` sub registration (and the spawn
 ;; counter, the `:spawn` / `:destroy-machine` fx handlers, the
 ;; transition machinery) onto the classpath. The public-API re-exports
-;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
+;; (`reg-machine*`, `create-machine-handler`, `machine-transition`,
 ;; `machines`, `machine-meta`) and the test-support reset helper are
 ;; published through the late-bind table; consumers without the
 ;; machines artefact see the hooks unregistered and the surface
 ;; throws / returns safe defaults cleanly.
+;;
+;; Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3): the late-bind
+;; hook key is `:machines/reg-machine` (the legacy slot name) and points
+;; at `reg-machine*` — the plain-fn surface. The `reg-machine` macro at
+;; the `re-frame.core` boundary is import-time-only (CLJS macroexpansion
+;; runs before ns-load); the runtime always reaches through this hook to
+;; the plain-fn surface.
 
-(late-bind/set-fn! :machines/reg-machine            reg-machine)
+(late-bind/set-fn! :machines/reg-machine            reg-machine*)
 (late-bind/set-fn! :machines/create-machine-handler create-machine-handler)
 (late-bind/set-fn! :machines/machine-transition     machine-transition)
 (late-bind/set-fn! :machines/machines               machines)
