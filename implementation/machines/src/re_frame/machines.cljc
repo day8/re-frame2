@@ -475,14 +475,25 @@
         ;; either being scheduled, or being invalidated). Sibling-leaf
         ;; transitions that don't cross an :after-bearing state leave the
         ;; epoch alone. Internal transitions never advance.
-        exited-nodes  (when-not internal?
+        ;;
+        ;; Per rf2-t07u (Option A revised) — drop the `:data :pending` magic
+        ;; for :invoke spawn-id tracking. The runtime carries `[prefix-path
+        ;; node]` pairs through here so spawn / destroy fx emissions can
+        ;; identify each :invoke-bearing state by its absolute prefix-path
+        ;; (the per-state "invoke-id") and write/read the runtime-owned
+        ;; [:rf/spawned <parent-id> <prefix-path>] slot. The destructured
+        ;; -nodes vectors below preserve the legacy bare-node shape for the
+        ;; :after epoch / scheduling bookkeeping that doesn't need paths.
+        exited-pairs  (when-not internal?
                         (->> (nodes-along-path machine src-path)
                              (drop lca-len)
-                             (map (fn [[_ n]] n))))
-        entered-nodes (when-not internal?
+                             (vec)))
+        entered-pairs (when-not internal?
                         (->> (nodes-along-path machine target-leaf)
                              (drop lca-len)
-                             (map (fn [[_ n]] n))))
+                             (vec)))
+        exited-nodes  (mapv second exited-pairs)
+        entered-nodes (mapv second entered-pairs)
         epoch-bumps?  (and (not internal?)
                            (boolean
                              (some :after (concat exited-nodes entered-nodes))))
@@ -533,29 +544,40 @@
                                 :recovery :skipped})
                   (trace/emit! :machine :rf.machine.timer/scheduled
                                {:state leaf-state :delay delay :epoch epoch}))))))))
-    ;; Per Spec 005 §Declarative :invoke (sugar over spawn): nodes being
-    ;; EXITED with :invoke emit :destroy-machine (reading the recorded
-    ;; actor id from :data.:pending — the conventional slot the user's
-    ;; :on-spawn writes); nodes being ENTERED with :invoke emit :spawn,
-    ;; allocate a deterministic actor id, and run :on-spawn to give the
-    ;; user a chance to record the id in :data.
-    (let [destroy-fx
+    ;; Per Spec 005 §Declarative :invoke (sugar over spawn) and rf2-t07u
+    ;; (Option A revised): nodes being EXITED with :invoke emit
+    ;; :destroy-machine carrying `{:rf/parent-id ... :rf/invoke-id ...}` so
+    ;; the destroy-machine fx handler resolves the live actor id from the
+    ;; runtime-owned [:rf/spawned <parent-id> <invoke-id>] slot in app-db
+    ;; (no longer reads `:data.:pending`); nodes being ENTERED with :invoke
+    ;; emit :spawn carrying the same `{:rf/parent-id :rf/invoke-id}` keys
+    ;; and run the user's :on-spawn callback (now purely advisory — the
+    ;; runtime tracks the spawn-id itself).
+    ;;
+    ;; The "invoke-id" is the absolute prefix-path of the :invoke-bearing
+    ;; state node — that disambiguates two states named e.g. `:loading` in
+    ;; different parents. The "parent-id" is the surrounding registration's
+    ;; event-id (machine-id), stamped onto the machine map by the handler
+    ;; boundary as `:rf/parent-id`. Pure machine-transition calls (which
+    ;; don't have a parent registration) carry a sentinel.
+    (let [parent-id   (or (:rf/parent-id machine) :rf/transition-pure)
+          destroy-fx
           (when-not internal?
             (vec
               (mapcat
-                (fn [n]
-                  (when-let [_inv (:invoke n)]
-                    (let [actor-id (get-in snapshot [:data :pending])]
-                      (when actor-id
-                        [[:destroy-machine actor-id]]))))
-                exited-nodes)))
+                (fn [[prefix n]]
+                  (when (:invoke n)
+                    [[:destroy-machine {:rf/parent-id parent-id
+                                        :rf/invoke-id (vec prefix)}]]))
+                exited-pairs)))
           [snap-after-spawns spawn-fx]
           (if internal?
             [snap-final []]
             (reduce
-              (fn [[s acc-fx] n]
+              (fn [[s acc-fx] [prefix n]]
                 (if-let [inv (:invoke n)]
                   (let [machine-id  (:machine-id inv)
+                        invoke-id   (vec prefix)
                         ;; Frame-scoped allocation per Spec 002 frame isolation.
                         ;; Pure-call machine-transition (no frame context) uses
                         ;; a sentinel so the corpus's deterministic ids hold.
@@ -564,10 +586,14 @@
                                         (next-spawn-id frame-id machine-id))
                         ;; Carry the resolved id forward so spawn-fx registers
                         ;; the live handler under the SAME id the :on-spawn
-                        ;; callback observed (rf2-suue lifecycle wiring).
+                        ;; callback observed (rf2-suue lifecycle wiring) AND
+                        ;; the runtime can write [:rf/spawned parent-id
+                        ;; invoke-id] -> spawned-id (rf2-t07u).
                         spawn-args  (-> inv
-                                        (assoc :id-prefix machine-id)
-                                        (assoc :rf/spawned-id spawned-id))
+                                        (assoc :id-prefix    machine-id)
+                                        (assoc :rf/spawned-id spawned-id)
+                                        (assoc :rf/parent-id  parent-id)
+                                        (assoc :rf/invoke-id  invoke-id))
                         on-spawn-fn (let [aref (:on-spawn inv)]
                                       (when aref
                                         (or (chase-ref (:on-spawn-actions machine) aref)
@@ -578,6 +604,11 @@
                         ;; (not the snapshot wrapper), uniform with regular actions
                         ;; whose canonical contract is (fn [data event] effects).
                         ;; The runtime patches the returned data back into the snapshot.
+                        ;; Per rf2-t07u (Option A revised): :on-spawn is now purely
+                        ;; advisory user-side bookkeeping — the runtime no longer
+                        ;; depends on the user writing the id under any specific
+                        ;; :data slot. Runtime tracks the spawn-id itself in
+                        ;; [:rf/spawned parent-id invoke-id].
                         s'          (if on-spawn-fn
                                       (let [data     (:data s)
                                             new-data (on-spawn-fn data spawned-id)]
@@ -588,7 +619,7 @@
                     [s' (conj acc-fx [:spawn spawn-args])])
                   [s acc-fx]))
               [snap-final []]
-              entered-nodes))
+              entered-pairs))
           all-fx (vec (concat fx (or destroy-fx []) spawn-fx))]
       [snap-after-spawns all-fx])))))
 
@@ -820,8 +851,17 @@
           platform   (or (get-in (frame/frame-meta frame-id) [:config :platform])
                          :client)
           machine    (assoc machine
-                            :rf/frame    frame-id
-                            :rf/platform platform)
+                            :rf/frame     frame-id
+                            :rf/platform  platform
+                            ;; Per rf2-t07u (Option A revised): stamp the
+                            ;; surrounding registration's event-id (the
+                            ;; machine-id, derived from event[0]) so
+                            ;; apply-transition-once can emit :spawn /
+                            ;; :destroy-machine fx whose args carry
+                            ;; :rf/parent-id (used by the fx handlers to
+                            ;; address the runtime-owned [:rf/spawned
+                            ;; <parent-id> <invoke-id>] registry slot).
+                            :rf/parent-id machine-id)
           path       (snapshot-path machine-id)
           ;; Per Spec 005 §Initial-state cascading: when the snapshot is
           ;; first synthesised, descend the declared :initial through any
@@ -1100,7 +1140,12 @@
       [:rf/system-ids] reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins, same
       semantics as handler re-registration).
-   5. If `:start` event-vector present, dispatch
+   5. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:invoke`
+      desugar — rf2-t07u Option A revised), bind the spawned id at
+      `[:rf/spawned <parent-id> <invoke-id>]` so the runtime can locate
+      it on destroy without depending on the user's `:on-spawn` having
+      written the id under any particular `:data` slot.
+   6. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]` so the new actor receives its initial
       event."
   [{:keys [frame]} args]
@@ -1111,7 +1156,16 @@
         spec'      (if (and spec (contains? args :data))
                      (assoc spec :data (:data args))
                      spec)
-        system-id  (:system-id args)]
+        system-id  (:system-id args)
+        ;; Per rf2-t07u (Option A revised): the runtime tracks each
+        ;; declarative-:invoke spawn at [:rf/spawned <parent-id> <invoke-id>]
+        ;; — populated only when the spawn carries both. Imperative
+        ;; from-action `[:spawn ...]` calls leave these absent and the slot
+        ;; is left untouched (the user owns destroy via hand-emitted
+        ;; `[:destroy-machine actor-id]` in those cases, exactly as before).
+        parent-id  (:rf/parent-id args)
+        invoke-id  (:rf/invoke-id args)
+        track?     (and parent-id invoke-id)]
     (trace/emit! :machine :rf.machine/spawned
                  {:frame      frame-id
                   :machine-id (:machine-id args)
@@ -1119,7 +1173,9 @@
                   :id-prefix  (:id-prefix args)
                   :start      (:start args)
                   :on-spawn   (:on-spawn args)
-                  :system-id  system-id})
+                  :system-id  system-id
+                  :parent-id  parent-id
+                  :invoke-id  invoke-id})
     (when spec'
       ;; (2) Register the live handler under the spawned id. Re-using
       ;; reg-machine* (the plain-fn surface beneath the macro, per
@@ -1128,8 +1184,9 @@
       ;; literal-spec source-coord stamping; spawn synthesises specs
       ;; at runtime, so the plain-fn surface is the right entry.
       (reg-machine* spawned-id spec'))
-    ;; (3) Initialise the snapshot + (4) bind :system-id (atomically
-    ;; under one app-db swap so observers see consistent state).
+    ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
+    ;; runtime-owned spawn registry (atomically under one app-db swap so
+    ;; observers see consistent state).
     (when-let [container (frame/get-frame-db frame-id)]
       (let [initial-decl  (:initial spec')
             initial-path  (when spec'
@@ -1147,7 +1204,8 @@
             new-db
             (cond-> old-db
               spec'      (assoc-in [:rf/machines spawned-id] initial-snap)
-              system-id  (assoc-in [:rf/system-ids system-id] spawned-id))]
+              system-id  (assoc-in [:rf/system-ids system-id] spawned-id)
+              track?     (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))]
         (when (and system-id existing (not= existing spawned-id))
           (trace/emit-error! :rf.error/system-id-collision
                              {:frame             frame-id
@@ -1178,37 +1236,78 @@
   `[:rf/machines <id>]` in the spawning frame's app-db, and (if the
   actor was system-id-bound) clears the `[:rf/system-ids]` reverse
   index entry. Emits `:rf.machine/destroyed` and (when applicable)
-  `:rf.machine/system-id-released`."
+  `:rf.machine/system-id-released`.
+
+  Per rf2-t07u (Option A revised), `args` can be either:
+    - a keyword `actor-id` — the legacy / imperative form (action emits
+      `[:destroy-machine actor-id]` directly with the recorded id), OR
+    - a map `{:rf/parent-id ... :rf/invoke-id ...}` — the declarative-
+      `:invoke` exit-cascade form, where the runtime resolves the actor
+      id from `[:rf/spawned <parent-id> <invoke-id>]` in the frame's
+      app-db (no longer reads the user's `:data.:pending`).
+
+  The map form clears the `[:rf/spawned <parent-id> <invoke-id>]` slot
+  alongside the snapshot + system-id bookkeeping; the keyword form
+  leaves it untouched (the imperative spawn never wrote it)."
   [{:keys [frame]} args]
   (let [frame-id  (or frame :rf/default)
-        actor-id  args
+        tracked?  (map? args)
+        parent-id (when tracked? (:rf/parent-id args))
+        invoke-id (when tracked? (:rf/invoke-id args))
+        ;; Resolve the actor id. For the tracked (map) form, read it
+        ;; from the runtime-owned [:rf/spawned ...] slot. For the
+        ;; legacy (keyword) form, the args IS the id.
+        actor-id
+        (cond
+          (not tracked?) args
+          :else (when-let [container (frame/get-frame-db frame-id)]
+                  (get-in (adapter/read-container container)
+                          [:rf/spawned parent-id invoke-id])))
         ;; Locate any :system-id binding for this actor BEFORE the swap
         ;; so we can name the released system-id in the trace.
         released-sid
-        (when-let [container (frame/get-frame-db frame-id)]
-          (let [db (adapter/read-container container)]
+        (when (and actor-id (frame/get-frame-db frame-id))
+          (let [db (adapter/read-container (frame/get-frame-db frame-id))]
             (some (fn [[sid mid]]
                     (when (= mid actor-id) sid))
                   (get db :rf/system-ids))))]
     (trace/emit! :machine :rf.machine/destroyed
                  {:frame      frame-id
                   :actor-id   actor-id
-                  :system-id  released-sid})
-    ;; Clear snapshot + system-id binding.
-    (when-let [container (frame/get-frame-db frame-id)]
-      (let [old-db (adapter/read-container container)
-            new-db (cond-> old-db
-                     true          (update :rf/machines dissoc actor-id)
-                     released-sid  (update :rf/system-ids dissoc released-sid))]
-        (adapter/replace-container! container new-db)))
-    (when released-sid
-      (trace/emit! :machine :rf.machine/system-id-released
-                   {:frame      frame-id
-                    :system-id  released-sid
-                    :machine-id actor-id}))
-    ;; Unregister the live handler. Last so any in-flight trace emit
-    ;; against the actor still resolves before the slot disappears.
-    (registrar/unregister! :event actor-id)
+                  :system-id  released-sid
+                  :parent-id  parent-id
+                  :invoke-id  invoke-id})
+    ;; Tracked-form destroy with no resolved actor-id is a benign no-op:
+    ;; the spawn slot was already cleared (e.g. by an earlier explicit
+    ;; destroy) or the spawn was suppressed (SSR / platform gating).
+    (when actor-id
+      ;; Clear snapshot + system-id binding + (rf2-t07u) the spawn registry
+      ;; slot, atomically under one app-db swap.
+      (when-let [container (frame/get-frame-db frame-id)]
+        (let [old-db (adapter/read-container container)
+              new-db (cond-> old-db
+                       true          (update :rf/machines dissoc actor-id)
+                       released-sid  (update :rf/system-ids dissoc released-sid)
+                       tracked?      (update-in [:rf/spawned parent-id]
+                                                dissoc invoke-id))
+              ;; Tidy up the per-parent map if it just emptied — same
+              ;; lazy-allocation invariant as :rf/system-ids.
+              new-db (cond-> new-db
+                       (and tracked?
+                            (empty? (get-in new-db [:rf/spawned parent-id])))
+                       (update :rf/spawned dissoc parent-id))
+              new-db (cond-> new-db
+                       (and tracked? (empty? (get new-db :rf/spawned)))
+                       (dissoc :rf/spawned))]
+          (adapter/replace-container! container new-db)))
+      (when released-sid
+        (trace/emit! :machine :rf.machine/system-id-released
+                     {:frame      frame-id
+                      :system-id  released-sid
+                      :machine-id actor-id}))
+      ;; Unregister the live handler. Last so any in-flight trace emit
+      ;; against the actor still resolves before the slot disappears.
+      (registrar/unregister! :event actor-id))
     nil))
 
 ;; ---- query API for system-id (Spec 005 §Named addressing via :system-id) -
