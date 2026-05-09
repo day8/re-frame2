@@ -86,9 +86,9 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 
 - **Specs:** [012-Routing §Route-not-found](012-Routing.md), [011-SSR §Server error projection](011-SSR.md).
 - **Scenario:** A request URL matches no registered route on the server.
-- **Behaviour:** The standard route-not-found path runs (per [012](012-Routing.md)), populating `app-db` with the not-found marker. The HTTP response status is 404 (the response status is part of the request-frame's effect map, settled before render). The error projector ([009 §Error contract](009-Instrumentation.md#error-contract)) does **not** fire — route-not-found is normal control flow, not an error.
-- **Reason:** Some 404s are signal (typo URL); some are intentional (privacy, link-rot probing). Treating all as errors would noise the trace stream. The HTTP status conveys the response semantics; the trace surface stays signal-only.
-- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-route-not-found-ssr-status.edn`](conformance/fixtures/cross-spec-route-not-found-ssr-status.edn). Note: the fixture pins the runtime-observable behaviour, which differs slightly from the prose above (the default error projector DOES fire — that's how the response gets its 404 status). Cross-spec doc reconciliation is tracked under bead rf2-bhhu's follow-up.
+- **Behaviour:** The standard route-not-found path runs (per [012](012-Routing.md)), populating `app-db` with the `:rf.route/not-found` marker; the not-found route's `:on-match` events fire just like any other route. The runtime emits `:rf.error/no-such-handler` (the routing match-failure trace) and the default error projector ([009 §Error contract](009-Instrumentation.md#error-contract)) maps it to a locked `{:status 404 :code :not-found ...}` public-error, stamping `:status 404` onto the per-request response accumulator. The HTTP response status conveys the response semantics; the trace surface carries the structured error.
+- **Reason:** The projector firing IS the wire-level signal that produces the 404 — bypassing it would mean every host re-implements the not-found-→-404 mapping. Routing match-failure surfaces as an error category so projector policy is a single seam: hosts that want a different not-found shape (custom JSON, signed URL, etc.) override the projector once instead of forking the routing layer.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-route-not-found-ssr-status.edn`](conformance/fixtures/cross-spec-route-not-found-ssr-status.edn).
 
 ## Frames × Reactive Substrate
 
