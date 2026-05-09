@@ -700,7 +700,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 
 ### Schemas
 
-Each category's `:tags` shape is registered as a Malli schema so consumers can validate without ad-hoc parsing:
+Each category's `:tags` shape is registered as a Malli schema so consumers can validate without ad-hoc parsing. The full set of per-category `:tags` schemas is canonicalised in [Spec-Schemas §Per-category `:tags` schemas](Spec-Schemas.md#per-category-tags-schemas) — one schema per category enumerated in the [§Error categories table](#error-categories-initial-set) above. Two examples (the rest follow the same shape):
 
 ```clojure
 ;; Conceptual; the actual registration mechanism is implementation-specific.
@@ -729,7 +729,7 @@ Each category's `:tags` shape is registered as a Malli schema so consumers can v
    [:value       :any]
    [:explanation :any]])                         ;; Malli explanation shape
 
-;; ... and so on for each category.
+;; ... and so on for each category — see Spec-Schemas for the full set.
 ```
 
 Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is stable and additive — new categories can be added but existing ones cannot be renamed or removed.

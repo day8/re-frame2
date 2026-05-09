@@ -257,6 +257,528 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 | `:rf.warning/*` | `:warning` | Authoring-time advisories the runtime can detect but does not abort on (e.g. plain Reagent fn under non-default frame) |
 | `:rf.fx/*` | `:warning` | Effect-resolution advisories (e.g. fx skipped because of `:platforms`) |
 | `:rf.ssr/*` | `:warning` | SSR-specific advisories (hydration mismatch and similar) |
+| `:rf.epoch/*` | `:error` | Epoch-history restore failures (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) |
+| `:rf.http/*` | `:warning` / `:info` | Managed-HTTP advisories (key-ignored-on-jvm, retry-attempt) per [014](014-HTTPRequests.md) |
+| `:route.nav-token/*` | `:error` | Stale-result-suppression on async navigation (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)) |
+| `:rf.frame/*` | `:event` | Frame-lifecycle events (e.g. `:rf.frame/drain-aborted` per [002](002-Frames.md)) |
+
+### Per-category `:tags` schemas
+
+> **Layer:** Runtime
+
+Each error / warning category enumerated in [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) has a registered Malli schema describing its `:tags` payload, so consumers can validate without ad-hoc parsing. The schemas below are the canonical CLJS-reference shapes; ports translate them mechanically into the host's schema language (per [§Scope](#scope)).
+
+Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from the `:rf/error-event` envelope above; the per-category schemas below describe the *additional* category-specific keys. Open-map convention applies — implementations may add fields additively without breaking consumers (per [§Schema convention](#schema-convention)).
+
+```clojure
+;; --- runtime: handler / sub / fx / interceptor exceptions ---
+
+(def HandlerExceptionTags
+  [:map
+   [:category          [:= :rf.error/handler-exception]]
+   [:failing-id        :keyword]
+   [:reason            :string]
+   [:event             [:vector :any]]
+   [:handler-id        :keyword]
+   [:exception-message :string]
+   [:exception-data    {:optional true} :any]])
+
+(def FxHandlerExceptionTags
+  [:map
+   [:category          [:= :rf.error/fx-handler-exception]]
+   [:failing-id        :keyword]
+   [:fx-id             :keyword]
+   [:fx-args           :any]
+   [:frame             {:optional true} :keyword]
+   [:exception-message :string]])
+
+(def SubExceptionTags
+  [:map
+   [:category          [:= :rf.error/sub-exception]]
+   [:failing-id        :keyword]
+   [:sub-id            :keyword]
+   [:sub-query         [:vector :any]]
+   [:exception-message :string]])
+
+(def NoSuchSubTags
+  [:map
+   [:category :keyword]            ;; [:= :rf.error/no-such-sub] in a closed schema
+   [:query-v  [:vector :any]]
+   [:frame    {:optional true} :keyword]])
+
+(def NoSuchHandlerTags
+  [:map
+   [:category :keyword]
+   [:event-id {:optional true} :keyword]
+   [:event    {:optional true} [:vector :any]]
+   [:frame    {:optional true} :keyword]
+   [:url      {:optional true} :string]    ;; routing-side variant
+   [:kind     {:optional true} :keyword]])
+
+(def NoSuchFxTags
+  [:map
+   [:category :keyword]
+   [:fx-id    :keyword]
+   [:fx-args  :any]
+   [:frame    {:optional true} :keyword]])
+
+(def OverrideFallthroughTags
+  [:map
+   [:category      :keyword]
+   [:failing-id    :keyword]
+   [:overrides-map [:map-of :keyword :any]]
+   [:looked-up-id  :keyword]])
+
+(def UnwrapBadEventShapeTags
+  [:map
+   [:category :keyword]
+   [:event    [:vector :any]]
+   [:expected :string]])
+
+;; --- runtime: validation / drain / dispatch lifecycle ---
+
+(def SchemaValidationTags
+  [:map
+   [:category    [:= :rf.error/schema-validation-failure]]
+   [:failing-id  :keyword]
+   [:reason      {:optional true} :string]
+   [:where       [:enum :event :sub-return :app-db :fx-args :cofx :cofx-args :on-create]]
+   [:path        {:optional true} [:vector :any]]
+   [:value       {:optional true} :any]
+   [:explain     {:optional true} :any]                ;; Malli explanation shape
+   [:explanation {:optional true} :any]])              ;; legacy alias retained for back-compat
+
+(def DrainDepthExceededTags
+  [:map
+   [:category   :keyword]
+   [:frame      :keyword]
+   [:depth      :int]
+   [:queue-size :int]
+   [:last-event {:optional true} [:vector :any]]
+   [:rollback?  {:optional true} :boolean]])
+
+(def DispatchSyncInHandlerTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:event    [:vector :any]]
+   [:reason   :string]])
+
+(def FrameDestroyedTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:event    {:optional true} [:vector :any]]
+   [:query-v  {:optional true} [:vector :any]]])
+
+(def EffectMapShapeTags
+  [:map
+   [:category      :keyword]
+   [:failing-id    :keyword]
+   [:event-id      :keyword]
+   [:event         [:vector :any]]
+   [:offending-key :keyword]
+   [:value         :any]
+   [:reason        :string]])
+
+(def FlowEvalExceptionTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:event    [:vector :any]]
+   [:exception :any]])
+
+;; --- runtime: state-machine errors (per [005](005-StateMachines.md)) ---
+
+(def MachineActionExceptionTags
+  [:map
+   [:category          [:= :rf.error/machine-action-exception]]
+   [:machine-id        :keyword]
+   [:action-id         :any]
+   [:state-path        [:vector :any]]
+   [:transition        :any]
+   [:event             [:vector :any]]
+   [:failing-id        :keyword]
+   [:handler-id        :keyword]
+   [:frame             :keyword]
+   [:exception-message :string]
+   [:exception-data    {:optional true} :any]])
+
+(def MachineRaiseDepthExceededTags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:depth      :int]])
+
+(def MachineAlwaysDepthExceededTags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:depth      :int]
+   [:path       [:vector :any]]])
+
+(def MachineUnresolvedGuardTags
+  [:map
+   [:category   :keyword]
+   [:guard      :keyword]
+   [:machine-id :keyword]])
+
+(def MachineUnresolvedActionTags
+  [:map
+   [:category   :keyword]
+   [:action     :keyword]
+   [:machine-id :keyword]])
+
+(def MachineBadGuardFormTags
+  [:map
+   [:category :keyword]
+   [:guard    :any]])
+
+(def MachineBadActionFormTags
+  [:map
+   [:category :keyword]
+   [:action   :any]])
+
+(def MachineBadStateFormTags
+  [:map
+   [:category :keyword]
+   [:state    :any]])
+
+(def MachineBadOnClauseTags
+  [:map
+   [:category :keyword]
+   [:value    :any]])
+
+(def MachineActionWroteDbTags
+  [:map
+   [:category        :keyword]
+   [:machine-id      :keyword]
+   [:action-id       :any]
+   [:state-path      [:vector :any]]
+   [:offending-value :any]])
+
+(def MachineGrammarNotInV1Tags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:feature    :keyword]
+   [:substitute {:optional true} :string]])
+
+(def MachineUnhandledEventTags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:event      [:vector :any]]
+   [:state      :any]])
+
+(def MachineStateNotInDefinitionTags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:state      :any]])
+
+(def MachineSnapshotVersionMismatchTags
+  [:map
+   [:category         :keyword]
+   [:machine-id       :keyword]
+   [:version-recorded :any]
+   [:version-current  :any]])
+
+(def MachineAlwaysSelfLoopTags
+  [:map
+   [:category   :keyword]
+   [:state      :keyword]
+   [:machine-id :keyword]])
+
+(def MachineCompoundStateMissingInitialTags
+  [:map
+   [:category   :keyword]
+   [:machine-id :keyword]
+   [:state      :any]])
+
+(def SystemIdCollisionTags
+  [:map
+   [:category         :keyword]
+   [:frame            :keyword]
+   [:system-id        :any]
+   [:existing-machine :keyword]
+   [:rebound-to       :keyword]
+   [:reason           :string]])
+
+;; --- runtime: routing errors (per [012](012-Routing.md)) ---
+
+(def NoSuchRouteTags
+  [:map
+   [:category :keyword]
+   [:route-id :keyword]])
+
+(def MissingRouteParamTags
+  [:map
+   [:category :keyword]
+   [:param    :keyword]
+   [:route-id :keyword]])
+
+(def DuplicateUrlBindingTags
+  [:map
+   [:category        :keyword]
+   [:existing-frame  :keyword]
+   [:offending-frame :keyword]])
+
+(def RouteShadowedByEqualScoreTags
+  [:map
+   [:category  :keyword]
+   [:route-id  :keyword]
+   [:shadowed  :keyword]
+   [:rank      {:optional true} :any]])
+
+(def StaleSuppressedTags
+  [:map
+   [:category      :keyword]
+   [:carried-token :any]
+   [:current-token :any]
+   [:event-id      {:optional true} :keyword]])
+
+;; --- runtime: schemas / preset / adapter / SSR errors ---
+
+(def BadAppSchemasArgTags
+  [:map
+   [:category :keyword]
+   [:received :any]
+   [:expected :string]])
+
+(def UnknownPresetTags
+  [:map
+   [:category :keyword]
+   [:preset   :any]
+   [:valid    [:set :keyword]]])
+
+(def AdapterAlreadyInstalledTags
+  [:map
+   [:category  :keyword]
+   [:installed :any]
+   [:attempted :any]])
+
+(def RenderOnHeadlessAdapterTags
+  [:map
+   [:category :keyword]
+   [:reason   :string]])
+
+(def NoHiccupEmitterBoundTags
+  [:map
+   [:category    :keyword]
+   [:reason      :string]
+   [:render-tree :any]])
+
+(def SanitisedOnProjectionTags
+  [:map
+   [:category                   :keyword]
+   [:projector-id               :keyword]
+   [:original-operation         {:optional true} :keyword]
+   [:projection-failure-reason  {:optional true} :string]
+   [:exception-message          {:optional true} :string]
+   [:returned                   {:optional true} :any]
+   [:reason                     :string]])
+
+;; --- runtime: flow errors (per [013](013-Flows.md)) ---
+
+(def FlowCycleTags
+  [:map
+   [:category :keyword]
+   [:cycle    [:vector :any]]])
+
+(def FlowMissingIdTags
+  [:map
+   [:category :keyword]
+   [:flow     :map]])
+
+(def FlowBadInputsTags
+  [:map
+   [:category :keyword]
+   [:flow     :map]
+   [:reason   :string]])
+
+(def FlowBadOutputTags
+  [:map
+   [:category :keyword]
+   [:flow     :map]
+   [:reason   :string]])
+
+(def FlowBadPathTags
+  [:map
+   [:category :keyword]
+   [:flow     :map]
+   [:reason   :string]])
+
+;; --- runtime: artefact-missing errors (per MIGRATION §M-31) ---
+
+(def ArtefactMissingTags
+  ;; Shared shape for the six artefact-missing categories: flows, ssr,
+  ;; routing, schemas, machines, http. Each surfaces as a thrown ex-info
+  ;; with this payload; not a trace event.
+  [:map
+   [:category :keyword]
+   [:where    [:or :symbol :string]]
+   [:reason   :string]
+   ;; per-artefact optional context keys
+   [:flow-id    {:optional true} :keyword]
+   [:route-id   {:optional true} :keyword]
+   [:machine-id {:optional true} :keyword]
+   [:path       {:optional true} [:vector :any]]
+   [:id         {:optional true} :keyword]
+   [:frame      {:optional true} :keyword]])
+
+;; --- runtime: epoch restore errors (per [Tool-Pair §Time-travel]) ---
+
+(def RestoreUnknownEpochTags
+  [:map
+   [:category     :keyword]
+   [:frame        :keyword]
+   [:epoch-id     :any]
+   [:history-size :int]])
+
+(def RestoreSchemaMismatchTags
+  [:map
+   [:category               :keyword]
+   [:frame                  :keyword]
+   [:epoch-id               :any]
+   [:schema-digest-recorded :any]
+   [:schema-digest-current  :any]
+   [:failing-paths          [:vector :any]]])
+
+(def RestoreMissingHandlerTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:epoch-id :any]
+   [:missing  [:vector [:map [:kind :keyword] [:id :keyword]]]]])
+
+(def RestoreVersionMismatchTags
+  [:map
+   [:category         :keyword]
+   [:frame            :keyword]
+   [:epoch-id         :any]
+   [:machine-id       :keyword]
+   [:version-recorded :any]
+   [:version-current  :any]])
+
+(def RestoreDuringDrainTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:epoch-id :any]])
+
+;; --- warnings: SSR / authoring-time advisories ---
+
+(def MultipleStatusSetTags
+  [:map
+   [:category     :keyword]
+   [:writes       [:vector :any]]
+   [:final-status :any]
+   [:frame        {:optional true} :keyword]])
+
+(def MultipleRedirectsTags
+  [:map
+   [:category       :keyword]
+   [:writes         [:vector :any]]
+   [:final-redirect :any]
+   [:frame          {:optional true} :keyword]])
+
+(def HeadMismatchTags
+  [:map
+   [:category    :keyword]
+   [:server-hash :any]
+   [:client-hash :any]
+   [:head-id     {:optional true} :keyword]])
+
+(def HydrationMismatchTags
+  [:map
+   [:category        :keyword]
+   [:server-hash     :any]
+   [:client-hash     :any]
+   [:first-diff-path {:optional true} [:vector :any]]])
+
+(def InterceptorsInMetadataMapTags
+  [:map
+   [:category       :keyword]
+   [:reg-fn         :string]
+   [:id             :keyword]
+   [:offending-keys [:vector :keyword]]
+   [:reason         :string]])
+
+(def PlainFnUnderNonDefaultFrameOnceTags
+  [:map
+   [:category      :keyword]
+   [:fn-name       :string]
+   [:rendered-under :keyword]
+   [:routed-to     :keyword]])
+
+(def NoClockConfiguredTags
+  [:map
+   [:category :keyword]
+   [:feature  :keyword]
+   [:fallback {:optional true} :any]])
+
+(def DecodeDefaultedTags
+  [:map
+   [:category         :keyword]
+   [:request-id       :any]
+   [:url              :string]
+   [:content-type     {:optional true} :string]
+   [:resolved-decoder :keyword]])
+
+(def WriteAfterDestroyTags
+  [:map
+   [:category :keyword]
+   [:reason   :string]])
+
+;; --- info: managed-HTTP retry advisories ---
+
+(def CljsOnlyKeyIgnoredOnJvmTags
+  [:map
+   [:category :keyword]
+   [:key      :keyword]
+   [:url      :string]])
+
+(def RetryAttemptTags
+  [:map
+   [:category        :keyword]
+   [:request-id      :any]
+   [:url             :string]
+   [:attempt         :int]
+   [:max-attempts    :int]
+   [:failure         :any]              ;; one of the :rf.http/* failure-map shapes
+   [:next-backoff-ms {:optional true} [:maybe :int]]])
+
+;; --- fx-substrate event (warning-shaped per :rf/error-event table) ---
+
+(def FxSkippedOnPlatformTags
+  [:map
+   [:category             :keyword]
+   [:fx-id                :keyword]
+   [:fx-args              :any]
+   [:frame                {:optional true} :keyword]
+   [:platform             :keyword]
+   [:registered-platforms [:set :keyword]]])
+
+(def FxHandledTags
+  [:map
+   [:category :keyword]
+   [:fx-id    :keyword]
+   [:fx-args  :any]
+   [:frame    {:optional true} :keyword]])
+
+;; --- frame-lifecycle event (op-type :event, not error/warning) ---
+
+(def DrainAbortedTags
+  [:map
+   [:category      [:= :rf.frame/drain-aborted]]
+   [:frame         :keyword]
+   [:dropped-count :int]])
+```
+
+Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is fixed-and-additive per [Spec-ulation](Principles.md): existing categories cannot be renamed or removed; new categories appear additively.
+
+The schemas above are *open* (Malli's default `[:map ...]`) — consumers receive payloads that conform to the listed keys plus any additive keys the implementation adds. Validation against these schemas is non-fatal in production: a `validate` failure is logged via the same trace stream (per [009](009-Instrumentation.md)) but does not abort the consumer.
 
 ### `:rf/handler-body-dsl`
 
