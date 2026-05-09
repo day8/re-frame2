@@ -31,6 +31,12 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; Per smoke_test.clj fixture (rf2-xsfj): flows.cljc keeps a private
+  ;; last-inputs atom for dirty-checking. Clear it so a prior test's
+  ;; flow registration can't leak its last-inputs into a same-keyed
+  ;; flow in a subsequent test.
+  (when-let [li-var (resolve 're-frame.flows/last-inputs)]
+    (reset! (deref li-var) {}))
   (trace/clear-trace-cbs!)
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
@@ -768,3 +774,222 @@
     (is (= 7 (:depth (epoch/current-config))))
     (rf/configure :epoch-history {:depth 12})
     (is (= 12 (:depth (epoch/current-config))))))
+
+;; ---- restore-epoch reactive surfaces (rf2-2fat) ---------------------------
+;;
+;; Bead rf2-2fat coverage. Tool-Pair §Time-travel says restore "rewinds the
+;; frame's app-db to the named epoch's :db-after value." Spec 006 §Subscription
+;; cache pins invalidation to :replace-container! — and restore-epoch goes
+;; through the same adapter/replace-container! choke point used by the drain
+;; loop's :db commit. The two together imply: every reactive surface that
+;; observes app-db (subscriptions, flows materialised at :path, route slice
+;; reads) must reflect the rewound value after restore-epoch returns true,
+;; without a separate cache-invalidation call.
+;;
+;; These tests pin that downstream contract on the JVM with the plain-atom
+;; adapter. The plain-atom adapter recomputes derived values on every deref
+;; (no cache), so subscribe-value before/after restore is a clean read of
+;; the post-restore container. The CLJS Reagent counterpart in
+;; runtime_cljs_test.cljs covers the reactive-graph case where a held
+;; reaction must observe the rewound value.
+
+(deftest restore-rewinds-subscriptions-via-subscribe-value
+  (testing "after restore-epoch, subscribe-value reflects the restored db
+  for both layer-1 and layer-2 subs (no manual cache invalidation)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n   (fn [db _] (:n db)))
+    (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})  ;; n=0
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=3
+
+    (is (= 3 (rf/subscribe-value :test/main [:n])))
+    (is (= 6 (rf/subscribe-value :test/main [:n*2])))
+
+    (let [history (rf/epoch-history :test/main)
+          ;; Pick the epoch where :n landed at 1 (second :inc dispatch).
+          target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
+      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (= 1 (rf/subscribe-value :test/main [:n]))
+          "layer-1 sub now sees the restored value (no manual invalidation)")
+      (is (= 2 (rf/subscribe-value :test/main [:n*2]))
+          "layer-2 sub recomputes against the restored input"))))
+
+(deftest restore-rewinds-pinned-reaction
+  (testing "a subscription held across restore re-derefs to the restored
+  value. Pins the contract that restore-epoch goes through the same
+  app-db write path as the drain loop, so any consumer holding a
+  subscription before the restore observes the rewind on the next deref
+  without re-subscribing."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
+
+    (let [pinned  (rf/subscribe :test/main [:n])
+          _       (is (= 2 @pinned) "pinned reaction sees current value")
+          history (rf/epoch-history :test/main)
+          target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
+      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (= 1 @pinned)
+          "the same reaction handle now derefs to the restored value")
+      (rf/unsubscribe :test/main [:n]))))
+
+(deftest restore-frame-isolation
+  (testing "restoring frame A leaves frame B's app-db and subscriptions
+  untouched. Per Tool-Pair §Time-travel: time-travel is a frame-local
+  primitive — there is no global epoch sequence."
+    (rf/reg-frame :frame/a {})
+    (rf/reg-frame :frame/b {})
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    ;; Drive A through 0 → 1 → 2; B through 100 → 101.
+    (rf/dispatch-sync [:seed 0]   {:frame :frame/a})
+    (rf/dispatch-sync [:inc]      {:frame :frame/a})
+    (rf/dispatch-sync [:inc]      {:frame :frame/a})
+    (rf/dispatch-sync [:seed 100] {:frame :frame/b})
+    (rf/dispatch-sync [:inc]      {:frame :frame/b})
+
+    (let [a-history (rf/epoch-history :frame/a)
+          ;; The epoch where A's n landed at 1 (first :inc).
+          a-target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) a-history)]
+      (is (true? (rf/restore-epoch :frame/a (:epoch-id a-target))))
+      (is (= 1   (rf/subscribe-value :frame/a [:n]))
+          "frame A's sub sees the rewound value")
+      (is (= 101 (rf/subscribe-value :frame/b [:n]))
+          "frame B's sub is unchanged by the cross-frame restore")
+      (is (= 101 (:n (rf/get-frame-db :frame/b)))
+          "frame B's app-db is unchanged"))))
+
+(deftest restore-fixed-point-same-epoch-twice
+  (testing "restoring twice to the same epoch is a no-op semantically:
+  the second call lands on the same db-after, every observable surface
+  reads the same value, and the call still returns true."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
+    (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=3
+
+    (let [history (rf/epoch-history :test/main)
+          target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)
+          target-eid (:epoch-id target)]
+      (is (true? (rf/restore-epoch :test/main target-eid)) "first restore ok")
+      (let [db-after-1 (rf/get-frame-db :test/main)
+            sub-1      (rf/subscribe-value :test/main [:n])]
+        (is (= {:n 1} db-after-1))
+        (is (= 1     sub-1))
+
+        ;; Restore again to the SAME epoch.
+        (is (true? (rf/restore-epoch :test/main target-eid)) "second restore ok")
+        (is (= db-after-1 (rf/get-frame-db :test/main))
+            "app-db unchanged across the second restore")
+        (is (= sub-1 (rf/subscribe-value :test/main [:n]))
+            "sub value unchanged across the second restore")))))
+
+(deftest restore-rewinds-flow-output-in-app-db
+  (testing "Per Spec 013 — a flow's value lives in app-db at :path, where
+  it 'survives ... time-travel revert.' After restore-epoch, the flow's
+  output reads through the restored db match the recorded epoch's output."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :init (fn [_ _]      {:w 2 :h 3}))
+    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
+    (rf/reg-event-db :h!   (fn [db [_ h]] (assoc db :h h)))
+    (rf/reg-flow {:id     :rect/area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]}
+                 {:frame :test/main})
+
+    (rf/dispatch-sync [:init]    {:frame :test/main})  ;; area=6
+    (rf/dispatch-sync [:w! 5]    {:frame :test/main})  ;; area=15
+    (rf/dispatch-sync [:h! 10]   {:frame :test/main})  ;; area=50
+    (is (= 50 (get-in (rf/get-frame-db :test/main) [:rect :area])))
+
+    (let [history (rf/epoch-history :test/main)
+          ;; Find the epoch whose db-after has area=15 (after :w! 5).
+          target  (some (fn [r] (when (= 15 (get-in (:db-after r) [:rect :area])) r))
+                        history)]
+      (is (some? target))
+      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (= 15 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+          "the restored db carries the flow's value at :path"))))
+
+(deftest restore-then-dispatch-recomputes-flow-correctly
+  (testing "After restore, the next event drain re-runs flows correctly.
+  The dirty-check operates on observed inputs (:w, :h) vs last-inputs;
+  even if last-inputs holds a pre-restore tuple, a real input change
+  in the next dispatch triggers recomputation. Pins that flow recompute
+  state does not silently miss after a restore."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :init (fn [_ _]      {:w 1 :h 1}))
+    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
+    (rf/reg-flow {:id     :rect/area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]}
+                 {:frame :test/main})
+
+    (rf/dispatch-sync [:init]   {:frame :test/main})  ;; area=1
+    (rf/dispatch-sync [:w! 4]   {:frame :test/main})  ;; area=4
+    (rf/dispatch-sync [:w! 7]   {:frame :test/main})  ;; area=7
+    (rf/dispatch-sync [:w! 9]   {:frame :test/main})  ;; area=9
+
+    (let [history (rf/epoch-history :test/main)
+          target  (some (fn [r] (when (= 4 (get-in (:db-after r) [:rect :area])) r))
+                        history)]
+      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (= 4 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+          "restored db carries the flow output value at :path")
+
+      ;; Drive a new event that changes :w. The flow must recompute
+      ;; against the post-restore inputs, not against any leftover
+      ;; last-inputs cache from the pre-restore history.
+      (rf/dispatch-sync [:w! 6] {:frame :test/main})
+      (is (= 6 (get-in (rf/get-frame-db :test/main) [:w])))
+      (is (= 6 (get-in (rf/get-frame-db :test/main) [:rect :area]))
+          "flow recomputed correctly post-restore (6 * 1 = 6)"))))
+
+(deftest restore-rewinds-route-slice-and-route-sub
+  (testing "Per the bead: when a restored epoch changes :route, the
+  observable routing state follows. A sub keyed on the :route slice
+  returns the restored route id without manual cache invalidation."
+    (rf/reg-frame :test/main {})
+    (rf/reg-route :route/home    {:path "/"})
+    (rf/reg-route :route/article {:path "/articles/:id"})
+    (rf/reg-event-db :go-home
+      (fn [db _] (assoc db :route {:id :route/home :params {}})))
+    (rf/reg-event-db :go-article
+      (fn [db [_ id]] (assoc db :route {:id :route/article :params {:id id}})))
+    (rf/reg-sub :current-route (fn [db _] (get-in db [:route :id])))
+
+    (rf/dispatch-sync [:go-home]               {:frame :test/main})
+    (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
+    (is (= :route/article (rf/subscribe-value :test/main [:current-route])))
+
+    (let [history (rf/epoch-history :test/main)
+          ;; The epoch whose db-after carries :route/home in :route :id.
+          target  (some (fn [r]
+                          (when (= :route/home (get-in (:db-after r) [:route :id]))
+                            r))
+                        history)]
+      (is (some? target))
+      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (= :route/home (get-in (rf/get-frame-db :test/main) [:route :id]))
+          "the :route slice is rewound by restore")
+      (is (= :route/home (rf/subscribe-value :test/main [:current-route]))
+          "a sub keyed on :route returns the restored value"))))
