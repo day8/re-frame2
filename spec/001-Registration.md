@@ -116,13 +116,13 @@ The handler's name shows up in stack traces, the [trace stream](009-Instrumentat
 
 ## Source-coordinate capture (CLJS reference)
 
-The CLJS reference uses macros to capture `:ns` / `:line` / `:file` at compile time:
+The CLJS reference uses macros to capture `:ns` / `:line` / `:file` / `:column` at compile time. `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
 
 ```clojure
 (defmacro reg-event-db
   [id & args]
   (let [[metadata handler] (resolve-args args)
-        coords {:ns &env :line ... :file ...}]
+        coords {:ns &env :line ... :file ... :column ...}]
     `(re-frame.core/-reg-event-db
        ~id
        ~(merge coords metadata)
