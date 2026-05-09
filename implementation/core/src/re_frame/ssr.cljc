@@ -118,6 +118,61 @@
 (defn- emit-children [children]
   (clojure.string/join (mapv emit-element children)))
 
+;; ---- source-coord annotation on registered-view roots --------------------
+;;
+;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and Spec 011
+;; §Source-coord annotation under SSR: when emitting HTML for a registered
+;; view, the SSR emitter injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"`
+;; on the view's root DOM element. The annotation gives pair-tool consumers
+;; a way to map server-rendered HTML back to the reg-view call site, and
+;; matches the CLJS-side Reagent-adapter behaviour (re-frame.views/reg-view*).
+;;
+;; The JVM mirror of the CLJS `interop/debug-enabled?` gate is
+;; (interop/debug-enabled?) — true on the JVM (no production-elision
+;; concept on the server). Hosts that need to suppress the annotation
+;; in production can branch on the resolved frame's :ssr config; the
+;; default is to emit (matches Spec 011 §Source-coord annotation under
+;; SSR — emitted when in dev mode).
+
+(defn- format-view-source-coord
+  "Render the registered view's metadata as the attribute value
+  `<ns>:<sym>:<line>:<col>` per Spec 006 §Source-coord annotation. Returns
+  nil when the slot has no captured coords (programmatic registration that
+  bypassed the macro path) — the emitter then skips the annotation."
+  [id slot]
+  (when (or (:ns slot) (:line slot) (:file slot) (:column slot))
+    (let [ns-part  (or (namespace id) "?")
+          sym-part (name id)
+          line     (:line slot)
+          col      (:column slot)]
+      (str ns-part ":" sym-part ":"
+           (if line (str line) "?")
+           ":"
+           (if col (str col) "?")))))
+
+(defn- inject-coord-on-root-hiccup
+  "Inject :data-rf2-source-coord into the root element of a hiccup form,
+  if the root is a DOM-tag keyword. Mirrors the CLJS-side wrapper in
+  re-frame.views per Spec 006 §Source-coord annotation. Non-DOM roots
+  (fragment :<>, fn-or-component head, lazy-seq) are returned unchanged
+  — pair tools fall back to :rf/id for those (documented exemption)."
+  [coord out]
+  (cond
+    (and (vector? out)
+         (keyword? (first out))
+         (not= :<> (first out))
+         (not= :> (first out)))
+    (let [head        (first out)
+          maybe-attrs (second out)]
+      (if (map? maybe-attrs)
+        (if (contains? maybe-attrs :data-rf2-source-coord)
+          out
+          (into [head (assoc maybe-attrs :data-rf2-source-coord coord)]
+                (drop 2 out)))
+        (into [head {:data-rf2-source-coord coord}] (rest out))))
+
+    :else out))
+
 (defn- emit-element [el]
   (cond
     (nil? el)         ""
@@ -131,7 +186,16 @@
         (let [;; Look up registered view first.
               maybe-view (registrar/lookup :view head)]
           (if maybe-view
-            (emit-element (apply (:handler-fn maybe-view) (rest el)))
+            (let [raw   (apply (:handler-fn maybe-view) (rest el))
+                  ;; Spec 006 §Source-coord annotation: inject the
+                  ;; data-rf2-source-coord attribute on the registered
+                  ;; view's root DOM element when the slot's metadata
+                  ;; carries source coords.
+                  coord (format-view-source-coord head maybe-view)
+                  out   (if coord
+                          (inject-coord-on-root-hiccup coord raw)
+                          raw)]
+              (emit-element out))
             (let [[tag-name tag-attrs] (parse-tag-name head)
                   [user-attrs children]
                   (if (map? (second el))
