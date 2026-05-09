@@ -26,7 +26,15 @@
             ;; schemas artefact populates from its own ns-load.
             [re-frame.late-bind :as late-bind]
             [re-frame.flows :as flows]
-            [re-frame.machines :as machines]
+            ;; re-frame.machines (Spec 005) ships as a separate Maven
+            ;; artefact (day8/re-frame-2-machines, rf2-xbtj). The core
+            ;; artefact MUST NOT `:require [re-frame.machines]` — that
+            ;; would pull the machines namespace and its `:rf/machine`
+            ;; sub registration onto every consumer's classpath even
+            ;; when no machine is registered. The re-export wrappers
+            ;; below look the machines API up through the late-bind
+            ;; hook table at call time, which the machines artefact
+            ;; populates from its own ns-load.
             [re-frame.routing :as routing]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]
@@ -452,7 +460,15 @@
    (defmacro reg-machine
      "Register a machine as an event handler. Per Spec 001 the
      metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site."
+     :file captured at this call site.
+
+     Per rf2-xbtj the machines implementation lives in the
+     `day8/re-frame-2-machines` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `reg-machine` MUST add
+     `day8/re-frame-2-machines` to their deps and require
+     `re-frame.machines` at app boot; without it, the lookup returns
+     nil and the call throws a clear error."
      [machine-id machine]
      (let [m       (meta &form)
            ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
@@ -466,7 +482,13 @@
                     ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
-          (machines/reg-machine ~machine-id ~machine)))))
+          (if-let [f# (late-bind/get-fn :machines/reg-machine)]
+            (f# ~machine-id ~machine)
+            (throw (ex-info ":rf.error/machines-artefact-missing"
+                            {:where      'reg-machine
+                             :machine-id ~machine-id
+                             :recovery   :no-recovery
+                             :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))
 
 #?(:cljs
    (do
@@ -485,7 +507,18 @@
                            :path     path
                            :recovery :no-recovery
                            :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
-     (def reg-machine     machines/reg-machine)))
+     ;; reg-machine is late-bound via the hook table so core does not
+     ;; statically require re-frame.machines (rf2-xbtj — machines ships
+     ;; in day8/re-frame-2-machines).
+     (defn reg-machine
+       [machine-id machine]
+       (if-let [f (late-bind/get-fn :machines/reg-machine)]
+         (f machine-id machine)
+         (throw (ex-info ":rf.error/machines-artefact-missing"
+                         {:where      'reg-machine
+                          :machine-id machine-id
+                          :recovery   :no-recovery
+                          :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind
 ;; ships with its default :rf.ssr/default-error-projector. Forward
@@ -628,11 +661,53 @@
 (def route-url routing/route-url)
 
 ;; ---- machine helpers ------------------------------------------------------
+;;
+;; Per rf2-xbtj the machines surface lives in the
+;; `day8/re-frame-2-machines` artefact. The re-exports below late-bind
+;; through the hook table so core does not statically require
+;; re-frame.machines. When the machines artefact is not on the
+;; classpath the lookups return nil and the wrappers raise
+;; :rf.error/machines-artefact-missing (for active surfaces) or return
+;; safe defaults (for read-only queries).
 
-(def create-machine-handler machines/create-machine-handler)
-(def machine-transition     machines/machine-transition)
-(def machines               machines/machines)
-(def machine-meta           machines/machine-meta)
+(defn create-machine-handler
+  "Build an event-fx handler from a machine spec. Per Spec 005
+  §Registration. Late-bound via :machines/create-machine-handler."
+  [machine]
+  (if-let [f (late-bind/get-fn :machines/create-machine-handler)]
+    (f machine)
+    (throw (ex-info ":rf.error/machines-artefact-missing"
+                    {:where    'create-machine-handler
+                     :recovery :no-recovery
+                     :reason   "rf/create-machine-handler requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+
+(defn machine-transition
+  "Pure (machine, snapshot, event) -> [snapshot fx]. Per Spec 005
+  §Drain semantics §Level 3. Late-bound via :machines/machine-transition."
+  [machine snapshot event]
+  (if-let [f (late-bind/get-fn :machines/machine-transition)]
+    (f machine snapshot event)
+    (throw (ex-info ":rf.error/machines-artefact-missing"
+                    {:where    'machine-transition
+                     :recovery :no-recovery
+                     :reason   "rf/machine-transition requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+
+(defn machines
+  "Return a sequence of registered machine ids. Per Spec 005
+  §Querying machines. Returns `[]` when the machines artefact is not
+  on the classpath."
+  []
+  (if-let [f (late-bind/get-fn :machines/machines)]
+    (f)
+    []))
+
+(defn machine-meta
+  "Return the registered machine spec map for machine-id, or nil. Per
+  Spec 005 §Querying machines. Returns nil when the machines artefact
+  is not on the classpath."
+  [machine-id]
+  (when-let [f (late-bind/get-fn :machines/machine-meta)]
+    (f machine-id)))
 
 (defn sub-machine
   "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine

@@ -11,10 +11,15 @@
     :dispatch         — runtime, intra-frame dispatch (back of router queue)
     :dispatch-later   — runtime, delayed dispatch
     :raise            — machine-internal (machine handler routes locally)
-    :spawn            — machine-internal: declarative :invoke desugar
-    :destroy-machine  — machine-internal: counterpart to :spawn on state exit
     :rf.fx/reg-flow   — runtime, register a flow (Spec 013)
-    :rf.fx/clear-flow — runtime, clear a flow"
+    :rf.fx/clear-flow — runtime, clear a flow
+
+  Per rf2-xbtj the machine-internal fx-ids `:spawn` and
+  `:destroy-machine` are registered by `re-frame.machines` (which now
+  ships in `day8/re-frame-2-machines`) at its ns-load time, via the
+  regular `reg-fx` path. They are NOT reserved in core's case-block —
+  apps that don't pull in the machines artefact don't carry the trace
+  strings or the handler for them."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -142,28 +147,10 @@
         (clear-flow! args {:frame frame-id}))
       (emit-handled! fx-id args frame-id))
 
-    :spawn
-    ;; Per Spec 005 §Declarative :invoke (sugar over spawn): emitted by
-    ;; the machine when entering an :invoke-bearing state. The runtime
-    ;; layer here just emits a trace so observers see the spawn intent;
-    ;; full actor lifecycle (auto-start, message routing, supervision)
-    ;; is the user's responsibility for now.
-    (do
-      (trace/emit! :machine :rf.machine/spawned
-                   {:frame frame-id
-                    :machine-id (:machine-id args)
-                    :id-prefix  (:id-prefix args)
-                    :start      (:start args)
-                    :on-spawn   (:on-spawn args)})
-      (emit-handled! fx-id args frame-id))
-
-    :destroy-machine
-    ;; Per Spec 005: emitted on exit from an :invoke-bearing state.
-    (do
-      (trace/emit! :machine :rf.machine/destroyed
-                   {:frame    frame-id
-                    :actor-id args})
-      (emit-handled! fx-id args frame-id))
+    ;; Per rf2-xbtj the `:spawn` and `:destroy-machine` machine-internal
+    ;; fx-ids are no longer reserved here — they are registered by
+    ;; re-frame.machines (day8/re-frame-2-machines) via the regular
+    ;; reg-fx path and arrive here through the registrar default below.
 
     ;; Default: user-registered fx.
     (if-let [meta (registrar/lookup :fx fx-id)]

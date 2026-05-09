@@ -60,6 +60,14 @@
     :schemas/snapshot-by-frame    re-frame.schemas/snapshot-schemas-by-frame
     :schemas/restore-by-frame!    re-frame.schemas/restore-schemas-by-frame!
     :schemas/clear-by-frame!      re-frame.schemas/clear-schemas-by-frame!
+    :machines/reg-machine             re-frame.machines/reg-machine
+    :machines/create-machine-handler  re-frame.machines/create-machine-handler
+    :machines/machine-transition      re-frame.machines/machine-transition
+    :machines/machines                re-frame.machines/machines
+    :machines/machine-meta            re-frame.machines/machine-meta
+    :machines/reset-counters!         re-frame.machines/reset-counters!
+    :machines/spawn-fx                re-frame.machines/spawn-fx
+    :machines/destroy-machine-fx      re-frame.machines/destroy-machine-fx
     :subs/subscribe-value     re-frame.subs/subscribe-value
     :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
     :epoch/settle!            re-frame.epoch/settle!

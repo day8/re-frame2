@@ -54,7 +54,10 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
-            [re-frame.machines :as machines]
+            ;; re-frame.machines (Spec 005) ships as a separate artefact
+            ;; (day8/re-frame-2-machines, rf2-xbtj) — the reset fixture
+            ;; touches the machines spawn-counter through the late-bind
+            ;; hook table when the artefact is loaded, no-ops when not.
             ;; re-frame.schemas (Spec 010) ships as a separate artefact
             ;; (day8/re-frame-2-schemas, rf2-p7va). The reset fixture
             ;; touches the per-frame schema registry through the
@@ -204,7 +207,13 @@
          (reset! flows/flows {})
          (when clear-fn (clear-fn))
          (adapter/dispose-adapter!)
-         (machines/reset-counters!)
+         ;; Late-bind: when the machines artefact is loaded, reset the
+         ;; spawn-counter so id allocation is stable across fixture
+         ;; runs. When it isn't, the hook returns nil and this is a
+         ;; no-op (correct: there is no counter state to reset).
+         ;; Per rf2-xbtj — machines ships in day8/re-frame-2-machines.
+         (when-let [reset-counters! (late-bind/get-fn :machines/reset-counters!)]
+           (reset-counters!))
          (trace/clear-trace-cbs!)
          (when adapter
            (adapter/install-adapter! adapter)
