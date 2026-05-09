@@ -117,6 +117,15 @@ spec/                          Full specification (AI-targeted; the primary arte
 docs/
   guide/                       Human-facing guide (marketing voice)
 examples/                      Worked examples
+implementation/                CLJS reference implementation — split into per-artefact subdirs
+                               (rf2-0hxm; per Conventions §Substrate-adapter shipping convention).
+  core/                        day8/re-frame-2 — registry, drain, machines, flows, routing, fx,
+                               schemas, trace, the substrate-adapter contract, the headless
+                               plain-atom adapter
+  reagent/                     day8/re-frame-2-reagent — the Reagent substrate adapter (browser default)
+  shadow-cljs.edn              top-level build coordinator: pulls both artefacts onto one classpath
+                               for the browser/elision/examples builds
+  deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for both
 skills/                        Claude skills (planned; pair-improver and friends)
 ```
 

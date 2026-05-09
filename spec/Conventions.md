@@ -207,6 +207,37 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 
 A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
 
+## Substrate-adapter shipping convention
+
+Substrate adapters ship as **separate Maven artefacts** alongside the core. The CLJS reference's published artefact set is:
+
+| Artefact | Contents |
+|---|---|
+| `day8/re-frame-2` | Core: registry, drain, machines, flows, routing, fx, schemas, trace, the substrate-adapter contract, the headless plain-atom adapter |
+| `day8/re-frame-2-reagent` | Reagent adapter (`re-frame.substrate.reagent`) |
+| `day8/re-frame-2-uix` | UIx adapter (`re-frame.substrate.uix`) — when [rf2-3yij](#) ships |
+| `day8/re-frame-2-helix` | Helix adapter (`re-frame.substrate.helix`) — when [rf2-2qit](#) ships |
+
+A consumer picks their substrate by adding the matching adapter alongside the core:
+
+```clojure
+;; deps.edn for a Reagent app
+{:deps {day8/re-frame-2         {:mvn/version "2.0.0"}
+        day8/re-frame-2-reagent {:mvn/version "2.0.0"}}}
+
+;; deps.edn for a UIx app
+{:deps {day8/re-frame-2     {:mvn/version "2.0.0"}
+        day8/re-frame-2-uix {:mvn/version "2.0.0"}}}
+```
+
+**Rationale.** Bundle isolation is guaranteed by structure rather than by careful dead-code elimination: a Reagent-only application simply does not have UIx code on the classpath. The Closure Compiler's DCE does not have to be perfect; the wrong substrate is structurally absent. This reinforces the substrate-independence-of-core thesis (Spec 006 §The reactive-substrate adapter contract) at the package layer.
+
+**Dependency direction.** Adapter artefacts depend on core; core never depends on an adapter artefact. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core. Per [rf2-0hxm](#).
+
+**Out of scope for the v1 split.** The Reagent-coupled views layer (`re-frame.views`) currently lives in core because the CLJS reference is Reagent-default. Full substrate-config plumbing — making `re-frame.views` substrate-agnostic so the core artefact carries no Reagent dep — lands with the UIx-adapter work (rf2-3yij). The v1 artefact split is the *adapter ns* split; the views-layer decoupling is the next step.
+
+**Conformance check (bundle isolation).** A production-elision build of an app that consumes `day8/re-frame-2-reagent` carries `re-frame.substrate.reagent` strings AND does NOT carry `re-frame.substrate.uix` or `re-frame.substrate.helix` strings. The check is a grep over the advanced-compile output. Per the rf2-0hxm verification step.
+
 ## Cross-references
 
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.

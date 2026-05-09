@@ -482,7 +482,7 @@ The subscription's body still runs with `nil` substituted for the unresolved inp
 
 ## CLJS reference: Reagent as default adapter
 
-The CLJS reference ships **two** adapters in one package: a Reagent adapter (browser default) and a plain-atom adapter (JVM, used by SSR and headless tests). Both implement the closed nine-fn contract above; the runtime picks per platform.
+The CLJS reference ships **two** adapters across **two Maven artefacts**: the plain-atom (JVM/headless) adapter ships in the core artefact (`day8/re-frame-2`); the Reagent adapter ships in its own sibling artefact (`day8/re-frame-2-reagent`). Both implement the closed nine-fn contract above; the runtime picks per platform. UIx and Helix adapters ship as further sibling artefacts as they land. Per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) and rf2-0hxm.
 
 This section is the **bridging pseudocode** for both. For each contract function, the pseudocode shows which Reagent (or, on the JVM, plain-Clojure) primitive realises it. An AI implementing the CLJS reference can lift this directly; non-CLJS implementors read it as one worked example of the contract.
 
@@ -744,14 +744,13 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 ## CLJS reference scope
 
-The CLJS reference ships:
+The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)):
 
-- The substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) as substrate-independent code.
-- A **Reagent adapter** as the default for the browser.
-- A **plain-atom (headless) adapter** for the JVM, used by SSR and headless tests.
-- The adapter API contract documented above.
+- **`day8/re-frame-2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract and the **plain-atom (headless) adapter** used by SSR and headless tests.
+- **`day8/re-frame-2-reagent`** — the **Reagent adapter** (browser default).
+- **`day8/re-frame-2-uix`** / **`day8/re-frame-2-helix`** — the UIx / Helix adapters, when those land.
 
-Per-host adapters for non-CLJS implementations (TS+React, TS+Solid, Vue, Python+RxPy, etc.) ship as separate packages, implementing the same contract.
+Per-host adapters for non-CLJS implementations (TS+React, TS+Solid, Vue, Python+RxPy, etc.) ship as separate packages, implementing the same contract — the per-substrate-artefact pattern is host-language-agnostic.
 
 ## Open questions
 
