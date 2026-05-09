@@ -77,6 +77,10 @@
     :routing/route-url                re-frame.routing/route-url
     :routing/reset-counters!          re-frame.routing/reset-counters!
     :routing/route-sub-fn             re-frame.routing/route-sub-fn
+    :http/install-managed-request-stubs!   re-frame.http-managed/install-managed-request-stubs!
+    :http/uninstall-managed-request-stubs! re-frame.http-managed/uninstall-managed-request-stubs!
+    :http/with-managed-request-stubs*      re-frame.http-managed/with-managed-request-stubs*
+    :http/clear-all-in-flight!             re-frame.http-managed/clear-all-in-flight!
     :subs/subscribe-value     re-frame.subs/subscribe-value
     :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
     :epoch/settle!            re-frame.epoch/settle!

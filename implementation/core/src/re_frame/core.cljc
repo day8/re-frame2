@@ -56,10 +56,23 @@
             ;; registered. The re-export wrappers below look the routing
             ;; API up through the late-bind hook table at call time,
             ;; which the routing artefact populates from its own ns-load.
+            ;;
+            ;; re-frame.http-managed (Spec 014) ships as a separate Maven
+            ;; artefact (day8/re-frame-2-http, rf2-5kpd). The core
+            ;; artefact MUST NOT `:require [re-frame.http-managed]` —
+            ;; that would pull the namespace, the in-flight request
+            ;; registry, the Fetch / `java.net.http.HttpClient`
+            ;; transport adapters, the encode / decode pipeline, the
+            ;; retry-with-backoff machinery, the eight-category
+            ;; `:rf.http/*` failure taxonomy, and every `:rf.http/*`
+            ;; keyword string onto every consumer's classpath even when
+            ;; no managed-HTTP request is issued. The re-export wrappers
+            ;; below look the http test-helper API up through the
+            ;; late-bind hook table at call time, which the http
+            ;; artefact populates from its own ns-load.
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
-            [re-frame.http-managed :as http-managed]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             ;; CLJS only: re-frame.views holds the Reagent-aware reg-view*
@@ -927,19 +940,71 @@
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
-;; The `:rf.http/managed` family is registered at re-frame.http-managed
-;; ns-load time (per Spec 014 §Implementation status). User code reaches
-;; the test-time helpers through this ns.
+;; Per rf2-5kpd the `:rf.http/managed` family is registered at
+;; re-frame.http-managed ns-load time (per Spec 014 §Implementation
+;; status), but the namespace ships in the day8/re-frame-2-http
+;; artefact. The core artefact does NOT `:require [re-frame.http-managed]`
+;; — apps that don't issue managed-HTTP requests don't carry the
+;; transport adapters or the `:rf.http/*` keyword strings on the
+;; classpath. The test-helper wrappers below look the producing fns up
+;; via the late-bind hook table; when the http artefact is not on the
+;; classpath the lookups return nil and the wrappers raise
+;; :rf.error/http-artefact-missing.
 
-(def install-managed-request-stubs!   http-managed/install-managed-request-stubs!)
-(def uninstall-managed-request-stubs! http-managed/uninstall-managed-request-stubs!)
-(def with-managed-request-stubs*      http-managed/with-managed-request-stubs*)
+(defn install-managed-request-stubs!
+  "Spec 014 §Testing — install per-call fx-overrides for `:rf.http/managed`
+  that synthesise the configured replies. Late-bound via
+  `:http/install-managed-request-stubs!`."
+  [stubs]
+  (if-let [f (late-bind/get-fn :http/install-managed-request-stubs!)]
+    (f stubs)
+    (throw (ex-info ":rf.error/http-artefact-missing"
+                    {:where    'install-managed-request-stubs!
+                     :recovery :no-recovery
+                     :reason   "rf/install-managed-request-stubs! requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+
+(defn uninstall-managed-request-stubs!
+  "Spec 014 §Testing — remove the per-call fx-override installed by
+  `install-managed-request-stubs!`. Late-bound via
+  `:http/uninstall-managed-request-stubs!`."
+  []
+  (if-let [f (late-bind/get-fn :http/uninstall-managed-request-stubs!)]
+    (f)
+    (throw (ex-info ":rf.error/http-artefact-missing"
+                    {:where    'uninstall-managed-request-stubs!
+                     :recovery :no-recovery
+                     :reason   "rf/uninstall-managed-request-stubs! requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+
+(defn with-managed-request-stubs*
+  "Function form: install stubs, run thunk, uninstall. Late-bound via
+  `:http/with-managed-request-stubs*`."
+  [stubs thunk]
+  (if-let [f (late-bind/get-fn :http/with-managed-request-stubs*)]
+    (f stubs thunk)
+    (throw (ex-info ":rf.error/http-artefact-missing"
+                    {:where    'with-managed-request-stubs*
+                     :recovery :no-recovery
+                     :reason   "rf/with-managed-request-stubs* requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+
 #?(:clj
    (defmacro with-managed-request-stubs
      "Spec 014 §Testing — install stubs, run body, uninstall. `stubs` is
-     `{[method url] {:reply <:ok|:failure>}}`."
+     `{[method url] {:reply <:ok|:failure>}}`.
+
+     Per rf2-5kpd the http implementation lives in the
+     `day8/re-frame-2-http` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `with-managed-request-stubs`
+     MUST add `day8/re-frame-2-http` to their deps and require
+     `re-frame.http-managed` at app boot; without it, the lookup
+     returns nil and the call throws a clear error."
      [stubs & body]
-     `(http-managed/with-managed-request-stubs* ~stubs (fn [] ~@body))))
+     `(if-let [f# (late-bind/get-fn :http/with-managed-request-stubs*)]
+        (f# ~stubs (fn [] ~@body))
+        (throw (ex-info ":rf.error/http-artefact-missing"
+                        {:where    'with-managed-request-stubs
+                         :recovery :no-recovery
+                         :reason   "rf/with-managed-request-stubs requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
 
 (defn configure
   "Configure a runtime knob. Closed v1 keys (additive across versions
