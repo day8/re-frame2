@@ -4,7 +4,17 @@
 
   The container is just `clojure.core/atom`. There is no reactivity layer,
   no caching, no listeners. Trivially compliant with the revertibility
-  contract because there is no state outside the atom.")
+  contract because there is no state outside the atom.
+
+  Per rf2-84po (resolves rf2-4cb6) this ns auto-registers as the default
+  adapter on the JVM only. CLJS targets (browser, Node) get their default
+  from the substrate-specific ns the consumer requires
+  (re-frame.substrate.reagent / re-frame.substrate.uix); the plain-atom
+  adapter on CLJS is a programmer-explicit choice via `(rf/init! :plain-atom)`
+  or `(rf/init! plain-atom/adapter)`. This keeps the multi-adapter error
+  policy meaningful — on CLJS, the registry is populated only by adapter
+  nses the consumer explicitly required."
+  (:require [re-frame.substrate.adapter :as adapter]))
 
 (defn- make-state-container [initial-value]
   (atom initial-value))
@@ -75,3 +85,21 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
+
+;; ---- default-adapter registration (rf2-84po) -----------------------------
+;;
+;; JVM only: register plain-atom as the default-adapter candidate at
+;; ns-load time. CLJS targets get their default from the substrate-specific
+;; ns the consumer requires (re-frame.substrate.reagent /
+;; re-frame.substrate.uix). On CLJS the plain-atom adapter is still
+;; reachable via `(rf/init! :plain-atom)` / `(rf/init! plain-atom/adapter)`,
+;; but it is NOT a default candidate — that keeps the multi-adapter
+;; resolution policy meaningful (the registry on CLJS contains only the
+;; substrate nses the consumer explicitly required). Per Spec 006
+;; §Adapter selection at boot.
+;;
+;; Wrapped in `defonce` so a JVM repl reload doesn't churn the registry.
+
+#?(:clj
+   (defonce ^:private __register-default-adapter
+     (do (adapter/register-default-adapter! :plain-atom adapter) nil)))

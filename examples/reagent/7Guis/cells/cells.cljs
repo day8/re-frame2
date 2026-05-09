@@ -293,6 +293,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  (rf/init!)
   (rf/dispatch-sync [:cells/initialise])
   (rdc/render react-root [cells-grid]))

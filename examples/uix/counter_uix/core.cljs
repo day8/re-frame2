@@ -67,6 +67,7 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! uix-adapter/adapter)
+  ;; rf2-84po: re-frame.substrate.uix ns-load auto-registers as default.
+  (rf/init!)
   (rf/dispatch-sync [:counter/initialise])
   (uix-dom/render-root ($ counter-app) root))

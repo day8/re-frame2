@@ -24,6 +24,7 @@
             [re-frame.frame   :as frame]
             [re-frame.interop :as interop]
             [re-frame.subs    :as subs]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.context :as substrate-context]))
 
 ;; ---- container ------------------------------------------------------------
@@ -403,3 +404,20 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
+
+;; ---- default-adapter registration (rf2-84po) -----------------------------
+;;
+;; Register this adapter as a default-resolution candidate for
+;; `(rf/init!)` (no args). Consumers who `(:require
+;; [re-frame.substrate.uix])` pick up UIx as the default at ns-load
+;; time without an explicit adapter arg. In a mixed-substrate app that
+;; requires both this ns and re-frame.substrate.reagent the registry
+;; carries two entries and `(rf/init!)` raises
+;; `:rf.error/multiple-default-adapters` — the consumer must
+;; disambiguate via `(rf/init! :uix)` or `(rf/init! :reagent)`.
+;;
+;; Wrapped in `defonce` so shadow-cljs hot-reload doesn't perturb the
+;; registry. Per rf2-84po (resolves rf2-4cb6).
+
+(defonce ^:private __register-default-adapter
+  (do (substrate-adapter/register-default-adapter! :uix adapter) nil))

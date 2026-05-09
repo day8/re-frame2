@@ -22,7 +22,8 @@
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.adapter :as substrate-adapter]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -115,3 +116,16 @@
 ;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
 ;; §Substrate-adapter shipping convention (rf2-0hxm).
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+
+;; ---- default-adapter registration (rf2-84po) -----------------------------
+;;
+;; Register this adapter as a default-resolution candidate for
+;; `(rf/init!)` (no args). Consumers who `(:require
+;; [re-frame.substrate.reagent])` pick up Reagent as the default at
+;; ns-load time without an explicit adapter arg.
+;;
+;; Wrapped in `defonce` so shadow-cljs hot-reload doesn't perturb the
+;; registry. Per rf2-84po (resolves rf2-4cb6).
+
+(defonce ^:private __register-default-adapter
+  (do (substrate-adapter/register-default-adapter! :reagent adapter) nil))
