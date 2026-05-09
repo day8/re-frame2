@@ -23,7 +23,7 @@ The runtime is eight components plus a host-side **interop layer** that the CLJS
 | 5 | **Effect interpreter (`do-fx`)** | Walks the `:fx` vector in source order, dispatching each entry to its registered fx handler. | [002-Frames §`:fx` ordering](002-Frames.md#fx-ordering-and-atomicity-guarantees) |
 | 6 | **Sub-cache** | Per-frame derivation graph + memoised values. Invalidates on `app-db` change; disposes on frame destroy. | [006-ReactiveSubstrate §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | 7 | **Reactive substrate adapter** | Bridges the core to a reactivity library (Reagent in CLJS reference). Turns container reads into view re-renders. | [006-ReactiveSubstrate](006-ReactiveSubstrate.md) |
-| 8 | **Trace bus** | Per-process event stream; listeners notified after debounce window. Carries every dispatch, fx, machine transition, error, and registry mutation. | [009-Instrumentation](009-Instrumentation.md) |
+| 8 | **Trace bus** | Per-process event stream; listeners notified synchronously, in registration order, on each emit. Carries every dispatch, fx, machine transition, error, and registry mutation. | [009-Instrumentation](009-Instrumentation.md) |
 
 The **interop layer** (`re-frame.interop` in the CLJS reference) is not a runtime component — it is the host-abstraction surface the components call into for `next-tick`, `after-render`, mutable references, host-clock `now-ms`. Other hosts implement it natively; the interface stays small (per [Spec 002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)).
 
@@ -53,7 +53,7 @@ External event ingress to settled view, in one diagram:
                                    │      [:rf/machines <id>]   │  │            │
                                    └─────────┬──────────────────┘  │            ▼
                                              │                     │   listener delivery
-                                             │ container.replace!  │   (debounced batches)
+                                             │ container.replace!  │   (synchronous, in-order)
                                              ▼                     │
                                    ┌────────────────────────────┐  │
                                    │ Frame container            │  │
@@ -213,12 +213,12 @@ The Reagent-specific bridging pseudocode — which Reagent primitive realises wh
 
 **Inputs.** Emit calls from every other component — registrar (mutations), router (enqueue/drain markers), drain loop (event lifecycle), `do-fx` (per-fx events), sub-cache (recompute markers), substrate (render markers, adapter lifecycle), error projector ([009 §Error contract](009-Instrumentation.md#error-contract)).
 
-**Outputs.** Batched delivery to listeners ([009 §Listener API](009-Instrumentation.md#the-listener-api)). Listener-side: 10x panel, re-frame-pair, agent tools.
+**Outputs.** Synchronous, event-at-a-time delivery to listeners ([009 §The listener API](009-Instrumentation.md#the-listener-api)). Listener-side: 10x panel, re-frame-pair, agent tools.
 
 **Invariants.**
 - Open shape ([009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)).
 - Compile-time elidable in production ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-- Listener invocation is async (debounce window batched) by default; opt-in per-event delivery for tools that need it.
+- Listener invocation is synchronous, in registration order, on the runtime's emit call stack — every emit returns once every listener has run ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
 
 ## Lifecycles
 
@@ -263,7 +263,7 @@ Two sub-cases: per-frame teardown and per-process teardown.
 
 1. Every frame is destroyed in reverse-creation order.
 2. The adapter's `dispose-adapter!` runs ([006 §Adapter disposal lifecycle](006-ReactiveSubstrate.md#adapter-disposal-lifecycle)).
-3. The trace bus drains its pending batch to listeners; subscriptions are released.
+3. Trace listeners are released; the retain-N ring buffer is dropped (no pending batch — listeners were already invoked synchronously on each emit).
 4. The registrar is held by the host; in a long-lived process it persists across test runs (per [008-Testing](008-Testing.md) fixture conventions).
 
 ## What is new versus re-frame v1

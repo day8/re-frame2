@@ -169,7 +169,7 @@ The CLJS reference makes the following bindings to the language-agnostic pattern
 | Source-coord capture | macros |
 | Registration symbol style | Vars defined via `reg-*` macros |
 | Effect resolver | `reg-fx` registered handlers |
-| Trace listener delivery | batched, debounced (50ms default) |
+| Trace listener delivery | synchronous, in-order, event-at-a-time (per [009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)) |
 | Macro-vs-function bias | macros where source-coord capture or compile-time elision matters; functions otherwise |
 | Test framework | `cljs.test` / `clojure.test` re-exports plus `re-frame.test` helpers |
 | Build/dev tooling | shadow-cljs (test fixtures, hot reload, release elision) |
