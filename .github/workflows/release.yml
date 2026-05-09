@@ -1,0 +1,209 @@
+# Release workflow (rf2-r382): publish to Clojars on tag push.
+#
+# Modeled on re-frame v1's continuous-deployment-workflow.yml. The
+# pipeline gates the deploy on the same checks the regular `tests.yml`
+# runs (JVM, CLJS, elision probe), then deploys two artefacts in
+# sequence using `clojure -M:clein deploy` per artefact directory:
+#
+#   - day8/re-frame-2          (implementation/core)
+#   - day8/re-frame-2-reagent  (implementation/reagent)
+#
+# Versioning. The repo-root VERSION file is the single source of truth.
+# A release commit updates VERSION and tags the commit `v<contents>`
+# (e.g. VERSION=0.0.1.beta → tag v0.0.1.beta). Each artefact's
+# :clein/build alias reads ../../VERSION.
+#
+# Tag pattern. Matches re-frame v1's trailing-glob pattern; accepts
+# both strict semver (v1.0.0) and pre-release suffixes (v0.0.1.beta).
+#
+# Secrets. CLOJARS_USERNAME and CLOJARS_PASSWORD must be configured at
+# the repository level. Per re-frame v1 convention, CLOJARS_PASSWORD
+# carries a Clojars deploy token (the username sees the token as the
+# password) — neither is committed; both are GHA secrets.
+#
+# First publish protocol. Mike runs the first deploy manually after
+# reviewing the workflow on a tagged commit. Subsequent releases run
+# automatically on tag push.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+jobs:
+  test:
+    name: Pre-release test gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Verify VERSION matches tag
+        # Sanity check: the pushed tag must match the repo-root VERSION
+        # file content (prefixed with `v`). Catches accidental tags.
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="$(tr -d '[:space:]' < VERSION)"
+          expected="v${version}"
+          if [ "$tag" != "$expected" ]; then
+            echo "::error::tag '$tag' does not match VERSION '$expected'"
+            exit 1
+          fi
+          echo "tag $tag matches VERSION $expected — proceeding"
+
+      - name: JVM tests (core artefact)
+        working-directory: implementation/core
+        run: clojure -M:test
+
+      - name: JVM tests (reagent artefact, classpath probe)
+        working-directory: implementation/reagent
+        run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
+
+      - name: npm install
+        working-directory: implementation
+        run: npm ci
+
+      - name: CLJS tests (node-test)
+        working-directory: implementation
+        run: npm run test:cljs
+
+      - name: CLJS production elision probe
+        working-directory: implementation
+        run: npm run test:elision
+
+  release:
+    name: Deploy to Clojars
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-release-
+            ${{ runner.os }}-clj-
+
+      - name: Read version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $version"
+
+      - name: Deploy core (day8/re-frame-2)
+        working-directory: implementation/core
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+      - name: Install core to runner ~/.m2
+        # The reagent build's pom step resolves day8/re-frame-2 from
+        # Maven; installing locally first means the runner doesn't have
+        # to wait for Clojars' index to refresh and avoids a window
+        # where the deploy succeeded but the artefact isn't yet
+        # discoverable. Local install is cheap on top of the just-built
+        # jar in target/.
+        working-directory: implementation/core
+        run: clojure -M:clein install
+
+      - name: Rewrite reagent :local/root → :mvn/version
+        # The reagent artefact's deps.edn declares
+        #   day8/re-frame-2 {:local/root "../core"}
+        # which is correct for in-repo dev/test but produces an
+        # unresolvable pom dependency for downstream consumers. Swap to
+        # the just-published :mvn/version coordinate before clein writes
+        # the pom. The checkout is throwaway so this rewrite is local
+        # to the runner and never committed.
+        working-directory: implementation/reagent
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! grep -qF ':local/root "../core"' deps.edn; then
+            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/reagent/deps.edn"
+            exit 1
+          fi
+          # Use python with stdin-fed source to avoid sed-vs-quote escaping.
+          BEFORE=':local/root "../core"' \
+          AFTER=":mvn/version \"${VERSION}\"" \
+          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
+          echo "Rewrote :local/root → :mvn/version $VERSION"
+          grep "day8/re-frame-2 " deps.edn
+
+      - name: Deploy reagent adapter (day8/re-frame-2-reagent)
+        working-directory: implementation/reagent
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
+      - name: Create GitHub Release
+        # Mirrors re-frame v1's release-notes pattern — minimal body
+        # with a link back to the CHANGELOG. Mike updates CHANGELOG.md
+        # in the same release commit before tagging.
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844  # v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            See [CHANGELOG.md](https://github.com/day8/re-frame2/blob/main/CHANGELOG.md) for release notes.
+
+            Artefacts published to Clojars:
+            - `day8/re-frame-2` ${{ steps.version.outputs.version }}
+            - `day8/re-frame-2-reagent` ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
