@@ -7,6 +7,16 @@
   re-frame.schemas, re-frame.subs) but cannot `:require` them without
   introducing a cyclic load order.
 
+  Per rf2-p7va the same mechanism carries cross-artefact references:
+  `re-frame.schemas` ships in a separate Maven artefact
+  (day8/re-frame-2-schemas), so re-frame.core / re-frame.test-support
+  MUST NOT statically `:require` it — they look the schemas API up
+  through the hook table at call time. When the schemas artefact is
+  not on the classpath, the lookup returns nil and the consumer
+  no-ops (or, in the case of `rf/reg-app-schema`, throws a clear
+  `:rf.error/schemas-artefact-missing` so the misconfiguration is
+  surfaced rather than silently absorbed).
+
   On the JVM we historically used `(resolve 'ns/sym)` to defer the
   lookup to runtime. That works on the JVM because `clojure.core/resolve`
   is a runtime fn — but ClojureScript has no runtime `resolve` (the
@@ -38,12 +48,18 @@
     :flows/reg-flow-fx!       re-frame.flows/reg-flow-fx!
     :flows/clear-flow-fx!     re-frame.flows/clear-flow-fx!
     :flows/run-flows!         re-frame.flows/run-flows!
-    :schemas/validate-event!     re-frame.schemas/validate-event!
-    :schemas/validate-app-db!    re-frame.schemas/validate-app-db!
-    :schemas/validate-cofx!      re-frame.schemas/validate-cofx!
+    :schemas/validate-event!      re-frame.schemas/validate-event!
+    :schemas/validate-app-db!     re-frame.schemas/validate-app-db!
+    :schemas/validate-cofx!       re-frame.schemas/validate-cofx!
     :schemas/validate-sub-return! re-frame.schemas/validate-sub-return!
     :schemas/frame-schema-entries re-frame.schemas/frame-schema-entries
-    :schemas/app-schemas-digest  re-frame.schemas/app-schemas-digest
+    :schemas/reg-app-schema       re-frame.schemas/reg-app-schema
+    :schemas/app-schema-at        re-frame.schemas/app-schema-at
+    :schemas/app-schemas          re-frame.schemas/app-schemas
+    :schemas/app-schemas-digest   re-frame.schemas/app-schemas-digest
+    :schemas/snapshot-by-frame    re-frame.schemas/snapshot-schemas-by-frame
+    :schemas/restore-by-frame!    re-frame.schemas/restore-schemas-by-frame!
+    :schemas/clear-by-frame!      re-frame.schemas/clear-schemas-by-frame!
     :subs/subscribe-value     re-frame.subs/subscribe-value
     :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
     :epoch/settle!            re-frame.epoch/settle!
