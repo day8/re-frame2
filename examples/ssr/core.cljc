@@ -31,6 +31,11 @@
    renders against the now-seeded app-db."
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
+            ;; Per rf2-p7va, re-frame.schemas ships in
+            ;; day8/re-frame-2-schemas. Loading the ns here registers
+            ;; its late-bind hooks so rf/reg-app-schema resolves at
+            ;; the call sites below.
+            [re-frame.schemas]
             #?(:cljs [cljs.reader])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
