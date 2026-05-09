@@ -207,13 +207,65 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 
 A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
 
+## Packaging conventions
+
+re-frame2 ships as **multiple Maven artefacts**. A user picks the artefacts their app needs; bundle isolation is structural, not vigilance-based — the wrong feature or the wrong substrate is *absent from the classpath*, not eliminated by a hopeful pass of dead-code analysis.
+
+### Artefact tiers
+
+The CLJS reference's published artefact set partitions across three tiers.
+
+**Core** — `day8/re-frame-2`. The always-needed surface: registry, drain, fx, dispatch, subscribe, frame-provider, trace.
+
+**Per-feature** — `day8/re-frame-2-<feature-id>`. Optional capabilities. The feature-id matches the spec topic:
+
+| Artefact | Spec | Feature |
+|---|---|---|
+| `re-frame-2-machines` | [005](005-StateMachines.md) | State machines |
+| `re-frame-2-flows` | [013](013-Flows.md) | Flows |
+| `re-frame-2-routing` | [012](012-Routing.md) | Routing |
+| `re-frame-2-http` | [014](014-HTTPRequests.md) | Managed HTTP |
+| `re-frame-2-ssr` | [011](011-SSR.md) | SSR & hydration |
+| `re-frame-2-schemas` | [010](010-Schemas.md) | Malli schema layer |
+| `re-frame-2-epoch` | [Tool-Pair](Tool-Pair.md) | Tool-Pair epoch surfaces |
+
+**Per-substrate** — `day8/re-frame-2-<substrate>`. Rendering substrates:
+
+| Artefact | Spec | Substrate |
+|---|---|---|
+| `re-frame-2-reagent` | [006](006-ReactiveSubstrate.md) | Reagent (browser default) |
+| `re-frame-2-uix` | [006](006-ReactiveSubstrate.md) | UIx — when [rf2-3yij](#) ships |
+| `re-frame-2-helix` | [006](006-ReactiveSubstrate.md) | Helix — when [rf2-2qit](#) ships |
+
+### Independence rule
+
+Each per-feature artefact is **independent**. Core MUST NOT transitively `:require` any per-feature ns. Cross-references between features (e.g., flows depending on schemas at runtime) go through the late-bind hook registry, not direct requires. The discipline is exactly what makes opt-in work: a consumer who omits `re-frame-2-schemas` does not pay for it, and the features that *would* benefit from schemas if present detect the absence and degrade silently.
+
+The independence rule applies to the per-substrate tier too: the substrate adapters depend on core; core never depends on a substrate adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
+
+### Naming convention
+
+The artefact-naming convention is `re-frame-2-<thing>`, where `<thing>` is the feature-id (per Spec topic) or substrate name. The Maven group is `day8` for the CLJS reference's published artefacts.
+
+The `*`-suffix convention for fn-versions of macros (per the Clojure idiom of `let`/`let*`, `fn`/`fn*`; see [§`*`-suffix naming for fn-versions of macros](#-suffix-naming-for-fn-versions-of-macros)) is orthogonal to artefact naming: `*`-suffix is symbol-naming inside an artefact; `re-frame-2-<thing>` is the artefact's coordinate.
+
+### Bundle-isolation conformance
+
+A production-elision build of an app that consumes `day8/re-frame-2` plus `day8/re-frame-2-reagent` carries `re-frame.substrate.reagent` strings AND does NOT carry `re-frame.substrate.uix` or `re-frame.substrate.helix` strings, AND does NOT carry the namespaces of any per-feature artefact the app didn't add to its `deps.edn`. The check is a grep over the advanced-compile output. Per [rf2-5vjj](#) and the per-feature split beads.
+
+### Cross-references
+
+- [§Substrate-adapter shipping convention](#substrate-adapter-shipping-convention) below — the per-substrate tier in operational detail.
+- [README §Project layout](../README.md#project-layout) — the per-artefact directory structure under `implementation/`.
+- The per-feature split beads: [rf2-xbtj](#) (machines), [rf2-tfw3](#) (flows), [rf2-k682](#) (routing), [rf2-5kpd](#) (http), [rf2-uo7v](#) (ssr), [rf2-p7va](#) (schemas), [rf2-lt4e](#) (epoch). The umbrella is [rf2-5vjj](#).
+
 ## Substrate-adapter shipping convention
 
-Substrate adapters ship as **separate Maven artefacts** alongside the core. The CLJS reference's published artefact set is:
+Substrate adapters ship as **separate Maven artefacts** alongside the core (per [§Packaging conventions §Per-substrate](#packaging-conventions) above). The CLJS reference's published artefact set is:
 
 | Artefact | Contents |
 |---|---|
-| `day8/re-frame-2` | Core: registry, drain, machines, flows, routing, fx, schemas, trace, the substrate-adapter contract, the headless plain-atom adapter |
+| `day8/re-frame-2` | Core: registry, drain, fx, dispatch, subscribe, frame-provider, trace, the substrate-adapter contract, the headless plain-atom adapter. Today still carries machines, flows, routing, http, ssr, schemas, epoch — these split into per-feature artefacts under [rf2-5vjj](#) and the linked feature beads (per [§Packaging conventions §Per-feature](#packaging-conventions) above). |
 | `day8/re-frame-2-reagent` | Reagent adapter (`re-frame.substrate.reagent`) |
 | `day8/re-frame-2-uix` | UIx adapter (`re-frame.substrate.uix`) — when [rf2-3yij](#) ships |
 | `day8/re-frame-2-helix` | Helix adapter (`re-frame.substrate.helix`) — when [rf2-2qit](#) ships |
