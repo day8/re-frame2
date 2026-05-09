@@ -153,6 +153,16 @@
          (registrar/unregister! :flow flow-id)
          (throw e)))
      (invalidate-topo!)
+     ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires after
+     ;; reg-flow successfully completes (including post-cycle-detection).
+     ;; Tools observe this to track the flow population over hot reloads /
+     ;; toggles. Op-type :flow is the discriminator for the whole flow
+     ;; trace stream (per Spec 009 §:op-type vocabulary, §Flow tracing).
+     (trace/emit! :flow :rf.flow/registered
+                  {:flow-id flow-id
+                   :inputs  (:inputs flow)
+                   :path    (:path flow)
+                   :frame   frame-id})
      flow-id)))
 
 (defn clear-flow
@@ -188,7 +198,15 @@
          (when (every? (fn [[_ frame-flows]] (not (contains? frame-flows id)))
                        @flows)
            (registrar/unregister! :flow id))
-         (invalidate-topo!)))
+         (invalidate-topo!)
+         ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
+         ;; clear-flow has removed the flow from the per-frame registry
+         ;; and dissoc-in'd its output path. Tools observe this to drop
+         ;; their per-flow display state.
+         (trace/emit! :flow :rf.flow/cleared
+                      {:flow-id id
+                       :path    path
+                       :frame   frame-id})))
      nil)))
 
 ;; ---- fx hooks (called from re-frame.fx) --------------------------------
@@ -231,17 +249,64 @@
   (mapv (fn [path] (get-in db path)) (:inputs flow)))
 
 (defn- evaluate-flow!
-  "Evaluate one flow against the given db. Returns the [new-db dirty?] tuple."
+  "Evaluate one flow against the given db. Returns the [new-db dirty?] tuple.
+
+  Emits one of the per-flow `:rf.flow/*` traces per call (per Spec 009
+  §:op-type vocabulary, §Flow tracing): `:rf.flow/skip` when value-equal
+  recompute suppression triggers, `:rf.flow/computed` on a successful
+  recompute, or `:rf.flow/failed` when the flow's `:output` fn throws.
+  On the failure path the in-flight db is returned unchanged and `dirty?`
+  is `false` so downstream flows still walk."
   [frame-id db flow]
-  (let [k         [frame-id (:id flow)]
+  (let [flow-id    (:id flow)
+        k          [frame-id flow-id]
         new-inputs (read-inputs db flow)
         old-inputs (get @last-inputs k)]
     (if (= new-inputs old-inputs)
-      [db false]
-      (let [new-output (apply (:output flow) new-inputs)
-            new-db     (assoc-in db (:path flow) new-output)]
-        (swap! last-inputs assoc k new-inputs)
-        [new-db true]))))
+      (do
+        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/skip records the
+        ;; suppressed recompute (per rf2-719e value-equal recompute
+        ;; suppression). Tools use this to surface "flow ran but inputs
+        ;; were stable" — distinct from "flow didn't fire at all because
+        ;; nothing wrote".
+        (trace/emit! :flow :rf.flow/skip
+                     {:flow-id flow-id
+                      :reason  :inputs-value-equal
+                      :frame   frame-id})
+        [db false])
+      (try
+        (let [new-output (apply (:output flow) new-inputs)
+              new-db     (assoc-in db (:path flow) new-output)]
+          (swap! last-inputs assoc k new-inputs)
+          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/computed records
+          ;; a successful recompute. :input-values are raw values (not
+          ;; hashed) — the trace surface is dev-only and elided in
+          ;; production, and downstream tools (10x flow panel) display
+          ;; them. Per rf2-719e the dirty-check is =-equality so this
+          ;; only fires when inputs actually changed.
+          (trace/emit! :flow :rf.flow/computed
+                       {:flow-id      flow-id
+                        :input-values new-inputs
+                        :result       new-output
+                        :path         (:path flow)
+                        :frame        frame-id})
+          [new-db true])
+        (catch #?(:clj Throwable :cljs :default) e
+          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/failed fires
+          ;; when the flow's :output fn throws. last-inputs is NOT
+          ;; advanced — so the flow will retry on the next drain rather
+          ;; than silently caching a stale-or-missing output. We re-
+          ;; throw so the router's outer catch (router.cljc) emits the
+          ;; cascade-level :rf.error/flow-eval-exception per Spec 009
+          ;; §Error contract; the per-flow `:rf.flow/failed` trace
+          ;; emitted here adds the flow-attributed detail tools (10x
+          ;; flow panel) consume.
+          (trace/emit! :flow :rf.flow/failed
+                       {:flow-id flow-id
+                        :ex      e
+                        :inputs  new-inputs
+                        :frame   frame-id})
+          (throw e))))))
 
 (defn run-flows!
   "Per Spec 013 §Drain integration: walk THIS FRAME'S registered flows
