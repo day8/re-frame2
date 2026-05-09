@@ -80,7 +80,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
 - `:route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:route.url/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition.
+- `:rf.route/url-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf/url-changed`, which fires on every URL transition.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
@@ -333,13 +333,13 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
                                :transition :idle :error nil
                                :nav-token nav-token})}
 
-        ;; Fragment-only change — update the slice; emit :route.url/fragment-changed
+        ;; Fragment-only change — update the slice; emit :rf.route/url-changed
         ;; trace; do NOT re-fire :on-match. See "Fragments" below.
         fragment-only?
         {:db (assoc-in db [:route :fragment] fragment)
-         :fx [[:rf/trace [:route.url/fragment-changed {:route-id route-id
-                                                       :prev-fragment (:fragment prev-route)
-                                                       :next-fragment fragment}]]]}
+         :fx [[:rf/trace [:rf.route/url-changed {:route-id route-id
+                                                 :prev-fragment (:fragment prev-route)
+                                                 :next-fragment fragment}]]]}
 
         :else
         {:db (assoc db :route {:id         route-id
@@ -703,7 +703,7 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
 
 1. Updates `:fragment` in the `:route` slice.
-2. Emits a `:route.url/fragment-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
+2. Emits a `:rf.route/url-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
 3. Does **NOT** allocate a new `:nav-token`.
 4. Does **NOT** re-fire `:on-match`.
 
@@ -753,7 +753,7 @@ The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}`
 
 Fixture `route-fragment-change.edn` exercises:
 1. Navigate to `/docs/routing#scroll-restoration`. Verify the slice's `:fragment` is `"scroll-restoration"`.
-2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:route.url/fragment-changed` trace event fires.
+2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/url-changed` trace event fires.
 3. Navigate to `/docs/instrumentation#scroll-restoration` (different path, same fragment). Verify `:on-match` DOES re-fire (path changed; fragment-only rule does not apply).
 
 ## Nested layouts
