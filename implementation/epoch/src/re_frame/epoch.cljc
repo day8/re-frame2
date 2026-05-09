@@ -661,6 +661,95 @@
                                 :epoch-id epoch-id})
                   true)))))))))
 
+;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
+;;
+;; Per Tool-Pair §Pair-tool writes: a public Tool-Pair write surface that
+;; replaces a frame's `app-db` with an arbitrary new value, bypassing the
+;; dispatch loop. Used by pair-shaped tools for state injection (evolved-
+;; state-shape probes after a handler hot-swap), story tools, conformance
+;; harnesses, and time-travel from JSON-loaded bug repros.
+;;
+;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
+;; gate as `restore-epoch` / `register-epoch-cb` / the rest of the
+;; epoch-history machinery. Production builds (`:advanced` +
+;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
+;; available in shipped binaries.
+;;
+;; Failure modes (each is a no-op on `app-db` and returns `false`):
+;;   :rf.error/no-such-handler            (kind :frame) — frame not registered
+;;   :rf.epoch/reset-frame-db-during-drain — called while drain is in flight
+;;   :rf.epoch/reset-frame-db-schema-mismatch — `new-db` fails the frame's
+;;                                              registered app-schema set
+;;
+;; On success: records a synthetic `:rf/epoch-record` (so undo via
+;; `restore-epoch` works against the previous state), emits
+;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
+;; epoch listeners with the assembled record.
+
+(defn reset-frame-db!
+  "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
+  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+
+  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind
+  the previous state; emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on `app-db` and returns `false`,
+  emitting a structured error trace):
+
+    :rf.error/no-such-handler                 — frame not registered
+    :rf.epoch/reset-frame-db-during-drain     — drain in flight
+    :rf.epoch/reset-frame-db-schema-mismatch  — new-db fails app-schema
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
+
+  Returns `true` on success, `false` on any failure."
+  [frame-id new-db]
+  (if-not interop/debug-enabled?
+    false
+    (let [frame-record (frame/frame frame-id)]
+      (cond
+        ;; (1) Frame registered?
+        (nil? frame-record)
+        (do
+          (emit-restore-failure! :rf.error/no-such-handler
+                                 {:kind     :frame
+                                  :frame-id frame-id})
+          false)
+
+        ;; (2) In-flight drain?
+        (let [router (:router frame-record)
+              r      (when router @router)]
+          (and r (or (:in-drain? r) (:in-sync-drain? r))))
+        (do
+          (emit-restore-failure! :rf.epoch/reset-frame-db-during-drain
+                                 {:frame frame-id})
+          false)
+
+        ;; (3) Schema mismatch?
+        (not (schema-validate-ok? frame-id new-db))
+        (do
+          (emit-restore-failure! :rf.epoch/reset-frame-db-schema-mismatch
+                                 {:frame         frame-id
+                                  :failing-paths (failing-paths-for frame-id new-db)})
+          false)
+
+        :else
+        (let [container (frame/get-frame-db frame-id)
+              db-before (when container (adapter/read-container container))]
+          (adapter/replace-container! container new-db)
+          ;; Record a synthetic epoch so `restore-epoch` can rewind the
+          ;; previous state. The record's :trigger-event is the
+          ;; pair-tool injection sentinel (no application event ran).
+          (let [record (assoc (build-record frame-id db-before new-db [])
+                              :event-id      :rf.epoch/db-replaced
+                              :trigger-event [:rf.epoch/db-replaced])]
+            (record! record)
+            (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                         {:frame    frame-id
+                          :epoch-id (:epoch-id record)})
+            (notify-listeners! record))
+          true)))))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; The router calls into settle! at drain-empty; the trace surface calls
@@ -685,6 +774,7 @@
 (late-bind/set-fn! :epoch/capture-event      capture-event!)
 (late-bind/set-fn! :epoch/epoch-history      epoch-history)
 (late-bind/set-fn! :epoch/restore-epoch      restore-epoch)
+(late-bind/set-fn! :epoch/reset-frame-db!    reset-frame-db!)
 (late-bind/set-fn! :epoch/register-epoch-cb  register-epoch-cb!)
 (late-bind/set-fn! :epoch/remove-epoch-cb    remove-epoch-cb!)
 (late-bind/set-fn! :epoch/configure!         configure!)
