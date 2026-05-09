@@ -1,0 +1,24 @@
+;; day8/re-frame-2 — core artefact (rf2-0hxm).
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention: substrate adapters
+;; ship as separate Maven artefacts; this is the core (registry, drain,
+;; machines, flows, routing, fx, schemas, trace) and excludes substrate-
+;; specific code. The Reagent adapter lives in implementation/reagent/.
+;;
+;; Reagent appears as a dependency here because re-frame.views (CLJS-only
+;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
+;; scope. Per the rf2-0hxm decision, that coupling is preserved at the
+;; views.cljs layer; the *substrate* adapter ns (re-frame.substrate.reagent)
+;; lives in the Reagent artefact. The full substrate-config plumbing
+;; unification is deferred to rf2-3yij (UIx adapter).
+{:paths ["src"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
+         org.clojure/clojurescript {:mvn/version "1.11.132"}
+         reagent/reagent           {:mvn/version "2.0.1"}
+         metosin/malli             {:mvn/version "0.13.0"}}
+
+ :aliases
+ {:test {:extra-paths ["test" "../../examples"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}}}

@@ -1,4 +1,15 @@
-{:source-paths ["src" "test" "../examples" "../examples/realworld/test"]
+;; Top-level shadow-cljs build (rf2-0hxm).
+;;
+;; Pulls in both published artefacts' source paths (core/ and reagent/)
+;; plus their test trees and the examples. The shadow build runs as a
+;; *consumer* of both artefacts; the deps.edn at this level wires the
+;; classpath via :local/root for any clojure-tools-driven steps.
+{:source-paths ["core/src"
+                "core/test"
+                "reagent/src"
+                "reagent/test"
+                "../examples"
+                "../examples/realworld/test"]
  :dependencies [[reagent       "2.0.1"]
                 [metosin/malli "0.13.0"]]
 

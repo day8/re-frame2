@@ -1,11 +1,28 @@
-{:paths ["src"]
- :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
-         org.clojure/clojurescript {:mvn/version "1.11.132"}
-         reagent/reagent           {:mvn/version "2.0.1"}
-         metosin/malli             {:mvn/version "0.13.0"}}
+;; Top-level coordinator (rf2-0hxm).
+;;
+;; The published artefacts are core/ (day8/re-frame-2) and reagent/
+;; (day8/re-frame-2-reagent); see implementation/core/deps.edn and
+;; implementation/reagent/deps.edn.
+;;
+;; This top-level deps.edn is *not* itself a published artefact — it is
+;; the build coordinator that pulls both artefacts onto a single
+;; classpath for the shadow-cljs builds (browser-test, elision-probe,
+;; examples) that exercise core + Reagent together. Per-artefact JVM
+;; tests run via implementation/core/deps.edn and
+;; implementation/reagent/deps.edn directly.
+{:paths []
+ :deps  {day8/re-frame-2         {:local/root "core"}
+         day8/re-frame-2-reagent {:local/root "reagent"}}
 
  :aliases
- {:test {:extra-paths ["test" "../examples"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}}}
+ {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
+  ;; both artefacts and the example sources on the classpath. Production
+  ;; CI runs each artefact's :test alias separately.
+  :test
+  {:extra-paths ["core/test"
+                 "reagent/test"
+                 "../examples"
+                 "../examples/realworld/test"]
+   :extra-deps  {io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "cognitect.test-runner"]}}}
