@@ -2,15 +2,16 @@
 ;;
 ;; Per Spec 006 §Substrate-adapter shipping convention: substrate adapters
 ;; ship as separate Maven artefacts; this is the core (registry, drain,
-;; flows, fx, trace) and excludes substrate-specific code. The
-;; Reagent adapter lives in implementation/reagent/. Per rf2-p7va (the
-;; first per-feature split per rf2-5vjj Strategy B) the Spec 010
-;; schema-attachment surface lives in implementation/schemas/
-;; (`day8/re-frame-2-schemas`); per rf2-xbtj (the second per-feature
-;; split) the Spec 005 state-machine surface lives in
-;; implementation/machines/ (`day8/re-frame-2-machines`); per rf2-k682
-;; (the third per-feature split) the Spec 012 routing surface lives in
-;; implementation/routing/ (`day8/re-frame-2-routing`).
+;; fx, trace) and excludes substrate-specific code. The Reagent adapter
+;; lives in implementation/reagent/. Per rf2-p7va (the first per-feature
+;; split per rf2-5vjj Strategy B) the Spec 010 schema-attachment surface
+;; lives in implementation/schemas/ (`day8/re-frame-2-schemas`); per
+;; rf2-xbtj (the second per-feature split) the Spec 005 state-machine
+;; surface lives in implementation/machines/ (`day8/re-frame-2-machines`);
+;; per rf2-k682 (the third per-feature split) the Spec 012 routing
+;; surface lives in implementation/routing/ (`day8/re-frame-2-routing`);
+;; per rf2-tfw3 (the fourth per-feature split) the Spec 013 flows
+;; surface lives in implementation/flows/ (`day8/re-frame-2-flows`).
 ;;
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
 ;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
@@ -33,25 +34,37 @@
 
  :aliases
  {;; The core artefact's tests historically exercised schema-aware,
-  ;; machine-aware AND routing-aware paths (every reset-runtime fixture
-  ;; rolled the per-frame schema registry, the spawn-counter, and the
-  ;; route-registration counter; many test files require re-frame.schemas
-  ;; to set up their data shapes; smoke_test.clj / pattern_smoke_test.clj
-  ;; / conformance_test.clj exercise re-frame.machines/reg-machine +
+  ;; machine-aware, routing-aware AND flow-aware paths (every
+  ;; reset-runtime fixture rolled the per-frame schema registry, the
+  ;; spawn-counter, the route-registration counter, and the per-frame
+  ;; flow registry; many test files require re-frame.schemas to set up
+  ;; their data shapes; smoke_test.clj / pattern_smoke_test.clj /
+  ;; conformance_test.clj exercise re-frame.machines/reg-machine +
   ;; machine-transition; smoke_test.clj and many drain / fx / sub-cache
-  ;; tests exercise rf/reg-route + the :rf.route/* events). Per rf2-p7va
+  ;; tests exercise rf/reg-route + the :rf.route/* events; flows_test.clj
+  ;; / conformance_test.clj / drain_test.clj / boot_test.clj /
+  ;; epoch_test.clj / fx_test.clj / examples_test.clj /
+  ;; frame_lifecycle_test.clj / hot_reload_test.clj /
+  ;; http_managed_test.clj / interceptor_test.clj /
+  ;; pattern_smoke_test.clj / smoke_test.clj / source_coords_test.clj /
+  ;; ssr_end_to_end_test.clj / sub_cache_test.clj / test_support_test.clj
+  ;; / trace_buffer_test.clj / trace_listener_test.clj / trace_test.clj
+  ;; / views_macros_test.clj exercise re-frame.flows). Per rf2-p7va
   ;; those tests stay in core/test/ and pull schemas in as a test-only
   ;; dep; per rf2-xbtj they pull machines in the same way; per rf2-k682
-  ;; they pull routing in the same way. The core artefact's test
-  ;; classpath therefore includes schemas (with Malli), machines, and
-  ;; routing while the published library jar carries none of them.
-  ;; Keeps the per-test coverage intact without smuggling any feature
-  ;; into the production classpath. See implementation/schemas/deps.edn,
-  ;; implementation/machines/deps.edn, and implementation/routing/deps.edn.
+  ;; they pull routing in the same way; per rf2-tfw3 they pull flows
+  ;; in the same way. The core artefact's test classpath therefore
+  ;; includes schemas (with Malli), machines, routing, and flows while
+  ;; the published library jar carries none of them. Keeps the per-test
+  ;; coverage intact without smuggling any feature into the production
+  ;; classpath. See implementation/schemas/deps.edn,
+  ;; implementation/machines/deps.edn, implementation/routing/deps.edn,
+  ;; and implementation/flows/deps.edn.
   :test {:extra-paths ["test" "../../examples"]
          :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
                        day8/re-frame-2-machines {:local/root "../machines"}
                        day8/re-frame-2-routing  {:local/root "../routing"}
+                       day8/re-frame-2-flows    {:local/root "../flows"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}

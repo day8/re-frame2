@@ -29,7 +29,15 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
+         ;; The schemas JVM test's reset-runtime fixture touches
+         ;; `re-frame.flows/flows` (the reset matrix is defensive;
+         ;; flows might not be on the classpath in production but is
+         ;; during development). Pull flows in as a test-only dep so
+         ;; the fixture loads cleanly. Per rf2-tfw3 — flows ships in
+         ;; `day8/re-frame-2-flows`. Mirrors the pattern in
+         ;; core/deps.edn and routing/deps.edn.
+         :extra-deps  {day8/re-frame-2-flows {:local/root "../flows"}
+                       io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
 
