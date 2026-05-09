@@ -1346,6 +1346,34 @@ This entry is preserved as a pointer for users searching for `:dispatch-n` migra
 
 ---
 
+### O-9. Adopt `:system-id` named-machine addressing (Spec 005)
+
+re-frame v1 had no machine substrate, so v1 codebases threading actor ids through their own `:data` slots is the v2-equivalent baseline. Per [Spec 005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue / rf2-ecv4, a spawn whose args carry `:system-id` binds a name in the per-frame `[:rf/system-ids]` reverse index, lookable up via `(rf/machine-by-system-id sid)`. Adoption is purely **opt-in**:
+
+- `:system-id` is an additive key on `[:spawn ...]` and on `:invoke` slots; existing spawns / invokes continue to work unchanged.
+- `[:rf/system-ids]` is a runtime-managed reserved app-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
+- The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame-2-machines`.
+
+If a codebase has any pattern of "spawn an actor and thread its id through a sibling's `:data` so the sibling can dispatch back," consider replacing the threading with a `:system-id` binding plus `(rf/machine-by-system-id ...)` at the call site. The change is mechanical:
+
+```clojure
+;; before
+:action (fn [data _]
+          {:fx [[:spawn {:machine-id :notifier
+                         :on-spawn   (fn [d id] (assoc d :notifier-id id))}]]})
+:action (fn [data _]
+          {:fx [[:dispatch [(:notifier-id data) [:notify "..."]]]]})
+
+;; after
+:action (fn [data _]
+          {:fx [[:spawn {:machine-id :notifier
+                         :system-id  :notifier}]]})
+:action (fn [data _]
+          {:fx [[:dispatch-to-system :notifier [:notify "..."]]]})
+```
+
+Apply only when the threading-via-`:data` pattern shows up in code review or when adding new spawn sites — there's no migration pressure on existing call sites that already work.
+
 ### O-8. Adopt the standard routing surface (Spec 012)
 
 re-frame v1 didn't ship a router; codebases use third-party routers (secretary, reitit, bidi). re-frame2 ships a first-class routing surface (`reg-route`, `:rf.route/navigate`, declarative `:on-match` data loading; per [012-Routing.md](012-Routing.md)). Migrating to it is **opt-in**; existing routers continue to work alongside re-frame2's runtime.

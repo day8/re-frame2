@@ -62,6 +62,12 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
  :config       {...}}                   ;; whatever was passed to `reg-frame`
 ```
 
+Within `:app-db`, a small number of root keys are runtime-managed (per [Conventions.md §Reserved app-db keys](Conventions.md#reserved-app-db-keys)). The set:
+
+- `[:rf/machines]` — `{<machine-id> <:rf/machine-snapshot>}` for every active machine in this frame (per [005-StateMachines.md §Where snapshots live](005-StateMachines.md#where-snapshots-live)).
+- `[:rf/system-ids]` — the per-frame **reverse-index** for `:system-id` named addressing: `{<system-id> <gensym'd-machine-id>}`. Allocated lazily (only present when a spawn binds a name); cleared on destroy. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
+- `[:rf/route]` — the route slice for url-bound frames (per [012-Routing.md](012-Routing.md)).
+
 Three observations:
 
 1. **Handlers are not in the frame.** The handler registrar is global, shared across all frames. Frames isolate *state*, not *behaviour*.
