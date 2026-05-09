@@ -1,0 +1,79 @@
+;; Conformance fixture: cross-spec/machine-fx-handler-throws
+;;
+;; Cross-Spec Interaction #12 (Machines × Errors), per
+;; [Cross-Spec-Interactions §12 — Effect handler throws inside a machine action's :fx](../../Cross-Spec-Interactions.md#12-effect-handler-throws-inside-a-machine-actions-fx).
+;;
+;; Specs that meet: [002-Frames §fx ordering and atomicity guarantees](../../002-Frames.md),
+;;                  [005-StateMachines §Drain semantics §Level 3](../../005-StateMachines.md).
+;;
+;; Scenario: A machine action returns `{:fx [[:throwy ...] [:safe ...]]}`.
+;; The `:throwy` fx handler throws while running the post-commit fx walk.
+;;
+;; Behaviour: the snapshot commit already happened (per 005 §Drain
+;; semantics §Level 3 step 5) and is preserved. The `:fx` walk
+;; **continues** to the subsequent `:safe` entry (per 002 §Error during
+;; `:fx`). Two trace events fire: `:rf.error/fx-handler-exception` for
+;; `:throwy`, and `:rf.machine/transition` for the successful machine
+;; transition. NB: ordering ≠ dependency — independent fx don't suppress
+;; each other.
+;;
+;; Pinned by rf2-msd4 (conformance runner :reg-machine).
+
+{:fixture/id           :cross-spec/machine-fx-handler-throws
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :core/event-handler :core/fx :core/error}
+ :fixture/doc          "Cross-Spec #12 Effect handler throws inside a machine action's :fx. Snapshot commits; :fx walk continues past the throwing handler to subsequent entries; :rf.error/fx-handler-exception fires for the failed fx; :rf.machine/transition fires for the successful machine transition."
+
+ :fixture/registry
+ {:event {:test/m {:doc "Machine-as-event-handler."}}
+  :fx    {:throwy {:doc "Buggy fx — throws every time."}
+          :safe   {:doc "Records its args into app-db so we can prove the post-throw fx still ran."}}
+  :machine-action
+  {:emit-fx {:doc "Action emits two fx; first throws, second writes."}}
+  ;; :actions populated by the runner from :fixture/handlers :machine-action.
+  :machine
+  {:test/m {:initial :idle
+            :data    {}
+            :states  {:idle  {:on {:bang {:target :angry :action :emit-fx}}}
+                      :angry {}}}}}
+
+ :fixture/handlers
+ {:fx
+  ;; :throwy explodes; :safe records its args at [:fx-log].
+  {:throwy [[:throw "fx-bang"]]
+   :safe   [[:update [:fx-log] [:fn :conj [:event-arg 1]]]]}
+  :machine-action
+  ;; Both fx are returned from the action's pure-data result. The runtime
+  ;; commits the snapshot first, then walks :fx — :throwy throws,
+  ;; :safe still runs.
+  {:emit-fx [[:fx :throwy {:tag :will-throw}]
+             [:fx :safe   {:tag :will-record}]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ [[:test/m [:bang]]]
+
+ :fixture/expect
+ ;; Snapshot DID commit (state moved :idle → :angry); :fx-log carries the
+ ;; :safe fx's args, proving the post-throw fx still ran.
+ {:final-app-db
+  {:rf/machines {:test/m {:state :angry :data {}}}
+   :fx-log      [{:tag :will-record}]}
+
+  :trace-emissions
+  [{:operation :event :tags {:event-id :test/m}}
+   ;; Machine transition succeeded — snapshot committed.
+   {:operation :rf.machine/transition
+    :tags      {:machine-id :test/m}}
+   ;; The throwing fx surfaces a structured fx-handler-exception trace.
+   {:operation :rf.error/fx-handler-exception
+    :op-type   :error
+    :tags      {:fx-id             :throwy
+                :exception-message "fx-bang"}}]
+
+  ;; The runtime DID attempt to route both fx — order matches declared
+  ;; order in the action's :fx return.
+  :effects-routed
+  [{:fx-id :throwy :args {:tag :will-throw}}
+   {:fx-id :safe   :args {:tag :will-record}}]}}

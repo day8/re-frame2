@@ -26,7 +26,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 | **`Pinned`** | A working fixture in the conformance corpus enforces this rule. An implementation that fails the fixture fails conformance. |
 | **`Provisional`** | The rule is documented as a decided behaviour, but no fixture exists yet. Implementations should follow it; deviation is not yet detectable through the corpus. Provisional → Pinned as fixtures land. |
 
-**Current state of the corpus (2026-05-09).** First wave of cross-Spec fixtures landed under bead rf2-bhhu — interactions 5, 6, 7, and 19 are now `Pinned`. The remaining 16 stay `Provisional`; their fixture filenames remain *targets for future authoring* until the corresponding runner / runtime gaps close (rendering capability per [rf2-j9yf](#); machine-via-`reg-machine` realisation in the conformance runner; adapter-lifecycle hooks; tool-pair time-travel; etc.). Pinning these is tracked under follow-up beads filed by rf2-bhhu. When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
+**Current state of the corpus (2026-05-09).** First wave of cross-Spec fixtures landed under bead rf2-bhhu — interactions 5, 6, 7, and 19 are now `Pinned`. The second wave (rf2-msd4) closed the conformance runner's `reg-machine` / `:throw` op gap and pinned interactions 11, 12, and 17. The remaining 13 stay `Provisional`; their fixture filenames remain *targets for future authoring* until the corresponding runner / runtime gaps close (rendering capability per [rf2-j9yf](#); adapter-lifecycle hooks; tool-pair time-travel; hot-reload-mid-cascade hooks; etc.). Pinning these is tracked under follow-up beads filed by rf2-bhhu. When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
 
 ## Frames × Machines
 
@@ -124,7 +124,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A machine action's fn throws an exception during a transition's action group.
 - **Behaviour:** The action group's exception is caught by the machine handler; the in-flight cascade halts. The snapshot is **not committed** — the pre-action `app-db` slice at `[:rf/machines <id>]` remains. `:rf.error/machine-action-exception` traces with `:tags` carrying `:machine-id`, `:action-id`, `:state-path`, `:transition`, `:event`, `:exception`, `:exception-message`, and `:reason`; the generic `:rf.error/handler-exception` does **not** also fire (the machine layer catches the throw before it can bubble out as a handler exception). Any `:fx` already accumulated from earlier slots in the same Level-2 cascade is **dropped** (the snapshot did not commit, so the dependent effects should not fire). The `:always` microstep does **not** fire on the failed cascade. `reg-event-error-handler` runs the user-defined projector if registered.
 - **Reason:** All-or-nothing transitions match the FSM mental model. A half-applied transition with side effects but no snapshot change would be the worst kind of inconsistency.
-- **Status:** `Provisional` — fixture pending: `machine-action-throws.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-machine-action-throws.edn`](conformance/fixtures/cross-spec-machine-action-throws.edn).
 
 ### 12. Effect handler throws inside a machine action's `:fx`
 
@@ -132,7 +132,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A machine action returns `{:fx [[:http ...] [:dispatch ...]]}`; the snapshot commits successfully; `do-fx` invokes `:http` and the fx handler throws.
 - **Behaviour:** The snapshot commit already happened (per [005 §Drain semantics §Level 3 step 5](005-StateMachines.md#level-3--within-a-single-machine-event)) and is preserved. The `:fx` walk **continues** to subsequent entries (per [002 §Error during `:fx`](002-Frames.md#fx-ordering-and-atomicity-guarantees)) — `:dispatch` runs even though `:http` threw. Two trace events fire: `:rf.error/fx-handler-exception` for `:http`, and `:rf.machine/transition` for the successful machine transition.
 - **Reason:** `:fx` ordering means *order*, not *dependency*. The action committed; downstream fx that genuinely depend on `:http` succeeding should be lifted to a `:dispatch` chain that observes `:http`'s result via cofx. Halting on first error would conflate the two concerns.
-- **Status:** `Provisional` — fixture pending: `machine-fx-handler-throws.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-machine-fx-handler-throws.edn`](conformance/fixtures/cross-spec-machine-fx-handler-throws.edn).
 
 ### 13. Hot-reload of a machine action while instance is running
 
@@ -178,7 +178,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Scenario:** A machine running on the server has an action that throws.
 - **Behaviour:** Per Interaction 11, the machine snapshot does not commit; the error projector runs (Interaction 16). The HTTP response is the projected-error response. The request-scoped frame is destroyed at the end of the request as usual; pending `:after` timers (none, per Interaction 4) need no special cleanup.
 - **Reason:** Compose: Interaction 11 (machine all-or-nothing) plus Interaction 16 (server error projection). No new behaviour at the boundary.
-- **Status:** `Provisional` — fixture pending: `ssr-machine-error.edn`.
+- **Status:** `Pinned` — [`conformance/fixtures/cross-spec-ssr-machine-error.edn`](conformance/fixtures/cross-spec-ssr-machine-error.edn).
 
 ## Subscriptions × Hot-reload
 
