@@ -38,12 +38,13 @@
  :aliases
  {:test {:extra-paths ["test"]
          ;; The routing JVM test's reset-runtime fixture touches
-         ;; `re-frame.schemas/schemas-by-frame` (the reset matrix is
-         ;; defensive; schemas might not be on the classpath in
-         ;; production but is during development). Pull schemas in as
-         ;; a test-only dep so the fixture loads cleanly. Mirrors the
-         ;; pattern in core/deps.edn.
+         ;; `re-frame.schemas/schemas-by-frame` and `re-frame.flows/flows`
+         ;; (the reset matrix is defensive; neither artefact is required
+         ;; in production routing builds, but both are exercised during
+         ;; development). Pull both in as test-only deps so the fixture
+         ;; loads cleanly. Mirrors the pattern in core/deps.edn.
          :extra-deps  {day8/re-frame-2-schemas {:local/root "../schemas"}
+                       day8/re-frame-2-flows   {:local/root "../flows"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
