@@ -51,7 +51,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Trace stream** | `(rf/register-trace-cb! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
-| **Source coordinates** | `:ns`/`:line`/`:file` on every registration's metadata | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
+| **Source coordinates** | `:ns`/`:line`/`:file`/`:column` on every registration's metadata; mandatory `data-rf2-source-coord` DOM annotation per Spec 006 | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference), [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) |
 | **Inspect registered schemas** | `(rf/app-schemas frame-id)`, `(rf/app-schema-at path opts)`, `(rf/app-schemas-digest opts)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | **Errors** | Structured `:rf.error/*` trace events with category + tags | [009 §Error contract](009-Instrumentation.md#error-contract) |
 
@@ -102,10 +102,10 @@ The pair tool is encouraged to use only public APIs. If it needs something not p
 
 The "which button is at `src/app/profile/view.cljs:84`?" capability requires every render-tree node — every registered view, every hiccup tag — to carry source coords. re-frame2's view registrations include `:ns`/`:line`/`:file`. The CLJS reference additionally:
 
-- Captures source coords at every `reg-view` macro expansion.
-- (Optionally) Annotates rendered DOM with a `data-rf2-source-coord` attribute pointing back to the registration that produced it. This is dev-only; production builds elide.
+- Captures source coords at every `reg-view` macro expansion (`:ns` / `:file` / `:line` / `:column`).
+- **Annotates rendered DOM** with a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. This is **mandatory** in re-frame2 per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) — every substrate adapter whose host has a DOM-attribute concept MUST inject the attribute. Annotation is dev-only and gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production builds elide the attribute via dead-code elimination so there is no DOM-bytes cost in shipped bundles.
 
-The annotation is opt-in (configured at re-frame2 startup) because it has a small DOM-bytes cost. With it on, a pair tool can take a click position, read the nearest annotation, and resolve back to a source coordinate.
+With the annotation in place, a pair tool can take a click position, read the nearest annotation, and resolve back to a source coordinate. Documented exemption (per Spec 006 §Source-coord annotation): components returning React Fragments, host-component heads (`:>`), or other non-DOM roots are exempt; pair tools fall back to `(rf/handler-meta :view id)` for those nodes.
 
 ### Where the DOM-to-source helpers live (re-frame2 vs tool)
 

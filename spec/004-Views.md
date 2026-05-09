@@ -401,6 +401,21 @@ Registered views live in re-frame's handler registrar (kind `:view`). The public
 
 Tools (10x, story tools, agents) read these to render view inspectors, pick views for stories, generate documentation. Source coords let tools navigate to the view's source.
 
+### Source-coord (rf2-z7f7 / rf2-z9n1)
+
+Every `reg-view` call captures full source coordinates at macro-expansion time. The metadata stamped onto the registry slot includes `:ns` / `:file` / `:line` / `:column`:
+
+- `:ns` and `:file` come from the compile-time `*ns*` / `*file*` (captured by the macro and embedded as literals in the expansion — necessary for the CLJS path, where `cljs.core/*ns*` is nil at runtime).
+- `:line` and `:column` come from `(meta &form)`.
+
+The captured tuple is consumed by:
+
+- **Tools** that need to navigate from a view-id to source (re-frame-pair, re-frame-10x, IDE jump-to-source) via `(rf/handler-meta :view id)`.
+- **Substrate adapters** that inject the `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute on the rendered root DOM element. Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) this is **mandatory** for any substrate adapter whose host has a DOM-attribute concept (Reagent, UIx, Helix); CLJS-only and gated on `interop/debug-enabled?` so production builds elide the attribute.
+- **JVM SSR** the same way — see [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
+
+Pair-shaped consumers parse the attribute string as `<ns>:<sym>:<line>:<col>` (segments are `?` when a coord component was not captured — for example, programmatic `reg-view*` registrations that bypassed the macro path). The `<ns>:<sym>` portion mirrors the registry id's namespace + name, so parsing is the inverse of `(keyword ns sym)`.
+
 ## Composing registered views
 
 Registered views referenced from hiccup inherit the surrounding frame from React context:
