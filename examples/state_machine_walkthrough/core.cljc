@@ -14,6 +14,11 @@
 
   Read alongside docs/guide/05-state-machines.md."
   (:require [re-frame.core :as rf]
+            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; day8/re-frame-2-machines artefact. Loading the ns here
+            ;; registers its late-bind hooks so rf/reg-machine and
+            ;; rf/machine-transition resolve.
+            [re-frame.machines]
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
