@@ -1,6 +1,6 @@
 (ns re-frame.three-arity-guards-cljs-test
   "Coverage for the machine guard / action 3-arity escape hatch (rf2-1e0n,
-  discovered-from rf2-o423).
+  discovered-from rf2-o423; CLJS arity convergence rf2-l04j).
 
   Per Spec 005 and `re-frame.machines`'s contract documented at
   `machines.cljc` lines 74-121, guards and actions accept two canonical
@@ -14,24 +14,23 @@
   The dispatcher (`declares-3-arity?`) inspects the fn's declared
   invocation surface at runtime and routes 3-fixed-arg fns through the
   3-arity path; everything else (including variadic helpers like
-  `(constantly ...)`) is INTENDED to route through the 2-arity path.
-  The docstring explicitly flags variadics as a footgun: a user who
-  expects `& rest` to receive the ctx will silently see it called as
-  2-arity instead.
+  `(constantly ...)` and 2-plus-rest fns) routes through the 2-arity
+  path. The docstring flags variadics as a footgun: a user who expects
+  `& rest` to receive the ctx will silently see it called as 2-arity
+  instead.
 
   Before this file, not a single test in the suite exercised 3-arity
   guards or actions. A `declares-3-arity?` refactor — especially around
   variadics — would have been invisible.
 
-  ***Behaviour-vs-docstring divergence found while writing these tests***:
-  on CLJS the dispatcher mis-classifies a 2-plus-rest fn
-  `(fn [data event & rest] ...)` as 3-arity (`true`), so it IS called
-  with `(g data event ctx)` and the user's `& rest` receives `(ctx)`.
-  On JVM the same fn classifies as 2-arity (`false`) per the docstring.
-  This is a real footgun the docstring doesn't cover — see the
-  `declares-3-arity-classifies-2-plus-rest-divergent-by-platform` test
-  and the PR body. The tests here pin the actual current behaviour on
-  each platform; a follow-up bead can track the convergence work.
+  rf2-l04j convergence: previously the CLJS check classified a
+  2-plus-rest fn `(fn [data event & rest] ...)` as 3-arity, so the
+  user's `& rest` silently received `(ctx)`. JVM matched the docstring
+  (returns false). The fix at `machines.cljc:declares-3-arity?` consults
+  `cljs$lang$maxFixedArity` to detect variadicity: every variadic now
+  routes through the 2-arity path on CLJS, matching JVM. The
+  previously-divergent assertions below are now consistent across
+  platforms.
 
   This file uses reader conditionals so its assertions run on both
   JVM and CLJS:
@@ -98,46 +97,48 @@
     (is (false? (boolean (declares-3-arity? (constantly true)))))
     (is (false? (boolean (declares-3-arity? (constantly nil)))))))
 
-(deftest declares-3-arity-classifies-2-plus-rest-divergent-by-platform
+(deftest declares-3-arity-classifies-2-plus-rest-as-false
   (testing "a 2-fixed-plus-rest fn (fn [data event & extras]) is
-            classified differently on JVM vs CLJS — a documented
-            divergence between this implementation and the docstring's
+            classified as non-3-arity on BOTH JVM and CLJS (rf2-l04j).
+
+            Previously CLJS classified this as 3-arity because the
+            compiled variadic surfaces a `cljs$core$IFn$_invoke$arity$3`
+            slot used by the rest dispatcher; the user's `& extras`
+            silently received `(ctx)` as a single element. The fix at
+            `declares-3-arity?` consults `cljs$lang$maxFixedArity` to
+            detect variadicity — a variadic with max-fixed < 3 is a
+            2-plus-rest helper and is NOT a 3-arity declaration, so
+            CLJS now matches the JVM behaviour and the docstring's
             'distinguishes user opt-in 3-arity from variadic helpers'
-            promise (machines.cljc:88-90).
-
-            JVM behaviour: false (correct per docstring). RestFns don't
-            declare invoke(O,O,O) on the user's class — the variadic is
-            routed through the 2-arity path and the user's `& extras`
-            stays empty.
-
-            CLJS behaviour: true (DIVERGENT). The cljs check
-              (or (= 3 (.-length f))
-                  (some? (unchecked-get f \"cljs$core$IFn$_invoke$arity$3\")))
-            mis-classifies a 2-plus-rest fn as 3-arity because the
-            compiled fn surfaces an arity-3 invoke slot for the rest
-            entry path. Net effect: the dispatcher CALLS the variadic
-            with three args, and `& extras` receives `(ctx)` rather
-            than being empty. This is a candidate for a follow-up
-            bead — see PR body."
-    #?(:clj  (is (false? (boolean (declares-3-arity? (fn [_ _ & _] :ok))))
-                 "JVM: 2-plus-rest classifies as non-3-arity (per docstring)")
-       :cljs (is (true?  (boolean (declares-3-arity? (fn [_ _ & _] :ok))))
-                 "CLJS: 2-plus-rest classifies as 3-arity — divergent with
-                  JVM and with the docstring's 'distinguishes variadic
-                  helpers' promise. Pin the actual behaviour here so
-                  future refactors don't accidentally 'fix' it without
-                  also fixing the JVM side and the docstring."))))
+            promise."
+    (is (false? (boolean (declares-3-arity? (fn [_ _ & _] :ok))))
+        "2-plus-rest classifies as non-3-arity on both JVM and CLJS")))
 
 (deftest declares-3-arity-classifies-3-plus-rest-as-false
-  (testing "a 3-fixed-plus-rest fn (fn [data event ctx & extras]) is
-            also a RestFn and is classified as non-3-arity — symmetric
-            with the 2+rest case. A user who writes this signature
-            expecting the 3-arity surface will instead be called as
-            2-arity (and on JVM that's an arity-mismatch since the
-            2-arity call is missing the third REQUIRED fixed arg).
-            This is the sharper footgun the docstring's variadic
-            warning covers."
+  (testing "a 3-fixed-plus-rest fn (fn [data event ctx & extras]) is a
+            RestFn; on JVM it doesn't expose a declared `invoke(O,O,O)`
+            on the user's class, so it classifies as non-3-arity. To
+            keep the rule simple and platform-consistent, CLJS treats
+            ANY variadic as non-3-arity (rf2-l04j) — including
+            3-plus-rest. A user who wants the 3-arity surface should
+            declare three FIXED args without `& rest`, as the canonical
+            shape `(fn [data event ctx] ...)`."
     (is (false? (boolean (declares-3-arity? (fn [_ _ _ & _] :ok)))))))
+
+(deftest declares-3-arity-classifies-multi-arity-with-3-as-true
+  (testing "a multi-arity fn that includes a 3-arity case — e.g.
+            `(fn ([a] :one) ([a b c] :three))` — has an explicit 3-arity
+            dispatch slot and IS a 3-arity declaration on both JVM and
+            CLJS. The dispatcher routes through the user's 3-arity case."
+    (let [f (fn ([_a] :one) ([_a _b _c] :three))]
+      (is (true? (boolean (declares-3-arity? f)))))))
+
+(deftest declares-3-arity-classifies-multi-arity-without-3-as-false
+  (testing "a multi-arity fn whose only fixed cases are 1 and 2
+            (no 3-arity case) is NOT a 3-arity declaration on either
+            platform."
+    (let [f (fn ([_a] :one) ([_a _b] :two))]
+      (is (false? (boolean (declares-3-arity? f)))))))
 
 ;; ---- (2) shared machine spec for guard / action exercises -----------------
 ;;
@@ -385,20 +386,20 @@
                "transition fired under the variadic-from-zero guard"))))))
 
 #?(:cljs
-   (deftest variadic-2-plus-rest-guard-cljs-receives-ctx-in-rest
+   (deftest variadic-2-plus-rest-guard-cljs-routes-as-2-arity
      (testing "Case (4) live-CLJS: a variadic 2-plus-rest guard.
 
-               Documented intent (machines.cljc:88-90): variadics
-               classify as non-3-arity, so the dispatcher would call
-               `(g data event)` and `& rest` would be empty.
+               Documented intent (machines.cljc:declares-3-arity?):
+               variadics with max-fixed < 3 classify as non-3-arity, so
+               the dispatcher calls `(g data event)` and `& rest` stays
+               empty.
 
-               ACTUAL CLJS behaviour: the dispatcher classifies
-               2-plus-rest as 3-arity (see
-               declares-3-arity-classifies-2-plus-rest-divergent-by-platform
-               above) and calls `(g data event ctx)`, so `& rest`
-               receives `(ctx)` — i.e. one element, the {:state :meta}
-               map. We pin the actual current CLJS behaviour and flag
-               the divergence in the PR body for follow-up."
+               After rf2-l04j, CLJS now agrees with JVM here (the check
+               consults `cljs$lang$maxFixedArity` to detect the variadic
+               and ignore the auto-generated arity-3 dispatch slot). The
+               assertion below is now consistent across platforms — the
+               same shape pinned by `variadic-2-plus-rest-guard-routes-
+               as-2-arity` on JVM."
        (let [seen-rest (atom :unset)
              guard     (fn [_data _event & rest]
                          (reset! seen-rest rest)
@@ -410,14 +411,12 @@
          (let [snap (snapshot-of :rf2-1e0n/v2)]
            (is (= :gone (:state snap))
                "transition fired (guard returned true)")
-           (is (sequential? @seen-rest))
-           (is (= 1 (count @seen-rest))
-               "CLJS dispatcher classified 2-plus-rest as 3-arity →
-                `& rest` received exactly one element (the ctx)")
-           (is (= {:state :idle :meta nil} (first @seen-rest))
-               "the lone rest element is the same {:state :meta} ctx
-                a fixed-3-arity guard would have seen as its third arg
-                — confirming the dispatcher took the 3-arity path"))))))
+           (is (or (nil? @seen-rest)
+                   (and (sequential? @seen-rest) (empty? @seen-rest)))
+               "post-rf2-l04j: `& rest` is empty / nil — the dispatcher
+                routed the variadic through the 2-arity path, matching
+                JVM and the docstring's 'distinguishes variadic helpers'
+                promise"))))))
 
 #?(:cljs
    (deftest plain-2-arity-guard-cljs-still-works

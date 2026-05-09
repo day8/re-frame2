@@ -86,10 +86,15 @@
 
 (defn- declares-3-arity?
   "True iff f explicitly declares a 3-fixed-arg invocation. Distinguishes
-  user opt-in 3-arity from variadic helpers like (constantly ...). On the
-  JVM, walks the fn class's declared invoke methods (variadics are
-  RestFns with no declared invoke(O,O,O) on the fn class itself); on
-  CLJS, looks for the multi-arity dispatch slot or matches .-length."
+  user opt-in 3-arity from variadic helpers like (constantly ...) or
+  (fn [data event & rest] ...). On the JVM, walks the fn class's
+  declared invoke methods (variadics are RestFns with no declared
+  invoke(O,O,O) on the fn class itself); on CLJS, inspects the compiled
+  fn surface — `cljs$lang$maxFixedArity` is set on every variadic and
+  records its max-fixed-arg count, so a variadic with max-fixed < 3 is a
+  2-plus-rest helper and is NOT a 3-arity declaration. A non-variadic fn
+  whose `.-length` is 3, or a multi-arity fn carrying an explicit
+  `cljs$core$IFn$_invoke$arity$3` dispatch slot, IS a 3-arity declaration."
   [f]
   #?(:clj  (boolean
              (some
@@ -97,8 +102,30 @@
                  (and (= "invoke" (.getName m))
                       (= 3 (.getParameterCount m))))
                (.getDeclaredMethods (class f))))
-     :cljs (or (= 3 (.-length f))
-               (some? (unchecked-get f "cljs$core$IFn$_invoke$arity$3")))))
+     :cljs (let [variadic? (some? (.-cljs$lang$maxFixedArity f))]
+             (cond
+               ;; Variadic of any flavour — (constantly ...), 2-plus-rest,
+               ;; 3-plus-rest. RestFns on the JVM don't expose a declared
+               ;; `invoke(O,O,O)` on the user's class, so the JVM check
+               ;; classifies all variadics as non-3-arity. To converge,
+               ;; CLJS treats every variadic the same way: routes through
+               ;; the 2-arity path per the docstring's "distinguishes
+               ;; variadic helpers" promise. The previously-buggy CLJS
+               ;; check matched 2-plus-rest as 3-arity via the auto-
+               ;; generated `cljs$core$IFn$_invoke$arity$3` rest-dispatch
+               ;; slot — that's what this branch fixes (rf2-l04j).
+               variadic?
+               false
+               ;; Plain 3-fixed-arity (e.g. `(fn [a b c] ...)`).
+               (= 3 (.-length f))
+               true
+               ;; Multi-arity fn with an explicit 3-arity dispatch case
+               ;; — `(fn ([a] ...) ([a b c] ...))`. The user IS opting
+               ;; in to a 3-arity surface; route through it.
+               (some? (unchecked-get f "cljs$core$IFn$_invoke$arity$3"))
+               true
+               :else
+               false))))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the
