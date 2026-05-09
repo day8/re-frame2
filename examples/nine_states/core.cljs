@@ -49,6 +49,11 @@
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
+            ;; Per rf2-p7va, the Spec 010 schema-attachment ns lives in
+            ;; the day8/re-frame-2-schemas artefact. Loading the ns
+            ;; here registers its late-bind hooks so the
+            ;; rf/reg-app-schema calls below resolve.
+            [re-frame.schemas]
             [re-frame.views]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))

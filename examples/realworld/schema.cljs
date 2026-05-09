@@ -16,7 +16,12 @@
    - Datetimes are ISO-8601 strings.
    - Authentication tokens are JWT strings, returned as the `:token` field
      of the `User` payload after login or registration."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            ;; Per rf2-p7va, re-frame.schemas ships in
+            ;; day8/re-frame-2-schemas. Loading the ns here registers
+            ;; its late-bind hooks so rf/reg-app-schema resolves at
+            ;; the call sites below.
+            [re-frame.schemas]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the RealWorld API returns
