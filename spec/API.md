@@ -342,7 +342,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restored` | `:frame`, `:epoch-id` |
 | `:rf.epoch/db-replaced` | `:frame`, `:epoch-id` |
 | `:rf.epoch/restore-unknown-epoch` | `:frame`, `:epoch-id`, `:history-size` |
-| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:epoch-id`, `:failing-paths` |
+| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:epoch-id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
 | `:rf.epoch/restore-missing-handler` | `:frame`, `:epoch-id`, `:missing` |
 | `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
