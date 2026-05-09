@@ -1084,9 +1084,12 @@
                   :system-id  system-id})
     (when spec'
       ;; (2) Register the live handler under the spawned id. Re-using
-      ;; reg-machine so the same `:rf/machine?` metadata + lifecycle
-      ;; trace flows.
-      (reg-machine spawned-id spec'))
+      ;; reg-machine* (the plain-fn surface beneath the macro, per
+      ;; rf2-8bp3) so the same `:rf/machine?` metadata + lifecycle
+      ;; trace flows. The macro form is reserved for user-call-site
+      ;; literal-spec source-coord stamping; spawn synthesises specs
+      ;; at runtime, so the plain-fn surface is the right entry.
+      (reg-machine* spawned-id spec'))
     ;; (3) Initialise the snapshot + (4) bind :system-id (atomically
     ;; under one app-db swap so observers see consistent state).
     (when-let [container (frame/get-frame-db frame-id)]

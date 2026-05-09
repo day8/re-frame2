@@ -71,6 +71,7 @@
             ;; late-bind hook table at call time, which the http
             ;; artefact populates from its own ns-load.
             [re-frame.source-coords :as source-coords]
+            [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
             [re-frame.substrate.adapter :as adapter]
@@ -537,37 +538,99 @@
 
 #?(:clj
    (defmacro reg-machine
-     "Register a machine as an event handler. Per Spec 001 the
-     metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site.
+     "Register a machine as an event handler. Per Spec 001 the metadata
+     stamped onto the registry slot includes :ns / :line / :file captured
+     at this call site, AND per Spec 005 §Source-coord stamping (rf2-8bp3)
+     a per-element coord index keyed by spec-path is attached under the
+     spec's `:rf.machine/source-coords` key. Tools (re-frame-pair,
+     re-frame-10x, IDE jump-to-source) read both back via
+     `(rf/handler-meta :event machine-id)` (top-level coords) and
+     `(:rf.machine/source-coords (rf/machine-meta machine-id))` (per-element
+     index).
+
+     Production-elision: the per-element index is wrapped in
+     `(when interop/debug-enabled? ...)`; under `:advanced` +
+     `goog.DEBUG=false` the closure compiler constant-folds the gate to
+     false and DCEs the entire literal — no spec-element string fragments
+     survive.
 
      Per rf2-xbtj the machines implementation lives in the
      `day8/re-frame-2-machines` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `reg-machine` MUST add
+     producing fn up via the late-bind hook table so core never statically
+     requires it. Apps that use `reg-machine` MUST add
      `day8/re-frame-2-machines` to their deps and require
-     `re-frame.machines` at app boot; without it, the lookup returns
-     nil and the call throws a clear error."
+     `re-frame.machines` at app boot; without it, the lookup returns nil
+     and the call throws a clear error.
+
+     For runtime registration (computed ids, code-gen pipelines, REPL),
+     use `reg-machine*` — the plain-fn surface beneath this macro."
      [machine-id machine]
-     (let [m       (meta &form)
+     (let [m              (meta &form)
            ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
            ;; the ns-symbol but in CLJS macro context that symbol may carry
            ;; the consumer namespace's :doc metadata, which would then get
            ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
-          (if-let [f# (late-bind/get-fn :machines/reg-machine)]
-            (f# ~machine-id ~machine)
-            (throw (ex-info ":rf.error/machines-artefact-missing"
-                            {:where      'reg-machine
-                             :machine-id ~machine-id
-                             :recovery   :no-recovery
-                             :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))
+           ns-sym         (symbol (str (ns-name *ns*)))
+           file           *file*
+           ;; Walk the literal spec form at compile time. When `machine`
+           ;; is a non-map (a symbol bound to a value at runtime) the
+           ;; walker returns {} — tools fall back to the call-site coords
+           ;; on the top-level handler-meta.
+           per-el-coords  (source-coords/walk-machine-spec machine ns-sym file)
+           ;; Build a syntax-quote-safe literal form for the coord index.
+           ;; Symbols inside `:ns` need to be quoted (otherwise the syntax
+           ;; quote splice would try to namespace-resolve them at compile
+           ;; time and the compiler would throw ClassNotFoundException for
+           ;; the consumer's ns).
+           per-el-form    (into {}
+                                (map (fn [[path coords]]
+                                       [path
+                                        (cond-> {:ns (list 'quote (:ns coords))}
+                                          (:file coords)   (assoc :file (:file coords))
+                                          (:line coords)   (assoc :line (:line coords))
+                                          (:column coords) (assoc :column (:column coords)))])
+                                     per-el-coords))
+           machine-sym    (gensym "machine__")]
+       ;; If the walker returned no entries — i.e. the spec form was a
+       ;; symbol / non-literal map / had no positional metadata — skip the
+       ;; per-element stamping branch entirely. Avoids polluting the
+       ;; registered spec with an empty `:rf.machine/source-coords` key
+       ;; that user code might compare against.
+       (if (empty? per-el-coords)
+         `(binding [source-coords/*pending-coords*
+                    (cond-> {:ns '~ns-sym}
+                      ~file        (assoc :file ~file)
+                      ~(:line m)   (assoc :line ~(:line m))
+                      ~(:column m) (assoc :column ~(:column m)))]
+            (if-let [f# (late-bind/get-fn :machines/reg-machine)]
+              (f# ~machine-id ~machine)
+              (throw (ex-info ":rf.error/machines-artefact-missing"
+                              {:where      'reg-machine
+                               :machine-id ~machine-id
+                               :recovery   :no-recovery
+                               :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+         `(binding [source-coords/*pending-coords*
+                    (cond-> {:ns '~ns-sym}
+                      ~file        (assoc :file ~file)
+                      ~(:line m)   (assoc :line ~(:line m))
+                      ~(:column m) (assoc :column ~(:column m)))]
+            (let [~machine-sym ~machine
+                  ;; Per-element source-coord stamping (rf2-8bp3). The literal
+                  ;; index is reachable only inside this `interop/debug-enabled?`
+                  ;; gate; under :advanced + goog.DEBUG=false the closure compiler
+                  ;; folds the gate to false and the entire literal DCE's.
+                  stamped# (if interop/debug-enabled?
+                             (assoc ~machine-sym
+                                    :rf.machine/source-coords
+                                    ~per-el-form)
+                             ~machine-sym)]
+              (if-let [f# (late-bind/get-fn :machines/reg-machine)]
+                (f# ~machine-id stamped#)
+                (throw (ex-info ":rf.error/machines-artefact-missing"
+                                {:where      'reg-machine
+                                 :machine-id ~machine-id
+                                 :recovery   :no-recovery
+                                 :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))))
 
 #?(:cljs
    (do
@@ -608,18 +671,38 @@
                            :path     path
                            :recovery :no-recovery
                            :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
-     ;; reg-machine is late-bound via the hook table so core does not
+     ;; reg-machine* is late-bound via the hook table so core does not
      ;; statically require re-frame.machines (rf2-xbtj — machines ships
-     ;; in day8/re-frame-2-machines).
-     (defn reg-machine
+     ;; in day8/re-frame-2-machines). Per Spec 005 §reg-machine vs
+     ;; reg-machine* (rf2-8bp3) this is the plain-fn surface — used by
+     ;; the `reg-machine` macro's emitted form, by code-gen pipelines
+     ;; that already carry a stamped spec, and by REPL workflows that
+     ;; bypass the macro path. Programmatic callers see no per-element
+     ;; source-coord index (only the macro can walk the literal spec at
+     ;; expansion time).
+     (defn reg-machine*
        [machine-id machine]
        (if-let [f (late-bind/get-fn :machines/reg-machine)]
          (f machine-id machine)
          (throw (ex-info ":rf.error/machines-artefact-missing"
-                         {:where      'reg-machine
+                         {:where      'reg-machine*
                           :machine-id machine-id
                           :recovery   :no-recovery
-                          :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
+                          :reason     "rf/reg-machine* requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
+
+;; Plain-fn surface for the JVM. Used by code-gen pipelines and the
+;; conformance corpus when registering machines without a literal spec
+;; form. Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3).
+#?(:clj
+   (defn reg-machine*
+     [machine-id machine]
+     (if-let [f (late-bind/get-fn :machines/reg-machine)]
+       (f machine-id machine)
+       (throw (ex-info ":rf.error/machines-artefact-missing"
+                       {:where      'reg-machine*
+                        :machine-id machine-id
+                        :recovery   :no-recovery
+                        :reason     "rf/reg-machine* requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind
 ;; ships with its default :rf.ssr/default-error-projector. Forward
