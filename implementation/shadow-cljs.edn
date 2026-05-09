@@ -30,9 +30,17 @@
                 "ssr/test"
                 "epoch/src"
                 "epoch/test"
-                "../examples"
-                "../examples/7Guis"
-                "../examples/realworld/test"]
+                ;; Per rf2-kx74 examples/ is grouped per substrate. Each
+                ;; substrate root is its own shadow-cljs source path so
+                ;; the per-example namespaces (counter.core,
+                ;; counter-uix.core, ...) resolve at the top level under
+                ;; their substrate's tree. The 7Guis cluster keeps its
+                ;; `<task>.<task>` namespace shape so it gets a dedicated
+                ;; source path inside examples/reagent/.
+                "../examples/reagent"
+                "../examples/reagent/7Guis"
+                "../examples/reagent/realworld/test"
+                "../examples/uix"]
  :dependencies [[reagent           "2.0.1"]
                 [metosin/malli     "0.13.0"]
                 [com.pitch/uix.core "1.4.4"]
@@ -97,11 +105,11 @@
   ;; Example apps (rf2-lyj0).
   ;;
   ;; Each example compiles into out/examples/<name>/ and is paired with a
-  ;; hand-written examples/<name>/index.html host page that loads main.js
-  ;; from the same directory. The serve-and-run-examples script builds the
-  ;; site layout, serves it, and runs the Playwright specs that sit
-  ;; alongside each example (examples/<name>/<name>.spec.cjs, plus the
-  ;; per-example 7GUIs sub-folders under examples/7Guis/).
+  ;; hand-written examples/<substrate>/<name>/index.html host page that loads
+  ;; main.js from the same directory. The serve-and-run-examples script
+  ;; builds the site layout, serves it, and runs the Playwright specs that
+  ;; sit alongside each example (examples/<substrate>/<name>/<name>.spec.cjs,
+  ;; plus the per-task 7GUIs sub-folders under examples/reagent/7Guis/).
   ;;
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
@@ -122,7 +130,7 @@
   ;;   1. The bundle-presence assertion in scripts/check-perf-bundle.cjs:
   ;;      `performance.mark` / `performance.measure` and the helper's
   ;;      bracketing strings MUST appear in this bundle.
-  ;;   2. The browser-smoke spec at examples/counter/counter-perf.spec.cjs:
+  ;;   2. The browser-smoke spec at examples/reagent/counter/counter-perf.spec.cjs:
   ;;      after a dispatch, `performance.getEntriesByType('measure')`
   ;;      returns at least one entry per bucket (`rf:event:*`, `rf:sub:*`,
   ;;      `rf:fx:*`, `rf:render:*`).

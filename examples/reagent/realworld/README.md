@@ -1,6 +1,6 @@
 # RealWorld (Conduit) in re-frame2
 
-> **Canonical multi-artefact integration test.** Per the rf2-w05l CI/CD strategy decision (implemented in rf2-ace2), this example is the canonical multi-artefact integration test for re-frame-2. It exercises `day8/re-frame-2` (core) + `-schemas` + `-machines` + `-routing` + `-flows` + `-http` together in a single app. CI runs it on every PR via `npm run test:examples` from `implementation/`. When a per-artefact change accidentally breaks cross-artefact composition, this is the test that catches it. See [docs/release-process.md](../../docs/release-process.md) for how this slots into the multi-artefact deploy pipeline.
+> **Canonical multi-artefact integration test.** Per the rf2-w05l CI/CD strategy decision (implemented in rf2-ace2), this example is the canonical multi-artefact integration test for re-frame-2. It exercises `day8/re-frame-2` (core) + `-schemas` + `-machines` + `-routing` + `-flows` + `-http` together in a single app. CI runs it on every PR via `npm run test:examples` from `implementation/`. When a per-artefact change accidentally breaks cross-artefact composition, this is the test that catches it. See [docs/release-process.md](../../../docs/release-process.md) for how this slots into the multi-artefact deploy pipeline.
 
 The canonical re-frame2 demo for **Spec 014 — `:rf.http/managed`** (per rf2-kauy and rf2-o8t6). Built on the [RealWorld spec](https://github.com/gothinkster/realworld), the de-facto cross-framework benchmark for SPA frameworks.
 
@@ -10,7 +10,7 @@ The goal here is breadth: show how the current re-frame2 surface composes across
 
 ## What this example demonstrates from Spec 014
 
-The normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md). The realworld example specifically exercises:
+The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md). The realworld example specifically exercises:
 
 - **Default reply addressing** — `realworld.comments/:article/load` issues `:rf.http/managed` with no explicit `:on-success` / `:on-failure` and branches its handler on `(:rf/reply msg)` for both the initial dispatch and the reply paths. One handler, two roles.
 - **Explicit `:on-success` / `:on-failure`** — every other endpoint (auth, articles list, profile, comments, favourites, follow, settings, editor) uses the separate-handler shape: a small DB-only handler per success / failure that destructures `{:keys [value]}` / `{:keys [failure]}` from the appended reply payload.
@@ -29,7 +29,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTP
 - **Routing** — route table, path params, query params, auth gating, route-driven loads, and navigation blocking for the editor.
 - **Optimistic updates** — favorite toggle, comment delete, and follow/unfollow all show rollback-friendly event shapes against the managed-HTTP failure path.
 - **Schemas** — wire payloads and app-db slices are attached with `reg-app-schema`.
-- **SSR boundary** — the app-specific hydration payload helper lives alongside the generic SSR worked example in `examples/ssr/`.
+- **SSR boundary** — the app-specific hydration payload helper lives alongside the generic SSR worked example in `examples/reagent/ssr/`.
 
 ## Files
 
@@ -51,12 +51,12 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTP
 
 ## Architecture references
 
-- [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md) — **`:rf.http/managed`** (this is the canonical demo).
-- [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md)
-- [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md)
-- [`spec/012-Routing.md`](../../spec/012-Routing.md)
-- [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md)
-- [`spec/011-SSR.md`](../../spec/011-SSR.md)
+- [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — **`:rf.http/managed`** (this is the canonical demo).
+- [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md)
+- [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md)
+- [`spec/012-Routing.md`](../../../spec/012-Routing.md)
+- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md)
+- [`spec/011-SSR.md`](../../../spec/011-SSR.md)
 
 ## How to run
 

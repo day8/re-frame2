@@ -1,5 +1,5 @@
 (ns re-frame.nine-states-cljs-test
-  "Integration test: load examples/nine_states/core and run its 9
+  "Integration test: load examples/reagent/nine_states/core and run its 9
   headless test fixtures. Each fixture drives app-db into one of the
   canonical UI states and asserts the matching state-sub fires.
 

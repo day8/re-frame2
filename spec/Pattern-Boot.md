@@ -297,4 +297,4 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:invoke` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
-- [examples/login/core.cljs](../examples/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.
+- [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.

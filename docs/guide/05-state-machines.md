@@ -372,7 +372,7 @@ The drain semantics matter here. If an action dispatches a child event, that chi
 
 ## A runnable example
 
-The complete login flow from this chapter — including the runnable smoke tests — lives at [`examples/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/state_machine_walkthrough) and is exercised on every JVM test run via `re-frame.examples-test/state-machine-walkthrough-runs-headless`. Drop it in front of you while reading; tweak the transition table and watch the smoke tests adapt.
+The complete login flow from this chapter — including the runnable smoke tests — lives at [`examples/reagent/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) and is exercised on every JVM test run via `re-frame.examples-test/state-machine-walkthrough-runs-headless`. Drop it in front of you while reading; tweak the transition table and watch the smoke tests adapt.
 
 ## The deeper claim
 

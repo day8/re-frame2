@@ -23,7 +23,7 @@ const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 
 // shadow-cljs's :browser-test target generates an index.html with an empty
-// <body>. Some example namespaces (e.g. examples/nine_states/core.cljs) do
+// <body>. Some example namespaces (e.g. examples/reagent/nine_states/core.cljs) do
 // `(rdc/create-root (js/document.getElementById "app"))` at namespace-load
 // time. Without an `#app` element, React 18 throws and aborts the test
 // runner before the cljs.test summary is printed. Patch the generated

@@ -1,7 +1,7 @@
 /*
  * Login (UIx) — smoke test (rf2-3yij Decision 7).
  *
- * Same machine + HTTP stub as examples/login; views go through the
+ * Same machine + HTTP stub as examples/reagent/login; views go through the
  * UIx adapter. Asserts the same end-to-end flow:
  *
  *   :idle -> :submitting -> :authed (or :error-shown on bad creds)

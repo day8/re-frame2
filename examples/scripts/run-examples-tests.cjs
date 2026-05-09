@@ -6,10 +6,10 @@
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
  * browser and executes the *.spec.cjs files that sit alongside each
- * example's source (examples/<name>/<name>.spec.cjs, plus
- * examples/7Guis/<name>/<name>.spec.cjs for the per-example 7GUIs
- * sub-folders). Each spec navigates to the example's URL and asserts
- * a user-visible behaviour (initial render + an interaction +
+ * example's source (examples/<substrate>/<name>/<name>.spec.cjs, plus
+ * examples/reagent/7Guis/<name>/<name>.spec.cjs for the per-example
+ * 7GUIs sub-folders). Each spec navigates to the example's URL and
+ * asserts a user-visible behaviour (initial render + an interaction +
  * post-interaction state).
  *
  * Why a hand-rolled runner rather than @playwright/test:
@@ -46,10 +46,10 @@ const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8030';
 const EXAMPLES_ROOT = path.resolve(__dirname, '..');
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 
-// Specs live alongside the example they exercise, one or two levels
-// under examples/ — e.g. examples/counter/counter.spec.cjs, or
-// examples/7Guis/<name>/<name>.spec.cjs for the per-example 7GUIs
-// sub-folders. Walk the tree and pick up every *.spec.cjs we find.
+// Specs live alongside the example they exercise, two or three levels
+// under examples/ — e.g. examples/reagent/counter/counter.spec.cjs, or
+// examples/reagent/7Guis/<name>/<name>.spec.cjs for the per-example
+// 7GUIs sub-folders. Walk the tree and pick up every *.spec.cjs we find.
 function listSpecFiles(root) {
   if (!fs.existsSync(root)) {
     console.error(`Examples root does not exist: ${root}`);

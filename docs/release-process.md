@@ -157,4 +157,4 @@ There is intentionally no per-artefact version override. Adding one would break 
 - [.github/scripts/verify-version-lockstep.sh](../.github/scripts/verify-version-lockstep.sh) — the lockstep contract script.
 - [spec/Conventions.md §Packaging conventions](../spec/Conventions.md#packaging-conventions) — artefact naming, the independence rule, the bundle-isolation argument.
 - [spec/MIGRATION.md](../spec/MIGRATION.md) — the migration prompt; flat through 1.0.
-- [examples/realworld/README.md](../examples/realworld/README.md) — the canonical multi-artefact integration test.
+- [examples/reagent/realworld/README.md](../examples/reagent/realworld/README.md) — the canonical multi-artefact integration test.

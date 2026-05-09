@@ -1,7 +1,11 @@
 (ns re-frame.examples-test
   "Integration tests against the example apps in ../examples/. Each test
   exercises the full event → state → render pipeline as a real user would
-  wire it, catching API ergonomics regressions that pure unit tests miss."
+  wire it, catching API ergonomics regressions that pure unit tests miss.
+
+  Per rf2-kx74 examples are grouped per substrate; the namespaces below
+  (`ssr.core`, `state-machine-walkthrough.core`) live under
+  ../examples/reagent/{ssr,state_machine_walkthrough}/ on disk."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -31,14 +35,14 @@
 (use-fixtures :each reset-runtime)
 
 (deftest ssr-example-runs-end-to-end
-  (testing "examples/ssr/core.cljc runs its built-in headless tests"
+  (testing "examples/reagent/ssr/core.cljc runs its built-in headless tests"
     (require 'ssr.core :reload)
     (let [result (@(resolve 'ssr.core/ssr-tests))]
       (is (= :ok result)
           "ssr.core/ssr-tests returned :ok — the full server flow worked"))))
 
 (deftest state-machine-walkthrough-runs-headless
-  (testing "examples/state-machine-walkthrough/core.cljc — every code block in
+  (testing "examples/reagent/state-machine-walkthrough/core.cljc — every code block in
             ch.05 § Headless testing runs and matches the chapter's claims."
     (require 'state-machine-walkthrough.core :reload)
     (let [result (@(resolve 'state-machine-walkthrough.core/smoke-tests))]
