@@ -1,0 +1,46 @@
+;; Conformance fixture: machine/spawn-without-system-id-leaves-index-empty
+;;
+;; Per [005 §Named addressing via :system-id]
+;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
+;;
+;; The `:system-id` key is opt-in. A spawn that omits it does NOT
+;; allocate a `[:rf/system-ids]` slot in the frame's app-db — the
+;; reverse index stays absent. Tests that the index is opt-in
+;; structurally, not just by-omission of binding.
+
+{:fixture/id           :machine/spawn-without-system-id-leaves-index-empty
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/system-id}
+ :fixture/doc          "An :invoke that omits :system-id does not allocate [:rf/system-ids] in the spawning frame's app-db."
+
+ :fixture/registry
+ {:event {:sup/flow {}}
+  :machine
+  {:worker/proc {:initial :running :data {} :states {:running {}}}
+   :sup/flow    {:initial :idle
+                 :data    {}
+                 :states
+                 {:idle    {:on {:start :working}}
+                  :working {:invoke {:machine-id :worker/proc
+                                     :on-spawn   :auth/record-actor}}}}}
+  :machine-action
+  {:auth/record-actor {}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ [[:sup/flow [:start]]]
+
+ :fixture/expect
+ ;; :rf/system-ids is absent — the spawn carried no :system-id, so the
+ ;; reverse index was never written. The spawned snapshot still
+ ;; initialises under [:rf/machines <spawned-id>] (the actor lives;
+ ;; just isn't named).
+ {:final-app-db
+  {:rf/machines
+   {:sup/flow      {:state :working :data {:pending :worker/proc#1}}
+    :worker/proc#1 {:state :running :data {}}}}}}

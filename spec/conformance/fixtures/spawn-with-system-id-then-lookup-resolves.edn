@@ -1,0 +1,65 @@
+;; Conformance fixture: machine/spawn-with-system-id-then-lookup-resolves
+;;
+;; Per [005 §Named addressing via :system-id]
+;; (../../005-StateMachines.md#named-addressing-via-system-id) and rf2-suue.
+;;
+;; A spawn whose args carry `:system-id` binds that name in the per-frame
+;; `[:rf/system-ids]` reverse index. The framework emits
+;; `:rf.machine/system-id-bound` and the binding resolves to the spawned
+;; (gensym'd) actor id.
+;;
+;; This fixture exercises the bundled live-handler wiring: after spawn,
+;; the actor's snapshot lives at `[:rf/machines <spawned-id>]` and the
+;; reverse-index slot at `[:rf/system-ids :worker]` resolves to it.
+
+{:fixture/id           :machine/spawn-with-system-id-then-lookup-resolves
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :actor/spawn :actor/invoke :actor/system-id}
+ :fixture/doc          "Spawn with :system-id binds the per-frame reverse index; snapshot lives at [:rf/machines <spawned-id>]; lookup by name resolves."
+
+ :fixture/registry
+ {:event {:sup/flow {:doc "Parent machine that spawns a worker under :system-id :worker."}}
+  :machine
+  {:worker/proc {:initial :running
+                 :data    {}
+                 :states  {:running {}}}
+   :sup/flow    {:initial :idle
+                 :data    {}
+                 :states
+                 {:idle    {:on {:start :working}}
+                  :working {:invoke {:machine-id :worker/proc
+                                     :system-id  :worker
+                                     :on-spawn   :auth/record-actor}}}}}
+  :machine-action
+  {:auth/record-actor {:doc "On-spawn callback — records the spawned id under :pending."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; (fn [data id] (assoc data :pending id))
+  {:auth/record-actor [[:set [:pending] [:event-arg 1]]]}}
+
+ :fixture/frame-config {:on-create []}
+
+ :fixture/dispatches
+ [[:sup/flow [:start]]]
+
+ :fixture/expect
+ ;; The :worker/proc's gensym'd id is :worker/proc#1 (per next-spawn-id).
+ ;; The reverse index records :worker → :worker/proc#1, and the actor's
+ ;; snapshot is initialised under [:rf/machines :worker/proc#1].
+ {:final-app-db
+  {:rf/machines
+   {:sup/flow      {:state    :working
+                    :data     {:pending :worker/proc#1}}
+    :worker/proc#1 {:state :running :data {}}}
+   :rf/system-ids
+   {:worker :worker/proc#1}}
+
+  :trace-emissions
+  [{:operation :rf.machine/spawned
+    :tags      {:machine-id :worker/proc
+                :spawned-id :worker/proc#1
+                :system-id  :worker}}
+   {:operation :rf.machine/system-id-bound
+    :tags      {:system-id  :worker
+                :machine-id :worker/proc#1}}]}}

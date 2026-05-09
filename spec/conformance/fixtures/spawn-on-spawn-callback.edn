@@ -65,8 +65,9 @@
    ;; :http/post#1) under :data.:born-with-id.
    :expect-next-snapshot {:state :working
                           :data  {:born-with-id :http/post#1}}
-   :expect-effects       [[:spawn {:machine-id :http/post
-                                   :id-prefix  :http/post
-                                   :data       {:url "/api/x"}
-                                   :on-spawn   :supervisor/record-actor-id
-                                   :start      [:begin]}]]}]}
+   :expect-effects       [[:spawn {:machine-id    :http/post
+                                   :id-prefix     :http/post
+                                   :data          {:url "/api/x"}
+                                   :on-spawn      :supervisor/record-actor-id
+                                   :start         [:begin]
+                                   :rf/spawned-id :http/post#1}]]}]}

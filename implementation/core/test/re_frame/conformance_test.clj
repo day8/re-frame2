@@ -60,6 +60,7 @@
     :routing/nav-token
     :actor/spawn
     :actor/invoke
+    :actor/system-id                                   ;; rf2-suue / rf2-ecv4
     ;; Flow capabilities — per Spec 013. The flow-*.edn fixtures
     ;; (recompute-on-input-change, multi-input-topo, noop-on-value-equal-
     ;; input, toggle-via-fx, hot-reload-preserves-output) declare these.
@@ -143,6 +144,11 @@
   (require 're-frame.ssr :reload)
   ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
   (require 're-frame.http-managed :reload)
+  ;; Spec 005 — re-register :spawn / :destroy-machine fx and the :rf/machine
+  ;; sub after clear-all!. Per rf2-suue the spawn/destroy fx now wire the
+  ;; live actor handler + snapshot, so the runtime side of the spawn must
+  ;; be present for the system-id fixtures to observe app-db state.
+  (require 're-frame.machines :reload)
   ;; Reset id-allocators so nav-token / pending-nav / rank-reg / spawn ids
   ;; are stable across runs (the routing/machine fixtures assert against
   ;; literal "nav-1" / "nav-2" / ":http/post#1" strings).
