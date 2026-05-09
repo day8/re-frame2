@@ -39,6 +39,12 @@
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
+            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame-2-http.
+            ;; Requiring re-frame.http-managed at app boot triggers its
+            ;; load-time fx registrations (`:rf.http/managed` and
+            ;; family); without it, dispatching `:rf.http/managed`
+            ;; (used below) would fail with :rf.error/no-such-fx.
+            [re-frame.http-managed]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 

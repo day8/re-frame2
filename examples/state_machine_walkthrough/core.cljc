@@ -19,6 +19,13 @@
             ;; registers its late-bind hooks so rf/reg-machine and
             ;; rf/machine-transition resolve.
             [re-frame.machines]
+            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame-2-http.
+            ;; The login flow's `:auth.login/login-attempt` action
+            ;; dispatches `:rf.http/managed` (overridden in tests via
+            ;; `:fx-overrides` to the framework-shipped canned stubs).
+            ;; Loading the ns here registers the `:rf.http/managed` fx
+            ;; family so the override mechanism can target a real fx-id.
+            [re-frame.http-managed]
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
