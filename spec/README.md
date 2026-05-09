@@ -90,7 +90,7 @@ Worked examples:
 
 | Title | Type | One-liner |
 |---|---|---|
-| [Worked examples](../examples/) | Reference | The [7GUIs series](../examples/seven_guis/README.md), a [login feature](../examples/login/core.cljs), the [Nine States of UI](../examples/nine_states/README.md) pedagogical exhaustive-states demo, and a [RealWorld (Conduit)](../examples/realworld/README.md) cross-framework benchmark app. Demonstrates every construction prompt in working code. |
+| [Worked examples](../examples/) | Reference | Fifteen browser-runnable apps spanning the construction-prompt surface — [counter](../examples/counter/), [login](../examples/login/core.cljs), [todomvc](../examples/todomvc/README.md), [routing](../examples/routing/), [ssr](../examples/ssr/), [managed_http_counter](../examples/managed_http_counter/), [state_machine_walkthrough](../examples/state_machine_walkthrough/), [nine_states](../examples/nine_states/README.md), the [7GUIs cluster](../examples/seven_guis/README.md) (temperature / flight booker / timer / crud / circle drawer / cells), and [realworld](../examples/realworld/README.md). Each is paired with a Playwright smoke spec; the catalogue at [examples/README.md](../examples/README.md) maps each example to the Specs it exercises. |
 
 ## Reading paths
 
