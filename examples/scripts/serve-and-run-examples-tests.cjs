@@ -47,6 +47,17 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter'),
   },
+  // Performance-API instrumented variant of the counter (rf2-du3i).
+  // Same source, same :advanced compilation, but with the
+  // `re-frame.performance/enabled?` goog-define flipped to true. The
+  // paired counter-perf.spec.cjs asserts that a real dispatch through
+  // the perf-on bundle produces `rf:event:*` / `rf:sub:*` / `rf:fx:*` /
+  // `rf:render:*` measure entries on `performance.getEntriesByType`.
+  {
+    build: 'examples/counter-perf',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'counter', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'counter-perf'),
+  },
   {
     build: 'examples/temperature',
     htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'temperature', 'temperature.html'),

@@ -21,8 +21,32 @@
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:count 5}))
+;; A user-registered fx so the perf-instrumented variant of this
+;; example (out/examples/counter-perf — see shadow-cljs.edn and rf2-du3i)
+;; exercises the `rf:fx:<id>` perf bucket too. The default counter spec
+;; doesn't observe any user fx; this fx fires on init and records its
+;; calls into a process-local atom so the regular counter spec is
+;; unaffected. The perf-on counter spec
+;; (examples/counter/counter-perf.spec.cjs) reads
+;; `performance.getEntriesByType('measure')` and asserts an entry under
+;; `rf:fx:counter/log` is present.
+
+(defonce counter-log (atom []))
+
+(rf/reg-fx :counter/log
+  (fn [_ctx args]
+    (swap! counter-log conj args)))
+
+;; reg-event-fx so the handler can return both `:db` and a `:fx` walk.
+;; Mixing :db and :fx in one handler makes the example exercise every
+;; perf bucket (event handler, sub recompute, fx walk, render) on a
+;; single dispatch — which is what the counter-perf browser smoke
+;; observes. Per Spec 002 §`:fx` ordering: :db commits first, then :fx
+;; walks in source order.
+(rf/reg-event-fx :counter/initialise
+  (fn [_ctx _event]
+    {:db {:count 5}
+     :fx [[:counter/log :initialised]]}))
 
 (rf/reg-event-db :counter/inc
   (fn [db _event] (update db :count inc)))

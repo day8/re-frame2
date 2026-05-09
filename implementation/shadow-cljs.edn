@@ -102,6 +102,30 @@
    :asset-path "."
    :modules    {:main {:init-fn counter.core/run}}}
 
+  ;; Performance-API instrumented variant of the counter example
+  ;; (rf2-du3i). Same source, same :advanced compilation, but with the
+  ;; `re-frame.performance/enabled?` goog-define flipped to `true`. Used
+  ;; by:
+  ;;
+  ;;   1. The bundle-presence assertion in scripts/check-perf-bundle.cjs:
+  ;;      `performance.mark` / `performance.measure` and the helper's
+  ;;      bracketing strings MUST appear in this bundle.
+  ;;   2. The browser-smoke spec at examples/counter/counter-perf.spec.cjs:
+  ;;      after a dispatch, `performance.getEntriesByType('measure')`
+  ;;      returns at least one entry per bucket (`rf:event:*`, `rf:sub:*`,
+  ;;      `rf:fx:*`, `rf:render:*`).
+  ;;
+  ;; Per Spec 009 §Performance instrumentation: the flag is the consumer's
+  ;; surface. Default :examples/counter is the shape every other example
+  ;; ships in (perf elided); this counter-perf variant proves the toggle
+  ;; produces the expected bracket entries when consumers want them.
+  :examples/counter-perf
+  {:target           :browser
+   :output-dir       "out/examples/counter-perf"
+   :asset-path       "."
+   :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
+   :modules          {:main {:init-fn counter.core/run}}}
+
   :examples/temperature
   {:target     :browser
    :output-dir "out/examples/temperature"

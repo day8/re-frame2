@@ -1,0 +1,166 @@
+#!/usr/bin/env node
+/*
+ * Performance-API bundle-isolation / bundle-presence verifier
+ * (Spec 009 §Performance instrumentation, bead rf2-du3i).
+ *
+ * Asserts the production-elision contract for the perf flag, the dual
+ * of scripts/check-elision.cjs:
+ *
+ *   1. The default counter bundle (`:examples/counter` — `:advanced`,
+ *      `re-frame.performance/enabled? false` — the implicit goog-define
+ *      default) does NOT contain `performance.mark` / `performance.measure`
+ *      strings or the `re-frame.performance` namespace fragment. This is
+ *      the bundle-isolation proof: shipped binaries with the perf flag
+ *      off carry zero User-Timing instrumentation.
+ *
+ *   2. The perf-on counter bundle (`:examples/counter-perf` — `:advanced`,
+ *      `re-frame.performance/enabled? true`) DOES contain those strings.
+ *      Without the perf-on bundle, the bundle-isolation assertion would
+ *      be vacuous: a refactor that *moved* the strings would silently
+ *      turn the negative grep into a false pass.
+ *
+ * Strategy: grep, not parse. The closure compiler may rename symbols
+ * but does not rewrite string literals. Matching `performance.mark`
+ * proves the JS-interop call site (from `(.mark js/performance ...)`)
+ * survived; matching the bracketed entry-name shape `rf:` proves the
+ * helper's name-building survived too.
+ *
+ * Exit 0 on PASS, 1 on FAIL.
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+
+// ----- the perf-flag elision contract ---------------------------------------
+
+// Each sentinel is a string fragment that appears ONLY when the perf
+// flag is on at compile time AND the namespace's call sites are reached.
+// If any of these appear in the OFF bundle, the (if performance/enabled?
+// ...) bracket survived dead-code elimination — the perf elision contract
+// is broken. If any are MISSING from the ON bundle, the strings have
+// moved and the negative assertion is now vacuous.
+//
+// The first three are the JS-interop strings the helper emits via
+// `(.mark js/performance ...)` / `(.measure js/performance ...)`; the
+// fourth is the namespace fragment (load-order proof — the ns is in the
+// bundle but every body-form should DCE on the OFF build).
+const PERF_SENTINELS = [
+  { source: 're-frame.performance/mark-and-measure (performance.mark)',
+    sentinel: 'performance.mark' },
+  { source: 're-frame.performance/mark-and-measure (performance.measure)',
+    sentinel: 'performance.measure' },
+  { source: 're-frame.performance/build-name (rf: name prefix)',
+    sentinel: '"rf:' },
+];
+
+// ----- helpers ---------------------------------------------------------------
+
+function readAllJs(dir) {
+  if (!fs.existsSync(dir)) {
+    return null;
+  }
+  const out = [];
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        out.push(fs.readFileSync(full, 'utf8'));
+      }
+    }
+  };
+  walk(dir);
+  return out.join('\n');
+}
+
+function checkBundle(label, bundlePath, mustContain) {
+  const blob = readAllJs(bundlePath);
+  if (blob == null) {
+    console.error(`[perf-bundle] ${label}: bundle path missing — ${bundlePath}`);
+    console.error('              Did you run the matching shadow-cljs release?');
+    return false;
+  }
+  console.log(`[perf-bundle] ${label}: ${bundlePath}`);
+  console.log(`              bundle size: ${blob.length} chars`);
+
+  let ok = true;
+  for (const { source, sentinel } of PERF_SENTINELS) {
+    const present = blob.includes(sentinel);
+    const expected = mustContain ? 'PRESENT' : 'ABSENT';
+    const actual   = present     ? 'PRESENT' : 'ABSENT';
+    const passed   = present === mustContain;
+    const tag      = passed ? 'OK' : 'FAIL';
+    console.log(`              [${tag}] ${source}: sentinel ${JSON.stringify(sentinel)} expected ${expected}, was ${actual}`);
+    if (!passed) ok = false;
+  }
+  return ok;
+}
+
+// Count `performance.mark|performance.measure|re-frame.performance` for
+// the report. The PR body wants the raw count number for both bundles,
+// per the bead's bundle-grep contract.
+function countOccurrences(blob, patterns) {
+  if (blob == null) return null;
+  const re = new RegExp(patterns.join('|'), 'g');
+  const m  = blob.match(re);
+  return m ? m.length : 0;
+}
+
+// ----- main ------------------------------------------------------------------
+
+function main() {
+  console.log('=== Performance-API bundle isolation / presence (Spec 009 §Performance instrumentation) ===');
+
+  const offDir = path.join(ROOT, 'out', 'examples', 'counter');
+  const onDir  = path.join(ROOT, 'out', 'examples', 'counter-perf');
+
+  // OFF bundle: sentinels MUST be absent.
+  const offOk = checkBundle('perf-off (default counter, enabled?=false)',
+                            offDir, false);
+
+  // ON bundle: sentinels MUST be present.
+  const onOk  = checkBundle('perf-on  (counter-perf,  enabled?=true) ',
+                            onDir,  true);
+
+  // Report the counts the bead asks for.
+  const offBlob = readAllJs(offDir);
+  const onBlob  = readAllJs(onDir);
+  const patterns = ['performance\\.mark',
+                    'performance\\.measure',
+                    're-frame\\.performance'];
+  const offCount = countOccurrences(offBlob, patterns);
+  const onCount  = countOccurrences(onBlob,  patterns);
+  console.log('');
+  console.log('=== Bundle-grep counts ===');
+  console.log(`  perf-off counter (must be 0):     ${offCount}`);
+  console.log(`  perf-on  counter (must be > 0):   ${onCount}`);
+
+  const countsOk = (offCount === 0) && (onCount > 0);
+
+  if (offOk && onOk && countsOk) {
+    console.log('=== PASS ===');
+    process.exit(0);
+  } else {
+    console.error('=== FAIL ===');
+    if (!offOk || offCount !== 0) {
+      console.error('Perf-off bundle isolation broke: a Performance API call');
+      console.error('site or the re-frame.performance ns survived advanced');
+      console.error('compilation with re-frame.performance/enabled?=false.');
+      console.error('Per Spec 009 §Performance instrumentation, the bracket');
+      console.error('site must collapse to (f) so DCE removes the gated body.');
+    }
+    if (!onOk || !(onCount > 0)) {
+      console.error('Perf-on bundle missing expected sentinels — the grep');
+      console.error('test would be vacuous. The helper or its call sites');
+      console.error('may have been refactored without updating sentinels.');
+    }
+    process.exit(1);
+  }
+}
+
+main();

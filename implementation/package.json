@@ -16,6 +16,7 @@
     "test:cljs": "shadow-cljs compile node-test && node out/node-test.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
+    "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs"
   }
 }
