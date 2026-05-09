@@ -1166,6 +1166,41 @@
   (when-let [f (late-bind/get-fn :epoch/remove-epoch-cb)]
     (f id)))
 
+(defn reset-frame-db!
+  "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
+  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
+
+  The canonical Tool-Pair write surface for state injection — pair
+  tools use it for evolved-state-shape probes after a handler hot-swap,
+  story-tool fixture setup, conformance-harness state seeding, and
+  time-travel from JSON-loaded bug repros. Records a synthetic
+  `:rf/epoch-record` so `restore-epoch` can rewind the previous state;
+  emits `:rf.epoch/db-replaced` on success.
+
+  Failure modes (each is a no-op on `app-db` and emits a structured
+  error trace):
+
+    :rf.error/no-such-handler                 — frame not registered
+    :rf.epoch/reset-frame-db-during-drain     — drain in flight
+    :rf.epoch/reset-frame-db-schema-mismatch  — `new-db` fails the
+                                                 frame's app-schema set
+
+  Dev-only — gated on `interop/debug-enabled?`. Production builds
+  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
+  via `:epoch/reset-frame-db!`; raises `:rf.error/epoch-artefact-missing`
+  when the `day8/re-frame-2-epoch` artefact is not on the classpath
+  (the surface records an epoch and so cannot degrade silently — the
+  caller's invariant is 'undo works after this call').
+
+  Returns `true` on success, `false` on any failure."
+  [frame-id new-db]
+  (if-let [f (late-bind/get-fn :epoch/reset-frame-db!)]
+    (f frame-id new-db)
+    (throw (ex-info ":rf.error/epoch-artefact-missing"
+                    {:where    'reset-frame-db!
+                     :recovery :no-recovery
+                     :reason   "rf/reset-frame-db! requires day8/re-frame-2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))
+
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
 ;; Per rf2-5kpd the `:rf.http/managed` family is registered at
