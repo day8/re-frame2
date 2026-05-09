@@ -196,3 +196,122 @@
     (rf/reg-sub :n (fn [db _] (* 2 (:n db))))
     (is (not (contains? (cache-keys) [:n]))
         "hot-reload evicts the slot regardless of pending-dispose")))
+
+;; ---- subscribe-before-register does NOT cache (rf2-l9u5) -----------------
+;;
+;; Per Spec 006 §What happens when a sub references an unknown sub:
+;; subscribing to an unregistered sub-id emits :rf.error/no-such-sub and
+;; returns a nil-yielding reaction. Crucially, that miss is NOT cached —
+;; the cache slot stays empty so that a later registration (boot order,
+;; lazy-loaded namespace) is observed by the next subscribe, which builds
+;; a fresh reaction against the real body.
+
+(deftest subscribe-before-register-does-not-cache
+  (testing "subscribing before reg-sub does not cache; later registration is observed"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:init])
+
+    ;; Subscribe BEFORE the sub is registered.
+    (let [r1 (rf/subscribe [:my-sub])]
+      (is (some? r1)
+          "subscribe still returns a (nil-yielding) reaction so callers don't deref nil")
+      (is (nil? @r1)
+          "the reaction yields nil per :replaced-with-default recovery")
+      (is (not (contains? (cache-keys) [:my-sub]))
+          "the no-such-sub miss MUST NOT be cached (rf2-l9u5)"))
+
+    ;; Now register the sub. First-time registration does NOT fire the
+    ;; replacement hook — the boot-order fix is "don't cache on miss",
+    ;; not "invalidate on first register".
+    (rf/reg-sub :my-sub (fn [db _] (:n db)))
+    (is (not (contains? (cache-keys) [:my-sub]))
+        "first registration leaves the cache untouched")
+
+    ;; Next subscribe builds a fresh reaction against the real body.
+    (let [r2 (rf/subscribe [:my-sub])]
+      (is (= 7 @r2)
+          "post-registration subscribe yields the real value")
+      (is (contains? (cache-keys) [:my-sub])
+          "the post-registration reaction IS cached"))))
+
+(deftest subscribe-before-register-survives-multiple-misses
+  (testing "repeated subscribe-before-register calls do not poison the cache"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:n 11}))
+    (rf/dispatch-sync [:init])
+
+    (dotimes [_ 3]
+      (let [r (rf/subscribe [:lazy-sub])]
+        (is (nil? @r))
+        (is (not (contains? (cache-keys) [:lazy-sub])))))
+
+    (rf/reg-sub :lazy-sub (fn [db _] (:n db)))
+    (is (= 11 @(rf/subscribe [:lazy-sub]))
+        "after registration, the cache is fresh and the real body runs")))
+
+;; ---- clear-sub does NOT clear the per-frame cache (rf2-79tl) -------------
+;;
+;; v2 preserves v1's contract: clear-sub removes the registration but
+;; leaves cached reactions in place. Cache eviction is a separate
+;; concern, owned by clear-subscription-cache!, hot-reload (re-register)
+;; and frame disposal. This split keeps clear-sub a pure registry op
+;; (no per-frame side effects) and matches v1's documented behaviour
+;; (per spec/API.md §Clearing registrations: clear-sub is "v1
+;; (preserved)") and the v1 docstring's explicit caller-responsibility
+;; note ("Depending on the usecase, it may be necessary to call
+;; clear-subscription-cache! afterwards").
+;;
+;; If you want both effects in one call: clear-sub then
+;; clear-subscription-cache! — or use re-registration if you have a
+;; replacement body.
+
+(deftest clear-sub-id-leaves-cache-intact
+  (testing "(clear-sub id) removes the registration but does not evict cache slots"
+    (subs/configure! {:grace-period-ms 60000})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (let [r1 (rf/subscribe [:n])]
+      (is (= 7 @r1))
+      (is (contains? (cache-keys) [:n])))
+
+    (rf/clear-sub :n)
+    ;; Cache slot survives clear-sub — this is the documented v1 contract.
+    (is (contains? (cache-keys) [:n])
+        "clear-sub leaves the cache slot in place; use clear-subscription-cache! to evict")
+    (is (nil? (registrar/lookup :sub :n))
+        "the registration is gone")
+
+    ;; Subsequent subscribe inside the grace-period reuses the cached reaction
+    ;; (reading the still-derived value), even though the registration is gone.
+    (let [r2 (rf/subscribe [:n])]
+      (is (= 7 @r2)
+          "cache hit serves the previously-derived value"))
+
+    ;; clear-subscription-cache! is the explicit follow-up that fully resets.
+    (rf/clear-subscription-cache! :rf/default)
+    (is (empty? (cache-keys))
+        "clear-subscription-cache! is the cache-eviction half of the pair")))
+
+(deftest clear-sub-no-arg-leaves-cache-intact
+  (testing "(clear-sub) clears every registration but leaves the cache untouched"
+    (subs/configure! {:grace-period-ms 60000})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :a (fn [db _] (:n db)))
+    (rf/reg-sub :b (fn [db _] (* 2 (:n db))))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:a])
+    (rf/subscribe [:b])
+    (is (= #{[:a] [:b]} (cache-keys)))
+
+    (rf/clear-sub)
+    (is (= #{[:a] [:b]} (cache-keys))
+        "clear-sub with no args wipes registrations but not cache slots")
+    (is (= {} (registrar/handlers :sub))
+        "every :sub registration is gone")
+
+    (rf/clear-subscription-cache! :rf/default)
+    (is (empty? (cache-keys)))))
