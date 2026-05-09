@@ -1,7 +1,7 @@
 /*
  * Counter (UIx) example — smoke test (rf2-3yij Decision 7).
  *
- * Renders the same dataflow as examples/counter, but through the UIx
+ * Renders the same dataflow as examples/reagent/counter, but through the UIx
  * substrate adapter. The smoke trio (per Conventions §Substrate test
  * matrix policy) — counter + login + realworld — is reduced to
  * counter + login for UIx (Decision 7 skips realworld).

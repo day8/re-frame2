@@ -12,9 +12,9 @@
 | 6 | Circle Drawer | Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state | [`circle_drawer/circle_drawer.cljs`](circle_drawer/circle_drawer.cljs) |
 | 7 | Cells | Formula evaluation; subscription graph propagation; cycle detection; pure parser+evaluator | [`cells/cells.cljs`](cells/cells.cljs) |
 
-Each example lives in its own self-contained sub-folder under `7Guis/<name>/` with its CLJS source, a thin HTML host page, and a Playwright smoke spec (e.g. `cells/cells.cljs` + `cells/cells.html` + `cells/cells.spec.cjs`). The shadow-cljs build targets in `implementation/shadow-cljs.edn` and the orchestrator under [`../scripts/`](../scripts/) wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
+Each example lives in its own self-contained sub-folder under `7Guis/<name>/` with its CLJS source, a thin HTML host page, and a Playwright smoke spec (e.g. `cells/cells.cljs` + `cells/cells.html` + `cells/cells.spec.cjs`). The shadow-cljs build targets in `implementation/shadow-cljs.edn` and the orchestrator under [`../../scripts/`](../../scripts/) wire them up so they run in a real browser; locally invoke `npm run test:examples` from `implementation/`.
 
-CLJS namespace identifiers can't start with a digit, so the on-disk parent directory `7Guis` and the namespace tree diverge: each example is its own top-level namespace pair (`temperature.temperature`, `cells.cells`, etc.) under the dedicated `examples/7Guis` shadow-cljs source root. The directory name matches the original [7GUIs.com](https://eugenkiss.github.io/7guis/) capitalisation.
+CLJS namespace identifiers can't start with a digit, so the on-disk parent directory `7Guis` and the namespace tree diverge: each example is its own top-level namespace pair (`temperature.temperature`, `cells.cells`, etc.) under the dedicated `examples/reagent/7Guis` shadow-cljs source root. The directory name matches the original [7GUIs.com](https://eugenkiss.github.io/7guis/) capitalisation.
 
 ## How these compare to the original 7GUIs reference
 

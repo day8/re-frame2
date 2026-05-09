@@ -17,7 +17,7 @@
   Bundle-isolation / bundle-presence under `:advanced` lives in
   `scripts/check-perf-bundle.cjs`. The browser smoke landing the four
   `rf:` measure entries from a real drain lives in
-  `examples/counter/counter-perf.spec.cjs`."
+  `examples/reagent/counter/counter-perf.spec.cjs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.performance :as performance :include-macros true]))
 

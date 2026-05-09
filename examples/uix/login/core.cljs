@@ -1,7 +1,7 @@
 (ns login-uix.core
   "UIx variant of the login example (rf2-3yij Decision 7).
 
-   Same dataflow, schemas, machine, and HTTP stub as examples/login,
+   Same dataflow, schemas, machine, and HTTP stub as examples/reagent/login,
    but views are written as UIx `defui` components and consume subs
    via the `use-subscribe` hook. Demonstrates that the Spec 005 state
    machine, Spec 010 schemas, and Spec 014 managed-HTTP surfaces are

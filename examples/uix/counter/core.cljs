@@ -1,7 +1,7 @@
 (ns counter-uix.core
   "UIx variant of the counter example (rf2-3yij Decision 7).
 
-   Exercises the same dataflow as examples/counter but renders it
+   Exercises the same dataflow as examples/reagent/counter but renders it
    through the UIx adapter — the React state model is hooks all the way
    down. Demonstrates:
 
@@ -13,7 +13,7 @@
      - The shared frame-context (Decision 2) — the same React Context
        object the Reagent adapter consumes
 
-   Different folder from examples/counter so the canonical Reagent
+   Different folder from examples/reagent/counter so the canonical Reagent
    counter is undisturbed; bundle isolation is verified by the
    per-example shadow-cljs builds and the production-elision grep."
   (:require [uix.core :as uix :refer [$ defui]]

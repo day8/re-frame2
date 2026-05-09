@@ -198,7 +198,7 @@ A common shape in real apps: declare a shared retry policy for read-only data fe
                    :decode  ArticleResponse}]
 ```
 
-The realworld example does exactly this — see `examples/realworld/http.cljs`.
+The realworld example does exactly this — see `examples/reagent/realworld/http.cljs`.
 
 ## Abort by `:request-id`
 
@@ -274,9 +274,9 @@ The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:
 
 The canned-stub fxs gate on `interop/debug-enabled?` — they elide in production builds, so tests pay no production cost.
 
-## Worked example — `examples/managed_http_counter/`
+## Worked example — `examples/reagent/managed_http_counter/`
 
-The runnable demo of every contract above lives in [`examples/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/managed_http_counter). It's a counter where each button issues a managed HTTP request and the reply lands back in app-db.
+The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's a counter where each button issues a managed HTTP request and the reply lands back in app-db.
 
 Five buttons, each exercising a different slice of the contract:
 
@@ -290,9 +290,9 @@ Five buttons, each exercising a different slice of the contract:
 
 The whole example is ~200 lines of CLJS. Drop it in front of you while reading; tweak the request shape and watch the reply path adapt.
 
-## Worked example — `examples/realworld/`
+## Worked example — `examples/reagent/realworld/`
 
-For breadth across the contract — auth, routing, optimistic updates, pagination, forms, SSR-relevant payload concerns — see [`examples/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/realworld). It's the canonical Spec 014 demo, built on the [RealWorld Conduit spec](https://github.com/gothinkster/realworld).
+For breadth across the contract — auth, routing, optimistic updates, pagination, forms, SSR-relevant payload concerns — see [`examples/reagent/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld). It's the canonical Spec 014 demo, built on the [RealWorld Conduit spec](https://github.com/gothinkster/realworld).
 
 What it specifically exercises from this chapter:
 
@@ -325,8 +325,8 @@ The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../
 - [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the 5-key request-lifecycle slice; managed-HTTP writes through this slice.
 - [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic six-step async shape that managed-HTTP specialises.
 - [`spec/Pattern-StaleDetection.md`](../../spec/Pattern-StaleDetection.md) — epoch carry; managed requests inherit it.
-- [`examples/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/managed_http_counter) — the runnable per-button demo of every contract row.
-- [`examples/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/realworld) — the canonical breadth demo across auth, routing, forms, machines, optimistic updates, and SSR-relevant payload concerns.
+- [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter) — the runnable per-button demo of every contract row.
+- [`examples/reagent/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld) — the canonical breadth demo across auth, routing, forms, machines, optimistic updates, and SSR-relevant payload concerns.
 
 ## Next
 

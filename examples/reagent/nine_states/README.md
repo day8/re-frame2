@@ -25,16 +25,16 @@ transition.
 
 - **Pattern-RemoteData** — the 5-key slice
   `{:status :data :error :loaded-at :attempt}` carries the lifecycle
-  for states 1-6. See [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md).
+  for states 1-6. See [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md).
 - **Pattern-Forms** — the
   `{:draft :submitted :status :errors :touched}` slice carries the
   "new todo" input, surfacing the **Incorrect** (state 7) and
   **Correct** (state 8) variants. See
-  [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md).
+  [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md).
 - **State machines** — a `:todos/editor` machine with two states
   (`:editing` -> `:archived`); the `:archived` state is terminal,
   modelling the **Done** state (9). See
-  [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md).
+  [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md).
 - **Inspectability bias** — non-trivial guards / actions are named
   entries in the machine's machine-scoped `:guards` / `:actions`
   maps; only trivial transitions use inline fns.
@@ -46,7 +46,7 @@ transition.
 ## File layout
 
 ```
-examples/nine_states/
+examples/reagent/nine_states/
   core.cljs   single-file example: schemas, events, subs, views,
               machine, control panel, headless tests, mount.
   README.md   this file.
@@ -83,8 +83,8 @@ The headless tests run JVM-side from a CLJS REPL:
 
 ## Cross-references
 
-- [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the 5-state lifecycle this example exercises end-to-end.
-- [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md) — the form lifecycle that drives the Incorrect / Correct states.
-- [`spec/Pattern-NineStates.md`](../../spec/Pattern-NineStates.md) — the page-level convention this example instantiates directly.
-- [`spec/005-StateMachines.md`](../../spec/005-StateMachines.md) — the machine grammar and `[:rf/machines <id>]` snapshot location used for the Done state.
-- [`examples/login/core.cljs`](../login/core.cljs) and [`examples/7Guis/circle_drawer/circle_drawer.cljs`](../7Guis/circle_drawer/circle_drawer.cljs) — single-file style this example follows.
+- [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md) — the 5-state lifecycle this example exercises end-to-end.
+- [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md) — the form lifecycle that drives the Incorrect / Correct states.
+- [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md) — the page-level convention this example instantiates directly.
+- [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the machine grammar and `[:rf/machines <id>]` snapshot location used for the Done state.
+- [`examples/reagent/login/core.cljs`](../login/core.cljs) and [`examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`](../7Guis/circle_drawer/circle_drawer.cljs) — single-file style this example follows.

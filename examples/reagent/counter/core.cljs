@@ -12,7 +12,7 @@
    `:context-type`) was fixed under rf2-25aq alongside the Reagent v2
    bump. The example still uses the default frame to keep the smoke
    test focused; the frame-provider variant is exercised by
-   examples/login and the cross-spec test suite."
+   examples/reagent/login and the cross-spec test suite."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
             [re-frame.views]
@@ -27,7 +27,7 @@
 ;; doesn't observe any user fx; this fx fires on init and records its
 ;; calls into a process-local atom so the regular counter spec is
 ;; unaffected. The perf-on counter spec
-;; (examples/counter/counter-perf.spec.cjs) reads
+;; (examples/reagent/counter/counter-perf.spec.cjs) reads
 ;; `performance.getEntriesByType('measure')` and asserts an entry under
 ;; `rf:fx:counter/log` is present.
 

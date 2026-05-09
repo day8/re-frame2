@@ -51,8 +51,14 @@
                  "http/test"
                  "ssr/test"
                  "epoch/test"
-                 "../examples"
-                 "../examples/realworld/test"]
+                 ;; Per rf2-kx74 examples are grouped per substrate. The
+                 ;; combined :test alias loads every example tree onto
+                 ;; the classpath so JVM tests can `require` namespaces
+                 ;; like `ssr.core` (lives under examples/reagent/ssr/)
+                 ;; and `realworld.*` (under examples/reagent/realworld/).
+                 "../examples/reagent"
+                 "../examples/reagent/realworld/test"
+                 "../examples/uix"]
    :extra-deps  {io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
    :main-opts   ["-m" "cognitect.test-runner"]}}}

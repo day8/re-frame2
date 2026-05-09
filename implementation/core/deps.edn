@@ -76,7 +76,7 @@
   ;; implementation/routing/deps.edn, implementation/flows/deps.edn,
   ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
   ;; implementation/epoch/deps.edn.
-  :test {:extra-paths ["test" "../../examples"]
+  :test {:extra-paths ["test" "../../examples/reagent"]
          :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
                        day8/re-frame-2-machines {:local/root "../machines"}
                        day8/re-frame-2-routing  {:local/root "../routing"}

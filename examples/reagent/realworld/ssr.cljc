@@ -1,7 +1,7 @@
 (ns realworld.ssr
   "RealWorld-specific SSR helpers.
 
-   The generic runtime SSR walkthrough lives in `examples/ssr/core.cljc`.
+   The generic runtime SSR walkthrough lives in `examples/reagent/ssr/core.cljc`.
    This namespace is the app-specific bridge:
    - choose which slices are safe to embed in the hydration payload
    - preserve the route slice so the client starts from the server route

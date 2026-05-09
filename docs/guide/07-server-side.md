@@ -243,7 +243,7 @@ Routing on the server is the same as routing on the client. The route slice in `
           ]}))
 ```
 
-The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the [routing example](../../examples/routing/core.cljs)) — and because the server-rendered route is the same data shape as the client route, the view code is identical.
+The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the [routing example](../../examples/reagent/routing/core.cljs)) — and because the server-rendered route is the same data shape as the client route, the view code is identical.
 
 The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. The full contract is in [Spec 012](../../spec/012-Routing.md). The server-side relevance of all this: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
 

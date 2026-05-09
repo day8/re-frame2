@@ -94,7 +94,7 @@ References to `G-A`/`G-B`/`G-C`/`G-D`/`G-E`/`G-F` in the tables below resolve to
 - ✓ Read the *expanded* metadata to see the effective config rather than re-deriving from the preset name.
 - ✓ Override individual keys when the preset's default doesn't fit, rather than hand-rolling a full metadata map.
 
-Worked-example check: `examples/realworld/auth.cljs` (test fixture frames) should declare `:preset :test`; story-driven examples should declare `:preset :story`; the SSR example should declare `:preset :ssr-server`. Drift here surfaces as a follow-up bead.
+Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frames) should declare `:preset :test`; story-driven examples should declare `:preset :story`; the SSR example should declare `:preset :ssr-server`. Drift here surfaces as a follow-up bead.
 
 ### Spec 004 — Views
 

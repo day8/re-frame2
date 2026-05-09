@@ -41,8 +41,8 @@
      `dispatch-sync`; because this file is .cljs, JVM execution would
      require porting the testable parts to .cljc.
 
-   Layout follows the single-file style of `examples/login/core.cljs`
-   and `examples/7Guis/circle_drawer/circle_drawer.cljs`. In a real codebase this
+   Layout follows the single-file style of `examples/reagent/login/core.cljs`
+   and `examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`. In a real codebase this
    would split per CP-6 conventions across schema / events / subs /
    views / machines / tests files."
   (:require [cljs.test :refer-macros [is]]

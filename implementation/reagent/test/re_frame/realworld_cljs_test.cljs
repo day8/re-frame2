@@ -4,7 +4,7 @@
    `make-frame`, drives a feature flow with a canned :http stub, and
    asserts the resulting app-db / sub state.
 
-   The fixtures live under examples/realworld/test/realworld/ — extracted
+   The fixtures live under examples/reagent/realworld/test/realworld/ — extracted
    from the production realworld source under rf2-4v73 so the example's
    .cljs files are now test-free.
 

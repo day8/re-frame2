@@ -44,7 +44,7 @@ const POLL_MS = 200;
 const EXAMPLES = [
   {
     build: 'examples/counter',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'counter', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter'),
   },
   // Performance-API instrumented variant of the counter (rf2-du3i).
@@ -55,37 +55,37 @@ const EXAMPLES = [
   // `rf:render:*` measure entries on `performance.getEntriesByType`.
   {
     build: 'examples/counter-perf',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'counter', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-perf'),
   },
   {
     build: 'examples/temperature',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'temperature', 'temperature.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'temperature', 'temperature.html'),
     outDir: path.join(OUT_ROOT, 'temperature'),
   },
   {
     build: 'examples/flight-booker',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'flight_booker', 'flight_booker.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'flight_booker', 'flight_booker.html'),
     outDir: path.join(OUT_ROOT, 'flight-booker'),
   },
   {
     build: 'examples/timer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'timer', 'timer.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'timer', 'timer.html'),
     outDir: path.join(OUT_ROOT, 'timer'),
   },
   {
     build: 'examples/nine-states',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'nine_states', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'nine_states', 'index.html'),
     outDir: path.join(OUT_ROOT, 'nine-states'),
   },
   {
     build: 'examples/routing',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'routing', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'routing', 'index.html'),
     outDir: path.join(OUT_ROOT, 'routing'),
   },
   {
     build: 'examples/todomvc',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'todomvc', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'todomvc', 'index.html'),
     outDir: path.join(OUT_ROOT, 'todomvc'),
     extraFiles: [
       {
@@ -103,11 +103,11 @@ const EXAMPLES = [
   // path naturally produces a 404 from http-server for the Fail button.
   {
     build: 'examples/managed-http-counter',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'managed_http_counter', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'managed_http_counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'managed-http-counter'),
     extraFiles: [
       {
-        src: path.join(REPO_ROOT, 'examples', 'managed_http_counter', 'api', 'inc.json'),
+        src: path.join(REPO_ROOT, 'examples', 'reagent', 'managed_http_counter', 'api', 'inc.json'),
         dest: path.join('api', 'inc.json'),
       },
     ],
@@ -115,53 +115,54 @@ const EXAMPLES = [
   // Phase 3 — rf2-w3vn.
   {
     build: 'examples/crud',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'crud', 'crud.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'crud', 'crud.html'),
     outDir: path.join(OUT_ROOT, 'crud'),
   },
   {
     build: 'examples/circle-drawer',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'circle_drawer', 'circle_drawer.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'circle_drawer', 'circle_drawer.html'),
     outDir: path.join(OUT_ROOT, 'circle-drawer'),
   },
   {
     build: 'examples/cells',
-    htmlSrc: path.join(REPO_ROOT, 'examples', '7Guis', 'cells', 'cells.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'cells', 'cells.html'),
     outDir: path.join(OUT_ROOT, 'cells'),
   },
   {
     build: 'examples/login',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'login', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'login', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login'),
   },
   // rf2-3yij — UIx adapter smoke trio (Decision 7: counter + login,
   // realworld skipped). Different folders from the canonical Reagent
   // versions so the bundle-isolation grep can confirm UIx code does
-  // NOT appear in Reagent-substrate examples and vice versa.
+  // NOT appear in Reagent-substrate examples and vice versa. Per
+  // rf2-kx74 the UIx tree lives under examples/uix/.
   {
     build: 'examples/counter-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'counter_uix', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-uix'),
   },
   {
     build: 'examples/login-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'login_uix', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-uix'),
   },
   {
     build: 'examples/realworld',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'realworld', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'realworld', 'index.html'),
     outDir: path.join(OUT_ROOT, 'realworld'),
   },
   // rf2-vq2s — runnable companion to docs/guide/05-state-machines.md.
   {
     build: 'examples/state-machine-walkthrough',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'state_machine_walkthrough', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'state_machine_walkthrough', 'index.html'),
     outDir: path.join(OUT_ROOT, 'state-machine-walkthrough'),
   },
   // rf2-vq2s — SSR + hydration walkthrough.
   {
     build: 'examples/ssr',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'ssr', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'ssr', 'index.html'),
     outDir: path.join(OUT_ROOT, 'ssr'),
   },
 ];

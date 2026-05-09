@@ -2,7 +2,7 @@
 
 The smallest interesting program is a counter: a number, two buttons, the number changes. Let's build it.
 
-The full source is in [`examples/counter/core.cljs`](../../examples/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
+The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
 
 ## What we're building
 
@@ -194,7 +194,7 @@ This is the part that's not really re-frame2 — it's the React/Reagent runtime 
 >   (rdc/render root [counter]))
 > ```
 >
-> `init!` tells re-frame2 which substrate adapter to use (Reagent here; SSR and tests use other adapters). `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+> `init!` tells re-frame2 which substrate adapter to use (Reagent here; SSR and tests use other adapters). `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
 
 ## What just happened
 
