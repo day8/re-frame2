@@ -203,7 +203,7 @@ This applies only to projects that have adopted master's `dispatch-with` / `disp
 
 **Why:** see [002-Frames.md §Per-frame and per-call overrides](002-Frames.md). The unified dispatch shape is simpler, fewer names, same capability, and the override flow is now via the explicit envelope rather than via Clojure metadata (less fragility, no try/finally, visible in any debug stream).
 
-**`dispatch-and-settle` survives.** Master's `dispatch-and-settle` (which awaits a dispatch cascade and returns a deferred) is preserved in re-frame2 with the same user-facing API including its `:overrides` opt. The internal mechanism for the overrides is now envelope-based rather than metadata-based, but user code calling `dispatch-and-settle` does not change.
+**`dispatch-and-settle` is dropped.** Master's `dispatch-and-settle` (which awaits a dispatch cascade and returns a deferred) is replaced by re-frame2's `dispatch-sync` — see [§M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces). The v2 drain is settle-by-default, so `dispatch-sync` returns once the cascade has fully drained; the v1 deferred-shaped return is gone.
 
 ---
 
@@ -475,17 +475,17 @@ re-frame2's reactive substrate (per [006-ReactiveSubstrate.md](006-ReactiveSubst
 
 ---
 
-### M-13. `reg-event-error-handler` is a single-slot policy and silently overrides the default
+### M-13. `reg-event-error-handler` is dropped — error policy is per-frame `:on-error`
 
-**Type B** (semantic flag).
+**Type B** (semantic flag). See [§M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) for the canonical drop entry; this slot remains for stable numbering and to flag the policy-ownership concern explicitly.
 
-Per [009 §`reg-event-error-handler`](009-Instrumentation.md#reg-event-error-handler), only one error-handler is registered at a time per process; user calls replace the framework-default handler. Code that assumed the default handler still runs after a user registration will not see that behaviour.
+The v1 process-wide `reg-event-error-handler` is dropped in v2. Error policy moves into the frame-level `:on-error` slot in `reg-frame` metadata (per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame)); for cross-frame observation, use `register-trace-cb!` filtered on `:op-type :error`.
 
 **What to look for:** every `reg-event-error-handler` call site.
 
-**What to do:** flag for review; confirm the user wants to take full ownership of error policy, or wrap the previous handler explicitly.
+**What to do:** flag for review; the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-trace-cb!`). Apps that stacked multiple v1 handlers must consolidate into one `:on-error` per frame plus zero or more trace-listener observers.
 
-**Why:** the single-slot model is the locked v1 contract per [009](009-Instrumentation.md). Migrating apps that had multiple error handlers stacked under v1 must consolidate.
+**Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. Frame-level `:on-error` makes ownership explicit; the trace listener API gives observer-shaped tools the cross-frame view they need without modifying recovery.
 
 ---
 
@@ -1002,14 +1002,55 @@ If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the 
 
 ---
 
-**Reporting M-12 through M-25.** These fourteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing fourteen separate preambles.
+### M-26. Drift-sweep drops — v1 surfaces with no v2 equivalent or absorbed by canonical surfaces
+
+**Type A** (mechanical) for the symbols whose canonical replacement is a direct rewrite; **Type B** (semantic flag) for `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` where the v2 surface differs in shape.
+
+Per rf2-gr0n: a sweep of API.md and the spec corpus identified 11 v1-era public symbols that were carried as documentation rows but had no v2 impl, no test, and no canonical owner — a per-symbol decision was made to drop each. The replacements below cover both v1 callers and any draft-spec call sites still authored against v2 docs.
+
+**What to look for** in the codebase:
+
+```clojure
+(rf/with-trace ...)                              ;; span-shape tracing
+(rf/merge-trace! ...)
+(rf/finish-trace ...)
+rf/trace-api-version                             ;; version slot, never wired
+(rf/add-post-event-callback ...)
+(rf/remove-post-event-callback ...)
+(rf/purge-event-queue)
+(rf/dispatch-and-settle event)
+(rf/reg-event-error-handler handler-fn)
+(rf/spawn-machine spec)
+(rf/destroy-machine actor-id)
+```
+
+**What to do:**
+
+| v1 surface | v2 equivalent | Notes |
+|---|---|---|
+| `with-trace` / `merge-trace!` / `finish-trace` | `(rf/emit-trace! op-type operation tags)` | re-frame2's trace stream is point-event, not span-shape. Each emit is one trace event; tools assemble spans externally if needed. See [009-Instrumentation §Tracing](009-Instrumentation.md#tracing). |
+| `trace-api-version` | (none — drop) | Per rf2-j7kv (Spec 009 narrowed), the version slot is unused. Tools branch on the presence of `re-frame.core/register-trace-cb!` and the `:rf/epoch-record` schema instead. |
+| `add-post-event-callback` / `remove-post-event-callback` | `(rf/register-trace-cb! key cb)` / `(rf/remove-trace-cb! key)` | v1's per-frame post-event hook is subsumed by the trace listener API. Listeners receive every dispatched event as a trace event; filter on `:operation` for the equivalent. **Type B** — the rewrite depends on whether the callback was observer-shaped (trivial trace-listener replacement) or behaviour-modifying (rare; should move into a frame-level interceptor). |
+| `purge-event-queue` | (none — drop) | v2's `dispatch-sync` drains synchronously and v2's drain is run-to-completion (per [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)); the v1 affordance for "drop a stuck queue" no longer applies. Tests that need a fresh frame use `with-fresh-registrar` / `reset-runtime-fixture` (per [008-Testing](008-Testing.md)). |
+| `dispatch-and-settle` | `dispatch-sync` | v2's `dispatch-sync` is settle-by-default — the call returns once the cascade has fully drained. The v1 deferred-shaped return is gone; callers that awaited the deferred can replace `(deref (dispatch-and-settle ev))` with `(dispatch-sync ev)`. The `:overrides` opt maps to `dispatch-sync`'s `:fx-overrides` / `:interceptor-overrides`. |
+| `reg-event-error-handler` | per-frame `:on-error` slot, or `(rf/register-trace-cb! key cb)` filtering on `:rf.error/*` | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 layers error policy at the frame level (`:on-error` in `reg-frame` metadata) and exposes the structured error stream via the trace listener API. **Type B** — the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-trace-cb!`). |
+| `spawn-machine` | `[:rf.machine/spawn spec]` (fx, inside an event handler's `:fx`) | The fx-id is canonical; the public fn `spawn-machine` is dropped. From outside a handler (e.g. boot-time), wrap in `(rf/dispatch-sync [:my-bootstrap-event])` whose handler returns `{:fx [[:rf.machine/spawn spec]]}`. |
+| `destroy-machine` | `[:rf.machine/destroy actor-id]` (fx, inside an event handler's `:fx`) | Same — fx-id is canonical; the public fn is dropped. |
+
+**Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
+
+For `make-restore-fn`, `init-platform`, the SSR-head trio (`reg-head` / `render-head` / `active-head`), and `sub-topology` — these were also flagged in the rf2-gr0n triage but carry post-v1 ergonomic value; they are deferred (not dropped) and tracked as separate beads. Migration tooling should not attempt to rewrite these.
+
+---
+
+**Reporting M-12 through M-26.** These fifteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing fifteen separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename).
-- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**.
+- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
 
@@ -1180,7 +1221,7 @@ This is a meaningful migration of consumer code, not a mechanical rewrite. Do no
 
 A non-exhaustive list of public API surface that is **preserved unchanged** in re-frame2. If your code uses any of these, leave it alone.
 
-- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-event-error-handler`.** Same names, same call shapes (vector-of-interceptors form preserved via overload). See M-5 for the one edge case (higher-order use). `reg-sub-raw` is **not** preserved — see M-18.
+- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx`.** Same names, same call shapes (vector-of-interceptors form preserved via overload). See M-5 for the one edge case (higher-order use). `reg-sub-raw` is **not** preserved — see M-18; `reg-event-error-handler` is **not** preserved — see [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).
 - **Handler signatures.** `(fn [db [_ args]] ...)` for `reg-event-db`; `(fn [ctx event] ...)` or `(fn [m] ...)` for `reg-event-fx`; `(fn [context] ...)` for `reg-event-ctx`. Unchanged. Existing handlers continue to work; new keys appear additively in the cofx-context map.
 - **`dispatch` and `dispatch-sync`.** Same names; the optional second `opts` arg is a new addition that doesn't affect single-arg calls.
 - **`subscribe`.** Same. Optional second `opts` arg.
@@ -1192,7 +1233,6 @@ A non-exhaustive list of public API surface that is **preserved unchanged** in r
 - **`reg-fx` / `reg-cofx` without `:platforms`.** These default to **universal** (`#{:server :client}`) — same effective behaviour as re-frame v1, where fx ran wherever you dispatched them. New code that needs to gate fx to client-only adds `:platforms #{:client}` explicitly (see [011 §`:platforms` metadata](011-SSR.md#platforms-metadata-on-reg-fx)). Migrating apps don't need to touch existing `reg-fx` registrations.
 - **Flow features.** `reg-flow`, `flow<-`, `clear-flow` are preserved as canonical surfaces in `re-frame.core` (per [Spec 013](013-Flows.md)). The `re-frame.alpha` namespace itself — including `reg :sub-lifecycle` and the `:re-frame/q` query-map shape — is removed; see [M-23](#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn).
 - **`re-frame.std-interceptors`** namespace — public, preserved.
-- **`dispatch-and-settle`** (master) — preserved; same API including `:overrides` opt (internal mechanism changes per M-4).
 - **JVM interop layer.** `re-frame.interop` (separate `.clj` and `.cljs` implementations) is preserved; tests continue to run on the JVM.
 - **Hot-reload semantics on the default frame.** `reg-event-*` re-registration replaces a single handler without resetting `app-db`, matching today's behavior (re-frame2 commits to "surgical update" as the default frame's hot-reload semantics).
 

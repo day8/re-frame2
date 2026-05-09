@@ -34,7 +34,6 @@
 | `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
-| `reg-event-error-handler` | Fn | `(reg-event-error-handler handler-fn)` | v1 (preserved + extended) | 009 | Single-slot policy mechanism. |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named via `(rf/configure :ssr {:public-error-id ...})`. |
 
@@ -60,7 +59,6 @@
 | `dispatch-sync` | Fn | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended) | 002 |
 | `subscribe` | Fn | `(subscribe query-v)` / `(subscribe query-v opts)` | v1 (preserved + extended) | 002 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
-| `dispatch-and-settle` | Fn | `(dispatch-and-settle event opts?)` | v1 (preserved) | 002 |
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
 
@@ -473,9 +471,6 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `make-restore-fn` | Fn | `(make-restore-fn)` / `(make-restore-fn frame-id)` → restore-fn | v1 (preserved + extended) | 002 |
-| `add-post-event-callback` | Fn | `(add-post-event-callback f)` / `(add-post-event-callback id f)` / `(add-post-event-callback frame-id id f)` | v1 (preserved + extended) | 002 |
-| `remove-post-event-callback` | Fn | `(remove-post-event-callback id)` / `(remove-post-event-callback frame-id id)` | v1 (preserved + extended) | 002 |
-| `purge-event-queue` | Fn | `(purge-event-queue)` / `(purge-event-queue frame-id)` | v1 (preserved + extended) | 002 |
 | `install-adapter!` | Fn | `(install-adapter! adapter-or-keyword)` — must be called before any frame is created | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
 | `init-platform` | Fn | `(init-platform :server \| :client)` — sets the active platform; defaults from build target | v1 | 011 |
@@ -519,8 +514,6 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 |---|---|---|---|---|
 | `create-machine-handler` | Fn | `(create-machine-handler spec)` → event-handler fn | v1 | 005 |
 | `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | 005 |
-| `spawn-machine` | Fn | `(spawn-machine spec)` → actor-id | v1 | 005 |
-| `destroy-machine` | Fn | `(destroy-machine actor-id)` | v1 | 005 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata | v1 | 005 |
@@ -577,8 +570,6 @@ See [007-Stories.md](007-Stories.md).
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API bridge is forward-looking and unimplemented at v1 (see [009 §Chrome Performance API integration](009-Instrumentation.md#chrome-performance-api-integration)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb!` / `remove-trace-cb!` | 009 |
 | `register-trace-cb` / `remove-trace-cb` (no-bang, proposed earlier) | Renamed to `register-trace-cb!` / `remove-trace-cb!` (bang form matches the side-effecting nature of listener registration) | 009 |
-| `with-trace` / `merge-trace!` / `finish-trace` (proposed earlier) | Span-style emission was not implemented; the runtime emits event-at-a-time via `re-frame.trace/emit!` (re-exported as `rf/emit-trace!`) | 009 |
-| `trace-api-version` (proposed earlier) | Not implemented; tools branch on the presence of `re-frame.core/register-trace-cb!` and the `:rf/epoch-record` schema instead | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id | 004 |
 | `h` macro (proposed earlier) | Removed (rf2-n4um). Use the Var form `[my-view "args"]` or `[(rf/view :my-view) "args"]` | 004 |
 | `reg-global-interceptor` | Use `reg-frame :interceptors` (frame-level is the canonical "global within this frame"). For cross-frame observation use `register-trace-cb!`. | MIGRATION M-17 |

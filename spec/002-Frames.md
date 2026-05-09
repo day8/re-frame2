@@ -697,32 +697,11 @@ The shape that drains as part of the surrounding cascade is `:fx [[:dispatch eve
 
 ### Preserved low-level APIs are per-frame
 
-The router/queue helpers preserved from v1 (`make-restore-fn`, `add-post-event-callback`, `remove-post-event-callback`, `purge-event-queue`) operate on a *specific* frame's router state. Multi-frame routing made them under-specified in v1; v1.x of re-frame2 locks the rule:
+The router/queue helpers preserved from v1 operate on a *specific* frame's router state. Multi-frame routing made them under-specified in v1; v1.x of re-frame2 locks the rule:
 
 > **Every preserved low-level router helper takes an explicit `frame-id` argument. The zero-arg form targets `:rf/default`.**
 
-```clojure
-;; v1 form (preserved): targets :rf/default
-(rf/add-post-event-callback :my/recorder f)
-(rf/remove-post-event-callback :my/recorder)
-(rf/purge-event-queue)
-(rf/make-restore-fn)
-
-;; explicit-frame form: targets a specific frame
-(rf/add-post-event-callback :todo :my/recorder f)
-(rf/remove-post-event-callback :todo :my/recorder)
-(rf/purge-event-queue :todo)
-(rf/make-restore-fn :todo)
-```
-
-Per-helper semantics:
-
-- **`add-post-event-callback`** — registers `f` to run after every event handled in the named frame's router. Different frames have independent post-event callback maps; a callback added to `:todo` does not fire for events handled in `:rf/default`.
-- **`remove-post-event-callback`** — removes the callback from the named frame's map.
-- **`purge-event-queue`** — drops every event currently sitting in the named frame's router queue. Other frames' queues are untouched. Tools and tests use this to recover a stuck frame (e.g. after a long debugging session) without resetting `app-db`.
-- **`make-restore-fn`** — captures the named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback.
-
-The single-arg / zero-arg forms (`(purge-event-queue)`, `(make-restore-fn)`, etc.) are preserved verbatim from v1 and target `:rf/default`. Existing single-frame v1 code keeps working without change. New multi-frame code uses the explicit-frame form.
+`make-restore-fn` is the v1 surface that survives this rule today: it captures a named frame's runtime state (`app-db`, sub-cache snapshot) and returns a closure that restores it. The captured state is per-frame; restoring `:todo`'s state does not touch `:rf/default`. Tests use this for fixture rollback. The single-arg form `(rf/make-restore-fn)` targets `:rf/default`; the explicit-frame form `(rf/make-restore-fn :todo)` targets a specific frame. (The v1 helpers `add-post-event-callback` / `remove-post-event-callback` / `purge-event-queue` are dropped in v2 — see [MIGRATION.md §M-26](MIGRATION.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).)
 
 These helpers are not part of the dispatch envelope and don't propagate across frames — they are operational helpers, not data-flow primitives. Tools (10x, re-frame-pair) call them per-frame as part of session management.
 
@@ -939,7 +918,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 | `process-event!` step 2 | [Substrate adapter §replace-container!](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value--nil); [Sub-cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
 | Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
-| Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); `reg-event-error-handler` fires the user-defined projector |
+| Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); the per-frame `:on-error` slot fires the user-defined projector |
 | Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` and `:spawn` are routed by `create-machine-handler` *before* `:fx` reaches `do-fx` (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
 
 #### Edge cases worth pinning

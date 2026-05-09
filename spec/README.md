@@ -41,7 +41,7 @@ Within the Companion layer, each doc carries a **Type** (the companion-document 
 | 006 | [Reactive Substrate](006-ReactiveSubstrate.md) | Substrate-agnostic core + adapter contract. Reagent default; plain-atom for JVM/SSR/headless. |
 | 007 | [Stories, Variants, and Workspaces](007-Stories.md) | Storybook/Histoire/devcards-class tooling. Story / Variant / Workspace split. Builds on 008. |
 | 008 | [Testing](008-Testing.md) | Owns the testing infrastructure surface. Test fixtures, synchronous triggers, per-test fx/interceptor stubbing, headless sub/machine evaluation, framework adapters, JVM-runnable test suites. 007 cross-references 008 for portable-stories-as-tests. |
-| 009 | [Instrumentation, Tracing, Performance](009-Instrumentation.md) | Trace event model, listener API, structured error contract, `reg-event-error-handler` policy mechanism, forward-compat with 10x / re-frame-pair. |
+| 009 | [Instrumentation, Tracing, Performance](009-Instrumentation.md) | Trace event model, listener API, structured error contract, per-frame `:on-error` policy mechanism, forward-compat with 10x / re-frame-pair. |
 | 010 | [Schemas (CLJS reference)](010-Schemas.md) | Malli-based schemas via `:spec`; path-based `app-db` schemas via `reg-app-schema`; validation timing, dev-vs-prod elision. *Schemas are opt-in at the pattern level.* |
 | 011 | [SSR & Hydration](011-SSR.md) | Server frame lifecycle (per-request), pure hiccup → HTML emitter (JVM-runnable), `:platforms` metadata, `:rf/hydrate` event, hydration-mismatch detection. |
 | 012 | [Routing](012-Routing.md) | URL ↔ frame state contract. Routes are registry entries; navigation is an event; `:route` is a sub. Same handler runs server- and client-side. |
