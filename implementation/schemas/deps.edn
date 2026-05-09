@@ -1,0 +1,57 @@
+;; day8/re-frame-2-schemas — schema-attachment artefact (rf2-p7va,
+;; first per-feature split per rf2-5vjj Strategy B).
+;;
+;; Per Spec 010 §Schemas the schema-attachment surface
+;; (`reg-app-schema`, `app-schema-at`, `app-schemas`, the
+;; validation hot-path entry points) ships as a separate Maven
+;; artefact so apps that don't use schemas don't drag Malli (and
+;; the schemas namespace itself) onto the classpath.
+;;
+;; Consumers add this artefact alongside the core artefact:
+;;
+;;   {:deps {day8/re-frame-2         {:mvn/version "..."}
+;;           day8/re-frame-2-schemas {:mvn/version "..."}}}
+;;
+;; And, on CLJS, require malli.core at app-boot so the validate fn
+;; resolves at runtime (re-frame.schemas uses `(resolve 'malli.core/validate)`
+;; which only finds vars already loaded).
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; rf2-p7va extension to per-feature splits): this artefact depends
+;; on core; core never depends on this artefact. The cross-reference
+;; from core to schemas (e.g. `re-frame.test-support`'s reset
+;; fixture, `re-frame.core`'s `reg-app-schema` re-export) is wired
+;; through `re-frame.late-bind`'s hook table — schemas registers its
+;; entry points at ns-load time; core looks them up at call time.
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}
+         metosin/malli   {:mvn/version "0.13.0"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-schemas
+   :main     re-frame.schemas
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
