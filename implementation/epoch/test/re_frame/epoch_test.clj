@@ -22,7 +22,14 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.trace :as trace]
-            [re-frame.epoch :as epoch]))
+            [re-frame.epoch :as epoch]
+            ;; rf2-v6z0: machines is a separate artefact whose late-bind
+            ;; hook publishes `rf/reg-machine` only when the namespace is
+            ;; loaded. Several restore-* tests register machines via
+            ;; `rf/reg-machine` in their bodies; without this require they
+            ;; throw `:rf.error/machines-artefact-missing`. Side-effect
+            ;; require — the namespace alias is unused.
+            [re-frame.machines]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
