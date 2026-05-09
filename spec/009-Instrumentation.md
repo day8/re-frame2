@@ -341,13 +341,122 @@ Dev iteration matters; you don't want trace machinery to slow ordinary feedback 
 - **No string formatting or other expensive work** happens in framework emit code; tools format if they want to.
 - **Listener invocation cost scales with listener count.** Zero registered listeners means zero per-emit dispatch overhead beyond the registry deref. The retain-N ring buffer always pushes (its append is `swap!` plus a slot check), so the floor is one map allocation, one buffer push, and one deref per emit.
 
-## Chrome Performance API integration
+## Performance instrumentation
 
-> **Status:** unimplemented at the v1 reference runtime. The bridge described below is forward-looking — see [API.md §Configure keys](API.md#configure-keys) for the `:performance-api` placeholder. Production builds will elide the bridge along with the rest of tracing once it lands.
+The trace stream above is dev-only — too noisy for prod, gated on `re-frame.interop/debug-enabled?` (an alias of `goog.DEBUG`). Many apps still want a *separate*, default-off, prod-friendly timing channel: one that surfaces in Chrome DevTools' Performance panel alongside React renders, network, and paint, and that consumers (the host's APM, a custom `PerformanceObserver`, an in-app perf overlay) can read via the standard browser [User Timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing) surface.
 
-The Chrome Performance API ([User Timing](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing)) lets dev tools see custom timing alongside React renders, network, paint, etc. A future re-frame2 release may ship a built-in bridge between trace emission and `performance.mark` / `performance.measure`. The intended shape: a hardcoded emit-path side-effect, gated on the same `re-frame.interop/debug-enabled?` flag as the rest of trace, with a per-runtime `(rf/configure :performance-api {:enabled? false})` to turn it off without disabling the trace stream itself.
+re-frame2 ships that channel through the browser's `performance.mark` / `performance.measure`, gated on a **second** compile-time constant — `re-frame.performance/enabled?` — that is independent of `goog.DEBUG`. The default is off; consumers opt in by flipping the `goog-define` via `:closure-defines`. Closure DCE then either keeps the bracket sites or elides them entirely; production binaries that don't ask for timing carry zero User-Timing instrumentation.
 
-The bridge will be CLJS-only — the Chrome Performance API is browser-specific. JVM tooling uses the host's own profilers (clj-async-profiler, JFR).
+This is **distinct from** the trace surface above:
+
+| Axis | Trace stream | Performance instrumentation |
+|---|---|---|
+| Compile-time gate | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | `re-frame.performance/enabled?` |
+| Default | on in dev (`goog.DEBUG=true`), off in prod | **off** in both (`enabled?=false`) |
+| Consumer | `register-trace-cb!` listeners, the retain-N ring buffer, `register-epoch-cb` | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
+| Shape | structured trace events (open maps with `:operation` / `:op-type` / `:tags`) | `User Timing` measure entries (`name`, `startTime`, `duration`) |
+| Where it runs | both platforms (dev) | CLJS only — JVM is a no-op |
+
+The two flags compose: a build that wants both flips both. A typical prod build has `goog.DEBUG=false` and either `re-frame.performance/enabled?` true (perf timing kept; trace elided) or false (everything elided).
+
+### The compile-time flag
+
+```clojure
+;; src/re_frame/performance.cljc
+(goog-define ^boolean enabled? false)
+```
+
+A consumer flips it in their shadow-cljs.edn / compiler-options:
+
+```edn
+{:builds {:app {:target           :browser
+                :output-dir       "..."
+                :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
+```
+
+Like `goog.DEBUG`, `:advanced` constant-folds the value, the gated branch DCEs, and the body collapses to its un-bracketed shape — for the perf surface that means each call site becomes a direct invocation of the body it brackets.
+
+### What gets bracketed
+
+The reference runtime brackets four hot-path call sites. Each runs inside a `(performance/mark-and-measure :<bucket> <id> <body>)` macro form so the bracket is a compile-time decision (the macro expands to `(if enabled? <gated-bracket> (do <body>))`, which Closure constant-folds):
+
+| Bucket | Where | Entry name |
+|---|---|---|
+| `:event`  | Event handler invocation (router's `process-event*` step that runs the interceptor chain) | `rf:event:<event-id>` |
+| `:sub`    | Subscription recompute (the body fn inside `compute-and-cache!`'s reaction) | `rf:sub:<sub-id>` |
+| `:fx`     | Per-fx walk-step (every entry processed by `handle-one-fx`, including reserved fx-ids `:dispatch` / `:dispatch-later` / `:rf.fx/reg-flow` / `:rf.fx/clear-flow` and user-registered fx) | `rf:fx:<fx-id>` |
+| `:render` | Per-`reg-view` render (the wrapper emitted by `reg-view*`) | `rf:render:<view-id>` |
+
+The bracket shape (when the flag is on at compile time):
+
+```
+performance.mark(<name>:start)
+try    <body>
+finally
+  performance.mark(<name>:end)
+  performance.measure(<name>, <name>:start, <name>:end)
+```
+
+The `try/finally` ensures a partial measure entry still lands when the body throws — observability does not become silent on the unhappy path. The thrown exception still propagates after the `:end` mark fires.
+
+### Naming convention
+
+Every entry name uses the shape `rf:<bucket>:<id>`, so consumers filter by the `rf:` prefix without parsing per-bucket shapes. Keyword ids preserve their namespace:
+
+```
+rf:event:user/login
+rf:sub:cart/total
+rf:fx:dispatch
+rf:fx:rf.http/managed
+rf:render:my.app/page-header
+```
+
+Tools that want a per-bucket view split on the second `:`. The shape is **stable**: new buckets adopt the `rf:<bucket>:<id>` convention and are additive.
+
+### Consumer access
+
+```javascript
+// All re-frame entries from the most recent run.
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'));
+
+// Live: a PerformanceObserver fires per emitted entry.
+new PerformanceObserver((list) => {
+  for (const e of list.getEntriesByType('measure')) {
+    if (e.name.startsWith('rf:')) {
+      // entry: { name, startTime, duration, ... }
+      sendToAPM(e);
+    }
+  }
+}).observe({ type: 'measure', buffered: true });
+```
+
+Chrome DevTools' Performance panel renders the measures as named tracks alongside React renders, network, and paint — no custom UI required.
+
+The `User Timing` entry buffer is bounded by the host (Chrome's default is 10000 entries); long-running pages that want every entry should attach a `PerformanceObserver` and offload to durable storage rather than rely on the buffer.
+
+### Production-elision verification
+
+The bundle-isolation contract is enforced in CI by `npm run test:perf-bundle` (the dual of `npm run test:elision`):
+
+1. `:examples/counter` builds the standard counter example under `:advanced` with the perf flag off (the goog-define default).
+2. `:examples/counter-perf` builds the same source under `:advanced` with `:closure-defines {re-frame.performance/enabled? true}`.
+3. `scripts/check-perf-bundle.cjs` greps both bundles. The contract:
+   - **Off bundle** MUST NOT contain `performance.mark`, `performance.measure`, or any `"rf:` entry-name fragment.
+   - **On bundle** MUST contain all three.
+
+Without the on bundle the off-bundle assertion would be vacuous — a refactor that *moved* the strings out of the gated branch would silently turn the negative grep into a false pass. The same dual-bundle methodology that gives the trace-surface elision contract its teeth (per [§Production-elision verification](#production-elision-verification)) extends to the perf surface here.
+
+The browser smoke at `examples/counter/counter-perf.spec.cjs` complements the grep: it serves the perf-on bundle, drives a real dispatch through the +/- buttons, and reads `performance.getEntriesByType('measure')` to confirm at least one entry per bucket lands. A passing grep is necessary but not sufficient; the smoke proves the four call sites actually fire under a real cascade.
+
+### JVM scope
+
+The Performance API is browser-only. The JVM half of `re-frame.performance`:
+
+- Defines `enabled?` as `^:const false` so the macro expansion's `(if enabled? ...)` is statically dead and the JVM body runs as if instrumentation were absent.
+- Expands `mark-and-measure` to `(do body...)` — pure pass-through, no instrumentation overhead.
+
+JVM artefacts (headless tests, SSR, Pedestal/Ring services using re-frame2 for state) that want timing should reach for the host's profilers (clj-async-profiler, JFR, async-profiler).
 
 ## Forward compatibility for tools
 
@@ -394,7 +503,7 @@ All trace functionality is **dev-build only** — production builds elide the en
 | `register-epoch-cb` / `remove-epoch-cb` | ✓ | ✓ |
 | Trace ring buffer (`trace-buffer`) | ✓ | ✓ |
 | Hot-reload trace events | ✓ | ✓ |
-| Chrome Performance API integration | ✗ | (planned, see §Chrome Performance API integration) |
+| Performance API instrumentation (`rf:event:*` / `rf:sub:*` / `rf:fx:*` / `rf:render:*` measures) | ✗ | ✓ (default-off; see [§Performance instrumentation](#performance-instrumentation)) |
 | 10x panel itself | ✗ | ✓ |
 | re-frame-pair attachment | ✓ | ✓ |
 
@@ -650,7 +759,7 @@ Tracing is the connective tissue between the runtime and every tool that observe
 - Locks the data shape independently of any specific tool.
 - Documents the forward-compat commitments tools depend on.
 - Separates "framework emits events" (002 territory) from "framework provides a tap surface" (this Spec).
-- Carves space for a future Chrome Performance API integration (currently unimplemented, see §Chrome Performance API integration).
+- Documents the prod-side Performance API instrumentation channel (gated on `re-frame.performance/enabled?`, default-off) alongside the dev-side trace stream — two compile-time-elidable surfaces with distinct gates and distinct consumers (see [§Performance instrumentation](#performance-instrumentation)).
 
 ## Open questions
 

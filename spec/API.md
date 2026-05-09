@@ -294,6 +294,7 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 | `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` → nil | v1 (dev-only) | 009 |
 | `emit-trace!` | Fn | `(emit-trace! op-type operation tags)` → nil | v1 (dev-only) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
+| `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | 009 |
 | `trace-buffer` | Fn | `(trace-buffer)` / `(trace-buffer opts)` → vector of trace events, oldest-first | v1 (dev-only) | 009 |
 | `clear-trace-buffer!` | Fn | `(clear-trace-buffer!)` → nil | v1 (dev-only) | 009 |
 | `(rf/configure :trace-buffer {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | 009 |
@@ -488,7 +489,6 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
 | `:dom-source-annotations?` | boolean — historical opt-in flag; superseded by mandatory injection per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1). Setting this false has no effect — the gate is `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via DCE | n/a (always-on under dev) | v1 (dev-only) | 006, Tool-Pair |
-| `:performance-api` | boolean — bridge trace events to the host's Performance API | `true` (when tracing is on) | planned (unimplemented at v1) | 009 |
 | `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
 | `:ssr` | `{:public-error-id :detect-mismatch? :on-mismatch :on-view-exception :dev-error-detail?}` (see [011](011-SSR.md) for each) | per [011](011-SSR.md) | v1 | 011 |
 
@@ -567,7 +567,7 @@ See [007-Stories.md](007-Stories.md).
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
 | `frame-dispatcher` (proposed earlier) | Renamed to `bound-dispatcher` | 002 |
-| `enable-performance-api-tracing!` (proposed earlier) | Performance-API bridge is forward-looking and unimplemented at v1 (see [009 §Chrome Performance API integration](009-Instrumentation.md#chrome-performance-api-integration)) | 009 |
+| `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb!` / `remove-trace-cb!` | 009 |
 | `register-trace-cb` / `remove-trace-cb` (no-bang, proposed earlier) | Renamed to `register-trace-cb!` / `remove-trace-cb!` (bang form matches the side-effecting nature of listener registration) | 009 |
 | Bare `[:my-view "args"]` keyword-tagged hiccup | Use the Var form `[my-view "args"]` (canonical) or `[(rf/view :my-view) "args"]` for late-binding by id | 004 |

@@ -90,6 +90,56 @@ All six failures have `:op-type :error` and `:recovery :no-recovery`. Pair tools
 
 **Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) the trace surface, schema validation, registrar trace emit, and epoch-history machinery share a single compile-time gate (`re-frame.interop/debug-enabled?`, alias of `goog.DEBUG`); production builds (`:advanced` + `goog.DEBUG=false`) elide all of it. CI's `npm run test:elision` job (Spec 009 §Production-elision verification) asserts the contract holds for every gated surface, including the epoch-history primitives once they land.
 
+## Performance API consumption
+
+The Performance API channel (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) is the prod-friendly counterpart to the dev-only trace stream. Pair-shaped tools that want timing data — an in-app perf overlay, an APM forwarder, a custom `PerformanceObserver` watching for slow renders — read it via the standard browser User Timing surface. No re-frame2 API call is needed; the runtime emits `User Timing` `measure` entries and any consumer that knows about `performance.getEntriesByType` can read them.
+
+Names are stable and namespaced under `rf:`:
+
+```
+rf:event:<event-id>
+rf:sub:<sub-id>
+rf:fx:<fx-id>
+rf:render:<view-id>
+```
+
+Consumer pattern — pull every re-frame entry from the recent run:
+
+```javascript
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'))
+  .forEach(e => {
+    const [_rf, bucket, ...idParts] = e.name.split(':');
+    const id = idParts.join(':');
+    // e: { name, startTime, duration, ... }
+    // bucket: 'event' | 'sub' | 'fx' | 'render'
+  });
+```
+
+Live: `PerformanceObserver` fires per emitted entry (the canonical shape for a tool that wants to react in real time):
+
+```javascript
+new PerformanceObserver((list) => {
+  for (const e of list.getEntriesByType('measure')) {
+    if (e.name.startsWith('rf:')) {
+      sendToAPM(e);  // or update an overlay, or buffer for a flush
+    }
+  }
+}).observe({ type: 'measure', buffered: true });
+```
+
+The channel is gated on `re-frame.performance/enabled?` — a `goog-define` boolean that defaults to `false`. Pair tools that depend on the channel **MUST** document the consumer's responsibility to flip the flag in their build:
+
+```edn
+;; consumer's shadow-cljs.edn
+{:builds {:app {:target           :browser
+                :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
+```
+
+When the flag is off (the default), Closure DCE elides every bracket; `performance.getEntriesByType('measure')` returns no `rf:`-prefixed entries because none were ever emitted. This is by design: the perf channel is *opt-in for prod* (timing instrumentation has measurable cost on heavy hot paths and consumers should choose to pay it).
+
+The Performance API surface is **CLJS-only**. JVM artefacts (SSR, headless tests) emit no perf entries; tools running there use the host's profilers (clj-async-profiler, JFR).
+
 ## REPL-eval
 
 The pair tool's "execute arbitrary expression" capability is the **host's REPL** (CLJS: nREPL via cider; Python: IPython; etc.) — re-frame2 doesn't ship an evaluator, just exposes its data structures. An nREPL session attached to a running re-frame2 app can already see `re-frame.db/app-db` (or its substrate-agnostic equivalent), the registrar, and any namespace-resolvable function.
