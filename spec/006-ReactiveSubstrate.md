@@ -771,6 +771,30 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 Other CLJS adapters (UIx, Helix) plug in via the same shape, replacing only the React-rendering and context-provider primitives; the sub-cache wiring and the plain-atom JVM half are unchanged.
 
+## CLJS reference: UIx as alternative substrate (rf2-3yij)
+
+The UIx adapter ships in `day8/re-frame-2-uix` and implements the same nine-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
+
+Per [rf2-3yij](#) the locked decisions (2026-05-09) are:
+
+1. **Hook naming.** The substrate's subscription surface is `use-subscribe`, matching the React/UIx idiom. Symmetric ergonomics to Reagent's `(rf/subscribe ...)` deref shape; asymmetric naming because hooks live in hook-named space.
+2. **Frame propagation.** Both the UIx and Reagent adapters read the *same* React Context object — factored out of `re-frame.views` into `re-frame.substrate.context` (CLJS-only file in core). A future mixed-substrate app's frame-provider chain therefore composes across substrates rather than living in per-adapter silos.
+3. **Auto-injection.** None for UIx. Components call `(use-subscribe [:foo])` and `(rf/dispatcher)` directly — there is no UIx-side analogue to `reg-view`'s `dispatch` / `subscribe` lexical bindings. The hook surface is the canonical UIx access path.
+4. **`reg-view` macro scope.** `reg-view` stays Reagent-only (auto-defs the Var, auto-injects the lexical `dispatch` / `subscribe`, threads source-coords through Reagent's `:contextType` machinery). UIx users register views via `reg-view*` (the plain-fn surface in `re-frame.core`); source-coord stamping for UIx-rendered roots happens at the substrate adapter's render-time wrapper, not at registration time.
+5. **Source-coord DOM annotation.** The UIx adapter wraps user components in a thin layer that calls `React.cloneElement` to add `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element when `interop/debug-enabled?` is true. Production-elision contract per rf2-z7f7: under `:advanced` + `goog.DEBUG=false` the entire wrapper branch DCEs and the literal `data-rf2-source-coord` string fragment is absent from the bundle. Fragments and non-DOM roots are exempt with the standard one-shot warning per id.
+6. **Render flush for tests.** The adapter exposes `flush-views!` wrapping React's `act()`. Tests dispatching against a UIx-mounted tree call `(flush-views!)` after a dispatch to settle pending React effects before reading the DOM.
+7. **Smoke-test example set.** counter + login (under `examples/counter_uix/` and `examples/login_uix/`). Realworld is skipped per Decision 7 — heavy with Reagent-flavoured idioms; deferred until a UIx user wants it.
+8. **UIx version target.** UIx 2.x (hooks-based). UIx 1.x back-compat is explicitly out of scope.
+
+The CLJS-reference code follows the same per-contract-fn shape as the Reagent adapter; the differences are at the React layer:
+
+- `make-state-container` returns a `clojure.core/atom` rather than a Reagent `r/atom` — UIx has no built-in reactive atom primitive. View-side reactivity flows through `useSyncExternalStore` in `use-subscribe` rather than through Reagent reactions.
+- `make-derived-value` returns an `IDeref`+`IWatchable` wrapper that recomputes on deref and broadcasts changes via the source containers' watch machinery. Equality-on-= invariants ride on the core's sub-cache (Spec 006 §Invalidation algorithm), not on the substrate's caching.
+- `render` wraps `react-dom/client.createRoot` + `root.render`; the unmount-fn calls `root.unmount()`.
+- `register-context-provider` returns a UIx `defui` component reading the shared `frame-context` via `use-context`.
+
+Every other adapter primitive (read, replace, subscribe-container, dispose) is structurally identical to the Reagent adapter's — the contract is genuinely substrate-agnostic.
+
 ## Subscription topology vs subscription tracking
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
@@ -801,9 +825,10 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)):
 
-- **`day8/re-frame-2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract and the **plain-atom (headless) adapter** used by SSR and headless tests.
+- **`day8/re-frame-2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per [rf2-3yij](#) Decision 2) the shared React frame Context object at `re-frame.substrate.context` that every React-shaped substrate adapter consumes.
 - **`day8/re-frame-2-reagent`** — the **Reagent adapter** (browser default).
-- **`day8/re-frame-2-uix`** / **`day8/re-frame-2-helix`** — the UIx / Helix adapters, when those land.
+- **`day8/re-frame-2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
+- **`day8/re-frame-2-helix`** — the Helix adapter, when [rf2-2qit](#) lands.
 
 Per-host adapters for non-CLJS implementations (TS+React, TS+Solid, Vue, Python+RxPy, etc.) ship as separate packages, implementing the same contract — the per-substrate-artefact pattern is host-language-agnostic.
 

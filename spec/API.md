@@ -84,6 +84,26 @@
 
 ---
 
+## UIx adapter (Spec 006, rf2-3yij)
+
+UIx-specific surfaces live in `re-frame.substrate.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.substrate.uix :as uix-adapter]` and call the surfaces directly.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `uix-adapter/adapter` | Var (map) | `{:make-state-container … :render … :dispose-adapter! …}` | v1 | 006 |
+| `uix-adapter/use-subscribe` | Fn (UIx hook) | `(use-subscribe query-v)` / `(use-subscribe frame-kw query-v)` → current sub value | v1 | 006 |
+| `uix-adapter/use-current-frame` | Fn (UIx hook) | `(use-current-frame)` → frame-kw | v1 | 006 |
+| `uix-adapter/frame-provider` | Fn (UIx component) | `($ uix-adapter/frame-provider {:frame :session :children […]})` | v1 | 002, 006 |
+| `uix-adapter/wrap-view` | Fn | `(wrap-view id metadata user-fn)` → wrapped fn (source-coord injection per Spec 006 §Source-coord annotation) | v1 | 006 |
+| `uix-adapter/flush-views!` | Fn | `(flush-views!)` / `(flush-views! f)` — wraps React's `act()` for tests | v1 | 006, 008 |
+| `uix-adapter/set-hiccup-emitter!` | Fn | `(set-hiccup-emitter! f)` — install render-tree → HTML fn (parity with the Reagent adapter's late-bind seam) | v1 | 006, 011 |
+
+Per rf2-3yij Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
+
+The shared React Context that backs `frame-provider` lives in `re-frame.substrate.context` (CLJS-only file in core, factored out per Decision 2) — both the Reagent adapter and the UIx adapter consume the same `createContext` object so a future mixed-substrate app's frame-provider chain composes across substrates.
+
+---
+
 ## Routing (Spec 012)
 
 | API | M/Fn | Signature | Status | Spec |
