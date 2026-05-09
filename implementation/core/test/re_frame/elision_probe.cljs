@@ -181,7 +181,15 @@
   (epoch/clear-frame-history! :rf/default)
   (epoch/clear-epoch-cbs!)
   (let [_cfg (epoch/current-config)]
-    nil))
+    nil)
+  ;; rf2-d656 — on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
+  ;; per (frame-id, cb-id) pair when a frame previously observed by a
+  ;; register-epoch-cb callback is destroyed. The whole body sits inside
+  ;; `(when interop/debug-enabled? ...)`; the string fragment must elide
+  ;; under :advanced + goog.DEBUG=false. Touch the entry point through
+  ;; the public surface (frame destroy walks call into it via the
+  ;; :epoch/on-frame-destroyed late-bind hook).
+  (epoch/on-frame-destroyed! :rf/default))
 
 ;; ---- Spec 004 §Render-tree primitives — reg-view* wrapper (rf2-piag) -----
 

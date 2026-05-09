@@ -137,6 +137,15 @@ const DEV_ONLY_SENTINELS = [
   // mode (rf2-zq55). Same elision gate.
   { source: 're-frame.epoch/reset-frame-db! (rf.epoch/reset-frame-db-schema-mismatch)',
     sentinel: 'rf.epoch/reset-frame-db-schema-mismatch' },
+  // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
+  // silencing trace (Tool-Pair §Surface behaviour against destroyed
+  // frames, rf2-d656). Emitted by on-frame-destroyed! once per
+  // (frame-id, cb-id) pair when a previously-firing cb's observed
+  // frame is destroyed. The entire on-frame-destroyed! body sits
+  // inside `(when interop/debug-enabled? ...)`; the string fragment
+  // must elide in production.
+  { source: 're-frame.epoch/on-frame-destroyed! (rf.epoch.cb/silenced-on-frame-destroy)',
+    sentinel: 'rf.epoch.cb/silenced-on-frame-destroy' },
   // re-frame.views — :view/render trace op (Spec 004 §Render-tree
   // primitives, rf2-piag / rf2-t5tx). Emitted by the reg-view*
   // wrapper on every render of a registered view; the entire emit
