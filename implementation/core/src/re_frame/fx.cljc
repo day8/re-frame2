@@ -23,6 +23,8 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.performance :as performance
+             #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -116,7 +118,18 @@
   to the originator without a separate cofx-injection step."
   [frame-id [original-fx-id args] active-platform overrides origin-event]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)]
-   (case fx-id
+   ;; Per Spec 009 §Performance instrumentation (rf2-du3i): every fx
+   ;; invocation — reserved or user-registered — runs inside a perf
+   ;; bracket so prod builds with the perf flag enabled produce a
+   ;; `rf:fx:<fx-id>` measure entry per fx walk-step. Default-off: the
+   ;; bracket DCEs under :advanced + `re-frame.performance/enabled?=false`.
+   ;; The bracket sits at the top of `handle-one-fx` so it covers reserved
+   ;; fx-ids too (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`,
+   ;; `:rf.fx/clear-flow`) — without that, an app whose handlers only
+   ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
+   ;; flag on.
+   (performance/mark-and-measure :fx fx-id
+    (case fx-id
     :dispatch
     (do
       ;; Append to back of the frame's router queue.
@@ -185,7 +198,7 @@
                          {:fx-id    fx-id
                           :fx-args  args
                           :frame    frame-id
-                          :recovery :no-recovery})))))
+                          :recovery :no-recovery}))))))
 
 (defn do-fx
   "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
