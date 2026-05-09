@@ -14,6 +14,11 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
+            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; Requiring re-frame.routing at app boot is what triggers
+            ;; its load-time hook + reg-sub registrations; without it,
+            ;; rf/reg-route below throws :rf.error/routing-artefact-missing.
+            [re-frame.routing]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
