@@ -1389,6 +1389,10 @@ If the user wants to adopt the standard surface, the migration shape is:
 
 This is a meaningful migration of consumer code, not a mechanical rewrite. Do not apply unless the user has explicitly asked to adopt the standard routing surface.
 
+### O-10. Spec 000 §Contract — pattern obligations (orient against the formal clauses)
+
+Spec 000 now carries a summary [Contract block](000-Vision.md#contract--pattern-obligations) — a small set of formal `C-000.NN` clauses that capture checkable obligations the prose did not previously make explicit (PDS revert is O(1); the explicit-frame view contract; identity-primitive anti-patterns; and a handful of others). The block is implementor-facing — it does not change the migration of an existing re-frame app, but a port author auditing a re-frame2 implementation against its conformance fixtures should grep for `C-000.NN` references and verify each kept clause holds. Spec-authoring and conformance-harness obligations live in [SPEC-AUTHORING.md](SPEC-AUTHORING.md) under the parallel `SA-N` id scheme. There is no rewrite for an application codebase; this is orientation only.
+
 ---
 
 ## What stays the same (do not change these)

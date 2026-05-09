@@ -548,3 +548,28 @@ Not macros: `dispatch`, `dispatch-sync`, `subscribe`. All are functions acceptin
 
 re-frame2 decouples from Reagent at the architecture level: subscription topology, cache, and `app-db` are re-frame-owned data structures; auto-tracking deref-dependency capture during view render is delegated to a pluggable adapter. Reagent stays as the default CLJS-side rendering adapter; the substrate-agnostic core is shared with the plain-atom adapter used by SSR and headless tests. The public API never exposes Reagent-specific types at `re-frame.core`. Full design lives in [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md).
 
+## Contract — pattern obligations
+
+This summary captures the small set of clauses that introduce checkable obligations beyond what the prose makes explicit. The clause numbering scheme is the same as in earlier drafts; missing numbers indicate clauses that did not survive review. Spec-authoring and conformance-harness obligations live separately in [SPEC-AUTHORING.md](SPEC-AUTHORING.md) — those bind a different audience (spec authors and harness authors, not implementors) and were extracted to keep this block focused. The block is RFC 2119 / RFC 8174 keyword-graded; capitalised MUST / SHOULD / MAY / MUST NOT carry the formal meaning, lower-case occurrences do not.
+
+> - **C-000.13** (MUST). The implementation MUST provide *some* form of shape description for runtime data shapes (event vectors, registration metadata, the dispatch envelope, effect maps, `app-db` slices). The mechanism MAY be a runtime schema layer (dynamic hosts) or the host's static type system (static hosts), or a combination. Omission of all shape description is non-conformant.
+>
+> - **C-000.14** (SHOULD). The implementation SHOULD provide a means of eliding dev-time machinery (tracing, schema/type validation) from production builds. The mechanism is host-discretion (compile-time defines, build flags, runtime stubs).
+>
+> - **C-000.15** (MAY). The implementation MAY capture source coordinates (namespace / line / file) at registration time. Absence of source-coord capture MUST NOT be treated as non-conformant.
+>
+> - **C-000.19** (MUST NOT). Implementations MUST NOT use opaque integer ids, randomly-generated UUIDs, or reference-identity primitives (e.g. ES `Symbol`, Java reference equality) as the spec's identity primitive. These violate at least one of the required properties (human-readable, serialisable, reflective).
+>
+> - **C-000.25** (MUST). An implementation claiming FSM-richness or actor-model capabilities beyond the minimum MUST declare its claimed capability list (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) and MUST pass the conformance fixtures matching that list.
+>
+> - **C-000.26** (MUST). The implementation MUST use persistent data structures with structural sharing for `app-db` and frame state. Reverting frame state to a prior value MUST be O(1) in the size of `app-db` (a pointer / reference swap), not O(n) (a deep copy).
+>
+> - **C-000.27** (MUST). The CLJS reference's `core` artefact MUST NOT transitively `:require` any per-feature or per-substrate namespace. Bundle isolation MUST be structural (absent from the classpath), not a property dependent on dead-code elimination.
+>
+> - **C-000.45** (MUST). Runtime data shapes that flow on the wire — dispatch envelopes, effect maps, registration metadata, trace events, hydration payloads — MUST be open: producers MAY add new keys, and consumers MUST tolerate unknown keys (ignore-or-pass-through; a consumer that destructures and rejects on unknown keys is non-conformant).
+>
+> - **C-000.49** (MUST). At the pattern level, every view call MUST be addressable to a specific frame at the call site (frame as parameter or property). React-context-driven view injection is a CLJS-reference-specific optimisation and MUST NOT be required of any other host implementation.
+>
+> - **C-000.50** (MUST). The observable behaviour of a CLJS-reference view rendered via `frame-provider` (React-context optimisation) MUST be indistinguishable from the same view called with an explicit `:frame` argument given the same `(state, props)` inputs.
+>
+> - **C-000.51** (MUST). The CLJS reference's `re-frame.core` public API MUST NOT expose Reagent-specific types (e.g. `reagent.ratom/ratom`, Reagent reactive contexts) directly. Substrate-specific types belong in adapter namespaces.
