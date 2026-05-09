@@ -137,6 +137,65 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
 
 The walk-history-then-restore shape is the canonical pair-tool gesture; render-tree visualisers, "what did this event do?" probes, and conformance harnesses all build on the same primitives. Tools that want post-restore confirmation without registering a trace listener can re-call `(rf/get-frame-db :app/main)` and diff against the pre-restore snapshot.
 
+### Pair-tool writes — state injection
+
+`restore-epoch` and `dispatch` cover most of pair-tools' write needs (rewind to a recorded prior state; drive a cascade through the application's own handlers). The remaining case is **state injection** — replacing a frame's `app-db` with an arbitrary value that the runtime never recorded and that no event handler need exist to produce.
+
+The committed surface is `(rf/reset-frame-db! frame-id new-db)`. It bypasses the dispatch loop, replaces the frame's `app-db` container directly, and records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind past the injection.
+
+**Use cases the surface covers:**
+
+- **Evolved-state-shape probes.** A pair-tool agent rewrites a sub or handler and needs to seed an `app-db` shape that the new code expects, *without* firing a (possibly-failing) cascade through stale handlers. `dispatch` would re-trigger the broken cascade.
+- **Story tools.** Fixture-shaped state injection — "render the cart in this state" — without authoring a setup event for every story.
+- **Conformance harnesses.** Property-test runs that load a known `app-db`, run a single dispatch, assert post-state. Same shape as a test setup.
+- **Time-travel from JSON-loaded bug repros.** A user attaches a serialised `app-db` from a saved bug; the agent loads it. `restore-epoch` covers this only when the state is in the ring buffer; arbitrary `db` injection from outside the recorded history needs a write path.
+
+**Contract.**
+
+- **Replaces the container.** `(rf/reset-frame-db! frame-id new-db)` calls `replace-container!` on the frame's `app-db` substrate container. Subscribers route off the post-reset value the same way they do after a `restore-epoch` happy path or a normal cascade settle.
+- **Records a synthetic epoch.** A fresh `:rf/epoch-record` lands in `(rf/epoch-history frame-id)` carrying `:event-id :rf.epoch/db-replaced`, `:trigger-event [:rf.epoch/db-replaced]`, `:db-before` (the pre-reset value), and `:db-after` (`new-db`). The `:sub-runs` / `:renders` / `:effects` projections are empty — no cascade ran. `restore-epoch` of a *prior* epoch rewinds past the injection; `restore-epoch` of the synthetic record itself rewinds *to* `new-db` (i.e. a round-trip to where the reset already left things).
+- **Emits `:rf.epoch/db-replaced`** on success with `:tags {:frame <id> :epoch-id <id>}`, `:op-type :rf.epoch`. Pair-tool dashboards filter on the operation to route pair-tool injections distinctly from cascade-driven epochs.
+- **Fires `register-epoch-cb` listeners.** The assembled record is delivered to every registered epoch listener after it lands in the ring buffer — same shape as a cascade-settle delivery.
+- **Returns `true`** on success, `false` on any failure.
+
+**Failure modes** (each is a no-op on `app-db` and emits a structured error trace):
+
+| Failure | `:operation` | When it fires | `:tags` |
+|---|---|---|---|
+| **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame-id <id>}` |
+| **Drain in flight** | `:rf.epoch/reset-frame-db-during-drain` | `reset-frame-db!` was called while the frame's run-to-completion drain is still running (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). The injection is rejected; the caller retries after settle. | `{:frame <id>}` |
+| **Schema mismatch** | `:rf.epoch/reset-frame-db-schema-mismatch` | `new-db` fails the frame's currently-registered `app-schema` set (per [Spec 010 §Per-frame schemas](010-Schemas.md#per-frame-schemas)). When no schemas are registered the validation is a no-op — every `new-db` is accepted. | `{:frame <id>, :failing-paths [<path> ...]}` |
+
+All three failures have `:op-type :error` and `:recovery :no-recovery`. The closed-set v1 failure surface mirrors `restore-epoch`'s shape.
+
+**Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) `reset-frame-db!` shares the universal compile-time gate (`re-frame.interop/debug-enabled?`, alias of `goog.DEBUG`); production builds (`:advanced` + `goog.DEBUG=false`) elide the body via Closure DCE. The surface is **dev-only** — pair-tool writes do not ship in production binaries. CI's `npm run test:elision` job asserts the contract holds for the success op (`:rf.epoch/db-replaced`) and both failure ops.
+
+**Artefact home.** `reset-frame-db!` lives in `re-frame.epoch` (it records a synthetic `:rf/epoch-record`, so the surface is epoch-adjacent and naturally co-located with `restore-epoch` / `register-epoch-cb`). The core re-export late-binds through the hook table (`:epoch/reset-frame-db!`); unlike the four read-shaped re-exports (which degrade silently when the artefact is absent), `reset-frame-db!` raises `:rf.error/epoch-artefact-missing` — the caller's invariant is "undo works after this call", and a silent no-op would lie about that invariant.
+
+**Worked example.**
+
+```clojure
+;; A pair-tool agent has just hot-swapped a handler that operates on
+;; an evolved app-db shape. Inject the new shape directly so the
+;; cascade doesn't re-run through stale handlers, then dispatch a
+;; single event to verify the new code works against the seeded state.
+
+(when (rf/reset-frame-db! :app/main {:cart {:items [{:sku "abc" :qty 2}]}
+                                     :checkout/state :ready})
+  ;; reset-frame-db! has fired :rf.epoch/db-replaced and recorded a
+  ;; synthetic epoch. Now drive a dispatch to exercise the new handler.
+  (rf/dispatch [:checkout/submit] {:frame :app/main}))
+
+;; To rewind PAST the injection (back to whatever the previous epoch
+;; was), pick the epoch BEFORE the synthetic one and restore.
+(let [history (rf/epoch-history :app/main)
+      pre     (last (filter #(not= :rf.epoch/db-replaced (:event-id %)) history))]
+  (when pre
+    (rf/restore-epoch :app/main (:epoch-id pre))))
+```
+
+**What `reset-frame-db!` is not.** It is **not** a substitute for `dispatch` — handlers, interceptors, fx, and the trace stream all stay quiet during a reset. Use it only when bypass-the-cascade is *required* (the four use cases above); for any change you want the data loop to see, dispatch a real event. The synthetic epoch's empty `:sub-runs` / `:renders` / `:effects` projections are the visible signal that no cascade ran.
+
 ## Performance API consumption
 
 The Performance API channel (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) is the prod-friendly counterpart to the dev-only trace stream. Pair-shaped tools that want timing data — an in-app perf overlay, an APM forwarder, a custom `PerformanceObserver` watching for slow renders — read it via the standard browser User Timing surface. No re-frame2 API call is needed; the runtime emits `User Timing` `measure` entries and any consumer that knows about `performance.getEntriesByType` can read them.
@@ -240,7 +299,7 @@ A future re-frame2 minor version may introduce framework-side helpers if the eco
 
 ## How AI tools attach
 
-The runtime contract above is **complete and self-contained.** A pair-shaped tool — re-frame-pair, a Claude integration, a custom debug panel, a story tool, a future pair-improver — attaches to a running re-frame2 application using only the framework primitives listed below. **No re-frame-10x dependency is required**, and none should be assumed.
+The runtime contract above is **complete for the listed capabilities.** A pair-shaped tool — re-frame-pair, a Claude integration, a custom debug panel, a story tool, a future pair-improver — attaches to a running re-frame2 application using only the framework primitives listed below. **No re-frame-10x dependency is required**, and none should be assumed. Mutating writes (state injection, hot-swap, override, configure) are commited explicitly in the table; the full set is closed at v1 and additional mutating surfaces require a Spec-ulation increment.
 
 The full attachment surface, from the tool's point of view:
 
@@ -251,6 +310,7 @@ The full attachment surface, from the tool's point of view:
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
+| Inject an `app-db` value (state injection / story / repro) | `(rf/reset-frame-db! frame-id new-db)` | [§Pair-tool writes](#pair-tool-writes-state-injection) |
 | Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:depth N})` | [API.md](API.md) |
 | Inspect registered app-db schemas | `(rf/app-schemas frame-id)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | Tag dispatches by actor (e.g. tool vs app) | `:origin` opt on `(rf/dispatch event opts)` | [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) |
