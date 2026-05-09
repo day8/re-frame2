@@ -490,20 +490,20 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
         :action :notify-and-audit}}}}
 ```
 
-`:raise` and `:spawn` are **reserved fx-ids inside `:fx`** — the machine handler routes them locally. `[:raise <ev>]` ≡ "back into THIS machine, processed before the snapshot is committed"; `[:dispatch <ev>]` is the standard runtime-queue dispatch. They have **different ordering semantics** — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
+`:raise` is a **reserved fx-id inside `:fx`** — the machine handler routes it locally. `[:raise <ev>]` ≡ "back into THIS machine, processed before the snapshot is committed"; `[:dispatch <ev>]` is the standard runtime-queue dispatch. They have **different ordering semantics** — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas). The `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids are registered globally as the canonical actor-lifecycle surface.
 
-**Template — `:spawn` for dynamic actors:**
+**Template — `:rf.machine/spawn` for dynamic actors:**
 
 ```clojure
 ;; ... inside the machine spec:
 :actions
 {:spawn-fetch
  (fn [_ [_ url]]
-   {:fx [[:spawn {:machine-id :request/protocol
-                  :id-prefix  :request/protocol
-                  :data       {:url url}
-                  :on-spawn   (fn [data id] (assoc data :pending-request id))
-                  :start      [:begin]}]]})}
+   {:fx [[:rf.machine/spawn {:machine-id :request/protocol
+                             :id-prefix  :request/protocol
+                             :data       {:url url}
+                             :on-spawn   (fn [data id] (assoc data :pending-request id))
+                             :start      [:begin]}]]})}
 
 :states
 {:idle {:on {:fetch {:target :loading :action :spawn-fetch}}}}

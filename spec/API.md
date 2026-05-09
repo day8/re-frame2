@@ -265,7 +265,8 @@ Standard `:fx` entries:
 | `[:rf.http/managed args-map]` | args per [014 §The args map](014-HTTPRequests.md#the-args-map) | v1 (optional capability) | 014 | Framework-provided when the implementation ships Spec 014. CLJS reference: ships on Fetch + JVM `HttpClient`. See also `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`. |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | |
 | `[:raise event-vec]` | event vector | v1 | 005 | *machine-only*: reserved fx-id recognised by the machine handler; routes the event back into the same machine, atomic and pre-commit. Outside a machine action's `:fx`, this fx-id is unbound. |
-| `[:spawn spawn-spec]` | spawn-spec map (per `:rf.fx/spawn-args`: `:machine-id`/`:definition`, `:id-prefix`, `:data`, `:on-spawn`, `:start`) | v1 | 005 | *machine-only*: reserved fx-id recognised by the machine handler; registers a new dynamic actor (whose snapshot lives at `[:rf/machines <gensym'd-id>]`) and (via `:on-spawn`) records its id into the parent's `:data`. Outside a machine action's `:fx`, this fx-id is unbound. |
+| `[:rf.machine/spawn spawn-spec]` | spawn-spec map (per `:rf.fx/spawn-args`: `:machine-id`/`:definition`, `:id-prefix`, `:data`, `:on-spawn`, `:start`) | v1 | 005 | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`); registers a new dynamic actor (whose snapshot lives at `[:rf/machines <gensym'd-id>]`) and (via `:on-spawn`) records its id into the parent's `:data`. Emitted from any event handler's `:fx` (including machine actions and the `:invoke` desugar). |
+| `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | Canonical actor-destroy fx (registered globally by `re-frame.machines`); runs the actor's `:exit` action, dissociates `[:rf/machines <actor-id>]`, and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. |
 
 ---
 
@@ -428,7 +429,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx/nav/replace-url-args` | Args of `:rf.nav/replace-url` fx | 012 |
 | `:rf.fx/nav/scroll-args` | Args of `:rf.nav/scroll` fx | 012 |
 | `:rf.fx/with-nav-token-args` | Args of `:rf.route/with-nav-token` fx wrapper | 012 |
-| `:rf.fx/spawn-args` | Args of `:spawn` fx (reserved fx-id inside a machine action's `:fx`) | 005 |
+| `:rf.fx/spawn-args` | Args of `:rf.machine/spawn` fx (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx`) | 005 |
 | `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |
 | `:rf.fx/managed-abort-args` | Args of `:rf.http/managed-abort` fx (request-id) | 014 |
 | `:rf.http/reply` | Reply-payload envelope `{:kind :success :value v}` / `{:kind :failure :failure {:kind <:rf.http/*> ...}}` lands under `:rf/reply` | 014 |
@@ -550,8 +551,9 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; carries `:rf.machine/source-coords` index when registered via the macro | v1 | 005 |
-| `:spawn` (fx) | — | Reserved fx-id inside a machine action's `:fx`. Args per `:rf.fx/spawn-args`. | v1 | 005 |
-| `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx`. Args: an event vector. | v1 | 005 |
+| `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | 005 |
+| `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | 005 |
+| `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | 005 |
 | `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | 005 |
 | `machine->xstate-json` | Fn | `(machine->xstate-json definition)` → JSON | post-v1 lib | 005 |
 | `machine->mermaid` | Fn | `(machine->mermaid definition)` → string | post-v1 lib | 005 |

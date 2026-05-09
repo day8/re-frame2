@@ -784,7 +784,7 @@ From the *handler's* perspective, the handler returns once with the full effects
 
 **Composition with the dispatch queue.** When `:fx` entries include `:dispatch`, the dispatched events are appended to the runtime FIFO queue in source order — preserving source-order all the way down a chain. `:dispatch-later` schedules timers in source order; actual delivery depends on each timer's delay.
 
-**Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:db` write at `[:rf/machines <id>]`), then `:fx` entries process in source order with reserved fx-ids (`:raise`, `:spawn`, `:destroy-machine`) routed locally and the rest forwarded to the standard fx pipeline.
+**Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:db` write at `[:rf/machines <id>]`), then `:fx` entries process in source order with `:raise` routed locally to the machine's pre-commit queue and the rest (including `:rf.machine/spawn` / `:rf.machine/destroy`) forwarded to the standard fx pipeline.
 
 **Error during `:fx`.** If the fx-handler for `[a 1]` throws, subsequent entries `[b 2]` and `[c 3]` **continue to run.** Each thrown error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit is preserved (it happened before any `:fx` entry). Rationale: `:fx` entries are by design independent; ordering means *order*, not *dependency*. An fx that genuinely depends on a prior fx succeeding should be lifted to a `:dispatch` chain — observe the result via cofx in the dispatched handler. Halting on first error would conflate the two concerns.
 
@@ -884,8 +884,11 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :dispatch-later — schedule via interop/set-timeout!; the timer fires a
 ;;                   fresh dispatch later, re-engaging the drain loop.
 ;; :db             — handled inline in process-event! step 2; not seen here.
-;; :raise / :spawn — machine-internal; routed by create-machine-handler
-;;                   BEFORE :fx reaches do-fx (see machine pseudocode below).
+;; :raise          — machine-internal; routed by create-machine-handler to
+;;                   its local raise-queue BEFORE :fx reaches do-fx (see
+;;                   machine pseudocode below).
+;; :rf.machine/spawn / :rf.machine/destroy — registered globally by
+;;                   re-frame.machines and reach do-fx like any other fx.
 
 ;; Inheritable envelope fields — copied from parent to child when :dispatch /
 ;; :dispatch-later queue a new envelope. This is the "envelope-field-copying
@@ -948,7 +951,7 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
           (let [[ev & rest-q] raise-queue
                 {:keys [data-after fx]} (run-transition machine-def in-flight ev)]
             (recur (assoc in-flight :data data-after)
-                   (into accum-fx fx)                  ;; non-:raise/:spawn fx
+                   (into accum-fx fx)                  ;; non-:raise fx
                    (into (vec rest-q) (extract-raises fx))
                    always-depth))
 
@@ -982,7 +985,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 | `process-event!` step 3 | `do-fx`; per-frame and per-call `:fx-overrides` (per [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)) |
 | Trace emission | [009 §Core fields](009-Instrumentation.md#core-fields-required-on-every-event); error events use the `:rf.error/*` namespace per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) |
 | Error trapping (`raise!` calls) | The structured-error contract per [009 §Error contract](009-Instrumentation.md#error-contract); the per-frame `:on-error` slot fires the user-defined projector |
-| Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` and `:spawn` are routed by `create-machine-handler` *before* `:fx` reaches `do-fx` (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
+| Machine cascade | [005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event); `:raise` is routed by `create-machine-handler` *before* `:fx` reaches `do-fx`; `:rf.machine/spawn` / `:rf.machine/destroy` reach `do-fx` like any other fx (per [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids)) |
 
 #### Edge cases worth pinning
 
@@ -1126,7 +1129,7 @@ Machines therefore reuse the existing event registry, dispatch pipeline, and eff
 - Snapshots live at the **reserved per-frame path `[:rf/machines <machine-id>]`** in each frame's `app-db` (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's `app-db` has its own `:rf/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf/machines]`. Because `:rf/machine` reads from the active frame's `app-db`, per-frame isolation extends transparently to subscription reads as well.
 - Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf/machines <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 - Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(create-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
-- Three reserved fx-ids (`:raise`, `:spawn`, `:destroy-machine`) the machine handler routes locally inside the action's returned `:fx` vector; per [Conventions.md §Reserved fx-ids](Conventions.md#reserved-fx-ids) and [005 §`:raise`, `:spawn`, and `:destroy-machine` are reserved fx-ids inside `:fx`](005-StateMachines.md#raise-spawn-and-destroy-machine-are-reserved-fx-ids-inside-fx). All three compose with the standard `do-fx` resolver.
+- One reserved machine-internal fx-id (`:raise`) the machine handler routes locally inside the action's returned `:fx` vector; the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` are registered globally and reach the standard `do-fx` resolver like any other fx.
 - Inspection trace events with `:source :machine` (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, etc.) ride the standard trace stream.
 - Composition via ordinary `dispatch`. Run-to-completion drain guarantees deterministic settling within a frame.
 - A frame is the actor-system boundary; cross-frame dispatch is async (per the no-cross-frame-drain rule above).

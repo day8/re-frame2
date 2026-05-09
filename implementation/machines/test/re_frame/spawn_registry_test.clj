@@ -45,8 +45,8 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (rf/init!)
-  ;; Re-evaluate machines.cljc so the `:rf/machine` sub, `:spawn` /
-  ;; `:destroy-machine` reserved fxs, and the late-bind hook table get
+  ;; Re-evaluate machines.cljc so the `:rf/machine` sub, `:rf.machine/spawn` /
+  ;; `:rf.machine/destroy` reserved fxs, and the late-bind hook table get
   ;; reinstalled after `clear-all!` wiped them.
   (require 're-frame.machines :reload)
   (machines/reset-counters!)
@@ -202,23 +202,23 @@
         (is (not (contains? db :rf/spawned))
             "with both invokes torn down, the lazy-allocation root is dissoc'd")))))
 
-;; ---- (5) keyword-form [:destroy-machine actor-id] still works -------------
+;; ---- (5) keyword-form [:rf.machine/destroy actor-id] still works ---------
 ;;
-;; The legacy / imperative form (action emits `[:destroy-machine actor-id]`
+;; The legacy / imperative form (action emits `[:rf.machine/destroy actor-id]`
 ;; with the recorded id directly) MUST continue to work — only the
 ;; declarative-:invoke desugar adopts the runtime-resolved map form. This
 ;; pins the back-compat path so user-written destroys aren't silently
 ;; broken by the rf2-t07u change.
 
 (deftest legacy-keyword-form-destroy-machine-still-works
-  (testing "[:destroy-machine actor-id] (keyword arg) preserves pre-rf2-t07u semantics"
+  (testing "[:rf.machine/destroy actor-id] (keyword arg) preserves pre-rf2-t07u semantics"
     (let [child  {:initial :running :data {} :states {:running {}}}
           parent {:initial :idle
                   :actions
                   ;; User-written exit action emits the keyword form
                   ;; directly — same shape user code has always used.
                   {:tear-down (fn [data _]
-                                {:fx [[:destroy-machine (:child data)]]})}
+                                {:fx [[:rf.machine/destroy (:child data)]]})}
                   :on-spawn-actions
                   {:record (fn [data id] (assoc data :child id))}
                   :states

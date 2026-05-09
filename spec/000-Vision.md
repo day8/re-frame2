@@ -459,7 +459,7 @@ The above sections (Abstract, Constraints and goals, Pattern, Hard constraints, 
 
 ### Post-v1 (foundation hooks ship in v1; ergonomic libraries land later)
 
-- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `create-machine-handler`, pure `machine-transition`, reserved `:raise`/`:spawn` fx-ids). Pattern adopted from xstate.
+- **Spec 005 — State Machines.** Builds on foundation hooks in 002 (machines as event handlers, pure factory `create-machine-handler`, pure `machine-transition`, the `:raise` reserved fx-id (machine-internal), and the `:rf.machine/spawn` / `:rf.machine/destroy` canonical actor-lifecycle fx-ids). Pattern adopted from xstate.
 - **Spec 007 — Stories, Variants, Workspaces.** Storybook-class tooling. Layered on Specs 002 and 008.
 
 ### New / deferred
