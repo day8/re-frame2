@@ -210,14 +210,12 @@ Transition slots:
                   :*        {:action (fn [_ ev] {:fx [[:log/unknown ev]]})}}}}
 ```
 
-Precedence inside the standard transition lookup:
+Precedence inside the standard transition lookup, **at each level**:
 
-1. State-local explicit event match.
-2. State-local `:*` wildcard.
-3. Top-level (machine root) explicit match.
-4. Top-level `:*` wildcard.
+1. Explicit event match at this level.
+2. `:*` wildcard at this level.
 
-The wildcard fires after specific matches at the same level. If no transition matches at any level, the snapshot is unchanged and the runtime emits a single `:rf.warning/machine-unhandled-event` trace (see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) for the canonical name; consistent with the other `:rf.warning/machine-*` advisory categories).
+The wildcard fires after specific matches **at the same level**. Only if neither matches does the runtime walk up to the next level and try again — so `:*` at the leaf shadows an explicit match on the parent for the same event. The full leaf-up-to-root walk is canonically specified at [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough); for a flat machine the path is one level deep and the two-step rule above is the whole story. If no level matches, the snapshot is unchanged and the runtime emits a single `:rf.warning/machine-unhandled-event` trace (see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) for the canonical name; consistent with the other `:rf.warning/machine-*` advisory categories).
 
 ### Self-transitions (external vs internal)
 
