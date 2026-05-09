@@ -345,6 +345,65 @@
         (is (some? ev) ":rf.epoch/restore-schema-mismatch fired")
         (is (vector? (:failing-paths (:tags ev))))))))
 
+(deftest restore-schema-mismatch-trace-carries-digests
+  (testing "Per Spec 010 §Schema digest + Tool-Pair §Time-travel (rf2-0z1z):
+            the :rf.epoch/restore-schema-mismatch trace carries non-nil
+            :schema-digest-recorded and :schema-digest-current tags."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed    (fn [_ _]  {:n 0}))
+    (rf/reg-event-db :set-bad (fn [db _] (assoc db :n "not-an-int")))
+
+    ;; Record an epoch with NO schemas registered yet — its
+    ;; :schema-digest is the empty-set digest (still non-nil — Spec 010
+    ;; defines the empty set's digest).
+    (rf/dispatch-sync [:seed]    {:frame :test/main})
+    (rf/dispatch-sync [:set-bad] {:frame :test/main})
+    (rf/dispatch-sync [:seed]    {:frame :test/main})
+
+    ;; Tighten the schema set — the recorded epoch's digest now
+    ;; differs from the live (current) digest.
+    (rf/reg-app-schema [:n] [:int] {:frame :test/main})
+
+    (let [history  (rf/epoch-history :test/main)
+          target   (some (fn [r]
+                           (when (= "not-an-int" (:n (:db-after r)))
+                             r))
+                         history)
+          recorded (record-trace!)
+          _        (rf/restore-epoch :test/main (:epoch-id target))
+          ev       (some (fn [ev]
+                           (when (= :rf.epoch/restore-schema-mismatch (:operation ev))
+                             ev))
+                         @recorded)
+          tags     (:tags ev)]
+      (is (some? ev) ":rf.epoch/restore-schema-mismatch fired")
+      (is (string? (:schema-digest-recorded tags))
+          ":schema-digest-recorded is a digest string, not nil")
+      (is (string? (:schema-digest-current tags))
+          ":schema-digest-current is a digest string, not nil")
+      (is (re-matches #"sha256:[0-9a-f]{16}" (:schema-digest-recorded tags))
+          ":schema-digest-recorded matches the canonical wire form")
+      (is (re-matches #"sha256:[0-9a-f]{16}" (:schema-digest-current tags))
+          ":schema-digest-current matches the canonical wire form")
+      (is (not= (:schema-digest-recorded tags)
+                (:schema-digest-current tags))
+          "recorded ≠ current — that's *why* the restore was rejected"))))
+
+(deftest epoch-record-stamps-schema-digest
+  (testing "Per Spec-Schemas §:rf/epoch-record (rf2-0z1z): every epoch
+            record carries a :schema-digest pinned at record time."
+    (rf/reg-frame :test/digest {})
+    (rf/reg-app-schema [:n] [:int] {:frame :test/digest})
+    (rf/reg-event-db :init (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:init] {:frame :test/digest})
+    (let [r (last (rf/epoch-history :test/digest))]
+      (is (some? r) "an epoch record was committed")
+      (is (string? (:schema-digest r))
+          "the record carries a :schema-digest string")
+      (is (= (:schema-digest r)
+             (rf/app-schemas-digest :test/digest))
+          "record's stamp matches the live digest at record time"))))
+
 (deftest restore-failure-missing-handler-route
   (testing "restore-epoch on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
     (rf/reg-frame :test/main {})

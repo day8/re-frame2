@@ -124,3 +124,23 @@
             (is (= :event (-> v :tags :where))
                 ":where :event locates the failure at pre-handler validation")
             (is (= :user/register (-> v :tags :failing-id)))))))))
+
+;; ---- rf2-0z1z — app-schemas-digest under CLJS ----------------------------
+
+(deftest app-schemas-digest-cljs-smoke
+  (testing "Per Spec 010 §Digest algorithm (rf2-0z1z): the digest fn
+            is wired under CLJS (goog.crypt.Sha256) and produces the
+            canonical wire form."
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+    (rf/reg-app-schema [:todos] [:vector :string])
+    (let [d (rf/app-schemas-digest)]
+      (is (string? d)
+          "digest returns a string")
+      (is (re-matches #"sha256:[0-9a-f]{16}" d)
+          "digest matches \"sha256:\" + 16 lowercase hex chars")
+      ;; Empty schema set — registered against a frame with no schemas
+      ;; — produces the well-defined empty-set digest.
+      (rf/reg-frame :test/empty-cljs {})
+      (is (= "sha256:e3b0c44298fc1c14"
+             (rf/app-schemas-digest :test/empty-cljs))
+          "empty-set digest is byte-identical with the JVM path"))))
