@@ -139,7 +139,17 @@ const DEV_ONLY_SENTINELS = [
   // same gate; the literal "data-rf2-source-coord" string fragment
   // must NOT appear in :advanced + goog.DEBUG=false bundles.
   { source: 're-frame.views/reg-view* (data-rf2-source-coord injection)',
-    sentinel: 'data-rf2-source-coord' }
+    sentinel: 'data-rf2-source-coord' },
+  // re-frame.core/reg-machine — per-element source-coord stamping
+  // (Spec 005 §Source-coord stamping, rf2-8bp3). The reg-machine macro
+  // emits an `(if interop/debug-enabled? (assoc spec :rf.machine/
+  // source-coords {...}) spec)` branch; under :advanced +
+  // goog.DEBUG=false the closure compiler constant-folds the gate to
+  // false and DCEs the entire literal coord index. The keyword's
+  // `rf.machine/source-coords` string fragment must NOT survive in
+  // production bundles.
+  { source: 're-frame.core/reg-machine (rf.machine/source-coords stamping)',
+    sentinel: 'rf.machine/source-coords' }
 ];
 
 // ----- helpers ---------------------------------------------------------------
