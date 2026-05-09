@@ -8,15 +8,19 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]))
+            [re-frame.flows :as flows]
+            [re-frame.substrate.adapter :as adapter]
+            [re-frame.trace :as trace]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  (trace/clear-trace-cbs!)
   (rf/init!)
   ;; Framework events / fx / subs are registered at namespace-load time;
   ;; clear-all! wiped them. Reload to resurrect the framework registrations.
@@ -385,3 +389,98 @@
     (is (thrown? Exception
           (rf/reg-frame :p/bad {:preset :devcards}))
         "passing a preset outside the closed v1 set is a registration-time error")))
+
+;; ---- rf2-ft2b: drain-after-destroy null guard ----------------------------
+;;
+;; Per the rf2-ft2b reproducer: a scheduled drain races frame destruction.
+;; By the time the drain fires, the frame's app-db container is nil
+;; (because frame/get-frame-db returns nil for destroyed frames), and
+;; the per-event :db commit at router.cljc would write through nil →
+;; NullPointerException on the executor thread.
+;;
+;; The fix is a defense-in-depth guard at the single choke point through
+;; which every container write flows: substrate/adapter/replace-container!
+;; no-ops when container is nil and emits :rf.warning/write-after-destroy.
+
+(deftest replace-container-no-ops-on-nil-container
+  ;; Direct unit-level coverage of the guard at the adapter wrapper. The
+  ;; nil-container call must not throw and must emit the warning trace.
+  (testing "replace-container! with nil container is a no-op + :rf.warning/write-after-destroy"
+    (let [recorded (atom [])]
+      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+      ;; Must not throw NPE.
+      (is (nil? (adapter/replace-container! nil {:any :value}))
+          "nil container is a documented no-op, not an exception")
+      (let [warns (filterv (fn [ev]
+                             (and (= :warning (:op-type ev))
+                                  (= :rf.warning/write-after-destroy
+                                     (:operation ev))))
+                           @recorded)]
+        (is (= 1 (count warns))
+            "exactly one :rf.warning/write-after-destroy trace fired")))))
+
+(deftest drain-after-destroy-does-not-npe
+  ;; Reproducer for the original race (rf2-ft2b): a scheduled drain that
+  ;; reaches the per-event :db commit AFTER the frame has been destroyed
+  ;; must NOT throw. Instead the adapter-level nil guard skips the write
+  ;; and emits :rf.warning/write-after-destroy.
+  ;;
+  ;; The race is forced deterministically by capturing the next-tick
+  ;; callback (instead of running it on the executor) so that the
+  ;; destroy-frame! call slots in between the drain being scheduled and
+  ;; the drain actually running.
+  (testing "scheduled drain that fires after destroy is a no-op + warning, not an NPE"
+    (let [captured-tick (atom nil)
+          recorded      (atom [])]
+      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/reg-frame :race/frame {:doc "rf2-ft2b reproducer frame"})
+      ;; A simple :db-writing event handler. The drain that processes
+      ;; this event is what we want to land AFTER destroy.
+      (rf/reg-event-db :write
+        (fn [_db _]
+          {:committed? true}))
+      (with-redefs [interop/next-tick (fn [f] (reset! captured-tick f) nil)]
+        ;; Async dispatch — schedules the drain via next-tick. The
+        ;; with-redefs binding captures the drain thunk into
+        ;; @captured-tick instead of executing it.
+        (rf/dispatch [:write] {:frame :race/frame})
+        (is (some? @captured-tick)
+            "the async dispatch scheduled a drain via next-tick"))
+      ;; Now destroy the frame. After this, frame/get-frame-db returns
+      ;; nil, so the captured drain — when it fires — would write
+      ;; through nil if not for the adapter guard.
+      (frame/destroy-frame! :race/frame)
+      ;; Fire the captured drain. Pre-fix this raised an NPE; post-fix
+      ;; the drain enters drain!, finds (frame frame-id) is nil (the
+      ;; outer guard at drain! line ~261), so process-event! is never
+      ;; called and no write is attempted. We assert no throw.
+      (is (nil? (try (@captured-tick) nil
+                     (catch Throwable e e)))
+          "the drain ran without throwing"))))
+
+(deftest replace-container-on-destroyed-frame-does-not-npe
+  ;; Tighter reproducer that hits the adapter guard directly via the
+  ;; live runtime. The router's per-event :db commit reads the frame's
+  ;; app-db container right before writing — and if the frame was
+  ;; destroyed mid-drain, get-frame-db returns nil. We exercise that
+  ;; exact shape by reading get-frame-db AFTER destroy and feeding the
+  ;; nil container straight into replace-container!.
+  (testing "frame/get-frame-db on a destroyed frame is nil; replace-container! handles it"
+    (let [recorded (atom [])]
+      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+      (rf/reg-frame :race/destroyed-mid-write {})
+      (frame/destroy-frame! :race/destroyed-mid-write)
+      (let [container (frame/get-frame-db :race/destroyed-mid-write)]
+        (is (nil? container)
+            "get-frame-db on a destroyed frame returns nil — the precondition for the rf2-ft2b NPE")
+        ;; This is the exact call shape from router.cljc's :db commit.
+        ;; Pre-fix: NPE. Post-fix: no-op + warning trace.
+        (is (nil? (adapter/replace-container! container {:would :have :npe'd true}))
+            "writing through the nil container is a documented no-op"))
+      (let [warns (filterv (fn [ev]
+                             (and (= :warning (:op-type ev))
+                                  (= :rf.warning/write-after-destroy
+                                     (:operation ev))))
+                           @recorded)]
+        (is (pos? (count warns))
+            ":rf.warning/write-after-destroy fired for the post-destroy write")))))

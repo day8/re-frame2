@@ -16,7 +16,8 @@
     dispose-adapter!
 
   An adapter is a Clojure map with these keys; it is installed into the
-  process via install-adapter! and read via current-adapter.")
+  process via install-adapter! and read via current-adapter."
+  (:require [re-frame.trace :as trace]))
 
 ;; ---- adapter installation -------------------------------------------------
 
@@ -60,8 +61,25 @@
 (defn read-container [container]
   (let [a @installed-adapter] ((:read-container a) container)))
 
-(defn replace-container! [container new-value]
-  (let [a @installed-adapter] ((:replace-container! a) container new-value)))
+(defn replace-container!
+  "Write `new-value` into `container` via the installed adapter.
+
+  Defense-in-depth nil guard (rf2-ft2b): if `container` is nil — e.g. a
+  scheduled drain races frame destruction and reaches the per-event :db
+  commit after `frame/get-frame-db` has started returning nil for the
+  destroyed frame — the write is silently skipped and a
+  `:rf.warning/write-after-destroy` trace fires. The earlier behaviour
+  was an NPE on a background thread (see the rf2-ft2b reproducer). Adapter
+  implementations may assume `container` is non-nil; this wrapper is the
+  single choke point through which every frame app-db write flows, so
+  guarding here covers the router :db commit, drain rollback, flows, epoch
+  restore, and SSR write paths in one place."
+  [container new-value]
+  (if (nil? container)
+    (trace/emit! :warning :rf.warning/write-after-destroy
+                 {:reason   "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"
+                  :recovery :no-recovery})
+    (let [a @installed-adapter] ((:replace-container! a) container new-value))))
 
 (defn make-derived-value [source-containers compute-fn]
   (let [a @installed-adapter]
