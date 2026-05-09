@@ -1017,6 +1017,12 @@
   ([frame-id]
    (subs/sub-cache-snapshot frame-id)))
 
+;; sub-topology is the **static** counterpart to sub-cache — pure data
+;; derived from the registrar at registration time, JVM-runnable. Per
+;; Spec 002 §The public registrar query API and Spec 006 §Subscription
+;; topology vs subscription tracking.
+(def sub-topology subs/sub-topology)
+
 ;; ---- interceptors ---------------------------------------------------------
 
 (def ->interceptor   interceptor/->interceptor)
