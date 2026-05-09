@@ -1,0 +1,76 @@
+;; Conformance fixture: flow/lifecycle-emits-traces
+;; Per Spec 009 §Flow trace events / Spec 013 §Flow tracing — every flow
+;; lifecycle event emits a :op-type :flow trace event with its operation
+;; under the :rf.flow/* namespace. This fixture exercises the canonical
+;; lifecycle and asserts each of the five events fires with the documented
+;; payload shape.
+;;
+;; Event vocabulary (rf2-2s1o):
+;;   :rf.flow/registered  — reg-flow ran successfully
+;;   :rf.flow/computed    — recompute ran (inputs differed by =-equality)
+;;   :rf.flow/skip        — recompute suppressed (inputs =-equal — rf2-719e)
+;;   :rf.flow/cleared     — clear-flow ran
+;;   :rf.flow/failed      — :output fn threw (re-raised after this trace)
+;;
+;; Required for re-frame-10x v2's flow panel (per the rf2-2s1o discovery
+;; from the rf2-nfyf Tool-Pair audit).
+
+{:fixture/id           :flow/lifecycle-emits-traces
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :flow/basic :flow/trace}
+ :fixture/doc          "Drive the canonical flow lifecycle (register → first compute → no-op equal rewrite → real recompute → clear) and assert each lifecycle action emits the documented :rf.flow/* trace event with op-type :flow. The harness records every emitted trace event and checks the captured stream for the expected entries in order."
+
+ :fixture/registry
+ {:event {:n/init     {:doc "Seed :n to 3."}
+          :n/replace  {:doc "Replace :n with the event's arg."}}
+  :flow  {:double
+          {:doc    "Materialised :doubled — twice :n."
+           :inputs [[:n]]
+           :path   [:doubled]}}}
+
+ :fixture/handlers
+ {:event {:n/init    [[:set [:n] 3]]
+          :n/replace [[:set [:n] [:event-arg 1]]]}}
+
+ ;; The :output fn realised by the harness as `(fn [n] (* 2 n))`.
+ :fixture/flow-bodies
+ {:double [[:fn :* 2 [:event-arg 0]]]}
+
+ :fixture/dispatches
+ [;; first drain: flow first-fires
+  [:n/init]
+  ;; rewrite with =-equal value: skip
+  [:n/replace 3]
+  ;; rewrite with new value: compute
+  [:n/replace 7]]
+
+ :fixture/expect
+ {:final-app-db
+  {:n       7
+   :doubled 14}
+
+  ;; Trace stream slice — only events with :op-type :flow are matched;
+  ;; the harness asserts each expected event appears in the captured
+  ;; stream in the order listed. :tags entries are subset-matched
+  ;; (the harness checks each listed key/value but ignores extras).
+  :expect-trace-stream
+  [{:op-type   :flow
+    :operation :rf.flow/registered
+    :tags      {:flow-id :double
+                :inputs  [[:n]]
+                :path    [:doubled]}}
+   {:op-type   :flow
+    :operation :rf.flow/computed
+    :tags      {:flow-id      :double
+                :input-values [3]
+                :result       6
+                :path         [:doubled]}}
+   {:op-type   :flow
+    :operation :rf.flow/skip
+    :tags      {:flow-id :double
+                :reason  :inputs-value-equal}}
+   {:op-type   :flow
+    :operation :rf.flow/computed
+    :tags      {:flow-id      :double
+                :input-values [7]
+                :result       14}}]}}
