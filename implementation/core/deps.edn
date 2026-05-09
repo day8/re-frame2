@@ -2,11 +2,13 @@
 ;;
 ;; Per Spec 006 §Substrate-adapter shipping convention: substrate adapters
 ;; ship as separate Maven artefacts; this is the core (registry, drain,
-;; machines, flows, routing, fx, trace) and excludes substrate-specific
-;; code. The Reagent adapter lives in implementation/reagent/. Per
-;; rf2-p7va (the first per-feature split per rf2-5vjj Strategy B) the
-;; Spec 010 schema-attachment surface lives in implementation/schemas/
-;; (`day8/re-frame-2-schemas`).
+;; flows, routing, fx, trace) and excludes substrate-specific code. The
+;; Reagent adapter lives in implementation/reagent/. Per rf2-p7va (the
+;; first per-feature split per rf2-5vjj Strategy B) the Spec 010
+;; schema-attachment surface lives in implementation/schemas/
+;; (`day8/re-frame-2-schemas`); per rf2-xbtj (the second per-feature
+;; split) the Spec 005 state-machine surface lives in
+;; implementation/machines/ (`day8/re-frame-2-machines`).
 ;;
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
 ;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
@@ -28,17 +30,22 @@
          reagent/reagent           {:mvn/version "2.0.1"}}
 
  :aliases
- {;; The core artefact's tests historically exercised schema-aware
-  ;; paths (every reset-runtime fixture rolled the per-frame schema
-  ;; registry; many test files require re-frame.schemas to set up their
-  ;; data shapes). Per rf2-p7va those tests stay in core/test/ and
-  ;; pull schemas in as a test-only dep — so the core artefact's test
-  ;; classpath includes schemas (and its Malli dep) while the
-  ;; published library jar carries neither. Keeps the per-test
-  ;; coverage intact without smuggling schemas into the production
-  ;; classpath. See implementation/schemas/deps.edn.
+ {;; The core artefact's tests historically exercised schema-aware AND
+  ;; machine-aware paths (every reset-runtime fixture rolled the
+  ;; per-frame schema registry and the spawn-counter; many test files
+  ;; require re-frame.schemas to set up their data shapes;
+  ;; smoke_test.clj / pattern_smoke_test.clj / conformance_test.clj
+  ;; exercise re-frame.machines/reg-machine + machine-transition).
+  ;; Per rf2-p7va those tests stay in core/test/ and pull schemas in as
+  ;; a test-only dep; per rf2-xbtj they pull machines in the same way.
+  ;; The core artefact's test classpath therefore includes schemas
+  ;; (with Malli) and machines while the published library jar carries
+  ;; neither. Keeps the per-test coverage intact without smuggling
+  ;; either feature into the production classpath. See
+  ;; implementation/schemas/deps.edn and implementation/machines/deps.edn.
   :test {:extra-paths ["test" "../../examples"]
-         :extra-deps  {day8/re-frame-2-schemas {:local/root "../schemas"}
+         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
+                       day8/re-frame-2-machines {:local/root "../machines"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
