@@ -209,6 +209,12 @@
               ctx
               steps))))
 
+;; Forward-declared — realise-machine-handlers is defined below (alongside
+;; the run-call :machine-transition path). Per rf2-msd4 the same realised
+;; action/guard maps feed both the in-memory `machine-transition` callsite
+;; and the registry `reg-machine` registrations.
+(declare realise-machine-handlers)
+
 (defn- realise-handlers [fixture]
   ;; Walk :fixture/handlers and register each.
   (let [handlers-map (or (:fixture/handlers fixture) {})
@@ -339,7 +345,29 @@
     ;; is a {path schema} map. Per Spec 010, validation runs after each
     ;; :db commit.
     (doseq [[path schema] (get-in fixture [:fixture/registry :app-schema])]
-      (rf/reg-app-schema path schema))))
+      (rf/reg-app-schema path schema))
+    ;; Per rf2-msd4: machine registrations. The fixture's
+    ;; :fixture/registry :machine is a {machine-id <machine-spec>} map; the
+    ;; spec's :actions / :guards / :on-spawn-actions slots may reference
+    ;; bodies declared under :fixture/handlers :machine-action /
+    ;; :machine-guard. We realise those bodies once here and merge them
+    ;; into the spec before calling re-frame.machines/reg-machine, which
+    ;; in turn calls reg-event-fx with create-machine-handler. From this
+    ;; point dispatching [machine-id <inner-event>] runs through the full
+    ;; runtime path, so :rf.error/machine-action-exception (Cross-Spec
+    ;; §11/§17) and the post-commit :fx walk (Cross-Spec §12) become
+    ;; observable to fixtures.
+    (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
+      (when (seq machine-registry)
+        (let [{:keys [actions guards on-spawn-actions]}
+              (realise-machine-handlers fixture)
+              reg-machine (requiring-resolve 're-frame.machines/reg-machine)]
+          (doseq [[machine-id machine-spec] machine-registry]
+            (let [merged (-> machine-spec
+                             (update :actions          #(merge actions %))
+                             (update :guards           #(merge guards %))
+                             (update :on-spawn-actions #(merge on-spawn-actions %)))]
+              (reg-machine machine-id merged))))))))
 
 (defn- collect-traces [fixture-id]
   (let [traces (atom [])]
@@ -533,6 +561,16 @@
                                         :fx     (let [[_ a b] step]
                                                   (update ctx :fx (fnil conj [])
                                                           [a (eval-value b ctx)]))
+                                        ;; Per rf2-msd4: machine actions can
+                                        ;; throw to exercise Cross-Spec §11
+                                        ;; (machine-action-exception). The
+                                        ;; runtime's create-machine-handler
+                                        ;; catches the throw, halts the cascade
+                                        ;; atomically, and emits
+                                        ;; :rf.error/machine-action-exception
+                                        ;; with the original message.
+                                        :throw  (throw (ex-info (str (second step))
+                                                                {:from-fixture? true}))
                                         ctx))
                                     {:data data :event event :fx []}
                                     steps)]
