@@ -133,6 +133,20 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'login', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login'),
   },
+  // rf2-3yij — UIx adapter smoke trio (Decision 7: counter + login,
+  // realworld skipped). Different folders from the canonical Reagent
+  // versions so the bundle-isolation grep can confirm UIx code does
+  // NOT appear in Reagent-substrate examples and vice versa.
+  {
+    build: 'examples/counter-uix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'counter_uix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'counter-uix'),
+  },
+  {
+    build: 'examples/login-uix',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'login_uix', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'login-uix'),
+  },
   {
     build: 'examples/realworld',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'realworld', 'index.html'),
