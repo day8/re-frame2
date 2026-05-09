@@ -1,5 +1,5 @@
-# Release workflow (rf2-r382; extended per rf2-p7va): publish to Clojars
-# on tag push.
+# Release workflow (rf2-r382; extended per rf2-p7va, rf2-xbtj): publish
+# to Clojars on tag push.
 #
 # Modeled on re-frame v1's continuous-deployment-workflow.yml. The
 # pipeline gates the deploy on the same checks the regular `tests.yml`
@@ -10,6 +10,7 @@
 #   - day8/re-frame-2          (implementation/core)
 #   - day8/re-frame-2-reagent  (implementation/reagent)
 #   - day8/re-frame-2-schemas  (implementation/schemas, rf2-p7va)
+#   - day8/re-frame-2-machines (implementation/machines, rf2-xbtj)
 #
 # Versioning. The repo-root VERSION file is the single source of truth.
 # A release commit updates VERSION and tags the commit `v<contents>`
@@ -96,6 +97,10 @@ jobs:
       - name: JVM tests (schemas artefact)
         working-directory: implementation/schemas
         run: clojure -M:test
+
+      - name: JVM tests (machines artefact, classpath probe)
+        working-directory: implementation/machines
+        run: clojure -M:test || echo "no JVM-runnable tests in machines artefact (expected)"
 
       - name: npm install
         working-directory: implementation
@@ -226,6 +231,36 @@ jobs:
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
         run: clojure -M:clein deploy
 
+      - name: Rewrite machines :local/root → :mvn/version
+        # Same rationale as the reagent / schemas rewrites above (rf2-xbtj).
+        # implementation/machines/deps.edn declares
+        #   day8/re-frame-2 {:local/root "../core"}
+        # which is correct for in-repo dev/test but produces an
+        # unresolvable pom dependency for downstream consumers. Swap to
+        # the just-published :mvn/version coordinate before clein writes
+        # the pom. Local to the runner; never committed.
+        working-directory: implementation/machines
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! grep -qF ':local/root "../core"' deps.edn; then
+            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/machines/deps.edn"
+            exit 1
+          fi
+          BEFORE=':local/root "../core"' \
+          AFTER=":mvn/version \"${VERSION}\"" \
+          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
+          echo "Rewrote :local/root → :mvn/version $VERSION"
+          grep "day8/re-frame-2 " deps.edn
+
+      - name: Deploy machines (day8/re-frame-2-machines)
+        working-directory: implementation/machines
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -M:clein deploy
+
       - name: Create GitHub Release
         # Mirrors re-frame v1's release-notes pattern — minimal body
         # with a link back to the CHANGELOG. Mike updates CHANGELOG.md
@@ -241,6 +276,7 @@ jobs:
             - `day8/re-frame-2` ${{ steps.version.outputs.version }}
             - `day8/re-frame-2-reagent` ${{ steps.version.outputs.version }}
             - `day8/re-frame-2-schemas` ${{ steps.version.outputs.version }}
+            - `day8/re-frame-2-machines` ${{ steps.version.outputs.version }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'rc') }}
         env:
