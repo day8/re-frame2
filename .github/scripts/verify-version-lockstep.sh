@@ -50,11 +50,11 @@ echo "lockstep VERSION = ${VERSION}"
 # The artefact set the lockstep contract covers. Order matches the
 # topological deploy DAG in release.yml so a drift report reads
 # top-down.
-ARTEFACTS=(core schemas reagent uix machines routing flows http ssr epoch)
+ARTEFACTS=(core schemas reagent uix helix machines routing flows http ssr epoch)
 
 # core is the lockstep root: it does not depend on any other re-frame-2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent uix machines routing flows http ssr epoch)
+NON_CORE=(schemas reagent uix helix machines routing flows http ssr epoch)
 
 errors=0
 
