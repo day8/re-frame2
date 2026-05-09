@@ -1,1 +1,1 @@
-UIx adapter is CLJS-only — JVM-runnable tests live in core/test (substrate-agnostic) and the browser smoke trio per Decision 7 lives under examples/uix/counter and examples/uix/login. This dir is kept so the :test alias has a valid :extra-paths entry.
+UIx adapter is CLJS-only — JVM-runnable tests live in core/test (substrate-agnostic) and the browser smoke trio per Decision 7 lives under examples/uix/counter_uix and examples/uix/login_uix. This dir is kept so the :test alias has a valid :extra-paths entry.

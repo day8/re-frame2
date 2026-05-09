@@ -140,12 +140,12 @@ const EXAMPLES = [
   // rf2-kx74 the UIx tree lives under examples/uix/.
   {
     build: 'examples/counter-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'counter', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'counter_uix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-uix'),
   },
   {
     build: 'examples/login-uix',
-    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login', 'index.html'),
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login_uix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-uix'),
   },
   {
