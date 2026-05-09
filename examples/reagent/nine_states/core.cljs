@@ -726,7 +726,8 @@
     (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  (rf/init!)
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process canned-stub fxs above. The example runs standalone — no
   ;; backend required.

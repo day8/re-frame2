@@ -86,6 +86,9 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  ;; rf2-84po: requiring re-frame.substrate.reagent (above) registered
+  ;; the Reagent adapter as the default at ns-load time, so no-arg
+  ;; init! resolves through the registry.
+  (rf/init!)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render root [counter-app]))

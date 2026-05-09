@@ -34,7 +34,8 @@
   (hash->path (.. js/window -location -hash)))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  (rf/init!)
   (rf/dispatch-sync [:todo/initialise])
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])
   (.addEventListener js/window "hashchange"

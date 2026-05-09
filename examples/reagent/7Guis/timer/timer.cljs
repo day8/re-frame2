@@ -200,6 +200,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  (rf/init!)
   (rf/dispatch-sync [:timer/initialise])
   (rdc/render root [timer-view]))

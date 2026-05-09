@@ -254,7 +254,11 @@
      ;; Boot the runtime against the Reagent substrate. Idempotent — the
      ;; first call installs the adapter and creates :rf/default; subsequent
      ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
-     (rf/init! reagent-adapter/adapter)
+     ;;
+     ;; rf2-84po: requiring re-frame.substrate.reagent (above) registered
+     ;; the Reagent adapter as the default at ns-load time, so no-arg
+     ;; init! resolves through the registry.
+     (rf/init!)
      ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
      ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
      ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
