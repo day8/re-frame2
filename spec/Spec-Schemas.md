@@ -766,6 +766,20 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame         :keyword]
    [:failing-paths [:vector :any]]])
 
+;; --- rf2-d656: Tool-Pair §Surface behaviour against destroyed frames ---
+
+(def EpochCbSilencedOnFrameDestroyTags
+  ;; :rf.epoch.cb/silenced-on-frame-destroy — emitted once per
+  ;; (frame-id, cb-id) pair when a frame previously observed by a
+  ;; register-epoch-cb callback is destroyed. :op-type :rf.epoch.cb (not
+  ;; :error). One-shot; subsequent destroys of the same frame do not
+  ;; re-emit. The callback registration remains in place; eviction is
+  ;; the consumer's call. Per Tool-Pair §Surface behaviour against
+  ;; destroyed frames.
+  [:map
+   [:frame-id :keyword]
+   [:cb-id    [:or :keyword :string]]])
+
 ;; --- warnings: SSR / authoring-time advisories ---
 
 (def MultipleStatusSetTags

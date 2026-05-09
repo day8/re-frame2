@@ -348,12 +348,13 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records | v1 (dev-only) | Tool-Pair |
-| `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success) | v1 (dev-only) | Tool-Pair |
-| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection) | v1 (dev-only) | Tool-Pair |
-| `register-epoch-cb` | Fn | `(register-epoch-cb key callback-fn)` — assembled-epoch listener | v1 (dev-only) | Tool-Pair, 009 |
+| `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records. Returns `[]` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
+| `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
+| `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame. | v1 (dev-only) | Tool-Pair |
+| `register-epoch-cb` | Fn | `(register-epoch-cb key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
 | `remove-epoch-cb` | Fn | `(remove-epoch-cb key)` | v1 (dev-only) | Tool-Pair, 009 |
 | `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
+| `get-frame-db` (cross-ref to [§Frames](#frames)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
 
 Trace events emitted by epoch-history machinery:
 
@@ -369,6 +370,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
 | `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
 | `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame-id`, `:cb-id` |
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
