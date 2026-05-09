@@ -70,6 +70,23 @@
             ;; below look the http test-helper API up through the
             ;; late-bind hook table at call time, which the http
             ;; artefact populates from its own ns-load.
+            ;;
+            ;; re-frame.ssr (Spec 011) ships as a separate Maven artefact
+            ;; (day8/re-frame-2-ssr, rf2-uo7v). The core artefact MUST
+            ;; NOT `:require [re-frame.ssr]` — that would pull the pure
+            ;; hiccup → HTML emitter, the FNV-1a render-tree-hash
+            ;; machinery, the per-request `[:rf/response]` accumulator,
+            ;; the six `:rf.server/*` server-only fxs, the
+            ;; `reg-error-projector` registry kind plus its built-in
+            ;; default, the SSR error-projection trace listener, the
+            ;; `:rf/hydrate` event, and every `:rf.ssr/*` / `:rf.server/*`
+            ;; keyword string onto every consumer's classpath even when
+            ;; no server-side rendering is performed. The re-export
+            ;; wrappers (`render-to-string`, `render-tree-hash`,
+            ;; `reg-error-projector`, `project-error`) below look the
+            ;; ssr API up through the late-bind hook table at call
+            ;; time, which the ssr artefact populates from its own
+            ;; ns-load.
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
@@ -348,32 +365,40 @@
   (when-let [meta (registrar/lookup :view id)]
     (:handler-fn meta)))
 
+;; render-to-string / render-tree-hash are late-bound via the hook table
+;; so core does not statically require re-frame.ssr (rf2-uo7v — ssr
+;; ships in day8/re-frame-2-ssr). When the ssr artefact is not on the
+;; classpath the lookups return nil and the wrappers raise
+;; :rf.error/ssr-artefact-missing.
 (defn render-to-string
   "Render a hiccup tree to an HTML string. Per Spec 011 §The render-tree
   → HTML emitter. Delegates to the installed substrate adapter's
   :render-to-string slot — for the plain-atom adapter (JVM/SSR) that
   routes through re-frame.ssr; for Reagent it can route through
   reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'
-  and :emit-hash? to inject data-rf-render-hash on the root element."
+  and :emit-hash? to inject data-rf-render-hash on the root element.
+  Late-bound via :ssr/render-to-string."
   ([render-tree] (render-to-string render-tree {}))
   ([render-tree opts]
-   ;; On JVM the plain-atom adapter's :render-to-string requires that
-   ;; re-frame.ssr has been loaded so it can bind *hiccup-emitter*.
-   ;; Force the load lazily — otherwise the adapter throws a clear error.
-   #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
-   (adapter/render-to-string render-tree opts)))
+   (if-let [f (late-bind/get-fn :ssr/render-to-string)]
+     (f render-tree opts)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'render-to-string
+                      :recovery :no-recovery
+                      :reason   "rf/render-to-string requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
 
 (defn render-tree-hash
   "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
   hex). Identical output on JVM and CLJS for the same canonical-EDN
-  representation. Per Spec 011 §Hydration-mismatch detection."
+  representation. Per Spec 011 §Hydration-mismatch detection. Late-bound
+  via :ssr/render-tree-hash."
   [render-tree]
-  #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
-  (let [hash-fn #?(:clj  (requiring-resolve 're-frame.ssr/render-tree-hash)
-                   :cljs (resolve 're-frame.ssr/render-tree-hash))]
-    (when hash-fn
-      #?(:clj  ((deref hash-fn) render-tree)
-         :cljs (hash-fn render-tree)))))
+  (if-let [f (late-bind/get-fn :ssr/render-tree-hash)]
+    (f render-tree)
+    (throw (ex-info ":rf.error/ssr-artefact-missing"
+                    {:where    'render-tree-hash
+                     :recovery :no-recovery
+                     :reason   "rf/render-tree-hash requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
@@ -704,21 +729,26 @@
                         :recovery   :no-recovery
                         :reason     "rf/reg-machine* requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))
 
-;; reg-error-projector lives in re-frame.ssr so the registry kind
-;; ships with its default :rf.ssr/default-error-projector. Forward
-;; through requiring-resolve to avoid a top-level :require cycle
-;; (ssr.cljc requires events/fx/registrar which core also requires).
+;; reg-error-projector lives in re-frame.ssr so the registry kind ships
+;; with its default :rf.ssr/default-error-projector. Per rf2-uo7v ssr
+;; ships in day8/re-frame-2-ssr; the producing fn is looked up through
+;; the late-bind hook table so core never statically requires
+;; re-frame.ssr. When the ssr artefact is not on the classpath the
+;; lookup returns nil and the call raises :rf.error/ssr-artefact-missing.
 (defn -reg-error-projector
   "Internal helper — prefer `reg-error-projector` from public callers.
   This is the fn-form delegate the public macro / CLJS alias forward to.
-  Forwards through requiring-resolve to keep the load order acyclic."
+  Late-bound via :ssr/reg-error-projector."
   ([id projector-fn]
    (-reg-error-projector id {} projector-fn))
   ([id metadata projector-fn]
-   #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
-   (let [f #?(:clj  (requiring-resolve 're-frame.ssr/reg-error-projector)
-              :cljs (resolve 're-frame.ssr/reg-error-projector))]
-     (f id metadata projector-fn))))
+   (if-let [f (late-bind/get-fn :ssr/reg-error-projector)]
+     (f id metadata projector-fn)
+     (throw (ex-info ":rf.error/ssr-artefact-missing"
+                     {:where    'reg-error-projector
+                      :id       id
+                      :recovery :no-recovery
+                      :reason   "rf/reg-error-projector requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
 
 #?(:clj
    (defmacro reg-error-projector
@@ -752,12 +782,16 @@
 
 (defn project-error
   "Apply the active error projector for frame-id to the trace event.
-  Returns a :rf/public-error map. Per Spec 011 §Server error projection."
+  Returns a :rf/public-error map. Per Spec 011 §Server error projection.
+  Late-bound via :ssr/project-error."
   [frame-id trace-event]
-  #?(:clj (try (require 're-frame.ssr) (catch Throwable _ nil)))
-  (let [f #?(:clj  (requiring-resolve 're-frame.ssr/project-error)
-             :cljs (resolve 're-frame.ssr/project-error))]
-    (f frame-id trace-event)))
+  (if-let [f (late-bind/get-fn :ssr/project-error)]
+    (f frame-id trace-event)
+    (throw (ex-info ":rf.error/ssr-artefact-missing"
+                    {:where    'project-error
+                     :frame    frame-id
+                     :recovery :no-recovery
+                     :reason   "rf/project-error requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
 
 ;; ---- clearing -------------------------------------------------------------
 

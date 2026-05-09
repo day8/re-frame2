@@ -7,12 +7,22 @@
   use Reagent depend on both day8/re-frame-2 (core) and this artefact;
   apps targeting a different substrate (UIx, Helix) depend on the
   matching adapter artefact instead. Core does *not* :require this ns —
-  the dependency direction is adapter → core."
+  the dependency direction is adapter → core.
+
+  Per rf2-uo7v the SSR surface ships in `day8/re-frame-2-ssr` —
+  this adapter MUST NOT statically `:require [re-frame.ssr]` either,
+  because that would drag the SSR namespace, the FNV-1a render-tree-hash
+  machinery, the per-request `[:rf/response]` accumulator, and every
+  `:rf.ssr/*` / `:rf.server/*` keyword string into every Reagent app's
+  bundle even when no server-side rendering is performed. Instead the
+  adapter publishes its `set-hiccup-emitter!` callback through the
+  late-bind hook table; if the SSR artefact is on the classpath, its
+  ns-load resolves the hook and wires the emitter."
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             [re-frame.interop :as interop]
-            [re-frame.ssr :as ssr]))
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -95,9 +105,13 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; Wire core's render-to-string into this adapter's :render-to-string
-;; slot. Core can't :require this ns (reverse dependency direction —
-;; this artefact depends on core, not vice versa); this ns's load
-;; order calls back into core. Per Spec 006 §Substrate-adapter shipping
-;; convention (rf2-0hxm).
-(ssr/install-render-to-string! set-hiccup-emitter!)
+;; Wire ssr's render-to-string into this adapter's :render-to-string
+;; slot. Per rf2-uo7v ssr ships in day8/re-frame-2-ssr; this adapter
+;; cannot statically `:require [re-frame.ssr]` without dragging the SSR
+;; namespace into every Reagent bundle. Publish set-hiccup-emitter!
+;; through the late-bind hook table — when the ssr artefact is loaded,
+;; its ns-load resolves the hook and wires the emitter through it. When
+;; ssr is absent the hook is never consumed and render-to-string raises
+;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
+;; §Substrate-adapter shipping convention (rf2-0hxm).
+(late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
