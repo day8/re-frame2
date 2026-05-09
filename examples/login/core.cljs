@@ -33,6 +33,12 @@
             ;; loads the ns so its late-bind hooks register before
             ;; `(rf/reg-app-schema ...)` runs below.
             [re-frame.schemas]
+            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; day8/re-frame-2-machines artefact. Loading the ns here
+            ;; registers its late-bind hooks so rf/create-machine-handler
+            ;; (called below at ns-load) and the `:rf/machine` framework
+            ;; sub resolve.
+            [re-frame.machines]
             [re-frame.substrate.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
