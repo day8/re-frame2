@@ -1,0 +1,85 @@
+;; day8/re-frame-2-ssr — ssr artefact (rf2-uo7v,
+;; sixth per-feature split per rf2-5vjj Strategy B).
+;;
+;; Per Spec 011 the server-side rendering and hydration surface — the
+;; pure hiccup → HTML emitter (`render-to-string`), the structural
+;; render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with
+;; `:replace-app-db` semantics, the `:rf.server/set-status` /
+;; `:rf.server/set-header` / `:rf.server/append-header` /
+;; `:rf.server/set-cookie` / `:rf.server/delete-cookie` /
+;; `:rf.server/redirect` server-only fx family, the per-request HTTP
+;; response accumulator at `[:rf/response]`, the `reg-error-projector`
+;; surface plus its built-in `:rf.ssr/default-error-projector`, the
+;; runtime's SSR error path, and the `data-rf2-source-coord` annotation
+;; on registered-view roots — ships as a separate Maven artefact so
+;; apps that don't render server-side don't drag the namespace, the
+;; HTML emitter, the FNV-1a hash machinery, the response-accumulator
+;; bookkeeping, the projector registry kind, or any of the
+;; `:rf.ssr/*` / `:rf.server/*` trace strings onto the classpath.
+;;
+;; Consumers add this artefact alongside the core artefact:
+;;
+;;   {:deps {day8/re-frame-2     {:mvn/version "..."}
+;;           day8/re-frame-2-ssr {:mvn/version "..."}}}
+;;
+;; And require `re-frame.ssr` in any namespace that calls
+;; `rf/render-to-string`, `rf/render-tree-hash`, `rf/reg-error-projector`,
+;; `rf/project-error`, dispatches `:rf/hydrate`, or relies on the
+;; `:rf.server/*` fxs / `[:rf/response]` accumulator — loading the
+;; namespace registers the six `:rf.server/*` fxs, the `:rf/hydrate`
+;; handler, and publishes the late-bind hooks (`:ssr/render-tree-hash`)
+;; and the plain-atom adapter's `:render-to-string` slot.
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; rf2-p7va extension to per-feature splits): this artefact depends on
+;; core; core never depends on this artefact. The cross-references
+;; from core to ssr (`re-frame.core`'s `render-to-string` /
+;; `render-tree-hash` / `reg-error-projector` / `project-error`
+;; re-exports) flow through `re-frame.late-bind` exactly as the
+;; schemas / machines / routing / flows / http hooks already do.
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         ;; The ssr JVM tests' reset-runtime fixture touches
+         ;; `re-frame.flows/flows` and `re-frame.schemas/schemas-by-frame`
+         ;; AND reloads `re-frame.routing` / `re-frame.machines` so
+         ;; their ns-load-time registrations resurrect after
+         ;; `(registrar/clear-all!)`. The ssr_end_to_end test also
+         ;; exercises the routing path (`:rf.error/no-such-route` →
+         ;; default projector → 404). Pull schemas / flows / routing /
+         ;; machines in as test-only deps so the fixture loads cleanly.
+         ;; Mirrors the pattern in core/deps.edn, routing/deps.edn,
+         ;; flows/deps.edn, and http/deps.edn. None of these is required
+         ;; for production ssr builds.
+         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
+                       day8/re-frame-2-flows    {:local/root "../flows"}
+                       day8/re-frame-2-routing  {:local/root "../routing"}
+                       day8/re-frame-2-machines {:local/root "../machines"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; The release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-ssr
+   :main     re-frame.ssr
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
