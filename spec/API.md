@@ -276,7 +276,7 @@ For tooling, agents, story tools, 10x.
 | API | M/Fn | Signature | Status | JVM-runnable? | Spec |
 |---|---|---|---|---|---|
 | `handlers` | Fn | `(handlers kind)` / `(handlers kind pred-fn)` | v1 | ✓ | 002 |
-| `handler-meta` | Fn | `(handler-meta kind id)` | v1 | ✓ | 002 |
+| `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta` ([Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. | v1 | ✓ | 002 |
 | `machines` | Fn | `(machines)` → seq of machine-ids. Derived view over `(handlers :event)` filtered by `:rf/machine? true`. | v1 | ✓ | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |

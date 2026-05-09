@@ -116,18 +116,20 @@ The handler's name shows up in stack traces, the [trace stream](009-Instrumentat
 
 ## Source-coordinate capture (CLJS reference)
 
-The CLJS reference uses macros to capture `:ns` / `:line` / `:file` / `:column` at compile time. `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
+The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` at compile time. The four keys are the canonical source-coord shape — `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta). `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1):
 
 ```clojure
 (defmacro reg-event-db
   [id & args]
   (let [[metadata handler] (resolve-args args)
-        coords {:ns &env :line ... :file ... :column ...}]
+        coords {:ns &env :line ... :column ... :file ...}]
     `(re-frame.core/-reg-event-db
        ~id
        ~(merge coords metadata)
        ~handler)))
 ```
+
+`:line` and `:column` come from `(meta &form)`; `:ns` and `:file` come from the compile-time `*ns*` / `*file*`. The captured map is merged into the registration metadata and surfaces on `(rf/handler-meta kind id)` returns. The companion DOM-attribute contraction emitted by view substrates (`<ns>:<sym>:<line>:<col>`) is `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr) and [Spec 006 §Attribute value format](006-ReactiveSubstrate.md#attribute-value-format); `:file` is **not** part of the attribute string — consumers recover it via `(rf/handler-meta :view <handler-id>)`.
 
 This is a CLJS-implementation choice. Other-language implementations:
 
