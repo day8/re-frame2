@@ -775,7 +775,9 @@ Other CLJS adapters (UIx, Helix) plug in via the same shape, replacing only the 
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
 
-The topology is "what depends on what" — the static `:<-` chain you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data. JVM-runnable. No adapter needed.
+The topology is "what depends on what" — the static `:<-` chain you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data, shaped `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api). `:inputs` is always present (empty for layer-1 / direct-app-db subs) and lists the upstream sub-ids in declaration order; `:doc` and the source-coord keys are present when the registration carries them. JVM-runnable. No adapter needed.
+
+`sub-topology` is a *literal projection* of the registrar — it does not validate the resulting graph. Cycle detection, "this `:<-` references an unregistered sub", and similar diagnostics are debugger / tool-pair concerns that traverse the returned map; the topology query itself reports verbatim what was registered. (Cycles in `:<-` are not legal at runtime — the resolved sub will throw — but the topology query stays a static projection.)
 
 The tracking is "when source X changes, recompute everyone who depends on X" — the runtime mechanism that makes views update reactively. This requires the adapter's `make-derived-value` and is substrate-specific.
 

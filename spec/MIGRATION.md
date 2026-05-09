@@ -1037,7 +1037,7 @@ rf/trace-api-version                             ;; version slot, never wired
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
-For `make-restore-fn`, `init-platform`, the SSR-head trio (`reg-head` / `render-head` / `active-head`), and `sub-topology` — these were also flagged in the rf2-gr0n triage but carry post-v1 ergonomic value; they are deferred (not dropped) and tracked as separate beads. Migration tooling should not attempt to rewrite these.
+For `make-restore-fn`, `init-platform`, and the SSR-head trio (`reg-head` / `render-head` / `active-head`) — these were also flagged in the rf2-gr0n triage but carry post-v1 ergonomic value; they are deferred (not dropped) and tracked as separate beads. Migration tooling should not attempt to rewrite these. (`sub-topology` was flagged the same way and has since been implemented as part of the v1-✓ public registrar query API — see [O-12](#o-12-introspect-the-static-sub-graph-via-rfsub-topology) for opt-in adoption.)
 
 ---
 
@@ -1406,6 +1406,17 @@ The opt-in modernisation, when it applies:
 2. **Conformance harnesses** registering machines from EDN fixtures already use the plain-fn surface (via `requiring-resolve`); the late-bind hook key (`:machines/reg-machine`) now points at `reg-machine*`. No change required.
 
 Do not apply unless the user has explicitly asked to surface the per-element coord index for tooling, or to clean up code-gen call sites.
+
+### O-12. Introspect the static sub-graph via `(rf/sub-topology)`
+
+re-frame v1 had no public way to query the static sub-dependency graph; tooling that wanted to draw it walked private state. re-frame2 ships `(rf/sub-topology)` as a v1-✓ public surface (per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api) and [006 §Subscription topology vs subscription tracking](006-ReactiveSubstrate.md#subscription-topology-vs-subscription-tracking)) returning `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — pure data, JVM-runnable, no app-db, no per-frame cache.
+
+Adoption is opt-in:
+
+- **Tools and dev overlays** that previously read private subs state should switch to `(rf/sub-topology)` for the static graph and `(rf/sub-cache frame-id)` (CLJS-only, see M-26) for the runtime view.
+- **Tests** asserting on which subs depend on which can replace ad-hoc fixtures with a single `(rf/sub-topology)` projection.
+
+No application-code rewrite is required. The surface is additive; existing `reg-sub` registrations populate the topology automatically.
 
 ---
 

@@ -263,7 +263,7 @@ For tooling, agents, story tools, 10x.
 | `frame-meta` | Fn | `(frame-meta frame-id)` | v1 | ✓ | 002 |
 | `get-frame-db` | Fn | `(get-frame-db frame-id)` → app-db value (plain map) | v1 | ✓ | 002 |
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
-| `sub-topology` | Fn | `(sub-topology)` → static dependency graph | v1 | ✓ | 002 |
+| `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
 | `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` → map of path → schema | v1 | ✓ | 010 |
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | ✓ | 010 |
