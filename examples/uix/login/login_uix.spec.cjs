@@ -7,7 +7,7 @@
  *   :idle -> :submitting -> :authed (or :error-shown on bad creds)
  */
 
-const { expectVisible, expectTextContains } = require('../scripts/spec-helpers.cjs');
+const { expectVisible, expectTextContains } = require('../../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'login-uix (state-machine demo)',

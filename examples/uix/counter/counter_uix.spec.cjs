@@ -11,7 +11,7 @@
  *   - +/- increment / decrement.
  */
 
-const { expectTextEquals } = require('../scripts/spec-helpers.cjs');
+const { expectTextEquals } = require('../../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'counter-uix',
