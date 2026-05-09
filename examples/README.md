@@ -36,8 +36,8 @@ examples/
     managed_http_counter/
     login/
   uix/                                  <-- UIx adapter smoke-test set (counter + login)
-    counter/
-    login/
+    counter_uix/                        <-- folder name carries the namespace suffix so it
+    login_uix/                              doesn't collide with reagent/{counter,login}/ on the classpath
 ```
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
@@ -76,8 +76,8 @@ The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
-| 1 | [`uix/counter/`](uix/counter/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
-| 2 | [`uix/login/`](uix/login/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
+| 1 | [`uix/counter_uix/`](uix/counter_uix/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
+| 2 | [`uix/login_uix/`](uix/login_uix/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
 
 The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx code and vice versa.
 
@@ -95,7 +95,7 @@ If you've finished the guide and want to see code:
 8. **Then [`reagent/nine_states/`](reagent/nine_states/README.md)** — the page-level cardinality / lifecycle conventions wired together.
 9. **Then [`reagent/realworld/`](reagent/realworld/)** — substantial-app shape across the widest surface in the repo.
 
-If you're building on UIx, read [`uix/counter/`](uix/counter/) and [`uix/login/`](uix/login/) alongside their Reagent siblings — the dataflow is identical; the view layer differs.
+If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix/login_uix/`](uix/login_uix/) alongside their Reagent siblings — the dataflow is identical; the view layer differs.
 
 ## End-to-end verification
 
