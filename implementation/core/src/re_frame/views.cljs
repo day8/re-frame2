@@ -14,18 +14,23 @@
   ids, or hot-reload semantics), call `(re-frame.core/view :id)`
   to obtain the wrapped fn and use `[(rf/view :id) args]` as the
   hiccup head."
-  (:require ["react"        :as React]
-            [reagent.core   :as r]
+  (:require [reagent.core   :as r]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
-            [re-frame.source-coords :as source-coords]))
+            [re-frame.source-coords :as source-coords]
+            [re-frame.substrate.context :as substrate-context]))
 
 ;; ---- the React context for frame propagation -----------------------------
+;;
+;; Per rf2-3yij Decision 2 the React Context object lives in
+;; `re-frame.substrate.context` so the UIx adapter (and any future
+;; React-shaped adapter) reads the *same* context — not a parallel one.
+;; The Reagent code below references it via the alias rather than
+;; minting a new createContext call.
 
-(defonce ^:private frame-context
-  (.createContext React :rf/default))
+(def ^:private frame-context substrate-context/frame-context)
 
 (defn- frame-provider-component
   "The single Reagent component that backs every frame-provider. It takes
