@@ -1,26 +1,30 @@
-;; Top-level coordinator (rf2-0hxm).
+;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va).
 ;;
-;; The published artefacts are core/ (day8/re-frame-2) and reagent/
-;; (day8/re-frame-2-reagent); see implementation/core/deps.edn and
-;; implementation/reagent/deps.edn.
+;; The published artefacts are
+;;   - core/    (day8/re-frame-2)
+;;   - reagent/ (day8/re-frame-2-reagent)
+;;   - schemas/ (day8/re-frame-2-schemas, rf2-p7va)
+;; see implementation/core/deps.edn, implementation/reagent/deps.edn,
+;; and implementation/schemas/deps.edn.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
-;; the build coordinator that pulls both artefacts onto a single
+;; the build coordinator that pulls every artefact onto a single
 ;; classpath for the shadow-cljs builds (browser-test, elision-probe,
-;; examples) that exercise core + Reagent together. Per-artefact JVM
-;; tests run via implementation/core/deps.edn and
-;; implementation/reagent/deps.edn directly.
+;; examples) that exercise core + Reagent + Schemas together.
+;; Per-artefact JVM tests run via the per-artefact deps.edn directly.
 {:paths []
  :deps  {day8/re-frame-2         {:local/root "core"}
-         day8/re-frame-2-reagent {:local/root "reagent"}}
+         day8/re-frame-2-reagent {:local/root "reagent"}
+         day8/re-frame-2-schemas {:local/root "schemas"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
-  ;; both artefacts and the example sources on the classpath. Production
+  ;; every artefact and the example sources on the classpath. Production
   ;; CI runs each artefact's :test alias separately.
   :test
   {:extra-paths ["core/test"
                  "reagent/test"
+                 "schemas/test"
                  "../examples"
                  "../examples/realworld/test"]
    :extra-deps  {io.github.cognitect-labs/test-runner
