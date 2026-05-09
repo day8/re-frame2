@@ -39,13 +39,15 @@
  {:test {:extra-paths ["test"]
          ;; The flows JVM test's reset-runtime fixture touches
          ;; `re-frame.schemas/schemas-by-frame` and reloads
-         ;; `re-frame.routing` (the reset matrix is defensive — neither
-         ;; artefact is required for production flows builds, but both
-         ;; are on the classpath during development). Pull both in as
+         ;; `re-frame.routing` and `re-frame.ssr` (the reset matrix is
+         ;; defensive — none of these artefacts is required for
+         ;; production flows builds, but all are on the classpath
+         ;; during development). Pull schemas / routing / ssr in as
          ;; test-only deps so the fixture loads cleanly. Mirrors the
          ;; pattern in core/deps.edn and routing/deps.edn.
          :extra-deps  {day8/re-frame-2-schemas {:local/root "../schemas"}
                        day8/re-frame-2-routing {:local/root "../routing"}
+                       day8/re-frame-2-ssr     {:local/root "../ssr"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}

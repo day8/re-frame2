@@ -1,5 +1,5 @@
 ;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).
 ;;
 ;; The published artefacts are
 ;;   - core/     (day8/re-frame-2)
@@ -9,16 +9,17 @@
 ;;   - routing/  (day8/re-frame-2-routing,  rf2-k682)
 ;;   - flows/    (day8/re-frame-2-flows,    rf2-tfw3)
 ;;   - http/     (day8/re-frame-2-http,     rf2-5kpd)
+;;   - ssr/      (day8/re-frame-2-ssr,      rf2-uo7v)
 ;; see implementation/core/deps.edn, implementation/reagent/deps.edn,
 ;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
-;; implementation/routing/deps.edn, implementation/flows/deps.edn, and
-;; implementation/http/deps.edn.
+;; implementation/routing/deps.edn, implementation/flows/deps.edn,
+;; implementation/http/deps.edn, and implementation/ssr/deps.edn.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every artefact onto a single
 ;; classpath for the shadow-cljs builds (browser-test, elision-probe,
 ;; examples) that exercise core + Reagent + Schemas + Machines + Routing
-;; + Flows + HTTP together. Per-artefact JVM tests run via the
+;; + Flows + HTTP + SSR together. Per-artefact JVM tests run via the
 ;; per-artefact deps.edn directly.
 {:paths []
  :deps  {day8/re-frame-2          {:local/root "core"}
@@ -27,7 +28,8 @@
          day8/re-frame-2-machines {:local/root "machines"}
          day8/re-frame-2-routing  {:local/root "routing"}
          day8/re-frame-2-flows    {:local/root "flows"}
-         day8/re-frame-2-http     {:local/root "http"}}
+         day8/re-frame-2-http     {:local/root "http"}
+         day8/re-frame-2-ssr      {:local/root "ssr"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -41,6 +43,7 @@
                  "routing/test"
                  "flows/test"
                  "http/test"
+                 "ssr/test"
                  "../examples"
                  "../examples/realworld/test"]
    :extra-deps  {io.github.cognitect-labs/test-runner
