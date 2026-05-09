@@ -317,3 +317,71 @@
               "expected a :frame/created trace")
           (is (< run-end-idx created-idx)
               ":on-create's :run-end precedes :frame/created — frame is fully booted before listeners observe it"))))))
+
+;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
+;;
+;; Presets expand at registration time into a fixed bundle of metadata
+;; keys. Per Spec 002 §Frame presets the closed v1 set is :default,
+;; :test, :story, :ssr-server. User-supplied keys win on conflict; the
+;; original :preset value is preserved verbatim for inspection.
+
+(deftest preset-expansion-default
+  (testing ":default expands to {} (identical to omitting :preset)"
+    (rf/reg-frame :p/default {:preset :default})
+    (let [cfg (:config (frame/frame :p/default))]
+      (is (= :default (:preset cfg))
+          ":preset is preserved on the config for inspection")
+      (is (nil? (:fx-overrides cfg))
+          ":default does not introduce :fx-overrides")
+      (is (nil? (:drain-depth cfg))
+          ":default does not introduce :drain-depth"))))
+
+(deftest preset-expansion-test
+  (testing ":test expansion: HTTP redirect + drain-depth 100"
+    (rf/reg-frame :p/test {:preset :test})
+    (let [cfg (:config (frame/frame :p/test))]
+      (is (= :test (:preset cfg)))
+      (is (= {:rf.http/managed :rf.http/managed-canned-success}
+             (:fx-overrides cfg))
+          ":test redirects the canonical Spec 014 HTTP fx to its canned-success stub")
+      (is (= 100 (:drain-depth cfg))
+          ":test stamps :drain-depth 100 explicitly so tooling reads it off frame-meta"))))
+
+(deftest preset-expansion-story
+  (testing ":story expansion: HTTP redirect + tighter drain-depth 16"
+    (rf/reg-frame :p/story {:preset :story})
+    (let [cfg (:config (frame/frame :p/story))]
+      (is (= :story (:preset cfg)))
+      (is (= {:rf.http/managed :rf.http/managed-canned-success}
+             (:fx-overrides cfg)))
+      (is (= 16 (:drain-depth cfg))
+          ":story tightens :drain-depth to 16 so a runaway cascade fails fast under a story"))))
+
+(deftest preset-expansion-ssr-server
+  (testing ":ssr-server expansion: :platform :server + :on-error projection"
+    (rf/reg-frame :p/ssr {:preset :ssr-server})
+    (let [cfg (:config (frame/frame :p/ssr))]
+      (is (= :ssr-server (:preset cfg)))
+      (is (= :server (:platform cfg))
+          ":ssr-server stamps :platform :server (singular keyword — one platform per frame)")
+      (is (= :rf.error/server-projection (:on-error cfg))
+          ":ssr-server wires :on-error to the server-side projection target"))))
+
+(deftest preset-user-keys-win-on-conflict
+  (testing "user-supplied keys override individual expansion entries"
+    ;; :test sets :drain-depth 100 by default; user overrides to 1000.
+    (rf/reg-frame :p/override {:preset      :test
+                               :drain-depth 1000})
+    (let [cfg (:config (frame/frame :p/override))]
+      (is (= :test (:preset cfg)))
+      (is (= 1000 (:drain-depth cfg))
+          "user :drain-depth wins over the preset's expansion default")
+      (is (= {:rf.http/managed :rf.http/managed-canned-success}
+             (:fx-overrides cfg))
+          "non-overridden expansion entries still apply"))))
+
+(deftest preset-unknown-throws
+  (testing "unknown preset values throw :rf.error/unknown-preset"
+    (is (thrown? Exception
+          (rf/reg-frame :p/bad {:preset :devcards}))
+        "passing a preset outside the closed v1 set is a registration-time error")))
