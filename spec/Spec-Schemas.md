@@ -198,6 +198,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:event` | Top-level event handler invocation | 009 |
 | `:event/do-fx` | Effect-resolution pass after handler returns | 009 |
 | `:frame/created`, `:frame/destroyed` | Frame lifecycle | 002 |
+| `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :event` (lifecycle, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:rf.machine/transition` | State-machine transition | 005 |
 | `:rf.machine.microstep/transition` | State-machine `:always` per-microstep transition | 005 |
 | `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry | 005 |
@@ -908,10 +909,10 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
   [:map
    [:default     [:= {}]]                                                   ;; empty expansion
    [:test        [:map
-                  [:fx-overrides [:map-of :keyword :keyword]]
+                  [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:test` preset
                   [:drain-depth  [:= 100]]]]
    [:story       [:map
-                  [:fx-overrides [:map-of :keyword :keyword]]
+                  [:fx-overrides [:= {:rf.http/managed :rf.http/managed-canned-success}]] ;; exact pair fixed by 002 §`:story` preset
                   [:drain-depth  [:= 16]]]]
    [:ssr-server  [:map
                   [:platform     [:= :server]]
