@@ -44,6 +44,15 @@
             ;; stub during render. Without the require, the override
             ;; would target an unregistered fx-id.
             [re-frame.http-managed]
+            ;; Per rf2-uo7v, SSR ships in day8/re-frame-2-ssr. Loading
+            ;; the ns here registers the six `:rf.server/*` server-only
+            ;; fxs, the `:rf/hydrate` event, and the
+            ;; `:rf.ssr/default-error-projector`, and publishes the
+            ;; late-bind hooks (`:ssr/render-tree-hash`,
+            ;; `:ssr/render-to-string`, `:ssr/reg-error-projector`,
+            ;; `:ssr/project-error`). Without the require the four core
+            ;; re-exports raise `:rf.error/ssr-artefact-missing`.
+            [re-frame.ssr]
             #?(:cljs [cljs.reader])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
