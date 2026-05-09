@@ -45,9 +45,13 @@
 
     :router/dispatch!         re-frame.router/dispatch!
     :router/dispatch-sync!    re-frame.router/dispatch-sync!
-    :flows/reg-flow-fx!       re-frame.flows/reg-flow-fx!
-    :flows/clear-flow-fx!     re-frame.flows/clear-flow-fx!
-    :flows/run-flows!         re-frame.flows/run-flows!
+    :flows/reg-flow            re-frame.flows/reg-flow
+    :flows/clear-flow          re-frame.flows/clear-flow
+    :flows/reg-flow-fx!        re-frame.flows/reg-flow-fx!
+    :flows/clear-flow-fx!      re-frame.flows/clear-flow-fx!
+    :flows/run-flows!          re-frame.flows/run-flows!
+    :flows/reset-last-inputs!  re-frame.flows/reset-last-inputs!
+    :flows/reset-flows!        re-frame.flows/reset-flows!
     :schemas/validate-event!      re-frame.schemas/validate-event!
     :schemas/validate-app-db!     re-frame.schemas/validate-app-db!
     :schemas/validate-cofx!       re-frame.schemas/validate-cofx!

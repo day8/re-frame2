@@ -11,6 +11,10 @@
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
             [re-frame.routing]
+            ;; rf2-tfw3: flows ships in day8/re-frame-2-flows.
+            ;; Required here so its load-time hook registrations
+            ;; fire before this ns's reg-flow call.
+            [re-frame.flows]
             [re-frame.ssr :as ssr]
             [re-frame.substrate.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]

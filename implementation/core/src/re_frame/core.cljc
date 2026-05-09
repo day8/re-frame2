@@ -25,7 +25,17 @@
             ;; through the late-bind hook table at call time, which the
             ;; schemas artefact populates from its own ns-load.
             [re-frame.late-bind :as late-bind]
-            [re-frame.flows :as flows]
+            ;; re-frame.flows (Spec 013) ships as a separate Maven
+            ;; artefact (day8/re-frame-2-flows, rf2-tfw3). The core
+            ;; artefact MUST NOT `:require [re-frame.flows]` — that
+            ;; would pull the namespace, the per-frame flow registry,
+            ;; the topological-sort engine, and the dirty-check
+            ;; `last-inputs` map onto every consumer's classpath even
+            ;; when no flow is registered. The re-export wrappers below
+            ;; look the flows API up through the late-bind hook table
+            ;; at call time, which the flows artefact populates from
+            ;; its own ns-load.
+            ;;
             ;; re-frame.machines (Spec 005) ships as a separate Maven
             ;; artefact (day8/re-frame-2-machines, rf2-xbtj). The core
             ;; artefact MUST NOT `:require [re-frame.machines]` — that
@@ -353,13 +363,38 @@
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
-(def clear-flow      flows/clear-flow)
+
+;; reg-flow / clear-flow are late-bound via the hook table so core does
+;; not statically require re-frame.flows (rf2-tfw3 — flows ships in
+;; day8/re-frame-2-flows). When the flows artefact is not on the
+;; classpath the lookups return nil and the wrappers raise
+;; :rf.error/flows-artefact-missing.
+(defn clear-flow
+  "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and
+  vacate its output path. Late-bound via :flows/clear-flow."
+  ([id] (clear-flow id {}))
+  ([id opts]
+   (if-let [f (late-bind/get-fn :flows/clear-flow)]
+     (f id opts)
+     (throw (ex-info ":rf.error/flows-artefact-missing"
+                     {:where    'clear-flow
+                      :flow-id  id
+                      :recovery :no-recovery
+                      :reason   "rf/clear-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
 
 #?(:clj
    (defmacro reg-flow
      "Register a flow. Per Spec 001 the metadata stamped onto the
      registry slot includes :ns / :line / :file captured at this call
-     site."
+     site.
+
+     Per rf2-tfw3 the flows implementation lives in the
+     `day8/re-frame-2-flows` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `reg-flow` MUST add
+     `day8/re-frame-2-flows` to their deps and require
+     `re-frame.flows` at app boot; without it, the lookup returns nil
+     and the call throws a clear error."
      [& args]
      (let [m       (meta &form)
            ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
@@ -373,7 +408,12 @@
                     ~file        (assoc :file ~file)
                     ~(:line m)   (assoc :line ~(:line m))
                     ~(:column m) (assoc :column ~(:column m)))]
-          (flows/reg-flow ~@args)))))
+          (if-let [f# (late-bind/get-fn :flows/reg-flow)]
+            (apply f# (list ~@args))
+            (throw (ex-info ":rf.error/flows-artefact-missing"
+                            {:where    'reg-flow
+                             :recovery :no-recovery
+                             :reason   "rf/reg-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))))
 
 #?(:clj
    (defmacro reg-route
@@ -518,7 +558,18 @@
 
 #?(:cljs
    (do
-     (def reg-flow        flows/reg-flow)
+     ;; reg-flow is late-bound via the hook table so core does not
+     ;; statically require re-frame.flows (rf2-tfw3 — flows ships in
+     ;; day8/re-frame-2-flows).
+     (defn reg-flow
+       ([flow] (reg-flow flow {}))
+       ([flow opts]
+        (if-let [f (late-bind/get-fn :flows/reg-flow)]
+          (f flow opts)
+          (throw (ex-info ":rf.error/flows-artefact-missing"
+                          {:where    'reg-flow
+                           :recovery :no-recovery
+                           :reason   "rf/reg-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
      ;; reg-route is late-bound via the hook table so core does not
      ;; statically require re-frame.routing (rf2-k682 — routing ships in
      ;; day8/re-frame-2-routing).
