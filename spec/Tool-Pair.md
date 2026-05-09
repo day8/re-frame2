@@ -86,9 +86,54 @@ The runtime contract for time-travel:
 
 All six failures have `:op-type :error` and `:recovery :no-recovery`. Pair tools display the `:operation` and `:tags` to the user; the reserved `:rf.epoch/*` namespace lets tools route restore failures distinctly from frame-lookup errors. The failure surface is closed for v1 — additional categories require a Spec-ulation increment.
 
+> **Note on the unknown-frame row.** Five of the six failures fire under the reserved `:rf.epoch/*` namespace; the sixth (**Unknown frame**) rides the framework-wide `:rf.error/no-such-handler` op-type with `:kind :frame` because it is a registry-lookup failure that predates the restore call (the same op-type fires for any registrar lookup that names a missing frame). A pair tool routing restore failures should therefore match on either `:rf.epoch/*` or `(:rf.error/no-such-handler ∧ :kind = :frame)` to catch the full failure surface; the audit-found drift between the reserved-namespace prose and the table's heterogeneous first row is preserved-by-design, not a contradiction.
+
 **Restore caveat.** Even a *successful* restore rewinds `app-db` only; effects already fired (HTTP requests sent, navigation pushed, localStorage written) are not reversed. Pair-shaped tools surface this caveat in their UI before applying a restore.
 
 **Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) the trace surface, schema validation, registrar trace emit, and epoch-history machinery share a single compile-time gate (`re-frame.interop/debug-enabled?`, alias of `goog.DEBUG`); production builds (`:advanced` + `goog.DEBUG=false`) elide all of it. CI's `npm run test:elision` job (Spec 009 §Production-elision verification) asserts the contract holds for every gated surface, including the epoch-history primitives once they land.
+
+### Worked example: walking history and restoring
+
+A pair tool that wants to render a per-frame undo affordance walks `epoch-history`, picks a target epoch (typically by index, by `:event-id`, or by user click on a visualised list), and calls `restore-epoch`. The round-trip below covers the dev-shape consumption pattern end-to-end, including the listener wiring that catches restore failure traces:
+
+```clojure
+;; A pair tool's "rewind to before that event" affordance.
+;; - Walks the per-frame epoch history (oldest-first vector).
+;; - Picks the most recent epoch BEFORE a target event-id.
+;; - Calls restore-epoch and listens for either
+;;   :rf.epoch/restored (success) or any :rf.epoch/restore-* error.
+
+(defn epoch-before-event
+  "Return the epoch-id of the most recent epoch in `frame-id`'s history
+   that precedes `target-event-id`, or nil if none exists."
+  [frame-id target-event-id]
+  (let [history (rf/epoch-history frame-id)            ;; oldest-first vector of :rf/epoch-record
+        before  (take-while #(not= target-event-id (:event-id %)) history)]
+    (when (seq before)
+      (:epoch-id (last before)))))
+
+;; Listener: catch restore success / failure traces and fan out to UI.
+(rf/register-trace-cb!
+  :my-tool/restore-watcher
+  (fn [ev]
+    (case (:operation ev)
+      :rf.epoch/restored                    (notify-ui :restored ev)
+      :rf.epoch/restore-unknown-epoch       (notify-ui :error ev)
+      :rf.epoch/restore-schema-mismatch     (notify-ui :error ev)
+      :rf.epoch/restore-missing-handler     (notify-ui :error ev)
+      :rf.epoch/restore-version-mismatch    (notify-ui :error ev)
+      :rf.epoch/restore-during-drain        (notify-ui :error ev)
+      ;; Unknown-frame rides :rf.error/no-such-handler (kind :frame); see note above.
+      nil)))
+
+;; Trigger the rewind. restore-epoch returns nil on failure (the failure mode
+;; is delivered via the trace stream); on success, app-db has been rewound and
+;; :rf.epoch/restored has fired with the new :db-after.
+(when-let [target (epoch-before-event :app/main :checkout/submit)]
+  (rf/restore-epoch :app/main target))
+```
+
+The walk-history-then-restore shape is the canonical pair-tool gesture; render-tree visualisers, "what did this event do?" probes, and conformance harnesses all build on the same primitives. Tools that want post-restore confirmation without registering a trace listener can re-call `(rf/get-frame-db :app/main)` and diff against the pre-restore snapshot.
 
 ## Performance API consumption
 
@@ -219,6 +264,8 @@ The full attachment surface, from the tool's point of view:
 | Hot-swap a handler | Re-call `(rf/reg-event-fx id ...)`; `:rf.registry/handler-replaced` trace fires | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | REPL eval against the runtime | The host's REPL (nREPL+CIDER for CLJS); private namespaces are off-contract | [§REPL-eval](#repl-eval) |
 
+> **Platform-availability note.** Rows tagged "(CLJS-only)" — `(rf/sub-cache frame-id)` is the load-bearing example — are CLJS-host-only surfaces; JVM hosts (SSR, headless tests, conformance runners) ship no equivalent. Pair tools driving JVM-side test runs MUST gate the call (e.g. `(when (cljs-host?) (rf/sub-cache frame-id))`) — JVM-host return shape is not yet specified (tracked separately) and consumers should not assume nil-vs-throw across hosts. Surfaces NOT tagged "(CLJS-only)" are portable by design.
+
 The consumption pattern is therefore:
 
 > **A pair-shaped tool registers as a trace listener (and/or as an epoch listener for assembled per-cascade records), reads recent history from the trace buffer, queries the registrar for shape, walks the epoch history for time-travel, and dispatches into frames to drive experiments. That's the entire surface.**
@@ -255,6 +302,47 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 The same pattern works for any subsystem with a dedicated op-type — `:machine` for state-machine activity, `:event` for the dispatch / drain stream, `:sub/run` and `:sub/create` for subscription work, `:fx` for effect handlers. New op-types are additive (per [009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)); tools ignore op-types they don't understand.
 
 For per-cascade structured projections (sub-cache hit/miss, render attribution, effect outcome), tools route off `register-epoch-cb`'s assembled `:rf/epoch-record` instead — the §[Time-travel](#time-travel-epoch-snapshots-and-undo) projection slots already pre-fold the per-cascade trace into the `:sub-runs` / `:renders` / `:effects` shape. The raw-stream filter pattern above is the right shape for fine-grained per-event consumption.
+
+### Subscribing to assembled epoch records
+
+`register-epoch-cb` callbacks fire **once per drain-settle**, with the cascade's `:sub-runs` / `:renders` / `:effects` projections already computed. Pair-shaped tools, post-mortem dashboards, and "what just happened?" probes typically consume this shape rather than re-folding the raw trace stream:
+
+```clojure
+;; A pair-tool dashboard routing diagnostics off the assembled per-cascade record.
+;; - One callback per drain-settle (NOT per emitted trace event).
+;; - The record is fully shaped: :db-before, :db-after, :sub-runs, :renders, :effects.
+;; - The record has already been appended to (rf/epoch-history (:frame ev)).
+
+(rf/register-epoch-cb
+  :my-tool/dashboard
+  (fn [{:keys [frame event-id epoch-id sub-runs renders effects] :as record}]
+    ;; Cache-hit-vs-rerun: every entry in :sub-runs is a recompute (rf2-7e2y);
+    ;; cache-hit subs are absent. Counting :sub-runs answers
+    ;; "how many subs moved this cascade?"
+    (record-recomputes! frame event-id (count sub-runs))
+
+    ;; Render attribution: :renders[*].:render-key is [<view-id> <instance-token>].
+    ;; Aggregate by first slot to count "view X re-rendered N times this cascade."
+    (doseq [{:keys [render-key elapsed-ms]} renders]
+      (record-render! frame (first render-key) elapsed-ms))
+
+    ;; Fx outcome: every dispatched fx surfaces exactly one :effects entry.
+    ;; :outcome ∈ {:ok :error :skipped-on-platform}; route :error entries to UI.
+    (doseq [{:keys [fx-id outcome error-trace]} effects]
+      (when (= :error outcome)
+        (surface-fx-error! frame epoch-id fx-id error-trace)))
+
+    ;; The epoch is already in (rf/epoch-history frame); no need to re-query
+    ;; unless the dashboard wants the full vector for context.
+    nil))
+```
+
+Edge-case behaviour the example does not exercise but consumers should know about:
+
+- **Listener exceptions are caught.** A throw inside the callback does not propagate to the framework or other listeners (per [009 §register-epoch-cb invocation rules](009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). The framework does **not** auto-evict the throwing listener — repeated throws keep the registration in place; eviction is the consumer's call.
+- **Re-entrant dispatch from a callback.** A callback that calls `(rf/dispatch …)` enqueues the new event; the new dispatch's drain begins on stack-unwind from the current callback fan-out, not before. Other registered epoch listeners still receive the *current* record before the re-entrant dispatch begins.
+- **`(rf/configure :epoch-history {:depth 0})` and listeners.** Setting depth to 0 disables the per-frame ring buffer (so `(rf/epoch-history frame-id)` returns `[]`) but does **not** stop epoch listeners from firing — `register-epoch-cb` callbacks continue to receive the assembled record on every drain-settle. Tools that need the assembled stream without retaining history should set depth `0` and consume via `register-epoch-cb` only.
+- **Frame-destroyed mid-observation.** Tool-Pair surface behaviour against destroyed frames (epoch-history reads, in-flight epoch-cb deliveries, restore against a now-destroyed frame) is tracked separately (bd rf2-d656) and not yet specified; consumers should defensively handle nil returns and missing-frame error traces until the contract is closed.
 
 ### Implications for downstream tools
 
