@@ -21,4 +21,29 @@
  {:test {:extra-paths ["test" "../../examples"]
          :extra-deps  {io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow:
+  ;; the release workflow runs `clojure -M:clein deploy` from this
+  ;; artefact's directory, which builds pom + jar and pushes to Clojars
+  ;; using CLOJARS_USERNAME / CLOJARS_PASSWORD env vars.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  ;; Build descriptor consumed by clein. Per-artefact: this builds the
+  ;; `day8/re-frame-2` core artefact. The Reagent adapter has its own
+  ;; build descriptor in implementation/reagent/deps.edn.
+  ;;
+  ;; :version is a relative path to the repo-root VERSION file — single
+  ;; source of truth for both artefacts. Mike updates VERSION in the
+  ;; release commit, then tags `v<contents>` (e.g. `v0.0.1.beta`).
+  :clein/build
+  {:lib      day8/re-frame-2
+   :main     re-frame.core
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
