@@ -333,12 +333,13 @@
 
 ;; Wire our render-to-string into the plain-atom adapter so callers
 ;; using rf/render-to-string (which delegates through the substrate
-;; adapter) get this implementation. The Reagent adapter — when present
-;; — wires itself by calling re-frame.ssr/install-render-to-string!
-;; from its own ns init (per Spec 006 §Substrate-adapter shipping
-;; convention; rf2-0hxm). Core deliberately does *not* :require the
+;; adapter) get this implementation. Per rf2-uo7v the Reagent adapter
+;; (day8/re-frame-2-reagent) wires its own set-hiccup-emitter! through
+;; the late-bind hook table (`:reagent/set-hiccup-emitter!`); we
+;; consume that hook below so ssr does not statically :require the
+;; Reagent adapter ns. Core deliberately does *not* :require the
 ;; Reagent adapter ns — that ns lives in a separate Maven artefact
-;; (day8/re-frame-2-reagent) and may not be on the classpath.
+;; and may not be on the classpath.
 #?(:clj
    (try
      (require 're-frame.substrate.plain-atom)
@@ -349,12 +350,25 @@
 #?(:cljs
    (plain-atom-cljs/set-hiccup-emitter! render-to-string))
 
+;; If the Reagent adapter is on the classpath at SSR load time, wire
+;; our render-to-string into its :render-to-string slot via the hook
+;; the adapter registered. This is the load-order-symmetric counterpart
+;; to the plain-atom wiring above. When the Reagent adapter is absent
+;; (e.g. a UIx-only build, a plain-atom-only JVM build, or an app that
+;; runs on a substrate that hasn't loaded yet) the hook is missing and
+;; this branch no-ops cleanly.
+(when-let [reagent-set-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+  (reagent-set-emitter! render-to-string))
+
 (defn install-render-to-string!
   "Install this ns's render-to-string into a substrate adapter's
   :render-to-string slot. Called by adapter namespaces that ship in
-  their own artefact (e.g. re-frame.substrate.reagent) so they can wire
-  themselves up at load time without core having to :require them.
-  Per Spec 006 §Substrate-adapter shipping convention (rf2-0hxm)."
+  their own artefact for hosts that wire a custom adapter directly.
+  Per Spec 006 §Substrate-adapter shipping convention (rf2-0hxm).
+
+  The bundled Reagent adapter wires itself via the
+  `:reagent/set-hiccup-emitter!` late-bind hook (rf2-uo7v) — this fn
+  remains as a public surface for non-bundled adapters."
   [set-hiccup-emitter!-fn]
   (set-hiccup-emitter!-fn render-to-string)
   nil)
@@ -947,10 +961,16 @@ response with no body."
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; re-frame.core/render-tree-hash forwards to this ns's render-tree-hash
-;; but cannot `:require` re-frame.ssr without a cyclic load order
-;; (re-frame.core is the user-facing namespace; re-frame.ssr requires
-;; re-frame.events and re-frame.frame which are also re-required by
-;; core). Publish the entry point through the late-bind hook registry.
+;; Per rf2-uo7v (the sixth per-feature artefact split per rf2-5vjj
+;; Strategy B) re-frame.ssr ships in `day8/re-frame-2-ssr`. The core
+;; artefact's `re-frame.core/render-to-string`, `render-tree-hash`,
+;; `reg-error-projector`, and `project-error` re-exports look the
+;; producing fns up through this hook table — core never statically
+;; `:require`s `re-frame.ssr`. When the ssr artefact is not on the
+;; classpath the lookups return nil and the consumer raises
+;; `:rf.error/ssr-artefact-missing`.
 
-(late-bind/set-fn! :ssr/render-tree-hash render-tree-hash)
+(late-bind/set-fn! :ssr/render-tree-hash    render-tree-hash)
+(late-bind/set-fn! :ssr/render-to-string    render-to-string)
+(late-bind/set-fn! :ssr/reg-error-projector reg-error-projector)
+(late-bind/set-fn! :ssr/project-error       project-error)

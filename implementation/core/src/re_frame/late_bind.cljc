@@ -83,7 +83,11 @@
     :http/with-managed-request-stubs*      re-frame.http-managed/with-managed-request-stubs*
     :http/clear-all-in-flight!             re-frame.http-managed/clear-all-in-flight!
     :subs/subscribe-value     re-frame.subs/subscribe-value
-    :ssr/render-tree-hash     re-frame.ssr/render-tree-hash
+    :ssr/render-tree-hash        re-frame.ssr/render-tree-hash
+    :ssr/render-to-string        re-frame.ssr/render-to-string
+    :ssr/reg-error-projector     re-frame.ssr/reg-error-projector
+    :ssr/project-error           re-frame.ssr/project-error
+    :reagent/set-hiccup-emitter! re-frame.substrate.reagent/set-hiccup-emitter!
     :epoch/settle!            re-frame.epoch/settle!
     :epoch/discard-buffer!    re-frame.epoch/discard-buffer!
     :epoch/in-flight-buffer   re-frame.epoch/in-flight-buffer
