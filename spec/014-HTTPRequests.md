@@ -25,6 +25,8 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
+**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame-2-http` — `re-frame.http-managed` namespace, the four `:rf.http/*` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `with-managed-request-stubs` test helper. The core artefact (`day8/re-frame-2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](MIGRATION.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame-2-http) for the deps swap.
+
 ## Role
 
 `:rf.http/managed`, when an implementation ships it, is **framework-provided** — the implementation registers the fx; applications use it the way they'd use `:dispatch` or `:db`. This is what makes it a Spec rather than a convention: the public contract is locked, `:fx-overrides` target the same id across applications, pair tools introspect the same envelope, and Spec 010 schemas plug into the same decode pipeline universally.
