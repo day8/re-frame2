@@ -27,6 +27,7 @@
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.subs :as subs]
+            [re-frame.substrate.adapter :as adapter]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -532,8 +533,14 @@
                         ;; Pure-call machine-transition (no frame context) uses
                         ;; a sentinel so the corpus's deterministic ids hold.
                         frame-id    (or (:rf/frame machine) :rf/transition-pure)
-                        spawned-id  (next-spawn-id frame-id machine-id)
-                        spawn-args  (-> inv (assoc :id-prefix machine-id))
+                        spawned-id  (or (:invoke-id inv)
+                                        (next-spawn-id frame-id machine-id))
+                        ;; Carry the resolved id forward so spawn-fx registers
+                        ;; the live handler under the SAME id the :on-spawn
+                        ;; callback observed (rf2-suue lifecycle wiring).
+                        spawn-args  (-> inv
+                                        (assoc :id-prefix machine-id)
+                                        (assoc :rf/spawned-id spawned-id))
                         on-spawn-fn (let [aref (:on-spawn inv)]
                                       (when aref
                                         (or (chase-ref (:on-spawn-actions machine) aref)
@@ -959,26 +966,208 @@
 ;; but the hooks keep the producer surface uniform with the rest of the
 ;; machines namespace's late-bound entry points).
 
+;; ---- spawn / destroy live-handler wiring ---------------------------------
+;;
+;; `apply-transition-once` emits `[:spawn args]` and `[:destroy-machine
+;; actor-id]` into the fx vector whenever entry/exit cascades cross an
+;; :invoke-bearing state. Until rf2-suue, `spawn-fx` and `destroy-machine-fx`
+;; were trace-only stubs — the spawned actor was a deterministic id, but
+;; no event handler was registered against that id and no snapshot lived
+;; under [:rf/machines <id>]. Per Spec 005 §Spawning the actor is itself
+;; an event handler whose id is the actor address; this section closes
+;; that gap.
+;;
+;; The two-tier registry described in Spec 005 (frame-local handlers that
+;; revert with the frame's snapshot) is not yet built — for v1 the
+;; registration goes through the global registrar via `events/reg-event-fx`.
+;; Frame isolation is preserved by the snapshot living at
+;; `[:rf/machines <id>]` inside the spawning frame's app-db; the registered
+;; handler is global but reads/writes that frame-local snapshot via the
+;; cofx's :db.
+
+(defn- compute-actor-id
+  "Resolve the actor id for a spawn. Per Spec 005 §Declarative :invoke
+  Spec-spec keys: `:invoke-id` is an explicit id (per-state singleton);
+  otherwise the runtime allocated id is sourced from the spawn args
+  the transition runner produced via next-spawn-id. The runner doesn't
+  pass the resolved id through directly — it carries `:id-prefix` and
+  invokes `:on-spawn` with the allocated id — so the fx handler needs
+  to ask for the same id via the same allocator. We thread the id via
+  the args' `:rf/spawned-id` slot (added by apply-transition-once below)."
+  [args frame-id]
+  (or (:invoke-id args)
+      (:rf/spawned-id args)
+      ;; Fallback: re-allocate (shouldn't happen for declarative :invoke,
+      ;; but supports hand-emitted [:spawn args] forms from action :fx).
+      (next-spawn-id frame-id (or (:id-prefix args) (:machine-id args)))))
+
+(defn- update-frame-app-db!
+  "Apply `f` to the frame's app-db value via the substrate adapter.
+  Returns the new value. Skips silently if the frame is missing
+  (frame destroyed during drain)."
+  [frame-id f]
+  (when-let [container (frame/get-frame-db frame-id)]
+    (let [old-db (adapter/read-container container)
+          new-db (f old-db)]
+      (adapter/replace-container! container new-db)
+      new-db)))
+
+(defn- resolve-spawn-machine
+  "Resolve the machine spec to register for a spawn. `:machine-id`
+  references a registered machine — read its spec back from the
+  registrar via the `:rf/machine` metadata. `:definition` carries an
+  inline spec map. Returns the spec map or nil if neither resolves.
+  Per [005 §Spawn-spec keys]."
+  [args]
+  (let [machine-id (:machine-id args)
+        defn       (:definition args)]
+    (cond
+      defn        defn
+      machine-id  (let [m (registrar/lookup :event machine-id)]
+                    (when (:rf/machine? m)
+                      (:rf/machine m))))))
+
 (defn spawn-fx
-  "fx handler for `:spawn`. Emits `:rf.machine/spawned`. The runtime
-  layer here just records the spawn intent; full actor lifecycle
-  (auto-start, message routing, supervision) is the user's
-  responsibility for now."
+  "fx handler for `:spawn`. Per Spec 005 §Spawning, the spawned actor
+  is itself an event handler at `<spawned-id>`; its snapshot lives at
+  `[:rf/machines <spawned-id>]` in the spawning frame's app-db.
+
+  Lifecycle wired here:
+   1. Resolve the spawn's machine spec (`:machine-id` from the registrar
+      OR an inline `:definition`).
+   2. Register the live event handler under the spawned id via
+      `create-machine-handler` / `reg-event-fx`. Re-spawn under the
+      same id replaces — last-write-wins, matching standard
+      re-registration.
+   3. Initialise the actor's snapshot at [:rf/machines <spawned-id>]
+      using the spec's :initial / :data (overridden by the spawn args'
+      :data).
+   4. If `:system-id` present, bind it in the per-frame
+      [:rf/system-ids] reverse index. Collisions emit
+      `:rf.error/system-id-collision` and rebind (last-write-wins, same
+      semantics as handler re-registration).
+   5. If `:start` event-vector present, dispatch
+      `[<spawned-id> <start>]` so the new actor receives its initial
+      event."
   [{:keys [frame]} args]
-  (trace/emit! :machine :rf.machine/spawned
-               {:frame      frame
-                :machine-id (:machine-id args)
-                :id-prefix  (:id-prefix args)
-                :start      (:start args)
-                :on-spawn   (:on-spawn args)}))
+  (let [frame-id   (or frame :rf/default)
+        spawned-id (compute-actor-id args frame-id)
+        spec       (resolve-spawn-machine args)
+        ;; data override per Spec 005 §Spawn-spec keys
+        spec'      (if (and spec (contains? args :data))
+                     (assoc spec :data (:data args))
+                     spec)
+        system-id  (:system-id args)]
+    (trace/emit! :machine :rf.machine/spawned
+                 {:frame      frame-id
+                  :machine-id (:machine-id args)
+                  :spawned-id spawned-id
+                  :id-prefix  (:id-prefix args)
+                  :start      (:start args)
+                  :on-spawn   (:on-spawn args)
+                  :system-id  system-id})
+    (when spec'
+      ;; (2) Register the live handler under the spawned id. Re-using
+      ;; reg-machine so the same `:rf/machine?` metadata + lifecycle
+      ;; trace flows.
+      (reg-machine spawned-id spec'))
+    ;; (3) Initialise the snapshot + (4) bind :system-id (atomically
+    ;; under one app-db swap so observers see consistent state).
+    (when-let [container (frame/get-frame-db frame-id)]
+      (let [initial-decl  (:initial spec')
+            initial-path  (when spec'
+                            (initial-cascade spec' (state-path initial-decl)))
+            initial-state (when spec'
+                            (denormalise-state initial-path initial-decl))
+            initial-snap  (when spec'
+                            {:state initial-state
+                             :data  (or (:data spec') {})})
+            old-db        (adapter/read-container container)
+            ;; Detect collision BEFORE the swap so we can emit the
+            ;; error trace with the displaced binding's id.
+            existing      (when system-id
+                            (get-in old-db [:rf/system-ids system-id]))
+            new-db
+            (cond-> old-db
+              spec'      (assoc-in [:rf/machines spawned-id] initial-snap)
+              system-id  (assoc-in [:rf/system-ids system-id] spawned-id))]
+        (when (and system-id existing (not= existing spawned-id))
+          (trace/emit-error! :rf.error/system-id-collision
+                             {:frame             frame-id
+                              :system-id         system-id
+                              :existing-machine  existing
+                              :rebound-to        spawned-id
+                              :reason            (str ":system-id " system-id
+                                                      " was already bound to "
+                                                      existing
+                                                      "; rebinding to " spawned-id
+                                                      " (last-write-wins).")
+                              :recovery          :warned-and-replaced}))
+        (adapter/replace-container! container new-db)
+        (when system-id
+          (trace/emit! :machine :rf.machine/system-id-bound
+                       {:frame      frame-id
+                        :system-id  system-id
+                        :machine-id spawned-id}))))
+    ;; (5) Fire the :start event into the new actor.
+    (when-let [start (:start args)]
+      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        (dispatch! [spawned-id start] {:frame frame-id})))
+    spawned-id))
 
 (defn destroy-machine-fx
-  "fx handler for `:destroy-machine`. Emits `:rf.machine/destroyed`.
-  Per Spec 005, dispatched on exit from an :invoke-bearing state."
+  "fx handler for `:destroy-machine`. Per Spec 005 §Spawning, destroy
+  unregisters the spawned actor's event handler, clears its snapshot at
+  `[:rf/machines <id>]` in the spawning frame's app-db, and (if the
+  actor was system-id-bound) clears the `[:rf/system-ids]` reverse
+  index entry. Emits `:rf.machine/destroyed` and (when applicable)
+  `:rf.machine/system-id-released`."
   [{:keys [frame]} args]
-  (trace/emit! :machine :rf.machine/destroyed
-               {:frame    frame
-                :actor-id args}))
+  (let [frame-id  (or frame :rf/default)
+        actor-id  args
+        ;; Locate any :system-id binding for this actor BEFORE the swap
+        ;; so we can name the released system-id in the trace.
+        released-sid
+        (when-let [container (frame/get-frame-db frame-id)]
+          (let [db (adapter/read-container container)]
+            (some (fn [[sid mid]]
+                    (when (= mid actor-id) sid))
+                  (get db :rf/system-ids))))]
+    (trace/emit! :machine :rf.machine/destroyed
+                 {:frame      frame-id
+                  :actor-id   actor-id
+                  :system-id  released-sid})
+    ;; Clear snapshot + system-id binding.
+    (when-let [container (frame/get-frame-db frame-id)]
+      (let [old-db (adapter/read-container container)
+            new-db (cond-> old-db
+                     true          (update :rf/machines dissoc actor-id)
+                     released-sid  (update :rf/system-ids dissoc released-sid))]
+        (adapter/replace-container! container new-db)))
+    (when released-sid
+      (trace/emit! :machine :rf.machine/system-id-released
+                   {:frame      frame-id
+                    :system-id  released-sid
+                    :machine-id actor-id}))
+    ;; Unregister the live handler. Last so any in-flight trace emit
+    ;; against the actor still resolves before the slot disappears.
+    (registrar/unregister! :event actor-id)
+    nil))
+
+;; ---- query API for system-id (Spec 005 §Named addressing via :system-id) -
+
+(defn machine-by-system-id
+  "Look up the spawned-machine id currently bound to `system-id` in the
+  active frame's `[:rf/system-ids]` reverse index, or nil. The `frame`
+  arg defaults to the current frame (per `frame/current-frame`); pass
+  an explicit frame-id for cross-frame lookups.
+
+  Per Spec 005 §Named addressing via :system-id."
+  ([system-id]
+   (machine-by-system-id system-id (frame/current-frame)))
+  ([system-id frame-id]
+   (when-let [container (frame/get-frame-db frame-id)]
+     (get-in (adapter/read-container container) [:rf/system-ids system-id]))))
 
 (fx/reg-fx :spawn           spawn-fx)
 (fx/reg-fx :destroy-machine destroy-machine-fx)
@@ -1003,6 +1192,7 @@
 (late-bind/set-fn! :machines/machine-transition     machine-transition)
 (late-bind/set-fn! :machines/machines               machines)
 (late-bind/set-fn! :machines/machine-meta           machine-meta)
+(late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
 (late-bind/set-fn! :machines/reset-counters!        reset-counters!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)

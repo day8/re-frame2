@@ -69,6 +69,7 @@
     :machines/machine-transition      re-frame.machines/machine-transition
     :machines/machines                re-frame.machines/machines
     :machines/machine-meta            re-frame.machines/machine-meta
+    :machines/machine-by-system-id    re-frame.machines/machine-by-system-id
     :machines/reset-counters!         re-frame.machines/reset-counters!
     :machines/spawn-fx                re-frame.machines/spawn-fx
     :machines/destroy-machine-fx      re-frame.machines/destroy-machine-fx

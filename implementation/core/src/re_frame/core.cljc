@@ -841,6 +841,35 @@
   (when-let [f (late-bind/get-fn :machines/machine-meta)]
     (f machine-id)))
 
+(defn machine-by-system-id
+  "Look up the spawned-machine id currently bound to `system-id` in the
+  active frame's `[:rf/system-ids]` reverse index, or nil. The optional
+  `frame-id` arg targets an explicit frame; without it, resolution uses
+  the current frame (per `with-frame` / frame-provider, defaulting to
+  `:rf/default`).
+
+  Per Spec 005 §Named addressing via :system-id. Returns nil when the
+  machines artefact is not on the classpath."
+  ([system-id]
+   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
+     (f system-id)))
+  ([system-id frame-id]
+   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
+     (f system-id frame-id))))
+
+(defn dispatch-to-system
+  "Sugar: dispatch `event` to the spawned-machine bound to `system-id`
+  in the active frame. Equivalent to
+  `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`,
+  with a no-op fall-through when the system-id is unbound. Per Spec 005
+  §Cross-machine messaging by name."
+  ([system-id event]
+   (when-let [machine-id (machine-by-system-id system-id)]
+     (dispatch [machine-id event])))
+  ([system-id event frame-id]
+   (when-let [machine-id (machine-by-system-id system-id frame-id)]
+     (dispatch [machine-id event] {:frame frame-id}))))
+
 (defn sub-machine
   "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
   machine-id]). Returns a reaction whose value is the snapshot
