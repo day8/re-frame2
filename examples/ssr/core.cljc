@@ -36,6 +36,14 @@
             ;; its late-bind hooks so rf/reg-app-schema resolves at
             ;; the call sites below.
             [re-frame.schemas]
+            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame-2-http.
+            ;; Loading the ns here registers the `:rf.http/managed` fx
+            ;; family — the SSR worked example dispatches
+            ;; `:rf.http/managed` for the article-list fetch and uses
+            ;; per-frame `:fx-overrides` to redirect to a canned-success
+            ;; stub during render. Without the require, the override
+            ;; would target an unregistered fx-id.
+            [re-frame.http-managed]
             #?(:cljs [cljs.reader])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
