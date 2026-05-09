@@ -891,7 +891,8 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
    [:doc          {:optional true} :string]
    [:tags         {:optional true} [:set :keyword]]
    [:url-bound?   {:optional true} :boolean]                                ;; per [012-Routing.md](012-Routing.md)
-   [:platforms    {:optional true} [:set :keyword]]])                       ;; per [011-SSR.md](011-SSR.md)
+   [:platform     {:optional true} :keyword]                                ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
+   [:on-error     {:optional true} :keyword]])                              ;; error-projection target; per [011-SSR.md](011-SSR.md). The `:ssr-server` preset wires `:rf.error/server-projection`.
 ```
 
 ### `:rf/preset-expansion`
@@ -905,20 +906,14 @@ The fixed, closed expansion table for `:preset` values. Each preset expands to a
   [:map
    [:default     [:= {}]]                                                   ;; empty expansion
    [:test        [:map
-                  [:url-bound?   [:= false]]
                   [:fx-overrides [:map-of :keyword :keyword]]
-                  [:platforms    [:set [:= :test]]]
                   [:drain-depth  [:= 100]]]]
    [:story       [:map
-                  [:url-bound?               [:= false]]
-                  [:fx-overrides             [:map-of :keyword :keyword]]
-                  [:isolation/global-state   [:= false]]
-                  [:platforms                [:set :keyword]]]]
-   [:ssr-server  [:map
-                  [:url-bound?   [:= false]]
-                  [:platforms    [:set [:= :server]]]
                   [:fx-overrides [:map-of :keyword :keyword]]
-                  [:on-create    [:= [:rf/server-init]]]]]])
+                  [:drain-depth  [:= 16]]]]
+   [:ssr-server  [:map
+                  [:platform     [:= :server]]
+                  [:on-error     [:= :rf.error/server-projection]]]]])
 ```
 
 The fully-expanded metadata returned from `frame-meta` conforms to `:rf/frame-meta`; the schema for the expansion *table itself* is `:rf/preset-expansion`. Implementations must produce the same expansion the table specifies, modulo user-supplied overrides.
