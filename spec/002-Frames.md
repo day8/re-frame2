@@ -568,6 +568,8 @@ The mechanism is symmetric with how event handlers receive their context: **fx h
 
 For sync fx that dispatch (or otherwise need to know the frame), the pattern is `(rf/dispatch event {:frame (:frame m)})`.
 
+The runtime needs to resolve fx-handlers against the frame record (for `:fx-overrides`) and to thread the originating envelope through to reserved fxs that queue children (`:dispatch`, `:dispatch-later`, per [§Cascade propagation](#cascade-propagation)). Both reach the fx-handler as fields of `m` (`:frame` is already documented above; the parent envelope is available at `(:envelope m)` for reserved-fx implementations). User fxs typically read only `(:frame m)`; the `(:envelope m)` slot is a runtime-internal handle that the four reserved fx defmethods consume — see [§Drain-loop pseudocode](#drain-loop-pseudocode).
+
 #### Async fx capture the frame in a closure
 
 When the actual dispatching happens after the fx handler has returned (HTTP callback, websocket message, timer, deferred promise), the fx handler captures `(:frame m)` into the closure that fires later:
@@ -851,16 +853,23 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
       ;; 3. Walk :fx in source order. Each entry's handler returns
       ;;    synchronously before the next begins. Errors trace and continue.
-      ;;    The originating envelope is threaded so reserved fxs that queue
-      ;;    children (`:dispatch`, `:dispatch-later`) can copy envelope fields
-      ;;    onto the child envelope, per [§Cascade propagation](#cascade-propagation).
-      (doseq [[fx-id args] (:fx effects)]
-        (try
-          (let [fx-handler (lookup-fx frame fx-id)]    ;; honors :fx-overrides
-            (fx-handler frame envelope args))
-          (catch :default e
-            (raise! :rf.error/fx-handler-exception
-                    {:fx-id fx-id :event event :frame (:id frame) :ex e}))))
+      ;;    The fx-handler is invoked with the binary `(m args)` contract
+      ;;    documented in [§The binary fx-handler signature](#the-binary-fx-handler-signature):
+      ;;    `m` is the same context map the originating event handler received,
+      ;;    carrying `:frame`, `:envelope`, `:event`, plus cofx. The runtime
+      ;;    needs the frame record (to resolve `:fx-overrides`) and the parent
+      ;;    envelope (so reserved fxs that queue children — `:dispatch`,
+      ;;    `:dispatch-later` — can copy envelope fields onto the child envelope,
+      ;;    per [§Cascade propagation](#cascade-propagation)); both reach the
+      ;;    fx-handler as fields of `m`, not as separate positional arguments.
+      (let [m (handler-context frame envelope)]      ;; same `m` the event handler saw
+        (doseq [[fx-id args] (:fx effects)]
+          (try
+            (let [fx-handler (lookup-fx frame fx-id)]  ;; honors :fx-overrides
+              (fx-handler m args))                     ;; binary contract: (m, args)
+            (catch :default e
+              (raise! :rf.error/fx-handler-exception
+                      {:fx-id fx-id :event event :frame (:id frame) :ex e})))))
 
       (trace! :event/run-end {:event event :frame (:id frame)}))))
 
@@ -888,11 +897,21 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
   (-> (select-keys parent-envelope inheritable-envelope-keys)
       (assoc :event event)))
 
-(defmethod do-fx :dispatch [frame parent-envelope ev]
-  (dispatch frame (child-envelope parent-envelope ev))) ;; back of queue, FIFO
+;; Reserved-fx defmethods follow the same binary `(m args)` contract as
+;; user fxs. They reach the frame record and the parent envelope through
+;; `m` — `(:frame m)` and `(:envelope m)` — rather than as separate
+;; positional arguments. This keeps reserved and user fxs uniform: they
+;; are all `(fn [m args] ...)` to the resolver.
 
-(defmethod do-fx :dispatch-later [frame parent-envelope {:keys [ms event]}]
-  (let [child (child-envelope parent-envelope event)]
+(defmethod do-fx :dispatch [m ev]
+  (let [frame           (:frame m)
+        parent-envelope (:envelope m)]
+    (dispatch frame (child-envelope parent-envelope ev)))) ;; back of queue, FIFO
+
+(defmethod do-fx :dispatch-later [m {:keys [ms event]}]
+  (let [frame           (:frame m)
+        parent-envelope (:envelope m)
+        child           (child-envelope parent-envelope event)]
     (interop/set-timeout!
       (fn [] (dispatch frame child))
       ms)))
