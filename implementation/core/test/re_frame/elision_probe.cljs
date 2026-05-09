@@ -42,7 +42,8 @@
             [re-frame.trace        :as trace]
             [re-frame.epoch        :as epoch]
             [re-frame.http-managed :as http-managed]
-            [re-frame.views        :as views]))
+            [re-frame.views        :as views]
+            [re-frame.machines]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -206,6 +207,33 @@
         _k (views/current-render-key)]
     nil))
 
+;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
+
+(defn ^:export touch-machines! []
+  ;; Per Spec 005 §Source-coord stamping (rf2-8bp3) the reg-machine macro
+  ;; walks the literal spec form at expansion time and emits a stamping
+  ;; branch wrapped in `(if interop/debug-enabled? ...)`. Under :advanced
+  ;; + goog.DEBUG=false the closure compiler folds the gate to false and
+  ;; DCEs the entire `:rf.machine/source-coords` literal — every spec-
+  ;; element string fragment must elide.
+  ;;
+  ;; The probe roots reachability for the machines surface by:
+  ;;   1. requiring re-frame.machines (forces ns body — the late-bind
+  ;;      hook registration, the :rf/machine sub, the spawn / destroy
+  ;;      fx handlers — into the bundle);
+  ;;   2. registering a machine via `rf/reg-machine` so the macro's
+  ;;      gated source-coord-stamping branch is in reachable code, not
+  ;;      just declared-but-dead.
+  ;;
+  ;; The sentinel string is the keyword `:rf.machine/source-coords` (the
+  ;; spec map key the macro injects under the gate). It must NOT appear
+  ;; in the production bundle.
+  (rf/reg-machine :rf.probe/machine
+    {:initial :idle
+     :guards  {:never? (fn [_ _] false)}
+     :actions {:noop   (fn [_ _] {})}
+     :states  {:idle {:on {:tick {:target :idle :guard :never? :action :noop}}}}}))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -215,6 +243,7 @@
   (touch-http-managed!)
   (touch-epoch!)
   (touch-views!)
+  (touch-machines!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
