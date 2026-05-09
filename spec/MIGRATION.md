@@ -1129,13 +1129,42 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 ---
 
-**Reporting M-12 through M-29.** These eighteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing eighteen separate preambles.
+### M-30. Flows (Spec 013) ships in a separate artefact — `day8/re-frame-2-flows`
+
+**Type A** (mechanical, dep-only).
+
+Per [rf2-tfw3](#) (the fourth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame-2-flows`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
+
+**What to look for** in the codebase:
+
+- Any call to `re-frame.core/reg-flow` or `re-frame.core/clear-flow`.
+- Any `:rf.fx/reg-flow` / `:rf.fx/clear-flow` entry inside an `:fx` vector or effect map.
+- A direct `(:require [re-frame.flows])` clause.
+
+**What to do.** Add the flows artefact alongside the core dep:
+
+```clojure
+;; deps.edn for an app that uses Spec 013 flows
+{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
+        day8/re-frame-2-reagent {:mvn/version "<latest>"}
+        day8/re-frame-2-flows   {:mvn/version "<latest>"}}}  ;; ← new in v2
+```
+
+Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs) MUST `(:require [re-frame.flows])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-flow` resolves and the wrapper raises `:rf.error/flows-artefact-missing` with a clear "add the flows artefact" message; without the load-time hooks the `:rf.fx/reg-flow` runtime fx silently no-ops.
+
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-flow ...)`, `(rf/clear-flow ...)` still work, the wrappers in core late-bind through the hook table to the flows artefact's implementations. The active surfaces throw `:rf.error/flows-artefact-missing` when the flows artefact is absent.
+
+**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-tfw3](#).
+
+---
+
+**Reporting M-12 through M-30.** These nineteen rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing nineteen separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
