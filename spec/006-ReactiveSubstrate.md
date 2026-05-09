@@ -273,18 +273,18 @@ Source coordinates are captured at `reg-view` macro-expansion time from `(meta &
 
 ### Attribute value format
 
-The attribute value is a colon-separated four-segment string:
+The attribute value is a colon-separated four-segment string — the committed public contract `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr):
 
 ```
 data-rf2-source-coord="<ns>:<sym>:<line>:<col>"
 ```
 
 - `<ns>` is the keyword id's namespace — typically `(namespace (registry-id))`.
-- `<sym>` is the keyword id's name — `(name (registry-id))`.
+- `<sym>` is the keyword id's name — `(name (registry-id))`. Note this is the **registry handler-id**, not a file path.
 - `<line>` is the integer source line; `?` when not captured.
 - `<col>` is the integer source column; `?` when not captured.
 
-A registration that bypassed the macro path (programmatic `reg-view*` with no captured coords) still annotates with `<ns>:<sym>:?:?` — degrading gracefully so pair tools can still resolve `<ns>/<sym>` via the registrar's `:rf/id` lookup.
+A registration that bypassed the macro path (programmatic `reg-view*` with no captured coords) still annotates with `<ns>:<sym>:?:?` — degrading gracefully so pair tools can still resolve `<ns>/<sym>` via the registrar's `:rf/id` lookup. To recover the registration's full source-coord shape (including `:file`), pair tools follow up with `(rf/handler-meta :view <handler-id>)` which returns `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta) — `:file` is **not** encoded in the attribute string.
 
 ### Production elision (mandatory)
 
