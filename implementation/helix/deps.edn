@@ -1,0 +1,55 @@
+;; day8/re-frame-2-helix — Helix substrate adapter (rf2-2qit).
+;;
+;; Per Spec 006 §Substrate-adapter shipping convention: each substrate
+;; adapter ships in its own Maven artefact so a Helix-only app does not
+;; transitively pull in Reagent or UIx code (and vice versa). This
+;; artefact supplies the re-frame.substrate.helix ns and depends on the
+;; core artefact for everything else.
+;;
+;; Per rf2-2qit Decision 2 (transferred from rf2-3yij) the React
+;; frame-context lives in re-frame.substrate.context (CLJS-only file in
+;; core); this Helix adapter, the UIx adapter, and the Reagent adapter
+;; all read the *same* createContext object so frame-provider chains
+;; compose across substrates in mixed-substrate apps.
+;;
+;; Per rf2-2qit Decision 8 we target the Helix 0.2.x line (the latest
+;; published Helix release; helix-2.x has not shipped). Older Helix
+;; versions are explicitly out of scope.
+;;
+;; Helix itself is a CLJS-only library; this artefact is therefore
+;; CLJS-only. The :test alias exists for classpath-probe parity with
+;; the other per-substrate artefacts (Reagent's :test alias is also
+;; classpath-probe-only).
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../core"}
+         lilactown/helix {:mvn/version "0.2.2"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy (rf2-r382). Modeled on the Reagent / UIx adapters'
+  ;; flows. The release workflow runs `clojure -M:clein deploy` from
+  ;; this artefact's directory, which builds pom + jar and pushes to
+  ;; Clojars.
+  ;;
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; core dep above is replaced by an :mvn/version coordinate — clein
+  ;; reads :deps and writes them into pom.xml, and a :local/root entry
+  ;; would resolve to nothing for downstream consumers. The release
+  ;; workflow swaps :local/root → :mvn/version before invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame-2-helix
+   :main     re-frame.substrate.helix
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
