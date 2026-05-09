@@ -157,6 +157,27 @@ The "which button is at `src/app/profile/view.cljs:84`?" capability requires eve
 
 With the annotation in place, a pair tool can take a click position, read the nearest annotation, and resolve back to a source coordinate. Documented exemption (per Spec 006 §Source-coord annotation): components returning React Fragments, host-component heads (`:>`), or other non-DOM roots are exempt; pair tools fall back to `(rf/handler-meta :view id)` for those nodes.
 
+### State-machine source-coord stamping (rf2-8bp3)
+
+The DOM-attribute annotation above maps clicked DOM nodes to view registration call sites. A complementary surface maps state-machine spec elements (guards / actions / transitions / state-nodes) back to their source positions.
+
+Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3), the `reg-machine` macro walks its literal spec form at expansion time and attaches a flat coord index under `:rf.machine/source-coords`, keyed by spec-path tuples:
+
+```clojure
+(:rf.machine/source-coords (rf/machine-meta :auth/login))
+;; {[:guards :form-valid?]                {:ns ... :line ... :column ... :file ...}
+;;  [:actions :commit]                    {...}
+;;  [:states :form :on :submit]           {...}
+;;  [:states :form :on :submit :action]   {...}}
+```
+
+Pair tools use this index for two distinct UI gestures:
+
+- **Jump to definition.** A click on a guard/action name in the visualisation reads `[:guards <id>]` / `[:actions <id>]` / `[:on-spawn-actions <id>]` to find where the fn is implemented.
+- **Jump to call site.** A click on a transition arrow or state node reads the deepest stamped path-tuple matching the node (e.g. `[:states :idle :on :submit]`); for keyword-named slots (`{:guard :form-valid?}`) the slot itself isn't stamped — the tool falls back to the enclosing transition's coord, which IS stamped.
+
+The framework commits to **the index shape and the keyword-reference rule** (definition-site only for keyword refs, reference-site for inline-fn literals). Pair tools ship their own UI affordance over the index. Like `data-rf2-source-coord`, the stamping is gated on `interop/debug-enabled?` and elides under `:advanced` + `goog.DEBUG=false`.
+
 ### Where the DOM-to-source helpers live (re-frame2 vs tool)
 
 The audit found the upstream pair tool ships `dom/source-at`, `dom/find-by-src`, and `dom/fire-click-at-src` helpers (it currently parses re-com's `data-rc-src` attribute, but the shape is general). Pair-shaped tools need *some* DOM-to-source bridge; the question is whether the helpers themselves are part of re-frame2's contract or live in the consuming tool.

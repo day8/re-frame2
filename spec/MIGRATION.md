@@ -1393,6 +1393,20 @@ This is a meaningful migration of consumer code, not a mechanical rewrite. Do no
 
 Spec 000 now carries a summary [Contract block](000-Vision.md#contract--pattern-obligations) — a small set of formal `C-000.NN` clauses that capture checkable obligations the prose did not previously make explicit (PDS revert is O(1); the explicit-frame view contract; identity-primitive anti-patterns; and a handful of others). The block is implementor-facing — it does not change the migration of an existing re-frame app, but a port author auditing a re-frame2 implementation against its conformance fixtures should grep for `C-000.NN` references and verify each kept clause holds. Spec-authoring and conformance-harness obligations live in [SPEC-AUTHORING.md](SPEC-AUTHORING.md) under the parallel `SA-N` id scheme. There is no rewrite for an application codebase; this is orientation only.
 
+### O-11. Source-coord stamping for state machines (rf2-8bp3)
+
+re-frame2 turns `reg-machine` into a macro that walks the literal spec form at expansion time and stamps per-element source coordinates under the spec's `:rf.machine/source-coords` key (per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)). This gives pair tools (re-frame-pair, re-frame-10x, IDE jump-to-source) a structured surface for "click on a guard, jump to its definition" and "click on a transition, jump to its source line" gestures.
+
+This is **additive** for consumers — the macro is fully back-compatible with the v1 plain-fn `reg-machine` shape, and the stamping branch elides under `:advanced` + `goog.DEBUG=false`. No migration step is required for v1 → v2.
+
+The opt-in modernisation, when it applies:
+
+1. **Code-gen pipelines that synthesise machine specs from data** SHOULD switch to `reg-machine*` (the plain-fn surface) rather than calling `reg-machine` with a non-literal spec arg. Both paths register correctly; the explicit `*` documents that the call site has no literal spec to walk and no per-element stamping is expected. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom.
+
+2. **Conformance harnesses** registering machines from EDN fixtures already use the plain-fn surface (via `requiring-resolve`); the late-bind hook key (`:machines/reg-machine`) now points at `reg-machine*`. No change required.
+
+Do not apply unless the user has explicitly asked to surface the per-element coord index for tooling, or to clean up code-gen call sites.
+
 ---
 
 ## What stays the same (do not change these)

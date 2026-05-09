@@ -310,6 +310,12 @@ When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape 
 
 Substrate adapters that do not expose a DOM-attribute concept (Solid scopes, function-arg-explicit, headless test adapters) are exempt. Adapters whose host is React-shaped (Reagent, UIx [rf2-3yij], Helix [rf2-2qit]) MUST honour this contract. The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
 
+### Source-coord stamping for state machines (rf2-8bp3)
+
+The view-side annotation above is one half of the tool-pair source-mapping contract. The other half is **the spec-side stamping for state machines**: per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3), the `reg-machine` macro walks its literal spec form at expansion time and attaches a `:rf.machine/source-coords` index keyed by spec-path tuples (`[:guards :form-valid?]`, `[:states :idle :on :submit]`, etc.). Pair tools that surface a "click on a transition's call site" gesture read the index back via `(:rf.machine/source-coords (rf/machine-meta machine-id))` — symmetric to how they consume `data-rf2-source-coord` for views.
+
+Both surfaces share the production-elision contract: the stamping branch is gated on `interop/debug-enabled?`, so under `:advanced` + `goog.DEBUG=false` the closure compiler folds it away. The `rf.machine/source-coords` keyword is part of the standard `scripts/check-elision.cjs` sentinel set (verified ABSENT in the production bundle, PRESENT in the control bundle).
+
 ## Subscription cache — contract and operational semantics
 
 A subscription's value lives in the per-frame **sub-cache**. This section defines the contract: the cache shape, the lookup algorithm, the invalidation algorithm, the ref-counting and disposal rules, the layer-1/2/3 sub semantics, and the lifetime contract that ties them together. The contract is host-agnostic; the [Reagent reference adapter §Sub-cache wiring](#sub-cache-wiring-reagent-realisation) shows the CLJS realisation.

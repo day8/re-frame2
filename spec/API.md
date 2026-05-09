@@ -31,6 +31,8 @@
 | `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | 002 | Anonymous frame; gensym'd id. |
 | `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
 | `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
+| `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | 005 | Walks the literal spec form at expansion time; stamps per-element source coords under `:rf.machine/source-coords` (rf2-8bp3). Top-level call-site coords land on `handler-meta`. |
+| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | 005 | Plain-fn surface beneath `reg-machine`. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
 | `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
@@ -512,11 +514,13 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
+| `reg-machine` | M | `(reg-machine machine-id machine-spec)` — registers a machine as an event handler. Walks the literal spec form at expansion time and stamps per-element source coords under `:rf.machine/source-coords` (rf2-8bp3). | v1 | 005 |
+| `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` — plain-fn surface beneath the macro. No source-coord walking. | v1 | 005 |
 | `create-machine-handler` | Fn | `(create-machine-handler spec)` → event-handler fn | v1 | 005 |
 | `machine-transition` | Fn | `(machine-transition definition snapshot event)` → `[next-snapshot effects]` | v1 | 005 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |
-| `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata | v1 | 005 |
+| `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; carries `:rf.machine/source-coords` index when registered via the macro | v1 | 005 |
 | `:spawn` (fx) | — | Reserved fx-id inside a machine action's `:fx`. Args per `:rf.fx/spawn-args`. | v1 | 005 |
 | `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx`. Args: an event vector. | v1 | 005 |
 | `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | 005 |
