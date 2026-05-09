@@ -1,5 +1,7 @@
 # RealWorld (Conduit) in re-frame2
 
+> **Canonical multi-artefact integration test.** Per the rf2-w05l CI/CD strategy decision (implemented in rf2-ace2), this example is the canonical multi-artefact integration test for re-frame-2. It exercises `day8/re-frame-2` (core) + `-schemas` + `-machines` + `-routing` + `-flows` + `-http` together in a single app. CI runs it on every PR via `npm run test:examples` from `implementation/`. When a per-artefact change accidentally breaks cross-artefact composition, this is the test that catches it. See [docs/release-process.md](../../docs/release-process.md) for how this slots into the multi-artefact deploy pipeline.
+
 The canonical re-frame2 demo for **Spec 014 — `:rf.http/managed`** (per rf2-kauy and rf2-o8t6). Built on the [RealWorld spec](https://github.com/gothinkster/realworld), the de-facto cross-framework benchmark for SPA frameworks.
 
 The goal here is breadth: show how the current re-frame2 surface composes across auth, routing, remote data, forms, machines, optimistic updates, and SSR-related payload concerns — all on top of `:rf.http/managed` for HTTP.

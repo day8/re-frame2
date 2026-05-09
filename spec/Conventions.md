@@ -253,11 +253,18 @@ The `*`-suffix convention for fn-versions of macros (per the Clojure idiom of `l
 
 A production-elision build of an app that consumes `day8/re-frame-2` plus `day8/re-frame-2-reagent` carries `re-frame.substrate.reagent` strings AND does NOT carry `re-frame.substrate.uix` or `re-frame.substrate.helix` strings, AND does NOT carry the namespaces of any per-feature artefact the app didn't add to its `deps.edn`. The check is a grep over the advanced-compile output. Per [rf2-5vjj](#) and the per-feature split beads.
 
+### Lockstep versioning through 1.0
+
+Through the v0.0.1.beta → 1.0 stretch every artefact ships at the **same version** sourced from the repo-root `VERSION` file. The mechanism is structural: every artefact's `:clein/build :version` declares the relative path `"../../VERSION"`, and every non-core artefact references core via `{:local/root "../core"}` (rewritten to `{:mvn/version <VERSION>}` on the throwaway runner checkout at deploy time). The lockstep contract is enforced by [`.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh), invoked by both `.github/workflows/test.yml` (PR-time drift detection) and `.github/workflows/release.yml` (pre-deploy gate). Independent versioning is revisited post-1.0; until then, adding a literal `:mvn/version` for a `day8/re-frame-2-*` artefact in a committed `deps.edn` is a contract break that the verify script flags.
+
+The release pipeline — topological deploy DAG, recovery procedure when a partial deploy fails, pre-flight checklist — is documented in [docs/release-process.md](../docs/release-process.md). Per [rf2-w05l](#) (decision) and [rf2-ace2](#) (implementation).
+
 ### Cross-references
 
 - [§Substrate-adapter shipping convention](#substrate-adapter-shipping-convention) below — the per-substrate tier in operational detail.
 - [README §Project layout](../README.md#project-layout) — the per-artefact directory structure under `implementation/`.
-- The per-feature split beads: [rf2-xbtj](#) (machines), [rf2-tfw3](#) (flows), [rf2-k682](#) (routing), [rf2-5kpd](#) (http), [rf2-uo7v](#) (ssr), [rf2-p7va](#) (schemas), [rf2-lt4e](#) (epoch). The umbrella is [rf2-5vjj](#).
+- [docs/release-process.md](../docs/release-process.md) — operational doc for cutting a release: topological DAG, recovery procedure, lockstep enforcement.
+- The per-feature split beads: [rf2-xbtj](#) (machines), [rf2-tfw3](#) (flows), [rf2-k682](#) (routing), [rf2-5kpd](#) (http), [rf2-uo7v](#) (ssr), [rf2-p7va](#) (schemas), [rf2-lt4e](#) (epoch). The umbrella is [rf2-5vjj](#); the CI/CD strategy is [rf2-w05l](#) / [rf2-ace2](#).
 
 ## Substrate-adapter shipping convention
 
@@ -304,6 +311,8 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 **Out of scope for the v1 split.** The Reagent-coupled views layer (`re-frame.views`) currently lives in core because the CLJS reference is Reagent-default. Full substrate-config plumbing — making `re-frame.views` substrate-agnostic so the core artefact carries no Reagent dep — lands with the UIx-adapter work (rf2-3yij). The v1 artefact split is the *adapter ns* split; the views-layer decoupling is the next step.
 
 **Conformance check (bundle isolation).** A production-elision build of an app that consumes `day8/re-frame-2-reagent` carries `re-frame.substrate.reagent` strings AND does NOT carry `re-frame.substrate.uix` or `re-frame.substrate.helix` strings. The same applies to feature artefacts: a counter-style app that registers no schemas builds an `:advanced` bundle clean of `re-frame.schemas` symbols and Malli code; an app that registers no machines builds an `:advanced` bundle clean of `re-frame.machines` symbols, `reg-machine` / `machine-handler` / `machine-transition` strings, and the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that registers no flows builds an `:advanced` bundle clean of `re-frame.flows` symbols, the topological-sort engine, and the dirty-check `last-inputs` machinery; an app that issues no managed-HTTP requests builds an `:advanced` bundle clean of `re-frame.http-managed` symbols, the in-flight registry, the Fetch transport adapter, and every `:rf.http/*` keyword string. The check is a grep over the advanced-compile output. Per the rf2-0hxm, rf2-p7va, rf2-xbtj, rf2-k682, rf2-tfw3, and rf2-5kpd verification steps.
+
+**Substrate test matrix policy.** Reagent is the **canonical substrate**: the full re-frame2 test suite (every `clojure -M:test` run, every `node-test` build, every `:browser-test` run, every `examples` run, every conformance fixture) executes against the Reagent adapter. UIx ([rf2-3yij](#)) and Helix ([rf2-2qit](#)) adapters, when they ship, are **smoke-tested** via a representative subset — counter, login, and realworld are the standard trio (per [examples/realworld/README.md](../examples/realworld/README.md) on multi-artefact integration coverage). Full-substrate-matrix conformance — every test, every fixture, every example, against every shipped substrate — remains a per-substrate-adapter responsibility, not a re-frame2-core responsibility. The policy is a deliberate concentration of the test budget on the substrate the spec was authored against; the substrate-adapter contract (Spec 006 §The reactive-substrate adapter contract) is what the smoke trio confirms each non-canonical adapter has implemented correctly.
 
 ## Cross-references
 

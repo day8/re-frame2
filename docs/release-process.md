@@ -1,0 +1,137 @@
+# Release process
+
+> **Type:** Operational doc.
+> **Audience:** maintainers cutting a re-frame2 release.
+> **Authority:** decisions in [rf2-w05l](#) (CI/CD strategy) and the implementation in [rf2-ace2](#) ([.github/workflows/release.yml](../.github/workflows/release.yml)).
+
+re-frame2 ships as a coordinated set of Maven artefacts, all driven from a single repo-root [`VERSION`](../VERSION) file. This doc is the operational guide for how a release flows through CI, what gates exist, and how to recover when something goes wrong mid-deploy.
+
+## Tag format
+
+| Channel | Tag pattern | VERSION file content | Example |
+|---|---|---|---|
+| Stable | `vX.Y.Z` | `X.Y.Z` | `v1.0.0` ↔ `1.0.0` |
+| Beta | `v0.0.1.beta` (or `v0.0.1.beta-N` for recovery / increments) | matches the tag minus the leading `v` | `v0.0.1.beta-2` ↔ `0.0.1.beta-2` |
+| Pre-release (alpha / rc) | `vX.Y.Z-alpha.N`, `vX.Y.Z-rc.N` | matches the tag minus the leading `v` | `v1.0.0-rc.1` ↔ `1.0.0-rc.1` |
+
+The release workflow's tag glob is `v[0-9]+.[0-9]+.[0-9]+*`. Tag must match the contents of `VERSION` (prefixed with `v`); the release workflow's `verify-version-lockstep` job hard-fails if they disagree. The `prerelease` flag on the resulting GitHub Release is set automatically when the tag contains `beta`, `alpha`, or `rc`.
+
+## Trigger
+
+Tag push. Push a tag matching the pattern above and the release workflow runs end-to-end:
+
+```bash
+git tag v0.0.1.beta-1
+git push origin v0.0.1.beta-1
+```
+
+There is no `workflow_dispatch` trigger by design: a release commit always carries an updated `VERSION` and a CHANGELOG entry, and the tag-push trigger keeps that coupling tight.
+
+## Topological deploy DAG
+
+Per rf2-w05l's lockstep-versioning decision, all artefacts ship at the same version each release. The DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame-2` (core); cross-feature references at runtime are wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule).
+
+```mermaid
+graph TD
+  V[verify-version-lockstep] --> T[test]
+  T --> C[deploy-core]
+  C --> S[deploy-schemas]
+  C --> R[deploy-reagent]
+  C --> M[deploy-machines]
+  C --> RT[deploy-routing]
+  C --> F[deploy-flows]
+  C --> H[deploy-http]
+  S --> GR[github-release]
+  R --> GR
+  M --> GR
+  RT --> GR
+  F --> GR
+  H --> GR
+```
+
+ASCII fallback:
+
+```
+verify-version-lockstep ──► test ──► deploy-core
+                                       │
+                                       ├── deploy-schemas
+                                       ├── deploy-reagent
+                                       ├── deploy-machines
+                                       ├── deploy-routing
+                                       ├── deploy-flows
+                                       └── deploy-http
+                                                │
+                                                ▼
+                                        github-release
+```
+
+**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, halving wall-clock at the cost of a marginally wider failure surface (see Recovery below). When future per-feature splits land — ssr ([rf2-uo7v](#)), epoch ([rf2-lt4e](#)) — they slot in alongside the existing leaves.
+
+## Pre-flight checklist
+
+Before tagging:
+
+- [ ] All checks green on `main` (the `tests` workflow + any required reviews).
+- [ ] [`VERSION`](../VERSION) file updated to the target version. Single line, no trailing whitespace.
+- [ ] [`spec/MIGRATION.md`](../spec/MIGRATION.md) carries a fresh `M-NN` entry if the release contains a breaking change. (Per rf2-w05l, MIGRATION stays flat through 1.0; numbering is monotonic.)
+- [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release. The GitHub Release body links to it, so it is the canonical narrative.
+- [ ] The tag's commit is the same commit that updates VERSION + MIGRATION + CHANGELOG (one release commit).
+- [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
+
+## Recovery from a partial deploy
+
+Clojars **does not support yanking** a published version. The recovery story is bump-and-replay, not rollback.
+
+If a deploy job fails part-way through (e.g. `deploy-core` shipped, but `deploy-flows` failed):
+
+1. **Diagnose.** Read the failing job's logs. Common causes: transient Clojars 5xx (re-runs cleanly on retry), credential rotation (CLOJARS_USERNAME / CLOJARS_PASSWORD secrets stale), pom-validation regression in the leaf's clein descriptor, network outage during the leaf's `clojure -M:clein deploy`.
+2. **Decide whether the partial set is publishable as-is.** A consumer pinning the bumped version expects a coherent set; the partial set the failed run left on Clojars is not coherent. Do not promote it.
+3. **Fix the cause locally.** Land the fix on `main` via the normal PR flow.
+4. **Bump VERSION** in a release-recovery commit. For betas, increment the suffix: `0.0.1.beta` → `0.0.1.beta-1`. For stable, bump the patch: `1.0.0` → `1.0.1`.
+5. **Re-tag** with the bumped VERSION. The workflow ships every artefact at the new version, restoring the lockstep contract on the consumer side: a consumer pinning the bumped version pulls a coherent set; the partial-release artefacts from the failed run are tombstoned-by-supersession (still on Clojars, but nobody pins them).
+6. **Note the abandoned version** in CHANGELOG.md so future readers don't try to pin it.
+
+**Do NOT** attempt to re-run the failed workflow with the same tag. The `deploy-core` step will 409 on the duplicate jar upload to Clojars and the workflow will appear stuck.
+
+**Do NOT** ask Clojars support to yank. The platform doesn't expose it; ad-hoc yanks would corrupt downstream caches anyway.
+
+## Lockstep verification (drift detection)
+
+[`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh) is the single source of truth for the lockstep contract. It is invoked by:
+
+- the `tests` workflow on every PR (`verify-version-lockstep` job — fast, runs in parallel with the test jobs);
+- the `release` workflow as the first gate before any deploy (`verify-version-lockstep` job — gates `test`, which gates `deploy-core`).
+
+The contract:
+
+- Repo root has a non-empty `VERSION` file.
+- Every artefact's `:clein/build` declares `:version "../../VERSION"` (i.e. defers to the single source).
+- Every non-core artefact references core via `day8/re-frame-2 {:local/root "../core"}` (the release workflow rewrites this to `:mvn/version` at deploy time).
+- No artefact's committed `deps.edn` carries a literal `:mvn/version` for any `day8/re-frame-2-*` artefact in a non-comment line.
+
+Run locally any time:
+
+```bash
+./.github/scripts/verify-version-lockstep.sh
+```
+
+## Lockstep versioning policy through 1.0
+
+Per [rf2-w05l](#) §Decision §1: every artefact ships at the same VERSION pre-1.0. Independent versioning is revisited post-1.0. The mechanism:
+
+- single root [`VERSION`](../VERSION) file;
+- every artefact's `:clein/build :version` is the relative path `"../../VERSION"`;
+- every non-core artefact references core via `:local/root "../core"`, swapped to `:mvn/version $VERSION` on the throwaway runner checkout at deploy time.
+
+There is intentionally no per-artefact version override. Adding one would break the lockstep contract; the verify script flags it.
+
+## Cross-references
+
+- [rf2-w05l](#) — CI/CD strategy decision (parent).
+- [rf2-ace2](#) — implementation bead (this doc + workflow restructure).
+- [.github/workflows/release.yml](../.github/workflows/release.yml) — the release pipeline.
+- [.github/workflows/test.yml](../.github/workflows/test.yml) — PR-time tests including lockstep drift detection.
+- [.github/scripts/verify-version-lockstep.sh](../.github/scripts/verify-version-lockstep.sh) — the lockstep contract script.
+- [spec/Conventions.md §Packaging conventions](../spec/Conventions.md#packaging-conventions) — artefact naming, the independence rule, the bundle-isolation argument.
+- [spec/MIGRATION.md](../spec/MIGRATION.md) — the migration prompt; flat through 1.0.
+- [examples/realworld/README.md](../examples/realworld/README.md) — the canonical multi-artefact integration test.
