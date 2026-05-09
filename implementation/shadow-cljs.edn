@@ -1,21 +1,28 @@
 ;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit).
 ;;
 ;; Pulls in every published artefact's source path (core/, reagent/,
-;; uix/, schemas/, machines/, routing/, flows/, http/, ssr/, epoch/)
-;; plus their test trees and the examples. The shadow build runs as a
-;; *consumer* of every artefact; the deps.edn at this level wires the
-;; classpath via :local/root for any clojure-tools-driven steps.
+;; uix/, helix/, schemas/, machines/, routing/, flows/, http/, ssr/,
+;; epoch/) plus their test trees and the examples. The shadow build
+;; runs as a *consumer* of every artefact; the deps.edn at this level
+;; wires the classpath via :local/root for any clojure-tools-driven
+;; steps.
 ;;
 ;; Per rf2-3yij the UIx adapter ships in implementation/uix; its
 ;; sources are added to :source-paths and com.pitch/uix.{core,dom} are
 ;; added to :dependencies so the per-example UIx builds resolve.
+;;
+;; Per rf2-2qit the Helix adapter ships in implementation/helix; its
+;; sources are added to :source-paths and lilactown/helix is added to
+;; :dependencies so the per-example Helix builds resolve.
 {:source-paths ["core/src"
                 "core/test"
                 "reagent/src"
                 "reagent/test"
                 "uix/src"
                 "uix/test"
+                "helix/src"
+                "helix/test"
                 "schemas/src"
                 "schemas/test"
                 "machines/src"
@@ -33,18 +40,21 @@
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
-                ;; counter-uix.core, ...) resolve at the top level under
-                ;; their substrate's tree. The 7Guis cluster keeps its
-                ;; `<task>.<task>` namespace shape so it gets a dedicated
-                ;; source path inside examples/reagent/.
+                ;; counter-uix.core, counter-helix.core, ...) resolve
+                ;; at the top level under their substrate's tree. The
+                ;; 7Guis cluster keeps its `<task>.<task>` namespace
+                ;; shape so it gets a dedicated source path inside
+                ;; examples/reagent/.
                 "../examples/reagent"
                 "../examples/reagent/7Guis"
                 "../examples/reagent/realworld/test"
-                "../examples/uix"]
+                "../examples/uix"
+                "../examples/helix"]
  :dependencies [[reagent           "2.0.1"]
                 [metosin/malli     "0.13.0"]
                 [com.pitch/uix.core "1.4.4"]
-                [com.pitch/uix.dom  "1.4.4"]]
+                [com.pitch/uix.dom  "1.4.4"]
+                [lilactown/helix   "0.2.2"]]
 
  :builds
  {:node-test
@@ -236,6 +246,25 @@
    :output-dir "out/examples/login-uix"
    :asset-path "."
    :modules    {:main {:init-fn login-uix.core/run}}}
+
+  ;; rf2-2qit — Helix-substrate smoke trio (counter + login per Decision 7,
+  ;; transferred from rf2-3yij). Each example has its own per-example
+  ;; shadow-cljs build, mirroring the Reagent and UIx variants, so the
+  ;; bundle-isolation grep can verify a Reagent / UIx example's main.js
+  ;; carries NO Helix code and vice versa. Per Spec 006
+  ;; §Substrate-adapter shipping convention.
+
+  :examples/counter-helix
+  {:target     :browser
+   :output-dir "out/examples/counter-helix"
+   :asset-path "."
+   :modules    {:main {:init-fn counter-helix.core/run}}}
+
+  :examples/login-helix
+  {:target     :browser
+   :output-dir "out/examples/login-helix"
+   :asset-path "."
+   :modules    {:main {:init-fn login-helix.core/run}}}
 
   :examples/realworld
   {:target     :browser

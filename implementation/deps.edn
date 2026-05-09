@@ -1,10 +1,11 @@
 ;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit).
 ;;
 ;; The published artefacts are
 ;;   - core/     (day8/re-frame-2)
 ;;   - reagent/  (day8/re-frame-2-reagent)
 ;;   - uix/      (day8/re-frame-2-uix,      rf2-3yij)
+;;   - helix/    (day8/re-frame-2-helix,    rf2-2qit)
 ;;   - schemas/  (day8/re-frame-2-schemas,  rf2-p7va)
 ;;   - machines/ (day8/re-frame-2-machines, rf2-xbtj)
 ;;   - routing/  (day8/re-frame-2-routing,  rf2-k682)
@@ -13,10 +14,10 @@
 ;;   - ssr/      (day8/re-frame-2-ssr,      rf2-uo7v)
 ;;   - epoch/    (day8/re-frame-2-epoch,    rf2-lt4e)
 ;; see implementation/core/deps.edn, implementation/reagent/deps.edn,
-;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
-;; implementation/routing/deps.edn, implementation/flows/deps.edn,
-;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
-;; implementation/epoch/deps.edn.
+;; implementation/helix/deps.edn, implementation/schemas/deps.edn,
+;; implementation/machines/deps.edn, implementation/routing/deps.edn,
+;; implementation/flows/deps.edn, implementation/http/deps.edn,
+;; implementation/ssr/deps.edn, and implementation/epoch/deps.edn.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every artefact onto a single
@@ -28,6 +29,7 @@
  :deps  {day8/re-frame-2          {:local/root "core"}
          day8/re-frame-2-reagent  {:local/root "reagent"}
          day8/re-frame-2-uix      {:local/root "uix"}
+         day8/re-frame-2-helix    {:local/root "helix"}
          day8/re-frame-2-schemas  {:local/root "schemas"}
          day8/re-frame-2-machines {:local/root "machines"}
          day8/re-frame-2-routing  {:local/root "routing"}
@@ -44,6 +46,7 @@
   {:extra-paths ["core/test"
                  "reagent/test"
                  "uix/test"
+                 "helix/test"
                  "schemas/test"
                  "machines/test"
                  "routing/test"
@@ -58,7 +61,8 @@
                  ;; and `realworld.*` (under examples/reagent/realworld/).
                  "../examples/reagent"
                  "../examples/reagent/realworld/test"
-                 "../examples/uix"]
+                 "../examples/uix"
+                 "../examples/helix"]
    :extra-deps  {io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
    :main-opts   ["-m" "cognitect.test-runner"]}}}
