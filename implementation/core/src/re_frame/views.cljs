@@ -18,6 +18,7 @@
             [reagent.core   :as r]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]))
 
@@ -330,7 +331,17 @@
                           render-key [id tok]]
                       (binding [*render-key* render-key]
                         (emit-render-trace! render-key)
-                        (let [out (apply render-fn args)]
+                        ;; Per Spec 009 §Performance instrumentation
+                        ;; (rf2-du3i): every render of a registered view
+                        ;; brackets the user render-fn in performance
+                        ;; marks so prod builds with the perf flag
+                        ;; enabled produce a `rf:render:<view-id>`
+                        ;; measure entry. Default-off; under :advanced +
+                        ;; `re-frame.performance/enabled?=false` the
+                        ;; bracket DCEs and the form collapses to the
+                        ;; bare `(apply render-fn args)` call.
+                        (let [out (performance/mark-and-measure :render id
+                                    (apply render-fn args))]
                           (if interop/debug-enabled?
                             (inject-source-coord-attr id coord-attr out)
                             out)))))

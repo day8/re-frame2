@@ -15,6 +15,8 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.performance :as performance
+             #?@(:cljs [:include-macros true])]
             [re-frame.trace :as trace]))
 
 ;; ---- dispatch-id allocation -----------------------------------------------
@@ -156,8 +158,16 @@
                 ;; If event-payload validation failed, skip the handler
                 ;; entirely. Per Spec 010 §Per-step recovery step 1:
                 ;; "Handler is not invoked"; downstream queue continues.
+                ;;
+                ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
+                ;; bracket the handler invocation in performance marks so
+                ;; prod builds with the perf flag enabled produce a
+                ;; `rf:event:<event-id>` measure entry. Default-off; under
+                ;; `:advanced` + `re-frame.performance/enabled?=false` the
+                ;; bracket DCEs and the call collapses to the chain run.
                 final-ctx    (if event-ok?
-                               (interceptor/execute-chain full-chain initial-ctx)
+                               (performance/mark-and-measure :event event-id
+                                 (interceptor/execute-chain full-chain initial-ctx))
                                initial-ctx)
                 effects      (:effects final-ctx)
                 error        (:rf/interceptor-error final-ctx)]

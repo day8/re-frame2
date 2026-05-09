@@ -32,6 +32,8 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.performance :as performance
+             #?@(:cljs [:include-macros true])]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -209,14 +211,23 @@
                                               {:sub-id  query-id
                                                :query-v query-v
                                                :frame   frame-id})
+                               ;; Per Spec 009 §Performance instrumentation
+                               ;; (rf2-du3i): bracket the sub recompute in
+                               ;; performance marks so prod builds with the
+                               ;; perf flag enabled produce a
+                               ;; `rf:sub:<sub-id>` measure entry. Default-
+                               ;; off; under `:advanced` +
+                               ;; `re-frame.performance/enabled?=false` the
+                               ;; bracket DCEs.
                                v (try
-                                   (let [v (if (empty? input-signals)
-                                             (body-fn (first in-vals) query-v)
-                                             ;; Layer-2+: deliver inputs as a coll if many,
-                                             ;; or singleton when only one chain entry.
-                                             (if (= 1 (count input-signals))
+                                   (let [v (performance/mark-and-measure :sub query-id
+                                             (if (empty? input-signals)
                                                (body-fn (first in-vals) query-v)
-                                               (body-fn (vec in-vals) query-v)))]
+                                               ;; Layer-2+: deliver inputs as a coll if many,
+                                               ;; or singleton when only one chain entry.
+                                               (if (= 1 (count input-signals))
+                                                 (body-fn (first in-vals) query-v)
+                                                 (body-fn (vec in-vals) query-v))))]
                                      ;; Per Spec 010 §step 6: validate sub-return
                                      ;; post-compute against the sub's :spec.
                                      ;; Failures emit :rf.error/schema-validation-failure
