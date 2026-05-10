@@ -58,15 +58,20 @@ If you can plumb a runtime through these primitives, you have re-frame2's substr
 
 ## What the adapter owns
 
-The adapter is the substrate-specific part. It owns:
+The adapter is the substrate-specific part. Per [§Abstract](#abstract), the adapter splits into a **universal half** (the reactive-container contract — would work over any reactive primitive) and a **React-shaped half** (the render side — explicitly assumes React + VDOM).
 
-- **The reactive container for `app-db`.** In CLJS, this is a Reagent ratom. In a TypeScript port, it might be a [Solid](https://www.solidjs.com/) signal or a `useSyncExternalStore` snapshot. In Python, a `Subject`-like observable.
-- **Subscription *tracking* — the runtime side of reactivity.** The view's `subscribe` call returns a value, and when the underlying `app-db` slice changes, the view re-renders. This auto-rerender behaviour is the adapter's job.
-- **Render-tree consumption.** Walking the hiccup (or equivalent) and producing DOM. In CLJS, Reagent does this via React. In TypeScript with Solid, Solid's renderer. In Vue, Vue's. In SSR, a hiccup → HTML emitter.
-- **Component lifecycle.** Mount, update, unmount hooks. Substrate-specific.
-- **Frame-routing for views (CLJS only).** React context, per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part). Other hosts use their own equivalents (hooks, dependency injection).
+**Universal half — the reactive container for `app-db` and its tracking.**
 
-Adapter behaviour is *observably equivalent* across substrates given the same core: the same events produce the same state, the same subs return the same values. The adapter only changes *how* the view sees those values reactively.
+- **The reactive container for `app-db`.** In CLJS, this is a Reagent ratom. In CLJS-headless / SSR, a `clojure.core/atom`. In a TypeScript-React port, a tiny atom-shape over `useSyncExternalStore`'s snapshot store; same shape for the Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint ports atop their host's React binding.
+- **Subscription *tracking* — the runtime side of reactivity.** The view's `subscribe` call returns a value, and when the underlying `app-db` slice changes, the view re-renders. The view-render side is React's job; how the container's mutation feeds React's render scheduler is the adapter's call: in Reagent, Reagent's reaction graph + the React renderer; in UIx / Helix / TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / kotlin-react, `useSyncExternalStore` over the container's `subscribe-container` watch.
+
+**React-shaped half — render and frame-routing.**
+
+- **Render-tree consumption.** Walking the hiccup (or equivalent virtual-DOM tree) and producing DOM via React. In CLJS, Reagent does this through `react-dom/client`. In every in-scope JS-cross-compile port, the host's React binding (Fable.React's `createRoot`, kotlin-react's `createRoot`, ReasonReact's `createRoot`, etc.) calls into the same `react-dom` underneath. SSR is a hiccup-or-equivalent → HTML pure walk on the JVM (per [Spec 011](011-SSR.md)); equivalent on the server-side runtime in any JS-cross-compile port.
+- **Component lifecycle.** Mount, update, unmount — React's lifecycle. Adapters wire into it via React's hooks or class-component machinery, host-binding-specific.
+- **Frame-routing for views.** React context — per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part). The CLJS reference uses Reagent's `:contextType` (class-component path) and a function-component `_currentValue` read; other ports' React bindings expose `useContext` as the standard mechanism. The contract is "context value carrying the current frame-id; views read via the host React binding's hooks-equivalent." See [§Frame-provider via React context](#frame-provider-via-react-context) below for the per-port realisation.
+
+Adapter behaviour is *observably equivalent* across the in-scope React-binding adapters given the same core: the same events produce the same state, the same subs return the same values. The adapter only changes *how* the view sees those values reactively and which React binding mounts the tree.
 
 ## The adapter API contract
 
