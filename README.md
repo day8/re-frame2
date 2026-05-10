@@ -125,11 +125,12 @@ implementation/                CLJS reference implementation — split into per-
                                frame-provider, trace; today still carries machines, flows, routing,
                                http, ssr, schemas, epoch (per-feature splits pending — see
                                Ownership.md "Artefact" column for the per-surface bead).
-  substrates/                  Substrate adapters (rf2-zha9). Per-feature artefacts (schemas,
-                               machines, ...) stay flat under implementation/ alongside core.
-    reagent/                   day8/re-frame-2-reagent — the Reagent substrate adapter (browser default)
-    uix/                       day8/re-frame-2-uix — the UIx substrate adapter (rf2-3yij)
-    helix/                     day8/re-frame-2-helix — the Helix substrate adapter (rf2-2qit)
+  adapters/                    Substrate adapters (rf2-zha9; renamed from substrates/ per
+                               rf2-0imy). Per-feature artefacts (schemas, machines, ...) stay
+                               flat under implementation/ alongside core.
+    reagent/                   day8/re-frame-2-reagent — the Reagent adapter (browser default)
+    uix/                       day8/re-frame-2-uix — the UIx adapter (rf2-3yij)
+    helix/                     day8/re-frame-2-helix — the Helix adapter (rf2-2qit)
   shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
                                for the browser/elision/examples builds
   deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
@@ -164,7 +165,7 @@ re-frame2 is spec-first and AI-implementable. If you're an LLM landing here to i
 - "Where does `<surface>` live?" → [spec/Ownership.md](spec/Ownership.md).
 - "What's the contract for `<topic>`?" → `spec/<NNN>-<topic>.md`.
 - "How is this tested?" → [spec/conformance/](spec/conformance/) (executable EDN fixtures).
-- "Does the implementation actually do what the spec says?" → [`implementation/core/`](implementation/core/) + [`implementation/substrates/reagent/`](implementation/substrates/reagent/) + the conformance suite.
+- "Does the implementation actually do what the spec says?" → [`implementation/core/`](implementation/core/) + [`implementation/adapters/reagent/`](implementation/adapters/reagent/) + the conformance suite.
 - "What's the public API?" → [spec/API.md](spec/API.md).
 - "How do I scaffold a `<kind>`?" → [spec/Construction-Prompts.md](spec/Construction-Prompts.md).
 

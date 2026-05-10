@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: implementation/substrates/reagent
+        working-directory: implementation/adapters/reagent
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -90,7 +90,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-reagent-${{ hashFiles('implementation/substrates/reagent/deps.edn', 'implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-reagent-${{ hashFiles('implementation/adapters/reagent/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-clj-reagent-
             ${{ runner.os }}-clj-
@@ -109,7 +109,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: implementation/substrates/uix
+        working-directory: implementation/adapters/uix
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -131,7 +131,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-uix-${{ hashFiles('implementation/substrates/uix/deps.edn', 'implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-uix-${{ hashFiles('implementation/adapters/uix/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-clj-uix-
             ${{ runner.os }}-clj-
@@ -152,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: implementation/substrates/helix
+        working-directory: implementation/adapters/helix
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -174,7 +174,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-helix-${{ hashFiles('implementation/substrates/helix/deps.edn', 'implementation/core/deps.edn') }}
+          key: ${{ runner.os }}-clj-helix-${{ hashFiles('implementation/adapters/helix/deps.edn', 'implementation/core/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-clj-helix-
             ${{ runner.os }}-clj-

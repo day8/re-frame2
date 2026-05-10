@@ -1,10 +1,10 @@
 ;; day8/re-frame-2 — core artefact (rf2-0hxm).
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention: substrate adapters
-;; ship as separate Maven artefacts; this is the core (registry, drain,
-;; fx, trace) and excludes substrate-specific code. Per rf2-zha9 the
-;; substrate adapters live under implementation/substrates/<name>/; the
-;; Reagent adapter is in implementation/substrates/reagent/. Per rf2-p7va
+;; Per Spec 006 §Adapter shipping convention: adapters ship as separate
+;; Maven artefacts; this is the core (registry, drain, fx, trace) and
+;; excludes substrate-specific code. Per rf2-zha9 the adapters live under
+;; implementation/adapters/<name>/ (renamed from substrates/ per rf2-0imy);
+;; the Reagent adapter is in implementation/adapters/reagent/. Per rf2-p7va
 ;; (the first per-feature split per rf2-5vjj Strategy B) the Spec 010
 ;; schema-attachment surface
 ;; lives in implementation/schemas/ (`day8/re-frame-2-schemas`); per
@@ -101,8 +101,8 @@
 
   ;; Build descriptor consumed by clein. Per-artefact: this builds the
   ;; `day8/re-frame-2` core artefact. The Reagent adapter has its own
-  ;; build descriptor in implementation/substrates/reagent/deps.edn
-  ;; (per rf2-zha9).
+  ;; build descriptor in implementation/adapters/reagent/deps.edn
+  ;; (per rf2-zha9 / rf2-0imy).
   ;;
   ;; :version is a relative path to the repo-root VERSION file — single
   ;; source of truth for both artefacts. Mike updates VERSION in the
