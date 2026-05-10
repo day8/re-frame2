@@ -461,17 +461,29 @@
 
 (defn- watch-op [args]
   (ensure-port!)
-  (let [build-id   (build-id-from-args args)
-        stream?    (has-flag? args "--stream")
-        stop?      (has-flag? args "--stop")
-        window-ms  (Long/parseLong (flag-value args "--window-ms" "30000"))
-        count-n    (Long/parseLong (flag-value args "--count" "5"))
-        frame      (frame-from-args args)
-        pred       (parse-predicate-args args)
-        idle-ms    (Long/parseLong (flag-value args "--idle-ms" "30000"))
-        hard-ms    (Long/parseLong (flag-value args "--hard-ms" "300000"))
-        poll-ms    (Long/parseLong (flag-value args "--poll-ms" "100"))
-        frame-arg  (if frame (str " " (pr-str frame)) "")]
+  (let [build-id     (build-id-from-args args)
+        stream?      (has-flag? args "--stream")
+        stop?        (has-flag? args "--stop")
+        ;; rf2-gy3n: --window-ms and --count are independent modes.
+        ;;   --window-ms alone: run for N ms, no count limit.
+        ;;   --count alone:     run until N matches, no window timeout.
+        ;;   both set:          first to fire wins (race).
+        ;;   neither set:       default to a 30s window (back-compat).
+        window-raw   (flag-value args "--window-ms" nil)
+        count-raw    (flag-value args "--count" nil)
+        window-ms    (when window-raw (Long/parseLong window-raw))
+        count-n      (when count-raw  (Long/parseLong count-raw))
+        ;; If neither is set, fall back to the documented 30s window so
+        ;; an argument-less `watch-epochs.sh` still terminates.
+        window-ms    (if (and (nil? window-ms) (nil? count-n) (not stream?))
+                       30000
+                       window-ms)
+        frame        (frame-from-args args)
+        pred         (parse-predicate-args args)
+        idle-ms      (Long/parseLong (flag-value args "--idle-ms" "30000"))
+        hard-ms      (Long/parseLong (flag-value args "--hard-ms" "300000"))
+        poll-ms      (Long/parseLong (flag-value args "--poll-ms" "100"))
+        frame-arg    (if frame (str " " (pr-str frame)) "")]
     (cond
       stop?
       (emit {:ok? true :stopped? true
@@ -491,10 +503,16 @@
                                 elapsed  (- now start)
                                 idle     (- now @last-hit)]
                             (cond
-                              (and (not stream?) (>= elapsed window-ms))     [:done :window]
-                              (and (not stream?) (>= @emitted count-n))      [:done :count]
-                              (>= elapsed hard-ms)                           [:done :hard-cap]
-                              (and stream? (>= idle idle-ms))                [:done :idle]
+                              ;; window-ms is only checked when the user
+                              ;; (or the default fallback) actually set it.
+                              (and (not stream?) window-ms
+                                   (>= elapsed window-ms))                 [:done :window]
+                              ;; count-n is only checked when the user
+                              ;; actually set --count.
+                              (and (not stream?) count-n
+                                   (>= @emitted count-n))                  [:done :count]
+                              (>= elapsed hard-ms)                         [:done :hard-cap]
+                              (and stream? (>= idle idle-ms))              [:done :idle]
                               :else nil)))
               fetch-form (fn [since-id]
                            (format
