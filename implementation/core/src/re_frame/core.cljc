@@ -114,15 +114,12 @@
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             [re-frame.substrate.adapter :as adapter]
-            ;; re-frame.substrate.plain-atom — required for its ns-load
-            ;; side-effect: on the JVM it auto-registers as the default
-            ;; adapter (rf2-84po), so JVM tests / SSR / headless apps boot
-            ;; with `(rf/init!)` alone. On CLJS the require pulls in the
-            ;; symbol but plain-atom does NOT auto-register as default
-            ;; (the substrate-specific ns the consumer requires —
-            ;; re-frame.adapter.reagent or .uix — is the registry
-            ;; populator). The alias is retained for the `:plain-atom`
-            ;; lookup keyword and for explicit-spec tests.
+            ;; re-frame.substrate.plain-atom — kept as a require so the
+            ;; symbol resolves for the `plain-atom/adapter` re-export
+            ;; below. Per rf2-agql there is no default-adapter registry
+            ;; and no ns-load side-effect: every consumer (including
+            ;; tests and SSR hosts) calls `(rf/init! adapter-map)` with
+            ;; an explicit adapter spec.
             [re-frame.substrate.plain-atom :as plain-atom]
             ;; CLJS only: re-frame.views holds the Reagent-aware reg-view*
             ;; (with React-context wiring). On JVM the registrar registration
@@ -1345,97 +1342,65 @@
 
 ;; ---- substrate adapter ----------------------------------------------------
 
-(def install-adapter!         adapter/install-adapter!)
-(def dispose-adapter!         adapter/dispose-adapter!)
-(def current-adapter          adapter/current-adapter)
-(def register-default-adapter! adapter/register-default-adapter!)
+(def install-adapter! adapter/install-adapter!)
+(def dispose-adapter! adapter/dispose-adapter!)
+(def current-adapter  adapter/current-adapter)
 
 ;; ---- boot -----------------------------------------------------------------
-
-(defn- resolve-init-adapter
-  "Internal — turn an `init!` argument into an adapter spec map.
-
-  Per rf2-84po (resolves rf2-4cb6) `init!` accepts:
-
-    nil       — no-arg form; resolve via the default-adapter registry
-                  populated by substrate-adapter ns-loads. If exactly one
-                  adapter has registered as default, use it. If zero,
-                  raise :rf.error/no-adapter-registered. If more than one,
-                  raise :rf.error/multiple-default-adapters and surface
-                  the registered keys so the consumer can disambiguate
-                  via `(rf/init! :reagent)` / `(rf/init! :uix)`.
-
-    keyword   — explicit pick from the default-adapter registry
-                  (`:reagent`, `:uix`, `:plain-atom`). The keyword is a
-                  contract surface — same name the substrate ns
-                  registers itself under. Unknown keywords raise
-                  :rf.error/unknown-adapter-key.
-
-    map       — adapter spec map (a literal adapter); installed as-is.
-                  Used by tests / examples that want to pass a custom
-                  adapter (e.g. wrapped plain-atom for instrumentation)."
-  [arg]
-  (cond
-    (nil? arg)
-    (let [resolved (adapter/resolve-default-adapter)]
-      (case (:error resolved)
-        :rf.error/no-adapter-registered
-        (throw (ex-info ":rf.error/no-adapter-registered"
-                        {:where    'init!
-                         :recovery :no-recovery
-                         :reason   "rf/init! was called with no args but no substrate adapter has registered as a default. Add a substrate dep (day8/re-frame-2-reagent or day8/re-frame-2-uix) and (:require [re-frame.adapter.reagent]) (or .uix) at app boot — the require's ns-load registers the adapter as the default. Tests / atypical setups can pass an adapter spec or keyword explicitly: (rf/init! :reagent) / (rf/init! :plain-atom) / (rf/init! my-adapter-map)."}))
-
-        :rf.error/multiple-default-adapters
-        (throw (ex-info ":rf.error/multiple-default-adapters"
-                        {:where    'init!
-                         :keys     (:keys resolved)
-                         :recovery :no-recovery
-                         :reason   "rf/init! was called with no args but more than one substrate adapter has registered as a default. This is most often a mixed-substrate app post rf2-3yij where both re-frame.adapter.reagent and re-frame.adapter.uix were required; pick one explicitly via (rf/init! :reagent) or (rf/init! :uix)."}))
-        ;; success
-        (:adapter resolved)))
-
-    (keyword? arg)
-    (or (adapter/lookup-default-adapter arg)
-        (throw (ex-info ":rf.error/unknown-adapter-key"
-                        {:where    'init!
-                         :key      arg
-                         :known    (vec (sort (keys (adapter/registered-default-adapters))))
-                         :recovery :no-recovery
-                         :reason   "rf/init! was called with a keyword that is not registered in the default-adapter registry. Either require the substrate ns (which registers itself at ns-load time) or pass the adapter spec map directly."})))
-
-    (map? arg)
-    arg
-
-    :else
-    (throw (ex-info ":rf.error/bad-init-arg"
-                    {:where    'init!
-                     :received arg
-                     :expected "nil | keyword | adapter-map"
-                     :recovery :no-recovery
-                     :reason   "rf/init! accepts no args (resolve via default-adapter registry), a keyword (`:reagent` / `:uix` / `:plain-atom`), or an adapter spec map."}))))
 
 (defn init!
   "Idempotent boot. Installs a substrate adapter and ensures the
   `:rf/default` frame is present.
 
-  Argument forms:
+  Required arg — there is no default-adapter registry. Pass the adapter
+  spec map you want installed:
 
-    (rf/init!)              ;; resolve from default-adapter registry
-    (rf/init! :reagent)     ;; pick from registry by key
-    (rf/init! adapter-map)  ;; install a literal adapter spec
+    (require '[re-frame.adapter.reagent :as reagent])
+    (rf/init! reagent/adapter)
 
-  Per rf2-84po (resolves rf2-4cb6). The no-arg form is the canonical
-  surface: substrate-adapter namespaces register themselves as default
-  candidates at ns-load time, so an app that
-  `(:require [re-frame.adapter.reagent])` boots with `(rf/init!)`
-  alone. Tests and mixed-substrate apps disambiguate via the keyword
-  form. Per Spec 006 §Adapter selection at boot."
-  ([]        (init! nil))
-  ([adapter-or-key]
-   (when-not (adapter/current-adapter)
-     (adapter/install-adapter! (resolve-init-adapter adapter-or-key)))
-   (frame/ensure-default-frame!)
-   nil))
+  Per rf2-agql (replaces rf2-84po): rf2 ships no default-adapter
+  registry. Each adapter ns exports an `adapter` var (the spec map);
+  consumers require the ns and pass the var explicitly. This keeps
+  adapter wiring explicit at the call site and removes the bundle
+  weight a registry would impose on apps that do not need it.
+
+  Argument shapes:
+
+    (rf/init! adapter-map) ;; install the adapter — only valid form
+
+  Calling `(rf/init!)` with no args raises
+  `:rf.error/no-adapter-specified`. Calling `(rf/init! :reagent)` (a
+  keyword) also raises — there is no registry to look up. The error
+  message points the consumer at the adapter ns + var pattern.
+
+  Per Spec 006 §Adapter selection at boot."
+  ([]
+   (throw (ex-info ":rf.error/no-adapter-specified"
+                   {:where    'init!
+                    :recovery :no-recovery
+                    :reason   "rf/init! requires an explicit adapter spec map. Require the adapter ns and pass its `adapter` var: (require '[re-frame.adapter.reagent :as reagent]) (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed; there is no implicit default."})))
+  ([adapter-map]
+   (cond
+     (nil? adapter-map)
+     (throw (ex-info ":rf.error/no-adapter-specified"
+                     {:where    'init!
+                      :recovery :no-recovery
+                      :reason   "rf/init! was called with nil. Require the adapter ns and pass its `adapter` var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
+
+     (not (map? adapter-map))
+     (throw (ex-info ":rf.error/no-adapter-specified"
+                     {:where    'init!
+                      :received adapter-map
+                      :expected "adapter spec map"
+                      :recovery :no-recovery
+                      :reason   "rf/init! takes the adapter spec map directly — there is no keyword form and no registry. Require the adapter ns and pass its `adapter` var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
+
+     :else
+     (do
+       (when-not (adapter/current-adapter)
+         (adapter/install-adapter! adapter-map))
+       (frame/ensure-default-frame!)
+       nil))))
 
 ;; ---- self-registration of framework subs ----------------------------------
 ;;
