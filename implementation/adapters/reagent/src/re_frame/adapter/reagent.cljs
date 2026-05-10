@@ -21,8 +21,10 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.views :as views]))
 
 ;; ---- container ------------------------------------------------------------
@@ -144,7 +146,33 @@
 ;; `re-frame.adapter.context/function-component-current-frame` which
 ;; reads `_currentValue` directly (function components have no
 ;; class-context slot).
-(late-bind/set-fn! :adapter/current-frame views/current-frame)
+;;
+;; Per rf2-0d35: route `:adapter/current-frame` through the installed
+;; adapter rather than blindly overwriting at ns-load time. In test
+;; bundles that load multiple adapter ns's (e.g. the in-tree shadow-cljs
+;; build, which loads reagent + reagent-slim + uix + helix), each
+;; adapter ns publishes its own impl; a plain `set-fn!` means only the
+;; last-loaded adapter's reader survives — and an app installed via
+;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's
+;; `function-component-current-frame` reader, which reads
+;; `_currentValue` directly and breaks the
+;; `plain-fn-under-non-default-frame-once` warning's narrowness contract
+;; (plain Reagent fns should resolve to `:rf/default`, not the
+;; Provider's frame). The wrapper consults
+;; `(substrate-adapter/current-adapter)` and runs THIS adapter's reader
+;; only when this adapter is the installed one; otherwise it chains to
+;; the previously-installed reader (which itself does the same active-
+;; adapter check for ITS adapter). The chain terminates with
+;; `frame/current-frame` when no adapter is installed, preserving the
+;; pre-rf2-d4sf headless / pre-init shape.
+(let [previous (late-bind/get-fn :adapter/current-frame)]
+  (late-bind/set-fn! :adapter/current-frame
+    (fn reagent-adapter-current-frame-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (views/current-frame)
+        (if previous
+          (previous)
+          (frame/current-frame))))))
 
 ;; Per rf2-wbnl: publish stock Reagent's `current-component` through
 ;; the late-bind hook so `re-frame.views` can read the in-flight
@@ -155,4 +183,20 @@
 ;; wires it to `reagent2.core/current-component`. Without this hook,
 ;; views.cljs would always call stock Reagent's reader and miss
 ;; slim-adapter components in mixed-mode environments.
-(late-bind/set-fn! :adapter/current-component r/current-component)
+;;
+;; Per rf2-0d35: route through the installed adapter (same pattern as
+;; `:adapter/current-frame` above). In test bundles that load BOTH
+;; adapter ns's a plain `set-fn!` would mean only the last-loaded
+;; adapter's reader survives — and the OTHER adapter's render path
+;; silently misses the React-context tier of the frame resolution
+;; chain. Symptom (Stage 4-E regression, rf2-0d35): cross-spec
+;; `plain-fn-under-non-default-frame` asserted 2 warnings, got 0,
+;; because `(current-component)` was reading the slim adapter's
+;; `*current-component*` (always nil during stock Reagent renders) so
+;; the warning's Condition 1 (some? cmp) failed and no warning fired.
+(let [previous (late-bind/get-fn :adapter/current-component)]
+  (late-bind/set-fn! :adapter/current-component
+    (fn reagent-adapter-current-component-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/current-component)
+        (when previous (previous))))))
