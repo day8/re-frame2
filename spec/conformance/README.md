@@ -9,13 +9,12 @@ Fixture filenames mirror their `:fixture/id` exactly, with the slash that separa
 
 ## What this is
 
-A set of **fixture files** in EDN format, each describing one canonical interaction:
+A set of **fixture files** in EDN format, each describing one canonical interaction. Two complementary fixture shapes cover the spec (full detail in [§Fixture format](#fixture-format)):
 
-- A starting state (a frame configuration plus initial `app-db`).
-- A sequence of dispatched events.
-- The expected emissions: final `app-db`, trace events, effects routed to fx, return values from subscriptions.
+- **Dispatch-driven fixtures** (Mode A) — a frame configuration plus initial `app-db`, a sequence of dispatched events, and the expected emissions after drain: final `app-db`, trace events, effects routed to fx, return values from subscriptions.
+- **Pure / direct-call fixtures** (Mode B) — direct invocations of pure primitives (machine transitions, URL ↔ params helpers, hiccup → HTML rendering) with call-local expectations. No frame, no dispatch loop; JVM-runnable.
 
-An implementation conforms if it produces matching emissions for every fixture in the corpus.
+An implementation conforms if it produces matching emissions for every fixture in the corpus whose capabilities are a subset of the port's claimed list.
 
 ## Why EDN
 
@@ -25,11 +24,20 @@ EDN is the natural data format for the CLJS reference. For other-host implementa
 - The structure is host-language-agnostic — keywords map to namespaced strings or branded enums per the host's identity primitive.
 - The corpus is itself **machine-readable data** — implementers in a new language read the corpus, generate host-native test code, and report.
 
-A JSON-translated corpus is also published for hosts where EDN is too friction; the JSON form is mechanically derived from the EDN source so the two never drift.
+A JSON-translated corpus may be published in the future for hosts where EDN is too much friction; if and when it ships, the JSON form will be mechanically derived from the EDN source so the two cannot drift. Until then, the EDN files in `fixtures/` are the canonical source. Implementors targeting non-EDN hosts either ship a small EDN reader (~200 lines for any host with hash-maps and vectors) or translate the corpus locally as part of harness bootstrap.
 
 ## Fixture format
 
-Each fixture is an EDN map:
+Each fixture is an EDN map. A fixture exercises the spec in **one of two modes**:
+
+- **Mode A — dispatch-driven.** A frame is created, a sequence of events is dispatched, and the harness compares the post-drain observables (`app-db`, sub values, trace emissions, effects routed) against a single top-level `:fixture/expect`. Use this mode for event/sub/fx/trace/error semantics that only make sense inside a running frame. Most fixtures in the corpus use this mode.
+- **Mode B — pure / direct-call.** No frame, no dispatch loop. The fixture lists one or more direct calls to a re-frame primitive (e.g. `machine-transition`, `match-url`, `route-url`, `render-to-string`) and each call carries its **own** expectation inline. Use this mode for primitives that are pure functions of their inputs — machine transitions, URL ↔ params helpers, hiccup → HTML rendering. JVM-runnable; nothing about the substrate's wiring is exercised.
+
+A fixture chooses one mode; the runner executes whichever of `:fixture/dispatches` and `:fixture/calls` is present. (A few fixtures may include calls after a dispatch sequence to assert pure-function output against the post-drain registry; that is still Mode A — the dispatches are the load-bearing part and `:fixture/expect` is the primary contract.)
+
+### Mode A — dispatch-driven
+
+The classic shape: a starting state (frame configuration plus initial `app-db`), a sequence of events, and one top-level expectation block.
 
 ```clojure
 {:fixture/id           :counter/inc-once
@@ -39,9 +47,9 @@ Each fixture is an EDN map:
                                :counter/inc        {:doc "Increment."}}
                        :sub   {:count             {:doc "Current count."}}
                        :fx    {}}
- :fixture/handlers    {:event {:counter/initialise (fn [_ _] {:count 0})
-                               :counter/inc        (fn [db _] (update db :count inc))}
-                       :sub   {:count (fn [db _] (:count db))}}
+ :fixture/handlers    {:event {:counter/initialise [[:set [:count] 0]]
+                               :counter/inc        [[:update [:count] [:fn :inc]]]}
+                       :sub   {:count [[:get [:count]]]}}
  :fixture/frame-config {:on-create [:counter/initialise]}
  :fixture/dispatches   [[:counter/inc]]
  :fixture/expect
@@ -51,6 +59,83 @@ Each fixture is an EDN map:
                         {:operation :event/do-fx :tags {}}]
   :effects-routed      []}}
 ```
+
+The expectation keys inside `:fixture/expect` are partial-match by convention: `:trace-emissions` matches each trace event by its specified keys (absent keys ignored), `:final-app-db` is a literal compare, `:effects-routed` matches the routed-fx pairs in declaration order. See [§Fixture lifecycle](#fixture-lifecycle) for the full comparison contract.
+
+### Mode B — pure / direct-call
+
+For pure primitives — machine transitions, URL helpers, render-to-string — the fixture skips the frame entirely. `:fixture/calls` is a vector of call records; each record names the primitive in `:call`, supplies its arguments, and carries its **own** expectation alongside (typically `:expect`, or operation-specific keys like `:expect-next-snapshot` + `:expect-effects` for `:machine-transition`).
+
+```clojure
+;; Excerpt — full file at fixtures/machine-transition.edn
+{:fixture/id           :rf.machine/transition
+ :fixture/capabilities #{:fsm/flat}
+ :fixture/doc          "Pure machine-transition. Given a definition and snapshot, applying an event yields the next snapshot."
+
+ :fixture/registry
+ {:machine-action
+  {:traffic-light/log-yellow {:doc "Logs a state transition."}
+   :traffic-light/log-red    {:doc "Logs a state transition."}
+   :traffic-light/log-green  {:doc "Logs a state transition."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:traffic-light/log-yellow [[:fx :log {:level :info :msg "yellow"}]]
+   :traffic-light/log-red    [[:fx :log {:level :info :msg "red"}]]
+   :traffic-light/log-green  [[:fx :log {:level :info :msg "green"}]]}}
+
+ :fixture/calls
+ [{:call                 :machine-transition
+   :definition           {:initial :green
+                          :data    {}
+                          :states  {:green  {:on {:tick {:target :yellow
+                                                         :action :traffic-light/log-yellow}}}
+                                    :yellow {:on {:tick {:target :red
+                                                         :action :traffic-light/log-red}}}
+                                    :red    {:on {:tick {:target :green
+                                                         :action :traffic-light/log-green}}}}}
+   :snapshot             {:state :green :data {}}
+   :event                [:tick]
+   :expect-next-snapshot {:state :yellow :data {}}
+   :expect-effects       [[:log {:level :info :msg "yellow"}]]}
+
+  ;; Unknown event in current state: snapshot unchanged, no effects.
+  {:call                 :machine-transition
+   :definition           {:initial :green
+                          :data    {}
+                          :states  {:green {:on {:tick {:target :yellow
+                                                        :action :traffic-light/log-yellow}}}}}
+   :snapshot             {:state :green :data {}}
+   :event                [:emergency-stop]
+   :expect-next-snapshot {:state :green :data {}}
+   :expect-effects       []}]}
+```
+
+Routing and SSR pure-call fixtures use the same shape with different `:call` ops:
+
+```clojure
+;; Excerpt — full file at fixtures/routing-match-url.edn
+{:fixture/id           :routing/match-url
+ :fixture/capabilities #{:routing/match-url}
+
+ :fixture/registry
+ {:route
+  {:route/article-detail {:path "/articles/:id" :params [:map [:id :string]]}
+   :route/search         {:path  "/search"
+                          :query [:map [:q :string] [:page {:optional true} :int]]}}}
+
+ :fixture/calls
+ [{:call :match-url :url "/articles/intro"
+   :expect {:route-id :route/article-detail :params {:id "intro"} :query {} :validation-failed? false}}
+
+  {:call :route-url :route-id :route/article-detail :params {:id "intro"}
+   :expect "/articles/intro"}
+
+  ;; Round-trip property: route-url ∘ match-url is identity.
+  {:call :round-trip :url "/articles/intro"}]}
+```
+
+The reserved `:call` operators currently used by the corpus are `:machine-transition`, `:match-url`, `:route-url`, `:round-trip`, `:assert-rank-greater`, and `:render-to-string`. The set is additive — new pure primitives may register a new `:call` op in subsequent fixture spec versions; existing ops cannot be redefined.
 
 ### Capability tagging
 
@@ -65,7 +150,7 @@ Capability tag conventions:
 
 A flat-FSM-only port declares `:capabilities #{:core/event-handler ... :fsm/flat :actor/own-state :actor/spawn-destroy ...}` in its harness manifest; the corpus runs every fixture whose capabilities are a subset and skips the rest. The aggregate score is `passed / claimed-applicable` — an accounting of what works for the claimed list.
 
-(The `:fixture/handlers` entries are written in EDN-ish form; in practice the handler bodies are described as data the host realises into closures. Worked example below.)
+The `:fixture/handlers` entries in both modes are written in the handler-body DSL described next: pure data the host realises into native closures. No host-specific code ships in the fixtures.
 
 ### Handler bodies as data
 
@@ -148,9 +233,11 @@ Each fixture defines an **invariant the implementation upholds**. The harness:
 2. **Realises handler bodies** — for each `:fixture/handlers` entry, interpret the DSL ops into a host-native closure and bind it to the id under the kind.
 3. **Creates the frame** — apply `:fixture/frame-config` via `make-frame` (or the host equivalent); this fires `:on-create` and any `:on-create` events seeded into the frame.
 4. **Runs `:fixture/dispatches`** — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next.
-5. **Runs `:fixture/calls`** (if present) — direct invocations of `machine-transition` for machine fixtures.
-6. **Captures observables** — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
-7. **Compares** — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a literal compare. `:expected-fx-emitted` matches the fx pairs in declaration order.
+5. **Runs `:fixture/calls`** (if present) — direct invocations of pure primitives (`machine-transition`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`). Each call carries its own expectation; mismatches surface as fixture-level failures.
+6. **Captures observables** (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
+7. **Compares** (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a literal compare. `:effects-routed` matches the routed-fx pairs in declaration order.
+
+For Mode B fixtures, comparison happens inline at each call; there is no top-level `:fixture/expect` to evaluate after drain.
 
 The harness reports per-fixture pass/fail; aggregate score is the count of passing fixtures over total fixtures.
 
@@ -162,10 +249,14 @@ Each fixture is **a single file** of <200 lines including registrations and expe
 2. For each fixture:
    a. Bootstrap the host's runtime with the fixture's registry.
    b. Realise handler bodies via the DSL interpreter.
-   c. Create a frame per `:fixture/frame-config`.
-   d. Run each dispatch in `:fixture/dispatches`.
-   e. After drain, capture: final `app-db`, sub values, emitted trace events, effects routed.
-   f. Compare actual vs expected.
+   c. **If `:fixture/dispatches` is present (Mode A):**
+      - Create a frame per `:fixture/frame-config`.
+      - Run each dispatch.
+      - After drain, capture: final `app-db`, sub values, emitted trace events, effects routed.
+      - Compare actuals against `:fixture/expect`.
+   d. **If `:fixture/calls` is present (Mode B):**
+      - For each call record, invoke the named primitive with the supplied arguments.
+      - Compare the result against the call-local expectation (`:expect`, or operation-specific keys like `:expect-next-snapshot` + `:expect-effects`).
 3. Report pass/fail per fixture; total conformance score.
 
 The harness is small (~300 lines per host).
