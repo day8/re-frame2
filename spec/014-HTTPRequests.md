@@ -682,6 +682,113 @@ For test suites that exercise many requests, a higher-level helper ships:
 
 The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply.
 
+## Machine-shape wrapper
+
+Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine can `:invoke` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:invoke`, `:after`, and the cancellation cascade.
+
+### The pattern
+
+```clojure
+(rf/reg-machine :app/auth
+  {:initial :idle
+   :states
+   {:idle           {:on {:login :authenticating}}
+
+    :authenticating
+    {:invoke {:machine-id :rf.http/managed
+              :data       {:request {:method :get :url "/api/me"}
+                           :decode  :json}}
+     :after  {30000 :timed-out}                ;; wall-clock guard
+     :on     {:succeeded :authenticated
+              :failed    :login-failed}}
+
+    :authenticated  {}
+    :login-failed   {}
+    :timed-out      {}}})
+```
+
+While in `:authenticating`, a child wrapper actor of `:rf.http/managed` is alive at `[:rf/machines :rf.http/managed#N]`. It issues the request on entry; on the reply it transitions to its `:succeeded` / `:failed` terminal state and dispatches `[<parent-id> [:succeeded value]]` (or `[<parent-id> [:failed failure]]`) back to the parent — which the parent's `:on` map handles as ordinary FSM events.
+
+### Wrapper spec
+
+Internally the wrapper machine has:
+
+| key | value |
+|---|---|
+| `:initial` | `:requesting` |
+| `:states` | three leaves — `:requesting`, `:succeeded`, `:failed` |
+
+`:requesting` listens for three events:
+
+- `:rf.machine/spawned` — the synthetic event the runtime dispatches to spawns without a `:start` (per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The wrapper's `:fire-request` action runs, emitting the underlying `:rf.http/managed` fx with `:on-success` / `:on-failure` pointing back at the wrapper actor's own id (so the reply lands at the wrapper, not at the user's handler).
+- `:rf.http/succeeded` — fired when the underlying fx succeeds; records the reply payload at `:data :rf/result` and transitions to `:succeeded`.
+- `:rf.http/failed` — fired when the underlying fx fails (any of the eight `:rf.http/*` failure categories, per [§Failure categories](#failure-categories-closed-set)); records the reply payload and transitions to `:failed`.
+
+The terminal states' `:entry` dispatches `[<parent-id> [:succeeded value]]` or `[<parent-id> [:failed failure]]` — where `value` is the decoded-and-accepted payload (the same `(:value (:rf/reply msg))` an ordinary fx reply carries) and `failure` is the standard failure map (the same `(:failure (:rf/reply msg))` shape per [§Reply payload shape](#reply-payload-shape)). The parent's id comes from `:rf/parent-id` in the wrapper actor's initial `:data` — stamped by `spawn-fx` per [Spec 005 §Spawning](005-StateMachines.md#spawning--dynamic-actors); the wrapper need not be told its parent at spec-write time.
+
+### Args carrier
+
+Every key the [§The args map](#the-args-map) surface accepts may be passed through the parent's `:invoke :data`:
+
+```clojure
+{:invoke {:machine-id :rf.http/managed
+          :data {:request    {:method :post :url "/api/sessions" :body {...}}
+                 :request-content-type :json
+                 :decode     SessionResponse
+                 :accept     (fn [v] (if (:session v) {:ok (:session v)}
+                                                       {:failure {:reason :no-session}}))
+                 :retry      {:on #{:rf.http/transport :rf.http/http-5xx}
+                              :max-attempts 4
+                              :backoff {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
+                 :timeout-ms 30000}}
+ :on     {:succeeded :authenticated
+          :failed    :login-failed}}
+```
+
+The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
+
+`:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:invoke`-orchestrated case.
+
+### Cancellation cascade
+
+Per [§Abort on actor destroy](#abort-on-actor-destroy) (rf2-wvkn), the wrapper actor's in-flight request is automatically aborted when the wrapper is destroyed. The wrapper is destroyed:
+
+- On any transition out of the parent's `:invoke`-bearing state (per [Spec 005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn)) — including the parent's `:after` firing (per [Spec 005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after)).
+- On parent-frame destroy.
+- On imperative `:rf.machine/destroy` against the wrapper's actor id.
+
+In every case, the standard `:http/abort-on-actor-destroy` late-bind hook fires, the in-flight HTTP aborts with `:reason :actor-destroyed`, and the `:rf.http/aborted-on-actor-destroy` trace event lands. The wrapper actor's failure dispatch back to the parent is suppressed because the wrapper's handler is unregistered before the abort's failure reply lands — the parent has already moved on by then, so no notification is needed.
+
+### Multiple wrappers per parent
+
+A parent that needs two parallel HTTP requests uses [Spec 005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) with `:rf.http/managed` named as the `:machine-id` for each child:
+
+```clojure
+{:hydrating
+ {:invoke-all
+  {:children       [{:id :user  :machine-id :rf.http/managed
+                     :data {:request {:url "/api/me"}}}
+                    {:id :prefs :machine-id :rf.http/managed
+                     :data {:request {:url "/api/prefs"}}}]
+   :join             :all
+   :on-child-done    :asset/loaded
+   :on-child-error   :asset/failed
+   :on-all-complete  [:hydrate/done]
+   :on-any-failed    [:hydrate/aborted]}}}
+```
+
+Each child gets its own wrapper actor; cancel-on-decision (default `true`) tears down survivors when the join resolves; per-sibling cancellation cascades fire the `:http/abort-on-actor-destroy` hook independently per [§Sibling actors are not affected](#sibling-actors-are-not-affected).
+
+### When to use the fx form vs the machine form
+
+| use case | use |
+|---|---|
+| Event handler issues a one-off request; reply lands at the handler or a sibling | **fx form**: `:fx [[:rf.http/managed args]]` |
+| Parent state-machine wants the request tied to a specific state's lifetime, with abort-on-state-exit and `:after` timeout composition | **machine form**: `:invoke {:machine-id :rf.http/managed :data {...}}` |
+| Parent state-machine wants multiple concurrent requests with a join condition | **machine form** under `:invoke-all` (per above) |
+
+Apps may mix both freely. The two registrations coexist under `:rf.http/managed` in the registrar (`:fx` kind for the fx, `:event` kind for the machine).
+
 ## What Spec 014 does NOT cover
 
 Adjacent surfaces that are first-class re-frame2 commitments but live in their own specs:

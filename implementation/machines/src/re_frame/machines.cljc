@@ -1716,7 +1716,14 @@
       re-registration.
    3. Initialise the actor's snapshot at [:rf/machines <spawned-id>]
       using the spec's :initial / :data (overridden by the spawn args'
-      :data).
+      :data). Per rf2-ijm7 the runtime stamps `:rf/self-id` (the
+      spawned actor's own address) and, when applicable,
+      `:rf/parent-id` + `:rf/invoke-id` into the actor's initial
+      `:data` under the framework-reserved `:rf/*` namespace — so
+      spawned actors can dispatch back to their parent without
+      hard-coding the parent's id at spec-write time (a precondition
+      for generic re-usable child machines like the `:rf.http/managed`
+      wrapper).
    4. If `:system-id` present, bind it in the per-frame
       [:rf/system-ids] reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins, same
@@ -1728,7 +1735,13 @@
       written the id under any particular `:data` slot.
    6. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]` so the new actor receives its initial
-      event."
+      event. When `:start` is absent (per rf2-ijm7), the runtime
+      dispatches a synthetic `[<spawned-id> [:rf.machine/spawned]]` so
+      generic child machines may declare a leaf-level `:on
+      :rf.machine/spawned :target ...` transition that fires the
+      actor's first work on entry. Machines that don't handle
+      `:rf.machine/spawned` see the event as a benign no-op (no
+      matching `:on` clause leaves the snapshot unchanged)."
   [{:keys [frame]} args]
   (let [frame-id   (or frame :rf/default)
         spawned-id (compute-actor-id args frame-id)
@@ -1747,7 +1760,25 @@
         ;; exactly as before).
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
-        track?     (and parent-id invoke-id)]
+        track?     (and parent-id invoke-id)
+        ;; Per rf2-ijm7: stamp framework-reserved keys into the spawned
+        ;; actor's initial :data so the actor knows its own address
+        ;; (:rf/self-id) and, for declarative-:invoke spawns, its
+        ;; parent's address (:rf/parent-id) + its invoke-id
+        ;; (:rf/invoke-id). The `:rf/`-namespace inside :data is
+        ;; reserved for runtime-managed keys per Spec 005 §`:after`
+        ;; epoch counter; user code never reads or writes under
+        ;; `:rf/*`. Stamping unconditionally (self-id) plus
+        ;; conditionally (parent-id / invoke-id) keeps non-:invoke
+        ;; imperative spawns untouched in the parent-tracking case
+        ;; while uniformly giving every spawned actor its own id.
+        spec''     (if spec'
+                     (let [base-data (or (:data spec') {})
+                           data'     (cond-> (assoc base-data :rf/self-id spawned-id)
+                                       parent-id (assoc :rf/parent-id parent-id)
+                                       invoke-id (assoc :rf/invoke-id invoke-id))]
+                       (assoc spec' :data data'))
+                     spec')]
     (trace/emit! :machine :rf.machine/spawned
                  {:frame      frame-id
                   :machine-id (:machine-id args)
@@ -1758,26 +1789,26 @@
                   :system-id  system-id
                   :parent-id  parent-id
                   :invoke-id  invoke-id})
-    (when spec'
+    (when spec''
       ;; (2) Register the live handler under the spawned id. Re-using
       ;; reg-machine* (the plain-fn surface beneath the macro, per
       ;; rf2-8bp3) so the same `:rf/machine?` metadata + lifecycle
       ;; trace flows. The macro form is reserved for user-call-site
       ;; literal-spec source-coord stamping; spawn synthesises specs
       ;; at runtime, so the plain-fn surface is the right entry.
-      (reg-machine* spawned-id spec'))
+      (reg-machine* spawned-id spec''))
     ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
     ;; runtime-owned spawn registry (atomically under one app-db swap so
     ;; observers see consistent state).
     (when-let [container (frame/get-frame-db frame-id)]
-      (let [initial-decl  (:initial spec')
-            initial-path  (when spec'
-                            (initial-cascade spec' (state-path initial-decl)))
-            initial-state (when spec'
+      (let [initial-decl  (:initial spec'')
+            initial-path  (when spec''
+                            (initial-cascade spec'' (state-path initial-decl)))
+            initial-state (when spec''
                             (denormalise-state initial-path initial-decl))
-            initial-snap  (when spec'
+            initial-snap  (when spec''
                             {:state initial-state
-                             :data  (or (:data spec') {})})
+                             :data  (or (:data spec'') {})})
             old-db        (adapter/read-container container)
             ;; Detect collision BEFORE the swap so we can emit the
             ;; error trace with the displaced binding's id.
@@ -1785,7 +1816,7 @@
                             (get-in old-db [:rf/system-ids system-id]))
             new-db
             (cond-> old-db
-              spec'      (assoc-in [:rf/machines spawned-id] initial-snap)
+              spec''     (assoc-in [:rf/machines spawned-id] initial-snap)
               system-id  (assoc-in [:rf/system-ids system-id] spawned-id)
               track?     (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))]
         (when (and system-id existing (not= existing spawned-id))
@@ -1806,10 +1837,17 @@
                        {:frame      frame-id
                         :system-id  system-id
                         :machine-id spawned-id}))))
-    ;; (5) Fire the :start event into the new actor.
-    (when-let [start (:start args)]
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-        (dispatch! [spawned-id start] {:frame frame-id})))
+    ;; (6) Fire the :start event into the new actor. Per rf2-ijm7,
+    ;; spawns that don't supply :start receive a synthetic
+    ;; [:rf.machine/spawned] so generic child machines (e.g. the
+    ;; `:rf.http/managed` machine-shape wrapper) can declare their
+    ;; first transition out of an :initial state at spec-write time
+    ;; without requiring the parent to set up a :start kick.
+    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+      (let [start (:start args)]
+        (if (some? start)
+          (dispatch! [spawned-id start] {:frame frame-id})
+          (dispatch! [spawned-id [:rf.machine/spawned]] {:frame frame-id}))))
     spawned-id))
 
 (defn invoke-all-init-fx
@@ -2355,3 +2393,15 @@
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)
 (late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
 (late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
+
+;; rf2-ijm7 — load-order resilience for the `:rf.http/managed` machine-shape
+;; wrapper. The wrapper is registered by re-frame.http-managed via the
+;; `:machines/reg-machine` hook published above; but if http-managed loaded
+;; BEFORE this namespace (the load-order is determined by the consuming app's
+;; require graph, not by either artefact), the wrapper's bottom-of-ns call
+;; found a nil hook and skipped its registration. We close that race by
+;; re-invoking the http artefact's `:http/register-managed-machine!` hook
+;; from here — if http-managed is on the classpath the hook is set and the
+;; wrapper registers now; if it isn't, the hook is nil and this is a no-op.
+(when-let [reg-fn (late-bind/get-fn :http/register-managed-machine!)]
+  (reg-fn))
