@@ -161,7 +161,7 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :meta    {<user-keys> ...}}                 ;; e.g. {:terminal? true}
 ```
 
-All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:invoke`, `:invoke-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:invoke`, `:invoke-all`, `:invoke`/`:invoke-all` `:timeout-ms`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
 
 A state node MUST NOT declare both `:invoke` and `:invoke-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:invoke`; a node spawning N parallel children uses `:invoke-all`). `create-machine-handler` rejects the combination at registration time as a malformed transition table.
 
@@ -1390,6 +1390,8 @@ The map under `:invoke` accepts the following keys:
 | `:on-spawn` | `(fn [data spawned-id] new-data)` — how the parent records the child id in its own `:data` | optional but typically wanted |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:invoke-id` | explicit id instead of gensym (useful for tests / per-state singleton actors) | optional |
+| `:timeout-ms` | wall-clock window for the spawned actor (spans retries) — see [§Wall-clock `:timeout-ms` (spans retries)](#wall-clock-timeout-ms-spans-retries) | optional; when set, `:on-timeout` is required |
+| `:on-timeout` | event vector dispatched into the parent when `:timeout-ms` expires before the child terminates | required iff `:timeout-ms` is set |
 
 The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
@@ -1525,6 +1527,93 @@ The key property: the parent does not have to *remember* to destroy the child. T
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface that `:invoke` desugars to; [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit) for the auto+manual ordering rule; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the `:invoke` schema. [Pattern-WebSocket](Pattern-WebSocket.md) is the canonical worked example exercising hierarchical states, `:after`, `:always`, machine-scoped `:guards` / `:actions`, and `:invoke` together — the connection-lifecycle state machine for long-lived sockets. [Pattern-LongRunningWork](Pattern-LongRunningWork.md) is the canonical worked example for chunked CPU-intensive work — `:always` for batch progression, `:after 0` for browser yielding between chunks, machine-scoped guards for completion / cancellation.
 
+## Wall-clock `:timeout-ms` (spans retries)
+
+`:invoke` and `:invoke-all` accept a `:timeout-ms` slot — a wall-clock window for the **whole spawned actor** (or the whole join, in the `:invoke-all` case). When the spawned machine doesn't terminate within the window, the runtime cancels the actor (via the standard exit-cascade machinery), emits a `:rf.machine.invoke/timed-out` trace event, and dispatches the user-supplied `:on-timeout` event into the parent. Per [findings/boot-as-statemachine-dash8-rf8.md §M3](#).
+
+### Why a per-`:invoke` timeout (not per-attempt)
+
+The 014 [`:rf.http/managed`](014-HTTPRequests.md) `:timeout-ms` governs **one HTTP attempt** — if a request retries N times, the wall-clock can grow well past any sensible bound (5 retries × 30 s attempt-timeout × 5 s backoff ≈ 130 s before the protocol gives up). A boot machine that wants "the auth phase completes in 30 s total, including retries" cannot express that via `:rf.http/managed` alone. The clean fix is a sibling of `:on-spawn` at the `:invoke` call site:
+
+```clojure
+{:authenticating
+ {:invoke {:machine-id :auth-flow
+           :timeout-ms 30000        ;; whole phase — spans retries
+           :on-spawn   :record-auth
+           :on-timeout [:auth-timed-out]}
+  :on     {:auth/succeeded :authenticated
+           :auth-timed-out :auth-failed}}}
+```
+
+Symmetric for `:invoke-all`:
+
+```clojure
+{:hydrating
+ {:invoke-all
+  {:children         [{:id :cfg  :machine-id :load-config}
+                      {:id :flag :machine-id :load-feature-flags}
+                      {:id :user :machine-id :load-user-profile}
+                      {:id :dash :machine-id :load-dashboards}]
+   :join             :all
+   :on-child-done    :asset/loaded
+   :on-child-error   :asset/failed
+   :on-all-complete  [:hydrate/done]
+   :on-any-failed    [:hydrate/failed]
+   :timeout-ms       60000
+   :on-timeout       [:hydrate/timed-out]}
+  :on   {:hydrate/done       :ready
+         :hydrate/failed     :error
+         :hydrate/timed-out  :degraded}}}
+```
+
+### Semantics
+
+The runtime owns three observable behaviours when `:timeout-ms` is set:
+
+1. **The wall-clock spans retries.** The window starts ticking when the `:invoke` (or `:invoke-all`) state is entered; it does not reset when a child machine retries internally. A 30-second `:timeout-ms` covers the whole phase regardless of how many retry attempts the child performs.
+2. **Cancellation cascades on expiry.** When the window elapses without the spawned actor having terminated, the runtime tears down the actor via the same `:rf.machine/destroy` fx the exit-cascade would have fired. For `:invoke-all`, every surviving child is cancelled — same machinery as cancel-on-decision (per [§Cancel-on-decision](#cancel-on-decision-default-true)). The cancellation cascade composes with [rf2-wvkn]'s in-flight `:rf.http/managed` abort contract once that lands.
+3. **`:on-timeout` is dispatched into the parent.** The runtime dispatches `[<parent-id> <:on-timeout vector>]` after cancellation — the parent's `:on` resolves the transition normally, and the exit cascade clears the runtime spawn-registry slots as it would for any other transition out of the `:invoke`-bearing state.
+
+The window restarts only when the `:invoke`-bearing state is **re-entered** (e.g. via a `:retry` transition that exits and re-enters `:authenticating`); the same `:rf/after-epoch` advance that invalidates in-flight `:after` timers also invalidates an in-flight `:timeout-ms` window. Consult [§Delayed `:after` transitions §Stale detection](#delayed-after-transitions) for the epoch idiom — the timeout uses the same.
+
+### Partial-progress is not preserved
+
+`:on-timeout` does NOT receive partial-progress context. A timeout means "we reached the wall-clock window without a definitive result" — by the time `:on-timeout` fires, the actor has been cancelled and its snapshot torn down. The parent's transition handler may not assume any of the child's partial state has flushed back into the parent's `:data`.
+
+For `:invoke-all`, the join state at `[:rf/spawned <parent> <invoke-id> :join]` is destroyed alongside the children — the parent cannot read which children had completed at the moment of timeout. Apps that need "take whatever loaded by the deadline" semantics declare a separate `:after` on the parent state with a `{:n N}`-style join, per the `:after` + partial-success idiom documented under [§Spawn-and-join via `:invoke-all` §Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after). `:timeout-ms` is the all-or-nothing surface; `:after` is the inspect-progress-and-decide surface. Each is the right answer for a different question.
+
+### Trace event
+
+```clojure
+{:operation :rf.machine.invoke/timed-out
+ :op-type   :machine
+ :tags      {:machine-id <parent-id>
+             :invoke-id  <prefix-path of the :invoke or :invoke-all-bearing state>
+             :timeout-ms <user-supplied value>
+             :elapsed-ms <ms from window-start to firing>
+             :child-id   <user-supplied :id, only on :invoke-all>}}
+```
+
+For `:invoke-all`, one `:rf.machine.invoke/timed-out` fires for the whole join (not per-child); per-child cancellation traces still fire as `:rf.machine.invoke/cancelled-on-join-resolution` with `:join-event :on-timeout` so observers can attribute the cause.
+
+### Capability gating
+
+`:timeout-ms` is gated under the `:actor/timeout` capability per [§Capability matrix](#capability-matrix). A port that doesn't claim it rejects the slot at registration time with `:rf.error/machine-grammar-not-in-v1`. The v1 CLJS reference claims it.
+
+### Errors
+
+Three new registration-time error categories:
+
+- `:rf.error/machine-invoke-timeout-without-on-timeout` — `:timeout-ms` is set but `:on-timeout` is missing. The runtime needs an event to dispatch on expiry.
+- `:rf.error/machine-invoke-on-timeout-without-timeout` — `:on-timeout` is set but `:timeout-ms` is missing. The slot would never fire.
+- `:rf.error/machine-invoke-timeout-not-positive` — `:timeout-ms` is non-positive. The window must be a positive number of milliseconds.
+
+### Composition with `:after` on the same state
+
+A state may declare both `:invoke` (with `:timeout-ms`) AND `:after` — they are independent timer mechanisms. The `:invoke :timeout-ms` is bound to the spawned actor's lifecycle; the `:after` is bound to the parent state's lifecycle. Both share the same `:rf/after-epoch` invalidation idiom — exiting the state advances the epoch, which invalidates both an in-flight `:after` and an in-flight `:timeout-ms`.
+
+Cross-references: [§Declarative `:invoke`](#declarative-invoke-sugar-over-spawn) for the desugaring rules `:timeout-ms` extends; [§Spawn-and-join via `:invoke-all` §Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after) for the related `:after` + partial-success idiom; [Spec-Schemas §`InvokeSpec`](Spec-Schemas.md#rftransition-table) for the schema.
+
 ## Spawn-and-join via `:invoke-all`
 
 `:invoke-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)).
@@ -1567,6 +1656,8 @@ The map under `:invoke-all` accepts the following keys:
 | `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` / `{:n N}` / `{:fn ...}` resolves on the success-side | required iff `:join` ≠ `:all` |
 | `:on-any-failed` | event vector the runtime dispatches into the parent when any child fails (default cancel-on-decision applies) | optional; if absent, child failures are tracked but do not short-circuit the join |
 | `:cancel-on-decision?` | `true` (default) cancels siblings still in flight when the join resolves; `false` lets siblings run to completion (their results land in the join-state but trigger no further parent events) | optional; default `true` |
+| `:timeout-ms` | wall-clock window for the **whole join** — see [§Wall-clock `:timeout-ms` (spans retries)](#wall-clock-timeout-ms-spans-retries) | optional; when set, `:on-timeout` is required |
+| `:on-timeout` | event vector dispatched into the parent when `:timeout-ms` expires before the join resolves; surviving children are cancelled | required iff `:timeout-ms` is set |
 
 Each child invoke-spec under `:children` accepts the same keys as a single `:invoke` (`:machine-id` xor `:definition`, `:data`, `:id-prefix`, `:on-spawn`, `:start`, `:invoke-id`, `:system-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the parent's `:on-child-done` / `:on-child-error` events carry as the second-position payload arg (see [§Child completion protocol](#child-completion-protocol)).
 
@@ -2124,6 +2215,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
 | **Spawn-and-join via `:invoke-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`), the runtime fires one of three parent events when the join resolves and (by default) cancels surviving siblings | Prose: [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all); Schema: `:rf/state-node` extended for `:invoke-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-all-join-all-completes`, `invoke-all-join-any-fails-cancels`, `invoke-all-n-of-cancels-extras` | ✓ claimed (specified) | Sugar over N parallel `:invoke`s plus a runtime-owned join-state at `[:rf/spawned <parent> <invoke-id> :join]`. Cancel-on-decision is the default (matches Dash8/rf8 boot-page-reload semantics). Per rf2-6vmw. |
 | **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
+| **Wall-clock `:timeout-ms`** — `:invoke` and `:invoke-all` accept `:timeout-ms` (a wall-clock window for the whole spawned actor / join, spanning retries). On expiry the runtime cancels the spawned actor(s) and dispatches `:on-timeout` into the parent. | Prose: [§Wall-clock `:timeout-ms` (spans retries)](#wall-clock-timeout-ms-spans-retries); Schema: `InvokeSpec` / `InvokeAllSpec` extended for `:timeout-ms` / `:on-timeout` (per [Spec-Schemas](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-with-timeout-cancels-and-fires-on-timeout`, `invoke-all-with-timeout-cancels-survivors-and-fires-on-timeout` | ✓ claimed (specified) | Composes with the existing `:rf/after-epoch` stale-detection idiom — re-entry advances the epoch and invalidates an in-flight timeout. Cancellation cascade reuses the standard `:rf.machine/destroy` exit-cascade machinery; the in-flight `:rf.http/managed` abort contract per rf2-wvkn composes when it lands. Per rf2-1lop. |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
 
 ### How conformance is graded
@@ -2141,7 +2233,8 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :actor/cross-actor-fx
                  :actor/invoke
                  :actor/spawn-and-join
-                 :actor/system-id}}
+                 :actor/system-id
+                 :actor/timeout}}
 ```
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
@@ -2286,11 +2379,12 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
 - Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list).
-- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, and `:rf.error/machine-invoke-all-with-invoke` error categories.
+- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, `:rf.error/machine-invoke-all-with-invoke`, `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, and `:rf.error/machine-invoke-timeout-not-positive` error categories.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{ms-or-fn → transition-spec}`, epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/skipped-on-server` trace events.
 - The spawn-and-join `:invoke-all` capability per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all): state-node `:invoke-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf/spawned <parent> <invoke-id> :join]`, cancel-on-decision = `true` by default, and the `:rf.machine.invoke-all/started` / `:rf.machine.invoke-all/all-completed` / `:rf.machine.invoke-all/some-completed` / `:rf.machine.invoke-all/any-failed` / `:rf.machine.invoke/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, `:rf.error/machine-invoke-all-with-invoke`.
+- The wall-clock `:timeout-ms` capability per [§Wall-clock `:timeout-ms` (spans retries)](#wall-clock-timeout-ms-spans-retries): `:invoke` and `:invoke-all` accept `:timeout-ms` (positive int, ms) plus `:on-timeout` (event vector); the runtime starts the window on entry, cancels the spawned actor(s) on expiry via the standard `:rf.machine/destroy` exit-cascade, and dispatches `:on-timeout` into the parent. `:rf.machine.invoke/timed-out` trace event. Composes with the `:rf/after-epoch` stale-detection idiom for re-entry. New error categories `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, `:rf.error/machine-invoke-timeout-not-positive`. Per rf2-1lop.
 
 ### Post-v1 — the `re-frame.machines` library
 

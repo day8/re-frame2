@@ -1459,6 +1459,32 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:invoke-all`](005-StateMachines
 
 ---
 
+### M-41. `:invoke` / `:invoke-all` accept `:timeout-ms` — additive, no user-side action
+
+**Type B — additive feature** (no rewrite needed; the spec adds new optional slots on `:invoke` / `:invoke-all` but no existing behaviour changes).
+
+Per [rf2-1lop](#) and [005 §Wall-clock `:timeout-ms`](005-StateMachines.md#wall-clock-timeout-ms-spans-retries), the v1 spec adds a wall-clock `:timeout-ms` slot to both `:invoke` and `:invoke-all` (sibling to `:on-spawn`). When the spawned actor (or join) doesn't terminate within the window, the runtime cancels the spawned actor(s) via the standard `:rf.machine/destroy` exit-cascade machinery, emits a `:rf.machine.invoke/timed-out` trace event, and dispatches the user-supplied `:on-timeout` event into the parent. The window spans retries — unlike the per-attempt `:rf.http/managed` `:timeout-ms` (per [014 §Timeout semantics](014-HTTPRequests.md)) — making it the right surface for boot-machine "the auth phase completes in 30 s total" guards.
+
+**No user-side migration.** `:timeout-ms` and `:on-timeout` are new optional keys on `:invoke` / `:invoke-all`; existing transition tables are unaffected. Codebases that hand-rolled per-phase timeouts via sibling `:after` racing-machines (the awkward-but-possible pattern the pre-rf2-1lop spec documented in [findings/boot-as-statemachine-dash8-rf8.md §M3](#)) **may** rewrite to `:timeout-ms` for the readability win.
+
+**New trace event.** The 009 trace vocabulary picks up `:rf.machine.invoke/timed-out` (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). Observers that filter by exact `:operation` keyword learn to recognise the new event; observers that filter by `:op-type :machine` see it automatically. The existing `:rf.machine.invoke/cancelled-on-join-resolution` event grows a new `:join-event :on-timeout` value when the cancellation cause is `:timeout-ms` expiry (rather than a normal join resolution).
+
+**New error categories.** `create-machine-handler` rejects malformed `:timeout-ms` shapes at registration time:
+
+- `:rf.error/machine-invoke-timeout-without-on-timeout` — `:timeout-ms` set without `:on-timeout`.
+- `:rf.error/machine-invoke-on-timeout-without-timeout` — `:on-timeout` set without `:timeout-ms`.
+- `:rf.error/machine-invoke-timeout-not-positive` — `:timeout-ms` is non-positive.
+
+All registration-time; the runtime never sees a malformed `:timeout-ms`. Per [005 §Errors](005-StateMachines.md#errors-1).
+
+**`:after` epoch idiom reused.** The `:rf/after-epoch` advance that already invalidates in-flight `:after` timers (per [005 §Delayed `:after` transitions §Stale detection](005-StateMachines.md#delayed-after-transitions)) also invalidates an in-flight `:timeout-ms` window — re-entering the `:invoke`-bearing state on a `:retry` transition cleanly restarts the timeout without bespoke tracking.
+
+**What to do.** Nothing for compatibility; this is purely additive. Apps wanting per-phase wall-clock guards adopt `:timeout-ms` per the [005 worked example](005-StateMachines.md#why-a-per-invoke-timeout-not-per-attempt). The `:actor/timeout` capability in [005 §Capability matrix](005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:timeout-ms` at registration with `:rf.error/machine-grammar-not-in-v1`.
+
+**Why:** the boot-as-state-machine pattern routinely needs phase-level wall-clock guards that span retries (auth, hydrate). The `:rf.http/managed` `:timeout-ms` is per-attempt and total wall-clock balloons under retry; sibling `:after` machines work but require bespoke bookkeeping. `:timeout-ms` at the call site removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §M3](#).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
