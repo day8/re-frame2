@@ -1600,6 +1600,18 @@ Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destro
 
 **Cross-references.** [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts); [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy); [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) for the trace event registration.
 
+### M-43. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
+
+Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:invoke {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
+
+**Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in [findings/boot-as-statemachine-dash8-rf8.md](findings/boot-as-statemachine-dash8-rf8.md)) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
+
+**Related additive changes (same bead, same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7) and [§Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7):
+- Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id` (the latter two only for declarative-`:invoke` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
+- Spawns without an explicit `:start` now receive a synthetic `[:rf.machine/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
+
+**Cross-references.** [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
+
 ---
 
 ## Opt-in modernisation (only if asked)

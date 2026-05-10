@@ -1322,6 +1322,38 @@ After this action, `(:pending-request data)` *is* the actor's id. Subsequent tra
 
 The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
+### Runtime stamps on the spawned actor's `:data` (rf2-ijm7)
+
+Per [rf2-ijm7](#) the runtime stamps three framework-reserved keys into every spawned actor's initial `:data` map so the actor can address its parent and itself at action-call time without the parent having to thread that information through manually:
+
+| key | value | when present |
+|---|---|---|
+| `:rf/self-id` | the spawned actor's own address (e.g. `:request/protocol#42`) | always |
+| `:rf/parent-id` | the parent machine's registration-id | when the spawn carries `:rf/parent-id` (the declarative `:invoke` / `:invoke-all` desugar path) |
+| `:rf/invoke-id` | the absolute prefix-path of the parent's `:invoke`-bearing state node | same as `:rf/parent-id` |
+
+Per [§Path conventions in machine bodies](#path-conventions-in-machine-bodies), the `:rf/*` namespace inside `:data` is reserved for runtime-managed keys; user code does not write under it. The actor reads these as ordinary `:data` lookups inside its actions:
+
+```clojure
+:dispatch-done (fn [data _]
+                 (when-let [parent-id (:rf/parent-id data)]
+                   {:fx [[:dispatch [parent-id [:done (:result data)]]]]}))
+```
+
+Imperative `:rf.machine/spawn` from a user's `:fx` (the rare boot-time form per [§Top-level boot-time spawn](#top-level-boot-time-spawn-rare)) doesn't carry `:rf/parent-id` / `:rf/invoke-id`, so only `:rf/self-id` is stamped. That's the right shape — there's no parent in that case.
+
+### Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)
+
+Per [rf2-ijm7](#) — when `[:rf.machine/spawn ...]` does NOT carry an explicit `:start` event, the runtime dispatches a synthetic `[<spawned-id> [:rf.machine/spawned]]` to the new actor as its first event. This gives generic re-usable child machines (e.g. the [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper) for `:rf.http/managed`) a stable hook to declare a leaf-level transition that fires the actor's first work on spawn:
+
+```clojure
+:requesting {:on {:rf.machine/spawned {:action :fire-request}}}
+```
+
+Machines that don't handle `:rf.machine/spawned` see the event as a benign no-op — it walks the leaf→root resolution chain, finds no match, and the snapshot is unchanged (per [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough)).
+
+When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine/spawned` OR the user's `:start`, never both.
+
 ### Top-level boot-time spawn (rare)
 
 The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an event handler's `:fx`. From outside a handler (e.g. boot-time), wrap the spawn in a one-shot bootstrap event:
@@ -1607,6 +1639,19 @@ The walk-through:
 6. If the user abandons mid-flight (a different transition fires `:authenticating` → `:idle`), the exit cascade still runs; the in-flight HTTP child is destroyed; no actor leaks.
 
 The key property: the parent does not have to *remember* to destroy the child. The lifecycle binding is declared once at the state level, and the exit cascade enforces it on every code path out of the state — including ones the author hasn't yet thought of.
+
+Per [rf2-ijm7](#), the framework's `:rf.http/managed` ships as **both** an fx AND a child-invokable machine for exactly this pattern — apps no longer hand-roll the HTTP-child wrapper:
+
+```clojure
+{:authenticating
+ {:invoke {:machine-id :rf.http/managed
+           :data       {:request {:method :post :url "/api/login"
+                                  :body credentials}}}
+  :on     {:succeeded :authenticated
+           :failed    :idle}}}
+```
+
+See [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper) for the wrapper's contract; the wrapper's terminal `:succeeded` / `:failed` events arrive at the parent exactly as the hand-rolled HTTP child machine would emit them.
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface that `:invoke` desugars to; [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit) for the auto+manual ordering rule; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the `:invoke` schema. [Pattern-WebSocket](Pattern-WebSocket.md) is the canonical worked example exercising hierarchical states, `:after`, `:always`, machine-scoped `:guards` / `:actions`, and `:invoke` together — the connection-lifecycle state machine for long-lived sockets. [Pattern-LongRunningWork](Pattern-LongRunningWork.md) is the canonical worked example for chunked CPU-intensive work — `:always` for batch progression, `:after 0` for browser yielding between chunks, machine-scoped guards for completion / cancellation.
 
