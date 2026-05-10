@@ -408,9 +408,7 @@ Pattern-level error categories:
 | `:rf.error/override-fallthrough` | An override targeted an unregistered id |
 | `:rf.error/duplicate-url-binding` | Two frames declared `:url-bound? true` simultaneously (per Spec 012 R-4) |
 | `:rf.error/adapter-already-installed` | `install-adapter!` called after frames exist (per Spec 006 S-1) |
-| `:rf.error/no-adapter-registered` | `(rf/init!)` called with no args but no adapter has registered as a default — consumer must require an adapter ns or pass an adapter explicitly (per Spec 006 §Adapter selection at boot, rf2-84po) |
-| `:rf.error/multiple-default-adapters` | `(rf/init!)` called with no args but more than one adapter has registered as a default — consumer must disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)` (per Spec 006 §Adapter selection at boot, rf2-84po) |
-| `:rf.error/unknown-adapter-key` | `(rf/init! :keyword)` called with a key that is not in the default-adapter registry (per Spec 006 §Adapter selection at boot, rf2-84po) |
+| `:rf.error/no-adapter-specified` | `(rf/init! …)` was called with no args, nil, or a non-map argument (e.g. a keyword). The only legal call shape is `(rf/init! adapter-map)` — require the adapter ns and pass its `adapter` Var (per Spec 006 §Adapter selection at boot, rf2-agql) |
 | `:rf.error/derived-container-replaced` | `replace-container!` called on a derived container (per Spec 006 §make-derived-value) |
 | `:rf.error/adapter-disposed` | An adapter function was called after `dispose-adapter!` ran |
 | `:rf.fx/skipped-on-platform` | Fx was skipped because `:platforms` excluded the active platform |
@@ -529,9 +527,8 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `make-restore-fn` | Fn | `(make-restore-fn)` / `(make-restore-fn frame-id)` → restore-fn | v1 (preserved + extended) | 002 |
-| `init!` | Fn | `(init!)` / `(init! :reagent)` / `(init! adapter-map)` — idempotent boot. No-arg resolves through the default-adapter registry (per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-84po). Zero registered raises `:rf.error/no-adapter-registered`; more than one raises `:rf.error/multiple-default-adapters`. Keyword form bypasses default-resolution; map form installs a literal spec. Ensures `:rf/default` frame is present | v1 | 006 |
-| `register-default-adapter!` | Fn | `(register-default-adapter! key adapter-map)` — adapter ns-load side-effect; idempotent. Populates the default-adapter registry consulted by no-arg `init!`. Per rf2-84po | v1 | 006 |
-| `install-adapter!` | Fn | `(install-adapter! adapter-or-keyword)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
+| `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args, nil, or a non-map argument raises `:rf.error/no-adapter-specified`. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-agql. Ensures `:rf/default` frame is present | v1 | 006 |
+| `install-adapter!` | Fn | `(install-adapter! adapter-map)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
 | `init-platform` | Fn | `(init-platform :server \| :client)` — sets the active platform; defaults from build target | v1 | 011 |
 | `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys) | v1 | — |

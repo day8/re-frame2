@@ -599,34 +599,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:installed :any]
    [:attempted :any]])
 
-(def NoAdapterRegisteredTags
-  ;; Per rf2-84po: (rf/init!) raised because no substrate adapter has
-  ;; registered as a default. Surfaced as a thrown ex-info, not a trace.
+(def NoAdapterSpecifiedTags
+  ;; Per rf2-agql: (rf/init! …) raised because the consumer did not pass
+  ;; an adapter spec map. The only legal call shape is (rf/init! adapter-map);
+  ;; calling (rf/init!) with no args, nil, or a non-map argument (e.g. a
+  ;; keyword) raises this error. Surfaced as a thrown ex-info, not a trace.
   [:map
    [:category :keyword]
    [:where    [:or :symbol :string]]
+   [:received {:optional true} :any]
+   [:expected {:optional true} :string]
+   [:recovery {:optional true} :keyword]
    [:reason   :string]])
 
-(def MultipleDefaultAdaptersTags
-  ;; Per rf2-84po: (rf/init!) raised because more than one substrate
-  ;; adapter has registered as a default. The consumer must disambiguate
-  ;; via the keyword form. Surfaced as a thrown ex-info, not a trace.
+(def AdapterMap
+  ;; The substrate adapter spec map per Spec 006 §The reactive-substrate
+  ;; adapter contract. Nine entries; see the spec for the contract on each.
+  ;; Consumers pass this to (rf/init! adapter-map) — each adapter ns
+  ;; (re-frame.adapter.{reagent,uix,helix}, re-frame.ssr,
+  ;; re-frame.substrate.plain-atom) exports an `adapter` Var of this shape.
   [:map
-   [:category :keyword]
-   [:where    [:or :symbol :string]]
-   [:keys     [:vector :keyword]]
-   [:reason   :string]])
-
-(def UnknownAdapterKeyTags
-  ;; Per rf2-84po: (rf/init! :key) raised because the keyword is not in
-  ;; the default-adapter registry. Surfaced as a thrown ex-info, not a
-  ;; trace.
-  [:map
-   [:category :keyword]
-   [:where    [:or :symbol :string]]
-   [:key      :keyword]
-   [:known    [:vector :keyword]]
-   [:reason   :string]])
+   [:make-state-container      fn?]
+   [:read-container            fn?]
+   [:replace-container!        fn?]
+   [:make-derived-value        fn?]
+   [:render                    fn?]
+   [:render-to-string          fn?]
+   [:subscribe-container       {:optional true} fn?]
+   [:register-context-provider {:optional true} fn?]
+   [:dispose-adapter!          {:optional true} fn?]])
 
 (def RenderOnHeadlessAdapterTags
   [:map

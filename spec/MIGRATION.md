@@ -1382,14 +1382,58 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 ---
 
-**Reporting M-12 through M-39.** These twenty-eight rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-eight separate preambles.
+### M-40. `(rf/init!)` requires an explicit adapter spec map
+
+**Type B — flag for human review.** The rewrite is mechanical *given* a chosen adapter, but the agent must surface every call site so the consumer confirms which adapter the app boots against.
+
+Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! …)` requires an adapter spec map argument. The earlier no-arg form (`(rf/init!)`) and keyword form (`(rf/init! :reagent)`) both raise `:rf.error/no-adapter-specified`. The default-adapter registry — populated by adapter ns-load side-effects under rf2-84po — is dropped entirely.
+
+**Rationale.**
+
+1. **Explicit > implicit.** Reading any app's `run` function tells you which adapter is in use without chasing ns-load side-effects through the require graph.
+2. **Bundle-size.** A registry is bundle weight even when unused. Under rf2-agql an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
+
+**Migration steps.**
+
+1. Identify every call site of `(rf/init!)` / `(rf/init! :keyword)`.
+2. For each, add a `:require` of the relevant adapter ns (if not already present):
+   - Reagent: `[re-frame.adapter.reagent :as reagent]`
+   - UIx: `[re-frame.adapter.uix :as uix]`
+   - Helix: `[re-frame.adapter.helix :as helix]`
+   - SSR (JVM-side): `[re-frame.ssr :as ssr]`
+   - Plain-atom (headless tests): `[re-frame.substrate.plain-atom :as plain-atom]`
+3. Replace the call:
+
+```clojure
+;; before
+(rf/init!)
+
+;; after — Reagent
+(rf/init! reagent/adapter)
+
+;; after — UIx
+(rf/init! uix/adapter)
+
+;; after — SSR (JVM-side bootstrap)
+(rf/init! ssr/adapter)
+```
+
+**Error categories dropped:** `:rf.error/no-adapter-registered`, `:rf.error/multiple-default-adapters`, `:rf.error/unknown-adapter-key` (none survive — there is no registry to disambiguate). The replacement single category is `:rf.error/no-adapter-specified`.
+
+**Public surface dropped:** `register-default-adapter!` (and the supporting `unregister-default-adapter!` / `registered-default-adapters` / `lookup-default-adapter` / `resolve-default-adapter` helpers) — apps that called these can drop the call: each adapter ns now exports an `adapter` Var directly.
+
+**Why Type B (not Type A).** A mixed-substrate app — or an app whose `run` lives in `.cljc` with separate JVM and CLJS branches — needs a per-call-site decision on which adapter to install. The agent surfaces every hit; the consumer confirms or overrides the picked adapter per site.
+
+---
+
+**Reporting M-12 through M-40.** These twenty-nine rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-nine separate preambles.
 
 ---
 
 ## Type-tag summary
 
 - **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q).
-- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour).
+- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
 
