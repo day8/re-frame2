@@ -105,7 +105,7 @@ Background agents will often find new things that need work — ambiguities, con
 
 Ask the mayor:
 
-> *"Maintain a document — `/spec/<project>-map.md` or similar — that summarises and categorises every open bead. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. I'll keep this file open in my editor at all times."*
+> *"Maintain a document — `/specs/<project>-map.md` or similar — that summarises and categorises every open bead. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. I'll keep this file open in my editor at all times."*
 
 This is your **map**. It's not a status report. It's a navigation tool.
 
@@ -195,7 +195,7 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 2. Run one Claude session as your **mayor**. Keep it open. It orchestrates, never does work directly.
 3. **Specs are the work.** Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
 4. Only when the spec is right: *"Create beads to implement this. Action them with background agents on a branch."*
-5. Maintain a **map document** in `/spec/`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them in `CLAUDE.md`.
+5. Maintain a **map document** in `/specs/`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them into the appropriate bead.
 6. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
 7. Use a second model (Codex, etc.) for cross-review. Have it file beads as **suggestions**, not commands.
 
@@ -215,4 +215,12 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 >
 > *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
 
-That's the method.
+That's the method. 
+
+## Warnings
+
+You will burn tokens.
+
+It is not nearly as sophisticated as gastown or gascity, but for me it works a treat.
+
+This is a single-player solution. If you work in a team with lots of overlap, you might need to tweak this. That's left as an exercise for the reader. Or you could adopt something like [Minions](https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents).
