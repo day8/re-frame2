@@ -261,6 +261,32 @@
   (when (exists? js/document)
     (rdc/create-root (js/document.getElementById "app"))))
 
+;; ============================================================================
+;; HTTP REQUEST INTERCEPTOR — Spec 014 §Middleware (rf2-6y3q)
+;; ============================================================================
+;;
+;; Demonstrates the per-frame request interceptor surface: a single
+;; `:before` fn injects a Bearer token from the auth slice, so every
+;; outbound :rf.http/managed request that crosses this frame picks the
+;; auth header up automatically. With this pattern, individual call
+;; sites (`articles.cljs`, `comments.cljs`, ...) don't need to thread
+;; the token through the request builder per-call — the auth slice is
+;; the single source of truth and the interceptor is the single read
+;; site.
+;;
+;; The interceptor returns the ctx unchanged when no token is present,
+;; so login / register / public-read endpoints are unaffected. Compare
+;; with `realworld.http/request` (which threads the header explicitly)
+;; — both shapes work; the interceptor pattern is the lighter option
+;; once the auth slot is established.
+
+(defn- bearer-auth-interceptor [ctx]
+  (let [token (some-> (rf/get-frame-db (:frame ctx))
+                      :auth :token)]
+    (cond-> ctx
+      token (assoc-in [:request :headers "Authorization"]
+                      (str "Token " token)))))
+
 (defn ^:export run []
   ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
@@ -268,6 +294,13 @@
   ;; feature HTTP calls land on the demo stub (no real backend required).
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :fx-overrides {:rf.http/managed :rf.http/managed.realworld-demo}})
+  ;; rf2-6y3q — register the Bearer-auth interceptor at app boot. Order
+  ;; matters: before :app/initialise dispatches, since session-restore
+  ;; will fire authenticated requests as soon as the JWT is hydrated.
+  (rf/reg-http-interceptor
+    {:frame  :rf/default
+     :id     :realworld/bearer-auth
+     :before bearer-auth-interceptor})
   ;; The orchestrator serves this example at /realworld/; strip that
   ;; prefix before the route matcher sees the URL so :route/home (path "/")
   ;; matches.
