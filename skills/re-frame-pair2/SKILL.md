@@ -155,6 +155,10 @@ Each op below is a short `scripts/eval-cljs.sh` invocation wrapping a call into 
 
 Predicates (any combination): `--event-id`, `--event-id-prefix`, `--effects`, `--timing-ms '>100'`, `--touches-path`, `--sub-ran`, `--render`, `--origin :pair|:app|:ui|:timer|:http`, `--frame :foo`, `--custom` (arbitrary CLJS predicate form).
 
+Mode rules:
+
+- `--window-ms` and `--count` are independent. `--window-ms` alone runs for N ms with no count limit; `--count` alone runs until N matches with no window timeout. If both are set, the first condition to fire wins. With neither flag (and no `--stream`), the default is a 30 s window.
+
 The watch transport polls the assembled-epoch stream by tracking the last seen `:epoch-id` in the operating frame's history and asking for everything since. See `docs/initial-spec.md` §4.4.
 
 ### Hot-reload coordination
