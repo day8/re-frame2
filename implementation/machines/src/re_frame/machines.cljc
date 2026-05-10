@@ -13,6 +13,13 @@
     - Declarative :invoke that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via a per-process counter.
+    - Declarative :invoke-all (rf2-6vmw) — spawn-and-join sugar over N
+      parallel :invoke's plus a join condition (:all / :any / {:n N} /
+      {:fn pred}); the runtime owns join state at
+      [:rf/spawned <parent> <invoke-id> :join] and dispatches one of
+      :on-all-complete / :on-some-complete / :on-any-failed when the
+      condition resolves; cancel-on-decision = true (default) tears
+      down surviving siblings via the standard exit-cascade.
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
     - Snapshot at [:rf/machines <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
@@ -20,7 +27,8 @@
   Conformance fixtures cover all of the above (machine-transition,
   hierarchical-{compound,cross-level,parent-fallthrough}-transition,
   always-{single-microstep,depth-exceeded}, after-{single-delay,
-  stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit)."
+  stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit,
+  invoke-all-{join-all-completes,join-any-fails-cancels,n-of-cancels-extras})."
   (:require [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
@@ -568,17 +576,30 @@
             (vec
               (mapcat
                 (fn [[prefix n]]
-                  (when (:invoke n)
+                  (cond
+                    (:invoke n)
                     [[:rf.machine/destroy {:rf/parent-id parent-id
-                                           :rf/invoke-id (vec prefix)}]]))
+                                           :rf/invoke-id (vec prefix)}]]
+                    (:invoke-all n)
+                    ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw):
+                    ;; on exit, tear down EVERY child the parent spawned plus
+                    ;; the join-state slot. The destroy-fx handler reads the
+                    ;; map at [:rf/spawned <parent> <invoke-id>] and iterates
+                    ;; :children to destroy each, then clears the slot.
+                    [[:rf.machine/destroy {:rf/parent-id  parent-id
+                                           :rf/invoke-id  (vec prefix)
+                                           :rf/invoke-all true}]]
+                    :else nil))
                 exited-pairs)))
           [snap-after-spawns spawn-fx]
           (if internal?
             [snap-final []]
             (reduce
               (fn [[s acc-fx] [prefix n]]
-                (if-let [inv (:invoke n)]
-                  (let [machine-id  (:machine-id inv)
+                (cond
+                  (:invoke n)
+                  (let [inv         (:invoke n)
+                        machine-id  (:machine-id inv)
                         invoke-id   (vec prefix)
                         ;; Frame-scoped allocation per Spec 002 frame isolation.
                         ;; Pure-call machine-transition (no frame context) uses
@@ -619,6 +640,72 @@
                                           s))
                                       s)]
                     [s' (conj acc-fx [:rf.machine/spawn spawn-args])])
+
+                  (:invoke-all n)
+                  ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw).
+                  ;; Allocate one spawned-id per child up front, build the
+                  ;; join-state seed, emit a single :rf.machine/invoke-all-init
+                  ;; fx (which seeds [:rf/spawned <parent> <invoke-id>] in
+                  ;; app-db) followed by N :rf.machine/spawn fxs.
+                  (let [inv-all     (:invoke-all n)
+                        children    (:children inv-all)
+                        invoke-id   (vec prefix)
+                        frame-id    (or (:rf/frame machine) :rf/transition-pure)
+                        ;; Allocate per-child ids (deterministic via spawn-counter).
+                        children'   (mapv
+                                      (fn [child]
+                                        (let [machine-id (:machine-id child)
+                                              spawned-id (or (:invoke-id child)
+                                                             (next-spawn-id frame-id machine-id))]
+                                          (assoc child :rf/spawned-id spawned-id)))
+                                      children)
+                        ;; Build the join-state seed map.
+                        children-map (into {} (map (fn [c] [(:id c) (:rf/spawned-id c)])) children')
+                        join-state  {:children  children-map
+                                     :done      #{}
+                                     :failed    #{}
+                                     :resolved? false
+                                     :spec      inv-all
+                                     :invoke-id invoke-id}
+                        init-fx     [:rf.machine/invoke-all-init
+                                     {:rf/parent-id parent-id
+                                      :rf/invoke-id invoke-id
+                                      :join-state   join-state}]
+                        ;; Build per-child spawn-args.
+                        child-spawn-fxs
+                        (mapv
+                          (fn [child]
+                            (let [machine-id (:machine-id child)
+                                  spawned-id (:rf/spawned-id child)
+                                  spawn-args (-> child
+                                                 (dissoc :id)
+                                                 (assoc :id-prefix    machine-id)
+                                                 (assoc :rf/spawned-id spawned-id)
+                                                 (assoc :rf/parent-id  parent-id)
+                                                 ;; The :invoke-all-id ties the spawn back
+                                                 ;; to the parent's join state without
+                                                 ;; re-using the :invoke-id slot meaning.
+                                                 (assoc :rf/invoke-all-id invoke-id)
+                                                 (assoc :rf/invoke-all-child-id (:id child)))]
+                              [:rf.machine/spawn spawn-args]))
+                          children')
+                        ;; Run :on-spawn callbacks per child (advisory).
+                        s' (reduce
+                             (fn [snap child]
+                               (let [aref (:on-spawn child)
+                                     f    (when aref
+                                            (or (chase-ref (:on-spawn-actions machine) aref)
+                                                (chase-ref (:actions machine) aref)))]
+                                 (if f
+                                   (let [data     (:data snap)
+                                         new-data (f data (:rf/spawned-id child))]
+                                     (if new-data (assoc snap :data new-data) snap))
+                                   snap)))
+                             s
+                             children')]
+                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))])
+
+                  :else
                   [s acc-fx]))
               [snap-final []]
               entered-pairs))
@@ -803,6 +890,285 @@
 (defn- snapshot-path [machine-id]
   [:rf/machines machine-id])
 
+;; ---- :invoke-all join-event interception (rf2-6vmw) ----------------------
+;;
+;; Per Spec 005 §Spawn-and-join via :invoke-all, the parent's handler
+;; boundary intercepts events whose inner-event-id matches the active
+;; state's :on-child-done / :on-child-error. The interception:
+;;
+;;   1. Resolves the active :invoke-all-bearing state by walking the
+;;      snapshot's :state path leaf→root looking for a state node whose
+;;      :invoke-all declares the matching event keyword.
+;;   2. Reads the join state at [:rf/spawned <parent> <invoke-id>].
+;;   3. Adds <child-id> (event[1]) to :done or :failed.
+;;   4. If :resolved? is already true, the event is silently dropped
+;;      (post-resolution late-completion).
+;;   5. Else evaluates the join condition. On resolution:
+;;        - latches :resolved? true
+;;        - if :cancel-on-decision? (default true), emits per-sibling
+;;          :rf.machine/destroy fx and :rf.machine.invoke/cancelled-on-
+;;          join-resolution traces
+;;        - dispatches the parent join event via :fx [[:dispatch ...]]
+;;   6. Writes the new join state back into app-db.
+;;
+;; Returns either:
+;;   - nil if the event is NOT a child-done/error for any active
+;;     :invoke-all (caller continues with normal machine-transition)
+;;   - a {:db ... :fx ...} effect map if the event was intercepted.
+
+(defn- find-active-invoke-all
+  "Walk the snapshot's :state path leaf→root looking for an
+  :invoke-all-bearing state whose :on-child-done or :on-child-error
+  matches the given inner-event-id. Returns
+  {:invoke-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}
+  or nil."
+  [machine snapshot inner-event-id]
+  (let [path (state-path (:state snapshot))]
+    (loop [i (dec (count path))]
+      (when (>= i 0)
+        (let [prefix (vec (take (inc i) path))
+              n      (node-at machine prefix)
+              ia     (:invoke-all n)]
+          (cond
+            (and ia (= inner-event-id (:on-child-done ia)))
+            {:invoke-id prefix :spec ia :kind :done}
+            (and ia (= inner-event-id (:on-child-error ia)))
+            {:invoke-id prefix :spec ia :kind :failed}
+            :else
+            (recur (dec i))))))))
+
+(defn- join-condition-met?
+  "Evaluate the join condition against the current join state.
+  Returns truthy iff the join has resolved on the success-side
+  (:on-all-complete / :on-some-complete should fire)."
+  [spec join-state]
+  (let [join     (:join spec :all)
+        children (:children spec)
+        n-total  (count children)
+        n-done   (count (:done   join-state))
+        n-failed (count (:failed join-state))]
+    (cond
+      (= :all join)
+      (= n-done n-total)
+
+      (= :any join)
+      (>= n-done 1)
+
+      (and (map? join) (pos-int? (:n join)))
+      (>= n-done (:n join))
+
+      (and (map? join) (fn? (:fn join)))
+      ((:fn join) {:done   (:done   join-state)
+                   :failed (:failed join-state)
+                   :total  n-total})
+
+      :else false)))
+
+(defn- intercept-invoke-all-event
+  "Per Spec 005 §Child completion protocol (rf2-6vmw). When the parent's
+  handler receives an event whose inner event-id matches the active
+  :invoke-all-bearing state's :on-child-done / :on-child-error, the
+  runtime updates the join state and (on resolution) cancels surviving
+  siblings + dispatches the join event. The event is NOT fed into the
+  machine's normal :on lookup.
+
+  `db` is the frame's current app-db; `path` is [:rf/machines parent-id];
+  `snapshot` is (get-in db path) (the parent's current snapshot);
+  `parent-id` is the parent machine's id; `inner-event` is the routed
+  inner event vector.
+
+  Returns nil (NOT a child-event for any active :invoke-all) or a
+  re-frame effect map with :db (updated app-db) and :fx (per-sibling
+  destroys + the join-event dispatch)."
+  [machine db path snapshot parent-id inner-event]
+  (let [inner-id (first inner-event)
+        match    (find-active-invoke-all machine snapshot inner-id)]
+    (when match
+      (let [{:keys [invoke-id spec kind]} match
+            child-id   (second inner-event)
+            ;; Read the live join state from app-db (the seed was written
+            ;; by :rf.machine/invoke-all-init on entry).
+            join-state (get-in db [:rf/spawned parent-id invoke-id])]
+        (cond
+          ;; Pure-call snapshot: no app-db join state seeded yet — fall
+          ;; through to no-op (the runtime tracks join state via the fx
+          ;; handlers, not via the pure machine-transition).
+          (or (not (map? join-state))
+              (not (contains? join-state :children)))
+          {:db db :fx []}
+
+          ;; Already resolved: ignore late-completion. Trace once for
+          ;; observability so tools can correlate.
+          (:resolved? join-state)
+          (do (trace/emit! :machine :rf.machine.invoke-all/late-completion
+                           {:machine-id parent-id
+                            :invoke-id  invoke-id
+                            :child-id   child-id
+                            :kind       kind})
+              {:db db :fx []})
+
+          :else
+          (let [;; Update the join state.
+                join-state' (case kind
+                              :done   (update join-state :done   (fnil conj #{}) child-id)
+                              :failed (update join-state :failed (fnil conj #{}) child-id))
+                ;; Evaluate. The :on-any-failed path resolves first if
+                ;; (a) the spec declares it, (b) we just added a failed
+                ;; entry. Otherwise check the success-side condition.
+                cancel?  (let [c (:cancel-on-decision? spec)]
+                           (if (nil? c) true (boolean c)))
+                fail-fired?
+                (and (= kind :failed)
+                     (vector? (:on-any-failed spec)))
+                success-fired?
+                (and (not fail-fired?)
+                     (join-condition-met? spec join-state'))
+                resolution-event
+                (cond
+                  fail-fired?    (:on-any-failed spec)
+                  success-fired? (cond
+                                   (= :all (:join spec :all)) (:on-all-complete spec)
+                                   :else                       (:on-some-complete spec)))
+                resolved? (boolean (or fail-fired? success-fired?))
+                join-state'' (assoc join-state' :resolved? resolved?)
+                ;; Emit the appropriate trace events.
+                _ (when fail-fired?
+                    (trace/emit! :machine :rf.machine.invoke-all/any-failed
+                                 {:machine-id parent-id
+                                  :invoke-id  invoke-id
+                                  :failed-id  child-id
+                                  :failed     (:failed join-state'')
+                                  :done       (:done   join-state'')}))
+                _ (when (and success-fired? (= :all (:join spec :all)))
+                    (trace/emit! :machine :rf.machine.invoke-all/all-completed
+                                 {:machine-id parent-id
+                                  :invoke-id  invoke-id
+                                  :done       (:done join-state'')}))
+                _ (when (and success-fired? (not= :all (:join spec :all)))
+                    (trace/emit! :machine :rf.machine.invoke-all/some-completed
+                                 {:machine-id parent-id
+                                  :invoke-id  invoke-id
+                                  :done       (:done join-state'')
+                                  :join       (:join spec)}))
+                ;; If resolved + cancel?: build per-sibling destroy fx
+                ;; for children NOT in :done or :failed (the in-flight
+                ;; survivors).
+                cancel-fx
+                (when (and resolved? cancel?)
+                  (let [completed-ids (into #{} (concat (:done join-state'')
+                                                        (:failed join-state'')))
+                        survivors     (->> (:children join-state'')
+                                           (remove (fn [[cid _]] (contains? completed-ids cid))))
+                        join-event-kw (cond
+                                        fail-fired?    :on-any-failed
+                                        (= :all (:join spec :all)) :on-all-complete
+                                        :else :on-some-complete)]
+                    (doseq [[cid spawned-id] survivors]
+                      (trace/emit! :machine :rf.machine.invoke/cancelled-on-join-resolution
+                                   {:machine-id parent-id
+                                    :invoke-id  invoke-id
+                                    :child-id   cid
+                                    :spawned-id spawned-id
+                                    :join-event join-event-kw}))
+                    (mapv (fn [[_ spawned-id]]
+                            [:rf.machine/destroy spawned-id])
+                          survivors)))
+                ;; Build the dispatch fx that fires the join-event into
+                ;; the parent. The dispatched event is in standard
+                ;; sub-event shape: [<parent-id> <event-vec>].
+                dispatch-fx
+                (when resolution-event
+                  [[:dispatch (into [parent-id resolution-event] [])]])
+                fx (vec (concat (or cancel-fx []) (or dispatch-fx [])))
+                new-db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')]
+            {:db new-db :fx fx}))))))
+
+(defn- validate-invoke-all!
+  "Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
+  state tree at registration time and reject malformed :invoke-all
+  declarations.
+
+  Three error categories:
+    - :rf.error/machine-invoke-all-bad-shape — a child invoke-spec is
+      missing :id; or :invoke-all is not a vector; or the join-event
+      slots are missing per the required-iff rules; or no :machine-id
+      / :definition.
+    - :rf.error/machine-invoke-all-duplicate-id — two children share an
+      :id keyword inside the same :invoke-all block.
+    - :rf.error/machine-invoke-all-with-invoke — a state node declares
+      both :invoke and :invoke-all (mutually exclusive)."
+  [state-key state-node]
+  (let [inv-all (:invoke-all state-node)]
+    (when inv-all
+      (when (:invoke state-node)
+        (throw (ex-info ":rf.error/machine-invoke-all-with-invoke"
+                        {:state state-key})))
+      (when-not (map? inv-all)
+        (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                        {:state state-key
+                         :reason "invoke-all slot must be a map"})))
+      (let [children (:children inv-all)]
+        (when-not (and (vector? children) (seq children))
+          (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                          {:state state-key
+                           :reason ":children must be a non-empty vector of child specs"})))
+        (doseq [c children]
+          (when-not (and (map? c) (keyword? (:id c)))
+            (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                            {:state state-key
+                             :reason "each child invoke-spec must declare an :id keyword"
+                             :child c})))
+          (when-not (or (:machine-id c) (:definition c))
+            (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                            {:state state-key
+                             :reason "each child invoke-spec must declare :machine-id or :definition"
+                             :child c}))))
+        (let [ids (map :id children)]
+          (when (not= (count ids) (count (set ids)))
+            (let [dup (->> (frequencies ids) (filter (fn [[_ n]] (> n 1))) (map first))]
+              (throw (ex-info ":rf.error/machine-invoke-all-duplicate-id"
+                              {:state state-key :duplicate-ids dup}))))))
+      (when-not (keyword? (:on-child-done inv-all))
+        (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                        {:state state-key
+                         :reason ":on-child-done is required (event keyword)"})))
+      (when-not (keyword? (:on-child-error inv-all))
+        (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                        {:state state-key
+                         :reason ":on-child-error is required (event keyword)"})))
+      (let [join (:join inv-all :all)]
+        (cond
+          (= :all join)
+          (when-not (vector? (:on-all-complete inv-all))
+            (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                            {:state state-key
+                             :reason ":on-all-complete event-vector is required when :join is :all (default)"})))
+          (or (= :any join)
+              (and (map? join) (or (pos-int? (:n join))
+                                   (fn? (:fn join)))))
+          (when-not (vector? (:on-some-complete inv-all))
+            (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                            {:state state-key
+                             :reason ":on-some-complete event-vector is required when :join is :any / {:n N} / {:fn ...}"})))
+          :else
+          (throw (ex-info ":rf.error/machine-invoke-all-bad-shape"
+                          {:state state-key
+                           :reason ":join must be :all, :any, {:n pos-int}, or {:fn fn?}"
+                           :join join})))))))
+
+(defn- walk-state-nodes
+  "Yield [state-key state-node] pairs for every node under :states,
+  recursing through :states maps. Used by registration-time validators."
+  [machine]
+  (letfn [(walk [path nodes]
+            (mapcat
+              (fn [[k n]]
+                (cons [k n]
+                      (when (:states n)
+                        (walk (conj path k) (:states n)))))
+              nodes))]
+    (walk [] (:states machine))))
+
 (defn create-machine-handler
   "Returns a function suitable for registration with reg-event-fx.
 
@@ -814,6 +1180,11 @@
   reusable across multiple registrations (e.g. (reg-event-fx :a m)
   and (reg-event-fx :b m) produce two independent machines)."
   [machine]
+  ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
+  ;; full state tree (including nested :states) and reject malformed
+  ;; :invoke-all declarations at registration time.
+  (doseq [[s n] (walk-state-nodes machine)]
+    (validate-invoke-all! s n))
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
@@ -907,7 +1278,18 @@
                             inner))
 
                         :else event)
-          step-result (machine-transition machine snapshot inner-event)]
+          ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw):
+          ;; intercept :on-child-done / :on-child-error events for any
+          ;; :invoke-all-bearing state currently active. The intercept
+          ;; updates the runtime-owned join state and (on resolution)
+          ;; fires per-sibling cancellations + the join event. Returns
+          ;; nil if the event is not a child-event for the current state.
+          intercepted (intercept-invoke-all-event machine db path snapshot machine-id inner-event)]
+      (if intercepted
+        ;; The event was a join-protocol event; the intercept did its
+        ;; bookkeeping in app-db and set up the resolution dispatch.
+        intercepted
+        (let [step-result (machine-transition machine snapshot inner-event)]
       ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine
       ;; action throws: when the cascade halted on an action exception,
       ;; emit `:rf.error/machine-action-exception` (NOT the generic
@@ -959,7 +1341,7 @@
                           :after      next-snapshot
                           :frame      (or frame :rf/default)}))
           {:db new-db
-           :fx fx})))))
+           :fx fx}))))))) ;; close: inner if, let step-result, outer if, let with snapshot/inner-event, fn, defn
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 
@@ -1237,6 +1619,71 @@
         (dispatch! [spawned-id start] {:frame frame-id})))
     spawned-id))
 
+(defn invoke-all-init-fx
+  "fx handler for `:rf.machine/invoke-all-init` (rf2-6vmw). Per Spec 005
+  §Spawn-and-join via :invoke-all, on entry to an :invoke-all-bearing
+  state the runtime emits this fx (alongside per-child :rf.machine/spawn
+  fxs) to seed the join state at [:rf/spawned <parent> <invoke-id>] in
+  the frame's app-db. The seed map shape is:
+
+    {:children {<child-id> <spawned-id>, ...}
+     :done      #{}
+     :failed    #{}
+     :resolved? false
+     :spec      <invoke-all-spec>}
+
+  Subsequent :on-child-done / :on-child-error events arrive at the
+  parent's create-machine-handler boundary and are intercepted by
+  intercept-invoke-all-event, which updates this slot and (on
+  resolution) cancels surviving siblings + dispatches the join event."
+  [{:keys [frame]} args]
+  (let [frame-id   (or frame :rf/default)
+        parent-id  (:rf/parent-id args)
+        invoke-id  (:rf/invoke-id args)
+        join-state (:join-state args)
+        children   (:children join-state)]
+    (when-let [container (frame/get-frame-db frame-id)]
+      (let [old-db (adapter/read-container container)
+            new-db (assoc-in old-db [:rf/spawned parent-id invoke-id] join-state)]
+        (adapter/replace-container! container new-db)))
+    (trace/emit! :machine :rf.machine.invoke-all/started
+                 {:machine-id parent-id
+                  :invoke-id  invoke-id
+                  :child-ids  (set (keys children))
+                  :children   children
+                  :frame      frame-id})
+    nil))
+
+(defn- destroy-single-actor!
+  "Destroy a single spawned actor: dissoc the snapshot at
+  [:rf/machines <id>], clear any :system-id binding pointing at it,
+  unregister the live event handler. Used by destroy-machine-fx for
+  the keyword-form legacy/imperative destroy AND iterated for each
+  child in an :invoke-all teardown."
+  [frame-id actor-id]
+  (when actor-id
+    (let [released-sid
+          (when (frame/get-frame-db frame-id)
+            (let [db (adapter/read-container (frame/get-frame-db frame-id))]
+              (some (fn [[sid mid]]
+                      (when (= mid actor-id) sid))
+                    (get db :rf/system-ids))))]
+      (when-let [container (frame/get-frame-db frame-id)]
+        (let [old-db (adapter/read-container container)
+              new-db (cond-> old-db
+                       true         (update :rf/machines dissoc actor-id)
+                       released-sid (update :rf/system-ids dissoc released-sid))]
+          (adapter/replace-container! container new-db)))
+      (when released-sid
+        (trace/emit! :machine :rf.machine/system-id-released
+                     {:frame      frame-id
+                      :system-id  released-sid
+                      :machine-id actor-id}))
+      (registrar/unregister! :event actor-id)
+      released-sid)))
+
+(declare destroy-machine-fx-single)
+
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Per Spec 005 §Spawning, destroy
   unregisters the spawned actor's event handler, clears its snapshot at
@@ -1253,9 +1700,58 @@
       id from `[:rf/spawned <parent-id> <invoke-id>]` in the frame's
       app-db (no longer reads the user's `:data.:pending`).
 
+  Per rf2-6vmw, the map form may also carry `:rf/invoke-all true` —
+  the declarative-:invoke-all exit-cascade form. The slot at
+  [:rf/spawned <parent-id> <invoke-id>] holds a join-state map whose
+  :children sub-map has every spawned child id. The handler iterates
+  :children and tears each one down, then clears the slot.
+
   The map form clears the `[:rf/spawned <parent-id> <invoke-id>]` slot
   alongside the snapshot + system-id bookkeeping; the keyword form
   leaves it untouched (the imperative spawn never wrote it)."
+  [{:keys [frame]} args]
+  (let [frame-id  (or frame :rf/default)
+        tracked?  (map? args)
+        invoke-all? (and tracked? (true? (:rf/invoke-all args)))
+        parent-id (when tracked? (:rf/parent-id args))
+        invoke-id (when tracked? (:rf/invoke-id args))]
+    (cond
+      ;; ---- :invoke-all teardown form (rf2-6vmw) ----
+      ;; Read the join-state map, destroy each :children entry, clear
+      ;; the slot. Emit one :rf.machine/destroyed trace per child.
+      invoke-all?
+      (let [join-state (when-let [container (frame/get-frame-db frame-id)]
+                         (get-in (adapter/read-container container)
+                                 [:rf/spawned parent-id invoke-id]))
+            children   (when (map? join-state) (:children join-state))]
+        (doseq [[child-id spawned-id] children]
+          (trace/emit! :machine :rf.machine/destroyed
+                       {:frame      frame-id
+                        :actor-id   spawned-id
+                        :parent-id  parent-id
+                        :invoke-id  invoke-id
+                        :child-id   child-id})
+          (destroy-single-actor! frame-id spawned-id))
+        ;; Clear the slot + lazy-allocation prune.
+        (when-let [container (frame/get-frame-db frame-id)]
+          (let [old-db (adapter/read-container container)
+                new-db (cond-> old-db
+                         true (update-in [:rf/spawned parent-id]
+                                         dissoc invoke-id)
+                         (empty? (get-in old-db [:rf/spawned parent-id]))
+                         (update :rf/spawned dissoc parent-id))
+                new-db (cond-> new-db
+                         (empty? (get new-db :rf/spawned))
+                         (dissoc :rf/spawned))]
+            (adapter/replace-container! container new-db)))
+        nil)
+
+      :else
+      (destroy-machine-fx-single {:frame frame} args))))
+
+(defn- destroy-machine-fx-single
+  "Original :rf.machine/destroy implementation — handles the keyword
+  (legacy/imperative) form and the single-:invoke (tracked map) form."
   [{:keys [frame]} args]
   (let [frame-id  (or frame :rf/default)
         tracked?  (map? args)
@@ -1332,8 +1828,9 @@
    (when-let [container (frame/get-frame-db frame-id)]
      (get-in (adapter/read-container container) [:rf/system-ids system-id]))))
 
-(fx/reg-fx :rf.machine/spawn   spawn-fx)
-(fx/reg-fx :rf.machine/destroy destroy-machine-fx)
+(fx/reg-fx :rf.machine/spawn            spawn-fx)
+(fx/reg-fx :rf.machine/destroy          destroy-machine-fx)
+(fx/reg-fx :rf.machine/invoke-all-init  invoke-all-init-fx)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -1366,3 +1863,4 @@
 (late-bind/set-fn! :machines/reset-counters!        reset-counters!)
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
+(late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)
