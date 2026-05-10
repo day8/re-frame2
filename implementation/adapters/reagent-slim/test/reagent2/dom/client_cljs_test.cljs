@@ -21,6 +21,7 @@
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [reagent2.ratom :as ratom]
             [reagent2.impl.batching :as batching]
+            [reagent2.impl.component :as component]
             [reagent2.dom.client :as dom-client]))
 
 ;; ---------------------------------------------------------------------------
@@ -229,22 +230,175 @@
     (is (fn? dom-client/unmount))
     (is (fn? dom-client/hydrate-root))))
 
-(deftest render-throws-not-implemented
-  (testing "render throws :rf.error/not-implemented until Stage 4-D"
-    (let [thrown (try (dom-client/render :root :el)
-                      false
+(deftest render-callable-stage-4d
+  ;; Stage 4-D landed: render no longer throws — it walks hiccup via
+  ;; reagent2.impl.template/as-element and pushes the result into the
+  ;; root. The full mount-against-real-React path is exercised in
+  ;; render_cljs_test (Stage 4-D); this assertion is the cheap smoke
+  ;; check that the symbol is bound and not the old throw-shim.
+  (testing "render is bound and is not the Stage 4-B throw-shim"
+    (is (fn? dom-client/render))
+    ;; Calling render with non-root/non-hiccup inputs should not
+    ;; raise the old :rf.error/not-implemented; React's own
+    ;; .render method may surface a different error for a bogus
+    ;; root, which is fine.
+    (let [thrown (try (dom-client/render :not-a-root :el)
+                      nil
                       (catch :default e (ex-data e)))]
-      (is (= :rf.error/not-implemented (:type thrown)))
-      (is (= :4-D (:stage thrown))))))
+      (is (not= :rf.error/not-implemented (:type thrown))))))
 
-(deftest hydrate-root-throws-not-implemented
-  (testing "hydrate-root throws :rf.error/not-implemented until Stage 4-D"
-    (let [thrown (try (dom-client/hydrate-root :container :el)
-                      false
-                      (catch :default e (ex-data e)))]
-      (is (= :rf.error/not-implemented (:type thrown)))
-      (is (= :4-D (:stage thrown))))))
+(deftest hydrate-root-callable-stage-4d
+  ;; Stage 4-D landed: hydrate-root no longer throws — it walks hiccup
+  ;; via reagent2.impl.template/as-element and calls
+  ;; react-dom-client/hydrateRoot. The real-DOM hydration path lives
+  ;; in the browser-test target.
+  (testing "hydrate-root is bound and is not the Stage 4-B throw-shim"
+    (is (fn? dom-client/hydrate-root))))
 
 (deftest unmount-handles-nil-gracefully
   (testing "unmount on nil root is a no-op (defensive)"
     (is (nil? (dom-client/unmount nil)))))
+
+;; ---------------------------------------------------------------------------
+;; Stage 4-D: render-path integration (fake-root)
+;;
+;; Real React DOM rendering requires jsdom; node-test runs without one.
+;; We verify the call path uses a stub root (with .render captured) so
+;; we can inspect what gets pushed in. The full real-React pass lives
+;; in the browser-test target.
+;; ---------------------------------------------------------------------------
+
+(deftest render-pushes-react-element-into-root
+  (testing "render walks hiccup via as-element and calls (.render root react-el)"
+    (let [captured (atom nil)
+          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
+      (dom-client/render fake-root [:div "hi"])
+      (let [^js el @captured]
+        (is (some? el) ".render received a React element")
+        (is (= "div" (.-type el)) "the React element wraps the hiccup tag")
+        (is (= "hi" (-> el .-props .-children))
+            "child text travelled through")))))
+
+(deftest render-passes-nil-for-nil-hiccup
+  (testing "render with nil hiccup passes nil to root.render"
+    (let [captured (atom :sentinel)
+          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
+      (dom-client/render fake-root nil)
+      (is (nil? @captured)))))
+
+(deftest render-translates-shorthand-class
+  (testing "render converts :div.foo shorthand on the way in"
+    (let [captured (atom nil)
+          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
+      (dom-client/render fake-root [:div.foo])
+      (is (= "foo" (-> ^js @captured .-props .-className))))))
+
+;; ---------------------------------------------------------------------------
+;; Stage 4-D: deref-capture wiring
+;;
+;; Per IMPL-SPEC §4.4 path 1: a class component's render runs inside a
+;; per-instance Reaction so deref'd RAtoms register as deps. On dep
+;; change the Reaction's auto-run callback queues a forceUpdate via
+;; batching/queue-render!.
+;;
+;; Without this wiring (Stage 4-A handoff note), views render once and
+;; never update. We exercise the wiring via a fake forceUpdate spy.
+;; ---------------------------------------------------------------------------
+
+(deftest render-deref-capture-queues-rerender-on-dep-change
+  (testing "deref-capture wiring: dep change triggers forceUpdate via batching"
+    (async done
+      (let [a            (ratom/atom 0)
+            renders      (atom 0)
+            ;; Render fn that derefs `a` — this should subscribe the
+            ;; component to changes via the per-instance render Reaction.
+            render-fn    (fn []
+                           (swap! renders inc)
+                           [:div @a])
+            ;; Build a class via the same path as fn-to-class.
+            ^js klass    (component/create-class*
+                           {:reagent-render render-fn})
+            ;; Fake forceUpdate so we can observe the queue-render!
+            ;; cascade without running React DOM.
+            forced       (atom 0)
+            inst         (new klass #js {:__rfArgv [render-fn]})]
+        ;; Stub forceUpdate before first render so the queued
+        ;; re-render observes our spy. React would normally provide
+        ;; this; we replicate it for the test.
+        (set! (.-forceUpdate inst) (fn [] (swap! forced inc)))
+        ;; First render: should subscribe to `a`.
+        (.call (.. klass -prototype -render) inst)
+        (is (= 1 @renders) "first render ran")
+        ;; Mutate the dep — should enqueue a re-render via the
+        ;; reaction's auto-run callback.
+        (swap! a inc)
+        (-> (js/Promise.resolve (dom-client/flush-views!))
+            (.then (fn [_]
+                     (is (>= @forced 1)
+                         "forceUpdate fired after dep change (deref-capture wired)")
+                     ;; Cleanup: unmount the test instance to dispose
+                     ;; the reaction's watch graph.
+                     (.call (.. klass -prototype -componentWillUnmount) inst)
+                     (done))))))))
+
+(deftest render-componentwillunmount-disposes-render-reaction
+  (testing "componentWillUnmount disposes the per-instance render Reaction"
+    (let [a            (ratom/atom 0)
+          render-fn    (fn [] [:div @a])
+          ^js klass    (component/create-class*
+                         {:reagent-render render-fn})
+          inst         (new klass #js {:__rfArgv [render-fn]})]
+      (set! (.-forceUpdate inst) (fn [] nil))
+      (.call (.. klass -prototype -render) inst)
+      (is (some? (.-cljsRenderRea inst))
+          "after first render, the render Reaction is cached on the instance")
+      (.call (.. klass -prototype -componentWillUnmount) inst)
+      (is (nil? (.-cljsRenderRea inst))
+          "after componentWillUnmount, the cached Reaction reference is cleared"))))
+
+(deftest render-componentwillunmount-runs-user-callback
+  (testing "componentWillUnmount runs the user :component-will-unmount fn"
+    (let [unmounted     (atom 0)
+          render-fn     (fn [] [:div])
+          will-unmount  (fn [_this] (swap! unmounted inc))
+          ^js klass     (component/create-class*
+                          {:reagent-render render-fn
+                           :component-will-unmount will-unmount})
+          inst          (new klass #js {:__rfArgv [render-fn]})]
+      (set! (.-forceUpdate inst) (fn [] nil))
+      (.call (.. klass -prototype -render) inst)
+      (.call (.. klass -prototype -componentWillUnmount) inst)
+      (is (= 1 @unmounted)
+          "user :component-will-unmount fired in addition to the synthetic disposal"))))
+
+(deftest render-deref-capture-tracks-reaction-changes
+  (testing "deref-capture tracks Reaction (not just RAtom) deps"
+    (async done
+      (let [src          (ratom/atom 0)
+            ;; Build a Reaction that's auto-run so it re-runs on src change.
+            derived      (ratom/make-reaction (fn [] (* @src 100))
+                                              :auto-run true)
+            renders      (atom 0)
+            render-fn    (fn []
+                           (swap! renders inc)
+                           [:div @derived])
+            forced       (atom 0)
+            ^js klass    (component/create-class*
+                           {:reagent-render render-fn})
+            inst         (new klass #js {:__rfArgv [render-fn]})]
+        (set! (.-forceUpdate inst) (fn [] (swap! forced inc)))
+        ;; First render: the per-component render Reaction subscribes
+        ;; to `derived`.
+        (.call (.. klass -prototype -render) inst)
+        (is (= 1 @renders) "first render ran")
+        (is (= 0 @forced) "no forceUpdate yet — no dep change")
+        ;; Mutate src; derived recomputes (auto-run); the per-component
+        ;; render Reaction sees the change and queues forceUpdate.
+        (reset! src 1)
+        (-> (js/Promise.resolve (dom-client/flush-views!))
+            (.then (fn [_]
+                     (is (= 100 @derived) "derived has the post-mutation value")
+                     (is (>= @forced 1)
+                         "forceUpdate fired after Reaction-mediated dep change")
+                     (.call (.. klass -prototype -componentWillUnmount) inst)
+                     (done))))))))

@@ -60,8 +60,14 @@
     Suspense test in dom_client_cljs_test.cljs.
 
   Production cost: zero. `flush-views!` is gated on `js/goog.DEBUG` and
-  DCEs entirely under `:advanced` + `goog.DEBUG=false`."
+  DCEs entirely under `:advanced` + `goog.DEBUG=false`.
+
+  Stage 4-D: `render` and `hydrate-root` are wired to the hiccup
+  interpreter `reagent2.impl.template/as-element`. Both call paths
+  walk the user's hiccup tree once and produce React elements; React
+  then drives its own concurrent rendering through the root."
   (:require [reagent2.impl.batching :as batching]
+            [reagent2.impl.template :as template]
             ["react" :as react]
             ["react-dom/client" :as react-dom-client]))
 
@@ -131,48 +137,68 @@
                          (microtask-tick))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Mount entries — Stage 4-D / 4-E will wire these to the hiccup
-;; interpreter. Stage 4-B ships the scaffolds so consumers can
-;; `:require` this ns without a load-time error; calls into the
-;; mount fns throw a clear "not yet implemented" until 4-D lands.
+;; Mount entries (Stage 4-D)
+;;
+;; The mount-side surface per IMPL-SPEC §2.4. `render` walks the user's
+;; hiccup `el` once via `reagent2.impl.template/as-element` and hands
+;; the resulting React element tree to React's root. React then drives
+;; its own concurrent rendering — the rewrite's microtask scheduler
+;; covers the Reagent-shape (Form-1/2/3) re-render path; React's
+;; reconciler handles everything downstream (children, hooks, etc.).
+;;
+;; `hydrate-root` is the SSR path: takes a container with pre-rendered
+;; HTML and a hiccup tree; calls `react-dom-client/hydrateRoot` so
+;; React reconciles against the existing DOM. Hydration mismatches
+;; surface as React-19 errors — the rewrite passes them through
+;; honestly per IMPL-SPEC §7.6.
 ;; ---------------------------------------------------------------------------
 
 (defn create-root
   "React 19 root constructor. Wraps `react-dom-client/createRoot`.
 
-  Stage 4-B: thin wrapper; Stage 4-D wires this into the render pipeline."
+  Returns a React 19 root object whose `.render`, `.unmount` methods
+  drive subsequent operations. Pass the root to `render` /
+  `hydrate-root` to push hiccup into it."
   ([container]
    (react-dom-client/createRoot container))
   ([container options]
    (react-dom-client/createRoot container options)))
 
 (defn render
-  "Render hiccup `el` into `root`. Walks `el` via
-  `reagent2.impl.template/as-element` (Stage 4-D).
+  "Render hiccup `el` into React `root`.
 
-  Stage 4-B placeholder — throws until 4-D lands. The signature is
-  pinned now so consumers can compile against it."
-  [_root _el]
-  (throw (ex-info "reagent2.dom.client/render not implemented until Stage 4-D"
-                  {:type :rf.error/not-implemented
-                   :stage :4-D})))
+  Walks `el` via `reagent2.impl.template/as-element` to produce a
+  React element tree, then calls `(.render root react-element)`.
+  React drives its own concurrent rendering downstream; the
+  rewrite's microtask scheduler covers the Reagent-shape
+  (Form-1/2/3) re-render path.
+
+  Returns nil — React 19 root.render returns void."
+  [^js root el]
+  (.render root (template/as-element el))
+  nil)
 
 (defn unmount
-  "Detach `root`. Wraps `(.unmount root)`."
+  "Detach `root`. Wraps `(.unmount root)`. No-op if `root` is nil or
+  has no `.unmount` (pre-existing roots from older React versions)."
   [^js root]
   (when (and (some? root)
              (some? (.-unmount root)))
     (.unmount root)))
 
 (defn hydrate-root
-  "SSR hydration entry. Wraps `react-dom-client/hydrateRoot`.
+  "Hydrate `container` against pre-rendered HTML, producing a React 19
+  root. Walks `el` via `reagent2.impl.template/as-element` to produce
+  the React element tree React reconciles against the existing DOM.
 
-  Stage 4-B placeholder — throws until 4-D lands."
-  ([_container _el]
-   (throw (ex-info "reagent2.dom.client/hydrate-root not implemented until Stage 4-D"
-                   {:type :rf.error/not-implemented
-                    :stage :4-D})))
-  ([_container _el _options]
-   (throw (ex-info "reagent2.dom.client/hydrate-root not implemented until Stage 4-D"
-                   {:type :rf.error/not-implemented
-                    :stage :4-D}))))
+  Returns the React 19 root so callers can hold a reference for
+  later operations (re-renders via `(.render root ...)` or unmounts
+  via `unmount`).
+
+  Hydration-mismatch errors surface as React 19 errors (no
+  Reagent-side suppression; the rewrite passes React's diagnostics
+  through honestly per IMPL-SPEC §7.6)."
+  ([container el]
+   (react-dom-client/hydrateRoot container (template/as-element el)))
+  ([container el options]
+   (react-dom-client/hydrateRoot container (template/as-element el) options)))

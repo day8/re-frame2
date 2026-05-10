@@ -1,0 +1,174 @@
+(ns re-frame.adapter.reagent-slim
+  "The day8/reagent-slim adapter — drop-in replacement for the bridge
+  adapter `re-frame.adapter.reagent` (rf2-6hyy Stage 4-D).
+
+  Per IMPL-SPEC §2.1 + §9 + §13.1: this adapter Var emits the same
+  9-key map shape `re-frame.substrate.adapter` consumes; signatures
+  match the bridge's signatures byte-for-byte. Internals swap from
+  `(:require [reagent.core ...] [reagent.ratom ...] [reagent.dom.client ...])`
+  to the rewrite's `reagent2.*` namespaces.
+
+  Why a separate ns rather than overwriting `re-frame.adapter.reagent`:
+  the in-tree shadow-cljs build adds both `adapters/reagent/src` and
+  `adapters/reagent-slim/src` to the classpath at the same time. Two
+  namespaces with the same name would clash. At artefact-publication
+  time (per the deps.edn :main and IMPL-SPEC §13.1) the slim artefact
+  ships its own `re-frame.adapter.reagent` — consumers depend on
+  exactly one of {day8/re-frame-2-reagent, day8/reagent-slim} so the
+  ns is single-source per app. Until the artefact split is
+  consummated, this `-slim` suffix lets both coexist in the monorepo.
+
+  Public surface (signatures unchanged from the bridge):
+
+    adapter           — the substrate spec map (9-key contract)
+    set-hiccup-emitter! — wires SSR's render-to-string into :render-to-string
+
+  Late-bind hooks installed at ns-load time:
+    :reagent/set-hiccup-emitter!  — set to set-hiccup-emitter!
+    :adapter/current-frame        — set to re-frame.views/current-frame
+
+  The current-frame hook is the same one the bridge installs. The
+  Reagent-slim adapter targets the same React-context Provider /
+  `(.-context cmp)` shape the bridge uses (per IMPL-SPEC §9.6),
+  so the views.cljs wiring works unchanged.
+
+  Pre-release status: until the bridge is retired (post-1.0), apps
+  that want the rewrite explicitly opt in by requiring this ns.
+
+  Stage 4-D scope-of-completion (rf2-6hyy):
+    - The substrate-shape Vars (containers, derived values, render,
+      hydrate, dispose) are wired against `reagent2.*`.
+    - `register-context-provider` returns `views/build-frame-provider`,
+      same as the bridge — but the upstream `re-frame.views/current-frame`
+      reads `(reagent.core/current-component)` (stock), NOT
+      `(reagent2.core/current-component)` (slim). For mixed-mode
+      environments the slim's Provider components would not be visible
+      to that reader. This is a known Stage 4-E follow-up: views.cljs
+      needs adapter-agnostic dispatch through a late-bind hook
+      (`:adapter/current-component`) before the slim adapter is fully
+      functional in production. Today it is structurally complete and
+      callable from tests, but mounting through `(rf/init! adapter)`
+      is not yet a drop-in replacement for the bridge.
+    - The `(rf/init! ...)` apps still pin the bridge until 4-E lands;
+      the slim adapter is shipped as the integration target so the
+      adapter-shape can be tested + so 4-E's seam work has a concrete
+      consumer.
+
+  Per rf2-uo7v the SSR surface ships in `day8/re-frame-2-ssr` —
+  this adapter MUST NOT statically `:require [re-frame.ssr]`. Instead
+  it publishes its `set-hiccup-emitter!` callback through the
+  late-bind hook table; if the SSR artefact is on the classpath, its
+  ns-load resolves the hook and wires the emitter."
+  (:require [reagent2.core       :as r]
+            [reagent2.ratom      :as ratom]
+            [reagent2.dom.client :as rdc]
+            [re-frame.late-bind  :as late-bind]
+            [re-frame.views      :as views]))
+
+;; ---- container ------------------------------------------------------------
+
+(defn- make-state-container [initial-value]
+  (r/atom initial-value))
+
+(defn- read-container [container]
+  @container)
+
+(defn- replace-container! [container new-value]
+  (reset! container new-value)
+  nil)
+
+(defn- subscribe-container [container on-change]
+  (let [k (gensym "rf-sub-")]
+    (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
+    (fn unsubscribe [] (remove-watch container k))))
+
+;; ---- derived (reactions) --------------------------------------------------
+
+(defn- make-derived-value [source-containers compute-fn]
+  (ratom/make-reaction
+    (fn [] (apply compute-fn (map deref source-containers)))))
+
+;; ---- render ---------------------------------------------------------------
+
+(defn- render [render-tree mount-point opts]
+  ;; The bridge mounted into a raw DOM container directly; under the
+  ;; rewrite we explicitly create a React-19 root once and reuse it.
+  ;; The unmount thunk closes over the root to call its .unmount.
+  (let [hydrate? (boolean (:hydrate? opts))]
+    (if hydrate?
+      (let [root (rdc/hydrate-root mount-point render-tree)]
+        (fn unmount [] (rdc/unmount root)))
+      (let [root (rdc/create-root mount-point)]
+        (rdc/render root render-tree)
+        (fn unmount [] (rdc/unmount root))))))
+
+(defonce ^:private hiccup-emitter (atom nil))
+
+(defn set-hiccup-emitter!
+  "Install the hiccup → HTML fn used by render-to-string. Idempotent.
+  Per rf2-uo7v / IMPL-SPEC §2.1: published through the late-bind hook
+  `:reagent/set-hiccup-emitter!` so the SSR seam at re-frame.ssr
+  resolves it at load time without a static :require."
+  [f]
+  (reset! hiccup-emitter f))
+
+(defn- render-to-string [render-tree opts]
+  (if-let [emit @hiccup-emitter]
+    (emit render-tree opts)
+    (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
+                    {:reason      "use the plain-atom adapter on the JVM for SSR, or install via set-hiccup-emitter!"
+                     :render-tree render-tree}))))
+
+;; ---- context provider -----------------------------------------------------
+
+(defn- register-context-provider [_frame-keyword]
+  ;; Implementation lives in re-frame.views (CLJS-only). The frame-
+  ;; keyword arg is ignored — `build-frame-provider` is 0-arity
+  ;; (rf2-4y60); the returned component takes the frame keyword at
+  ;; render time. Per IMPL-SPEC §9.4: the views.cljs ns continues to
+  ;; back the frame-provider; the rewrite doesn't replace it.
+  (views/build-frame-provider))
+
+;; ---- disposal -------------------------------------------------------------
+
+(defn- dispose-adapter! []
+  ;; Reactions GC themselves when their owners (componentWillUnmount-
+  ;; disposed render Reactions) go away. Nothing per-adapter to do.
+  nil)
+
+(def adapter
+  "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
+
+      (require '[re-frame.adapter.reagent-slim :as reagent-slim])
+      (rf/init! reagent-slim/adapter)
+
+  Drop-in shape-compatible with `re-frame.adapter.reagent/adapter` per
+  IMPL-SPEC §2.1 — the only difference is the substrate, not the keys.
+  Per Spec 006 §CLJS reference + rf2-agql: there is no default-adapter
+  registry; adapter wiring is explicit at the call site."
+  {:make-state-container      make-state-container
+   :read-container            read-container
+   :replace-container!        replace-container!
+   :subscribe-container       subscribe-container
+   :make-derived-value        make-derived-value
+   :render                    render
+   :render-to-string          render-to-string
+   :register-context-provider register-context-provider
+   :dispose-adapter!          dispose-adapter!})
+
+;; Per rf2-uo7v + IMPL-SPEC §9.2: publish the hiccup-emitter installer
+;; through the late-bind hook table so re-frame.ssr (in
+;; day8/re-frame-2-ssr) resolves it at its ns-load. Without this, an
+;; app pulling in the SSR seam would have to manually call
+;; `(reagent-slim/set-hiccup-emitter! ssr/render-to-string)` —
+;; the late-bind table makes that wiring automatic when both
+;; artefacts are on the classpath.
+(late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+
+;; Per rf2-d4sf + IMPL-SPEC §9.6: publish the React-context-aware
+;; current-frame impl through the late-bind hook so subscribe / dispatch
+;; consult the React-context tier of the 3-tier resolution chain. The
+;; rewrite preserves the bridge's class-component context-read shape
+;; (`(.-context cmp)`) per IMPL-SPEC §9.6 — the views.cljs impl works
+;; with reagent-slim's class components without source change.
+(late-bind/set-fn! :adapter/current-frame views/current-frame)
