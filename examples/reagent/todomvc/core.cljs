@@ -3,7 +3,7 @@
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [todomvc.db]
             [todomvc.events]
             [todomvc.subs]
@@ -34,7 +34,7 @@
   (hash->path (.. js/window -location -hash)))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   (rf/dispatch-sync [:todo/initialise])
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])

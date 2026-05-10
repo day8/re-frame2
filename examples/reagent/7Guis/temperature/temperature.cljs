@@ -25,7 +25,7 @@
             ;; its late-bind hooks so rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.views]
-            [re-frame.substrate.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -172,7 +172,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   (rf/dispatch-sync [:temp/initialise])
   (rdc/render root [temperature-converter]))

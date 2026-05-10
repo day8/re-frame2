@@ -10,7 +10,7 @@
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each

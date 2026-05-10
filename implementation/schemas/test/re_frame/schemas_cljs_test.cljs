@@ -25,7 +25,7 @@
             ;; the same.
             [malli.core]
             [re-frame.core :as rf]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). The earlier

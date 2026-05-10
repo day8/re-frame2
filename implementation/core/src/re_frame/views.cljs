@@ -21,18 +21,18 @@
             [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
-            [re-frame.substrate.context :as substrate-context]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.trace :as trace]))
 
 ;; ---- the React context for frame propagation -----------------------------
 ;;
 ;; Per rf2-3yij Decision 2 the React Context object lives in
-;; `re-frame.substrate.context` so the UIx adapter (and any future
+;; `re-frame.adapter.context` so the UIx adapter (and any future
 ;; React-shaped adapter) reads the *same* context — not a parallel one.
 ;; The Reagent code below references it via the alias rather than
 ;; minting a new createContext call.
 
-(def ^:private frame-context substrate-context/frame-context)
+(def ^:private frame-context adapter-context/frame-context)
 
 (defn- frame-provider-component
   "The single Reagent component that backs every frame-provider. It takes
@@ -44,7 +44,7 @@
   (into [:> (.-Provider frame-context) {:value frame-kw}] children))
 
 (defn build-frame-provider
-  "Used by re-frame.substrate.reagent/register-context-provider. Returns
+  "Used by re-frame.adapter.reagent/register-context-provider. Returns
   a Reagent component that scopes a frame keyword to its subtree.
 
   Zero-arity (rf2-4y60): the returned component takes the frame keyword
@@ -436,7 +436,7 @@
   (preserved). The createContext default — `:rf/default` — survives as
   a keyword because it never passed through Reagent's prop-conversion."
   []
-  (let [v (.-_currentValue ^js substrate-context/frame-context)]
+  (let [v (.-_currentValue ^js adapter-context/frame-context)]
     (cond
       (keyword? v) v
       (string?  v) (keyword v))))
@@ -479,7 +479,7 @@
         ;; sets it to `frame-context`; plain fns leave it unset (or
         ;; React's empty default).
         (let [ctx-type (some-> ^js cmp .-constructor .-contextType)]
-          (when-not (identical? ctx-type substrate-context/frame-context)
+          (when-not (identical? ctx-type adapter-context/frame-context)
             ;; Condition 3: closest enclosing Provider names a
             ;; non-default frame.
             (let [provider-frame (read-react-context-frame)]

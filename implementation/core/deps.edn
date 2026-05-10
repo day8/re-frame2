@@ -24,7 +24,7 @@
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
 ;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
 ;; scope. Per the rf2-0hxm decision, that coupling is preserved at the
-;; views.cljs layer; the *substrate* adapter ns (re-frame.substrate.reagent)
+;; views.cljs layer; the *substrate* adapter ns (re-frame.adapter.reagent)
 ;; lives in the Reagent artefact. The full substrate-config plumbing
 ;; unification is deferred to rf2-3yij (UIx adapter).
 ;;

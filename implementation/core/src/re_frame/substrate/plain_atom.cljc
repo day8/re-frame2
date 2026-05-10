@@ -9,7 +9,7 @@
   Per rf2-84po (resolves rf2-4cb6) this ns auto-registers as the default
   adapter on the JVM only. CLJS targets (browser, Node) get their default
   from the substrate-specific ns the consumer requires
-  (re-frame.substrate.reagent / re-frame.substrate.uix); the plain-atom
+  (re-frame.adapter.reagent / re-frame.adapter.uix); the plain-atom
   adapter on CLJS is a programmer-explicit choice via `(rf/init! :plain-atom)`
   or `(rf/init! plain-atom/adapter)`. This keeps the multi-adapter error
   policy meaningful — on CLJS, the registry is populated only by adapter
@@ -90,8 +90,8 @@
 ;;
 ;; JVM only: register plain-atom as the default-adapter candidate at
 ;; ns-load time. CLJS targets get their default from the substrate-specific
-;; ns the consumer requires (re-frame.substrate.reagent /
-;; re-frame.substrate.uix). On CLJS the plain-atom adapter is still
+;; ns the consumer requires (re-frame.adapter.reagent /
+;; re-frame.adapter.uix). On CLJS the plain-atom adapter is still
 ;; reachable via `(rf/init! :plain-atom)` / `(rf/init! plain-atom/adapter)`,
 ;; but it is NOT a default candidate — that keeps the multi-adapter
 ;; resolution policy meaningful (the registry on CLJS contains only the

@@ -1,16 +1,16 @@
-(ns re-frame.substrate.helix
+(ns re-frame.adapter.helix
   "The Helix adapter — the third canonical browser substrate (rf2-2qit).
   Per Spec 006 §CLJS reference: Helix as alternative substrate.
 
   Ships in its own Maven artefact (day8/re-frame-2-helix) per
-  Spec 006 §Substrate-adapter shipping convention (rf2-0hxm). Apps that
-  use Helix depend on both day8/re-frame-2 (core) and this artefact;
-  apps targeting Reagent depend on day8/re-frame-2-reagent instead;
-  apps targeting UIx depend on day8/re-frame-2-uix instead. Core does
+  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use Helix
+  depend on both day8/re-frame-2 (core) and this artefact; apps
+  targeting Reagent depend on day8/re-frame-2-reagent instead; apps
+  targeting UIx depend on day8/re-frame-2-uix instead. Core does
   *not* :require this ns — the dependency direction is adapter → core.
 
   Per rf2-2qit Decision 2 the React frame-context lives in
-  `re-frame.substrate.context` (CLJS-only file in core); this adapter
+  `re-frame.adapter.context` (CLJS-only file in core); this adapter
   consumes the *same* createContext object the Reagent and UIx
   adapters consume, so a future mixed-substrate app's frame-provider
   chain composes across substrates.
@@ -28,7 +28,7 @@
             [re-frame.interop    :as interop]
             [re-frame.subs       :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.context :as substrate-context]))
+            [re-frame.adapter.context :as adapter-context]))
 
 ;; ---- container ------------------------------------------------------------
 ;;
@@ -161,7 +161,7 @@
 ;;
 ;; Per rf2-2qit Decision 2 we share the same React.createContext object
 ;; with the Reagent and UIx adapters (it lives in
-;; re-frame.substrate.context). Helix components consume it via
+;; re-frame.adapter.context). Helix components consume it via
 ;; `helix-hooks/use-context`; the Provider is the same React Provider
 ;; component the other adapters target.
 
@@ -174,7 +174,7 @@
   resolves the *same* context, so a Helix subtree under a Reagent or
   UIx frame-provider sees the right frame and vice versa."
   []
-  (helix-hooks/use-context substrate-context/frame-context))
+  (helix-hooks/use-context adapter-context/frame-context))
 
 (defn frame-provider
   "User-facing Helix component scoping `frame-kw` to its subtree.
@@ -190,7 +190,7 @@
   and UIx variants, different rendering substrate."
   [{:keys [frame children]}]
   (let [frame-kw (or frame :rf/default)]
-    (apply substrate-context/provider-element frame-kw
+    (apply adapter-context/provider-element frame-kw
            (if (sequential? children) children [children]))))
 
 (defn- register-context-provider [_frame-keyword]
@@ -401,7 +401,7 @@
 (def adapter
   "The Helix adapter map. See Spec 006 §CLJS reference: Helix as
   alternative substrate. Implements the same nine-fn contract as
-  re-frame.substrate.reagent and re-frame.substrate.uix."
+  re-frame.adapter.reagent and re-frame.adapter.uix."
   {:make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
@@ -416,10 +416,10 @@
 ;;
 ;; Register this adapter as a default-resolution candidate for
 ;; `(rf/init!)` (no args). Consumers who `(:require
-;; [re-frame.substrate.helix])` pick up Helix as the default at
+;; [re-frame.adapter.helix])` pick up Helix as the default at
 ;; ns-load time without an explicit adapter arg. In a mixed-substrate
-;; app that requires both this ns and re-frame.substrate.reagent (or
-;; re-frame.substrate.uix) the registry carries multiple entries and
+;; app that requires both this ns and re-frame.adapter.reagent (or
+;; re-frame.adapter.uix) the registry carries multiple entries and
 ;; `(rf/init!)` raises `:rf.error/multiple-default-adapters` — the
 ;; consumer must disambiguate via `(rf/init! :helix)`.
 ;;

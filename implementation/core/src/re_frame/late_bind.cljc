@@ -87,7 +87,7 @@
     :ssr/render-to-string        re-frame.ssr/render-to-string
     :ssr/reg-error-projector     re-frame.ssr/reg-error-projector
     :ssr/project-error           re-frame.ssr/project-error
-    :reagent/set-hiccup-emitter! re-frame.substrate.reagent/set-hiccup-emitter!
+    :reagent/set-hiccup-emitter! re-frame.adapter.reagent/set-hiccup-emitter!
     :views/maybe-warn-plain-fn-under-non-default-frame!  re-frame.views/maybe-warn-plain-fn-under-non-default-frame!
     :views/clear-plain-fn-warned-pairs!                  re-frame.views/clear-plain-fn-warned-pairs!
     :epoch/settle!            re-frame.epoch/settle!

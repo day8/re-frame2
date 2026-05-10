@@ -25,7 +25,7 @@
             ;; registrations fire before this ns's reg-route calls.
             [re-frame.routing]
             [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]))
 

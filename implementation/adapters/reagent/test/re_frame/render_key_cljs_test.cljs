@@ -18,7 +18,7 @@
     - The instance-counter monotonically increases."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
             [re-frame.views :as views]))
