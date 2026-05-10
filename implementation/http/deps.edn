@@ -48,10 +48,16 @@
          ;; test-only deps so the fixture loads cleanly. Mirrors the
          ;; pattern in core/deps.edn, routing/deps.edn, flows/deps.edn,
          ;; and ssr/deps.edn.
-         :extra-deps  {day8/re-frame-2-schemas {:local/root "../schemas"}
-                       day8/re-frame-2-flows   {:local/root "../flows"}
-                       day8/re-frame-2-routing {:local/root "../routing"}
-                       day8/re-frame-2-ssr     {:local/root "../ssr"}
+         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
+                       day8/re-frame-2-flows    {:local/root "../flows"}
+                       day8/re-frame-2-routing  {:local/root "../routing"}
+                       day8/re-frame-2-ssr      {:local/root "../ssr"}
+                       ;; rf2-wvkn — cancellation-cascade tests need the
+                       ;; machines artefact at test-time so an :invoke
+                       ;; spawn can drive the abort path. Production builds
+                       ;; do not depend on machines (the artefact graph
+                       ;; is unchanged); machines is test-only here.
+                       day8/re-frame-2-machines {:local/root "../machines"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}

@@ -418,6 +418,61 @@ The fx threads the signal through to the underlying transport. User owns the con
 
 The two are mutually exclusive — pick one.
 
+### Abort on actor destroy
+
+Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) (rf2-wvkn), `:rf.http/managed` requests issued from inside a spawned state-machine actor are aborted automatically when the actor is destroyed.
+
+#### The contract
+
+When a `:rf.http/managed` fx is processed, the runtime captures the **originating event vector** from the dispatch envelope (the `:event` value on the fx ctx, per [Spec 002 §Routing the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope)). The first element of that vector is the event-id that dispatched the request — for events fired into a spawned actor's handler, that first element is the spawned actor's address (e.g. `:http/post#1`).
+
+The fx records the (`request-id`, `actor-id`) pair in its in-flight registry alongside the abort handle. When the spawned actor is later destroyed (any of the destroy triggers per [Spec 005 §The contract](005-StateMachines.md#the-contract)), the runtime invokes the late-bind hook `:http/abort-on-actor-destroy` with the destroyed actor's address. The hook walks the in-flight registry, identifies every request whose actor-id matches, and aborts each — synthesising a standard `:rf.http/aborted` failure with `:reason :actor-destroyed`.
+
+#### Failure shape
+
+The aborted reply is the same shape as a manual-abort failure:
+
+```clojure
+{:rf/reply {:kind    :failure
+            :failure {:kind       :rf.http/aborted
+                      :request-id <id-or-nil>
+                      :reason     :actor-destroyed
+                      :actor-id   <destroyed-spawned-actor-id>}}}
+```
+
+The discriminator from a user-issued abort is `:reason` — `:user` (manual `:rf.http/managed-abort`), `:request-id-superseded` (a fresh request with the same `:request-id`), or `:actor-destroyed` (this contract). Callers that branch on `:reason` recover that distinction; callers that don't see one uniform "aborted" outcome.
+
+The reply lands at the originating handler exactly as any other reply does (per [§Reply addressing](#reply-addressing)). For requests issued by a spawned actor whose handler the destroy already unregistered, the dispatch is a no-op — the actor's snapshot is gone and there is no event handler to receive the reply. The trace event still fires; the abort is still observable through instrumentation.
+
+#### Multiple in-flight requests per actor
+
+A spawned actor may issue multiple `:rf.http/managed` requests in its lifetime. The actor-destroy hook walks **every** in-flight request whose actor-id matches and aborts each. There is no fairness or ordering guarantee between the aborts; the trace stream sees one `:rf.http/aborted-on-actor-destroy` per cancelled request.
+
+#### Sibling actors are not affected
+
+When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in-flight requests — including under the same `:invoke-all` if `:cancel-on-decision? false` and B has not yet been told to stop — are unaffected.
+
+`:invoke-all`'s cancel-on-decision (per [Spec 005 §Cancel-on-decision](005-StateMachines.md#cancel-on-decision-default-true)) emits one `:rf.machine/destroy` per surviving sibling, so each sibling's HTTP cascade independently fires the `:http/abort-on-actor-destroy` hook against its own actor-id.
+
+#### Direct dispatches from event handlers — NOT covered
+
+Per the spec 005 cross-feature contract, `:rf.http/managed` requests dispatched directly from ordinary `reg-event-fx` handlers — i.e. NOT from inside a spawned actor's event handler — are NOT subject to actor-destroy cancellation. The originating event vector's first element is an ordinary registered event-id, not a spawned-actor address; there is no actor-id to correlate against.
+
+This is **deliberate.** Cancellation tied to actor lifetime is the right scope: the child actor exists to run until the parent says "we no longer care"; the parent destroying the actor kills its outstanding work. Ordinary event handlers have no analogous lifecycle peg — their work is launched as a side effect and outlives the handler.
+
+Apps that want HTTP requests tied to the lifetime of a state-machine state should issue them from inside a spawned child machine, using `:invoke` or `:invoke-all` to bind the child's lifetime to the state's. The `:rf.http/managed-abort` fx and the user-supplied `:request-id` remain available for app-level cancellation of direct-dispatched requests (per [§`:request-id` (internal)](#request-id-internal)).
+
+#### Trace event
+
+`:rf.http/aborted-on-actor-destroy` (per [Spec 009 §Trace events](009-Instrumentation.md)) fires once per cancelled request. `:tags` carry `:request-id`, `:actor-id`, and `:url`.
+
+#### Cross-references
+
+- [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the machine side of the contract.
+- [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) — `:rf.http/aborted-on-actor-destroy` taxonomy entry.
+- [`:request-id` (internal)](#request-id-internal) — the orthogonal app-level abort surface.
+- [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — the original gap analysis motivating this contract.
+
 ## Frame awareness
 
 The reply dispatch lands in the **same frame** the request was issued from. The fx captures `:frame` from the dispatch envelope's cofx (per Spec 002 §Routing) and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.

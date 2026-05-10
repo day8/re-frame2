@@ -1882,14 +1882,44 @@
                   :frame      frame-id})
     nil))
 
+;; ---- in-flight HTTP abort cascade (rf2-wvkn) ------------------------------
+;;
+;; Per Spec 005 §Cancellation cascade — in-flight `:rf.http/managed`
+;; aborts: when a spawned state-machine actor is destroyed, every
+;; in-flight `:rf.http/managed` request the actor had issued is
+;; aborted. The abort is fired through the late-bind hook
+;; `:http/abort-on-actor-destroy` — re-frame.machines does NOT
+;; statically `:require` re-frame.http-managed; the destroy path
+;; looks up this fn at call time. When the http artefact is not on
+;; the classpath the hook resolves to nil and the destroy proceeds
+;; without any abort cascade — apps that don't issue managed-HTTP
+;; requests pay nothing.
+
+(defn- abort-actor-in-flight-http!
+  "Fire the late-bind hook that aborts every in-flight `:rf.http/managed`
+  request for the destroyed actor. Idempotent and safe to call when
+  the http artefact is absent (returns nil)."
+  [actor-id]
+  (when actor-id
+    (when-let [abort! (late-bind/get-fn :http/abort-on-actor-destroy)]
+      (try (abort! actor-id)
+           (catch #?(:clj Throwable :cljs :default) _ nil))))
+  nil)
+
 (defn- destroy-single-actor!
   "Destroy a single spawned actor: dissoc the snapshot at
   [:rf/machines <id>], clear any :system-id binding pointing at it,
   unregister the live event handler. Used by destroy-machine-fx for
   the keyword-form legacy/imperative destroy AND iterated for each
-  child in an :invoke-all teardown."
+  child in an :invoke-all teardown.
+
+  Per rf2-wvkn (Spec 005 §Cancellation cascade), also fires the
+  `:http/abort-on-actor-destroy` late-bind hook so any in-flight
+  `:rf.http/managed` requests the actor had issued are aborted."
   [frame-id actor-id]
   (when actor-id
+    ;; rf2-wvkn — abort in-flight HTTP first. Late-bind hook; nil-safe.
+    (abort-actor-in-flight-http! actor-id)
     (let [released-sid
           (when (frame/get-frame-db frame-id)
             (let [db (adapter/read-container (frame/get-frame-db frame-id))]
@@ -2012,6 +2042,10 @@
     ;; the spawn slot was already cleared (e.g. by an earlier explicit
     ;; destroy) or the spawn was suppressed (SSR / platform gating).
     (when actor-id
+      ;; rf2-wvkn — abort in-flight HTTP first (Spec 005 §Cancellation
+      ;; cascade). Late-bind hook; nil-safe when the http artefact is
+      ;; absent.
+      (abort-actor-in-flight-http! actor-id)
       ;; Clear snapshot + system-id binding + (rf2-t07u) the spawn registry
       ;; slot, atomically under one app-db swap.
       (when-let [container (frame/get-frame-db frame-id)]
