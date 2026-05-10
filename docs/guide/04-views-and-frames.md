@@ -53,6 +53,45 @@ Two things change:
 
 For a single-frame app, plain views are fine. For anything else — and "anything else" includes story tools, SSR, devcards, and multi-window apps — register your views. The cost is a few extra characters; the win is that the view-side architecture supports the multi-frame case as soon as you need it.
 
+### `dispatch` and `subscribe` are auto-injected
+
+Inside a `reg-view` body, two names are available that you didn't import: `dispatch` and `subscribe`. They look like the global functions but are **lexically bound**, frame-aware versions that the macro injects.
+
+```clojure
+(rf/reg-view counter []
+  [:div
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]
+   [:span @(subscribe [:count])]])
+;; ↑                  ↑
+;; injected           injected
+```
+
+What that buys you: the view's body never says "this frame" out loud. The injected `dispatch`/`subscribe` capture the surrounding frame from the React tree (when wrapped by `frame-provider`) or fall back to the dynamic-var tier or `:rf/default`. The view fn doesn't know which frame it's been instantiated under; the framework routes correctly.
+
+Form-1 views — render fns whose body is a literal hiccup expression — get the auto-inject via the macro's expansion. Form-2 views — render fns that return another fn (the "outer fn closes over args, inner fn does the work" Reagent idiom) — also work, and are the canonical shape when the view needs to capture per-instance state in the closure or maintain a Reagent-local atom for transient UI state. Both shapes are documented in [Spec 004](../../spec/004-Views.md).
+
+```clojure
+;; Form-1 — direct render
+(rf/reg-view counter []
+  [:div @(subscribe [:count])])
+
+;; Form-2 — captures args; useful for setup-once-then-render
+(rf/reg-view greeting [name]
+  (let [greeted-at (js/Date.now)]
+    (fn render [name]
+      [:div "Hello, " name " (at " greeted-at ")"])))
+```
+
+The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-class`) or a non-literal-fn body — the message points you at the underlying fn `reg-view*` for those rare cases. The compile-time check is the load-bearing piece: it stops the auto-inject from silently doing the wrong thing when the body shape isn't what the macro can rewrite.
+
+### How frames propagate through the view tree
+
+The architecture above assumes a view inside a `frame-provider` subtree picks up the surrounding frame. The CLJS reference uses **React context** to carry this — when you wrap a subtree with `[rf/frame-provider {:frame :left} ...]`, every registered view rendered underneath receives the frame id through context, and the auto-injected `dispatch`/`subscribe` resolves against it.
+
+In practice, the propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` will dispatch to `:left`. **Caveat:** as of today the CLJS implementation has a partial gap here — the resolution chain spec/002 §3 documents (dynamic-var → React context → `:rf/default`) is not fully wired in the current CLJS reference. Subscribe consults the dynamic-var tier and falls back to `:rf/default`; the React-context tier is documented but not yet connected in the read path. The split-counter example below works in the canonical case (one frame-per-mount, set up via `frame-provider` plus dispatch-sync seed events) because the dynamic-var tier carries the frame for each render, but more elaborate cases — sibling views under different frame-providers within a single render pass that BOTH need to read state — should be tested against your specific shape.
+
+The behaviour is tracked at [rf2-d4sf](#); the contract in this guide describes what works today, not what spec/002 §3 promises long-term. When the gap closes, the resolution is automatic — your code does not change. The chapter's example (and the runnable [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs)) exercises only the part that works today.
+
 ### The Var-reference idiom
 
 `reg-view` is defn-shape: it auto-defs the symbol you supply. Reference that var like any other Reagent component:
@@ -163,6 +202,25 @@ In CLJS, the way to put a registered view inside a particular frame's subtree is
 Two instances of the same registered view, different frames. Each subtree's `dispatch`/`subscribe` resolves to its own frame. The view fn doesn't know it's been instantiated twice with different state.
 
 `frame-provider` is a Reagent-specific (React context-driven) construct. The pattern itself doesn't require it — what the *pattern* requires is that every dispatch/subscribe targets a specific frame, by whatever mechanism the host language provides. In TypeScript, you might use a hooks-flavoured `useFrame()`. In Python, you might pass the frame as an argument. In Clojure, React context happens to be ergonomic. The contract — every view targets a specific frame — is the part that survives across hosts.
+
+## Source coordinates on rendered DOM
+
+A small but load-bearing detail: every `reg-view`-rendered DOM element receives a `data-rf2-source-coord` attribute pointing back to the registration that produced it.
+
+```html
+<button data-rf2-source-coord="counter.core:counter:48:5" ...>+</button>
+```
+
+The four colon-separated segments are `<ns>:<sym>:<line>:<col>` — the registration's namespace, the registered symbol, and the source line/column captured at macro-expansion time. (To recover the file path too, look it up via `(rf/handler-meta :view <id>)`; the registration metadata carries `:rf/source-coord-meta` with `:ns`/`:line`/`:column`/`:file`.)
+
+The annotation is **mandatory** in the CLJS reference per [Spec 006](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) — every substrate adapter whose host has a DOM-attribute concept injects it. It exists so pair-tools and devtools can take a clicked DOM node and resolve it back to the source line that produced the view; [chapter 11](11-devtools-and-pair-tools.md) walks through what tools do with it.
+
+Two production-elision details matter:
+
+- The annotation is **dev-only** — gated on the universal `re-frame.interop/debug-enabled?` flag (the CLJS mirror of `goog.DEBUG`). `:advanced` builds with `goog.DEBUG=false` strip the attribute via Closure DCE; the rendered HTML in production carries no `data-rf2-source-coord` bytes.
+- Components whose outermost return is a React Fragment, a `:>`-prefixed host component, or another non-DOM root are exempt — the runtime can't attach an attribute to a fragment. Pair-tools fall back to the registration's metadata for those nodes.
+
+You don't need to do anything to get the annotation. `reg-view` does it. The mention here is so you recognise the attribute when you see it in the inspector.
 
 ## What lives in app-db
 
