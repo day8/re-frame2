@@ -256,6 +256,8 @@ The CLJS reference's published artefact set partitions across three tiers.
 | `re-frame-2-uix` | [006](006-ReactiveSubstrate.md) | UIx — when [rf2-3yij](#) ships |
 | `re-frame-2-helix` | [006](006-ReactiveSubstrate.md) | Helix ([rf2-2qit](#)) |
 
+In the repository layout the three per-substrate adapters live under `implementation/substrates/<name>/` (one directory per adapter); per-feature artefacts stay flat under `implementation/<name>/`. Maven artefact names are unchanged — the on-disk grouping is a CLJS-reference repo concern; consumers of the published jars see the same coordinates as before. Per [rf2-zha9](#).
+
 ### Independence rule
 
 Each per-feature artefact is **independent**. Core MUST NOT transitively `:require` any per-feature ns. Cross-references between features (e.g., flows depending on schemas at runtime) go through the late-bind hook registry, not direct requires. The discipline is exactly what makes opt-in work: a consumer who omits `re-frame-2-schemas` does not pay for it, and the features that *would* benefit from schemas if present detect the absence and degrade silently.
