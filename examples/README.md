@@ -1,3 +1,5 @@
+<!-- TODO rf2-8i2k: add a Helix subsection mirroring UIx (the Helix adapter shipped via
+     rf2-2qit and examples/helix/{counter_helix,login_helix}/ exist on disk). -->
 # Worked examples
 
 > **Type:** Reference

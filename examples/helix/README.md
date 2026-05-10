@@ -1,3 +1,5 @@
+<!-- TODO rf2-z1f8: rewrite this README to parity with examples/uix/README.md
+     (layout diagram, per-example demonstrations, running instructions, cross-references). -->
 # Helix examples (rf2-2qit)
 
 Smoke trio for the Helix adapter — counter + login (per rf2-2qit
