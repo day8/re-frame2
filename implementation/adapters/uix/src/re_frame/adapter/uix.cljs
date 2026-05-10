@@ -79,16 +79,23 @@
     ;; Wire one watch per source so the listener registry surface
     ;; (subscribe-container) on the derived container fires whenever
     ;; any source changes.
-    (doseq [s source-containers]
-      (let [k (gensym "rf-uix-derived-")
-            prev-state (atom (deref s))]
-        (swap! own-keys assoc s k)
-        (add-watch s k
-          (fn [_ _ _ _]
-            (let [new-derived (recompute)
-                  prev-derived @prev-state]
-              (reset! prev-state new-derived)
-              (notify prev-derived new-derived))))))
+    ;; Seed the baseline from the *derived* value at construction time,
+    ;; not the raw source. The watch callback compares prev-derived
+    ;; against the recomputed derived value; if we seeded from
+    ;; `(deref s)` (the raw source), the first source change would
+    ;; spuriously notify whenever the derived projection differs in
+    ;; identity from the raw source — e.g. `(odd? x)`, counts, `:k`
+    ;; lookups, projections — even when the derived value itself is `=`.
+    (let [prev-state (atom (recompute))]
+      (doseq [s source-containers]
+        (let [k (gensym "rf-uix-derived-")]
+          (swap! own-keys assoc s k)
+          (add-watch s k
+            (fn [_ _ _ _]
+              (let [new-derived (recompute)
+                    prev-derived @prev-state]
+                (reset! prev-state new-derived)
+                (notify prev-derived new-derived)))))))
     (reify
       IDeref
       (-deref [_] (recompute))
