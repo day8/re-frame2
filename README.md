@@ -6,29 +6,65 @@
 
 ## What Is It?
 
-It is a pattern for building web apps (specifically SPAs), probably in ClojureScript which is: 
-  - **[re-frame](https://github.com/day8/re-frame)-first** 
-  - **AI-first**
+*Your language of choice should be Turing complete; your library shouldn't be.*
+
+re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
+
+Unlike most frameworks, re-frame2 is defined by its **specification** (~22,000 lines across 35+ documents), not its implementation. The specification is complete enough that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
+
+What re-frame2 is **not**: not Redux, not yet-another-state-management-library, not a thin layer over React hooks, not a pile of patterns dressed up as a framework. It's a coherent design that has held up for 10 years, tightened for AI-first authoring, and shipped with the runtime contracts that make it concrete.
+
+### The core
+
+- **State management** — central, immutable app state.
+- **Isolated computational frames** — multiple independent runtimes in one app, each with its own `app-db`, dispatch queue, and registry. Embeddable widgets, tenant isolation, multi-pane shells.
+- **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost.
+- **Events + effects** — events drive transitions; effects are data, not callbacks.
+- **Subscriptions** — pure derived values, explicit dependency tracking, recompute suppression.
+- **State machines** — xstate-flavoured FSMs for auth flows, multi-step forms, anywhere "what state am I in" matters.
+
+### Batteries included
+
+- **Routing** — URL-driven navigation with frame-aware semantics (per-pane routes possible).
+- **Validation / schemas** — Malli-backed boundary checks, opt-in, production-elidable.
+- **Flows** — derived computation graphs that recompute only on input change.
+- **Managed HTTP** — request retry, abort, encode/decode, in-flight registry, per-frame interceptors.
+- **Server-side rendering** — hiccup → HTML, hydration round-trip, error projection.
+- **Time-travel / debugging** — every event leaves an epoch; restore any prior state.
+
+### The central claim
+
+An application is a virtual machine. Registered handlers are the instruction set, events are the program, the runtime executes them through the same six-step pipeline every time. State is explicit, data is immutable, effects are isolated, views stay at the edge of the flow.
+
+## Reference Implementation
+
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. It runs on three React-flavoured substrates:
+
+- **Reagent** — canonical.
+- **UIx** — modern hooks-based React layer.
+- **Helix** — minimal React wrapper.
+
+You can build production apps on the reference today.
+
+### Migration from re-frame v1
+
+re-frame2 contains breaking changes from v1, and ships a complete [migration prompt](spec/MIGRATION.md) — currently 40+ rules, mechanical where possible, flagged-for-human-review where the rewrite depends on intent. Run your re-frame v1 codebase through the prompt and an AI handles the translation. To the Clojurists reading: I apologise for the breakage — please don't tell Mr Hickey.
+
+### Tooling
+
+The reference implementation comes with a growing AI- and developer-facing toolset:
+
+- **`re-frame-pair2`** — an nREPL-attached AI pair-programming companion. Watches, traces, and interacts with your running app.
+- **`re-frame-2-story`** *(in design)* — Storybook-flavoured component playground with frame-aware controls, machine-state visualisation, and time-travel.
+- **`re-frame-10x` v2** *(in design)* — interactive devtools panel for the runtime.
+- **Source-coord stamping** — every registration carries its source location; click-to-source from any tool.
+- **Trace bus** — a first-class observability surface that all tooling consumes.
 
 ## Status
 
-**Pre-beta.** The first tagged release will be `v0.0.1.beta`. A Clojars CD pipeline is wired up but no public artefact has been cut yet — see `docs/release-process.md` for the policy.
+**Pre-beta.** The first tagged release will be `v0.0.1.beta` — Clojars publishing is wired up; no public artefact has been cut yet.
 
-The **specification is the primary artefact** — ~22,000 lines across 35+ documents in [`spec/`](spec/). It's near complete and has been audited end-to-end multiple times (precision + readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability).
-
-The **CLJS reference implementation** is shipping under `day8/<artefact>` Maven coordinates with **lockstep versioning**:
-
-- **Core:** `day8/re-frame-2` — registry, drain, dispatch, `app-db` snapshot, frame primitive, trace bus, plain-atom adapter.
-- **Per-feature artefacts** (opt-in à la carte): `day8/re-frame-2-{schemas, machines, routing, flows, http, ssr, epoch}`. Each ships independently; bundle isolation is structural — the wrong feature is *absent from the classpath*, not eliminated by Closure DCE.
-- **Substrate adapters:** `day8/re-frame-2-{reagent, uix, helix}`. Reagent is canonical; UIx and Helix smoke-tested. Re-frame2 commits to React + VDOM.
-
-**11 artefacts** ship together at every release. Per-language portability targets cross-compilers reaching React: ClojureScript (reference), TypeScript, Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS.
-
-**Human-facing track:** [`docs/guide/`](docs/guide/) — 12 chapters covering the basics through testing, devtools, and routing.
-
-**Migration:** [`spec/MIGRATION.md`](spec/MIGRATION.md) — 40+ rules for v1 → v2, mechanical where possible, AI-driven.
-
-**Tool-Pair / pair-programming surface:** the runtime exposes `register-trace-cb!`, `epoch-history`, `restore-epoch`, `reset-frame-db!`, source-coord stamping, and the substrate-agnostic frame query API for devtools and AI pair-tools to attach to. The companion skill ships under [`skills/re-frame-pair2/`](skills/re-frame-pair2/).
+The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. The 12-chapter human-facing guide lives at [`docs/guide/`](docs/guide/).
 
 ## AI First
 
