@@ -33,3 +33,9 @@ Thumbs.db
 /docs/spec/
 # Python bytecode from mkdocs_hooks.py (rf2-qvlf).
 /__pycache__/
+
+# Skills build artefacts
+skills/*/node_modules/
+skills/*/.shadow-cljs/
+skills/*/out/
+skills/*/target/
