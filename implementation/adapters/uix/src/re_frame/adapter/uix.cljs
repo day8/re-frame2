@@ -23,6 +23,7 @@
             [uix.dom          :as uix-dom]
             [re-frame.frame   :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.subs    :as subs]
             [re-frame.adapter.context :as adapter-context]))
 
@@ -416,3 +417,20 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
+
+;; Per rf2-d4sf: publish the function-component-shape React-context-
+;; aware `current-frame` impl through the late-bind hook so
+;; `re-frame.subs/subscribe` and the dispatch envelope's `:frame`
+;; default consult the React-context tier of the 3-tier resolution
+;; chain (dynamic var → React context → :rf/default). UIx renders
+;; function components — they have no class-component-specific
+;; `(.-context cmp)` slot, so the shared impl in
+;; `re-frame.adapter.context` reads `_currentValue` directly. UIx's
+;; own `use-current-frame` hook is sugar over the same read, so
+;; subscribe / dispatch and `use-context` agree on the active frame.
+;; Reagent registers a different impl (in `re-frame.adapter.reagent`)
+;; that uses `(.-context cmp)` on the in-flight Reagent component;
+;; the last-loaded adapter wins, which is what an explicit
+;; `(rf/init! uix/adapter)` already commits to.
+(late-bind/set-fn! :adapter/current-frame
+                   adapter-context/function-component-current-frame)
