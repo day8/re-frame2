@@ -423,7 +423,7 @@ This is the *implicit lexical injection* style chosen in 000 (the (α) option). 
 
 ### Pattern-level alternative: explicit-frame views
 
-For comparison — what the same view looks like without the CLJS reference's lexical injection. This is what other-language implementations realise (TypeScript, Python, Kotlin) and what JVM-side test code can opt into:
+For comparison — what the same view looks like without the CLJS reference's lexical injection. This is what other in-scope JS-cross-compile-language implementations realise (TypeScript, Fable (F#), Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason, Squint) and what JVM-side test code can opt into:
 
 ```clojure
 ;; pattern-level shape: frame is an explicit parameter; dispatch/subscribe take a frame argument
@@ -436,9 +436,10 @@ For comparison — what the same view looks like without the CLJS reference's le
 Both shapes satisfy the contract: a view *does* render against an explicit frame; the frame *does* travel with each dispatch and subscribe; callbacks created during render *do* carry the frame they were rendered under. The CLJS reference's lexical injection is sugar over this shape — observable behaviour is identical.
 
 A non-CLJS implementation might use:
-- **TypeScript with hooks:** `const dispatch = useDispatch(); const value = useSubscribe([:count]);` — `useDispatch`/`useSubscribe` read frame from a React-context-equivalent.
-- **Python with explicit param:** `def render_counter(frame: Frame, label: str): ...` — frame is always passed.
-- **Kotlin with composition:** `@Composable fun Counter(label: String, frame: Frame = LocalFrame.current) { ... }` — same context-default pattern.
+- **TypeScript-React with hooks:** `const dispatch = useDispatch(); const value = useSubscribe(['count']);` — `useDispatch`/`useSubscribe` read frame from a `React.createContext` value.
+- **Fable (F#) with Feliz / Fable.React hooks:** `let dispatch = useDispatch() in let value = useSubscribe ["count"] in …` — same React-context shape, F# syntax.
+- **PureScript with React.Basic.Hooks:** `do dispatch <- useDispatch; value <- useSubscribe ["count"]; …` — same React-context shape, PureScript syntax.
+- **Kotlin/JS with kotlin-react:** `val dispatch = useDispatch(); val value = useSubscribe(arrayOf("count"))` — same React-context shape.
 
 The point: the *pattern* is "every dispatch/subscribe targets a specific frame"; the *implementation* chooses how the frame is plumbed.
 
@@ -652,7 +653,7 @@ A missing or `nil` `:frame` falls through to `:rf/default` — matches the no-pr
 
 `rf/frame-provider` is the canonical user-facing API (rf2-41la); the lower-level `re-frame.views/build-frame-provider` factory remains as the **substrate hook** (per [Spec 006 §`(register-context-provider frame-keyword)`](006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component)) — adapter implementors register a context-provider component through it, and `rf/frame-provider` delegates to whatever the active adapter returned.
 
-Other rendering substrates (UIx, Helix) use the same shape with their context primitive — adapter-style. Other-language ports realise this differently: a hooks-style `useFrame()` in TS, an explicit `Frame` parameter in Python, dependency injection in Kotlin. The *contract* — every view targets a specific frame — survives all of these; the *mechanism* is host-specific. See [000-Vision §The pattern](000-Vision.md#the-pattern-language-agnostic) and the View Ergonomics top-of-section banner above.
+Other React-on-CLJS adapters (UIx, Helix) use the same shape with their host's React-context primitive — adapter-style. Other in-scope JS-cross-compile-language ports realise this through their host's React binding's context primitive: TypeScript-React's `React.createContext`, Fable's Feliz / Fable.React `createContext`, PureScript's `React.Basic.Hooks` `createContext`, Kotlin-React's `createContext`, ReasonReact / Melange's `React.createContext`. Mechanism varies by binding; the *contract* — every view targets a specific frame, threaded through a context value carrying the frame-id keyword — survives all of these. See [000-Vision §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) and the View Ergonomics top-of-section banner above.
 
 ## REPL and test ergonomics
 
