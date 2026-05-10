@@ -16,7 +16,7 @@
    Different folder from examples/reagent/counter so the canonical Reagent
    counter is undisturbed; bundle isolation is verified by the
    per-example shadow-cljs builds and the production-elision grep."
-  (:require [uix.core :as uix :refer [$ defui]]
+  (:require [uix.core :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
             [re-frame.adapter.uix :as uix-adapter]))

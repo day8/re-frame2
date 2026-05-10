@@ -1,6 +1,6 @@
 (ns routing.core
-  "Worked example for [Construction Prompt CP-7](../../Construction-Prompts.md)
-   and [EP 012 Routing](../../012-Routing.md). A small three-page app:
+  "Worked example for [Construction Prompt CP-7](../../../spec/Construction-Prompts.md)
+   and [Spec 012 Routing](../../../spec/012-Routing.md). A small three-page app:
    home, articles list, article detail. Demonstrates URL ↔ frame state,
    navigation as event, route as sub, and route-aware root-view dispatch.
 

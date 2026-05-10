@@ -18,7 +18,8 @@
    - Event + sub composition over a single value          (CP-1, CP-2)
    - Pure derivation in subs (Celsius ↔ Fahrenheit)        (CP-2)
    - Schema-bound app-db slice                            (CP-8)"
-  (:require [reagent.dom.client :as rdc]
+  (:require [clojure.string :as str]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Per rf2-p7va, re-frame.schemas ships in
             ;; day8/re-frame-2-schemas. Loading the ns here registers
@@ -56,8 +57,8 @@
     (assoc db :temp {:celsius 0.0 :input-source :celsius :typing "0"})))
 
 (defn parse-num [s]
-  (let [trimmed (clojure.string/trim s)]
-    (when-not (clojure.string/blank? trimmed)
+  (let [trimmed (str/trim s)]
+    (when-not (str/blank? trimmed)
       (let [n (js/parseFloat trimmed)]
         (when-not (js/isNaN n) n)))))
 

@@ -18,7 +18,7 @@
    undisturbed; bundle isolation is verified by the per-example
    shadow-cljs builds and the production-elision grep."
   (:require ["react-dom/client" :as react-dom-client]
-            [helix.core         :as helix :refer [$ defnc]]
+            [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
             [re-frame.core      :as rf]
             [re-frame.adapter.helix :as helix-adapter]))
