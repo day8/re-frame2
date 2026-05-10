@@ -90,7 +90,7 @@ If you don't know how to structure a spec, model it on an [IETF RFC][rfc]. Tell 
 - **[RFC 2119][rfc-2119] keywords** — `MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT` — used consistently throughout. They look pedantic. They eliminate entire classes of ambiguity.
 - **A Considerations section** at the end (security, backwards compatibility, performance, edge cases). It forces you to think about what could go wrong before the implementation does.
 
-You won't write fifty pages. The discipline of the format tightens whatever you do write.
+Right now, spec discipline is harder for me than code discipline. I'm learning.
 
 [rfc]: https://www.rfc-editor.org/rfc/rfc7322
 [rfc-2119]: https://www.rfc-editor.org/rfc/rfc2119
