@@ -27,7 +27,6 @@
             [re-frame.frame      :as frame]
             [re-frame.interop    :as interop]
             [re-frame.subs       :as subs]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.adapter.context :as adapter-context]))
 
 ;; ---- container ------------------------------------------------------------
@@ -399,9 +398,15 @@
   nil)
 
 (def adapter
-  "The Helix adapter map. See Spec 006 §CLJS reference: Helix as
-  alternative substrate. Implements the same nine-fn contract as
-  re-frame.adapter.reagent and re-frame.adapter.uix."
+  "The Helix adapter map. Pass to `(rf/init! ...)` to install:
+
+      (require '[re-frame.adapter.helix :as helix])
+      (rf/init! helix/adapter)
+
+  See Spec 006 §CLJS reference: Helix as alternative substrate.
+  Implements the same nine-fn contract as re-frame.adapter.reagent
+  and re-frame.adapter.uix. Per rf2-agql there is no default-adapter
+  registry — adapter wiring is explicit at the call site."
   {:make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
@@ -411,20 +416,3 @@
    :render-to-string          render-to-string
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
-
-;; ---- default-adapter registration (rf2-84po) -----------------------------
-;;
-;; Register this adapter as a default-resolution candidate for
-;; `(rf/init!)` (no args). Consumers who `(:require
-;; [re-frame.adapter.helix])` pick up Helix as the default at
-;; ns-load time without an explicit adapter arg. In a mixed-substrate
-;; app that requires both this ns and re-frame.adapter.reagent (or
-;; re-frame.adapter.uix) the registry carries multiple entries and
-;; `(rf/init!)` raises `:rf.error/multiple-default-adapters` — the
-;; consumer must disambiguate via `(rf/init! :helix)`.
-;;
-;; Wrapped in `defonce` so shadow-cljs hot-reload doesn't perturb the
-;; registry. Per rf2-84po (resolves rf2-4cb6).
-
-(defonce ^:private __register-default-adapter
-  (do (substrate-adapter/register-default-adapter! :helix adapter) nil))
