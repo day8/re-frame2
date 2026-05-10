@@ -1,3 +1,7 @@
+<!-- TODO rf2-jcz2: refresh layout diagram (missing flows/, http/, ssr/, epoch/ artefacts;
+     flows.cljc and ssr.cljc are no longer in core/; performance.cljc, source_coords.cljc,
+     test_support.cljc, and the adapter/ subdirectory in core/ are unlisted) and the
+     status-by-spec-area table (missing 007 and 014; 003 is reserved, not Done). -->
 # re-frame2 — reference implementation
 
 The v2 reference implementation, generated from the specification corpus in
