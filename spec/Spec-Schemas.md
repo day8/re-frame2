@@ -862,6 +862,45 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:failure         :any]              ;; one of the :rf.http/* failure-map shapes
    [:next-backoff-ms {:optional true} [:maybe :int]]])
 
+;; --- info: per-frame HTTP interceptor lifecycle (rf2-6y3q) ---
+
+(def HttpInterceptorRegisteredTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:id       :keyword]])
+
+(def HttpInterceptorClearedTags
+  [:map
+   [:category :keyword]
+   [:frame    :keyword]
+   [:id       :keyword]])
+
+;; --- error: a request-interceptor :before threw (rf2-6y3q) ---
+
+(def HttpInterceptorFailedTags
+  [:map
+   [:category       :keyword]
+   [:frame          :keyword]
+   [:interceptor-id :keyword]
+   [:url            {:optional true} [:maybe :string]]
+   [:cause          {:optional true} [:maybe :string]]])
+
+;; --- value schemas for the per-frame request-side interceptor (rf2-6y3q) ---
+
+(def HttpInterceptor
+  [:map
+   [:frame  {:optional true} :keyword]   ;; defaults to :rf/default
+   [:id     :keyword]                    ;; addressable for clear-http-interceptor
+   [:before [:=> [:cat :map] :map]]])    ;; (fn [ctx] ctx')
+
+(def HttpInterceptorContext
+  [:map
+   [:request :map]                       ;; the :request envelope per Spec 014
+   [:args    :map]                       ;; the full :rf.http/managed args map
+   [:frame   :keyword]
+   [:event   {:optional true} [:maybe vector?]]])
+
 ;; --- fx-substrate event (warning-shaped per :rf/error-event table) ---
 
 (def FxSkippedOnPlatformTags
