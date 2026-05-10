@@ -22,8 +22,7 @@
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as substrate-adapter]))
+            [re-frame.late-bind :as late-bind]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -94,8 +93,14 @@
   nil)
 
 (def adapter
-  "The Reagent adapter map. See Spec 006 §CLJS reference: Reagent as
-  default adapter for the bridging pseudocode."
+  "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
+
+      (require '[re-frame.adapter.reagent :as reagent])
+      (rf/init! reagent/adapter)
+
+  See Spec 006 §CLJS reference: Reagent as default adapter for the
+  bridging pseudocode. Per rf2-agql there is no default-adapter
+  registry — adapter wiring is explicit at the call site."
   {:make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
@@ -116,16 +121,3 @@
 ;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
 ;; §Adapter shipping convention (rf2-0hxm).
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
-
-;; ---- default-adapter registration (rf2-84po) -----------------------------
-;;
-;; Register this adapter as a default-resolution candidate for
-;; `(rf/init!)` (no args). Consumers who `(:require
-;; [re-frame.adapter.reagent])` pick up Reagent as the default at
-;; ns-load time without an explicit adapter arg.
-;;
-;; Wrapped in `defonce` so shadow-cljs hot-reload doesn't perturb the
-;; registry. Per rf2-84po (resolves rf2-4cb6).
-
-(defonce ^:private __register-default-adapter
-  (do (substrate-adapter/register-default-adapter! :reagent adapter) nil))
