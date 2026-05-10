@@ -86,7 +86,7 @@
 
 ## UIx adapter (Spec 006, rf2-3yij)
 
-UIx-specific surfaces live in `re-frame.substrate.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.substrate.uix :as uix-adapter]` and call the surfaces directly.
+UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -100,13 +100,13 @@ UIx-specific surfaces live in `re-frame.substrate.uix` (artefact `day8/re-frame-
 
 Per rf2-3yij Decision 1 the hook is named `use-subscribe` (matching the React/UIx idiom). Per Decision 3 there is no auto-injection — UIx components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover UIx; UIx users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
-The shared React Context that backs `frame-provider` lives in `re-frame.substrate.context` (CLJS-only file in core, factored out per Decision 2) — both the Reagent adapter and the UIx adapter consume the same `createContext` object so a future mixed-substrate app's frame-provider chain composes across substrates.
+The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — both the Reagent adapter and the UIx adapter consume the same `createContext` object so a future mixed-substrate app's frame-provider chain composes across substrates.
 
 ---
 
 ## Helix adapter (Spec 006, rf2-2qit)
 
-Helix-specific surfaces live in `re-frame.substrate.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.substrate.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
+Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -120,7 +120,7 @@ Helix-specific surfaces live in `re-frame.substrate.helix` (artefact `day8/re-fr
 
 Per rf2-2qit (transferring rf2-3yij Decision 1) the hook is named `use-subscribe`. Per Decision 3 there is no auto-injection — Helix components call the hook and `(rf/dispatcher)` directly. Per Decision 4 `reg-view` (the Reagent macro) does NOT cover Helix; Helix users register with `rf/reg-view*` if they need registry-keyed view addressing.
 
-The shared React Context that backs `frame-provider` lives in `re-frame.substrate.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent, UIx, and Helix adapters all consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
+The shared React Context that backs `frame-provider` lives in `re-frame.adapter.context` (CLJS-only file in core, factored out per Decision 2) — the Reagent, UIx, and Helix adapters all consume the same `createContext` object so a mixed-substrate app's frame-provider chain composes across substrates.
 
 ---
 
