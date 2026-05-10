@@ -22,6 +22,7 @@
             [re-frame.flows :as flows]
             [re-frame.schemas :as schemas]
             [re-frame.subs :as subs]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.conformance :as conformance]
             ;; Spec 014 — :rf.http/managed registers at ns-load time. The
@@ -128,7 +129,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf.route/navigate, :rf.route/handle-url-change,

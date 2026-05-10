@@ -23,7 +23,8 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows])
+            [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn reset-runtime [test-fn]
@@ -31,7 +32,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf/hydrate, :rf.nav/push-url etc. resurrect.

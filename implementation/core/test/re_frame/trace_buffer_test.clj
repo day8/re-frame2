@@ -18,6 +18,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 ;; ---- fixtures --------------------------------------------------------------
@@ -32,7 +33,7 @@
   ;; Restore default depth between tests so a depth-tweaking test does
   ;; not bleed configuration into the next.
   (rf/configure :trace-buffer {:depth 200})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 

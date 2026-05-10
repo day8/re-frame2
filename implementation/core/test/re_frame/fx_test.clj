@@ -22,6 +22,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 (defn- reset-runtime [test-fn]
@@ -29,7 +30,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework registrations live at namespace-load time; clear-all!
   ;; wiped them. Reload so :rf/route, :rf.route/* subs and the framework
   ;; fx (e.g. :rf.fx/reg-flow) survive between tests.

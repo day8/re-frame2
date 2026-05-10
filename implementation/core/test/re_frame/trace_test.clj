@@ -29,6 +29,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 ;; ---- fixtures --------------------------------------------------------------
@@ -39,7 +40,7 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
   ;; so :rf/url-changed, :rf/url-requested, :rf.route/* etc. resurrect.

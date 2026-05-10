@@ -13,6 +13,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.adapter :as adapter]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 (defn reset-runtime [test-fn]
@@ -21,7 +22,7 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time;
   ;; clear-all! wiped them. Reload to resurrect the framework registrations.
   (require 're-frame.routing :reload)

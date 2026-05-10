@@ -32,6 +32,7 @@
             [re-frame.flows :as flows]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 (defn- reset-runtime [test-fn]
@@ -39,7 +40,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
