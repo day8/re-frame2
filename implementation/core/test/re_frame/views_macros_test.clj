@@ -214,3 +214,30 @@
         "a single non-vector arg is invalid")
     (is (nil? (vm/parse-reg-view-args '((reagent.core/create-class {}))))
         "a list where the args vector should be is invalid")))
+
+;; ---- compile-time component-shape fold (rf2-yfbx, Stage 4-C, rf2-6hyy) ---
+;;
+;; reagent-slim's `reagent2.impl.component` ships a `classify-form-body`
+;; helper consumed by `expand-reg-view` via `requiring-resolve`. The
+;; integration test for end-to-end fold (helper on classpath → form-tag
+;; lands in the registry slot meta) lives in
+;; implementation/adapters/reagent-slim/test/. This file exercises the
+;; absence-graceful path: when the helper is NOT on the classpath, the
+;; macro emits an unstamped expansion (UIx- or Helix-only builds).
+;;
+;; Per the rf2-yfbx decision: NO separate `defview` macro. The fold is
+;; in `reg-view`'s expansion — that is the canonical view-registration
+;; surface.
+
+(deftest reg-view-fold-graceful-without-reagent-slim
+  (testing "expand-reg-view emits a usable form-tag-free expansion when
+            reagent2.impl.component is absent from the classpath"
+    ;; The core test classpath does NOT include reagent-slim, so
+    ;; expand-reg-view's requiring-resolve returns nil and the
+    ;; expansion stamps no :reagent2/form meta.
+    (rf/reg-view fold-no-rs [n] [:p n])
+    (let [slot-meta (registrar/lookup :view
+                      :re-frame.views-macros-test/fold-no-rs)]
+      (is (some? slot-meta) "the view is registered")
+      (is (nil? (:reagent2/form slot-meta))
+          "no form tag stamped — UIx/Helix-only build path"))))
