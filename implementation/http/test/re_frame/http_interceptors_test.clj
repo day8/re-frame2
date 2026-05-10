@@ -27,6 +27,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.http-managed :as http-managed]
             [re-frame.trace :as trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
@@ -39,7 +40,7 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.http-managed :reload)

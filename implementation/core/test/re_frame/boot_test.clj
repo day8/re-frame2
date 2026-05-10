@@ -5,10 +5,14 @@
   fixture (which always calls rf/init!), but no dedicated coverage exists
   for the four entry points themselves:
 
-    * init!                 — idempotent boot
+    * init!                 — idempotent boot; explicit-adapter contract
     * install-adapter!      — single-adapter-per-process invariant
     * dispose-adapter!      — tear down + clear the slot
     * ensure-default-frame! — :rf/default presence guarantee
+
+  Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
+  The no-arg form and the keyword form are both errors; the only
+  legal call shape is `(rf/init! adapter-map)`.
 
   These tests deliberately install / dispose the adapter explicitly per
   test; they do NOT rely on rf/init! from a shared fixture, because the
@@ -62,15 +66,15 @@
     (is (zero? (count-frames))
         "precondition: no frames registered at the start of the test")
     ;; First boot.
-    (rf/init!)
+    (rf/init! plain-atom/adapter)
     (is (some? (adapter/current-adapter))
-        "init! installs an adapter (the plain-atom default on the JVM)")
+        "init! installs the supplied adapter")
     (is (= 1 (default-frame-count))
         "init! registers exactly one :rf/default frame")
     (let [adapter-after-first (adapter/current-adapter)
           frames-after-first  @frame/frames]
       ;; Second boot — should be a no-op.
-      (rf/init!)
+      (rf/init! plain-atom/adapter)
       (is (identical? adapter-after-first (adapter/current-adapter))
           "the second init! does NOT re-install the adapter (same identity)")
       (is (= frames-after-first @frame/frames)
@@ -166,148 +170,73 @@
       (is (identical? tenant-before (get @frame/frames :tenant-x))
           "ensure-default-frame! leaves unrelated frames untouched"))))
 
-;; ---- (rf/init!) default-adapter resolver (rf2-84po) ----------------------
+;; ---- (rf/init! ...) explicit-adapter contract (rf2-agql) -----------------
 ;;
-;; Per rf2-84po (resolves rf2-4cb6), `(rf/init!)` with no args resolves
-;; through the default-adapter registry populated by substrate-adapter
-;; ns-loads. The resolver has three branches:
-;;
-;;   1 registered    → install it
-;;   0 registered    → :rf.error/no-adapter-registered
-;;   N>1 registered  → :rf.error/multiple-default-adapters
-;;
-;; These tests drive each branch by manipulating the registry directly
-;; (the production wiring is the substrate ns's defonce; tests need the
-;; cold-start ergonomics that explicit register/unregister provide).
+;; Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
+;; The no-arg form and the keyword form both raise
+;; :rf.error/no-adapter-specified — there is no default-adapter registry
+;; to fall back to and no keyword-to-adapter lookup table.
 
-(deftest init-no-arg-resolves-single-registered-default
-  (testing "(rf/init!) with no args picks the only registered default"
-    ;; Cold start: registry carries plain-atom from JVM ns-load. The
-    ;; cold-start fixture cleared the installed-adapter slot so init!
-    ;; will install fresh.
+(deftest init-no-arg-raises-no-adapter-specified
+  (testing "(rf/init!) with no args raises :rf.error/no-adapter-specified"
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed")
-    (is (contains? (adapter/registered-default-adapters) :plain-atom)
-        "precondition: plain-atom auto-registered as the JVM default")
-    ;; No-arg init!: should resolve to plain-atom.
-    (rf/init!)
-    (is (some? (adapter/current-adapter))
-        "init! installed an adapter via the default-adapter registry")
-    (is (= 1 (default-frame-count))
-        ":rf/default frame is present after the resolved init!")))
-
-(deftest init-zero-registered-raises-no-adapter-registered
-  (testing "(rf/init!) with no args + zero registered defaults raises :rf.error/no-adapter-registered"
-    ;; Drain the registry so we hit the zero-case branch. We must
-    ;; restore plain-atom afterwards so subsequent tests in the suite
-    ;; (and the cold-start fixture) start from a known baseline.
-    (let [restore-key   :plain-atom
-          restore-spec  (get (adapter/registered-default-adapters) restore-key)]
-      (try
-        (adapter/unregister-default-adapter! restore-key)
-        (is (empty? (adapter/registered-default-adapters))
-            "precondition: registry is empty after the unregister")
-        (let [thrown (try
-                       (rf/init!)
-                       nil
-                       (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "rf/init! with no args raises when zero adapters registered")
-          (is (= ":rf.error/no-adapter-registered"
-                 (some-> thrown ex-message))
-              "the thrown exception carries the :rf.error/no-adapter-registered tag")
-          (let [data (ex-data thrown)]
-            (is (= 'init! (:where data))
-                "ex-data identifies the calling fn")
-            (is (= :no-recovery (:recovery data))
-                "ex-data flags :no-recovery — the call must be re-issued with an arg")
-            (is (string? (:reason data))
-                "ex-data carries a :reason string explaining the recovery path"))
-          ;; Slot was untouched by the failed init!.
-          (is (nil? (adapter/current-adapter))
-              "the failed init! did NOT install any adapter"))
-        (finally
-          (when restore-spec
-            (adapter/register-default-adapter! restore-key restore-spec)))))))
-
-(deftest init-multiple-registered-raises-multiple-default-adapters
-  (testing "(rf/init!) with no args + >1 registered defaults raises :rf.error/multiple-default-adapters"
-    ;; Simulate a mixed-substrate app: register a second adapter
-    ;; alongside plain-atom. The second one is just a copy of plain-atom
-    ;; under a different key — the test cares about the resolver's
-    ;; arity, not the adapter's behaviour.
-    (let [synth-key   :test-fake-substrate
-          synth-spec  plain-atom/adapter]
-      (try
-        (adapter/register-default-adapter! synth-key synth-spec)
-        (is (= 2 (count (adapter/registered-default-adapters)))
-            "precondition: two adapters registered as defaults")
-        (let [thrown (try
-                       (rf/init!)
-                       nil
-                       (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "rf/init! with no args raises when >1 adapters registered")
-          (is (= ":rf.error/multiple-default-adapters"
-                 (some-> thrown ex-message))
-              "the thrown exception carries the :rf.error/multiple-default-adapters tag")
-          (let [data (ex-data thrown)]
-            (is (= 'init! (:where data))
-                "ex-data identifies the calling fn")
-            (is (= :no-recovery (:recovery data))
-                "ex-data flags :no-recovery — the call must be re-issued with a key")
-            (is (every? keyword? (:keys data))
-                "ex-data :keys is a vector of registered adapter keys")
-            (is (= #{:plain-atom synth-key} (set (:keys data)))
-                "ex-data enumerates exactly the registered keys so the consumer can disambiguate")
-            (is (string? (:reason data))
-                "ex-data carries a :reason string pointing the consumer at (rf/init! :key)"))
-          (is (nil? (adapter/current-adapter))
-              "the failed init! did NOT install any adapter"))
-        (finally
-          (adapter/unregister-default-adapter! synth-key))))))
-
-(deftest init-keyword-form-disambiguates-multi-adapter
-  (testing "(rf/init! :keyword) bypasses default-resolution and looks up by key"
-    ;; Same setup as the multi-adapter case above: two registered, but
-    ;; instead of no-args we pass a key. Should resolve cleanly to the
-    ;; named adapter.
-    (let [synth-key   :test-fake-substrate-2
-          synth-spec  plain-atom/adapter]
-      (try
-        (adapter/register-default-adapter! synth-key synth-spec)
-        (is (= 2 (count (adapter/registered-default-adapters)))
-            "precondition: two adapters registered as defaults")
-        ;; Keyword form: explicit :plain-atom pick.
-        (rf/init! :plain-atom)
-        (is (some? (adapter/current-adapter))
-            "init! :plain-atom installed an adapter")
-        (is (= 1 (default-frame-count))
-            ":rf/default frame is present after the keyworded init!")
-        (finally
-          (adapter/unregister-default-adapter! synth-key))))))
-
-(deftest init-keyword-unknown-raises
-  (testing "(rf/init! :unknown-key) raises :rf.error/unknown-adapter-key"
     (let [thrown (try
-                   (rf/init! :no-such-adapter)
+                   (rf/init!)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
-          "rf/init! with an unknown key raises")
-      (is (= ":rf.error/unknown-adapter-key"
+          "rf/init! with no args raises")
+      (is (= ":rf.error/no-adapter-specified"
              (some-> thrown ex-message))
-          "the thrown exception carries the :rf.error/unknown-adapter-key tag")
+          "the thrown exception carries the :rf.error/no-adapter-specified tag")
       (let [data (ex-data thrown)]
-        (is (= :no-such-adapter (:key data))
-            "ex-data echoes the offending key")
-        (is (vector? (:known data))
-            "ex-data lists the :known registered keys for diagnostic")))
+        (is (= 'init! (:where data))
+            "ex-data identifies the calling fn")
+        (is (= :no-recovery (:recovery data))
+            "ex-data flags :no-recovery — the call must be re-issued with an explicit adapter")
+        (is (string? (:reason data))
+            "ex-data carries a :reason string explaining the recovery path")))
+    (is (nil? (adapter/current-adapter))
+        "the failed init! did NOT install any adapter")))
+
+(deftest init-nil-arg-raises-no-adapter-specified
+  (testing "(rf/init! nil) raises :rf.error/no-adapter-specified"
+    (let [thrown (try
+                   (rf/init! nil)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown)
+          "rf/init! with nil raises")
+      (is (= ":rf.error/no-adapter-specified"
+             (some-> thrown ex-message))
+          "ex-message carries the :rf.error/no-adapter-specified tag"))
+    (is (nil? (adapter/current-adapter))
+        "the failed init! did NOT install any adapter")))
+
+(deftest init-keyword-arg-raises-no-adapter-specified
+  (testing "(rf/init! :reagent) raises :rf.error/no-adapter-specified — no registry, no keyword form"
+    (let [thrown (try
+                   (rf/init! :reagent)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown)
+          "rf/init! with a keyword raises — keyword form is not supported")
+      (is (= ":rf.error/no-adapter-specified"
+             (some-> thrown ex-message))
+          "the thrown exception carries the :rf.error/no-adapter-specified tag")
+      (let [data (ex-data thrown)]
+        (is (= :reagent (:received data))
+            "ex-data echoes the offending keyword")
+        (is (= "adapter spec map" (:expected data))
+            "ex-data names the expected shape")
+        (is (string? (:reason data))
+            "ex-data carries a :reason string pointing at the explicit-map pattern")))
     (is (nil? (adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
 (deftest init-map-form-installs-literal-spec
-  (testing "(rf/init! adapter-map) installs the literal adapter — bypasses registry entirely"
+  (testing "(rf/init! adapter-map) installs the literal adapter — only legal form"
     (rf/init! plain-atom/adapter)
     (is (identical? plain-atom/adapter (adapter/current-adapter))
         "init! with a literal adapter map installs that exact spec")
@@ -318,7 +247,7 @@
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
     ;; Boot under adapter A (plain-atom), register a handler, register a
     ;; non-default frame, and seed the default frame's app-db.
-    (rf/init!)
+    (rf/init! plain-atom/adapter)
     (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
     (rf/reg-sub      :n    (fn [db _] (:n db)))
     (rf/reg-frame :tenant-a {:doc "tenant-a"})

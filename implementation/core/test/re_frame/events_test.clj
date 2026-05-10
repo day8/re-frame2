@@ -12,6 +12,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -20,7 +21,7 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   (trace/clear-trace-cbs!)
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)

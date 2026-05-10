@@ -43,14 +43,15 @@
             ;; :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]))
+            [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)

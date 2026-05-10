@@ -11,14 +11,15 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]))
+            [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; clear-all! also drops the framework-shipped fxs that register at
   ;; namespace load time (e.g. :rf.http/managed and its canned-stub
   ;; siblings). Reload the relevant ns so the toplevel reg-fx forms run

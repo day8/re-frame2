@@ -43,12 +43,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Force machines to re-register its :rf/machine sub + late-bind hooks
   ;; (registrar/clear-all! wiped them).
   (require 're-frame.machines :reload)

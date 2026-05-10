@@ -34,14 +34,15 @@
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.ssr :as ssr]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! ssr/adapter)
   ;; Framework registrations happen at namespace-load time in
   ;; routing.cljc / ssr.cljc / machines.cljc; clear-all! wiped them, so
   ;; reload to resurrect :rf/hydrate, :rf.route/navigate, etc.

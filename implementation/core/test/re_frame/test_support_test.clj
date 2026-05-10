@@ -17,6 +17,7 @@
             [re-frame.flows :as flows]
             [re-frame.schemas :as schemas]
             [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.test-support :as ts]))
 
@@ -28,7 +29,7 @@
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)

@@ -39,12 +39,13 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.machines :as machines]))
+            [re-frame.machines :as machines]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Re-evaluate machines.cljc so the `:rf/machine` sub, `:rf.machine/spawn` /
   ;; `:rf.machine/destroy` reserved fxs, and the late-bind hook table get
   ;; reinstalled after `clear-all!` wiped them.

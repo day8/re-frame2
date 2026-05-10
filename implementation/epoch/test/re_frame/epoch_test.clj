@@ -22,6 +22,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
             [re-frame.epoch :as epoch]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
@@ -49,7 +50,7 @@
   (epoch/clear-history!)
   (epoch/clear-epoch-cbs!)
   (epoch/configure! {:depth 50})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 

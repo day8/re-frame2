@@ -10,7 +10,8 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
-            [re-frame.routing :as routing]))
+            [re-frame.routing :as routing]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -25,7 +26,7 @@
   ;; cross-test order can't introduce hidden flakiness. See rf2-xsfj.
   (when-let [li-var (resolve 're-frame.flows/last-inputs)]
     (reset! (deref li-var) {}))
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time
   ;; in routing.cljc, ssr.cljc, and machines.cljc; clear-all! wiped them.
   ;; Re-eval those registrations so :rf.route/navigate, :rf/hydrate,

@@ -20,12 +20,13 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.machines :as machines]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.machines :reload)
   (machines/reset-counters!)
   (test-fn))

@@ -20,14 +20,15 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.interceptor :as interceptor]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   ;; Framework-shipped registrations live in routing.cljc / ssr.cljc /
   ;; machines.cljc and are wiped by clear-all!. None of these tests need
   ;; them, so we skip the require-reload dance — keeps the fixture cheap.

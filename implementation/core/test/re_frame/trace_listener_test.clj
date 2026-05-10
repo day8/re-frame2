@@ -34,6 +34,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]))
 
 ;; ---- fixtures --------------------------------------------------------------
@@ -45,7 +46,7 @@
   (reset! schemas/schemas-by-frame {})
   (trace/clear-trace-cbs!)
   (rf/clear-trace-buffer!)
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 

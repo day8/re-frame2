@@ -14,14 +14,15 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.machines :as machines]))
+            [re-frame.machines :as machines]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
-  (rf/init!)
+  (rf/init! plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
