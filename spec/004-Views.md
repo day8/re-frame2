@@ -10,7 +10,7 @@ A view is a **pure function `(state, props) → render-tree`**. The pattern-leve
 2. **Frame-explicit.** The view targets a specific frame; that frame is part of the render-time inputs (via parameter, closure, or implementation-specific injection that resolves to the same observable).
 3. **Render-tree is serialisable data.** A nested data structure (hiccup, JSX-as-data, virtual-DOM nodes — host choice) that the runtime can render to a string for SSR (per [011](011-SSR.md)) or to a client-side substrate.
 
-These are pattern-level commitments; they hold across CLJS, TS, Python, etc.
+These are pattern-level commitments; they hold across the eight in-scope JS-cross-compile-to-React+VDOM languages (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) — ClojureScript, TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).
 
 The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `frame-provider`, `bound-fn`/`bound-dispatcher`) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
 
@@ -46,10 +46,13 @@ The conceptual node shape is encoded into the host's idiomatic data structure:
 
 | Host | Carrier | Example |
 |---|---|---|
-| Clojure / CLJS reference | Hiccup vector — `[tag attrs? & children]` (attrs map is positional and optional) | `[:div {:class "x"} "hi"]` |
-| TypeScript | Array form `[tag, attrs?, ...children]` or VDOM-object `{type, props, children}` — both valid | `['div', {className: 'x'}, 'hi']` |
-| Python | Tuple / dataclass tree | `Node(tag='div', attrs={'class':'x'}, children=['hi'])` |
-| Kotlin | Sealed-class node hierarchy | `Element("div", attrs, children)` |
+| ClojureScript (reference) / Squint | Hiccup vector — `[tag attrs? & children]` (attrs map is positional and optional) | `[:div {:class "x"} "hi"]` |
+| TypeScript | JSX (compiled to React `createElement`) or array form `[tag, attrs?, ...children]` or VDOM-object `{type, props, children}` — all valid | `<div className="x">hi</div>` / `['div', {className: 'x'}, 'hi']` |
+| Melange / ReScript / Reason | JSX (compiles to React `createElement`) | `<div className="x">{React.string("hi")}</div>` |
+| Fable (F#) | Feliz DSL or `Fable.React` `createElement` calls | `Html.div [ prop.className "x"; prop.text "hi" ]` |
+| Scala.js | Slinky / `scalajs-react` DSL trees | `div(cls := "x")("hi")` |
+| PureScript | `React.Basic.DOM` element constructors | `R.div [ R.className "x" ] [ R.text "hi" ]` |
+| Kotlin/JS | kotlin-react DSL trees | `div { className = ClassName("x"); +"hi" }` |
 
 The carrier is the host's choice; the conceptual shape is what every host's renderer walks. **Template-string DSLs (Mustache, Jinja, etc.) are NOT a valid carrier** — strings don't compose, don't diff, don't lint, don't round-trip. The pattern requires structured data the runtime can walk.
 
