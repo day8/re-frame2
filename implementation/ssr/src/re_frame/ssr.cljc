@@ -581,18 +581,23 @@
   [headers name value]
   (let [normalised (str name)
         target     (clojure.string/lower-case normalised)
-        seen?      (atom false)
-        pruned     (vec
-                     (keep (fn [[h-name h-val]]
-                             (if (= (clojure.string/lower-case (str h-name)) target)
-                               (when-not @seen?
-                                 (reset! seen? true)
-                                 [normalised value])
-                               [h-name h-val]))
-                           headers))]
-    (if @seen?
+        [seen? pruned]
+        (reduce
+          (fn [[seen acc] [h-name _h-val :as pair]]
+            (cond
+              (not= (clojure.string/lower-case (str h-name)) target)
+              [seen (conj acc pair)]
+
+              seen
+              [seen acc]    ;; drop subsequent matches
+
+              :else
+              [true (conj acc [normalised value])]))
+          [false []]
+          headers)]
+    (if seen?
       pruned
-      (conj (vec headers) [normalised value]))))
+      (conj pruned [normalised value]))))
 
 (defn- append-header-pair
   "Append [name value] to headers — preserves any existing header with the
