@@ -470,6 +470,132 @@
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
+;; ---- (4b) :invoke + :timeout-ms (rf2-1lop) -------------------------------
+;; Per Spec 005 §Wall-clock :timeout-ms. The runtime emits a sibling
+;; :rf.machine/timeout-schedule fx alongside the standard :rf.machine/spawn
+;; fx on entry; on synthetic :rf.machine.invoke.timeout/elapsed event the
+;; intercept layer (a) emits :rf.machine.invoke/timed-out trace,
+;; (b) tears down the spawned actor, and (c) dispatches :on-timeout into
+;; the parent.
+;;
+;; This test dispatches the synthetic event manually (mirroring the
+;; :after-elapsed pattern above) so the verification is deterministic
+;; without depending on setTimeout firing.
+
+(deftest machine-invoke-timeout-cljs
+  (testing ":invoke :timeout-ms — synthetic timeout-elapsed cancels child, dispatches :on-timeout"
+    (let [child  {:initial :running
+                  :states  {:running {:on {:never-fires :done}}
+                            :done    {}}}
+          parent {:initial :idle
+                  :data    {:rf/after-epoch 0}
+                  :states
+                  {:idle {:on {:go :authenticating}}
+                   :authenticating
+                   {:invoke {:machine-id :child/auth-cljs
+                             :timeout-ms 30000
+                             :on-timeout [:auth/timed-out]}
+                    :on    {:auth/timed-out :timed-out
+                            :auth/succeeded :authenticated}}
+                   :authenticated {}
+                   :timed-out     {}}}
+          traces (atom [])]
+      (rf/reg-machine :child/auth-cljs child)
+      (rf/reg-machine :sup/auth-to    parent)
+      (rf/register-trace-cb! ::to (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:sup/auth-to [:go]])
+      (is (= :authenticating (:state (snapshot :sup/auth-to)))
+          "parent transitioned :idle → :authenticating")
+      (is (some (fn [ev]
+                  (= :rf.machine.invoke.timeout/scheduled (:operation ev)))
+                @traces)
+          "timeout-schedule fx emitted :rf.machine.invoke.timeout/scheduled trace")
+      (let [child-id (get-in (rf/get-frame-db :rf/default)
+                             [:rf/spawned :sup/auth-to [:authenticating]])
+            epoch    (get-in (snapshot :sup/auth-to) [:data :rf/after-epoch])]
+        (is (some? child-id) "spawn slot bound to the spawned child id")
+        (is (some? (get-in (rf/get-frame-db :rf/default)
+                           [:rf/machines child-id]))
+            "child snapshot exists at [:rf/machines child-id]")
+        (reset! traces [])
+        (rf/dispatch-sync [:sup/auth-to [:rf.machine.invoke.timeout/elapsed
+                                         {:rf/invoke-id  [:authenticating]
+                                          :rf/invoke-all false
+                                          :timeout-ms    30000
+                                          :on-timeout    [:auth/timed-out]
+                                          :epoch         epoch
+                                          :elapsed-ms    30001}]])
+        (is (= :timed-out (:state (snapshot :sup/auth-to)))
+            "parent transitioned via :on-timeout dispatch")
+        (is (nil? (get-in (rf/get-frame-db :rf/default)
+                          [:rf/machines child-id]))
+            "child machine snapshot torn down by :rf.machine/destroy")
+        (is (some (fn [ev]
+                    (and (= :rf.machine.invoke/timed-out (:operation ev))
+                         (= [:authenticating] (:invoke-id (:tags ev)))
+                         (= 30000 (:timeout-ms (:tags ev)))))
+                  @traces)
+            "expected :rf.machine.invoke/timed-out trace"))
+      (rf/remove-trace-cb! ::to)))
+
+  (testing ":invoke-all :timeout-ms — surviving children cancelled, :on-timeout dispatched"
+    (let [child  {:initial :running
+                  :data    {:id nil}
+                  :on-spawn-actions
+                  {}
+                  :actions {:dispatch-done
+                            (fn [data _]
+                              {:fx [[:dispatch [:sup/many-cljs [:asset/loaded (:id data)]]]]})
+                            :record-id
+                            (fn [data ev]
+                              {:data (assoc data :id (second ev))})}
+                  :states  {:running {:on {:set-id {:action :record-id}
+                                           :go {:target :done :action :dispatch-done}}}
+                            :done    {}}}
+          parent {:initial :idle
+                  :data    {:rf/after-epoch 0}
+                  :states
+                  {:idle {:on {:start :hydrating}}
+                   :hydrating
+                   {:invoke-all
+                    {:children         [{:id :a :machine-id :child/cljs1 :start [:set-id :a]}
+                                        {:id :b :machine-id :child/cljs2 :start [:set-id :b]}
+                                        {:id :c :machine-id :child/cljs3 :start [:set-id :c]}]
+                     :join             :all
+                     :on-child-done    :asset/loaded
+                     :on-child-error   :asset/failed
+                     :on-all-complete  [:hydrate/done]
+                     :timeout-ms       60000
+                     :on-timeout       [:hydrate/timed-out]}
+                    :on    {:hydrate/done       :ready
+                            :hydrate/timed-out  :degraded}}
+                   :ready    {}
+                   :degraded {}}}]
+      (rf/reg-machine :child/cljs1 child)
+      (rf/reg-machine :child/cljs2 child)
+      (rf/reg-machine :child/cljs3 child)
+      (rf/reg-machine :sup/many-cljs parent)
+      (rf/dispatch-sync [:sup/many-cljs [:start]])
+      (let [jstate (get-in (rf/get-frame-db :rf/default)
+                           [:rf/spawned :sup/many-cljs [:hydrating]])
+            ids    (:children jstate)
+            _      (rf/dispatch-sync [(:a ids) [:go]])
+            epoch  (get-in (snapshot :sup/many-cljs) [:data :rf/after-epoch])]
+        (rf/dispatch-sync [:sup/many-cljs
+                           [:rf.machine.invoke.timeout/elapsed
+                            {:rf/invoke-id  [:hydrating]
+                             :rf/invoke-all true
+                             :timeout-ms    60000
+                             :on-timeout    [:hydrate/timed-out]
+                             :epoch         epoch
+                             :elapsed-ms    60001}]])
+        (is (= :degraded (:state (snapshot :sup/many-cljs)))
+            "parent transitioned via :on-timeout (whole-join timeout)")
+        (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/machines (:b ids)]))
+            "surviving child :b cancelled")
+        (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/machines (:c ids)]))
+            "surviving child :c cancelled")))))
+
 ;; ---- (5) :system-id named-machine addressing (rf2-suue / rf2-ecv4) -------
 ;;
 ;; Spec 005 §Named addressing via :system-id: a spawn whose args carry a
