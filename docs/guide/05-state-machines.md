@@ -189,6 +189,10 @@ If you don't need any other registration metadata (no `:doc`, no `:interceptors`
 
 This is exactly `(reg-event-fx machine-id (create-machine-handler machine))` — same effect, less ceremony.
 
+`reg-machine` is a **macro** (since [rf2-8bp3](../../spec/005-StateMachines.md#source-coord-stamping-rf2-8bp3)). At expansion time it walks the literal spec form and stamps a flat coord index under `:rf.machine/source-coords` on the machine's metadata, keyed by spec-path tuples like `[:guards :form-valid?]`, `[:actions :commit]`, `[:states :form :on :submit]`. The coord index is what lets pair-tools take a clicked transition arrow in a state-diagram visualisation and jump to the source line that wrote it. It's dev-only — production builds elide the index alongside other source-coord annotations.
+
+In day-to-day code you will not see the coord index unless you go looking for it. `(rf/machine-meta :auth.login/flow)` returns it under the `:rf.machine/source-coords` key.
+
 ## Dispatching to a machine
 
 Sub-events route via the machine's id and an inner event vector:
@@ -369,6 +373,98 @@ Real apps have more than one machine: an auth machine, a checkout-wizard machine
 When machines need to talk to each other, they do so through dispatch — the auth machine's `:auth.login/success` action might dispatch `[:user/load-profile]`, which is handled by a regular `reg-event-fx` handler that updates the user-profile slice. There's no special inter-machine messaging. It's all events, all going through the same queue, all running to completion.
 
 The drain semantics matter here. If an action dispatches a child event, that child event runs *before* subscriptions update. So if a state machine moves through `:idle → :submitting → :authed → :loading-profile → :ready` in a single user click, the view sees only `:idle` (before) and `:ready` (after) — never any in-between flicker. The pattern's commitment to atomic state changes pays off most strongly in flows like this.
+
+### Spawning child machines: `:rf.machine/spawn` and `:rf.machine/destroy`
+
+Some machines aren't long-lived singletons. A protocol machine that owns one HTTP request lives only as long as the request. A websocket-pump machine spawns when the connection comes up and exits when it closes. A wizard's per-step subprocess starts and stops with the step. These are **dynamic actors** — gensym'd ids, lifecycle scoped to the parent.
+
+The canonical fxs for the lifecycle are:
+
+```clojure
+[:rf.machine/spawn   {:machine-id :request/protocol
+                      :data       {...}}]    ;; create — runtime gensyms an id
+[:rf.machine/destroy actor-id]                ;; tear down by id
+```
+
+`:rf.machine/spawn` registers a fresh actor (a copy of the spec keyed by a gensym'd id), seeds its `:data`, runs `:on-spawn` against the new id, and queues the optional `:start` event to it. `:rf.machine/destroy` runs the actor's `:exit` action, dissociates its snapshot at `[:rf/machines <actor-id>]`, and clears its handler from the frame-local registry.
+
+These are the **only** spelling for lifecycle fx since [PR #175](https://github.com/day8/re-frame2/pull/175). The earlier internal-only `:spawn` / `:destroy-machine` ids are gone — every spawn and destroy uses the `:rf.machine/...` namespace, in alignment with the framework's `:rf.<feature>/...` convention. (If you have a code-search habit of finding `:spawn` strings, switch to `:rf.machine/spawn` — `:spawn` no longer matches.)
+
+For most apps, you do not call `:rf.machine/spawn` directly. The declarative `:invoke` slot on a state node spawns a child on entry and destroys it on exit:
+
+```clojure
+:states
+{:authenticating
+ {:invoke {:machine-id :auth/oauth-flow
+           :data       {:provider :github}
+           :on-spawn   :stash-actor-id}
+  :on {:auth.oauth/success {:target :authenticated
+                            :action :store-session}}}
+
+ :authenticated
+ {:entry :clear-actor-id
+  ;; ... no :invoke — no child to manage in this state
+  }}
+```
+
+`:invoke` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:invoke` slot into entry/exit actions emitting `:rf.machine/spawn` and `:rf.machine/destroy`. The runtime sees only the desugared form — no new mechanics, no new lifecycle event.
+
+#### The runtime-tracked spawn registry
+
+Earlier drafts of the spec asked the user to write the spawned actor-id into a chosen `:data` key (e.g. `:auth-actor`) inside their `:on-spawn` action, then read that key on destroy to pass it to `:rf.machine/destroy`. That contract had a worked-example bug ([rf2-t07u](#)): if you wrote the id into `:auth-actor` but the runtime hardcoded a magic `:pending` key when destroying, your actor would silently leak on every state exit.
+
+That is fixed (per PR #172). The runtime now keeps an internal **spawn registry** at `[:rf/spawned <parent-id> <invoke-id>]` in the spawning frame's `app-db`. When a state with `:invoke` is entered, the runtime writes the spawned actor-id there. On exit, the runtime reads it back and emits the destroy fx with the right id. **You don't have to track the actor-id yourself.**
+
+`:on-spawn` is now **advisory** — you can still write the id into `:data` if your transition table needs it for something, but the runtime no longer relies on you doing so. The auth-flow worked example in this chapter — and in [Spec 005](../../spec/005-StateMachines.md) — works as written, no per-user-bookkeeping required.
+
+```clojure
+;; The runtime tracks this for you. Visible via:
+(get-in (rf/get-frame-db) [:rf/spawned :auth.login/flow :auth-actor])
+;; → :auth/oauth-flow#g42  (the gensym'd actor id)
+```
+
+The slot is sibling to `[:rf/system-ids]` (next section): same per-frame isolation, same revertibility (the slot walks back atomically with `app-db` on a frame revert), same lazy allocation (absent until the first declarative `:invoke` spawn).
+
+### Naming machines across the frame: `:system-id`
+
+Sometimes a spawned actor needs to be reached by name from somewhere else — a sibling machine, an event handler, a REPL session — without threading the gensym'd id through `:data`. The opt-in `:system-id` key on a spawn binds the actor to a frame-level reverse index:
+
+```clojure
+;; Imperative spawn (action :fx) with a :system-id binding.
+{:fx [[:rf.machine/spawn {:machine-id :request/protocol
+                          :data       {...}
+                          :system-id  :primary-request}]]}
+
+;; The same key works on declarative :invoke:
+:states
+{:requesting
+ {:invoke {:machine-id :request/protocol
+           :system-id  :primary-request
+           :data       {...}}}}
+
+;; Look it up later:
+(rf/machine-by-system-id :primary-request)
+;; → :request/protocol#g42  (the gensym'd actor-id), or nil if no actor is currently bound
+```
+
+`:system-id` is a **frame-level reverse index** that resolves to whichever spawned actor currently owns the name. It lives at `[:rf/system-ids <name>]` in the spawning frame's `app-db` — same place as the snapshot, so it inherits frame revertibility for free.
+
+Lifecycle:
+
+- **On spawn** with a `:system-id`, the runtime writes `[:rf/system-ids <name>] = <gensym'd-id>` and emits `:rf.machine/system-id-bound`.
+- **On destroy**, the runtime clears the slot AND emits `:rf.machine/system-id-released`.
+- **A spawn under an already-bound name rebinds** (last-write-wins) and emits `:rf.error/system-id-collision` so observers can see the displacement. The previously-bound machine's snapshot stays at its `[:rf/machines <id>]` slot — just unnamed.
+
+The standard cross-machine pattern still works — `[:fx [[:dispatch [<other-id> [:event]]]]]` addresses any registered id. With `:system-id` bound, the addressing call site becomes a name lookup:
+
+```clojure
+{:fx [[:dispatch [(rf/machine-by-system-id :primary-request)
+                  [:protocol/cancel]]]]}
+```
+
+This is **opt-in** and **orthogonal** to gensym'd ids. Most spawns won't need it. Reach for `:system-id` when you have a stable role (one auth flow, one primary request, one wizard) that other parts of the frame need to talk to by name.
+
+A note on the 3-arity escape hatch covered earlier: the runtime detects "this fn declared three positional parameters" by inspecting the fn's arglist. **Variadic fns** like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity (per [rf2-1e0n](#) and follow-up rf2-l04j). If you actually want the introspection slot, write a real 3-arity fn rather than reaching for a variadic shorthand — the variadic case is a footgun, not a clever shortcut.
 
 ## A runnable example
 
