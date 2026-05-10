@@ -155,7 +155,7 @@ The point isn't that the other model is wrong. The point is: the model you trust
 Every now and again, at certain checkpoints, I put this to the mayor:
 
 ```
-For this repo, spawn agents to do each of the following independently …
+Regarding the recent commits (the body of work recently undertaken), spawn agents to do each of the following independently …
   Review with an eye to efficiency (but not at the expense of clarity)
   Review for completeness
   Review for correctness
@@ -169,14 +169,7 @@ For this repo, spawn agents to do each of the following independently …
 Create beads for each actionable observation. Action beads using background workers.
 ```
 
-Using multiple lenses is a nice way to flush out problems.
-
-Often the first line of that prompt has narrower scope:
-```
-Regarding the recent commits (the body of work recently undertaken), spawn agents ...: 
-```
-
-The beads database is invaluable to the mayor AND the background worker agents doing the review. 
+Using multiple lenses is a nice way to flush out problems. And the beads database is invaluable to the mayor AND the background worker agents doing the review. 
 
 ## What this gives you
 
