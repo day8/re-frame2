@@ -19,6 +19,9 @@ If you're an AI agent or implementor, you want the [specification](../../spec/) 
 | 07 | [The server side](07-server-side.md) | SSR and hydration without losing your mind. |
 | 08 | [From re-frame v1](08-from-re-frame-v1.md) | What's the same, what's different, what to do. |
 | 09 | [The dynamic-model story](09-the-dynamic-model.md) | The deeper essay on *why* less-powerful is more. |
+| 10 | [Testing](10-testing.md) | `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
+| 11 | [Devtools and pair tools](11-devtools-and-pair-tools.md) | Trace stream, epoch history, time-travel, source-coords, `reset-frame-db!`. |
+| 12 | [Routing](12-routing.md) | URL ↔ state contract, `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 
 After the chapters: read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login, routing, ssr, managed-http-counter, state-machine-walkthrough), then benchmarks (todomvc, 7GUIs, nine-states), then the RealWorld scaffold. Fifteen examples total, each with a Playwright smoke spec; the catalogue maps each one to the Specs it exercises.
 
