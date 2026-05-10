@@ -1,16 +1,18 @@
 # AI-First Audit
 
 > **Type:** Audit
-> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–013) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work.
+> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–014) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work.
 
 ## Scope
 
 This audit grades every artefact in `spec/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
 
-- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications. Specs 001 (Registration), 006 (ReactiveSubstrate), and 007 (Stories) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
+- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications with stand-alone Per-Spec scoring tables below. Specs 001 (Registration), 006 (ReactiveSubstrate), 007 (Stories), 013 (Flows), and 014 (HTTP Requests) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
 - **Spec-Schemas** — the spec's own runtime-shape catalogue.
 - **Construction-Prompts** — the AI-scaffolding catalogue.
 - **conformance/README** — the fixture format and capability-tagging convention.
+
+**Coverage policy.** Per-Spec scoring is intentionally selective: a Spec earns a stand-alone table once its surface has stabilised enough to grade against all nine properties without thrash. New Specs land in the cross-cutting sections first and graduate to a Per-Spec table when the next audit pass adds them. The audit therefore lags the live numbered set by design; absence from the Per-Spec list does not mean the Spec is out of scope, only that it is being graded indirectly until the next pass.
 
 Other companion documents (Principles, Conventions, Patterns, MIGRATION, Tool-Pair, Implementor-Checklist, README) are out of scope: they are rationale, conventions, or migration artefacts, not contracts an implementation conforms to.
 

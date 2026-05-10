@@ -9,7 +9,7 @@ The **load-bearing decisions** live in [000-Vision.md](000-Vision.md). Each per-
 
 The directory has two orthogonal axes:
 
-1. **Bucket axis (normative vs. companion).** Numbered Specs (000–013) plus [API.md](API.md) and [MIGRATION.md](MIGRATION.md) define the contract. Everything else explains, scaffolds, validates, or demonstrates that contract.
+1. **Bucket axis (normative vs. companion).** Numbered Specs (000–014) plus [API.md](API.md) and [MIGRATION.md](MIGRATION.md) define the contract. Everything else explains, scaffolds, validates, or demonstrates that contract.
 2. **Layer axis (foundation / capability / companion).** Three explicit layers structure the corpus:
 
 | Layer | What it contains | Role |
@@ -20,7 +20,7 @@ The directory has two orthogonal axes:
 
 Within the Companion layer, each doc carries a **Type** (the companion-document genre axis): Reference, Migration, Convention, Construction Prompts, Audit, Schemas, or Pattern. Every doc declares its Type via the `> **Type:**` header. The Foundation and Capability layers do not carry a Type header — their layer is determined by numbering. The Type vocabulary is closed for v1; new Types require a companion-doc convention update.
 
-**About Spec 003.** The numbering 000–013 has one gap: there is no `003-*.md`. Slot 003 is **reserved** for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology) — design work that depends on Specs 002 and 005 being settled. The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
+**About Spec 003.** The numbering 000–014 has one gap: there is no `003-*.md`. Slot 003 is **reserved** for a future Spec on cross-frame composition (frame supervisors, parent/child frame relationships, frame-graph topology) — design work that depends on Specs 002 and 005 being settled. The slot is held open so existing Spec numbers do not need to renumber when 003 lands.
 
 ## Documents
 
