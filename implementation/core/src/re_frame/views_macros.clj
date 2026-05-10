@@ -97,6 +97,25 @@
     :else
     (str "a " (some-> x type .getSimpleName) " — " (pr-str x))))
 
+(defn- reagent-slim-form-tag
+  "Classify the user's body shape (Form-1 / Form-2) at compile time, when
+  `day8/reagent-slim` is on the classpath. Returns a keyword form-tag or
+  nil when the helper isn't available (other adapter, JVM-only build,
+  etc.). Per rf2-yfbx the compile-time fold sits in the canonical
+  `reg-view` macro — there is no separate `defview` macro. The runtime
+  detection in `reagent2.impl.component/wrap-render` is the load-bearing
+  correctness path; this tag is an additive optimisation that lets
+  `wrap-render` short-circuit the classification cond on the hot path.
+
+  Lookup goes through `requiring-resolve` so core does not statically
+  depend on reagent-slim. UIx- or Helix-only builds resolve to nil
+  here and emit the body untagged."
+  [body]
+  (when-let [classifier (try (requiring-resolve
+                               'reagent2.impl.component/classify-form-body)
+                             (catch Exception _ nil))]
+    (classifier body)))
+
 (defn expand-reg-view
   "Build the expansion form for a reg-view macro call. Used by both
   re-frame.core/reg-view and re-frame.views-macros/reg-view. `form-meta`
@@ -105,7 +124,15 @@
   expansion time. Both are captured in the expansion as literals so
   the emitted form does not reference `*ns*` / `*file*` at runtime —
   necessary for the CLJS path, where `cljs.core/*ns*` is nil at
-  runtime."
+  runtime.
+
+  Per rf2-yfbx (folded into reg-view, not a separate `defview`): when
+  reagent-slim is on the classpath, the body is structurally classified
+  (Form-1 / Form-2) at expansion time and the wrapper fn is stamped
+  with `^{:reagent2/form ...}` meta. The reagent-slim runtime path
+  (`reagent2.impl.component/wrap-render`) reads this tag to skip the
+  Form-1/2 cond on the hot path. The runtime detection remains
+  load-bearing for correctness; this is an additive perf hint."
   [form-meta current-ns-sym current-file sym more]
   (let [parsed   (parse-reg-view-args more)
         sym-meta (or (meta sym) {})
@@ -125,11 +152,28 @@
     (let [{:keys [docstring args body]} parsed
           line (:line form-meta)
           col  (:column form-meta)
+          form-tag (reagent-slim-form-tag body)
           def-form (if docstring
                      `(def ~sym ~docstring (re-frame.core/view ~id))
                      `(def ~sym (re-frame.core/view ~id)))
           full-slot-meta (cond-> slot-meta
-                           docstring (assoc :doc docstring))]
+                           docstring (assoc :doc docstring)
+                           form-tag  (assoc :reagent2/form form-tag))
+          ;; The wrapper fn carries the form-tag as its own meta too, so
+          ;; renderers that take the fn alone (e.g. directly via
+          ;; (rf/view :id)) can still read it without round-tripping
+          ;; through the registry slot.
+          fn-form  (if form-tag
+                     (with-meta
+                       `(fn ~sym ~args
+                          (let [~'dispatch  (re-frame.core/dispatcher)
+                                ~'subscribe (re-frame.core/subscriber)]
+                            ~@body))
+                       {:reagent2/form form-tag})
+                     `(fn ~sym ~args
+                        (let [~'dispatch  (re-frame.core/dispatcher)
+                              ~'subscribe (re-frame.core/subscriber)]
+                          ~@body)))]
       `(do
          (binding [re-frame.source-coords/*pending-coords*
                    (cond-> {:ns '~current-ns-sym}
@@ -138,10 +182,7 @@
                      ~col          (assoc :column ~col))]
            (re-frame.core/reg-view* ~id
              ~full-slot-meta
-             (fn ~sym ~args
-               (let [~'dispatch  (re-frame.core/dispatcher)
-                     ~'subscribe (re-frame.core/subscriber)]
-                 ~@body))))
+             ~fn-form))
          ~def-form))))
 
 (defmacro reg-view
