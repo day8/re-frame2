@@ -25,6 +25,7 @@
             ;; the same.
             [malli.core]
             [re-frame.core :as rf]
+            [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -144,3 +145,52 @@
       (is (= "sha256:e3b0c44298fc1c14"
              (rf/app-schemas-digest :test/empty-cljs))
           "empty-set digest is byte-identical with the JVM path"))))
+
+;; ---- rf2-froe — set-schema-validator! seam under CLJS ---------------------
+
+(deftest custom-validator-runs-under-reagent
+  (testing "Per Spec 010 §Non-Malli validators (rf2-froe): a custom
+            validator installed via rf/set-schema-validator! is invoked
+            on the Reagent reactive substrate just as it is on the JVM.
+            Locks the cross-substrate seam contract."
+    (let [calls (atom 0)
+          custom (fn [_s v] (swap! calls inc) (= v 42))]
+      (rf/set-schema-validator! custom)
+      (try
+        (rf/reg-app-schema [:n] :int)
+        (rf/reg-event-db :n/init  (fn [_ _] {:n 42}))
+        (rf/reg-event-db :n/break (fn [db _] (assoc db :n 99)))
+        (let [traces (atom [])]
+          (rf/register-trace-cb! ::cv (fn [ev] (swap! traces conj ev)))
+          (rf/dispatch-sync [:n/init])
+          (rf/dispatch-sync [:n/break])
+          (rf/remove-trace-cb! ::cv)
+          (is (pos? @calls)
+              "the custom validator was invoked through the live dispatch path")
+          (let [violations (filter #(= :rf.error/schema-validation-failure
+                                       (:operation %))
+                                   @traces)]
+            (is (= 1 (count violations))
+                "the custom validator's falsey result fired the failure trace once
+                 — for the :n/break commit; :n/init's value of 42 passed.")))
+        (finally
+          (schemas/reset-schema-validator!))))))
+
+(deftest nil-validator-disables-reagent-validation
+  (testing "Per Spec 010 §Non-Malli validators (rf2-froe): nil validator
+            disables every validation site under Reagent — including
+            the live :db commit that would otherwise fire."
+    (rf/set-schema-validator! nil)
+    (try
+      (rf/reg-app-schema [:n] :int)
+      (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::nv (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:n/break])
+        (rf/remove-trace-cb! ::nv)
+        (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                (:operation %))
+                            @traces))
+            "no validation trace fires when the validator is nil"))
+      (finally
+        (schemas/reset-schema-validator!)))))

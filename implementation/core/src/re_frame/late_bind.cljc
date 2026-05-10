@@ -64,6 +64,10 @@
     :schemas/snapshot-by-frame    re-frame.schemas/snapshot-schemas-by-frame
     :schemas/restore-by-frame!    re-frame.schemas/restore-schemas-by-frame!
     :schemas/clear-by-frame!      re-frame.schemas/clear-schemas-by-frame!
+    :schemas/set-schema-validator!         re-frame.schemas/set-schema-validator! ;; rf2-froe — pluggable validator
+    :schemas/set-schema-explainer!         re-frame.schemas/set-schema-explainer! ;; rf2-froe — companion explainer
+    :schemas/validate-with-registered-fn   re-frame.schemas/validate-with-registered-fn ;; rf2-r2uh boundary seam
+    :schemas/explain-with-registered-fn    re-frame.schemas/explain-with-registered-fn  ;; rf2-r2uh boundary seam
     :machines/reg-machine             re-frame.machines/reg-machine* ;; rf2-8bp3 — plain-fn surface
     :machines/create-machine-handler  re-frame.machines/create-machine-handler
     :machines/machine-transition      re-frame.machines/machine-transition
