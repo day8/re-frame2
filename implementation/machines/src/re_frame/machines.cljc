@@ -697,7 +697,20 @@
                                            :rf/invoke-all true}]]
                     :else nil))
                 exited-pairs)))
-          [snap-after-spawns spawn-fx]
+          ;; Per Spec 005 §Declarative :invoke (rf2-h131) and §Errors:
+          ;; if `:data` is a fn and it throws during materialisation,
+          ;; route through the same `::action-failed` sentinel that
+          ;; `collect-actions` uses for action throws, so the cascade
+          ;; halts cleanly at machine-transition with
+          ;; `:rf.error/machine-action-exception`.
+          materialise-data (fn [d snap]
+                             (if (fn? d)
+                               (try
+                                 [:ok (d snap event)]
+                                 (catch #?(:clj Throwable :cljs :default) e
+                                   [:fail e]))
+                               [:ok d]))
+          spawn-result
           (if internal?
             [snap-final []]
             (reduce
@@ -713,46 +726,74 @@
                         frame-id    (or (:rf/frame machine) :rf/transition-pure)
                         spawned-id  (or (:invoke-id inv)
                                         (next-spawn-id frame-id machine-id))
-                        ;; Carry the resolved id forward so spawn-fx registers
-                        ;; the live handler under the SAME id the :on-spawn
-                        ;; callback observed (rf2-suue lifecycle wiring) AND
-                        ;; the runtime can write [:rf/spawned parent-id
-                        ;; invoke-id] -> spawned-id (rf2-t07u).
-                        spawn-args  (-> inv
-                                        (assoc :id-prefix    machine-id)
-                                        (assoc :rf/spawned-id spawned-id)
-                                        (assoc :rf/parent-id  parent-id)
-                                        (assoc :rf/invoke-id  invoke-id))
-                        on-spawn-fn (let [aref (:on-spawn inv)]
-                                      (when aref
-                                        (or (chase-ref (:on-spawn-actions machine) aref)
-                                            (chase-ref (:actions machine) aref))))
-                        ;; Per Spec 005 §Declarative :invoke (sugar over spawn):
-                        ;; the :on-spawn callback signature is (fn [data id] new-data).
-                        ;; Per rf2-een2 / rf2-smba: the callback operates on :data
-                        ;; (not the snapshot wrapper), uniform with regular actions
-                        ;; whose canonical contract is (fn [data event] effects).
-                        ;; The runtime patches the returned data back into the snapshot.
-                        ;; Per rf2-t07u (Option A revised): :on-spawn is now purely
-                        ;; advisory user-side bookkeeping — the runtime no longer
-                        ;; depends on the user writing the id under any specific
-                        ;; :data slot. Runtime tracks the spawn-id itself in
-                        ;; [:rf/spawned parent-id invoke-id].
-                        s'          (if on-spawn-fn
-                                      (let [data     (:data s)
-                                            new-data (on-spawn-fn data spawned-id)]
-                                        (if new-data
-                                          (assoc s :data new-data)
-                                          s))
-                                      s)]
-                    ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
-                    ;; :invoke are dropped; wall-clock guards on
-                    ;; :invoke-bearing states are expressed via the parent
-                    ;; state's :after slot. Registration-time validation
-                    ;; rejects any :timeout-ms / :on-timeout key with
-                    ;; :rf.error/invoke-timeout-ms-removed.
-                    [s' (vec (concat acc-fx
-                                     [[:rf.machine/spawn spawn-args]]))])
+                        ;; Per Spec 005 §Declarative :invoke (sugar over spawn)
+                        ;; and §Spec-spec keys (rf2-h131): `:data` admits a
+                        ;; function form `(fn [snap ev] data)` so the initial
+                        ;; data can depend on the snapshot at the moment of
+                        ;; entry. The snapshot is the post-action value (the
+                        ;; transition's `:action` has already run, so any
+                        ;; `:data` writes the action made are visible). The
+                        ;; reduction's accumulator `s` is exactly that — the
+                        ;; post-action snapshot, evolved through any prior
+                        ;; sibling-entry `:on-spawn` callbacks. If `:data` is
+                        ;; a fn, materialise it here BEFORE building
+                        ;; `spawn-args`; the spawn-fx handler must see a
+                        ;; literal map (it stamps `:rf/self-id` etc. into
+                        ;; `:data`, which would throw on a fn). Per spec
+                        ;; §Errors: if the fn throws, halt the cascade.
+                        [mat-status mat-data]
+                        (if (contains? inv :data)
+                          (materialise-data (:data inv) s)
+                          [:ok nil])]
+                    (if (= :fail mat-status)
+                      (reduced
+                        [::action-failed
+                         {:action-ref :rf.invoke/data-fn
+                          :exception  mat-data
+                          :invoke-id  invoke-id}])
+                      (let [inv'        (if (contains? inv :data)
+                                          (assoc inv :data mat-data)
+                                          inv)
+                            ;; Carry the resolved id forward so spawn-fx registers
+                            ;; the live handler under the SAME id the :on-spawn
+                            ;; callback observed (rf2-suue lifecycle wiring) AND
+                            ;; the runtime can write [:rf/spawned parent-id
+                            ;; invoke-id] -> spawned-id (rf2-t07u).
+                            spawn-args  (-> inv'
+                                            (assoc :id-prefix    machine-id)
+                                            (assoc :rf/spawned-id spawned-id)
+                                            (assoc :rf/parent-id  parent-id)
+                                            (assoc :rf/invoke-id  invoke-id))
+                            on-spawn-fn (let [aref (:on-spawn inv)]
+                                          (when aref
+                                            (or (chase-ref (:on-spawn-actions machine) aref)
+                                                (chase-ref (:actions machine) aref))))
+                            ;; Per Spec 005 §Declarative :invoke (sugar over spawn):
+                            ;; the :on-spawn callback signature is (fn [data id] new-data).
+                            ;; Per rf2-een2 / rf2-smba: the callback operates on :data
+                            ;; (not the snapshot wrapper), uniform with regular actions
+                            ;; whose canonical contract is (fn [data event] effects).
+                            ;; The runtime patches the returned data back into the snapshot.
+                            ;; Per rf2-t07u (Option A revised): :on-spawn is now purely
+                            ;; advisory user-side bookkeeping — the runtime no longer
+                            ;; depends on the user writing the id under any specific
+                            ;; :data slot. Runtime tracks the spawn-id itself in
+                            ;; [:rf/spawned parent-id invoke-id].
+                            s'          (if on-spawn-fn
+                                          (let [data     (:data s)
+                                                new-data (on-spawn-fn data spawned-id)]
+                                            (if new-data
+                                              (assoc s :data new-data)
+                                              s))
+                                          s)]
+                        ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
+                        ;; :invoke are dropped; wall-clock guards on
+                        ;; :invoke-bearing states are expressed via the parent
+                        ;; state's :after slot. Registration-time validation
+                        ;; rejects any :timeout-ms / :on-timeout key with
+                        ;; :rf.error/invoke-timeout-ms-removed.
+                        [s' (vec (concat acc-fx
+                                         [[:rf.machine/spawn spawn-args]]))])))
 
                   (:invoke-all n)
                   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw).
@@ -785,53 +826,91 @@
                                       :rf/invoke-id invoke-id
                                       :join-state   join-state}]
                         ;; Build per-child spawn-args.
-                        child-spawn-fxs
-                        (mapv
-                          (fn [child]
-                            (let [machine-id (:machine-id child)
-                                  spawned-id (:rf/spawned-id child)
-                                  spawn-args (-> child
-                                                 (dissoc :id)
-                                                 (assoc :id-prefix    machine-id)
-                                                 (assoc :rf/spawned-id spawned-id)
-                                                 (assoc :rf/parent-id  parent-id)
-                                                 ;; The :invoke-all-id ties the spawn back
-                                                 ;; to the parent's join state without
-                                                 ;; re-using the :invoke-id slot meaning.
-                                                 (assoc :rf/invoke-all-id invoke-id)
-                                                 (assoc :rf/invoke-all-child-id (:id child)))]
-                              [:rf.machine/spawn spawn-args]))
-                          children')
-                        ;; Run :on-spawn callbacks per child (advisory).
-                        s' (reduce
-                             (fn [snap child]
-                               (let [aref (:on-spawn child)
-                                     f    (when aref
-                                            (or (chase-ref (:on-spawn-actions machine) aref)
-                                                (chase-ref (:actions machine) aref)))]
-                                 (if f
-                                   (let [data     (:data snap)
-                                         new-data (f data (:rf/spawned-id child))]
-                                     (if new-data (assoc snap :data new-data) snap))
-                                   snap)))
-                             s
-                             children')]
-                    ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
-                    ;; :invoke-all are dropped; wall-clock guards on the
-                    ;; whole-join are expressed via the :invoke-all-bearing
-                    ;; state's :after slot.
-                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))])
+                        ;; Per Spec 005 §Spec-spec keys (rf2-h131): each child
+                        ;; invoke-spec admits the same `:data` keys as a single
+                        ;; `:invoke`, including the fn-form `(fn [snap ev] data)`.
+                        ;; Materialise here, before passing to the spawn-fx (which
+                        ;; expects a literal map per the post-action snapshot
+                        ;; contract documented at §Declarative `:invoke`).
+                        ;; Materialisation may throw; collect a [:fail e :child-id k]
+                        ;; sentinel so the reducer outer can short-circuit.
+                        child-spawn-build
+                        (reduce
+                          (fn [acc child]
+                            (let [[mat-status mat-data] (if (contains? child :data)
+                                                          (materialise-data (:data child) s)
+                                                          [:ok nil])]
+                              (if (= :fail mat-status)
+                                (reduced [:fail mat-data (:id child)])
+                                (let [machine-id (:machine-id child)
+                                      spawned-id (:rf/spawned-id child)
+                                      child'     (if (contains? child :data)
+                                                   (assoc child :data mat-data)
+                                                   child)
+                                      spawn-args (-> child'
+                                                     (dissoc :id)
+                                                     (assoc :id-prefix    machine-id)
+                                                     (assoc :rf/spawned-id spawned-id)
+                                                     (assoc :rf/parent-id  parent-id)
+                                                     ;; The :invoke-all-id ties the spawn back
+                                                     ;; to the parent's join state without
+                                                     ;; re-using the :invoke-id slot meaning.
+                                                     (assoc :rf/invoke-all-id invoke-id)
+                                                     (assoc :rf/invoke-all-child-id (:id child)))]
+                                  (conj acc [:rf.machine/spawn spawn-args])))))
+                          []
+                          children')]
+                    (if (and (vector? child-spawn-build)
+                             (= :fail (first child-spawn-build)))
+                      (reduced
+                        [::action-failed
+                         {:action-ref :rf.invoke-all/data-fn
+                          :exception  (second child-spawn-build)
+                          :invoke-id  invoke-id
+                          :child-id   (nth child-spawn-build 2)}])
+                      (let [child-spawn-fxs child-spawn-build
+                            ;; Run :on-spawn callbacks per child (advisory).
+                            s' (reduce
+                                 (fn [snap child]
+                                   (let [aref (:on-spawn child)
+                                         f    (when aref
+                                                (or (chase-ref (:on-spawn-actions machine) aref)
+                                                    (chase-ref (:actions machine) aref)))]
+                                     (if f
+                                       (let [data     (:data snap)
+                                             new-data (f data (:rf/spawned-id child))]
+                                         (if new-data (assoc snap :data new-data) snap))
+                                       snap)))
+                                 s
+                                 children')]
+                        ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
+                        ;; :invoke-all are dropped; wall-clock guards on the
+                        ;; whole-join are expressed via the :invoke-all-bearing
+                        ;; state's :after slot.
+                        [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))])))
 
                   :else
                   [s acc-fx]))
               [snap-final []]
-              entered-pairs))
-          all-fx (vec (concat fx
-                              (or after-cancel-fx [])
-                              (or destroy-fx [])
-                              spawn-fx
-                              (or after-fx [])))]
-      [snap-after-spawns all-fx])))))
+              entered-pairs))]
+      ;; Per rf2-h131: if any :invoke / :invoke-all `:data` fn-form threw
+      ;; during materialisation, the reduce short-circuited with
+      ;; `[::action-failed info]`. Propagate the same sentinel
+      ;; machine-transition expects from collect-actions so the cascade
+      ;; halts cleanly with `:rf.error/machine-action-exception`.
+      (if (and (vector? spawn-result)
+               (= ::action-failed (first spawn-result)))
+        [::action-failed (assoc (second spawn-result)
+                                :decl-path  decl-path
+                                :transition transition
+                                :state-path src-path)]
+        (let [[snap-after-spawns spawn-fx] spawn-result
+              all-fx (vec (concat fx
+                                  (or after-cancel-fx [])
+                                  (or destroy-fx [])
+                                  spawn-fx
+                                  (or after-fx [])))]
+          [snap-after-spawns all-fx])))))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root
