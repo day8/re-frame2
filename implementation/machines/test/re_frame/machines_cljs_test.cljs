@@ -538,6 +538,53 @@
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
+;; ---- (4a') :invoke :data fn-form materialised at spawn (rf2-h131) ---------
+;; Per Spec 005 §Spec-spec keys (line 1503/1511): `:data` admits a function
+;; form `(fn [snap ev] data)` so the spawned child's initial data can be
+;; derived from the parent's post-action snapshot + the triggering event.
+;; The runtime materialises the fn before passing the value to the
+;; spawn-fx (which expects a literal map).
+
+(deftest machine-invoke-data-fn-form-cljs
+  (testing "fn-form `:data` is materialised — spawned child receives the result map, NOT the fn"
+    (let [child   {:initial :running :data {} :states {:running {}}}
+          parent  {:initial :idle
+                   :data    {:endpoint "/api/login"}
+                   :states
+                   {:idle    {:on {:start :working}}
+                    :working {:invoke {:machine-id :h131/worker
+                                       :data       (fn [snap _]
+                                                     {:url    (-> snap :data :endpoint)
+                                                      :method :post})}}}}]
+      (rf/reg-machine :h131/worker child)
+      (rf/reg-machine :h131/sup parent)
+      (rf/dispatch-sync [:h131/sup [:start]])
+      (let [child-data (:data (snapshot :h131/worker#1))]
+        (is (map? child-data)
+            "spawned child's :data is a literal map, not the fn")
+        (is (= "/api/login" (:url child-data))
+            "fn-form derived :url from the parent's :data.:endpoint")
+        (is (= :post (:method child-data))
+            "fn-form-derived :method survived the spawn"))))
+  (testing "fn-form `:data` sees the post-action snapshot (Spec 005:1511)"
+    (let [child   {:initial :running :data {} :states {:running {}}}
+          parent  {:initial :idle
+                   :data    {:base "https://api.example.com"}
+                   :actions {:assemble (fn [data _]
+                                         {:data (assoc data :endpoint
+                                                       (str (:base data) "/v1/me"))})}
+                   :states
+                   {:idle    {:on {:go {:target :working :action :assemble}}}
+                    :working {:invoke {:machine-id :h131b/worker
+                                       :data       (fn [snap _]
+                                                     {:url (-> snap :data :endpoint)})}}}}]
+      (rf/reg-machine :h131b/worker child)
+      (rf/reg-machine :h131b/sup parent)
+      (rf/dispatch-sync [:h131b/sup [:go]])
+      (is (= "https://api.example.com/v1/me"
+             (:url (:data (snapshot :h131b/worker#1))))
+          "fn-form saw the :data writes the transition's :action made"))))
+
 ;; ---- (4b) state-level :after on :invoke-bearing state (rf2-3y3y) ----------
 ;; Per Spec 005 §Wall-clock timeouts on :invoke — use parent state's :after.
 ;; The pre-rf2-3y3y :timeout-ms slot on :invoke / :invoke-all is dropped;
