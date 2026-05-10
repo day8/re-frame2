@@ -13,7 +13,7 @@ This artefact is intended to be:
 
 - **Per-kind.** Separate templates for events, subscriptions, schema-bound views, state machines, features, routes, effects.
 - **Self-contained.** Each prompt provides enough context for an AI to scaffold the kind without needing to read the full Spec set.
-- **Shape-aware via the host's idiom.** The pattern requires shape description; the *mechanism* is host-specific. **Dynamic hosts** (CLJS + Malli, Python + Pydantic, JS + Zod): the prompts attach `:spec` metadata referring to a schema. **Static hosts** (TypeScript, Kotlin): the prompts emit type-annotated registrations whose shapes the compiler enforces. Either way, an AI reading the artefact has a description of the shapes; the prompts adapt to the host.
+- **Shape-aware via the host's idiom.** The pattern requires shape description; the *mechanism* is host-specific. **Dynamic in-scope hosts** (CLJS + Malli, Squint + Zod): the prompts attach `:spec` metadata referring to a schema. **Static in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable (F#), Scala.js, PureScript, Kotlin/JS): the prompts emit type-annotated registrations whose shapes the compiler enforces. Either way, an AI reading the artefact has a description of the shapes; the prompts adapt to the host.
 - **Worked-example-heavy.** Each prompt ends with one or two complete, runnable examples.
 - **Aligned with the [Goals in 000](000-Vision.md) and the [nine AI-first properties in Principles.md](Principles.md).** A construction-prompt-generated artefact is, by construction, AI-first.
 
