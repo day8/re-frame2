@@ -908,7 +908,7 @@ The handler reads `(:rf/route db)` for any path/query params it needs — the `:
 
 (rf/reg-event-fx :webhook/handle
   {:spec [:cat [:= :webhook/handle] IncomingWebhookPayload]}
-  [(rf/spec/validate-at-boundary)]                   ;; positional; rejects payload at boundary if invalid
+  [rf/validate-at-boundary]                          ;; positional; rejects payload at boundary if invalid
   ...)
 ```
 

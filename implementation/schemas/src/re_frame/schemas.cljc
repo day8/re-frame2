@@ -663,15 +663,17 @@
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;
-;; The boundary-validation interceptor (rf2-r2uh, NOT YET IMPLEMENTED)
-;; runs `:spec` validation on a handler at production-build time —
-;; outside the `interop/debug-enabled?` gate that guards the hot-path
-;; validate-*! fns above. Per Spec 010 §Production builds the boundary
-;; interceptor MUST route through the same registered validator the
-;; dev-mode hot path uses (so a substituted validator covers both
-;; surfaces). This namespace publishes `validate-with-registered-fn`
-;; as the call the interceptor reaches for; rf2-r2uh wires the
-;; interceptor through it.
+;; The boundary-validation interceptor (`re-frame.spec/validate-at-boundary`,
+;; rf2-r2uh) runs `:spec` validation on a handler at production-build
+;; time — outside the `interop/debug-enabled?` gate that guards the
+;; hot-path validate-*! fns above. Per Spec 010 §Production builds the
+;; boundary interceptor MUST route through the same registered validator
+;; the dev-mode hot path uses (so a substituted validator covers both
+;; surfaces). This namespace publishes `validate-with-registered-fn` as
+;; the call the interceptor reaches for via the
+;; `:schemas/validate-with-registered-fn` late-bind hook (the schemas
+;; artefact is optional per rf2-p7va so the interceptor cannot
+;; statically `:require [re-frame.schemas]`).
 ;;
 ;; Contract: returns true on conform; false on fail; true (pass) when
 ;; no validator is registered. Does NOT emit a trace — the boundary

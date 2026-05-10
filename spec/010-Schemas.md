@@ -136,9 +136,11 @@ For users who want production validation at *system boundaries* — typically in
 ```clojure
 (rf/reg-event-fx :api/response-received
   {:spec ApiResponseSchema}
-  [rf/spec/validate-at-boundary]
+  [rf/validate-at-boundary]
   (fn [m] ...))
 ```
+
+The interceptor is exposed as a value at both `re-frame.core/validate-at-boundary` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/validate-at-boundary` (for users who prefer a `spec/` alias for schema-related interceptors). Both refer to the same value; pick whichever fits the surrounding code's import style.
 
 **Relationship to the handler's `:spec`.** `:spec/validate-at-boundary` re-uses the handler's existing `:spec` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:spec` regardless of the global elision flag. Concretely:
 
