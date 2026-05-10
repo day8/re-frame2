@@ -171,6 +171,8 @@ Create beads for each actionable observation. Action beads using background work
 
 Using multiple lenses is a nice way to flush out problems. And the beads database is invaluable to the mayor AND the background worker agents doing the review. 
 
+Sometimes I put a modified version of this prompt into Codex (but make it suggestions, and no actioning). 
+
 ## What this gives you
 
 After a few weeks of working this way:
