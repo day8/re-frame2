@@ -208,4 +208,19 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 6. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
 7. Use a second model (Codex, etc.) for cross-review. Have it file beads as **suggestions**, not commands.
 
+**Or — paste this single prompt to a Claude session and it does most of the setup for you. The session you paste it into becomes the mayor.**
+
+> *"I'm setting up the 'mayor method' on this project. The method has two roles: ONE Claude session orchestrates and stays oriented across the whole project — the **mayor** — and MANY background-agent sessions are dispatched to do the actual work. The mayor talks to me and dispatches; the workers execute. **You are the mayor.***
+>
+> *Step 1 — install beads. Read the install docs at https://github.com/gastownhall/beads/blob/main/docs/INSTALLING.md, run the CLI install (Homebrew or curl-pipe-bash), then `bd init` in the project root, then `bd setup claude` to wire up the SessionStart / PreCompact hooks. Verify with `bd ready`.*
+>
+> *Step 2 — update `CLAUDE.md` (create it if absent) to add the following standing rules. These must apply to every future session — both the mayor and any background agent — not just this conversation:*
+>
+> *- Maintain a `project-map.md` at the repo root that summarises and categorises every open bead. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
+> *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch.*
+> *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
+> *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
+>
+> *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
+
 That's the method.
