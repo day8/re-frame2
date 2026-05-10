@@ -12,9 +12,23 @@ It is a pattern for building web apps (specifically SPAs), probably in ClojureSc
 
 ## Status
 
-Still a **work in progress** but getting close to beta. 
+**Pre-beta.** The first tagged release will be `v0.0.1.beta`. A Clojars CD pipeline is wired up but no public artefact has been cut yet — see `docs/release-process.md` for the policy.
 
-There is a near complete specification - which is the primary artifact. And a working reference implementation has been generated for Reagent/ClojureScript to validate the specification.
+The **specification is the primary artefact** — ~22,000 lines across 35+ documents in [`spec/`](spec/). It's near complete and has been audited end-to-end multiple times (precision + readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability).
+
+The **CLJS reference implementation** is shipping under `day8/<artefact>` Maven coordinates with **lockstep versioning**:
+
+- **Core:** `day8/re-frame-2` — registry, drain, dispatch, `app-db` snapshot, frame primitive, trace bus, plain-atom adapter.
+- **Per-feature artefacts** (opt-in à la carte): `day8/re-frame-2-{schemas, machines, routing, flows, http, ssr, epoch}`. Each ships independently; bundle isolation is structural — the wrong feature is *absent from the classpath*, not eliminated by Closure DCE.
+- **Substrate adapters:** `day8/re-frame-2-{reagent, uix, helix}`. Reagent is canonical; UIx and Helix smoke-tested. Re-frame2 commits to React + VDOM.
+
+**11 artefacts** ship together at every release. Per-language portability targets cross-compilers reaching React: ClojureScript (reference), TypeScript, Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS.
+
+**Human-facing track:** [`docs/guide/`](docs/guide/) — 12 chapters covering the basics through testing, devtools, and routing.
+
+**Migration:** [`spec/MIGRATION.md`](spec/MIGRATION.md) — 40+ rules for v1 → v2, mechanical where possible, AI-driven.
+
+**Tool-Pair / pair-programming surface:** the runtime exposes `register-trace-cb!`, `epoch-history`, `restore-epoch`, `reset-frame-db!`, source-coord stamping, and the substrate-agnostic frame query API for devtools and AI pair-tools to attach to. The companion skill ships under [`skills/re-frame-pair2/`](skills/re-frame-pair2/).
 
 ## AI First
 
