@@ -1417,9 +1417,7 @@ Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canon
                                         [:id     :keyword]
                                         [:params {:optional true} :map]
                                         [:query  {:optional true} :map]]]
-   [:rf/render-hash   {:optional true} :string]                            ;; hash of the server-rendered render-tree, for mismatch detection
-   [:rf/head          {:optional true} [:ref :rf/head-model]]              ;; server-rendered head model (per [011 §Head/meta contract](011-SSR.md#headmeta-contract)) — client uses it for head-mismatch detection
-   [:rf/head-hash     {:optional true} :string]                            ;; hash of the server-rendered head model, for head-mismatch detection
+   [:rf/render-hash   {:optional true} :string]                            ;; structural hash of the server-rendered render-tree, for mismatch detection. Covers both body and head — the runtime emits a single `:rf.ssr/hydration-mismatch` and discriminates head-vs-body via the `:failing-id` tag (per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)). The head-hash surface (a separate `:rf/head-hash` key) is reserved for the post-v1 `reg-head` payload extension and not part of the v1 wire.
    [:rf/schema-digest {:optional true} :string]                            ;; hash of the server's registered app-schema set (per [010-Schemas.md](010-Schemas.md))
    ])
 ```

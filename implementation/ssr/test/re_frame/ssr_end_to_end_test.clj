@@ -639,23 +639,21 @@
                  (pr-str (mapv :operation @traces))))))))
 
 ;; ===========================================================================
-;; ssr-head-hash-mismatch — head-model hash differs across server/client
+;; ssr-head-hash-mismatch — head-vs-body discriminator on the unified hash
 ;; ===========================================================================
 ;;
-;; Per Spec 011 §Mismatch detection — head: the head-model is hashed
-;; separately from the body so head/body mismatches can be reported with
-;; the right operation tag. The runtime today routes both through
-;; verify-hydration!; we surface a head-mismatch by tagging the
-;; :failing-id with :rf.ssr/head-mismatch — once rf2-8pif distinguishes
-;; head and body natively this can become :operation :head.
+;; Per Spec 011 §Mismatch detection — head: head-mismatch and body-mismatch
+;; share the unified :rf/render-hash channel in v1; the discriminator is
+;; :failing-id. A dedicated head-hash payload key + wire attribute is
+;; reserved for the post-v1 reg-head extension. The runtime routes both
+;; through verify-hydration! and surfaces head-vs-body via :failing-id.
 
 (deftest ssr-head-hash-mismatch
-  (testing "verify-hydration! detects a head-hash mismatch and tags the trace as :head"
+  (testing "verify-hydration! surfaces a head-mismatch via :failing-id on the unified render-hash channel"
     (let [verify-fn @(resolve 're-frame.ssr/verify-hydration!)
-          ;; Hydration payload carries the SERVER's head-hash.
-          ;; (We park it under :rf/render-hash because the runtime's
-          ;; current verify-hydration! reads server-hash from there;
-          ;; the head/body distinction lives in :failing-id below.)
+          ;; Hydration payload carries the SERVER's render-hash. v1's
+          ;; unified channel covers head + body; the head-vs-body
+          ;; distinction lives entirely in :failing-id below.
           payload   {:rf/version     1
                      :rf/app-db      {:rf/route {:id :route/article :params {:id "123"}}}
                      :rf/render-hash "head-hash-server-A"}

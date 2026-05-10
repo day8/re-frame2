@@ -50,9 +50,12 @@
    "<meta property=\"og:image\" content=\"https://example.com/og.png\">"
    "<link rel=\"canonical\" href=\"https://example.com/articles/123\">"]
 
-  ;; The head emission also writes a head-hash attribute on <html> for
-  ;; client-side mismatch detection.
-  :ssr/html-attr-present "data-rf-head-hash"
+  ;; The render-tree's structural hash (covering head + body) rides
+  ;; on the root element as `data-rf-render-hash` for client-side
+  ;; mismatch detection. A dedicated head-hash attribute is reserved
+  ;; for the post-v1 `reg-head` extension; v1 emits only the unified
+  ;; render-hash. Per [011 §Mismatch detection — head].
+  :ssr/html-attr-present "data-rf-render-hash"
 
   :trace-emissions
   [{:operation :event :tags {:event-id :rf/server-init}}
