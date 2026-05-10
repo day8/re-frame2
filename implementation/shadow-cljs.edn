@@ -25,6 +25,8 @@
                 "core/test"
                 "adapters/reagent/src"
                 "adapters/reagent/test"
+                "adapters/reagent-slim/src"
+                "adapters/reagent-slim/test"
                 "adapters/uix/src"
                 "adapters/uix/test"
                 "adapters/helix/src"

@@ -1,0 +1,41 @@
+;; day8/reagent-slim — re-frame2's Reagent rewrite (rf2-5djt; Stage 4 rf2-6hyy).
+;;
+;; Stage 4-A scope: the reactive primitives (reagent2.ratom). Subsequent
+;; sub-stages add the render scheduler (4-B), component-shape detection
+;; (4-C), hiccup translation (4-D), pure-CLJS render-to-static-markup
+;; (4-E), throw-on-call shims (4-F), examples + MIGRATION (4-G).
+;;
+;; Per the IMPL-SPEC §1: this artefact is the "slim" rewrite of stock
+;; Reagent for React 19. It replaces (does not depend on) stock Reagent.
+;; The bridge `day8/re-frame-2-reagent` continues to ship in parallel so
+;; consumers that need the dropped surfaces (`track`, `cursor`, `wrap`,
+;; `with-let`, etc.) keep a path to the React-19-stable React API.
+;;
+;; The :clein/build :version pulls from the repo-root VERSION via the
+;; adapter-tier path "../../../VERSION" (the lockstep-version contract;
+;; see .github/scripts/verify-version-lockstep.sh — adapters are one
+;; directory deeper than per-feature artefacts). The day8/re-frame-2
+;; coordinate uses :local/root "../../core" — the release workflow
+;; rewrites this to :mvn/version "${VERSION}" at deploy time.
+{:paths ["src"]
+ :deps  {day8/re-frame-2 {:local/root "../../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/reagent-slim
+   :main     re-frame.adapter.reagent
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
