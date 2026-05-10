@@ -16,6 +16,14 @@ name: docs
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'spec/**'
+      - 'mkdocs.yml'
+      - 'requirements.txt'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 # Allow only one concurrent Pages deployment, but do not cancel an
@@ -61,6 +69,8 @@ jobs:
           path: site/
 
   deploy:
+    # Only deploy from main pushes — PRs run build only (catch regressions) but don't deploy.
+    if: github.event_name == 'push'
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
