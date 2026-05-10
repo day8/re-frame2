@@ -22,7 +22,8 @@
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as late-bind]
+            [re-frame.views :as views]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -76,14 +77,12 @@
 ;; ---- context provider -----------------------------------------------------
 
 (defn- register-context-provider [_frame-keyword]
-  ;; Implementation lives in re-frame.views (CLJS-only); this slot is
-  ;; populated dynamically by views/ns load. The frame-keyword arg is
-  ;; ignored — `build-frame-provider` is 0-arity (rf2-4y60); the returned
-  ;; component takes the frame keyword at render time. The arg stays in
-  ;; the substrate signature per Spec 006 §Frame-provider via React
-  ;; context.
-  (when-let [provider-builder (resolve 're-frame.views/build-frame-provider)]
-    ((deref provider-builder))))
+  ;; Implementation lives in re-frame.views (CLJS-only). The frame-
+  ;; keyword arg is ignored — `build-frame-provider` is 0-arity
+  ;; (rf2-4y60); the returned component takes the frame keyword at
+  ;; render time. The arg stays in the substrate signature per
+  ;; Spec 006 §Frame-provider via React context.
+  (views/build-frame-provider))
 
 ;; ---- disposal -------------------------------------------------------------
 
@@ -121,3 +120,28 @@
 ;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
 ;; §Adapter shipping convention (rf2-0hxm).
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
+
+;; Per rf2-d4sf: publish the Reagent-shape React-context-aware
+;; `current-frame` impl through the late-bind hook so
+;; `re-frame.subs/subscribe` and the dispatch envelope's `:frame`
+;; default consult the React-context tier of the 3-tier resolution
+;; chain (dynamic var → React context → :rf/default). Before rf2-d4sf
+;; those call sites called `re-frame.frame/current-frame` directly,
+;; which only honours tiers 1 and 3 — the React-context tier was
+;; implemented in `re-frame.views/current-frame` but never reached by
+;; subscribe / dispatch, so any subscribe / dispatch under a
+;; non-default `frame-provider` silently routed to `:rf/default`.
+;;
+;; The Reagent impl uses `(.-context cmp)` on the in-flight Reagent
+;; component — class-component machinery surfaces context only to
+;; components whose `:contextType` matches the context object, so
+;; `reg-view*`-wrapped components route to the surrounding provider's
+;; frame while plain Reagent fns (without the `:contextType` wiring)
+;; fall through to `:rf/default`. That narrowness is what makes
+;; `:rf.warning/plain-fn-under-non-default-frame-once` (rf2-d3k3) a
+;; meaningful warning — only plain fns route to default, and the
+;; warning targets exactly that footgun. UIx / Helix substrates use
+;; `re-frame.adapter.context/function-component-current-frame` which
+;; reads `_currentValue` directly (function components have no
+;; class-context slot).
+(late-bind/set-fn! :adapter/current-frame views/current-frame)
