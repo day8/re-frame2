@@ -4,6 +4,39 @@ The smallest interesting program is a counter: a number, two buttons, the number
 
 The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
 
+## Choose your substrate
+
+Before the code, one decision: **which view substrate is rendering this?** re-frame2's runtime — the registry, the dispatch loop, events, fx, subs, machines — is substrate-agnostic. The primitives you use in `app-db`, in event handlers, and in subs are identical regardless. What differs is how the view layer is wired into React.
+
+Three substrate adapters are available today:
+
+- **Reagent** — the canonical CLJS reference. Hiccup-shaped views, deref-tracking subscriptions (`@(subscribe ...)`), the substrate the rest of this guide uses. Pick this if you have no other constraint.
+- **UIx** — a CLJS adapter targeting React function components and hooks idiomatically. Useful if you're integrating with a JS-side codebase that expects React fn-components, or if you want UIx's compile-time JSX-style ergonomics.
+- **Helix** — same shape as UIx in spirit; pick it if your team already uses Helix.
+
+Each ships as its own Maven artefact alongside core (per Strategy B — see [rf2-5vjj](../../spec/MIGRATION.md)):
+
+```clojure
+;; deps.edn — Reagent (the canonical "first app" stack)
+{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
+        day8/re-frame-2-reagent  {:mvn/version "2.0.0"}
+        reagent                   {:mvn/version "2.0.0"}}}
+
+;; deps.edn — UIx
+{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
+        day8/re-frame-2-uix      {:mvn/version "2.0.0"}
+        com.pitch/uix.core       {:mvn/version "..."}}}
+
+;; deps.edn — Helix
+{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
+        day8/re-frame-2-helix    {:mvn/version "2.0.0"}
+        lilactown/helix          {:mvn/version "..."}}}
+```
+
+Per the [feature-opt-in story](../../spec/MIGRATION.md), core ships with **none** of the substrate adapters baked in — you add the artefact for the substrate you've picked. The same pattern applies to optional capabilities (state machines, routing, HTTP, schemas, SSR, time-travel) — each ships as its own artefact, and an app that doesn't use a feature doesn't bundle its code.
+
+This chapter uses Reagent throughout. The `dispatch`, `subscribe`, and `reg-view` primitives are identical across substrates; the difference shows up in the mount call (`reagent.dom.client/render` vs `uix.dom/render-root` vs Helix's mount fn) and in how the view body composes — Reagent uses hiccup, UIx and Helix use their own component DSLs. The pattern survives.
+
 ## What we're building
 
 A page with a `+` button, a `-` button, and a number between them. Click `+`: the number goes up. Click `-`: it goes down. Default value: `5`.
@@ -194,7 +227,31 @@ This is the part that's not really re-frame2 — it's the React/Reagent runtime 
 >   (rdc/render root [counter]))
 > ```
 >
-> Requiring `re-frame.substrate.reagent` fires its ns-load side-effect, which registers the Reagent adapter as the default-resolution candidate (per [rf2-84po](#)); `(rf/init!)` with no args picks it up. Mixed-substrate apps that require both Reagent and UIx disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)`. `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+> Requiring `re-frame.substrate.reagent` fires its ns-load side-effect, which registers the Reagent adapter as the default-resolution candidate (per [rf2-84po](#)); `(rf/init!)` with no args picks it up. `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+
+### `init!` and how the substrate gets wired
+
+The line `(rf/init!)` deserves a closer look — it's where the substrate adapter is bound to the runtime.
+
+There are two shapes:
+
+```clojure
+;; Option 1 — explicit. Pass the adapter you want.
+(rf/init! re-frame.substrate.reagent/adapter)
+
+;; Option 2 — no-arg. Resolve from the registry.
+(rf/init!)
+```
+
+**Option 2 is the canonical form** — and it works because the substrate adapter ns has a side-effect when it loads. Inside `re-frame.substrate.reagent`, a top-level `defonce` calls `(register-default-adapter! ...)` at ns-load time. So as soon as you `(:require [re-frame.substrate.reagent])` anywhere in your app's require graph, the Reagent adapter is registered as a default-resolution candidate. `(rf/init!)` with no args looks up the registered default and uses it.
+
+The benefit is "you require it, it's wired." The first-app boilerplate is exactly four lines: a require, an `init!`, a seeding `dispatch-sync`, and a `render`. No threading-an-adapter-object through the run fn.
+
+For mixed-substrate cases — say a build that requires both `re-frame.substrate.reagent` and `re-frame.substrate.uix` because it has Reagent stories AND a UIx production view tree — the no-arg `init!` raises a structured error (`:rf.error/multiple-default-adapters`) so the call site can't accidentally pick the wrong one. The fix is to pass the adapter explicitly, or, equivalently, init by adapter id: `(rf/init! :reagent)` / `(rf/init! :uix)`.
+
+If no substrate adapter has been required, `(rf/init!)` raises `:rf.error/no-adapter-registered` with a message that names the artefact you probably want (`day8/re-frame-2-reagent`). That error is the canonical signal that you forgot the substrate dep.
+
+The same shape applies to UIx and Helix. Each adapter ns ns-load-registers itself; `(rf/init!)` resolves; if you've required exactly one, it picks that one.
 
 ## What just happened
 
