@@ -281,7 +281,6 @@
     (when frame-record
       (let [router       (:router frame-record)
             drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)
-            last-event-a (atom nil)
             ;; Per Tool-Pair §Time-travel: snapshot `:db-before` at the
             ;; instant the drain begins so the eventual `:rf/epoch-record`
             ;; can carry the pre-cascade state regardless of how many
@@ -291,7 +290,8 @@
             db-before    (frame/frame-app-db-value frame-id)]
         (swap! router assoc :in-drain? true)
         (try
-          (loop [depth 0]
+          (loop [depth      0
+                 last-event nil]
             (cond
               (>= depth drain-depth)
               (let [{:keys [queue]} @router]
@@ -307,7 +307,7 @@
                                    {:frame      frame-id
                                     :depth      depth
                                     :queue-size (count queue)
-                                    :last-event @last-event-a
+                                    :last-event last-event
                                     :rollback?  true
                                     :recovery   :no-recovery})
                 (swap! router assoc :queue interop/empty-queue :scheduled? false)
@@ -329,10 +329,9 @@
                         (let [db-after (frame/frame-app-db-value frame-id)]
                           (settle! frame-id db-before db-after)))))
                   (let [envelope (peek queue)]
-                    (reset! last-event-a (:event envelope))
                     (swap! router update :queue pop)
                     (process-event! envelope)
-                    (recur (inc depth)))))))
+                    (recur (inc depth) (:event envelope)))))))
           (finally
             (swap! router assoc :in-drain? false)))))))
 
