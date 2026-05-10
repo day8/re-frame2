@@ -13,9 +13,18 @@
   late-binding by id (e.g. across module boundaries, runtime-computed
   ids, or hot-reload semantics), call `(re-frame.core/view :id)`
   to obtain the wrapped fn and use `[(rf/view :id) args]` as the
-  hiccup head."
-  (:require [reagent.core   :as r]
-            [re-frame.frame :as frame]
+  hiccup head.
+
+  Per rf2-wbnl this ns no longer statically `:require`s `reagent.core`.
+  The in-flight Reagent component is read through the late-bind hook
+  `:adapter/current-component`, which the active adapter ns publishes
+  at load time. The classic bridge points the hook at
+  `reagent.core/current-component`; the slim adapter points it at
+  `reagent2.core/current-component`. With no adapter installed the
+  hook returns nil and the React-context tier of the resolution chain
+  is skipped — equivalent to a non-Reagent render context, which is
+  what JVM / headless tests already rely on."
+  (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance :include-macros true]
@@ -82,6 +91,25 @@
   (let [frame-kw (or (:frame props) :rf/default)]
     (into [(build-frame-provider) frame-kw] children)))
 
+;; ---- in-flight Reagent component (rf2-wbnl) ------------------------------
+;;
+;; The active adapter (classic bridge or slim) publishes its Reagent build's
+;; `current-component` fn through the `:adapter/current-component` late-bind
+;; hook at ns-load time. This ns must NOT statically `:require [reagent.core]`
+;; — doing so hard-couples views.cljs to stock Reagent and silently shadows
+;; the slim adapter's components in mixed-mode environments. Per the bead's
+;; resolution-chain note: dynamic var → adapter.current-component
+;; (late-bind) → nil. When no adapter has installed the hook the call returns
+;; nil and the React-context tier is skipped.
+
+(defn- current-component
+  "Resolve the in-flight Reagent component via the active adapter's hook.
+  Returns nil when no adapter has registered the hook (JVM / headless
+  builds; no-adapter tests). Per rf2-wbnl."
+  []
+  (when-let [hook (late-bind/get-fn :adapter/current-component)]
+    (hook)))
+
 ;; ---- frame resolution at render time -------------------------------------
 
 (def ^:dynamic *current-frame* nil)
@@ -111,7 +139,7 @@
   regardless of how the Provider was authored."
   []
   (or frame/*current-frame*
-      (when-let [cmp (r/current-component)]
+      (when-let [cmp (current-component)]
         (adapter-context/coerce-context-value (.-context cmp)))
       :rf/default))
 
@@ -162,7 +190,7 @@
   mints a fresh token per call — that mirrors the per-mount-fresh
   semantics for tests that simulate one mount per call."
   []
-  (if-let [cmp (r/current-component)]
+  (if-let [cmp (current-component)]
     (or (.-rfInstanceToken ^js cmp)
         (let [tok (mint-instance-token!)]
           (set! (.-rfInstanceToken ^js cmp) tok)
@@ -458,7 +486,7 @@
   routed to.
 
   Conditions for the warning to fire (all must hold):
-    1. We are mid-render — `(r/current-component)` returns a component.
+    1. We are mid-render — `(current-component)` returns a component.
     2. The component is NOT a reg-view-wrapped one — its `contextType`
        is not the shared `frame-context`. (reg-view-wrapped components
        carry the `:contextType` so they read the surrounding Provider's
@@ -481,7 +509,7 @@
   via late-bind and not called)."
   [resolved-frame-id _query-v]
   (when interop/debug-enabled?
-    (let [cmp (r/current-component)]
+    (let [cmp (current-component)]
       ;; Condition 1: must be mid-render.
       (when (some? cmp)
         ;; Condition 2: component must NOT be reg-view-wrapped. The

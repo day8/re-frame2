@@ -145,3 +145,14 @@
 ;; reads `_currentValue` directly (function components have no
 ;; class-context slot).
 (late-bind/set-fn! :adapter/current-frame views/current-frame)
+
+;; Per rf2-wbnl: publish stock Reagent's `current-component` through
+;; the late-bind hook so `re-frame.views` can read the in-flight
+;; component without statically `:require`ing `reagent.core`. This is
+;; what lets the slim adapter (which ships its own `reagent2.core`
+;; build) install a different `current-component` reader. The classic
+;; bridge wires the hook to stock Reagent's reader; the slim adapter
+;; wires it to `reagent2.core/current-component`. Without this hook,
+;; views.cljs would always call stock Reagent's reader and miss
+;; slim-adapter components in mixed-mode environments.
+(late-bind/set-fn! :adapter/current-component r/current-component)

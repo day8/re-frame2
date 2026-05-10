@@ -101,6 +101,9 @@
     :adapter/current-frame    re-frame.views/current-frame                                       ;; rf2-d4sf — Reagent path; class-component (.-context cmp)
                               re-frame.adapter.context/function-component-current-frame          ;;          — UIx / Helix path; function-component _currentValue read
                                                                                                   ;; Published by the active adapter ns at load time so subscribe / dispatch consult the React-context tier of the resolution chain. Signature: (fn []) -> frame-id keyword.
+    :adapter/current-component reagent.core/current-component                                    ;; rf2-wbnl — classic-bridge path; stock Reagent's in-flight component
+                               reagent2.core/current-component                                   ;;          — slim adapter path; reagent2.core's in-flight component
+                                                                                                  ;; Published by the active adapter ns at load time so re-frame.views can resolve the current Reagent component without hard-binding to one Reagent build. The slim adapter ships its own reactive substrate; without this hook views.cljs would call stock Reagent's current-component and miss slim-rendered components. Signature: (fn []) -> Reagent component or nil. nil when no adapter is installed; views.cljs treats nil cleanly (skips React-context tier, falls through to :rf/default).
     :epoch/settle!            re-frame.epoch/settle!
     :epoch/discard-buffer!    re-frame.epoch/discard-buffer!
     :epoch/in-flight-buffer   re-frame.epoch/in-flight-buffer
