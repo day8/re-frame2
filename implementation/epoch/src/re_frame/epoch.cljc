@@ -575,17 +575,18 @@
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
   [db]
-  (let [missing (atom [])]
-    ;; Machines under :rf/machines: registered as event handlers with
-    ;; :rf/machine? true (per Spec 005 §Registration).
-    (doseq [[machine-id _snapshot] (:rf/machines db)]
-      (when-not (machine-registration machine-id)
-        (swap! missing conj {:kind :machine :id machine-id})))
-    ;; Active route
-    (when-let [route-id (get-in db [:rf/route :id])]
-      (when-not (registrar/lookup :route route-id)
-        (swap! missing conj {:kind :route :id route-id})))
-    @missing))
+  (let [;; Machines under :rf/machines: registered as event handlers with
+        ;; :rf/machine? true (per Spec 005 §Registration).
+        missing-machines
+        (for [[machine-id _snapshot] (:rf/machines db)
+              :when (not (machine-registration machine-id))]
+          {:kind :machine :id machine-id})
+        ;; Active route
+        missing-route
+        (when-let [route-id (get-in db [:rf/route :id])]
+          (when-not (registrar/lookup :route route-id)
+            [{:kind :route :id route-id}]))]
+    (vec (concat missing-machines missing-route))))
 
 (defn- machine-version-mismatch
   "Walk the recorded db's `:rf/machines` for snapshot version drift.
