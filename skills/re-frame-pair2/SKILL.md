@@ -103,7 +103,7 @@ Each op below is a short `scripts/eval-cljs.sh` invocation wrapping a call into 
 | `dispatch` | `scripts/dispatch.sh '[:cart/apply-coupon "SPRING25"]'` | Queued by default; `--sync` forces `dispatch-sync`. Skill-issued dispatches carry `:origin :pair` (Spec 002 §Dispatch origin tagging) so `:event/dispatched` traces can be filtered by who fired them. |
 | `dispatch --frame` | `scripts/dispatch.sh '[:foo]' --frame :stories` | Targets a specific frame via the `:frame` opt on `rf/dispatch`. |
 | `reg-event` / `reg-sub` / `reg-fx` | `scripts/eval-cljs.sh '<full reg-* form>'` | Re-registration replaces; emits `:rf.registry/handler-replaced` trace (Spec 001 §Hot-reload semantics). Ephemeral. |
-| `app-db/reset` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/app-db-reset! ...)'` | Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |
+| `app-db/reset` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/app-db-reset! ...)'` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes, rf2-zq55) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |
 | `repl/eval` | `scripts/eval-cljs.sh '<arbitrary form>'` | Escape hatch. Prefer structured ops first. |
 | `fx-overrides/with` | `scripts/dispatch.sh '[:cart/checkout]' --fx-override :http=:stub-http` | Per-call `:fx-overrides` (Spec 002 §Per-frame and per-call overrides) — redirect a registered fx to a stub for one experiment, restore on completion. |
 

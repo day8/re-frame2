@@ -119,9 +119,22 @@
   "Replace the operating frame's app-db with v. Logged explicitly via
    `tap>` so the human sees what the agent changed.
 
-   This bypasses the dispatch loop (no event, no cascade, no recorded
-   epoch). Use sparingly — prefer `dispatch` for any change you want
-   the data loop to see."
+   Delegates to the canonical Tool-Pair write surface
+   `(rf/reset-frame-db! frame-id v)` (Tool-Pair §Pair-tool writes,
+   rf2-zq55). That surface bypasses the dispatch loop (no event, no
+   cascade) but DOES record a synthetic `:rf/epoch-record` with
+   `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
+   rewind past the injection. Use sparingly — prefer `dispatch` for
+   any change you want the data loop to see.
+
+   Returns `{:ok? true :frame frame-id}` on success.
+
+   Failure modes (each is a no-op on app-db; corresponding
+   `:rf.epoch/*` or `:rf.error/*` trace fires per Spec 009):
+     :no-such-frame                — frame not registered
+     :reset-frame-db-during-drain  — drain in flight
+     :schema-mismatch              — v fails the frame's app-schema
+     :epoch-artefact-missing       — re-frame-2-epoch artefact not loaded"
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame-pair2/op :app-db/reset
@@ -129,13 +142,27 @@
           :previous           (rf/get-frame-db frame-id)
           :next               v
           :t                  (js/Date.now)})
-   ;; Reach through the Tool-Pair-pinned container surface. We read the
-   ;; container ref via the registry-query API (frame/get-frame-db
-   ;; returns the container in re-frame2; the deref is the value, the
-   ;; container itself is what gets reset!).
-   (when-let [container (some-> (rf/handler-meta :frame frame-id) :app-db)]
-     (reset! container v))
-   {:ok? true :frame frame-id}))
+   (try
+     (if (rf/reset-frame-db! frame-id v)
+       {:ok? true :frame frame-id}
+       ;; reset-frame-db! returns false on the soft-failure modes
+       ;; (unknown frame, in-drain, schema-mismatch). The structured
+       ;; reason is in the trace stream (`:rf.error/no-such-handler`,
+       ;; `:rf.epoch/reset-frame-db-during-drain`,
+       ;; `:rf.epoch/reset-frame-db-schema-mismatch`); we surface a
+       ;; `:reset-rejected` umbrella so callers know the call did
+       ;; not land without having to interpret the trace.
+       {:ok?    false
+        :frame  frame-id
+        :reason :reset-rejected
+        :hint   "rf/reset-frame-db! returned false. Inspect (rf/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/reset-frame-db-during-drain, or :rf.epoch/reset-frame-db-schema-mismatch."})
+     (catch :default e
+       (let [{:keys [reason] :as data} (ex-data e)]
+         {:ok?     false
+          :frame   frame-id
+          :reason  (or reason :reset-throw)
+          :message (.-message e)
+          :data    data})))))
 
 (defn schemas
   "All registered app-schemas for the operating frame.
