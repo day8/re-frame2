@@ -8,21 +8,26 @@
 ;; wires the classpath via :local/root for any clojure-tools-driven
 ;; steps.
 ;;
-;; Per rf2-3yij the UIx adapter ships in implementation/uix; its
-;; sources are added to :source-paths and com.pitch/uix.{core,dom} are
-;; added to :dependencies so the per-example UIx builds resolve.
+;; Per rf2-3yij the UIx adapter ships in implementation/substrates/uix;
+;; its sources are added to :source-paths and com.pitch/uix.{core,dom}
+;; are added to :dependencies so the per-example UIx builds resolve.
 ;;
-;; Per rf2-2qit the Helix adapter ships in implementation/helix; its
-;; sources are added to :source-paths and lilactown/helix is added to
-;; :dependencies so the per-example Helix builds resolve.
+;; Per rf2-2qit the Helix adapter ships in
+;; implementation/substrates/helix; its sources are added to
+;; :source-paths and lilactown/helix is added to :dependencies so the
+;; per-example Helix builds resolve.
+;;
+;; Per rf2-zha9 the three substrate adapters live under
+;; implementation/substrates/<name>/; per-feature artefacts (schemas,
+;; machines, ...) stay flat under implementation/<name>/.
 {:source-paths ["core/src"
                 "core/test"
-                "reagent/src"
-                "reagent/test"
-                "uix/src"
-                "uix/test"
-                "helix/src"
-                "helix/test"
+                "substrates/reagent/src"
+                "substrates/reagent/test"
+                "substrates/uix/src"
+                "substrates/uix/test"
+                "substrates/helix/src"
+                "substrates/helix/test"
                 "schemas/src"
                 "schemas/test"
                 "machines/src"

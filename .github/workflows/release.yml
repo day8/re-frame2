@@ -165,15 +165,15 @@ jobs:
         run: clojure -M:test
 
       - name: JVM tests (reagent artefact, classpath probe)
-        working-directory: implementation/reagent
+        working-directory: implementation/substrates/reagent
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
       - name: JVM tests (uix artefact, classpath probe)
-        working-directory: implementation/uix
+        working-directory: implementation/substrates/uix
         run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
 
       - name: JVM tests (helix artefact, classpath probe)
-        working-directory: implementation/helix
+        working-directory: implementation/substrates/helix
         run: clojure -M:test || echo "no JVM-runnable tests in helix artefact (expected)"
 
       - name: JVM tests (schemas artefact)
@@ -334,23 +334,23 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite reagent :local/root → :mvn/version
-        working-directory: implementation/reagent
+        working-directory: implementation/substrates/reagent
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/reagent/deps.edn"
+          if ! grep -qF ':local/root "../../core"' deps.edn; then
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/reagent/deps.edn"
             exit 1
           fi
-          BEFORE=':local/root "../core"' \
+          BEFORE=':local/root "../../core"' \
           AFTER=":mvn/version \"${VERSION}\"" \
           python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
           echo "Rewrote :local/root → :mvn/version $VERSION"
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy reagent adapter (day8/re-frame-2-reagent)
-        working-directory: implementation/reagent
+        working-directory: implementation/substrates/reagent
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
@@ -393,23 +393,23 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite uix :local/root → :mvn/version
-        working-directory: implementation/uix
+        working-directory: implementation/substrates/uix
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/uix/deps.edn"
+          if ! grep -qF ':local/root "../../core"' deps.edn; then
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/uix/deps.edn"
             exit 1
           fi
-          BEFORE=':local/root "../core"' \
+          BEFORE=':local/root "../../core"' \
           AFTER=":mvn/version \"${VERSION}\"" \
           python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
           echo "Rewrote :local/root → :mvn/version $VERSION"
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy uix adapter (day8/re-frame-2-uix)
-        working-directory: implementation/uix
+        working-directory: implementation/substrates/uix
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
@@ -452,23 +452,23 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite helix :local/root → :mvn/version
-        working-directory: implementation/helix
+        working-directory: implementation/substrates/helix
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/helix/deps.edn"
+          if ! grep -qF ':local/root "../../core"' deps.edn; then
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/helix/deps.edn"
             exit 1
           fi
-          BEFORE=':local/root "../core"' \
+          BEFORE=':local/root "../../core"' \
           AFTER=":mvn/version \"${VERSION}\"" \
           python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
           echo "Rewrote :local/root → :mvn/version $VERSION"
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy helix adapter (day8/re-frame-2-helix)
-        working-directory: implementation/helix
+        working-directory: implementation/substrates/helix
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
