@@ -1,5 +1,11 @@
 # The Mayor Method — how I work with AI
 
+## Why this exists
+
+The claim that re-frame2 is "AI first" has met with skepticism, frustration, disbelief, and borderline hostility. This document is my response: a write-up of the method that produced it. The proof of the method is the repository it shipped — see the Outcome section at the bottom. Read the method, look at the work, decide for yourself.
+
+## The method
+
 This is the workflow I use for non-trivial AI-assisted projects.
 
 The method is derived from my deep dive into [gastown's approach][gastown]. I don't use gastown myself, but the shape of this workflow — the orchestrator role, the spec-first discipline, the dispatched workers — comes directly from studying theirs. Credit lands there; any awkwardness in this write-up is mine.
@@ -157,6 +163,12 @@ After a few weeks of working this way:
 - The map tells you where to spend your next 30 minutes.
 - Specs accumulate as the project's structural memory. When you onboard someone — human or AI — they read the specs.
 - You write less code by hand than you'd expect. You write a lot more specs.
+
+
+## Outcome
+
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilerating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of this state machine [this](https://github.com/day8/re-frame2/blob/main/spec/Pattern-WebSocket.md#worked-example--connection-machine):  
+
 
 ## TL;DR
 
