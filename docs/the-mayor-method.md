@@ -171,7 +171,7 @@ Create beads for each actionable observation. Action beads using background work
 
 Using multiple lenses is a nice way to flush out problems.
 
-Sometimes the first line of that prompt is:
+Often the first line of that prompt has narrower scope:
 ```
 Regarding the recent commits (the body of work recently undertaken): 
 ```
