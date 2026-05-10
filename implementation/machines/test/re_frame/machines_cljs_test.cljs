@@ -330,10 +330,11 @@
             "epoch advanced on entry to an :after-bearing state"))
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/scheduled (:operation ev))
-                       (= 5000 (:delay (:tags ev)))
-                       (= 1    (:epoch (:tags ev)))))
+                       (= 5000     (:delay (:tags ev)))
+                       (= 1        (:epoch (:tags ev)))
+                       (= :literal (:delay-source (:tags ev)))))
                 @traces)
-          "expected :rf.machine.timer/scheduled trace with epoch 1")
+          "expected :rf.machine.timer/scheduled trace with :delay-source :literal")
       ;; Step 2 — fire the synthetic timer-elapsed event with matching epoch.
       (reset! traces [])
       (rf/dispatch-sync [:http/flow [:rf.machine.timer/after-elapsed 5000 1]])
@@ -405,6 +406,73 @@
                     @traces)
           "no real transition fired on the stale firing"))))
 
+;; ---- (3a) :after multi-stage + guard suppression -------------------------
+
+(deftest machine-after-multi-stage-guard-cljs
+  (testing "multiple :after entries; guard-false suppresses one, sibling continues"
+    (let [m {:initial :idle
+             :data    {:rf/after-epoch 0 :slow? false}
+             :guards  {:slow? (fn [data _] (:slow? data))}
+             :states
+             {:idle    {:on {:fetch :loading}}
+              :loading {:after {5000  {:guard :slow? :target :warn}
+                                30000 :timeout}
+                        :on    {:loaded :ready}}
+              :warn    {}
+              :timeout {}
+              :ready   {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/multi-cljs m)
+      (rf/register-trace-cb! ::mg (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:a/multi-cljs [:fetch]])
+      (let [epoch (get-in (snapshot :a/multi-cljs) [:data :rf/after-epoch])]
+        ;; The 5s timer fires first; guard :slow? false → suppressed.
+        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 5000 epoch]])
+        (is (= :loading (:state (snapshot :a/multi-cljs)))
+            "guard-suppressed :after must not transition")
+        (is (some (fn [ev]
+                    (and (= :rf.machine.timer/fired (:operation ev))
+                         (false? (:fired? (:tags ev)))))
+                  @traces)
+            ":fired? false trace emitted on guard suppression")
+        ;; Sibling 30s still live (same epoch) — fire it, transition fires.
+        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 30000 epoch]])
+        (is (= :timeout (:state (snapshot :a/multi-cljs)))
+            "sibling timer transitions on its own")
+        (rf/remove-trace-cb! ::mg)))))
+
+;; ---- (3b) subscription-vector :after delay (dynamic) ---------------------
+
+(deftest machine-after-subscription-delay-cljs
+  (testing "subscription-vector delay: :scheduled trace carries :delay-source :sub + :sub-id"
+    (rf/reg-event-db
+      :a/sub-config-set
+      (fn [db [_ ms]] (assoc db :timeout-config ms)))
+    (rf/reg-sub
+      :a/timeout-config
+      (fn [db _] (:timeout-config db)))
+    (rf/dispatch-sync [:a/sub-config-set 4000])
+    (let [m {:initial :idle
+             :data    {:rf/after-epoch 0}
+             :states
+             {:idle    {:on {:fetch :loading}}
+              :loading {:after {[:a/timeout-config] :timeout}
+                        :on    {:loaded :ready}}
+              :timeout {}
+              :ready   {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/sub-cljs m)
+      (rf/register-trace-cb! ::sub (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:a/sub-cljs [:fetch]])
+      (is (= :loading (:state (snapshot :a/sub-cljs))))
+      (is (some (fn [ev]
+                  (and (= :rf.machine.timer/scheduled (:operation ev))
+                       (= :sub               (:delay-source (:tags ev)))
+                       (= :a/timeout-config  (:sub-id (:tags ev)))))
+                @traces)
+          ":scheduled trace emitted with :delay-source :sub and :sub-id")
+      (rf/remove-trace-cb! ::sub))))
+
 ;; ---- (4) declarative :invoke ----------------------------------------------
 ;; Mirrors invoke-spawn-on-entry-destroy-on-exit.edn — entering a state with
 ;; :invoke emits a :rf.machine/spawn fx (observable as :rf.machine/spawned
@@ -470,131 +538,94 @@
                 @traces)
           "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
-;; ---- (4b) :invoke + :timeout-ms (rf2-1lop) -------------------------------
-;; Per Spec 005 §Wall-clock :timeout-ms. The runtime emits a sibling
-;; :rf.machine/timeout-schedule fx alongside the standard :rf.machine/spawn
-;; fx on entry; on synthetic :rf.machine.invoke.timeout/elapsed event the
-;; intercept layer (a) emits :rf.machine.invoke/timed-out trace,
-;; (b) tears down the spawned actor, and (c) dispatches :on-timeout into
-;; the parent.
-;;
-;; This test dispatches the synthetic event manually (mirroring the
-;; :after-elapsed pattern above) so the verification is deterministic
-;; without depending on setTimeout firing.
+;; ---- (4b) state-level :after on :invoke-bearing state (rf2-3y3y) ----------
+;; Per Spec 005 §Wall-clock timeouts on :invoke — use parent state's :after.
+;; The pre-rf2-3y3y :timeout-ms slot on :invoke / :invoke-all is dropped;
+;; wall-clock guards are expressed via :after on the :invoke-bearing state
+;; itself. When :after fires, the standard exit cascade tears down the
+;; spawned child via :rf.machine/destroy.
 
-(deftest machine-invoke-timeout-cljs
-  (testing ":invoke :timeout-ms — synthetic timeout-elapsed cancels child, dispatches :on-timeout"
+(deftest machine-after-on-invoke-cljs
+  (testing ":after on an :invoke-bearing state — synthetic timer-elapsed cancels child + transitions"
     (let [child  {:initial :running
                   :states  {:running {:on {:never-fires :done}}
                             :done    {}}}
           parent {:initial :idle
                   :data    {:rf/after-epoch 0}
+                  :on-spawn-actions
+                  {:record (fn [data id] (assoc data :pending id))}
                   :states
                   {:idle {:on {:go :authenticating}}
                    :authenticating
-                   {:invoke {:machine-id :child/auth-cljs
-                             :timeout-ms 30000
-                             :on-timeout [:auth/timed-out]}
-                    :on    {:auth/timed-out :timed-out
-                            :auth/succeeded :authenticated}}
+                   {:invoke {:machine-id :child/auth-after
+                             :on-spawn   :record}
+                    :after  {30000 :timed-out}
+                    :on    {:auth/succeeded :authenticated}}
                    :authenticated {}
                    :timed-out     {}}}
           traces (atom [])]
-      (rf/reg-machine :child/auth-cljs child)
-      (rf/reg-machine :sup/auth-to    parent)
-      (rf/register-trace-cb! ::to (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:sup/auth-to [:go]])
-      (is (= :authenticating (:state (snapshot :sup/auth-to)))
+      (rf/reg-machine :child/auth-after child)
+      (rf/reg-machine :sup/auth-after  parent)
+      (rf/register-trace-cb! ::ato (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:sup/auth-after [:go]])
+      (is (= :authenticating (:state (snapshot :sup/auth-after)))
           "parent transitioned :idle → :authenticating")
       (is (some (fn [ev]
-                  (= :rf.machine.invoke.timeout/scheduled (:operation ev)))
+                  (and (= :rf.machine.timer/scheduled (:operation ev))
+                       (= 30000   (:delay (:tags ev)))
+                       (= :literal (:delay-source (:tags ev)))))
                 @traces)
-          "timeout-schedule fx emitted :rf.machine.invoke.timeout/scheduled trace")
+          "expected :rf.machine.timer/scheduled with :delay-source :literal")
       (let [child-id (get-in (rf/get-frame-db :rf/default)
-                             [:rf/spawned :sup/auth-to [:authenticating]])
-            epoch    (get-in (snapshot :sup/auth-to) [:data :rf/after-epoch])]
+                             [:rf/spawned :sup/auth-after [:authenticating]])
+            epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch])]
         (is (some? child-id) "spawn slot bound to the spawned child id")
-        (is (some? (get-in (rf/get-frame-db :rf/default)
-                           [:rf/machines child-id]))
-            "child snapshot exists at [:rf/machines child-id]")
         (reset! traces [])
-        (rf/dispatch-sync [:sup/auth-to [:rf.machine.invoke.timeout/elapsed
-                                         {:rf/invoke-id  [:authenticating]
-                                          :rf/invoke-all false
-                                          :timeout-ms    30000
-                                          :on-timeout    [:auth/timed-out]
-                                          :epoch         epoch
-                                          :elapsed-ms    30001}]])
-        (is (= :timed-out (:state (snapshot :sup/auth-to)))
-            "parent transitioned via :on-timeout dispatch")
+        ;; Synthetically dispatch the :after-elapsed timer event with the
+        ;; current epoch — mirrors the wall-clock setTimeout firing.
+        (rf/dispatch-sync [:sup/auth-after [:rf.machine.timer/after-elapsed 30000 epoch]])
+        (is (= :timed-out (:state (snapshot :sup/auth-after)))
+            "parent transitioned :authenticating → :timed-out via :after firing")
         (is (nil? (get-in (rf/get-frame-db :rf/default)
                           [:rf/machines child-id]))
-            "child machine snapshot torn down by :rf.machine/destroy")
-        (is (some (fn [ev]
-                    (and (= :rf.machine.invoke/timed-out (:operation ev))
-                         (= [:authenticating] (:invoke-id (:tags ev)))
-                         (= 30000 (:timeout-ms (:tags ev)))))
-                  @traces)
-            "expected :rf.machine.invoke/timed-out trace"))
-      (rf/remove-trace-cb! ::to)))
+            "child machine snapshot torn down by the standard exit cascade"))
+      (rf/remove-trace-cb! ::ato))))
 
-  (testing ":invoke-all :timeout-ms — surviving children cancelled, :on-timeout dispatched"
-    (let [child  {:initial :running
-                  :data    {:id nil}
-                  :on-spawn-actions
-                  {}
-                  :actions {:dispatch-done
-                            (fn [data _]
-                              {:fx [[:dispatch [:sup/many-cljs [:asset/loaded (:id data)]]]]})
-                            :record-id
-                            (fn [data ev]
-                              {:data (assoc data :id (second ev))})}
-                  :states  {:running {:on {:set-id {:action :record-id}
-                                           :go {:target :done :action :dispatch-done}}}
-                            :done    {}}}
-          parent {:initial :idle
-                  :data    {:rf/after-epoch 0}
-                  :states
-                  {:idle {:on {:start :hydrating}}
-                   :hydrating
-                   {:invoke-all
-                    {:children         [{:id :a :machine-id :child/cljs1 :start [:set-id :a]}
-                                        {:id :b :machine-id :child/cljs2 :start [:set-id :b]}
-                                        {:id :c :machine-id :child/cljs3 :start [:set-id :c]}]
-                     :join             :all
-                     :on-child-done    :asset/loaded
-                     :on-child-error   :asset/failed
-                     :on-all-complete  [:hydrate/done]
-                     :timeout-ms       60000
-                     :on-timeout       [:hydrate/timed-out]}
-                    :on    {:hydrate/done       :ready
-                            :hydrate/timed-out  :degraded}}
-                   :ready    {}
-                   :degraded {}}}]
-      (rf/reg-machine :child/cljs1 child)
-      (rf/reg-machine :child/cljs2 child)
-      (rf/reg-machine :child/cljs3 child)
-      (rf/reg-machine :sup/many-cljs parent)
-      (rf/dispatch-sync [:sup/many-cljs [:start]])
-      (let [jstate (get-in (rf/get-frame-db :rf/default)
-                           [:rf/spawned :sup/many-cljs [:hydrating]])
-            ids    (:children jstate)
-            _      (rf/dispatch-sync [(:a ids) [:go]])
-            epoch  (get-in (snapshot :sup/many-cljs) [:data :rf/after-epoch])]
-        (rf/dispatch-sync [:sup/many-cljs
-                           [:rf.machine.invoke.timeout/elapsed
-                            {:rf/invoke-id  [:hydrating]
-                             :rf/invoke-all true
-                             :timeout-ms    60000
-                             :on-timeout    [:hydrate/timed-out]
-                             :epoch         epoch
-                             :elapsed-ms    60001}]])
-        (is (= :degraded (:state (snapshot :sup/many-cljs)))
-            "parent transitioned via :on-timeout (whole-join timeout)")
-        (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/machines (:b ids)]))
-            "surviving child :b cancelled")
-        (is (nil? (get-in (rf/get-frame-db :rf/default) [:rf/machines (:c ids)]))
-            "surviving child :c cancelled")))))
+;; ---- (4c) :timeout-ms on :invoke / :invoke-all is rejected (rf2-3y3y) ----
+
+(deftest machine-invoke-timeout-ms-removed-cljs
+  (testing ":timeout-ms on :invoke is rejected with :rf.error/invoke-timeout-ms-removed"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :running}}
+                         :running {:invoke {:machine-id :stub
+                                            :timeout-ms 1000
+                                            :on-timeout [:never]}}}}]
+      (is (thrown-with-msg? js/Error
+                            #"invoke-timeout-ms-removed"
+                            (rf/reg-machine :rmv/bad-invoke bad)))))
+  (testing ":on-timeout alone on :invoke is also rejected"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :running}}
+                         :running {:invoke {:machine-id :stub
+                                            :on-timeout [:never]}}}}]
+      (is (thrown-with-msg? js/Error
+                            #"invoke-timeout-ms-removed"
+                            (rf/reg-machine :rmv/bad-on-to bad)))))
+  (testing ":timeout-ms on :invoke-all is rejected"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :h}}
+                         :h    {:invoke-all
+                                {:children
+                                 [{:id :a :machine-id :stub}]
+                                 :join             :all
+                                 :on-child-done    :done
+                                 :on-child-error   :failed
+                                 :on-all-complete  [:done!]
+                                 :timeout-ms       5000
+                                 :on-timeout       [:to]}}}}]
+      (is (thrown-with-msg? js/Error
+                            #"invoke-timeout-ms-removed"
+                            (rf/reg-machine :rmv/bad-invoke-all bad))))))
 
 ;; ---- (5) :system-id named-machine addressing (rf2-suue / rf2-ecv4) -------
 ;;
