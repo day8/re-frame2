@@ -8,7 +8,7 @@ The claim that [re-frame2](https://github.com/day8/re-frame2) is "AI first" has 
 
 This is the workflow I use for non-trivial AI-assisted projects.
 
-The method is derived from a deep dive into [gastown's approach][gastown]. I don't use gastown myself, but the shape of this workflow — the orchestrator role, the spec-first discipline, the dispatched workers — comes directly from studying theirs. Credit lands there; any awkwardness in this write-up is mine.
+The method is derived from a deep dive into [gastown's approach][gastown]. I don't use gastown directly, but the shape of this workflow — the orchestrator role, the spec-first discipline, the dispatched workers — comes directly from studying theirs. Credit lands there; any awkwardness in this write-up is mine.
 
 I borrow gastown's term for the orchestrator role: **the mayor** — a figure who orchestrates without doing the work, has overview without losing it, and makes the decisions that keep the city running. That's the role one Claude session plays in my setup.
 
@@ -167,7 +167,7 @@ After a few weeks of working this way:
 
 ## Outcome
 
-In the last 5 days, I wrote 60K lines of code/specs/tests/examples — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilerating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of this state machine [this](https://github.com/day8/re-frame2/blob/main/spec/Pattern-WebSocket.md#worked-example--connection-machine):  
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of [this state machine](https://github.com/day8/re-frame2/blob/main/spec/Pattern-WebSocket.md#worked-example--connection-machine):  
 
 
 ## TL;DR
