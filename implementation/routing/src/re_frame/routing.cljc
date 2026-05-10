@@ -76,83 +76,87 @@
 ;; structural rank tuple that match-url consults to pick the winner among
 ;; overlapping matches.
 
+(defn- segment-end
+  "Scan forward from index `j` in `pattern` (length `n`) until a
+  segment-boundary char (/, {, }, ?) is hit; return the index of that
+  boundary (or `n` if none). Pure helper shared by every pattern walker
+  in this namespace — replaces the four near-identical inline loops."
+  [^String pattern n j]
+  (loop [m j]
+    (cond
+      (>= m n) m
+      (let [c (.charAt pattern m)]
+        (or (= c \/) (= c \{) (= c \}) (= c \?))) m
+      :else (recur (inc m)))))
+
+(defn- segment-end-no-?
+  "Same as segment-end but treats only /, {, } as boundaries (no ?).
+  Used by pattern-shape's :else branch which classifies static segments
+  — those don't terminate at ?."
+  [^String pattern n j]
+  (loop [m j]
+    (cond
+      (>= m n) m
+      (let [c (.charAt pattern m)]
+        (or (= c \/) (= c \{) (= c \}))) m
+      :else (recur (inc m)))))
+
 (defn- pattern-shape
   "Walk a path pattern and tally segment shapes used by the rank tuple.
   Counts non-optional segments only (rule 2 vs rule 5); the per-pattern
   optional-group count is tracked separately. Catch-all detection: the
   whole pattern is a single splat (/*name)."
   [pattern]
-  (let [n           (count pattern)
-        i           (atom 0)
-        depth       (atom 0)        ;; inside-optional-group depth
-        seen        (atom {:static 0 :named 0 :splat 0 :optional 0 :total 0})
-        bump        (fn [k] (swap! seen update k inc))]
-    ;; Walk char-by-char like compile-pattern. At each segment-start we
-    ;; classify the segment kind.
-    (loop []
-      (when (< @i n)
-        (let [ch (.charAt pattern @i)]
-          (cond
-            (= ch \{)
-            (do (bump :optional) (swap! depth inc) (swap! i inc))
+  (let [n          (count pattern)
+        ;; Walk char-by-char. State threads as (loop [i depth seen]):
+        ;; i — cursor; depth — optional-group nesting; seen — counts.
+        seen       (loop [i     0
+                          depth 0
+                          seen  {:static 0 :named 0 :splat 0 :optional 0 :total 0}]
+                     (if-not (< i n)
+                       seen
+                       (let [ch (.charAt ^String pattern i)]
+                         (cond
+                           (= ch \{)
+                           (recur (inc i) (inc depth) (update seen :optional inc))
 
-            (= ch \})
-            (do (swap! depth dec) (swap! i inc)
-                (when (and (< @i n) (= \? (.charAt pattern @i)))
-                  (swap! i inc)))
+                           (= ch \})
+                           (let [i' (inc i)]
+                             (recur (if (and (< i' n) (= \? (.charAt ^String pattern i')))
+                                      (inc i')
+                                      i')
+                                    (dec depth)
+                                    seen))
 
-            (= ch \:)
-            (do (when (zero? @depth)
-                  (bump :named)
-                  (bump :total))
-                (swap! i (fn [j]
-                           (let [k (loop [m (inc j)]
-                                     (cond
-                                       (>= m n) m
-                                       (or (= \/ (.charAt pattern m))
-                                           (= \{ (.charAt pattern m))
-                                           (= \} (.charAt pattern m))
-                                           (= \? (.charAt pattern m))) m
-                                       :else (recur (inc m))))]
-                             k))))
+                           (= ch \:)
+                           (recur (segment-end pattern n (inc i))
+                                  depth
+                                  (cond-> seen
+                                    (zero? depth) (-> (update :named inc)
+                                                      (update :total inc))))
 
-            (= ch \*)
-            (do (when (zero? @depth)
-                  (bump :splat)
-                  (bump :total))
-                (swap! i (fn [j]
-                           (loop [m (inc j)]
-                             (cond
-                               (>= m n) m
-                               (or (= \/ (.charAt pattern m))
-                                   (= \{ (.charAt pattern m))
-                                   (= \} (.charAt pattern m))
-                                   (= \? (.charAt pattern m))) m
-                               :else (recur (inc m)))))))
+                           (= ch \*)
+                           (recur (segment-end pattern n (inc i))
+                                  depth
+                                  (cond-> seen
+                                    (zero? depth) (-> (update :splat inc)
+                                                      (update :total inc))))
 
-            (= ch \/)
-            (swap! i inc)
+                           (= ch \/)
+                           (recur (inc i) depth seen)
 
-            :else
-            (do (when (zero? @depth)
-                  (bump :static)
-                  (bump :total))
-                (swap! i (fn [j]
-                           (loop [m (inc j)]
-                             (cond
-                               (>= m n) m
-                               (or (= \/ (.charAt pattern m))
-                                   (= \{ (.charAt pattern m))
-                                   (= \} (.charAt pattern m))) m
-                               :else (recur (inc m)))))))))
-        (recur)))
-    (let [s @seen
-          catch-all? (and (= 1 (:total s))
-                          (= 1 (:splat s))
-                          (zero? (:static s))
-                          (zero? (:named s))
-                          (zero? (:optional s)))]
-      (assoc s :catch-all? catch-all?))))
+                           :else
+                           (recur (segment-end-no-? pattern n (inc i))
+                                  depth
+                                  (cond-> seen
+                                    (zero? depth) (-> (update :static inc)
+                                                      (update :total inc))))))))
+        catch-all? (and (= 1 (:total seen))
+                        (= 1 (:splat seen))
+                        (zero? (:static seen))
+                        (zero? (:named seen))
+                        (zero? (:optional seen)))]
+    (assoc seen :catch-all? catch-all?)))
 
 (defn- compute-rank
   "Per Spec 012 §Route ranking algorithm. Returns a tuple sorted descending —
@@ -236,73 +240,49 @@
   left-to-right in the pattern. :names is the vector of those param
   keywords; absent params (optional group not matched) yield nil."
   [pattern]
-  (let [n      (count pattern)
-        ;; Build the regex source as a vector of fragments; (apply str)
-        ;; at the end. Vector accumulator works on JVM and CLJS without
-        ;; the StringBuilder portability tax.
-        parts  (atom ["^/?"])
-        names  (atom [])
-        i      (atom 0)
-        emit   (fn [s] (swap! parts conj s))]
-    ;; Skip leading '/'.
-    (when (and (pos? n) (= \/ (.charAt pattern 0)))
-      (swap! i inc))
-    (loop []
-      (when (< @i n)
-        (let [ch (.charAt pattern @i)]
-          (cond
-            (= ch \/)
-            (do (emit "/") (swap! i inc))
+  (let [n  (count pattern)
+        i0 (if (and (pos? n) (= \/ (.charAt ^String pattern 0))) 1 0)
+        ;; Walk char-by-char. State threads as (loop [i parts names]):
+        ;; i — cursor; parts — regex fragments (vector); names — captured
+        ;; param names (vector). Output is (apply str parts).
+        [parts names]
+        (loop [i     i0
+               parts ["^/?"]
+               names []]
+          (if-not (< i n)
+            [(conj parts "$") names]
+            (let [ch (.charAt ^String pattern i)]
+              (cond
+                (= ch \/)
+                (recur (inc i) (conj parts "/") names)
 
-            (= ch \:)
-            (let [start (inc @i)
-                  end   (loop [j start]
-                          (cond
-                            (>= j n) j
-                            (or (= \/ (.charAt pattern j))
-                                (= \{ (.charAt pattern j))
-                                (= \} (.charAt pattern j))
-                                (= \? (.charAt pattern j))) j
-                            :else (recur (inc j))))
-                  nm    (subs pattern start end)]
-              (emit "([^/]+)")
-              (swap! names conj nm)
-              (reset! i end))
+                (= ch \:)
+                (let [start (inc i)
+                      end   (segment-end pattern n start)
+                      nm    (subs pattern start end)]
+                  (recur end (conj parts "([^/]+)") (conj names nm)))
 
-            (= ch \*)
-            (let [start (inc @i)
-                  end   (loop [j start]
-                          (cond
-                            (>= j n) j
-                            (or (= \/ (.charAt pattern j))
-                                (= \{ (.charAt pattern j))
-                                (= \} (.charAt pattern j))
-                                (= \? (.charAt pattern j))) j
-                            :else (recur (inc j))))
-                  nm    (subs pattern start end)]
-              (emit "(.+)")
-              (swap! names conj nm)
-              (reset! i end))
+                (= ch \*)
+                (let [start (inc i)
+                      end   (segment-end pattern n start)
+                      nm    (subs pattern start end)]
+                  (recur end (conj parts "(.+)") (conj names nm)))
 
-            (= ch \{)
-            (do (emit "(?:") (swap! i inc))
+                (= ch \{)
+                (recur (inc i) (conj parts "(?:") names)
 
-            (= ch \})
-            (do (emit ")")
-                (swap! i inc)
-                (when (and (< @i n) (= \? (.charAt pattern @i)))
-                  (emit "?")
-                  (swap! i inc)))
+                (= ch \})
+                (let [i'        (inc i)
+                      ?-suffix? (and (< i' n) (= \? (.charAt ^String pattern i')))]
+                  (recur (if ?-suffix? (inc i') i')
+                         (cond-> (conj parts ")") ?-suffix? (conj "?"))
+                         names))
 
-            :else
-            (do (emit (regex-escape (str ch)))
-                (swap! i inc))))
-        (recur)))
-    (emit "$")
-    (let [regex-str (apply str @parts)]
-      {:regex   (re-pattern regex-str)
-       :names   @names
-       :pattern pattern})))
+                :else
+                (recur (inc i) (conj parts (regex-escape (str ch))) names)))))]
+    {:regex   (re-pattern (apply str parts))
+     :names   names
+     :pattern pattern}))
 
 (defn- match-against
   "Try to match url against the route's compiled pattern. Returns the
@@ -419,14 +399,7 @@
 
         (or (= \: (.charAt pattern j)) (= \* (.charAt pattern j)))
         (let [start (inc j)
-              end   (loop [m start]
-                      (cond
-                        (>= m n) m
-                        (or (= \/ (.charAt pattern m))
-                            (= \{ (.charAt pattern m))
-                            (= \} (.charAt pattern m))
-                            (= \? (.charAt pattern m))) m
-                        :else (recur (inc m))))]
+              end   (segment-end pattern n start)]
           (recur end (conj names (subs pattern start end))))
 
         :else
@@ -445,106 +418,79 @@
          _ (when (nil? pattern)
              (throw (ex-info ":rf.error/no-such-route" {:route-id route-id})))
          n     (count pattern)
-         parts (atom [])
-         i     (atom 0)
-         emit  (fn [x] (swap! parts conj x))]
-     (loop []
-       (when (< @i n)
-         (let [ch (.charAt pattern @i)]
-           (cond
-             (= ch \{)
-             (let [[after-end inner-names] (collect-param-names-in-group pattern (inc @i))
-                   all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
-               (if all-present?
-                 (do (reset! i (inc @i))
-                     (loop []
-                       (let [c2 (.charAt pattern @i)]
-                         (cond
-                           (= c2 \})
-                           (let [k (inc @i)]
-                             (reset! i (if (and (< k n) (= \? (.charAt pattern k))) (inc k) k)))
-                           :else
-                           (do
-                             (cond
-                               (= c2 \:)
-                               (let [start (inc @i)
-                                     end   (loop [m start]
-                                             (cond
-                                               (>= m n) m
-                                               (or (= \/ (.charAt pattern m))
-                                                   (= \{ (.charAt pattern m))
-                                                   (= \} (.charAt pattern m))
-                                                   (= \? (.charAt pattern m))) m
-                                               :else (recur (inc m))))
-                                     k     (keyword (subs pattern start end))]
-                                 (emit (url-encode (get path-params k)))
-                                 (reset! i end))
+         ;; Inner loop emits the body of an optional group whose params
+         ;; are all present. State threads as (loop [i parts]); returns
+         ;; [next-i parts'] when the group's '}' (and optional '?') is
+         ;; consumed.
+         emit-group
+         (fn emit-group [i parts]
+           (loop [i     i
+                  parts parts]
+             (let [c2 (.charAt ^String pattern i)]
+               (cond
+                 (= c2 \})
+                 (let [k (inc i)]
+                   [(if (and (< k n) (= \? (.charAt ^String pattern k))) (inc k) k)
+                    parts])
 
-                               (= c2 \*)
-                               (let [start (inc @i)
-                                     end   (loop [m start]
-                                             (cond
-                                               (>= m n) m
-                                               (or (= \/ (.charAt pattern m))
-                                                   (= \{ (.charAt pattern m))
-                                                   (= \} (.charAt pattern m))
-                                                   (= \? (.charAt pattern m))) m
-                                               :else (recur (inc m))))
-                                     k     (keyword (subs pattern start end))]
-                                 (emit (url-encode-splat (get path-params k)))
-                                 (reset! i end))
+                 (= c2 \:)
+                 (let [start (inc i)
+                       end   (segment-end pattern n start)
+                       k     (keyword (subs pattern start end))]
+                   (recur end (conj parts (url-encode (get path-params k)))))
 
-                               :else
-                               (do (emit (str c2)) (swap! i inc)))
-                             (recur))))))
-                 (reset! i after-end)))
+                 (= c2 \*)
+                 (let [start (inc i)
+                       end   (segment-end pattern n start)
+                       k     (keyword (subs pattern start end))]
+                   (recur end (conj parts (url-encode-splat (get path-params k)))))
 
-             (= ch \:)
-             (let [start (inc @i)
-                   end   (loop [m start]
-                           (cond
-                             (>= m n) m
-                             (or (= \/ (.charAt pattern m))
-                                 (= \{ (.charAt pattern m))
-                                 (= \} (.charAt pattern m))
-                                 (= \? (.charAt pattern m))) m
-                             :else (recur (inc m))))
-                   k     (keyword (subs pattern start end))
-                   v     (or (get path-params k)
-                             (throw (ex-info ":rf.error/missing-route-param"
-                                             {:param k :route-id route-id})))]
-               (emit (url-encode v))
-               (reset! i end))
+                 :else
+                 (recur (inc i) (conj parts (str c2)))))))
+         parts
+         (loop [i     0
+                parts []]
+           (if-not (< i n)
+             parts
+             (let [ch (.charAt ^String pattern i)]
+               (cond
+                 (= ch \{)
+                 (let [[after-end inner-names] (collect-param-names-in-group pattern (inc i))
+                       all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
+                   (if all-present?
+                     (let [[i' parts'] (emit-group (inc i) parts)]
+                       (recur i' parts'))
+                     (recur after-end parts)))
 
-             (= ch \*)
-             (let [start (inc @i)
-                   end   (loop [m start]
-                           (cond
-                             (>= m n) m
-                             (or (= \/ (.charAt pattern m))
-                                 (= \{ (.charAt pattern m))
-                                 (= \} (.charAt pattern m))
-                                 (= \? (.charAt pattern m))) m
-                             :else (recur (inc m))))
-                   k     (keyword (subs pattern start end))
-                   v     (or (get path-params k)
-                             (throw (ex-info ":rf.error/missing-route-param"
-                                             {:param k :route-id route-id})))]
-               (emit (url-encode-splat v))
-               (reset! i end))
+                 (= ch \:)
+                 (let [start (inc i)
+                       end   (segment-end pattern n start)
+                       k     (keyword (subs pattern start end))
+                       v     (or (get path-params k)
+                                 (throw (ex-info ":rf.error/missing-route-param"
+                                                 {:param k :route-id route-id})))]
+                   (recur end (conj parts (url-encode v))))
 
-             :else
-             (do (emit (str ch)) (swap! i inc))))
-         (recur)))
-     (let [path-out (apply str @parts)
-           qs (when (seq query-params)
-                (str "?"
-                     (clojure.string/join "&"
-                       (map (fn [[k v]]
-                              (str (url-encode (name k)) "="
-                                   (url-encode v)))
-                            query-params))))]
-       (str path-out qs)))))
+                 (= ch \*)
+                 (let [start (inc i)
+                       end   (segment-end pattern n start)
+                       k     (keyword (subs pattern start end))
+                       v     (or (get path-params k)
+                                 (throw (ex-info ":rf.error/missing-route-param"
+                                                 {:param k :route-id route-id})))]
+                   (recur end (conj parts (url-encode-splat v))))
+
+                 :else
+                 (recur (inc i) (conj parts (str ch)))))))
+         path-out (apply str parts)
+         qs (when (seq query-params)
+              (str "?"
+                   (clojure.string/join "&"
+                     (map (fn [[k v]]
+                            (str (url-encode (name k)) "="
+                                 (url-encode v)))
+                          query-params))))]
+     (str path-out qs))))
 
 ;; ---- standard handlers ----------------------------------------------------
 
