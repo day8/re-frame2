@@ -9,9 +9,16 @@
   instead of returning a placeholder `(is true)`. The same ns is loaded
   by :node-test (it matches the `cljs-test$` regex) AND :browser-test
   (it matches `-cljs-test$`); browser-only branches gate on
-  `(browser?)` and exit early under :node-test. The interactions that
-  cite a runtime gap (e.g. #10 plain-fn warning emission) keep a
-  documented placeholder until the gap closes.
+  `(browser?)` and exit early under :node-test.
+
+  Coverage audit (rf2-suif): every interaction that previously carried
+  a placeholder or TODO now pins its cross-spec contract live —
+  including #4 (`:after` no-op via the trace channel), #8 (frame-
+  destroy-during-render), #10 (plain-fn warning under non-default
+  frame), and #16 (server error projection → :rf/response stamp).
+  Interactions whose deeper machinery is exercised end-to-end in a
+  sister test cite that test in their docstring rather than carrying
+  a redundant copy here (#16 → re-frame.ssr-end-to-end-test).
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -24,6 +31,7 @@
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
             [re-frame.routing]
+            [re-frame.ssr :as ssr]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.adapter.context :as adapter-context]
@@ -935,11 +943,27 @@
   "#16 Error projection on the server —
    when a handler throws on a :ssr-server frame, :rf.error/handler-
    exception fires; the user-supplied projector consumes the trace and
-   builds the response.
+   stamps the public-error's :status onto the [:rf/response]
+   accumulator (per Spec 011 §Server error projection — \"runtime sets
+   :rf.server/set-status to the public-error's :status\").
 
-   ;; TODO browser harness — rf2-443l for the full HTTP shape; here we
-   ;; confirm the trace channel a projector would subscribe to fires
-   ;; under :ssr-server."
+   This test pins both halves of the cross-spec contract:
+     1. the trace channel — :rf.error/handler-exception fires under
+        :ssr-server, tagged with the request frame's id; and
+     2. the projection seam — apply-error-projection! resolves the
+        active projector, projects the captured trace, and stamps
+        :status onto :rf/response.
+
+   `apply-error-projection!` is the documented host-driver surface
+   (Spec 011 §Server error projection); the per-process auto-listener
+   that buffers traces and applies projection at get-response time is
+   re-frame.ssr's convenience layer over the same seam. The reset-
+   runtime fixture deregisters all trace listeners between tests, so
+   we exercise the host-driver surface directly here. The full JVM
+   request-lifecycle shape (drain → get-response → :status on the
+   response map, including listener-driven buffering) is covered by
+   re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-
+   exception."
   (rf/reg-frame :req {:preset :ssr-server})
   (rf/reg-event-fx :handler-throws
     (fn [_ _] (throw (ex-info "boom" {}))))
@@ -950,7 +974,23 @@
       (is (seq errs)
           ":rf.error/handler-exception fires on the server frame for a thrown handler")
       (is (some #(= :req (get-in % [:tags :frame])) errs)
-          "the trace records the request frame's id"))))
+          "the trace records the request frame's id")
+      ;; Cross-spec: the captured trace projects to a public-error map
+      ;; (the locked four-key shape per Spec 011 §Public error shape)
+      ;; AND the resolved response carries that projection's :status.
+      ;; This is the seam an SSR host uses to build the wire response.
+      (let [err          (first errs)
+            public-error (ssr/apply-error-projection! :req err)]
+        (is (= 500 (:status public-error))
+            "default projector maps :rf.error/handler-exception → :status 500")
+        (is (= :internal-error (:code public-error))
+            "default projector's :code is :internal-error")
+        (is (false? (:retryable? public-error))
+            "default projector's :retryable? is false (handler exception is not retryable)")
+        (is (string? (:message public-error))
+            "default projector emits a one-sentence human :message")
+        (is (= 500 (:status (ssr/get-response :req)))
+            "the projector's :status is stamped onto the [:rf/response] accumulator")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 17 — Machine error inside SSR
