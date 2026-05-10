@@ -24,13 +24,19 @@
     force-update      — force re-render of `this` component
     reaction          — function form sugar over make-reaction
 
+  Symbols **shipped as Class B throw-on-call shims** (per Stage 4-F /
+  IMPL-SPEC §10.1 — surfaces React 19 removed; calls throw an `ex-info`
+  whose `:type` is `:rf.error/react-19-removed-surface`):
+
+    render            — Use reagent2.dom.client/{create-root, render}.
+    dom-node          — findDOMNode is removed; use :ref / useRef.
+
   Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7
   audit-confirmed zero usage): `track`, `track!`, `cursor`, `wrap`,
   `rswap!`, `partial`, `merge-props`, `unsafe-html`, `adapt-react-class`,
   `reactify-component`, `create-element`, `next-tick`, `flush` (replaced
-  by `reagent2.dom.client/flush-views!`), `dom-node` (Class B throw),
-  `class-names`, `is-client`, `set-default-compiler!`, `create-compiler`,
-  `with-let`, `render` (deprecated stub — Class B throw, see §10).
+  by `reagent2.dom.client/flush-views!`), `class-names`, `is-client`,
+  `set-default-compiler!`, `create-compiler`, `with-let`.
 
   Apps that genuinely need a dropped surface stay on
   day8/reagent-classic (the bridge); the rewrite's commitment is
@@ -156,3 +162,49 @@
   React-side createPortal, etc.)."
   [form]
   (template/as-element form))
+
+;; ---------------------------------------------------------------------------
+;; Class B throw-on-call shims (per IMPL-SPEC §10.1 + DECISION-7)
+;;
+;; Two of the five React-19-removed surfaces live on `reagent.core` in
+;; stock Reagent: `reagent.core/render` and `reagent.core/dom-node`.
+;; The three `reagent.dom/*` shims live in `reagent2.dom`. All five
+;; share `:type :rf.error/react-19-removed-surface` so a single
+;; try/catch in a migration helper matches the lot.
+;;
+;; Static-analysis friendliness: each shim's body is a single throw,
+;; so :advanced Closure compilation can DCE the symbol when no call
+;; site reaches it. Apps that import `reagent2.core/render` but never
+;; call it pay zero runtime cost.
+;;
+;; Migration: see spec/MIGRATION.md M-42 — legacy mount path /
+;; dom-node removal.
+;; ---------------------------------------------------------------------------
+
+(defn render
+  "REMOVED under React 19. See migration message; throws on first call.
+
+  Use `reagent2.dom.client/create-root` + `reagent2.dom.client/render`
+  instead — the React 18+ root API replaces the React 17 legacy mount."
+  [& _]
+  (throw
+    (ex-info
+      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#legacy-mount-path."
+      {:type     :rf.error/react-19-removed-surface
+       :surface  'reagent2.core/render
+       :recovery :no-recovery})))
+
+(defn dom-node
+  "REMOVED under React 19. See migration message; throws on first call.
+
+  Stock Reagent's `dom-node` returned the underlying DOM element for a
+  mounted component via React 17's `findDOMNode` API. React 19 removed
+  `findDOMNode` — use a `:ref` callback (or React's `useRef` for
+  function components) to capture the DOM node directly."
+  [& _]
+  (throw
+    (ex-info
+      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/MIGRATION.md#dom-node-removal."
+      {:type     :rf.error/react-19-removed-surface
+       :surface  'reagent2.core/dom-node
+       :recovery :no-recovery})))
