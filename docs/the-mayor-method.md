@@ -2,7 +2,7 @@
 
 ## Why this exists
 
-The claim that re-frame2 is "AI first" has met with skepticism, frustration, disbelief, and borderline hostility. This document is my response: a write-up of the method that produced it. The proof of the method is the repository it shipped — see the Outcome section at the bottom. Read the method, look at the work, decide for yourself.
+The claim that re-frame2 is "AI first" has met with skepticism, frustration, disbelief, and in one case anger. This document is my response: a write-up of the method that produced it. The proof of the method is the repository it shipped — see the Outcome section at the bottom. Read the method, look at the work, decide for yourself.
 
 ## The method
 
