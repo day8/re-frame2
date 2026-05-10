@@ -15,6 +15,9 @@ This pattern is NOT what you tend to see in React land. Most existing React-base
 Instead, a re-frame2 application is a virtual machine. Registered handlers are the instruction set, events are the program, the runtime executes them through the highly predictable six-step pipeline every time. State is explicit, data is immutable, effects are isolated, views stay at the edge of the data flow (they are not central!). This results in a simple, highly traceable computational model — perfect for AI and tooling.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
+> 
+> — Me, being snarky about the direction of the JS/TS frameworks
+
 
 ### The core
 
@@ -37,7 +40,9 @@ Instead, a re-frame2 application is a virtual machine. Registered handlers are t
 
 ## Reference Implementation
 
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. It runs on three popular CLJS-flavoured substrates:
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end.
+
+It provides three popular CLJS-flavoured substrates:
 
 - **Reagent** — canonical.
 - **UIx** — modern hooks-based React layer.
