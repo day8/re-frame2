@@ -1847,6 +1847,12 @@ A common partial-success idiom is to declare `:after` for the phase-level timeou
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface; [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) for the per-child sugar that `:invoke-all` extends; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the schema; [Pattern-Boot](Pattern-Boot.md) for boot-flow worked examples leveraging `:invoke-all` for hydrate-as-spawn-and-join.
 
+## Cross-spec interactions
+
+### Retry-ownership boundary with `:rf.http/managed`
+
+State machines own **semantic retry**; `:rf.http/managed` owns **transport-level retry**. Per [Spec 014 §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry), the test for which owner applies is whether the retry decision is a function of attempt count + failure category alone (transport — owned by `:retry`) or depends on response body / app state / another request's outcome (semantic — owned by the machine). A state spec's `:invoke` of `:rf.http/managed` configures transport retry on the request itself; the machine's transition on the resulting `:succeeded` / `:failed` reply expresses the semantic retry — re-target to a refresh state, delay via `:after` before re-issuing, route to a different state on a different failure category. The two layers compose without overlap. See [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) for the canonical illustration.
+
 ## Reply patterns
 
 xstate's `sendTo` + `sender` lets a child reply to a specific request. In re-frame, no new API: include the reply event in the request:

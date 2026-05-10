@@ -186,6 +186,103 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
 
 The frame's `:on-create` dispatches `[:app/boot [:rf/start]]` (or the equivalent per the host); the machine self-initialises (per [005 §Restore semantics]) and runs.
 
+### Worked example — auth-machine and the retry-ownership boundary
+
+The auth phase of boot is the canonical demonstration of the **hybrid retry-ownership rule** from [Spec 014 §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry):
+
+- **Transport retry** — function of attempt count + failure category — is owned by `:rf.http/managed` `:retry`. Network errors, 5xx, per-attempt timeouts; "wait `backoff(N)` and try again." Local to the request.
+- **Semantic retry** — response-conditional, app-state-conditional, joined-across-requests — is owned by the state machine. 401-then-refresh-then-retry; "if the body says rate-limited, transition to `:cooldown` and re-issue from there"; "if another in-flight request fails first, abandon this one." Cross-request control flow.
+
+Both halves coexist on the same call site: the machine drives `:rf.http/managed` requests, and each managed request configures its own transport-level `:retry`. The two layers compose without overlap — the machine's transition fires only after the transport-level retry loop has either succeeded or fully exhausted its attempts.
+
+The pattern, distilled to a worked sketch:
+
+```clojure
+;; ---------- Transport retry — :rf.http/managed handles 5xx + network ----------
+;; This is the call site the machine's :invoke spawns. The :retry slot owns
+;; "after a 503, wait backoff(N) and try again." That decision is mechanical:
+;; failure category + attempt count. No state, no other request, no body
+;; matching — pure transport retry.
+
+(rf/reg-event-fx ::fetch-me
+  (fn [_ [_ {:keys [token]}]]
+    {:fx [[:rf.http/managed
+           {:request {:method  :get
+                      :url     "/api/me"
+                      :headers {"Authorization" (str "Bearer " token)}}
+            :decode  MeResponse
+            :retry   {:on           #{:rf.http/transport
+                                      :rf.http/http-5xx
+                                      :rf.http/timeout}
+                      :max-attempts 3
+                      :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
+            :on-success [:auth/me-loaded]
+            :on-failure [:auth/transport-failed]}]]}))
+
+;; ---------- Semantic retry — state machine handles 401-vs-200-vs-fatal ------
+;; The auth machine routes by outcome:
+;;   - :succeeded → done.
+;;   - :failed with kind :rf.http/http-status status 401 → :refreshing.
+;;     The refresh path itself is a managed request; on success it loops back
+;;     to :loading-me — a *semantic* retry of the original /api/me call.
+;;   - :failed otherwise (5xx after retries exhausted, network error,
+;;     decode-failure) → :login. Transport already retried; now the machine
+;;     gives up.
+;; The :refreshing → :loading-me transition is the semantic retry: it
+;; depends on another request succeeding *first*, which is exactly the case
+;; that doesn't fit inside :rf.http/managed's :retry slot.
+
+(rf/reg-event-fx :auth/flow
+  (rf/create-machine-handler
+    {:initial :loading-me
+     :data    {:token nil :user nil :error nil}
+
+     :guards
+     {:got-401? (fn [_ [_ {:keys [failure]}]]
+                  (and (= :rf.http/http-4xx (:kind failure))
+                       (= 401 (:status failure))))
+      :token-stale? (fn [{:keys [data]} _]
+                      (some? (:token data)))}                  ;; refresh viable
+
+     :actions
+     {:record-token (fn [d [_ {:keys [token]}]] {:data (assoc d :token token)})
+      :record-user  (fn [d [_ {:keys [value]}]] {:data (assoc d :user value)})
+      :record-error (fn [d [_ {:keys [failure]}]] {:data (assoc d :error failure)})}
+
+     :states
+     {:loading-me
+      {:invoke {:src ::fetch-me
+                :data (fn [{:keys [data]} _] {:token (:token data)})}
+       :on    {:succeeded {:target :authenticated :action :record-user}
+               :failed    [{:guard  :got-401?
+                            :target :refreshing
+                            :action :record-error}
+                           {:target :login                         ;; non-401 → fatal
+                            :action :record-error}]}}
+
+      :refreshing
+      {:invoke {:src ::refresh-token}
+       :on    {:succeeded {:target :loading-me                    ;; semantic retry
+                           :action :record-token}
+               :failed    {:target :login                         ;; refresh failed → fatal
+                           :action :record-error}}}
+
+      :authenticated {:meta {:terminal? true}}
+      :login         {:meta {:terminal? true}}}}))
+```
+
+The boundary is teachable in three sentences:
+
+1. **`:rf.http/managed` `:retry` retries the same request when nothing else has to change.** Same URL, same headers, same body, same auth — only the wait time and the attempt counter differ. Transport-level.
+2. **The state machine retries when something has to change first** — refreshing a token, waiting for another request, conditioning on the response body, conditioning on app state. Semantic-level.
+3. **They compose.** The machine's `:invoke` spawns a managed request that itself retries 5xx; once that loop terminates (success or exhaustion), the machine sees a single `:succeeded` / `:failed` event and transitions accordingly. No call site has to choose one layer or the other — every non-trivial request configures both.
+
+#### Refresh-vs-init distinction
+
+The auth flow above runs **after init** — the machine reaches `:loading-me` because the user already has a (possibly stale) token from an earlier session, and `:refreshing` is the answer to "the token expired mid-session." Init is different: there's no token to refresh, so a 401 routes straight to `:login` rather than `:refreshing`. Apps that distinguish the two carry an `:init?` flag in `:data` and gate the `:got-401?` transition on `(and got-401? (not init?))`; init's 401 falls through to `:login`. The transport-level retry of 5xx applies identically in both modes — it doesn't care whether the request is the init fetch or a mid-session refetch.
+
+Cross-references: this section is the worked example referenced from [Spec 014 §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry); the broader research that surfaced the boundary lives in [findings/boot-as-statemachine-dash8-rf8.md](../findings/boot-as-statemachine-dash8-rf8.md) (the Dash8 / rf8 boot-flow study that motivated rf2-wylu).
+
 ### Boot UI — reading progress from the snapshot
 
 A view subscribes to the machine snapshot via `sub-machine` (per [005 §Reading the snapshot](005-StateMachines.md)) and renders the visible-progress slice carried in `:data`:
@@ -297,4 +394,6 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:invoke` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
+- [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
+- [findings/boot-as-statemachine-dash8-rf8.md](../findings/boot-as-statemachine-dash8-rf8.md) — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary (rf2-wylu).
 - [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.
