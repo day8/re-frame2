@@ -188,7 +188,7 @@ If you used v1's `on-changes` interceptor — "when these in-paths change, compu
 
 A flow is what `on-changes` always pointed at — but as a first-class registered concept rather than an interceptor wired into a specific event's chain. Toggle it on with `[:rf.fx/reg-flow {...}]` from any event handler; toggle it off with `[:rf.fx/clear-flow id]`. Wizard steps that need a derivation only when active, feature gates that turn computations on for some users, advanced-mode-only state — all the cases `on-changes` couldn't reach because interceptors are statically wired.
 
-Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 04 §Computed values as state](04-views-and-frames.md#computed-values-as-state--the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../../spec/013-Flows.md).
+Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 04 §Computed values as state](04-views-and-frames.md#computed-values-as-state-the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../../spec/013-Flows.md).
 
 ### Three v1 surfaces removed (plus a few interceptors)
 
