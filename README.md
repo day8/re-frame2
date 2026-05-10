@@ -6,22 +6,24 @@
 
 ## What Is It?
 
-*Your language of choice should be Turing complete; your library shouldn't be.*
-
 re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
 
 Unlike most frameworks, re-frame2 is defined by its **specification** (~22,000 lines across 35+ documents), not its implementation. The specification is complete enough that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
 
-What re-frame2 is **not**: not Redux, not yet-another-state-management-library, not a thin layer over React hooks, not a pile of patterns dressed up as a framework. It's a coherent design that has held up for 10 years, tightened for AI-first authoring, and shipped with the runtime contracts that make it concrete.
+This pattern is NOT what you tend to see in React land. Most existing React-based JS/TS frameworks are organised around components as the primary architectural unit: state, effects, data fetching, and routing are usually attached to, colocated with, or composed around the view tree. By contrast, re-frame puts the event/data flow at the centre: events update centralised state, subscriptions derive data, and views sit at the end as render functions over reactive inputs. In summary, with re-frame, views are not central, they are derivative.
+
+Instead, a re-frame2 application is a virtual machine. Registered handlers are the instruction set, events are the program, the runtime executes them through the highly predictable six-step pipeline every time. State is explicit, data is immutable, effects are isolated, views stay at the edge of the data flow (they are not central!). This results in a simple, highly traceable computational model — perfect for AI and tooling.
+
+> *Your language of choice should be Turing complete; your architecture shouldn't be.*
 
 ### The core
 
 - **State management** — central, immutable app state.
-- **Isolated computational frames** — multiple independent runtimes in one app, each with its own `app-db`, dispatch queue, and registry. Embeddable widgets, tenant isolation, multi-pane shells.
+- **Isolated computational frames** — multiple independent runtimes in one app, each with its own data store, dispatch queue, and registry. Embeddable widgets, tenant isolation, multi-pane shells. One app, several disjoint state domains.
 - **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost.
 - **Events + effects** — events drive transitions; effects are data, not callbacks.
 - **Subscriptions** — pure derived values, explicit dependency tracking, recompute suppression.
-- **State machines** — xstate-flavoured FSMs for auth flows, multi-step forms, anywhere "what state am I in" matters.
+- **State machines** — FSMs for auth flows, multi-step forms, anywhere "what state am I in" matters.
 
 ### Batteries included
 
@@ -32,23 +34,16 @@ What re-frame2 is **not**: not Redux, not yet-another-state-management-library, 
 - **Server-side rendering** — hiccup → HTML, hydration round-trip, error projection.
 - **Time-travel / debugging** — every event leaves an epoch; restore any prior state.
 
-### The central claim
-
-An application is a virtual machine. Registered handlers are the instruction set, events are the program, the runtime executes them through the same six-step pipeline every time. State is explicit, data is immutable, effects are isolated, views stay at the edge of the flow.
 
 ## Reference Implementation
 
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. It runs on three React-flavoured substrates:
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. It runs on three popular CLJS-flavoured substrates:
 
 - **Reagent** — canonical.
 - **UIx** — modern hooks-based React layer.
 - **Helix** — minimal React wrapper.
 
-You can build production apps on the reference today.
-
-### Migration from re-frame v1
-
-re-frame2 contains breaking changes from v1, and ships a complete [migration prompt](spec/MIGRATION.md) — currently 40+ rules, mechanical where possible, flagged-for-human-review where the rewrite depends on intent. Run your re-frame v1 codebase through the prompt and an AI handles the translation. To the Clojurists reading: I apologise for the breakage — please don't tell Mr Hickey.
+You can build production apps on the reference today (Clojars publish lands with `v0.0.1.beta`).
 
 ### Tooling
 
@@ -80,7 +75,7 @@ The further implication is that value has moved up the chain. The value of code 
 
 **2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
-**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a complete [migration prompt](spec/MIGRATION.md) which you can use to convert your codebase — currently twenty-five rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent. And, to the Clojurists reading, I apologise for the breakage — it hurts my soul too. Please, please don't tell Mr Hickey.
+**3. Migration is AI-driven.** Because re-frame2 contains breaking changes from v1, it ships a complete [migration prompt for an AI](spec/MIGRATION.md) which you can use to convert your codebase — currently 40+ rules, mechanical where possible, flagged-for-human-review in the rare case that the rewrite depends on intent. And, to the Clojurists reading, I apologise for the breakage — it hurts my soul too. Please, please don't tell Mr Hickey.
 
 ## re-frame First
 
@@ -88,27 +83,11 @@ re-frame was created in late 2014 and I believe, over 10 years later, that it is
 
 Why? **Because it embodies a simple computational model that scales.** A re-frame app is a small virtual machine: registered handlers are the instruction set, events are the program, and the runtime executes them through the same six-domino pipeline every time. State is explicit and centralised, data is immutable, effects are isolated, and views stay at the edge of the flow where they belong (not at its centre!!). Even the "languages" inside the app — hiccup, effect maps, transition tables, schemas, subscription queries — are data, not hidden runtime magic. That simplicity is the leverage. [read more](spec/Principles.md#rationale--the-application-as-a-virtual-machine)
 
-I can't tell you what an advantage it is to have a simple, predictable, data-oriented computational model. re-frame has no side channels, no async backdoors, no hooks dependency-array decisions. My language might be Turing complete, but I don't want my library to be Turing complete. And every higher-order concept (state machines, async effects, SSR) inherits the same shape rather than escaping it.
+I can't tell you what an advantage it is to have a simple, predictable, data-oriented computational model. re-frame has no side channels, no async backdoors, no hooks dependency-array decisions. My language might be Turing complete, but I don't want my architecture to be Turing complete. And every higher-order concept (state machines, async effects, SSR) inherits the same shape rather than escaping it.
 
 **~10 years of staying still on purpose.** Across the last 10 years, half a dozen "new" state-management patterns have churned through the JS world — Redux, MobX, Zustand, Recoil, Jotai, signals, server components — and each iteration has crept toward the ground re-frame already stands on. (The notable exception is xstate, from which I have drawn inspiration.) Imagine your team's productivity if you didn't have to contend with technical churn, and have new magic burn your fingers every two years.
 
 **Lisp's quiet advantage.** re-frame was born out of Clojure's ethos, and Clojure is a Modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software." Paul Graham described how Lisp was a competitive advantage. re-frame leverages 50 years of foliated excellence from the very best minds available, and a thriving ClojureScript community alongside it.
-
-## What's New?
-
-Coming from v1 of re-frame? Here's what's new:
-
-| Addition | What it is | Owning Spec |
-|---|---|---|
-| **Frames** | Multi-instance support — same handlers, isolated state. Unit tests, Story tooling, per-request SSR, multi-window UIs. | [002-Frames](spec/002-Frames.md) |
-| **State machines** | Transition-table grammar, hierarchical states, `:always` microsteps, declarative `:invoke`. xstate-flavoured but headlessly testable. | [005-StateMachines](spec/005-StateMachines.md) |
-| **Flows** | Registered, toggleable computed-state declarations. Derived values become named runtime artefacts with explicit inputs, paths, and tooling visibility. | [013-Flows](spec/013-Flows.md) |
-| **First-class SSR** | Server frame lifecycle, pure hiccup → HTML emitter (JVM-runnable), hydration with structural hash mismatch detection. | [011-SSR](spec/011-SSR.md) |
-| **Routing as state** | URL ↔ frame state contract. Routes are registry entries; navigation is an event; `:route` is a sub. Same handler runs server- and client-side. | [012-Routing](spec/012-Routing.md) |
-| **Schema-attached contracts** | Malli-backed path and payload schemas for events, routes, hydration payloads, and app-db slices. Better runtime diagnostics, migration safety, and stronger AI/tooling guidance. | [010-Schemas](spec/010-Schemas.md) |
-| **Deep instrumentation and tracing** | Every dispatch, render, fx, error, and machine transition emits a structured trace event — data, not log strings. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely. | [009-Instrumentation](spec/009-Instrumentation.md) |
-
-Despite these new features, if you've used re-frame v1, re-frame2 code reads on the first pass.
 
 ## Reading paths
 
@@ -116,7 +95,7 @@ The repo has two audiences and they each get their own docs.
 
 ### For Humans
 
-It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort.
+It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort.  Kidding.
 
 [The guide](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
 
@@ -125,12 +104,12 @@ After that, consider browsing:
   - Pattern docs such as:
     - [How to do Async](spec/Pattern-AsyncEffect.md)
     - [How to do WebSockets](spec/Pattern-WebSocket.md)
-  - [the examples](examples/README.md). Note: they vary in maturity; some are closely aligned to the current implementation, and some remain worked sketches.
-  - Maybe then glance at the rest of [the Pattern Specification](spec/README.md). But remember it is AI-oriented, not human-oriented.
+  - [the examples](examples/README.md). 
+  - Maybe then glance at the rest of [the Pattern Specification](spec/README.md). But remember it dry and AI-oriented, not human-oriented.
 
 ### For AIs
 
-Because re-frame2 is AI-oriented, **the main body of the repo's documentation is the [specification](spec/)**. Humans can read it too, but you may lose focus.
+Because re-frame2 is AI-oriented, **the main body of the repo's documentation is the [specification](spec/)**. 
 
 ## Project layout
 
