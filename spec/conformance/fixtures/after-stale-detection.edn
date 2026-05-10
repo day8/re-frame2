@@ -37,10 +37,16 @@
    :snapshot     {:state :idle :data {:rf/after-epoch 0}}
    :event        [:fetch]
    :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1}}
-   :expect-effects       []
+   :expect-effects [[:rf.machine/after-schedule
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]
+                      :state        :loading
+                      :delay-key    5000
+                      :epoch        1
+                      :server?      false}]]
    :expect-trace
    [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :loading :delay 5000 :epoch 1}}]}
+     :tags      {:state :loading :delay 5000 :epoch 1 :delay-source :literal}}]}
 
   ;; Step 2: A real :loaded event arrives BEFORE the 5000ms timer would fire.
   ;; Transition runs; snapshot lands at :ready; epoch advances to 2. The
@@ -57,7 +63,9 @@
    :snapshot     {:state :loading :data {:rf/after-epoch 1}}
    :event        [:loaded]
    :expect-next-snapshot {:state :ready :data {:rf/after-epoch 2}}
-   :expect-effects       []
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]}]]
    :expect-trace
    [{:operation :rf.machine/transition
      :tags      {:from :loading :to :ready}}]}

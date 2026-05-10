@@ -46,10 +46,20 @@
    :snapshot     {:state :idle :data {:rf/after-epoch 0}}
    :event        [:fetch]
    :expect-next-snapshot {:state :loading :data {:rf/after-epoch 1 :entered? true}}
-   :expect-effects       []
+   ;; Per rf2-3y3y, entry to an :after-bearing state emits a
+   ;; :rf.machine/after-schedule fx so the runtime layer can install
+   ;; the host-clock timer (interop/set-timeout!) and the subscription
+   ;; watcher (for :delay-source :sub).
+   :expect-effects [[:rf.machine/after-schedule
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]
+                      :state        :loading
+                      :delay-key    5000
+                      :epoch        1
+                      :server?      false}]]
    :expect-trace
    [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :loading :delay 5000 :epoch 1}}
+     :tags      {:state :loading :delay 5000 :epoch 1 :delay-source :literal}}
     {:operation :rf.machine/transition
      :tags      {:from :idle :to :loading}}]}
 
@@ -72,7 +82,12 @@
    ;; supplies it as the dispatched event.
    :event        [::after-elapsed 5000 1]
    :expect-next-snapshot {:state :timeout :data {:rf/after-epoch 2 :entered? true}}
-   :expect-effects       []
+   ;; Per rf2-3y3y, exiting an :after-bearing state emits a
+   ;; :rf.machine/after-cancel fx so the runtime layer releases the
+   ;; host-clock timer handle (and any subscription watcher).
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:loading]}]]
    :expect-trace
    [{:operation :rf.machine.timer/fired
      :tags      {:state :loading :delay 5000 :epoch 1 :fired? true}}

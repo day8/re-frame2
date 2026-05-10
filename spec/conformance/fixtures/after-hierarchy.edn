@@ -48,10 +48,16 @@
    :event        [:login]
    :expect-next-snapshot {:state [:authenticated :dashboard]
                           :data  {:rf/after-epoch 1}}
-   :expect-effects       []
+   :expect-effects [[:rf.machine/after-schedule
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:authenticated]
+                      :state        :authenticated
+                      :delay-key    30000
+                      :epoch        1
+                      :server?      false}]]
    :expect-trace
    [{:operation :rf.machine.timer/scheduled
-     :tags      {:state :authenticated :delay 30000 :epoch 1}}
+     :tags      {:state :authenticated :delay 30000 :epoch 1 :delay-source :literal}}
     {:operation :rf.machine/transition
      :tags      {:from :idle :to [:authenticated :dashboard]}}]}
 
@@ -108,7 +114,9 @@
    :snapshot     {:state [:authenticated :settings] :data {:rf/after-epoch 1}}
    :event        [:logout]
    :expect-next-snapshot {:state :idle :data {:rf/after-epoch 2}}
-   :expect-effects       []
+   :expect-effects [[:rf.machine/after-cancel
+                     {:rf/parent-id :rf/transition-pure
+                      :rf/invoke-id [:authenticated]}]]
    :expect-trace
    [{:operation :rf.machine/transition
      :tags      {:from [:authenticated :settings] :to :idle}}]}

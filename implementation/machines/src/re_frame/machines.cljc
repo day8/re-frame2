@@ -9,7 +9,13 @@
       depth-exceeded.
     - :after delayed transitions with per-machine :rf/after-epoch
       tracking; the synthetic :rf.machine.timer/after-elapsed event
-      fires the transition only when the carried epoch matches.
+      fires the transition only when the carried epoch matches. Per
+      rf2-3y3y, `:after` delays admit three forms — pos-int? literal,
+      subscription vector ([:sub-id & args]; re-resolves on sub change),
+      and (fn [snapshot] ms) computed once at state entry. State-level
+      :after subsumes the pre-release :timeout-ms slot on :invoke /
+      :invoke-all, which is dropped (registration-time error category
+      :rf.error/invoke-timeout-ms-removed).
     - Declarative :invoke that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via a per-process counter.
@@ -171,6 +177,22 @@
   ;; calls (the conformance fixture corpus) pass a sentinel frame.
   (atom {}))   ;; [frame-id machine-id] → int
 
+(defonce ^:private after-timers
+  ;; Per Spec 005 §Delayed :after transitions and rf2-3y3y. Runtime-owned
+  ;; timer-handle table for in-flight :after timers. Keyed by
+  ;; [frame-id parent-id invoke-id delay-key] so multiple delays per
+  ;; :after map have their own slot. Value:
+  ;;   {:handle <opaque host-clock handle>
+  ;;    :reaction <subscription reaction or nil>
+  ;;    :sub-watcher-key <key passed to add-watch>
+  ;;    :resolved-ms <int>
+  ;;    :epoch <int>
+  ;;    :state <state-keyword>
+  ;;    :delay-source <:literal | :sub | :fn>}
+  ;; Cancellation (state exit + sub re-resolution) clears the entry and
+  ;; releases the handle / detaches the watcher.
+  (atom {}))
+
 (defn- next-spawn-id
   [frame-id machine-id]
   (let [k [frame-id machine-id]
@@ -180,9 +202,18 @@
              (str (name machine-id) "#" n))))
 
 (defn reset-counters!
-  "Reset the spawn-counter (and other test-mode counters) so id
-  allocation is stable across fixture runs."
+  "Reset the spawn-counter and the :after-timer table so id allocation
+  and timer-handle bookkeeping are stable across fixture runs. Cancels
+  every in-flight :after timer the runtime is currently tracking."
   []
+  (doseq [[_ entry] @after-timers]
+    (when-let [h (:handle entry)]
+      (try (interop/clear-timeout! h)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (when (and (:reaction entry) (:sub-watcher-key entry))
+      (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
+           (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (reset! after-timers {})
   (reset! spawn-counter {}))
 
 ;; ---- state-path helpers (hierarchical) ------------------------------------
@@ -272,54 +303,74 @@
 
 (defn- pick-after-transition
   "Per Spec 005 §Delayed :after transitions. The synthetic event
-  [:rf.machine.timer/after-elapsed delay carried-epoch] arrives. Walk
-  path leaf→root for an :after table at that delay. If the carried
-  epoch matches the snapshot's current :rf/after-epoch, return the
-  transition. Otherwise return :stale (so the caller can emit
-  :rf.machine.timer/stale-after).
+  [:rf.machine.timer/after-elapsed delay-key carried-epoch] arrives.
+  Walk path leaf→root for an :after table containing delay-key. If the
+  carried epoch matches the snapshot's current :rf/after-epoch, evaluate
+  the transition's :guard (if any).
+
+  Returns one of:
+    nil — no matching :after entry; benign (timer carried from a state
+          we've exited and re-entered without that delay-key).
+    {:stale? true ...} — epoch mismatch; caller emits
+          :rf.machine.timer/stale-after.
+    {:transition t :decl-path p :delay :epoch} — guard pass; caller
+          fires the transition through the standard cascade and emits
+          :rf.machine.timer/fired with :fired? true.
+    {:guard-suppressed? true :state :delay :epoch} — guard returned
+          false; caller emits :rf.machine.timer/fired with :fired? false
+          and other in-flight :after timers continue per Spec 005
+          §Multi-stage interaction with :guard.
 
   When no :after table is found at any level along the current path,
   the synthetic timer event was carried from a state the machine has
-  since exited. Per Spec 005 §Epoch-based stale detection — any
-  non-matching epoch on a synthetic timer event is a stale carry by
-  definition — return :stale so the caller emits
-  :rf.machine.timer/stale-after. Matching epochs with no table are
-  treated as a no-op (return nil): nothing to fire, and the epoch
-  invariant says the timer wasn't really stale either."
+  since exited. Matching epochs with no table are treated as a no-op
+  (return nil); non-matching is surfaced as stale."
   [machine path event snapshot]
-  (let [[_ delay carried-epoch] event
+  (let [[_ delay-key carried-epoch] event
         current-epoch (get-in snapshot [:data :rf/after-epoch])]
     (loop [i (dec (count path))]
       (if (neg? i)
-        ;; No :after table found anywhere along the path — the timer was
-        ;; scheduled by an :after-bearing state we've since exited. If the
-        ;; epoch doesn't match, surface it as stale; if it does match, the
-        ;; carry is benign and we suppress silently.
         (when (not= carried-epoch current-epoch)
           {:stale?          true
            :state           (last path)
-           :delay           delay
+           :delay           delay-key
            :scheduled-epoch carried-epoch
            :current-epoch   current-epoch})
         (let [prefix (vec (take (inc i) path))
               n      (node-at machine prefix)
-              t      (get-in n [:after delay])]
+              t      (get-in n [:after delay-key])]
           (cond
             (nil? t)
             (recur (dec i))
 
-            (= carried-epoch current-epoch)
-            {:transition (if (keyword? t) {:target t} t)
-             :decl-path  prefix
-             :delay      delay
-             :epoch      carried-epoch}
-
-            :else
+            (not= carried-epoch current-epoch)
             {:stale?         true
              :state          (last prefix)
-             :delay          delay
+             :delay          delay-key
              :scheduled-epoch carried-epoch
-             :current-epoch   current-epoch}))))))
+             :current-epoch   current-epoch}
+
+            :else
+            (let [tspec (if (keyword? t) {:target t} t)
+                  guard-ref (:guard tspec)
+                  pass?
+                  (if guard-ref
+                    (let [g (resolve-guard machine guard-ref)]
+                      (boolean (call-guard g snapshot event)))
+                    true)]
+              (if pass?
+                {:transition tspec
+                 :decl-path  prefix
+                 :delay      delay-key
+                 :epoch      carried-epoch}
+                ;; Guard returned false. Per Spec 005 §Multi-stage
+                ;; interaction with :guard: the timer is "fired and
+                ;; discarded" — no transition, no epoch advance; sibling
+                ;; :after timers continue.
+                {:guard-suppressed? true
+                 :state             (last prefix)
+                 :delay             delay-key
+                 :epoch             carried-epoch}))))))))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
@@ -525,35 +576,75 @@
                              (assoc-in [:data :rf/after-epoch] new-epoch)))
 
                        :else
-                       (assoc snap-after :state new-state))]
-    ;; Schedule :after timers declared on any newly-entered ancestor whose
-    ;; level didn't already host an active timer (i.e. nodes BELOW the LCA
-    ;; on the entry side). This skips sibling-leaf transitions that didn't
-    ;; cross the :after-bearing parent.
-    ;;
-    ;; Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR),
-    ;; :after is a no-op under :platform :server: the timer is not scheduled
-    ;; and the synthetic timer-elapsed event is never queued. Emit
-    ;; :rf.machine.timer/skipped-on-server in place of :scheduled so observers
-    ;; see the gate fired.
-    (when-not internal?
-      (let [server? (= :server (:rf/platform machine))]
-        (doseq [n entered-nodes]
-          (when-let [after-map (:after n)]
-            (let [epoch      (get-in snap-final [:data :rf/after-epoch])
-                  ;; Find the state-id whose node IS n.
-                  leaf-state (some (fn [[p node]] (when (= node n) (last p)))
-                                   (nodes-along-path machine target-leaf))]
-              (doseq [[delay _target] after-map]
-                (if server?
-                  (trace/emit! :machine :rf.machine.timer/skipped-on-server
-                               {:state    leaf-state
-                                :delay    delay
-                                :epoch    epoch
-                                :platform :server
-                                :recovery :skipped})
-                  (trace/emit! :machine :rf.machine.timer/scheduled
-                               {:state leaf-state :delay delay :epoch epoch}))))))))
+                       (assoc snap-after :state new-state))
+        ;; Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR),
+        ;; :after is a no-op under :platform :server: the timer is not
+        ;; scheduled and the synthetic timer-elapsed event is never queued.
+        ;; Per rf2-3y3y: emit the canonical :rf.machine.timer/scheduled (or
+        ;; /skipped-on-server) trace synchronously here AND emit
+        ;; :rf.machine/after-schedule fx; the fx handler resolves the delay
+        ;; (literal / sub-vec / fn), calls interop/set-timeout! to fire a
+        ;; synthetic [:rf.machine.timer/after-elapsed delay-key epoch] event
+        ;; back into the parent on expiry, and (for sub-vec delays) installs
+        ;; a watcher that cancels + reschedules on sub-change. The trace
+        ;; tags carry :delay-source <:literal | :sub | :fn> so observers can
+        ;; discriminate the three delay forms; the fx handler emits
+        ;; :rf.machine.timer/cancelled-on-resolution + a fresh /scheduled
+        ;; trace pair on subscription-driven re-resolution.
+        server?
+        (= :server (:rf/platform machine))
+        after-fx
+        (when-not internal?
+          (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
+                epoch     (get-in snap-final [:data :rf/after-epoch])]
+            (vec
+              (mapcat
+                (fn [[prefix n]]
+                  (when-let [after-map (:after n)]
+                    (let [leaf-state (last prefix)]
+                      (mapv
+                        (fn [[delay-key _target]]
+                          (let [delay-source (cond
+                                               (number? delay-key) :literal
+                                               (vector? delay-key) :sub
+                                               (fn? delay-key)     :fn
+                                               :else               :literal)
+                                ;; Pure-context delay value: literal keys
+                                ;; ARE the resolved ms; sub-vec / fn are
+                                ;; resolved at the fx layer (the fx handler
+                                ;; emits a fresh /scheduled with the actual
+                                ;; resolved-ms once it has frame access).
+                                ms-tag       (if (number? delay-key)
+                                               delay-key
+                                               delay-key)]
+                            (if server?
+                              (trace/emit! :machine :rf.machine.timer/skipped-on-server
+                                           (cond-> {:machine-id   parent-id
+                                                    :state        leaf-state
+                                                    :delay        ms-tag
+                                                    :delay-source delay-source
+                                                    :epoch        epoch
+                                                    :platform     :server
+                                                    :recovery     :skipped}
+                                             (= :sub delay-source)
+                                             (assoc :sub-id (first delay-key))))
+                              (trace/emit! :machine :rf.machine.timer/scheduled
+                                           (cond-> {:machine-id   parent-id
+                                                    :state        leaf-state
+                                                    :delay        ms-tag
+                                                    :delay-source delay-source
+                                                    :epoch        epoch}
+                                             (= :sub delay-source)
+                                             (assoc :sub-id (first delay-key))))))
+                          [:rf.machine/after-schedule
+                           {:rf/parent-id parent-id
+                            :rf/invoke-id (vec prefix)
+                            :state        leaf-state
+                            :delay-key    delay-key
+                            :epoch        epoch
+                            :server?      server?}])
+                        after-map))))
+                entered-pairs))))]
     ;; Per Spec 005 §Declarative :invoke (sugar over spawn) and rf2-t07u
     ;; (Option A revised): nodes being EXITED with :invoke emit
     ;; :rf.machine/destroy carrying `{:rf/parent-id ... :rf/invoke-id ...}`
@@ -572,6 +663,20 @@
     ;; boundary as `:rf/parent-id`. Pure machine-transition calls (which
     ;; don't have a parent registration) carry a sentinel.
     (let [parent-id   (or (:rf/parent-id machine) :rf/transition-pure)
+          ;; Per rf2-3y3y: when exiting an :after-bearing state node, emit
+          ;; :rf.machine/after-cancel fx so the runtime tears down any
+          ;; pending wall-clock timer (and watcher, for sub-vec delays).
+          ;; The epoch advance backstops correctness; explicit cancellation
+          ;; releases the timer handle promptly and avoids zombie sub
+          ;; watchers across state re-entries.
+          after-cancel-fx
+          (when-not internal?
+            (vec
+              (for [[prefix n] exited-pairs
+                    :when (:after n)]
+                [:rf.machine/after-cancel
+                 {:rf/parent-id parent-id
+                  :rf/invoke-id (vec prefix)}])))
           destroy-fx
           (when-not internal?
             (vec
@@ -614,7 +719,6 @@
                         ;; the runtime can write [:rf/spawned parent-id
                         ;; invoke-id] -> spawned-id (rf2-t07u).
                         spawn-args  (-> inv
-                                        (dissoc :timeout-ms :on-timeout)
                                         (assoc :id-prefix    machine-id)
                                         (assoc :rf/spawned-id spawned-id)
                                         (assoc :rf/parent-id  parent-id)
@@ -640,28 +744,15 @@
                                         (if new-data
                                           (assoc s :data new-data)
                                           s))
-                                      s)
-                        ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop):
-                        ;; when :timeout-ms is set, emit a sibling
-                        ;; :rf.machine/timeout-schedule fx that the runtime
-                        ;; converts into a real wall-clock dispatch via
-                        ;; interop/set-timeout!. Carries the current epoch
-                        ;; so the synthetic timeout-elapsed event is
-                        ;; epoch-checked at delivery (re-entry advances the
-                        ;; epoch, invalidating in-flight windows).
-                        timeout-ms  (:timeout-ms inv)
-                        on-timeout  (:on-timeout inv)
-                        epoch       (or (get-in s' [:data :rf/after-epoch]) 0)
-                        timeout-fxs (when (and timeout-ms on-timeout)
-                                      [[:rf.machine/timeout-schedule
-                                        {:rf/parent-id parent-id
-                                         :rf/invoke-id invoke-id
-                                         :timeout-ms   timeout-ms
-                                         :on-timeout   on-timeout
-                                         :epoch        epoch}]])]
+                                      s)]
+                    ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
+                    ;; :invoke are dropped; wall-clock guards on
+                    ;; :invoke-bearing states are expressed via the parent
+                    ;; state's :after slot. Registration-time validation
+                    ;; rejects any :timeout-ms / :on-timeout key with
+                    ;; :rf.error/invoke-timeout-ms-removed.
                     [s' (vec (concat acc-fx
-                                     [[:rf.machine/spawn spawn-args]]
-                                     (or timeout-fxs [])))])
+                                     [[:rf.machine/spawn spawn-args]]))])
 
                   (:invoke-all n)
                   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw).
@@ -724,31 +815,22 @@
                                      (if new-data (assoc snap :data new-data) snap))
                                    snap)))
                              s
-                             children')
-                        ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop):
-                        ;; for :invoke-all, the timeout applies to the
-                        ;; whole join. On expiry the runtime cancels every
-                        ;; surviving child (via the existing :rf.machine/destroy
-                        ;; teardown form for invoke-all) and dispatches
-                        ;; :on-timeout into the parent.
-                        timeout-ms  (:timeout-ms inv-all)
-                        on-timeout  (:on-timeout inv-all)
-                        epoch       (or (get-in s' [:data :rf/after-epoch]) 0)
-                        timeout-fxs (when (and timeout-ms on-timeout)
-                                      [[:rf.machine/timeout-schedule
-                                        {:rf/parent-id  parent-id
-                                         :rf/invoke-id  invoke-id
-                                         :rf/invoke-all true
-                                         :timeout-ms    timeout-ms
-                                         :on-timeout    on-timeout
-                                         :epoch         epoch}]])]
-                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs (or timeout-fxs [])))])
+                             children')]
+                    ;; Per rf2-3y3y: :timeout-ms / :on-timeout slots on
+                    ;; :invoke-all are dropped; wall-clock guards on the
+                    ;; whole-join are expressed via the :invoke-all-bearing
+                    ;; state's :after slot.
+                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))])
 
                   :else
                   [s acc-fx]))
               [snap-final []]
               entered-pairs))
-          all-fx (vec (concat fx (or destroy-fx []) spawn-fx))]
+          all-fx (vec (concat fx
+                              (or after-cancel-fx [])
+                              (or destroy-fx [])
+                              spawn-fx
+                              (or after-fx [])))]
       [snap-after-spawns all-fx])))))
 
 (defn- pick-always-transition
@@ -849,8 +931,9 @@
         ;; Step 1: pick the event-driven transition.
         path             (state-path (:state snapshot))
         match            (pick-transition machine path event snapshot)
-        ;; Trace timer firing / staleness BEFORE running the transition,
-        ;; so listeners see the firing event in the order it occurred.
+        ;; Trace timer firing / staleness / guard-suppression BEFORE
+        ;; running the transition, so listeners see events in the order
+        ;; they occurred.
         _ (when (and match (:stale? match))
             (trace/emit! :machine :rf.machine.timer/stale-after
                          {:state           (:state match)
@@ -858,7 +941,20 @@
                           :scheduled-epoch (:scheduled-epoch match)
                           :current-epoch   (:current-epoch match)
                           :recovery        :replaced-with-default}))
-        _ (when (and match (not (:stale? match)) (:delay match))
+        ;; Per Spec 005 §Multi-stage interaction with :guard: a guard-
+        ;; suppressed :after still emits :rf.machine.timer/fired with
+        ;; :fired? false; the snapshot is unchanged and sibling timers
+        ;; continue.
+        _ (when (and match (:guard-suppressed? match))
+            (trace/emit! :machine :rf.machine.timer/fired
+                         {:state  (:state match)
+                          :delay  (:delay match)
+                          :epoch  (:epoch match)
+                          :fired? false}))
+        _ (when (and match
+                     (not (:stale? match))
+                     (not (:guard-suppressed? match))
+                     (:delay match))
             (trace/emit! :machine :rf.machine.timer/fired
                          {:state  (last (:decl-path match))
                           :delay  (:delay match)
@@ -868,6 +964,9 @@
         (cond
           (and match (:stale? match))
           [snapshot []]   ;; suppress: snapshot unchanged
+
+          (and match (:guard-suppressed? match))
+          [snapshot []]   ;; guard false: snapshot unchanged; siblings continue
 
           match
           (apply-transition-once
@@ -1122,156 +1221,29 @@
                 new-db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')]
             {:db new-db :fx fx}))))))
 
-;; ---- :invoke / :invoke-all :timeout-ms interception (rf2-1lop) -----------
+;; ---- :invoke / :invoke-all :timeout-ms interception — REMOVED (rf2-3y3y) -
 ;;
-;; Per Spec 005 §Wall-clock :timeout-ms, the synthetic event
+;; The pre-release :timeout-ms / :on-timeout slot on :invoke / :invoke-all
+;; was DROPPED per rf2-3y3y. State-level :after on the parent state
+;; subsumes the wall-clock guard, with the standard exit-cascade
+;; destroying spawned children. See MIGRATION §M-41 for the rewrite
+;; recipe.
 ;;
-;;   [:rf.machine.invoke.timeout/elapsed
-;;    {:rf/invoke-id <prefix-path>
-;;     :rf/invoke-all <bool>
-;;     :timeout-ms   <ms>
-;;     :on-timeout   <event-vec>
-;;     :epoch        <captured-epoch>}]
-;;
-;; arrives at the parent machine after `interop/set-timeout!` fires (per
-;; timeout-schedule-fx). The interceptor below:
-;;
-;;   1. Verifies the carried epoch matches the snapshot's current
-;;      `:rf/after-epoch` (re-entry to the :invoke-bearing state advances
-;;      the epoch — same idiom as :after — invalidating in-flight
-;;      timeouts).
-;;   2. Verifies the active state still has the matching :invoke (or
-;;      :invoke-all) at the carried :rf/invoke-id with a :timeout-ms slot
-;;      (defensive — the spec could have been re-registered).
-;;   3. Emits :rf.machine.invoke/timed-out trace.
-;;   4. Builds destroy fx for the spawned actor(s) — single :invoke
-;;      destroys the one actor; :invoke-all destroys every surviving
-;;      child plus the join-state slot.
-;;   5. Builds dispatch fx for the user's :on-timeout event into the
-;;      parent (standard sub-event shape).
-;;
-;; Returns nil when the event is not a timeout-elapsed event (caller
-;; continues with normal machine-transition); returns an effect map
-;; {:db ... :fx ...} on a match.
+;; Registration-time validation rejects any :timeout-ms / :on-timeout key
+;; on :invoke / :invoke-all with :rf.error/invoke-timeout-ms-removed (see
+;; validate-no-invoke-timeout-ms! below).
 
-(defn- intercept-invoke-timeout-event
-  [machine db path snapshot parent-id inner-event]
-  (when (and (vector? inner-event)
-             (= :rf.machine.invoke.timeout/elapsed (first inner-event))
-             (map? (second inner-event)))
-    (let [payload      (second inner-event)
-          invoke-id    (:rf/invoke-id payload)
-          invoke-all?  (boolean (:rf/invoke-all payload))
-          timeout-ms   (:timeout-ms payload)
-          on-timeout   (:on-timeout payload)
-          carried-epc  (:epoch payload)
-          elapsed-ms   (:elapsed-ms payload)
-          current-epc  (or (get-in snapshot [:data :rf/after-epoch]) 0)
-          ;; Resolve the node at invoke-id in the machine's state tree.
-          inv-node     (when (vector? invoke-id) (node-at machine invoke-id))
-          ;; Verify the active state path still has the :invoke-bearing
-          ;; node as one of its prefixes — if the snapshot has moved past
-          ;; the invoke-bearing state, the timeout is stale.
-          active-path  (state-path (:state snapshot))
-          still-active? (and (seq active-path)
-                             (= (vec invoke-id)
-                                (vec (take (count invoke-id) active-path))))
-          slot-spec    (cond
-                         (and inv-node (:invoke inv-node))     (:invoke inv-node)
-                         (and inv-node (:invoke-all inv-node)) (:invoke-all inv-node)
-                         :else nil)
-          slot-timeout (when (map? slot-spec) (:timeout-ms slot-spec))
-          slot-on-to   (when (map? slot-spec) (:on-timeout slot-spec))
-          ;; Stale (epoch) or inactive: emit a stale-suppression trace
-          ;; and consume the event without firing.
-          stale?       (or (not= carried-epc current-epc)
-                           (not still-active?)
-                           (not (= timeout-ms slot-timeout))
-                           (not (= on-timeout slot-on-to)))]
-      (cond
-        stale?
-        (do (trace/emit! :machine :rf.machine.invoke.timeout/stale-suppressed
-                         {:machine-id      parent-id
-                          :invoke-id       invoke-id
-                          :timeout-ms      timeout-ms
-                          :scheduled-epoch carried-epc
-                          :current-epoch   current-epc
-                          :still-active?   still-active?
-                          :recovery        :replaced-with-default})
-            ;; Suppress: snapshot unchanged, no fx.
-            {:db db :fx []})
+(defn- validate-no-invoke-timeout-ms!
+  "Per rf2-3y3y / Spec 005 §Wall-clock timeouts on :invoke — use parent
+  state's :after, the pre-release :timeout-ms / :on-timeout slots on
+  :invoke and :invoke-all are DROPPED. State-level :after on the parent
+  state subsumes the wall-clock guard, with the standard exit-cascade
+  destroying spawned children when the timer fires.
 
-        :else
-        (let [;; Build destroy fx — same shape apply-transition-once
-              ;; uses on exit. For :invoke-all carry :rf/invoke-all true
-              ;; so destroy-machine-fx walks the children map.
-              destroy-fx
-              (if invoke-all?
-                [[:rf.machine/destroy {:rf/parent-id  parent-id
-                                       :rf/invoke-id  invoke-id
-                                       :rf/invoke-all true}]]
-                [[:rf.machine/destroy {:rf/parent-id parent-id
-                                       :rf/invoke-id invoke-id}]])
-              ;; Per-sibling cancellation traces for :invoke-all so
-              ;; observers can attribute the cause as :on-timeout. The
-              ;; destroy fx itself emits :rf.machine/destroyed; this
-              ;; trace surfaces the timeout-cancellation reason.
-              _ (when invoke-all?
-                  (let [join-state (get-in db [:rf/spawned parent-id invoke-id])
-                        children   (when (map? join-state) (:children join-state))
-                        completed  (when (map? join-state)
-                                     (into #{} (concat (:done join-state)
-                                                       (:failed join-state))))
-                        survivors  (->> children
-                                        (remove (fn [[cid _]] (contains? completed cid))))]
-                    (doseq [[cid spawned-id] survivors]
-                      (trace/emit! :machine :rf.machine.invoke/cancelled-on-join-resolution
-                                   {:machine-id parent-id
-                                    :invoke-id  invoke-id
-                                    :child-id   cid
-                                    :spawned-id spawned-id
-                                    :join-event :on-timeout}))))
-              ;; The advisory children-status snapshot — only meaningful
-              ;; for :invoke-all. Per Spec 005 §Trace event: partial-
-              ;; progress is NOT preserved into :on-timeout itself, but
-              ;; the trace carries it so observers can correlate.
-              children-status
-              (when invoke-all?
-                (let [js (get-in db [:rf/spawned parent-id invoke-id])]
-                  (when (map? js)
-                    {:done    (or (:done   js) #{})
-                     :failed  (or (:failed js) #{})
-                     :pending (let [completed (into #{} (concat (:done   js)
-                                                                (:failed js)))]
-                                (->> (:children js)
-                                     (remove (fn [[cid _]] (contains? completed cid)))
-                                     (map first)
-                                     (into #{})))})))
-              tags (cond-> {:machine-id parent-id
-                            :invoke-id  invoke-id
-                            :timeout-ms timeout-ms
-                            :elapsed-ms elapsed-ms}
-                     children-status (assoc :children-status children-status))
-              _ (trace/emit! :machine :rf.machine.invoke/timed-out tags)
-              ;; Dispatch the user-supplied :on-timeout event into the
-              ;; parent. Standard sub-event shape: [<parent-id> <event-vec>].
-              dispatch-fx [[:dispatch (into [parent-id on-timeout] [])]]
-              fx (vec (concat destroy-fx dispatch-fx))]
-          {:db db :fx fx})))))
-
-(defn- validate-invoke-timeout!
-  "Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop): walk the state tree
-  at registration time and reject malformed :timeout-ms / :on-timeout
-  declarations on :invoke and :invoke-all.
-
-  Three error categories:
-    - :rf.error/machine-invoke-timeout-without-on-timeout — :timeout-ms
-      is set without :on-timeout (the runtime needs an event to dispatch
-      on expiry).
-    - :rf.error/machine-invoke-on-timeout-without-timeout — :on-timeout
-      is set without :timeout-ms (the slot would never fire).
-    - :rf.error/machine-invoke-timeout-not-positive — :timeout-ms is
-      non-positive."
+  Registration-time error: :rf.error/invoke-timeout-ms-removed — emitted
+  if either :timeout-ms or :on-timeout is set on an :invoke or
+  :invoke-all spec. The error carries a migration message pointing at
+  MIGRATION §M-41."
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:invoke     (:invoke state-node)]
@@ -1279,25 +1251,19 @@
     (when (map? spec)
       (let [t  (:timeout-ms spec)
             ot (:on-timeout spec)]
-        (cond
-          (and (some? t) (nil? ot))
-          (throw (ex-info ":rf.error/machine-invoke-timeout-without-on-timeout"
-                          {:state state-key :slot slot-key :timeout-ms t}))
-
-          (and (nil? t) (some? ot))
-          (throw (ex-info ":rf.error/machine-invoke-on-timeout-without-timeout"
-                          {:state state-key :slot slot-key :on-timeout ot}))
-
-          (and (some? t)
-               (or (not (number? t)) (not (pos? t))))
-          (throw (ex-info ":rf.error/machine-invoke-timeout-not-positive"
-                          {:state state-key :slot slot-key :timeout-ms t}))
-
-          (and (some? t) (not (vector? ot)))
-          (throw (ex-info ":rf.error/machine-invoke-timeout-without-on-timeout"
-                          {:state  state-key :slot slot-key
-                           :reason ":on-timeout must be an event vector"
-                           :on-timeout ot})))))))
+        (when (or (some? t) (some? ot))
+          (throw (ex-info ":rf.error/invoke-timeout-ms-removed"
+                          {:state      state-key
+                           :slot       slot-key
+                           :timeout-ms t
+                           :on-timeout ot
+                           :reason
+                           (str ":timeout-ms / :on-timeout on " slot-key
+                                " were dropped per rf2-3y3y. Use the parent "
+                                "state's :after slot for wall-clock guards. "
+                                "See MIGRATION.md §M-41 for the rewrite "
+                                "recipe.")
+                           :migration "MIGRATION.md §M-41"})))))))
 
 (defn- validate-invoke-all!
   "Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
@@ -1398,12 +1364,12 @@
   [machine]
   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
   ;; full state tree (including nested :states) and reject malformed
-  ;; :invoke-all declarations at registration time. Per rf2-1lop:
-  ;; reject malformed :timeout-ms / :on-timeout pairings on :invoke
-  ;; and :invoke-all.
+  ;; :invoke-all declarations at registration time. Per rf2-3y3y: reject
+  ;; the dropped :timeout-ms / :on-timeout slots on :invoke / :invoke-all
+  ;; (use parent state's :after instead — see MIGRATION §M-41).
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-invoke-all! s n)
-    (validate-invoke-timeout! s n))
+    (validate-no-invoke-timeout-ms! s n))
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
@@ -1504,15 +1470,14 @@
           ;; fires per-sibling cancellations + the join event. Returns
           ;; nil if the event is not a child-event for the current state.
           ;;
-          ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop): intercept
-          ;; :rf.machine.invoke.timeout/elapsed events delivered by
-          ;; timeout-schedule-fx's wall-clock dispatch. On match (epoch
-          ;; + active state), emit the timed-out trace, run destroy,
-          ;; dispatch :on-timeout into the parent. Stale carries (re-
-          ;; entry advanced the epoch, or the machine has moved past
-          ;; the :invoke-bearing state) are suppressed.
-          intercepted (or (intercept-invoke-timeout-event machine db path snapshot machine-id inner-event)
-                          (intercept-invoke-all-event machine db path snapshot machine-id inner-event))]
+          ;; Per rf2-3y3y: the pre-release :rf.machine.invoke.timeout/elapsed
+          ;; interception is removed alongside the dropped :timeout-ms
+          ;; slot on :invoke / :invoke-all. Wall-clock guards on
+          ;; :invoke-bearing states are now expressed via the parent
+          ;; state's :after slot, whose synthetic
+          ;; :rf.machine.timer/after-elapsed event flows through the
+          ;; standard pick-after-transition path.
+          intercepted (intercept-invoke-all-event machine db path snapshot machine-id inner-event)]
       (if intercepted
         ;; The event was a join-protocol event; the intercept did its
         ;; bookkeeping in app-db and set up the resolution dispatch.
@@ -2075,72 +2040,264 @@
       (registrar/unregister! :event actor-id))
     nil))
 
-;; ---- timeout-schedule (rf2-1lop) ------------------------------------------
+;; ---- :after timer scheduling (rf2-3y3y) -----------------------------------
+;;
+;; Per Spec 005 §Delayed :after transitions, on entry to an :after-bearing
+;; state node the runtime schedules one real wall-clock timer per :after
+;; entry via interop/set-timeout!. On expiry, the timer fires the
+;; synthetic event
+;;
+;;   [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]
+;;
+;; back into the parent machine via the late-bound :router/dispatch! hook.
+;; Pick-after-transition resolves <delay-key> against the active state
+;; path's :after table; epoch-mismatch surfaces as
+;; :rf.machine.timer/stale-after, epoch-match drives the transition
+;; through the standard cascade.
+;;
+;; The delay-key is the original :after map key — pos-int? for literal,
+;; vector for subscription, fn for fn-form. This preserves stable identity
+;; across re-resolution (sub) and across machine re-entries.
+;;
+;; A per-frame timer table tracks live handles so cancellation (state
+;; exit) and subscription-driven re-resolution can clear them. The epoch
+;; mechanism backstops correctness; explicit cancellation is an
+;; optimisation that promptly releases the host-clock handle.
+;;
+;; SSR mode (`:platform :server`): `:after-schedule` no-ops scheduling and
+;; emits :rf.machine.timer/skipped-on-server in place of /scheduled per
+;; Spec 005 §SSR mode.
 
-(defn timeout-schedule-fx
-  "fx handler for `:rf.machine/timeout-schedule`. Per Spec 005 §Wall-clock
-  `:timeout-ms` (rf2-1lop), on entry to an `:invoke`-bearing or
-  `:invoke-all`-bearing state with `:timeout-ms`, the runtime emits this
-  fx alongside the spawn fx. The handler schedules a real wall-clock
-  dispatch via `interop/set-timeout!`.
+(defn- after-timer-key [frame-id parent-id invoke-id delay-key]
+  [frame-id parent-id (vec invoke-id) delay-key])
 
-  After the user-supplied `:timeout-ms` elapses, the handler dispatches
-  the synthetic event:
+(defn- classify-delay-source [delay-key]
+  (cond
+    (number? delay-key)  :literal
+    (vector? delay-key)  :sub
+    (fn? delay-key)      :fn
+    :else                :literal))
 
-      [<parent-id> [:rf.machine.invoke.timeout/elapsed
-                     {:rf/invoke-id <invoke-id>
-                      :rf/invoke-all <bool>
-                      :timeout-ms <ms>
-                      :on-timeout <event-vec>
-                      :epoch <captured-epoch>}]]
+(defn- resolve-delay-ms
+  "Resolve an :after map key to a positive-integer ms delay. For pos-int?
+  literal: returns the value. For subscription vector: subscribes via the
+  late-bound subscribe-value hook and uses the resolved value. For fn:
+  invokes (f snapshot) once.
 
-  into the parent machine. The parent's create-machine-handler boundary
-  intercepts this event (epoch-checked); on match it emits
-  `:rf.machine.invoke/timed-out`, runs the destroy (cancellation
-  cascade), and dispatches the user-supplied `:on-timeout` event into
-  the parent.
+  Returns [resolved-ms reaction-or-nil]. The reaction is non-nil only for
+  subscription-vector delays; the caller installs an add-watch on it to
+  trigger re-resolution. Subscription resolution uses
+  `:subs/subscribe` / `:subs/subscribe-value` / `:subs/unsubscribe` if
+  available; if not, falls back to nil ms (treated as 0)."
+  [frame-id delay-key snapshot]
+  (cond
+    (number? delay-key)
+    [delay-key nil]
 
-  No-op under `:platform :server` (per Spec 005 §SSR mode) — symmetric
-  with `:after`'s SSR no-op rule. The conformance harness verifies the
-  `:rf.machine/timeout-schedule` fx is emitted; production drives the
-  setTimeout."
+    (fn? delay-key)
+    (let [v (try (delay-key snapshot)
+                 (catch #?(:clj Throwable :cljs :default) _ nil))]
+      [v nil])
+
+    (vector? delay-key)
+    ;; subscribe to keep the reaction live; caller will add-watch for
+    ;; change-detection then unsubscribe on cancellation.
+    (let [reaction (subs/subscribe frame-id delay-key)
+          v        (when reaction
+                     (try @reaction
+                          (catch #?(:clj Throwable :cljs :default) _ nil)))]
+      [v reaction])
+
+    :else
+    [nil nil]))
+
+(declare schedule-after-timer!)
+
+(defn- cancel-after-timer-entry!
+  "Cancel and clear a single :after timer-table entry. Idempotent."
+  [k]
+  (when-let [entry (get @after-timers k)]
+    (when-let [h (:handle entry)]
+      (try (interop/clear-timeout! h)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (when (and (:reaction entry) (:sub-watcher-key entry))
+      (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
+           (catch #?(:clj Throwable :cljs :default) _ nil))
+      (let [[frame-id _ _ delay-key] k]
+        (when (and (vector? delay-key) frame-id)
+          (try (subs/unsubscribe frame-id delay-key)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))))
+    (swap! after-timers dissoc k)))
+
+(defn- on-sub-changed!
+  "Watch callback invoked when a subscription-vector delay's value
+  changes. Per Spec 005 §Dynamic delay re-resolution: cancel the prior
+  in-flight timer, emit :rf.machine.timer/cancelled-on-resolution, and
+  reschedule a fresh timer at the new resolution time. Epoch is
+  unchanged (the snapshot's :state hasn't moved); we read it back from
+  the live snapshot at reschedule-time so a concurrent state change is
+  caught by the epoch invariant when the new timer fires."
+  [frame-id parent-id invoke-id delay-key state old-v new-v]
+  (when-not (= old-v new-v)
+    (let [k (after-timer-key frame-id parent-id invoke-id delay-key)
+          prior-entry (get @after-timers k)
+          prior-ms    (:resolved-ms prior-entry)]
+      (trace/emit! :machine :rf.machine.timer/cancelled-on-resolution
+                   {:machine-id parent-id
+                    :state      state
+                    :delay      prior-ms
+                    :reason     :sub-changed
+                    :sub-id     (first delay-key)})
+      (cancel-after-timer-entry! k)
+      ;; Reschedule. Read the current snapshot to pick up the live
+      ;; epoch; if the snapshot is gone (frame destroyed) or has moved
+      ;; past the :after-bearing state, the rescheduled timer will fire
+      ;; stale and be safely suppressed by the epoch check.
+      (when-let [container (frame/get-frame-db frame-id)]
+        (let [db   (adapter/read-container container)
+              snap (get-in db [:rf/machines parent-id])
+              ;; Only reschedule if the active state path still includes
+              ;; the :after-bearing prefix.
+              active (when snap (state-path (:state snap)))
+              still-here? (and active
+                                (= (vec invoke-id)
+                                   (vec (take (count invoke-id) active))))]
+          (when still-here?
+            (let [epoch (or (get-in snap [:data :rf/after-epoch]) 0)]
+              ;; Sub-driven re-resolution emits a fresh :scheduled trace
+              ;; (paired with the :cancelled-on-resolution above).
+              (schedule-after-timer! frame-id parent-id invoke-id state
+                                      delay-key epoch false snap
+                                      {:emit-scheduled-trace? true}))))))))
+
+(defn- schedule-after-timer!
+  "Internal helper: resolve the delay, install the host-clock timer, and
+  (for sub-vec delays) install the change-watcher. The
+  :rf.machine.timer/scheduled (or /skipped-on-server) trace is emitted by
+  the pure-code side (apply-transition-once) at machine-transition time;
+  this fn emits a fresh /scheduled (paired with :cancelled-on-resolution)
+  only when called from a subscription-change watcher.
+
+  Idempotent against the timer-table key — cancels any prior entry
+  before installing the new one."
+  [frame-id parent-id invoke-id state delay-key epoch server? snapshot
+   {:keys [emit-scheduled-trace?]}]
+  (let [delay-source (classify-delay-source delay-key)
+        k            (after-timer-key frame-id parent-id invoke-id delay-key)]
+    (cancel-after-timer-entry! k)
+    (cond
+      server?
+      ;; Pure-side already emitted :skipped-on-server; no-op here.
+      nil
+
+      :else
+      (let [[resolved-ms reaction] (resolve-delay-ms frame-id delay-key snapshot)]
+        (cond
+          (or (not (number? resolved-ms))
+              (not (pos? resolved-ms)))
+          ;; Bad delay resolution — emit advisory and skip.
+          (trace/emit! :machine :rf.warning/no-clock-configured
+                       {:machine-id   parent-id
+                        :state        state
+                        :delay-key    delay-key
+                        :delay-source delay-source
+                        :recovery     :skipped})
+
+          :else
+          (let [_ (when emit-scheduled-trace?
+                    (trace/emit! :machine :rf.machine.timer/scheduled
+                                 (cond-> {:machine-id   parent-id
+                                          :state        state
+                                          :delay        resolved-ms
+                                          :delay-source delay-source
+                                          :epoch        epoch}
+                                   (= :sub delay-source)
+                                   (assoc :sub-id (first delay-key)))))
+                handle
+                (interop/set-timeout!
+                  (fn []
+                    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                      (dispatch! [parent-id [:rf.machine.timer/after-elapsed
+                                              delay-key epoch]]
+                                 {:frame frame-id})))
+                  resolved-ms)
+                watch-key (when (= :sub delay-source)
+                            [::after-watch frame-id parent-id invoke-id delay-key])]
+            (when (and reaction watch-key)
+              (try
+                (add-watch reaction watch-key
+                           (fn [_ _ old-v new-v]
+                             (on-sub-changed! frame-id parent-id invoke-id
+                                              delay-key state old-v new-v)))
+                (catch #?(:clj Throwable :cljs :default) _ nil)))
+            (swap! after-timers assoc k
+                   {:handle          handle
+                    :reaction        reaction
+                    :sub-watcher-key watch-key
+                    :resolved-ms     resolved-ms
+                    :epoch           epoch
+                    :state           state
+                    :delay-source    delay-source})
+            handle))))))
+
+(defn after-schedule-fx
+  "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
+  `:after` transitions and rf2-3y3y, on entry to an :after-bearing state
+  node the runtime emits one of these per :after entry. The handler
+  resolves the delay (literal pos-int? / subscription vector / fn),
+  schedules a real wall-clock timer via `interop/set-timeout!`, and (for
+  subscription delays) installs an add-watch that triggers
+  cancel-and-reschedule on sub-value change.
+
+  The synthetic event dispatched on expiry is
+
+      [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]
+
+  which routes through pick-after-transition's epoch check and (on match)
+  through the standard transition cascade.
+
+  No-op under `:platform :server` (per Spec 005 §SSR mode); emits
+  :rf.machine.timer/skipped-on-server in place of /scheduled."
   [{:keys [frame]} args]
   (let [frame-id   (or frame :rf/default)
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
-        invoke-all? (:rf/invoke-all args)
-        timeout-ms (:timeout-ms args)
-        on-timeout (:on-timeout args)
+        state      (:state args)
+        delay-key  (:delay-key args)
         epoch      (:epoch args)
-        platform   (or (get-in (frame/frame-meta frame-id) [:config :platform])
-                       :client)]
-    (trace/emit! :machine :rf.machine.invoke.timeout/scheduled
-                 {:frame      frame-id
-                  :machine-id parent-id
-                  :invoke-id  invoke-id
-                  :timeout-ms timeout-ms
-                  :on-timeout on-timeout
-                  :epoch      epoch
-                  :platform   platform})
-    ;; Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR)
-    ;; — wall-clock timers are no-ops on the server.
-    (when (and (not= :server platform)
-               (some? timeout-ms)
-               (some? on-timeout))
-      (let [start-ms (interop/now-ms)]
-        (interop/set-timeout!
-          (fn []
-            (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-              (let [elapsed-ms (- (interop/now-ms) start-ms)
-                    payload    {:rf/invoke-id   invoke-id
-                                :rf/invoke-all  (boolean invoke-all?)
-                                :timeout-ms     timeout-ms
-                                :on-timeout     on-timeout
-                                :epoch          epoch
-                                :elapsed-ms     elapsed-ms}]
-                (dispatch! [parent-id [:rf.machine.invoke.timeout/elapsed payload]]
-                           {:frame frame-id}))))
-          timeout-ms)))
+        server?    (boolean (:server? args))
+        snapshot   (when-let [container (frame/get-frame-db frame-id)]
+                     (get-in (adapter/read-container container)
+                             [:rf/machines parent-id]))]
+    ;; Initial state-entry scheduling — the :scheduled trace was already
+    ;; emitted synchronously by apply-transition-once (the pure side). For
+    ;; sub-vec delays, the fx layer's resolution may yield a different
+    ;; :delay value than the pure-side reported as :delay-key; if so, the
+    ;; sub-changed watcher emits a follow-up /scheduled with the resolved
+    ;; ms once the subscription's first-read completes — but for the
+    ;; common case where the sub's value is stable across the schedule
+    ;; window the pure-side trace stands.
+    (schedule-after-timer! frame-id parent-id invoke-id state
+                            delay-key epoch server? snapshot
+                            {:emit-scheduled-trace? false})
+    nil))
+
+(defn after-cancel-fx
+  "fx handler for `:rf.machine/after-cancel`. Per rf2-3y3y, emitted on
+  exit from an :after-bearing state node to release the host-clock timer
+  handles and any subscription watchers attached to the prior visit's
+  timers. The epoch-mismatch invariant backstops correctness if a timer
+  fires before this fx runs; this handler is the fast-path that prevents
+  zombie watchers and releases timer slots promptly."
+  [{:keys [frame]} args]
+  (let [frame-id  (or frame :rf/default)
+        parent-id (:rf/parent-id args)
+        invoke-id (vec (:rf/invoke-id args))]
+    (doseq [[k _entry] @after-timers
+            :when (and (= frame-id  (nth k 0))
+                       (= parent-id (nth k 1))
+                       (= invoke-id (nth k 2)))]
+      (cancel-after-timer-entry! k))
     nil))
 
 ;; ---- query API for system-id (Spec 005 §Named addressing via :system-id) -
@@ -2161,7 +2318,8 @@
 (fx/reg-fx :rf.machine/spawn             spawn-fx)
 (fx/reg-fx :rf.machine/destroy           destroy-machine-fx)
 (fx/reg-fx :rf.machine/invoke-all-init   invoke-all-init-fx)
-(fx/reg-fx :rf.machine/timeout-schedule  timeout-schedule-fx)
+(fx/reg-fx :rf.machine/after-schedule    after-schedule-fx)
+(fx/reg-fx :rf.machine/after-cancel      after-cancel-fx)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -2195,4 +2353,5 @@
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)
-(late-bind/set-fn! :machines/timeout-schedule-fx    timeout-schedule-fx)
+(late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
+(late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
