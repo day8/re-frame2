@@ -458,40 +458,46 @@ The user's body runs inside that `let`. The full API surface (worked example, th
 
 Everything in this subsection is **CLJS-implementation detail**, not pattern contract. The pattern requires only that views render with an explicit frame identity; how that identity is plumbed through is implementation-specific.
 
-The `read-frame-from-context` function is implemented as a tiered lookup, with the dynamic-binding tier and default tier flanking the actual context read:
+The `read-frame-from-context` function is implemented as a tiered lookup, with the dynamic-binding tier and default tier flanking the actual context read. The middle tier — the React-context read — is **substrate-specific** and each adapter publishes its own impl through the `:adapter/current-frame` late-bind hook (per [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)). The dynamic-var tier and the `:rf/default` tier are shared.
 
 ```clojure
 (defonce ^:private frame-context
   (.createContext js/React :rf/default))
 
-(defn- read-frame-from-context []
+;; Reagent (class components, `:contextType` machinery)
+(defn- read-frame-from-context-reagent []
   (or *current-frame*                                ;; tier: dynamic var (set by `with-frame`)
       (when-let [cmp (reagent.core/current-component)]
-        (let [ctx (.-context cmp)]
-          (when (and ctx (not= "object" (goog/typeOf ctx)))
-            ctx)))                                   ;; tier: closest enclosing `frame-provider`
-      :rf/default))                            ;; tier: default
+        (let [ctx (.-context cmp)]                   ;; tier: closest enclosing `frame-provider`
+          (cond                                      ;; — class-component path: surfaces value
+            (keyword? ctx)                  ctx      ;;   only to components whose `:contextType`
+            (and (string? ctx) (not= "" ctx)) (keyword ctx))))
+      :rf/default))                                  ;; tier: default
+
+;; UIx / Helix (function components, hook-driven)
+(defn- read-frame-from-context-fn-component []
+  (or *current-frame*                                ;; tier: dynamic var
+      (when-some [v (.-_currentValue frame-context)] ;; tier: function-component path —
+        (cond                                        ;;   `_currentValue` is what React mutates
+          (keyword? v)                  v            ;;   as Provider boundaries are entered /
+          (and (string? v) (not= "" v)) (keyword v))) ;;  exited during render. No `(.-context cmp)`
+      :rf/default))                                  ;; tier: default
 ```
 
 How the React-context tier wires up:
 
-1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record.
-2. `reg-view` attaches `^{:context-type frame-context}` metadata to its inner fn. Reagent picks this up and assigns it to the React class's `contextType` static field, so the class subscribes to the context.
-3. During render, React makes the current context value available as `this.context`. Reagent exposes `this` via `reagent.core/current-component`. `(.-context cmp)` returns the keyword set by the closest enclosing `frame-provider`.
-
-For other rendering substrates the same function differs only in lines 4–7:
-
-- **UIx / Helix** (function components, hooks-first): replace the `current-component`/`.-context` block with `(.useContext js/React frame-context)`.
-- **Tests / headless / non-React contexts:** the React-context tier is skipped entirely; the dynamic var or default carries the frame.
-
-Substrate-agnostic frame resolution is a matter of parameterising *this single function* across rendering libraries — the rest of re-frame2 doesn't care.
+1. `frame-provider` is a React Context Provider whose `value` is the **keyword** (`:todo`), not a frame record. The shared context object lives in `re-frame.adapter.context/frame-context`; every adapter (Reagent, UIx, Helix) reads and writes the same `createContext` object, so a tree mixing substrates resolves to a single frame chain.
+2. `subscribe` and `dispatch` reach the resolution chain through the `:adapter/current-frame` late-bind hook. The active adapter's namespace registers the hook at load time, so `re-frame.subs` / `re-frame.router` (CLJC) stay free of a static dep on this CLJS-only file.
+3. **Reagent's class-component path** (`(.-context cmp)`) is intentionally narrow: Reagent's class-component machinery surfaces context only to components whose `:contextType` matches the context object — that is the wiring `reg-view*` attaches via `{:contextType frame-context}`. Plain Reagent fns lack the `:contextType` and therefore route to `:rf/default`. This narrowness is what makes the `:rf.warning/plain-fn-under-non-default-frame-once` warning [(rf2-d3k3)](#) meaningful.
+4. **UIx / Helix's function-component path** (`_currentValue`) reflects the closest enclosing Provider regardless of any class-static metadata, because function components have no `(.-context cmp)` slot. UIx's `use-context` and Helix's `use-context` are both sugar over this read, so subscribe / dispatch and the substrate-native hook agree on the active frame.
 
 The context's value is the **keyword**, not the frame record: each consumer resolves the keyword against the global frame registry on every read, so re-registering a frame (including `:rf/default`) is picked up automatically on next render with no React-side invalidation.
 
 #### Edge cases
 
-- **No `frame-provider` in scope.** When `contextType` is set on a class but no Provider sits above the component, React leaves `this.context` as Reagent's empty default object (`#js {}`). The `(not= "object" (goog/typeOf ctx))` check filters that out and the lookup falls through to `:rf/default`.
+- **No `frame-provider` in scope.** Reagent's `(.-context cmp)` returns the React empty default (`#js {}`); the keyword/string check fails and the lookup falls through to `:rf/default`. Function-component substrates read `_currentValue` directly, which equals the createContext default (`:rf/default`).
 - **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:rf/default`.
+- **Reagent prop-conversion of named values** (rf2-d4sf). Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props. `[:> Provider {:value :foo} ...]` reaches React with `value="foo"`, not the keyword. Both impls round-trip the string back to a keyword via `re-frame.adapter.context/coerce-context-value` so consumers see the shape this spec documents. Note: `(name kw)` is lossy for namespaced keywords (`(name :auth/main)` → `"main"`), so a frame-provider authored with a namespaced keyword observed through the React-context tier resolves to the unqualified part — in practice `frame-provider` callers pass unqualified keywords (the canonical shape) and this lossiness does not bite.
 - **Concurrent rendering.** React 18 may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
 
 ### View-side details — see Spec 004
