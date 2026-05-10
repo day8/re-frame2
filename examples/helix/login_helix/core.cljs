@@ -12,7 +12,7 @@
    components are plain `defnc`. Per Decision 3 there is no
    auto-injection."
   (:require ["react-dom/client" :as react-dom-client]
-            [helix.core         :as helix :refer [$ defnc]]
+            [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
             [helix.hooks        :as helix-hooks]
             [re-frame.core :as rf]

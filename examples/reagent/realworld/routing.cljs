@@ -17,8 +17,7 @@
             ;; Requiring re-frame.routing here triggers its load-time
             ;; hook + reg-sub registrations; without it, the rf/reg-route
             ;; calls below throw :rf.error/routing-artefact-missing.
-            [re-frame.routing]
-            [realworld.schema])
+            [re-frame.routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; ============================================================================

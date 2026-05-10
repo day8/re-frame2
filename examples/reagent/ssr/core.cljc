@@ -1,10 +1,10 @@
 (ns ssr.core
-  "Worked example for [Construction Prompt CP-9](../../Construction-Prompts.md)
-   and [EP 011 SSR & Hydration](../../011-SSR.md). A small server+client app:
+  "Worked example for [Construction Prompt CP-9](../../../spec/Construction-Prompts.md)
+   and [Spec 011 SSR & Hydration](../../../spec/011-SSR.md). A small server+client app:
    server renders a 'recent articles' page; client hydrates and remains
    interactive.
 
-   Per [011-SSR.md](../../spec/011-SSR.md): SSR is part of the target
+   Per [011-SSR.md](../../../spec/011-SSR.md): SSR is part of the target
    architecture, not a future concession. View pure-fn requirement,
    id-valued override seam, hydration via :rf/hydrate.
 

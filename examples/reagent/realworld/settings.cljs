@@ -8,8 +8,7 @@
    - keep logout on the existing auth machine path"
   (:require [re-frame.core :as rf]
             [realworld.schema :as schema]
-            [realworld.http :as rh]
-            [realworld.routing :as routing])
+            [realworld.http :as rh])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 (defn draft-from-user [user]

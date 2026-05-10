@@ -9,8 +9,7 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [realworld.schema :as schema]
-            [realworld.http :as rh]
-            [realworld.routing :as routing])
+            [realworld.http :as rh])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 (def blank-draft
