@@ -1,5 +1,3 @@
-<!-- TODO rf2-8i2k: add a Helix subsection mirroring UIx (the Helix adapter shipped via
-     rf2-2qit and examples/helix/{counter_helix,login_helix}/ exist on disk). -->
 # Worked examples
 
 > **Type:** Reference
@@ -9,7 +7,7 @@
 
 ## Layout — grouped by substrate
 
-Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx is the second adapter ([rf2-3yij](#) Decision 7) and ships a curated smoke-test subset rather than a 1:1 mirror.
+Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx ([rf2-3yij](#) Decision 7) and Helix ([rf2-2qit](#) Decision 7) each ship a curated smoke-test subset (counter + login) rather than a 1:1 mirror.
 
 ```
 examples/
@@ -40,6 +38,9 @@ examples/
   uix/                                  <-- UIx adapter smoke-test set (counter + login)
     counter_uix/                        <-- folder name carries the namespace suffix so it
     login_uix/                              doesn't collide with reagent/{counter,login}/ on the classpath
+  helix/                                <-- Helix adapter smoke-test set (counter + login)
+    counter_helix/                      <-- folder name carries the namespace suffix so it
+    login_helix/                            doesn't collide with reagent/ or uix/ siblings on the classpath
 ```
 
 The orchestrator and the runner consume `playwright` and `http-server` out of `implementation/node_modules/` — there is no separate `examples/package.json` by design; the implementation tree owns the npm dependency surface for the whole repo.
@@ -81,7 +82,16 @@ The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 
 | 1 | [`uix/counter_uix/`](uix/counter_uix/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
 | 2 | [`uix/login_uix/`](uix/login_uix/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
 
-The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx code and vice versa.
+## Helix
+
+The Helix adapter ([rf2-2qit](#)) ships the same smoke pair as UIx — counter + login. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ.
+
+| # | Example | Maturity | Build id | What it demonstrates |
+|---|---|---|---|---|
+| 1 | [`helix/counter_helix/`](helix/counter_helix/) | Pedagogical sketch | `examples/counter-helix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the Helix adapter — same events, subs, and `app-db` shape; the view layer is `defnc` components consuming subs via the `use-subscribe` hook. |
+| 2 | [`helix/login_helix/`](helix/login_helix/) | Pedagogical sketch | `examples/login-helix` | The Reagent [`login/`](reagent/login/) example through Helix — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
+
+The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx or Helix code, a UIx-substrate example carries no Reagent or Helix code, and a Helix-substrate example carries no Reagent or UIx code.
 
 ## Reading order
 
@@ -97,7 +107,7 @@ If you've finished the guide and want to see code:
 8. **Then [`reagent/nine_states/`](reagent/nine_states/README.md)** — the page-level cardinality / lifecycle conventions wired together.
 9. **Then [`reagent/realworld/`](reagent/realworld/)** — substantial-app shape across the widest surface in the repo.
 
-If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix/login_uix/`](uix/login_uix/) alongside their Reagent siblings — the dataflow is identical; the view layer differs.
+If you're building on UIx, read [`uix/counter_uix/`](uix/counter_uix/) and [`uix/login_uix/`](uix/login_uix/) alongside their Reagent siblings — the dataflow is identical; the view layer differs. If you're building on Helix, read [`helix/counter_helix/`](helix/counter_helix/) and [`helix/login_helix/`](helix/login_helix/) the same way.
 
 ## End-to-end verification
 
