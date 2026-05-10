@@ -173,7 +173,7 @@ Using multiple lenses is a nice way to flush out problems.
 
 Often the first line of that prompt has narrower scope:
 ```
-Regarding the recent commits (the body of work recently undertaken): 
+Regarding the recent commits (the body of work recently undertaken), spawn agents ...: 
 ```
 
 The beads database is invaluable to the mayor AND the background worker agents doing the review. 
