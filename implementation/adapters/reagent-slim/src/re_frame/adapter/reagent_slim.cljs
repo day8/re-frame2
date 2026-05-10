@@ -172,3 +172,17 @@
 ;; (`(.-context cmp)`) per IMPL-SPEC §9.6 — the views.cljs impl works
 ;; with reagent-slim's class components without source change.
 (late-bind/set-fn! :adapter/current-frame views/current-frame)
+
+;; Per rf2-wbnl: publish reagent2's `current-component` through the
+;; late-bind hook so `re-frame.views` reads the in-flight component
+;; from the slim adapter's reactive substrate, not from stock
+;; Reagent's. Before rf2-wbnl, views.cljs statically `:require`d
+;; `reagent.core` and called its `current-component` directly — under
+;; the slim adapter that read returned nil for slim-rendered
+;; components, which silently dropped the React-context tier of the
+;; resolution chain (`subscribe`/`dispatch` under a non-default
+;; `frame-provider` routed to `:rf/default`). The classic bridge
+;; installs the same hook against stock Reagent; consumers that
+;; require exactly one of the two adapter ns's see the matching
+;; reader installed.
+(late-bind/set-fn! :adapter/current-component r/current-component)
