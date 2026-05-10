@@ -21,7 +21,7 @@ Spec 014 is an **optional capability** in the [000-Vision §Capability matrix](0
 - **Ship `:rf.http/managed` per this spec.** Then the contract below applies — args map shape, failure categories, reply addressing, retry semantics, abort surface, schema-reflection metadata, and trace events all locked. Pair tools and conformance fixtures key off the canonical surface.
 - **Omit it.** Applications that need HTTP roll their own fx (or use a third-party library) per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic shape. The omission is a conformance-set difference, not a defect.
 
-The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch on the browser and `java.net.http.HttpClient` on the JVM. Other-language ports (TypeScript, Python, Kotlin) decide independently. A port that omits `:rf.http/managed` MUST NOT register the `:rf.http/*` namespace for any other purpose (it's reserved for this Spec; see [Conventions](Conventions.md)).
+The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch on the browser and `java.net.http.HttpClient` on the JVM. Other in-scope JS-cross-compile-language ports (TypeScript, Fable (F#), Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason, Squint) decide independently — each typically wraps the host's binding to `fetch` (browser) and the host's runtime HTTP client on Node. A port that omits `:rf.http/managed` MUST NOT register the `:rf.http/*` namespace for any other purpose (it's reserved for this Spec; see [Conventions](Conventions.md)).
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
