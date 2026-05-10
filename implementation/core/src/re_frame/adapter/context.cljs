@@ -25,7 +25,8 @@
   Per rf2-3yij Decision 2: factored out of re-frame.views for the UIx
   adapter to read."
   (:require ["react" :as React]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as frame]
+            [re-frame.trace :as trace]))
 
 (defonce frame-context
   ;; The default value is :rf/default — Spec 002 §`:rf/default` guarantees
@@ -72,6 +73,45 @@
     (keyword? v) v
     (and (string? v) (not= "" v)) (keyword v)))
 
+(defn- value-type-tag
+  "Return a short keyword tag describing v's runtime type, for
+  `:rf.error/frame-context-corrupted` diagnostic payloads. Names
+  shapes the bead enumerates (nil, false, number, empty-string, JS
+  object, …) directly so dashboards can branch without reflecting on
+  pr-str output."
+  [v]
+  (cond
+    (nil? v)              :nil
+    (false? v)            :boolean
+    (true? v)             :boolean
+    (and (string? v)
+         (= "" v))        :empty-string
+    (string? v)           :string
+    (keyword? v)          :keyword
+    (number? v)           :number
+    (symbol? v)           :symbol
+    (map? v)              :map
+    (vector? v)           :vector
+    (sequential? v)       :sequential
+    (coll? v)             :collection
+    (fn? v)               :fn
+    :else                 :js-object))
+
+(defn- emit-frame-context-corrupted!
+  "Emit `:rf.error/frame-context-corrupted` (per Spec 009 §Error
+  categories). The React-context value at the function-component read
+  site (`_currentValue`) was a shape `coerce-context-value` cannot
+  resolve to a frame keyword — typically nil, false, a number, an
+  empty string, or a JS object. Recovery is `:replaced-with-default`:
+  the resolution chain falls through to `:rf/default` (current
+  observable behaviour preserved). Per rf2-8q66."
+  [v]
+  (trace/emit-error! :rf.error/frame-context-corrupted
+                     {:received v
+                      :type     (value-type-tag v)
+                      :recovery :replaced-with-default
+                      :reason   "React-context `_currentValue` is not a frame keyword; check the closest `frame-provider` boundary (or whether the subtree was rendered through an unwrapped portal)."}))
+
 ;; ---- function-component current-frame (UIx / Helix; rf2-d4sf) ------------
 ;;
 ;; UIx and Helix render function components — they have no class-
@@ -105,9 +145,29 @@
   Tolerates Reagent's prop-stringified-keyword shape via
   `coerce-context-value` — relevant when a UIx / Helix subtree is
   embedded in a tree whose `frame-provider` was authored as a Reagent
-  `[:> ...]` interop call."
+  `[:> ...]` interop call.
+
+  Corrupted-`_currentValue` detection (rf2-8q66): the
+  `createContext` default is `:rf/default` (a keyword), so a
+  function-component read should always observe either a keyword or
+  the prop-stringified-keyword shape. Anything else (nil, false, a
+  number, an empty string, a JS object) means the React-context
+  boundary was disturbed — a portal rendering outside its Provider, a
+  library mutating `_currentValue`, or a Provider authored with a
+  non-keyword value. The runtime emits
+  `:rf.error/frame-context-corrupted` and falls through to
+  `:rf/default` (recovery `:replaced-with-default`); apps see the
+  same observable behaviour as before, plus a structured trace event
+  for diagnosis."
   []
   (or frame/*current-frame*
-      (when-some [v (.-_currentValue ^js frame-context)]
-        (coerce-context-value v))
+      (let [v (.-_currentValue ^js frame-context)]
+        (or (coerce-context-value v)
+            ;; Corrupted branch: value is not a frame keyword and not
+            ;; a non-empty string — covers nil, false, numbers, empty
+            ;; strings, and JS objects. Emit the structured error and
+            ;; fall through. Behaviour identical to pre-rf2-8q66 —
+            ;; observable only.
+            (do (emit-frame-context-corrupted! v)
+                nil)))
       :rf/default))
