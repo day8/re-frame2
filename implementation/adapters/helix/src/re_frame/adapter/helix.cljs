@@ -28,6 +28,7 @@
             [re-frame.interop    :as interop]
             [re-frame.late-bind  :as late-bind]
             [re-frame.subs       :as subs]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.adapter.context :as adapter-context]))
 
 ;; ---- container ------------------------------------------------------------
@@ -436,8 +437,18 @@
 ;; own `use-current-frame` hook is sugar over the same read, so
 ;; subscribe / dispatch and `use-context` agree on the active frame.
 ;; Reagent registers a different impl (in `re-frame.adapter.reagent`)
-;; that uses `(.-context cmp)` on the in-flight Reagent component;
-;; the last-loaded adapter wins, which is what an explicit
-;; `(rf/init! helix/adapter)` already commits to.
-(late-bind/set-fn! :adapter/current-frame
-                   adapter-context/function-component-current-frame)
+;; that uses `(.-context cmp)` on the in-flight Reagent component.
+;;
+;; Per rf2-0d35: route `:adapter/current-frame` through the installed
+;; adapter rather than blindly overwriting at ns-load time. In test
+;; bundles that load multiple adapter ns's, a plain `set-fn!` would
+;; mean only the last-loaded adapter's reader survives — see
+;; reagent.cljs for the full rationale.
+(let [previous (late-bind/get-fn :adapter/current-frame)]
+  (late-bind/set-fn! :adapter/current-frame
+    (fn helix-adapter-current-frame-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (adapter-context/function-component-current-frame)
+        (if previous
+          (previous)
+          (frame/current-frame))))))

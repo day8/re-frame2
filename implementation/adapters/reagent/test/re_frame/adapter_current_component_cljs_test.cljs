@@ -19,10 +19,16 @@
       fall-through.
 
   Note re cross-test order (bridge vs slim): both adapter ns's register
-  the same hook key at ns-load. Whichever is loaded last wins. Under the
-  in-tree shadow-cljs node-test build that loads both adapter trees,
-  this test asserts the bridge's binding by re-establishing it inside
-  each test — making the assertion order-independent.
+  the same hook key at ns-load. Per rf2-0d35 each adapter wraps its
+  reader in a routing closure that consults
+  `(substrate-adapter/current-adapter)` and runs THIS adapter's reader
+  only when this adapter is the installed one (otherwise chains to
+  the previously-installed reader). The wrapper means the hook value
+  observed at runtime is itself a closure, NOT the raw reader. To keep
+  the assertion order-independent (and resilient to the wrapping),
+  this test re-installs the raw `r/current-component` inside each
+  test body via `with-bridge-hook` and asserts identity against THAT
+  re-installed value.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]

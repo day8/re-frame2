@@ -59,11 +59,13 @@
   it publishes its `set-hiccup-emitter!` callback through the
   late-bind hook table; if the SSR artefact is on the classpath, its
   ns-load resolves the hook and wires the emitter."
-  (:require [reagent2.core       :as r]
-            [reagent2.ratom      :as ratom]
-            [reagent2.dom.client :as rdc]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.views      :as views]))
+  (:require [reagent2.core             :as r]
+            [reagent2.ratom            :as ratom]
+            [reagent2.dom.client       :as rdc]
+            [re-frame.frame            :as frame]
+            [re-frame.late-bind        :as late-bind]
+            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.views            :as views]))
 
 ;; ---- container ------------------------------------------------------------
 
@@ -171,7 +173,20 @@
 ;; rewrite preserves the bridge's class-component context-read shape
 ;; (`(.-context cmp)`) per IMPL-SPEC §9.6 — the views.cljs impl works
 ;; with reagent-slim's class components without source change.
-(late-bind/set-fn! :adapter/current-frame views/current-frame)
+;;
+;; Per rf2-0d35: route `:adapter/current-frame` through the installed
+;; adapter (same pattern as the bridge ns; see reagent.cljs for the
+;; full rationale). In test bundles that load multiple adapter ns's
+;; the last-loaded would otherwise silently win at the hook regardless
+;; of which adapter was actually `(rf/init!)`-installed.
+(let [previous (late-bind/get-fn :adapter/current-frame)]
+  (late-bind/set-fn! :adapter/current-frame
+    (fn reagent-slim-adapter-current-frame-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (views/current-frame)
+        (if previous
+          (previous)
+          (frame/current-frame))))))
 
 ;; Per rf2-wbnl: publish reagent2's `current-component` through the
 ;; late-bind hook so `re-frame.views` reads the in-flight component
@@ -185,4 +200,15 @@
 ;; installs the same hook against stock Reagent; consumers that
 ;; require exactly one of the two adapter ns's see the matching
 ;; reader installed.
-(late-bind/set-fn! :adapter/current-component r/current-component)
+;;
+;; Per rf2-0d35: route through the installed adapter (same pattern as
+;; `:adapter/current-frame` above; see reagent.cljs for the full
+;; rationale). The slim adapter's reader runs only when the slim
+;; adapter is the installed one; otherwise fall through to whatever
+;; reader was previously registered by another adapter ns.
+(let [previous (late-bind/get-fn :adapter/current-component)]
+  (late-bind/set-fn! :adapter/current-component
+    (fn reagent-slim-adapter-current-component-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/current-component)
+        (when previous (previous))))))

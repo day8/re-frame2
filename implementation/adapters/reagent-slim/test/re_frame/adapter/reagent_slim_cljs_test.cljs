@@ -13,13 +13,14 @@
   render path is exercised in the browser-test target (Stage 4-E
   follow-up).
 
-  IMPORTANT: this test file's ns-require triggers
-  `re-frame.adapter.reagent-slim`'s ns load, which (per the slim
-  adapter's load-time late-bind calls) may rebind the
-  `:adapter/current-frame` and `:reagent/set-hiccup-emitter!`
-  hooks. The bridge's tests don't require this ns and so don't
-  observe the rebind. Stage 4-E will cleanly seam this through
-  per-test-suite adapter selection.
+  Per rf2-0d35 the `:adapter/current-frame` and
+  `:adapter/current-component` late-bind hooks are now installed as
+  routing closures that delegate to the actively-installed adapter
+  (via `substrate-adapter/current-adapter`) — so a test bundle that
+  loads multiple adapter ns's no longer sees the last-loaded one
+  silently win at the hook regardless of which adapter was
+  `(rf/init!)`-installed. The `:reagent/set-hiccup-emitter!` hook is
+  still rebound at ns-load time per the SSR shipping convention.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
