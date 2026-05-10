@@ -848,7 +848,24 @@
 ;; *current-frame* and current-frame live in re-frame.frame so the
 ;; sub / dispatch defaults can read them without a circular require.
 ;; Re-export here for the public API surface.
-(def current-frame frame/current-frame)
+;;
+;; Per rf2-d4sf the public `current-frame` consults the
+;; `:adapter/current-frame` late-bind hook on CLJS so the React-context
+;; tier of the resolution chain is live at this call site (and at every
+;; user-facing surface that flows through `(dispatcher)`/`(subscriber)`/
+;; `bound-fn` capture). The JVM build falls through to
+;; `frame/current-frame` (dynamic-var → :rf/default).
+(defn current-frame
+  "Return the active frame at the call site. Per Spec 002 §Reading the
+  frame from React context the chain is: dynamic var → React context
+  (CLJS only) → :rf/default. The React-context tier is published by
+  the active adapter through the `:adapter/current-frame` late-bind
+  hook (rf2-d4sf)."
+  []
+  #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
+             (f)
+             (frame/current-frame))
+     :clj  (frame/current-frame)))
 
 (defn dispatcher
   "Return a fn that dispatches an event under the current frame.

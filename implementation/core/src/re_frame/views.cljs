@@ -92,17 +92,27 @@
     2. Closest enclosing frame-provider via React context.
     3. :rf/default.
 
-  Frame ids are always keywords (per Spec 002 §Frame ids). The keyword?
-  check filters out React's empty-object default for components without
-  a wired contextType — `goog/typeOf` reports both keywords and bare
-  objects as \"object\", so a typeOf-based discriminator silently
-  swallowed valid keyword contexts and made `frame-provider` resolve
-  to `:rf/default` regardless of what it pushed."
+  Reagent-specific: the React-context tier reads `(.-context cmp)` on
+  the in-flight Reagent component. Reagent's class-component machinery
+  surfaces context to components whose `:contextType` matches the
+  context object — that is the wiring `reg-view*` attaches via
+  `{:contextType frame-context}`. Plain Reagent fns lack this wiring,
+  so `(.-context cmp)` is React's empty default — they fall through
+  to `:rf/default`. This narrowness is by design: it is what makes the
+  `:rf.warning/plain-fn-under-non-default-frame-once` warning
+  meaningful (rf2-d3k3 / rf2-d4sf).
+
+  Per rf2-d4sf the keyword/string check tolerates Reagent's
+  prop-stringified shape: when a frame-provider is reached via
+  `[:> Provider {:value :foo} ...]` interop, `convert-prop-value`
+  rewrites `:foo` to `\"foo\"` before React sees it. The shared
+  coercion in `re-frame.adapter.context/coerce-context-value` undoes
+  that stringification so the Reagent path returns a keyword
+  regardless of how the Provider was authored."
   []
-  (or *current-frame*
+  (or frame/*current-frame*
       (when-let [cmp (r/current-component)]
-        (let [ctx (.-context cmp)]
-          (when (keyword? ctx) ctx)))
+        (adapter-context/coerce-context-value (.-context cmp)))
       :rf/default))
 
 ;; ---- per-render identity (rf2-piag / rf2-t5tx) ----------------------------
@@ -418,28 +428,28 @@
       (pr-str cmp)))
 
 (defn- read-react-context-frame
-  "Read the value the closest enclosing frame-provider has pushed onto the
-  shared React context. Reagent's class-component machinery only surfaces
-  context to components whose `:contextType` matches the context object;
-  plain fns lack that wiring, so `(.-context cmp)` is the React empty
-  default. We bypass the per-component view by reading the context's
-  current value directly — React maintains `_currentValue` on the context
-  object as it pushes / pops Provider boundaries during render.
+  "Read the value the closest enclosing frame-provider has pushed onto
+  the shared React context. Per rf2-d4sf this is now a thin wrapper
+  around `adapter-context/current-frame` minus the dynamic-var tier —
+  the warn-once detection below has already filtered to the case where
+  `*current-frame*` is unset (Condition 4), so we want the React-
+  context value alone.
 
   Reagent's `convert-prop-value` (reagent.impl.template) stringifies
   named values (keywords, symbols) when they are passed as React
   prop values: `[:> Provider {:value :foo} ...]` reaches React with
-  `value=\"foo\"`, not the keyword. We undo that conversion here so the
-  detection logic (and consumers reading off the context value) see a
-  keyword regardless of whether the closest Provider was reached via
-  `[:> ...]` interop (stringified) or through a plain-CLJS object path
-  (preserved). The createContext default — `:rf/default` — survives as
-  a keyword because it never passed through Reagent's prop-conversion."
+  `value=\"foo\"`, not the keyword. The shared coercion in
+  `re-frame.adapter.context` undoes that conversion so the detection
+  logic sees a keyword regardless of whether the closest Provider was
+  reached via `[:> ...]` interop (stringified) or through a plain-CLJS
+  object path (preserved). The createContext default — `:rf/default`
+  — survives as a keyword because it never passed through Reagent's
+  prop-conversion."
   []
   (let [v (.-_currentValue ^js adapter-context/frame-context)]
     (cond
-      (keyword? v) v
-      (string?  v) (keyword v))))
+      (keyword? v)                  v
+      (and (string? v) (not= "" v)) (keyword v))))
 
 (defn maybe-warn-plain-fn-under-non-default-frame!
   "Detection per Spec 006 §706 (plain-fn-under-non-default-frame

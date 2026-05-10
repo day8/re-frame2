@@ -24,7 +24,8 @@
 
   Per rf2-3yij Decision 2: factored out of re-frame.views for the UIx
   adapter to read."
-  (:require ["react" :as React]))
+  (:require ["react" :as React]
+            [re-frame.frame :as frame]))
 
 (defonce frame-context
   ;; The default value is :rf/default — Spec 002 §`:rf/default` guarantees
@@ -46,3 +47,67 @@
          (.-Provider frame-context)
          #js {:value frame-kw}
          children))
+
+;; ---- coercion helper for React-context reads (rf2-d4sf) ------------------
+;;
+;; Reagent's `convert-prop-value` (reagent.impl.template) stringifies
+;; named values when they are passed as React props: `[:> Provider
+;; {:value :foo} ...]` reaches React with `value=\"foo\"`, not the
+;; keyword. Both Reagent's class-component context-read path
+;; (`(.-context cmp)`) and the function-component `_currentValue` read
+;; observe the same stringified shape, so the coercion is shared. The
+;; createContext default (`:rf/default`) survives as a keyword because
+;; it never passes through Reagent's prop-conversion.
+;;
+;; Per Spec 002 §Reading the frame from React context — Reagent
+;; prop-conversion of named values.
+
+(defn coerce-context-value
+  "Coerce a raw React-context read (from `(.-context cmp)` or
+  `_currentValue`) into a frame-id keyword, or nil when the read does
+  not name a frame. Tolerates Reagent's prop-stringified shape per
+  rf2-d4sf."
+  [v]
+  (cond
+    (keyword? v) v
+    (and (string? v) (not= "" v)) (keyword v)))
+
+;; ---- function-component current-frame (UIx / Helix; rf2-d4sf) ------------
+;;
+;; UIx and Helix render function components — they have no class-
+;; component-specific `(.-context cmp)` slot. The substrate-portable
+;; way to observe the active Provider's value is to read
+;; `_currentValue` directly off the shared context object. React
+;; mutates this field as Provider boundaries are entered and exited
+;; during render, so reads from inside a render see the closest
+;; enclosing Provider's value.
+;;
+;; Per Spec 006 §Frame-provider via React context, this fn is the
+;; canonical impl that the UIx and Helix adapters publish through the
+;; `:adapter/current-frame` late-bind hook. Reagent has its own impl
+;; in `re-frame.views/current-frame` that uses the class-component
+;; `(.-context cmp)` path so the plain-fn-under-non-default-frame-once
+;; warning's narrowness contract is preserved (plain Reagent fns
+;; lacking `:contextType` continue to route to `:rf/default`, which is
+;; what the warning targets).
+
+(defn function-component-current-frame
+  "Resolution chain for function-component substrates (UIx, Helix):
+
+    1. `re-frame.frame/*current-frame*` (dynamic var) — set by
+       `with-frame` / `bound-fn`.
+    2. The closest enclosing frame-provider via React context. Reads
+       `_currentValue` off the shared context object directly (the
+       substrate-portable path; UIx's `use-context` and Helix's
+       `use-context` are both sugar over this read).
+    3. `:rf/default`.
+
+  Tolerates Reagent's prop-stringified-keyword shape via
+  `coerce-context-value` — relevant when a UIx / Helix subtree is
+  embedded in a tree whose `frame-provider` was authored as a Reagent
+  `[:> ...]` interop call."
+  []
+  (or frame/*current-frame*
+      (when-some [v (.-_currentValue ^js frame-context)]
+        (coerce-context-value v))
+      :rf/default))
