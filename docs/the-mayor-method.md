@@ -122,7 +122,7 @@ When the map shows a decision-pending bead, ask the mayor:
 
 > *"Tell me more about bead rf2-Xhss. Explain my options."*
 
-The mayor walks you through. You decide. The mayor records the decision as standing guidance in `CLAUDE.md` (so future sessions and future agents inherit it), files any follow-up beads, dispatches anything ready to dispatch, and updates the map.
+The mayor walks you through. You decide. The mayor records the decision into the appropriate bead (so future sessions and future agents inherit it), files any follow-up beads, dispatches anything ready to dispatch, and updates the map.
 
 You move on. The work flows.
 
