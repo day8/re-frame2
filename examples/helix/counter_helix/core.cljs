@@ -69,7 +69,7 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.helix ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! helix-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (.render root ($ counter-app)))

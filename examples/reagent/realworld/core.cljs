@@ -288,8 +288,8 @@
                       (str "Token " token)))))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! reagent-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."

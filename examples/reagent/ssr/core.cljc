@@ -52,7 +52,7 @@
             ;; `:ssr/render-to-string`, `:ssr/reg-error-projector`,
             ;; `:ssr/project-error`). Without the require the four core
             ;; re-exports raise `:rf.error/ssr-artefact-missing`.
-            [re-frame.ssr]
+            [re-frame.ssr :as ssr]
             #?(:cljs [cljs.reader])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
@@ -255,10 +255,10 @@
      ;; first call installs the adapter and creates :rf/default; subsequent
      ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
      ;;
-     ;; rf2-84po: requiring re-frame.adapter.reagent (above) registered
-     ;; the Reagent adapter as the default at ns-load time, so no-arg
-     ;; init! resolves through the registry.
-     (rf/init!)
+     ;; rf2-agql: pass the adapter spec map directly. There is no
+     ;; default-adapter registry — each adapter ns exports an `adapter`
+     ;; var the consumer requires and passes here.
+     (rf/init! reagent-adapter/adapter)
      ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
      ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
      ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
@@ -275,9 +275,11 @@
 
 #?(:clj
    (defn ssr-tests []
-     ;; Boot the runtime (idempotent) — installs the plain-atom adapter
-     ;; and the :rf/default frame.
-     (rf/init!)
+     ;; Boot the runtime (idempotent) — installs the SSR adapter and the
+     ;; :rf/default frame. Per rf2-agql `re-frame.ssr` exports its own
+     ;; `adapter` var (the JVM-side counterpart of reagent/uix/helix
+     ;; adapters); pass it explicitly.
+     (rf/init! ssr/adapter)
      ;; Stub `:rf.http/managed` so the test doesn't make real network
      ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`
      ;; to a per-test stub that delegates to the framework-shipped
