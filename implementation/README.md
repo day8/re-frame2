@@ -165,6 +165,11 @@ Exits 0 on green, 1 on red. Use this when verifying anything that
 depends on a real DOM, real browser timing, or React's DOM-rendering
 pipeline.
 
+If port 8021 is already in use (e.g. another local repo's dev server),
+the harness logs a warning and falls back to a free OS-chosen port.
+Set `BROWSER_TEST_PORT` to pin a specific port (CI determinism); the
+harness still falls back if that port is busy too.
+
 ## What's not in scope
 
 - The migration agent (re-frame v1 → v2). That's a separate
