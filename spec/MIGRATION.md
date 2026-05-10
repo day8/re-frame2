@@ -1473,29 +1473,79 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:invoke-all`](005-StateMachines
 
 ---
 
-### M-41. `:invoke` / `:invoke-all` accept `:timeout-ms` — additive, no user-side action
+### M-41. `:timeout-ms` REMOVED from `:invoke` / `:invoke-all` — use parent state's `:after`
 
-**Type B — additive feature** (no rewrite needed; the spec adds new optional slots on `:invoke` / `:invoke-all` but no existing behaviour changes).
+**Type A — pre-1.0 spec lock; mechanical rewrite where the slot was used.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that adopted the never-shipped `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` rewrite mechanically to the parent state's `:after` map.
 
-Per [rf2-1lop](#) and [005 §Wall-clock `:timeout-ms`](005-StateMachines.md#wall-clock-timeout-ms-spans-retries), the v1 spec adds a wall-clock `:timeout-ms` slot to both `:invoke` and `:invoke-all` (sibling to `:on-spawn`). When the spawned actor (or join) doesn't terminate within the window, the runtime cancels the spawned actor(s) via the standard `:rf.machine/destroy` exit-cascade machinery, emits a `:rf.machine.invoke/timed-out` trace event, and dispatches the user-supplied `:on-timeout` event into the parent. The window spans retries — unlike the per-attempt `:rf.http/managed` `:timeout-ms` (per [014 §Timeout semantics](014-HTTPRequests.md)) — making it the right surface for boot-machine "the auth phase completes in 30 s total" guards.
+Per rf2-3y3y, the pre-release `:invoke` / `:invoke-all` `:timeout-ms` slot is **dropped** in favour of the canonical `:after` primitive on the parent state. The motivating use case (a boot machine wanting "the auth phase completes in 30 s total, including retries") is fully served by `:after` on the `:invoke`-bearing state — the timer is anchored to **state entry**, so the wall-clock spans the child's retries; when the timer fires, the standard exit cascade tears down the in-flight child via `:rf.machine/destroy`. Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the resolved design.
 
-**No user-side migration.** `:timeout-ms` and `:on-timeout` are new optional keys on `:invoke` / `:invoke-all`; existing transition tables are unaffected. Codebases that hand-rolled per-phase timeouts via sibling `:after` racing-machines (the awkward-but-possible pattern the pre-rf2-1lop spec documented in [findings/boot-as-statemachine-dash8-rf8.md §M3](#)) **may** rewrite to `:timeout-ms` for the readability win.
+**Migration recipe.** Lift the `:timeout-ms` value into the `:invoke`-bearing state's `:after` map; the `:on-timeout` event vector becomes the `:after` transition's target (or, if the target is already named in `:on`, just a transition keyword sugar):
 
-**New trace event.** The 009 trace vocabulary picks up `:rf.machine.invoke/timed-out` (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). Observers that filter by exact `:operation` keyword learn to recognise the new event; observers that filter by `:op-type :machine` see it automatically. The existing `:rf.machine.invoke/cancelled-on-join-resolution` event grows a new `:join-event :on-timeout` value when the cancellation cause is `:timeout-ms` expiry (rather than a normal join resolution).
+Before (the never-shipped pre-rf2-3y3y form):
 
-**New error categories.** `create-machine-handler` rejects malformed `:timeout-ms` shapes at registration time:
+```clojure
+{:authenticating
+ {:invoke {:machine-id :auth-flow
+           :timeout-ms 30000
+           :on-spawn   :record-auth
+           :on-timeout [:auth-timed-out]}
+  :on     {:auth/succeeded :authenticated
+           :auth-timed-out :auth-failed}}}
+```
 
-- `:rf.error/machine-invoke-timeout-without-on-timeout` — `:timeout-ms` set without `:on-timeout`.
-- `:rf.error/machine-invoke-on-timeout-without-timeout` — `:on-timeout` set without `:timeout-ms`.
-- `:rf.error/machine-invoke-timeout-not-positive` — `:timeout-ms` is non-positive.
+After (the canonical rf2-3y3y form):
 
-All registration-time; the runtime never sees a malformed `:timeout-ms`. Per [005 §Errors](005-StateMachines.md#errors-1).
+```clojure
+{:authenticating
+ {:invoke {:machine-id :auth-flow
+           :on-spawn  :record-auth}
+  :after  {30000 :auth-failed}                 ;; wall-clock guard — spans retries
+  :on     {:auth/succeeded :authenticated}}}
+```
 
-**`:after` epoch idiom reused.** The `:rf/after-epoch` advance that already invalidates in-flight `:after` timers (per [005 §Delayed `:after` transitions §Stale detection](005-StateMachines.md#delayed-after-transitions)) also invalidates an in-flight `:timeout-ms` window — re-entering the `:invoke`-bearing state on a `:retry` transition cleanly restarts the timeout without bespoke tracking.
+Symmetric for `:invoke-all`:
 
-**What to do.** Nothing for compatibility; this is purely additive. Apps wanting per-phase wall-clock guards adopt `:timeout-ms` per the [005 worked example](005-StateMachines.md#why-a-per-invoke-timeout-not-per-attempt). The `:actor/timeout` capability in [005 §Capability matrix](005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:timeout-ms` at registration with `:rf.error/machine-grammar-not-in-v1`.
+Before:
 
-**Why:** the boot-as-state-machine pattern routinely needs phase-level wall-clock guards that span retries (auth, hydrate). The `:rf.http/managed` `:timeout-ms` is per-attempt and total wall-clock balloons under retry; sibling `:after` machines work but require bespoke bookkeeping. `:timeout-ms` at the call site removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §M3](#).
+```clojure
+{:hydrating
+ {:invoke-all {:children       [...]
+               :join           :all
+               :on-child-done  :asset/loaded
+               :on-child-error :asset/failed
+               :on-all-complete [:hydrate/done]
+               :timeout-ms     60000
+               :on-timeout     [:hydrate/timed-out]}
+  :on        {:hydrate/done       :ready
+              :hydrate/timed-out  :degraded}}}
+```
+
+After:
+
+```clojure
+{:hydrating
+ {:invoke-all {:children       [...]
+               :join           :all
+               :on-child-done  :asset/loaded
+               :on-child-error :asset/failed
+               :on-all-complete [:hydrate/done]}
+  :after     {60000 :degraded}                 ;; whole-join wall-clock guard
+  :on        {:hydrate/done :ready}}}
+```
+
+The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren) terminating, the parent transitions out of the `:invoke`-bearing state; the standard `:exit` cascade (auto-generated by `:invoke` / `:invoke-all`'s desugaring per [005 §Desugaring rules](005-StateMachines.md#desugaring-rules)) destroys the spawned child(ren); per [rf2-wvkn]'s in-flight-abort contract once it lands, the destroy cascade further aborts in-flight `:rf.http/managed` requests inside the children — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
+
+**Retired trace event.** The pre-rf2-3y3y `:rf.machine.invoke/timed-out` trace event is retired alongside the slot. Observers wanting "this `:invoke`-bearing state's wall-clock guard fired" consume `:rf.machine.timer/fired` on the `:invoke`-bearing state's `:after` entry — same semantic, uniform substrate. Per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+
+**Retired error categories.** The pre-rf2-3y3y `:rf.error/machine-invoke-timeout-without-on-timeout` / `:rf.error/machine-invoke-on-timeout-without-timeout` / `:rf.error/machine-invoke-timeout-not-positive` registration-time error categories are retired. The `:after` slot's existing validation (`pos-int?` / subscription-vector / fn delay; transition-spec value) covers the same shape constraints from a different angle; an invalid `:after` shape surfaces as the standard transition-table validation error per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table).
+
+**Retired capability axis.** The `:actor/timeout` capability is retired from [005 §Capability matrix](005-StateMachines.md#capability-matrix). The `:fsm/delayed-after` capability subsumes it — a port that claims `:fsm/delayed-after` already supports state-level wall-clock-timeout semantics for both pure timed-transition states and `:invoke`-bearing states.
+
+**What to do.** If a codebase adopted the pre-release `:timeout-ms` slot, run the mechanical rewrite above. The `:after` primitive itself is unchanged from the pre-rf2-3y3y shape on the value side; the new delay forms (subscription vector — `[:sub-id & args]`) are additive and need not be adopted during the migration. Apps that did not adopt `:timeout-ms` are unaffected.
+
+**Why:** the boot-as-state-machine pattern needs phase-level wall-clock guards that span retries (auth, hydrate). The pre-rf2-3y3y design proposed `:timeout-ms` at the call site; the rf2-3y3y design observes that state-level `:after` is **already** the canonical primitive for "after N ms in this state, do X" and the `:invoke`-bearing case composes via the standard exit cascade per [005 §Whichever fires first wins](005-StateMachines.md#whichever-fires-first-wins). One primitive, not two. Per [findings/boot-as-statemachine-dash8-rf8.md §M3](findings/boot-as-statemachine-dash8-rf8.md) (the M3 finding's resolution is now "use the parent state's `:after`").
+
+**Cross-references.** [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the dropped-slot record.
 
 ---
 

@@ -242,9 +242,10 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :event` (lifecycle, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:rf.machine/transition` | State-machine transition | 005 |
 | `:rf.machine.microstep/transition` | State-machine `:always` per-microstep transition | 005 |
-| `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry | 005 |
-| `:rf.machine.timer/fired` | State-machine `:after` timer fired (live; epoch matched). `:tags` carries `:fired? <bool>` indicating whether the guard passed. | 005 |
+| `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry (or re-scheduled on subscription-driven re-resolution per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)). `:tags` carries `:delay-source <:literal | :sub | :fn>` and `:sub-id` (when source = `:sub`). | 005 |
+| `:rf.machine.timer/fired` | State-machine `:after` timer fired (live; epoch matched). `:tags` carries `:fired? <bool>` indicating whether the guard passed (false ⇒ suppressed, no transition; sibling timers continue). | 005 |
 | `:rf.machine.timer/stale-after` | State-machine `:after` timer fired with mismatched epoch (state was exited before the timer expired) and was silently ignored | 005 |
+| `:rf.machine.timer/cancelled-on-resolution` | State-machine `:after` timer with subscription-vector delay was cancelled because the subscription's value changed; a fresh timer is scheduled. Per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution). `:tags {:delay <prior-ms> :reason :sub-changed :sub-id <sub-id>}`. | 005 |
 | `:rf.machine.timer/skipped-on-server` | State-machine `:after` entry reached under SSR; timer scheduling suppressed per [005 §SSR mode](005-StateMachines.md#ssr-mode) | 005 |
 | `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` | Registrar mutations | 001 / 009 |
 | `:view/render` | View render (per [Spec 004 §Render-tree primitives](004-Views.md)) | 004 / 009 |
@@ -1034,9 +1035,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                            [:target {:optional true} TransitionTarget]      ;; keyword (sibling of declaring state) or vector (absolute path); same-state same-guard self-loops rejected at registration
                            [:action {:optional true} ActionRef]
                            [:meta   {:optional true} :map]]]]
-                        [:after   {:optional true}                          ;; delayed transitions; ms (or fn returning ms) → transition spec; epoch-based stale detection; SSR no-ops scheduling; see [005 §Delayed :after transitions](005-StateMachines.md#delayed-after-transitions)
+                        [:after   {:optional true}                          ;; delayed transitions; <delay> → transition spec where <delay> is pos-int? OR a subscription vector ([sub-id & args] resolved through subscribe; re-resolves on subscription change) OR (fn [snapshot] ms) computed at state entry; epoch-based stale detection; SSR no-ops scheduling; see [005 §Delayed :after transitions](005-StateMachines.md#delayed-after-transitions) and [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution). Per rf2-3y3y.
                          [:map-of
-                          [:or pos-int? fn?]                                ;; literal milliseconds OR (fn [snapshot] ms) computed at state entry
+                          [:or pos-int?                                     ;; literal milliseconds (default form)
+                               [:vector :any]                               ;; subscription vector — [sub-id & args]; re-resolves on sub change
+                               fn?]                                          ;; (fn [snapshot] ms) — local-data-derived delay; computed once at entry
                           [:or :keyword                                     ;; keyword-target sugar — desugars to {:target <kw>} at registration
                                [:map                                        ;; full transition spec — same shape as an :on slot
                                 [:guard  {:optional true} GuardRef]
@@ -1062,9 +1065,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
-   [:system-id  {:optional true} :keyword]                                  ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
-   [:timeout-ms {:optional true} pos-int?]                                  ;; per [005 §Wall-clock :timeout-ms]; wall-clock window for the spawned actor (spans retries); cancels the actor and dispatches :on-timeout on expiry
-   [:on-timeout {:optional true} [:vector :any]]])                          ;; required iff :timeout-ms is set; event vector dispatched into the parent on expiry — see [005 §Wall-clock :timeout-ms]
+   [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
+;; an :invoke-bearing state are expressed via the parent state's :after slot. See
+;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
+;; [MIGRATION §M-41].
 
 ;; The :invoke-all spec on a state node — spawn-N-children-and-join. Per
 ;; [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
@@ -1105,9 +1110,11 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
    [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any / {:n N} / {:fn ...}
    [:on-any-failed    {:optional true} [:vector :any]]                      ;; optional; if absent, child failures don't short-circuit
-   [:cancel-on-decision? {:optional true} :boolean]                         ;; default true
-   [:timeout-ms       {:optional true} pos-int?]                            ;; per [005 §Wall-clock :timeout-ms]; whole-join wall-clock window; on expiry surviving children are cancelled and :on-timeout is dispatched
-   [:on-timeout       {:optional true} [:vector :any]]])                    ;; required iff :timeout-ms is set; event vector dispatched into the parent on expiry — see [005 §Wall-clock :timeout-ms]
+   [:cancel-on-decision? {:optional true} :boolean]])                       ;; default true
+;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
+;; an :invoke-all-bearing state are expressed via the parent state's :after slot. See
+;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
+;; [MIGRATION §M-41].
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
 ;; — runtime-managed and not part of the transition-table grammar. See
@@ -1168,7 +1175,7 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 A second `:always`-related category, **`:rf.error/machine-always-depth-exceeded`**, is a *runtime* error (not registration): emitted when the microstep loop exceeds its depth limit (default 16), with `:tags {:machine-id <id> :depth <limit> :path [<state> ...]}` and `:recovery :no-recovery`. The cascade halts with the snapshot uncommitted. See [005 §Bounded depth](005-StateMachines.md#bounded-depth).
 
-**`:after` constraints.** Per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions), the `:after` slot's value is a map whose keys are positive-integer millisecond delays *or* fns of the entering snapshot returning a positive integer, and whose values are either keyword-target sugar (`{5000 :timeout}`) or a full transition spec (`{5000 {:guard :still-loading? :target :hard-error}}`). Sugar normalises at registration time. Cancellation is not a separate fx — staleness is detected via an **epoch counter** stored in `:data` under the reserved key `:rf/after-epoch` (the `:rf/`-namespace within `:data` is reserved for runtime-managed bookkeeping). The clock primitives live in [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005) (`now-ms`, `schedule-after!`, `cancel-scheduled!`); tests swap the interop layer rather than configuring a framework-level clock. Hosts whose interop layer hasn't been wired with a clock emit **`:rf.warning/no-clock-configured`** when `:after` is exercised — an advisory-not-fatal: the runtime falls back to a host-native clock if available. Trace events: `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/skipped-on-server` (added to the trace-op vocabulary above).
+**`:after` constraints.** Per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions), the `:after` slot's value is a map whose keys are one of three forms — positive-integer millisecond delays, **subscription vectors** (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)), or fns of the entering snapshot returning a positive integer — and whose values are either keyword-target sugar (`{5000 :timeout}`) or a full transition spec (`{5000 {:guard :still-loading? :target :hard-error}}`). Sugar normalises at registration time. Cancellation is not a separate fx — staleness is detected via an **epoch counter** stored in `:data` under the reserved key `:rf/after-epoch` (the `:rf/`-namespace within `:data` is reserved for runtime-managed bookkeeping). The clock primitives live in [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005) (`now-ms`, `schedule-after!`, `cancel-scheduled!`); tests swap the interop layer rather than configuring a framework-level clock. Hosts whose interop layer hasn't been wired with a clock emit **`:rf.warning/no-clock-configured`** when `:after` is exercised — an advisory-not-fatal: the runtime falls back to a host-native clock if available. Trace events: `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/cancelled-on-resolution`, `:rf.machine.timer/skipped-on-server` (added to the trace-op vocabulary above). Per rf2-3y3y.
 
 ### `:rf/machine-snapshot`
 
