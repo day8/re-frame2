@@ -986,6 +986,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                         [:entry   {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:exit    {:optional true} ActionRef]               ;; one fn or one keyword reference into the machine's :actions map
                         [:invoke  {:optional true} InvokeSpec]              ;; declarative spawn-on-entry / destroy-on-exit; at most one per state; see :rf/state-node §:invoke and [005 §Declarative :invoke](005-StateMachines.md#declarative-invoke-sugar-over-spawn)
+                        [:invoke-all {:optional true} InvokeAllSpec]        ;; spawn-N-children-and-join sugar; mutually exclusive with :invoke; see :rf/state-node §:invoke-all and [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
                         [:always  {:optional true}                          ;; eventless transitions checked after entry (or after any transition landing here); first-match-wins; see [005 §Eventless :always transitions](005-StateMachines.md#eventless-always-transitions)
                          [:vector
                           [:map
@@ -1022,6 +1023,47 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+
+;; The :invoke-all spec on a state node — spawn-N-children-and-join. Per
+;; [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
+;; and rf2-6vmw. `create-machine-handler` walks the spec at construction time
+;; and rewrites the slot into entry/exit actions emitting N parallel
+;; :rf.machine/spawn fx (entry) and per-child :rf.machine/destroy fx (exit),
+;; plus an internal join-state hook that intercepts :on-child-done /
+;; :on-child-error events at the parent's handler boundary, updates the
+;; runtime-owned join state at [:rf/spawned <parent-id> <invoke-id> :join],
+;; and dispatches the resolution event into the parent.
+;;
+;; Each child invoke-spec extends InvokeSpec with a required :id keyword
+;; that names the child for join-state addressing. The :id is the second-
+;; position payload arg the parent's :on-child-done / :on-child-error events
+;; carry from the child back to the parent.
+(def InvokeAllChildSpec
+  [:map
+   [:id          :keyword]                                                  ;; user-supplied id for join-state addressing — REQUIRED
+   [:machine-id  {:optional true} :keyword]                                 ;; registered machine id (xor :definition)
+   [:definition  {:optional true} [:ref ::state-node]]                      ;; inline transition table (xor :machine-id)
+   [:data        {:optional true} [:or :map fn?]]
+   [:id-prefix   {:optional true} :keyword]
+   [:on-spawn    {:optional true} [:or :keyword fn?]]
+   [:start       {:optional true} [:vector :any]]
+   [:invoke-id   {:optional true} :keyword]
+   [:system-id   {:optional true} :keyword]])
+
+(def InvokeAllSpec
+  [:map
+   [:children         [:vector InvokeAllChildSpec]]                         ;; vector of ≥ 1 child spec
+   [:join             {:optional true}
+                      [:or
+                       [:enum :all :any]
+                       [:map [:n   pos-int?]]
+                       [:map [:fn  fn?]]]]                                  ;; default :all
+   [:on-child-done    :keyword]                                             ;; child → parent event keyword (required)
+   [:on-child-error   :keyword]                                             ;; child → parent event keyword (required)
+   [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
+   [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any / {:n N} / {:fn ...}
+   [:on-any-failed    {:optional true} [:vector :any]]                      ;; optional; if absent, child failures don't short-circuit
+   [:cancel-on-decision? {:optional true} :boolean]])                       ;; default true
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
 ;; — runtime-managed and not part of the transition-table grammar. See
@@ -1140,20 +1182,38 @@ Cross-reference: `:rf/machine-snapshot` (above) is the value type for each entry
 `[:rf/spawned]` is a **reserved key in every frame's `app-db`**. The runtime owns it; user code MUST NOT write under it. Per [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) and rf2-t07u (Option A revised), the runtime tracks each declarative-`:invoke` spawn at `[:rf/spawned <parent-machine-id> <invoke-id>]` so the matching destroy cascade can locate the spawned id without depending on the user's `:on-spawn` callback having stashed it under any particular `:data` slot.
 
 ```clojure
+;; Per-invoke slot — either a single spawned-id keyword (for ordinary :invoke)
+;; OR a join-bookkeeping map (for :invoke-all per rf2-6vmw):
+;;   {:children    {<child-id> <spawned-id>, ...}      ;; N children
+;;    :done        #{<child-id> ...}                   ;; user-ids that signalled :on-child-done
+;;    :failed      #{<child-id> ...}                   ;; user-ids that signalled :on-child-error
+;;    :resolved?   true|false                          ;; latch flips once the join condition resolves
+;;    :spec        <invoke-all-spec>}                  ;; back-reference for the join intercept
+;; Reads at the destroy-resolution call site disambiguate by value type:
+;; keyword → :invoke leaf actor address; map → :invoke-all bookkeeping.
+(def InvokeAllJoinState
+  [:map
+   [:children  [:map-of :keyword :keyword]]                                 ;; child-id → spawned-id
+   [:done      [:set :keyword]]
+   [:failed    [:set :keyword]]
+   [:resolved? :boolean]
+   [:spec      :map]])
+
 (def Spawned
-  ;; A two-level map: parent-machine-id → invoke-id → spawned-id.
+  ;; A two-level map: parent-machine-id → invoke-id → (spawned-id | join-state).
   ;; The invoke-id is the absolute prefix-path of the :invoke-bearing
   ;; state node — a vector of keywords (e.g. [:authenticating],
   ;; [:cart :loading]). Two states named `:loading` in different parents
   ;; are disambiguated by their full prefix-paths.
   [:map-of :keyword                                                          ;; parent-machine-id
-           [:map-of [:vector :keyword] :keyword]])                           ;; invoke-id → spawned-id
+           [:map-of [:vector :keyword]                                       ;; invoke-id
+                    [:or :keyword InvokeAllJoinState]]])                     ;; spawned-id (:invoke) | join-state (:invoke-all)
 
 ;; registered by the runtime at boot:
 (rf/reg-app-schema [:rf/spawned] Spawned)
 ```
 
-Allocated lazily — absent until the first declarative-`:invoke` spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
+Allocated lazily — absent until the first declarative-`:invoke` (or `:invoke-all`) spawn binds a slot, and pruned to absent again when the last slot is cleared (sibling lazy-allocation invariant to `[:rf/system-ids]`). Imperative from-action `[:rf.machine/spawn ...]` calls (where the user owns the destroy via hand-emitted `[:rf.machine/destroy actor-id]`) leave the slot untouched.
 
 Per-frame isolation is automatic — each frame's `app-db` has its own `:rf/spawned` map; same parent-id + invoke-id in different frames do not collide. Frame revertibility is inherited (the slot walks back atomically with `app-db` on a frame revert).
 

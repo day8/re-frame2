@@ -1370,6 +1370,26 @@ Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type 
 
 ---
 
+### M-39. `:invoke-all` spawn-and-join is added — additive, no user-side action
+
+**Type B — additive feature** (no rewrite needed; the spec adds a new state-node key but no existing behaviour changes).
+
+Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all), the v1 spec adds a new state-node key `:invoke-all` for first-class spawn-and-join (parallel-region state-machines). It is sugar over N parallel `:invoke`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); the runtime owns the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` and dispatches one of three parent events (`:on-all-complete` / `:on-some-complete` / `:on-any-failed`) when the join condition resolves. Cancel-on-decision is the default — when the join resolves, surviving siblings are torn down via the standard `:rf.machine/destroy` exit-cascade machinery (matching Dash8/rf8 boot-page-reload semantics).
+
+**No user-side migration.** `:invoke-all` is a new key; existing transition tables are unaffected. Codebases that hand-rolled spawn-and-join via siblings + counter + `:always` (the awkward-but-possible substitute the pre-rf2-6vmw spec called out in [findings/boot-as-statemachine-dash8-rf8.md §M1](#)) **may** rewrite to `:invoke-all` for the readability win — see [O-3 below](#o-3-replace-hand-rolled-spawn-and-join-with-invoke-all) for the opt-in modernisation.
+
+**`:rf/spawned` shape extension.** The reserved app-db slot at `[:rf/spawned <parent-id> <invoke-id>]` previously held a single `<spawned-id>` keyword; for `:invoke-all` it holds a join-bookkeeping map `{:children {<child-id> <spawned-id> ...} :done #{...} :failed #{...} :resolved? bool :spec ...}`. Reads at the destroy-resolution call site disambiguate by value type (`map?` vs `keyword?`); the shape is open and the existing `:invoke` slot shape is unchanged. Per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys) and [Spec-Schemas §`:rf/spawned`](Spec-Schemas.md#rfspawned-reserved-app-db-key).
+
+**New trace events.** The 009 trace vocabulary picks up four `:invoke-all` lifecycle events (`:rf.machine.invoke-all/started` / `*/all-completed` / `*/some-completed` / `*/any-failed`) plus `:rf.machine.invoke/cancelled-on-join-resolution` for per-sibling cancellation. Observers that filter by exact `:operation` keyword learn to recognise the new ones; observers that filter by `:op-type :machine` see them automatically. Per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+
+**New error categories.** `create-machine-handler` rejects malformed `:invoke-all` slots at registration time with `:rf.error/machine-invoke-all-bad-shape` (missing `:id`, missing required join-event slot, no `:machine-id` or `:definition`), `:rf.error/machine-invoke-all-duplicate-id` (two children share an `:id`), or `:rf.error/machine-invoke-all-with-invoke` (a state declares both `:invoke` and `:invoke-all`). All registration-time; the runtime never sees a malformed `:invoke-all`. Per [005 §Errors](005-StateMachines.md#errors-1).
+
+**What to do.** Nothing for compatibility; this is purely additive. Apps wanting spawn-and-join sugar adopt `:invoke-all` per the Spec 005 worked example (auth + hydrate flow). The `:actor/spawn-and-join` capability in [005 §Capability matrix](005-StateMachines.md#capability-matrix) is claimed by the v1 CLJS reference; ports declaring a narrower capability list reject `:invoke-all` at registration with `:rf.error/machine-grammar-not-in-v1`.
+
+**Why:** the boot-as-state-machine pattern dominates real apps (Day8 Dashboard fans out 7 hydrate dispatches; rf8 fans out 4 inner asset loads). The substrate-level substitute (separate machines + cross-actor dispatch) was awkward-but-possible; every author writing a non-trivial boot reinvented the bucket-bookkeeping. `:invoke-all` removes the boilerplate. Per [findings/boot-as-statemachine-dash8-rf8.md §7 Recommendations](#) — top-priority readability win.
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
@@ -1624,6 +1644,51 @@ re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Rea
 **What stays the same.** Same as O-13 (UIx) — events, subs, fx, machines, schemas, routing, flows, http-managed, ssr, and trace surfaces are substrate-agnostic per [Spec 006 §The boundary](006-ReactiveSubstrate.md#the-boundary). Migration cost lives entirely in the view layer.
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
+
+### O-15. Replace hand-rolled spawn-and-join with `:invoke-all` (rf2-6vmw)
+
+Codebases that hand-rolled spawn-and-join in machine specs — N siblings + counter set in `:data` + `:always` guards over a `:seen-all-of?`-style predicate — can rewrite to the first-class `:invoke-all` slot from [005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all). The hand-rolled form was the recommended substitute pre-rf2-6vmw (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)); the substrate didn't have a primitive for it. With rf2-6vmw the primitive exists; the hand-rolled form continues to work but `:invoke-all` is the preferred shape for new code.
+
+**Transformation:**
+
+```clojure
+;; before — hand-rolled spawn-and-join (boilerplate)
+{:hydrating
+ {:entry  (fn [data _]
+            ;; Pre-populate cached buckets to avoid spawning them
+            (-> data
+                (assoc :buckets-pending #{:cfg :flag :user :dash})
+                (assoc :buckets-ok      #{})
+                (assoc :buckets-failed  #{})))
+  :on     {:bucket/done   {:action :record-bucket-done}
+           :bucket/failed {:action :record-bucket-failed}}
+  :always [{:guard :all-buckets-done? :target :ready}
+           {:guard :any-bucket-failed? :target :error}]
+  :invoke {:machine-id :load-config       :on-spawn :record-cfg}
+  :invoke {:machine-id :load-feature-flags :on-spawn :record-flag}
+  ...}}                                                ;; :invoke is singular — this doesn't even compile pre-rf2-6vmw
+```
+
+```clojure
+;; after — first-class :invoke-all
+{:hydrating
+ {:invoke-all
+  {:children         [{:id :cfg  :machine-id :load-config}
+                      {:id :flag :machine-id :load-feature-flags}
+                      {:id :user :machine-id :load-user-profile}
+                      {:id :dash :machine-id :load-dashboards}]
+   :join             :all
+   :on-child-done    :asset/loaded
+   :on-child-error   :asset/failed
+   :on-all-complete  [:hydrate/done]
+   :on-any-failed    [:hydrate/failed]}
+  :on    {:hydrate/done   :ready
+          :hydrate/failed :error}}}
+```
+
+Drops: the counter sets in `:data`, the `:record-bucket-*` actions, the `:all-buckets-done?` / `:any-bucket-failed?` guards, the `:always` block, and the parent's `:on` entries for `:bucket/*`. The runtime owns all of them at `[:rf/spawned <parent> [:hydrating] :join]`. Cancel-on-decision (default `true`) handles the surviving-siblings teardown the hand-rolled form had to leave to chance.
+
+Apply only when the user wants the modernisation. Hand-rolled spawn-and-join continues to work indefinitely; the agent does NOT auto-rewrite — the `:invoke-all` shape is structurally different (vector of children vs siblings) and the transformation requires understanding which child completion events are which. Per rf2-6vmw.
 
 ---
 

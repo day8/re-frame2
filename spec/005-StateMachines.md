@@ -138,6 +138,7 @@ The snapshot's location in `app-db` is `[:rf/machines <id>]` — runtime-managed
 | `:on` keys | event keyword or `:*` wildcard | wildcard matches any unhandled event |
 | `:entry`, `:exit` | per-state | one fn or one keyword reference into the machine's `:actions` map |
 | `:invoke` | per-state | declarative spawn-on-entry / destroy-on-exit child actor — sugar that desugars at registration time per [§Declarative `:invoke`](#declarative-invoke-sugar-over-spawn) |
+| `:invoke-all` | per-state | declarative **spawn-and-join** of N parallel child actors (sugar over N `:invoke`s plus a join condition) — see [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all) |
 | transition shape | per-event | `{:target :guard :action :meta}` |
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | `:target :same-state` (external) or omit `:target` (internal) |
@@ -154,12 +155,15 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :entry   <fn-or-keyword>                    ;; ran on entering this state; keyword resolves into :actions map
  :exit    <fn-or-keyword>                    ;; ran on exiting this state; keyword resolves into :actions map
  :invoke  <invoke-spec>                      ;; spawn child on entry; destroy on exit (see §Declarative :invoke)
+ :invoke-all <invoke-all-spec>               ;; spawn N children in parallel and join (see §Spawn-and-join via :invoke-all)
  :initial <fsm-keyword>                      ;; required IFF the state is itself compound (declares :states)
  :states  {<fsm-keyword> <state-node>, ...}  ;; nested substates — makes this a compound state
  :meta    {<user-keys> ...}}                 ;; e.g. {:terminal? true}
 ```
 
-All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:invoke`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:invoke`, `:invoke-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+
+A state node MUST NOT declare both `:invoke` and `:invoke-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:invoke`; a node spawning N parallel children uses `:invoke-all`). `create-machine-handler` rejects the combination at registration time as a malformed transition table.
 
 `:entry` and `:exit` are **single fns or single keyword references into the machine's `:actions` map** — never vectors. To run multiple actions on entry, write a fn that calls them in order (or name a compound entry in the machine's `:actions` map; the named id is richer for tooling).
 
@@ -1521,6 +1525,190 @@ The key property: the parent does not have to *remember* to destroy the child. T
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface that `:invoke` desugars to; [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit) for the auto+manual ordering rule; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the `:invoke` schema. [Pattern-WebSocket](Pattern-WebSocket.md) is the canonical worked example exercising hierarchical states, `:after`, `:always`, machine-scoped `:guards` / `:actions`, and `:invoke` together — the connection-lifecycle state machine for long-lived sockets. [Pattern-LongRunningWork](Pattern-LongRunningWork.md) is the canonical worked example for chunked CPU-intensive work — `:always` for batch progression, `:after 0` for browser yielding between chunks, machine-scoped guards for completion / cancellation.
 
+## Spawn-and-join via `:invoke-all`
+
+`:invoke-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)).
+
+`:invoke-all` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:invoke-all` slot into entry/exit actions emitting N parallel `:rf.machine/spawn` fx (on entry) and per-child `:rf.machine/destroy` fx (on exit), plus an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves.
+
+### The pattern
+
+```clojure
+{:hydrating
+ {:invoke-all
+  {:children         [{:id :cfg  :machine-id :load-config       :on-spawn :record-cfg}
+                      {:id :flag :machine-id :load-feature-flags :on-spawn :record-flag}
+                      {:id :user :machine-id :load-user-profile  :on-spawn :record-user}
+                      {:id :dash :machine-id :load-dashboards    :on-spawn :record-dash}]
+   :join             :all                      ;; or :any, {:n N}, or {:fn pred}
+   :on-child-done    :child/done               ;; child → parent event keyword for success
+   :on-child-error   :child/error              ;; child → parent event keyword for failure
+   :on-all-complete  [:assets-loaded]          ;; fires when join condition is met by completions
+   :on-any-failed    [:asset-load-failed]      ;; fires when any child fails (default — see §Join semantics)
+   :on-some-complete [:partial-load]}          ;; fires when {:n N} or :any is met
+  :on    {:assets-loaded     :ready
+          :asset-load-failed :error
+          :partial-load      :degraded}}}
+```
+
+While in `:hydrating`, four child actors are alive at `[:rf/machines <gensym'd-id>]`. Each child reaches a terminal state and dispatches `[<parent-id> [:child/done :cfg & extra]]` (or `[:child/error :cfg & extra]`) back. The runtime intercepts these events at the parent's machine boundary, updates the join state at `[:rf/spawned <parent-id> <invoke-id>]`, evaluates the join condition, and on resolution fires `[:on-all-complete-or-friend ...]` into the parent (an ordinary FSM event the parent's `:on` handles) AND cancels any siblings still in flight.
+
+### Spec-spec keys
+
+The map under `:invoke-all` accepts the following keys:
+
+| key | purpose | required? |
+|---|---|---|
+| `:children` | a vector of **invoke-spec** maps — same shape as `:invoke` (see [§Spec-spec keys](#spec-spec-keys)) plus a required `:id` keyword for join-state addressing | required, vector of ≥ 1 |
+| `:join` | join-condition discriminator: `:all` (default), `:any`, `{:n N}`, `{:fn (fn [{:keys [done failed]}] ...)}` | optional; default `:all` |
+| `:on-child-done` | event keyword the parent's children dispatch back on success — runtime intercepts and updates join state | required |
+| `:on-child-error` | event keyword the parent's children dispatch back on failure — runtime intercepts and updates join state | required |
+| `:on-all-complete` | event vector the runtime dispatches into the parent when `:join :all` resolves with all-complete | required iff `:join :all` |
+| `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` / `{:n N}` / `{:fn ...}` resolves on the success-side | required iff `:join` ≠ `:all` |
+| `:on-any-failed` | event vector the runtime dispatches into the parent when any child fails (default cancel-on-decision applies) | optional; if absent, child failures are tracked but do not short-circuit the join |
+| `:cancel-on-decision?` | `true` (default) cancels siblings still in flight when the join resolves; `false` lets siblings run to completion (their results land in the join-state but trigger no further parent events) | optional; default `true` |
+
+Each child invoke-spec under `:children` accepts the same keys as a single `:invoke` (`:machine-id` xor `:definition`, `:data`, `:id-prefix`, `:on-spawn`, `:start`, `:invoke-id`, `:system-id`) **plus** a required `:id` keyword that names the child for join-state addressing. The `:id` keyword is the user-supplied name the parent's `:on-child-done` / `:on-child-error` events carry as the second-position payload arg (see [§Child completion protocol](#child-completion-protocol)).
+
+### Join semantics
+
+The runtime tracks per-state join state at `[:rf/spawned <parent-id> <invoke-id> :join]` — a map of:
+
+```clojure
+{:children {:cfg :load-config#1 :flag :load-feature-flags#2 :user :load-user-profile#3 :dash :load-dashboards#4}
+ :done     #{:cfg :flag}     ;; ids of children whose :on-child-done fired
+ :failed   #{}                ;; ids of children whose :on-child-error fired
+ :resolved? false}            ;; flips to true when the join condition resolves; subsequent events ignored
+```
+
+Where `:children` is the per-`:id` map of user-supplied id → spawned actor id. `:done` and `:failed` are sets of user-supplied ids that have signalled completion. `:resolved?` is the latch that prevents a second join-event firing once the condition has been met.
+
+Join condition discriminators:
+
+- **`:all` (default)** — fires `:on-all-complete` once `:done` covers every `:id`. If `:on-any-failed` is present and any child errors, it fires immediately and the join short-circuits. If `:on-any-failed` is absent, child failures are tracked but the join waits for `:done` to cover every `:id` (failed children never join the `:done` set, so the join never resolves on success — equivalent to the failure tearing down the parent's surrounding state via a separate transition).
+- **`:any`** — fires `:on-some-complete` after the first `:on-child-done`. If `:on-any-failed` is present, the first child error fires it instead.
+- **`{:n N}`** — fires `:on-some-complete` after the Nth `:on-child-done`. Failures handled per `:on-any-failed` as above.
+- **`{:fn (fn [{:keys [done failed]}] truthy)}`** — user-supplied predicate; fires `:on-some-complete` when truthy.
+
+### Cancel-on-decision (default `true`)
+
+When the join condition resolves — `:on-all-complete`, `:on-some-complete`, or `:on-any-failed` fires — siblings still in flight are cancelled by default. Each cancelled sibling has its `:rf.machine/destroy` fx fired (the same one the exit-cascade would fire), and the runtime emits a `:rf.machine.invoke/cancelled-on-join-resolution` trace event per cancelled actor. **Cancellation is the right default for boot-as-state-machine**: when "all assets loaded" fires, no value is added by letting an in-flight sibling continue to consume bandwidth and dispatch into a parent that has already moved on.
+
+Apps that want non-cancelling joins (e.g. analytics fan-out where each child is independently valuable) declare `:cancel-on-decision? false`. In that case siblings run to completion; their `:on-child-done` / `:on-child-error` events still update the join state (the `:resolved?` latch already flipped, so no further parent event fires) and tools observing the join-state see the full late-completion record. The `:on-some-complete` / `:on-all-complete` semantic remains "fired exactly once when the condition was first met."
+
+The implicit assumption: the parent's surrounding state is exited by the join-event's transition before the cancellation fx runs, so the exit cascade's standard auto-destroy machinery handles the cancellation as part of the same exit (sibling teardown is just "the exit cascade runs while N children are still alive"). This means cancel-on-decision is **not a separate cancellation primitive** — it composes with the existing `:invoke` exit-cascade behaviour.
+
+### Child completion protocol
+
+Each child decides when it is "done" or "failed" and dispatches a 2- or 3-element event vector back to the parent:
+
+```clojure
+;; In the child machine (e.g. :load-config), at a terminal state's :entry:
+{:done
+ {:meta  {:terminal? true}
+  :entry (fn [data _]
+           {:fx [[:dispatch [:hydrate-flow [:child/done :cfg (:result data)]]]]})}}
+```
+
+The dispatched event has shape `[<parent-id> [<event-keyword> <child-id> & extra]]` where:
+
+- `<parent-id>` is the parent machine's id (the `:rf.machine/spawn` site stamps `:rf/parent-id` so the child can pick it up if dynamic addressing is needed; for static `:invoke-all` declarations the parent-id is a literal in the parent's source, so the child simply hard-codes it).
+- `<event-keyword>` is `:on-child-done` or `:on-child-error` per the parent's spec.
+- `<child-id>` is the user-supplied `:id` from the parent's invoke-all entry.
+- `& extra` is whatever the child wants to forward to the parent — typically the child's final `:data` slice or an error reason; the parent's join-resolution event handler can read this from the event vector that fired the join.
+
+The runtime intercepts these events at the parent's `create-machine-handler` boundary. Specifically, the parent's handler checks `event[1][0]` (the inner event keyword) against `:on-child-done` / `:on-child-error` declared on the currently-active state's `:invoke-all` entry. On match, the handler:
+
+1. Updates the join state at `[:rf/spawned <parent-id> <invoke-id> :join]` (adds `<child-id>` to `:done` or `:failed`).
+2. Evaluates the join condition.
+3. If the condition resolves AND `:resolved?` is false: flips `:resolved?` true; if `:cancel-on-decision?` is true, emits `:rf.machine/destroy` fx for each in-flight sibling; dispatches the join event into the parent (`:on-all-complete` / `:on-some-complete` / `:on-any-failed` per the resolution kind).
+4. If the condition does not resolve: the event is treated as handled (no further parent state transition).
+
+The intercepted event is **not** fed into the parent's normal `:on` lookup — the runtime consumes it for join bookkeeping only. Parents that need to see per-child completion separately from the join-event can declare additional `:on` entries for `:child/done` / `:child/error`; those entries fire only on events whose state does NOT have an `:invoke-all` declaring those keywords. This sounds delicate but in practice the ergonomic shape is: the user picks distinct event keywords for `:invoke-all` interception (commonly `:invoke-all/child-done` / `:invoke-all/child-error`) so they don't collide with the parent's own per-child observers.
+
+### Per-child terminal events still fire
+
+The runtime intercepts `:on-child-done` / `:on-child-error` at the **parent's** boundary; the events still fire **inside the child** as ordinary terminal-state events first (the dispatch-back is the child's last act). So per-child traces (`:rf.machine/transition` for the child's terminal transition; `:rf.machine.lifecycle/destroyed` for the child's actor going away) are unchanged. The join layer is *additional*, not a replacement.
+
+### Spawn-id tracking
+
+The runtime spawn registry (per [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) and rf2-t07u) extends naturally for `:invoke-all`: `[:rf/spawned <parent-id> <invoke-id>]` becomes a map with two slot kinds — the per-child id-map under `:children`, and the join-state metadata (`:done`, `:failed`, `:resolved?`) for the live `:invoke-all` instance. Pre-`:invoke-all` declarative-`:invoke` spawns continue to write the keyword `<spawned-id>` directly under that key (their `:invoke-id` resolves a leaf actor address); `:invoke-all` instances write the map shape. Both forms are read-disambiguated by the value type (`map?` vs `keyword?`) at the existing destroy-resolution call site.
+
+The `[:rf/spawned <parent-id> <invoke-id> :children <child-id>]` slot resolves to the gensym'd actor id for that child. The `[:rf/spawned <parent-id> <invoke-id> :join]` slot holds the per-state join state map. On state-exit (whether by normal transition, cancellation, or any other code path), the auto-destroy cascade tears down every entry under `:children` and clears the slot per the lazy-allocation invariant.
+
+### Trace events
+
+The runtime emits four `:invoke-all`-specific trace events:
+
+- `:rf.machine.invoke-all/started` — fires on entry to an `:invoke-all`-bearing state, after all N children have been spawned. `:tags {:machine-id <id> :state <state> :invoke-id <prefix-path> :child-ids #{:cfg :flag :user :dash} :children {:cfg :load-config#1 ...}}`.
+- `:rf.machine.invoke-all/all-completed` — fires when `:on-all-complete` resolves. `:tags {:machine-id <id> :invoke-id <prefix-path> :done #{...}}`.
+- `:rf.machine.invoke-all/any-failed` — fires when `:on-any-failed` resolves. `:tags {:machine-id <id> :invoke-id <prefix-path> :failed-id <id> :reason <event-payload>}`.
+- `:rf.machine.invoke/cancelled-on-join-resolution` — fires once per sibling cancelled by `:cancel-on-decision? true`. `:tags {:machine-id <parent-id> :invoke-id <prefix-path> :child-id <user-id> :spawned-id <gensym'd-id> :join-event <:on-all-complete | :on-some-complete | :on-any-failed>}`.
+
+A `:rf.machine.invoke-all/some-completed` trace fires for the `:any` / `{:n N}` / `{:fn ...}` resolution kinds — symmetric to `:all-completed` but for partial-success join semantics.
+
+### Worked example — auth flow with parallel asset hydration
+
+```clojure
+{:initial :authenticating
+ :states
+ {:authenticating
+  {:invoke {:machine-id :http/post
+            :data       (fn [snap _] {:url "/api/login"
+                                      :body (-> snap :data :credentials)})}
+   :on     {:auth/succeeded :hydrating
+            :auth/failed    :idle}}
+
+  :hydrating
+  {:invoke-all
+   {:children         [{:id :cfg  :machine-id :load-config}
+                       {:id :flag :machine-id :load-feature-flags}
+                       {:id :user :machine-id :load-user-profile}
+                       {:id :dash :machine-id :load-dashboards}]
+    :join             :all
+    :on-child-done    :asset/loaded
+    :on-child-error   :asset/failed
+    :on-all-complete  [:hydrate/done]
+    :on-any-failed    [:hydrate/failed]}
+   :on    {:hydrate/done   :ready
+           :hydrate/failed :error}}
+
+  :ready {}
+  :error {}
+  :idle  {:on {:submit :authenticating}}}}
+```
+
+The walk-through:
+
+1. User submits → `:authenticating` spawns one `:http/post` child.
+2. The HTTP child posts; on success dispatches `[<parent-id> [:auth/succeeded ...]]` → state moves to `:hydrating`.
+3. Entering `:hydrating` triggers `:invoke-all`'s desugared entry: spawn four children in parallel. Each child is a registered machine that fetches its own asset and dispatches `[<parent-id> [:asset/loaded :cfg ...]]` (or `[:asset/failed :cfg <reason>]`) on completion.
+4. As each `:asset/loaded` arrives, the runtime intercepts at the parent boundary, updates `[:rf/spawned :auth-flow [:hydrating] :join :done]`, and evaluates `:all`. Once all four `:done`, the runtime fires `[:hydrate/done ...]` into the parent → state moves to `:ready`.
+5. If any child fails first, `[:hydrate/failed ...]` fires; the runtime cancels the surviving siblings (their `:rf.machine/destroy` fx is emitted; `:rf.machine.invoke/cancelled-on-join-resolution` traces fire); state moves to `:error`.
+6. If the user reloads the page mid-hydration, the standard frame-destroy cascade tears down every actor (the `:hydrating` state's exit fires every `:children` destroy). The `:invoke-all` declaration is correct-on-every-code-path.
+
+The key property: the parent has no per-child bookkeeping in `:data`. The `:done` / `:failed` sets, the `:children` id map, the resolution latch — all runtime-owned at `[:rf/spawned :auth-flow [:hydrating] :join]`. The author writes the four child-specs and the three event hooks and the runtime handles everything else.
+
+### Composition with hierarchy and `:after`
+
+`:invoke-all`'s entry/exit actions compose with the standard hierarchical entry/exit cascading machinery just like `:invoke`'s do — the desugar produces ordinary `:entry` / `:exit` actions that the cascade machinery picks up. `:after` on the same state node sets a wall-clock timeout for the whole join (e.g. `{60000 :hydrate/timeout}` — fires `:hydrate/timeout` if the join hasn't resolved in 60 s; the parent's `:on` for `:hydrate/timeout` transitions out, which exits the state and tears down all children).
+
+A common idiom is to declare `:after` for the phase-level timeout and let the timeout transition fire `:on-some-complete` (with a `{:n 0}` or `{:fn (constantly true)}` interpretation) so the partial-success path takes whatever assets were loaded. The cleanest expression is a separate transition out of the `:invoke-all`-bearing state, which the existing `:after` machinery delivers without any `:invoke-all`-specific extension.
+
+### Capability gating
+
+`:invoke-all` is gated under the `:actor/spawn-and-join` capability per [§Capability matrix](#capability-matrix). A port that doesn't claim it rejects `:invoke-all` at registration time with `:rf.error/machine-grammar-not-in-v1`. The v1 CLJS reference claims it.
+
+### Errors
+
+`:invoke-all` introduces three new registration-time error categories on top of the existing `:rf.error/machine-*`:
+
+- `:rf.error/machine-invoke-all-bad-shape` — a child invoke-spec is missing `:id` or both `:machine-id` and `:definition`; or `:invoke-all` is not a vector; or the join-event slots are missing per the required-iff rules above.
+- `:rf.error/machine-invoke-all-duplicate-id` — two child invoke-specs share an `:id` keyword. Each `:id` must be unique inside the same `:invoke-all` block.
+- `:rf.error/machine-invoke-all-with-invoke` — a state node declares both `:invoke` and `:invoke-all`; the combination is rejected.
+
+Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface; [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn) for the per-child sugar that `:invoke-all` extends; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the schema; [Pattern-Boot](Pattern-Boot.md) for boot-flow worked examples leveraging `:invoke-all` for hydrate-as-spawn-and-join.
+
 ## Reply patterns
 
 xstate's `sendTo` + `sender` lets a child reply to a specific request. In re-frame, no new API: include the reply event in the request:
@@ -1934,6 +2122,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Imperative spawn / destroy** — `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx (the canonical actor-lifecycle fx-ids; emitted by `:invoke` desugar and authored by hand inside a machine action's `:fx` or any user event handler's `:fx`) | Prose: §Spawning; Schema: `:rf.fx/spawn-args`; Fixtures: spawn-from-action, destroy-clears-snapshot, spawn-on-spawn-callback | ✓ claimed | Already specced. |
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
 | **Declarative `:invoke`** (sugar over spawn) — a state's `:invoke` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn); Schema: `:rf/state-node` extended for `:invoke` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` (rf2-t07u runtime registry coverage) | ✓ claimed (specified) | No new mechanics; pure sugar. `create-machine-handler` translates `:invoke` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per rf2-t07u (Option A revised): the runtime tracks spawned ids at `[:rf/spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade no longer reads the user's `:data`. |
+| **Spawn-and-join via `:invoke-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`), the runtime fires one of three parent events when the join resolves and (by default) cancels surviving siblings | Prose: [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all); Schema: `:rf/state-node` extended for `:invoke-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `invoke-all-join-all-completes`, `invoke-all-join-any-fails-cancels`, `invoke-all-n-of-cancels-extras` | ✓ claimed (specified) | Sugar over N parallel `:invoke`s plus a runtime-owned join-state at `[:rf/spawned <parent> <invoke-id> :join]`. Cancel-on-decision is the default (matches Dash8/rf8 boot-page-reload semantics). Per rf2-6vmw. |
 | **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf/system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in `app-db` so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). Per rf2-suue / rf2-ecv4. |
 | **SCXML compatibility** — full bidirectional schema parity with SCXML/Stately | Out of v1 scope (possibly never) | ✗ not claimed | Visualisation-compatibility (paste-and-render) is a smaller post-v1 ambition; see [§Stately.ai compatibility — exact or approximate?](#statelyai-compatibility--exact-or-approximate). |
 
@@ -1951,6 +2140,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
                  :actor/invoke
+                 :actor/spawn-and-join
                  :actor/system-id}}
 ```
 
@@ -2054,7 +2244,7 @@ A post-v1 library, planned as `re-frame.machines.test`, treats the transition ta
 The substrate guarantees needed by the harness — all already locked in v1:
 
 - **Pure transition function.** `(machine-transition definition snapshot event)` is deterministic; the harness can simulate any path without running the full runtime.
-- **Data-only transition tables.** `:states` / `:on` / `:always` / `:after` / `:invoke` are all readable as data; no instrumentation, reflection, or special build steps required.
+- **Data-only transition tables.** `:states` / `:on` / `:always` / `:after` / `:invoke` / `:invoke-all` are all readable as data; no instrumentation, reflection, or special build steps required.
 - **Machine-scoped guards as functions.** The harness can call `:guards` directly with synthesised snapshots to find inputs that make each guard `true` and `false` — generating test data, not just paths.
 - **Machine-scoped actions as functions.** Same property; the harness can compose action effects without runtime side effects.
 - **Conformance corpus shape.** Generated test cases land as EDN fixtures in the existing corpus format; same fixture exercises both the user's machine logic and any conformant implementation's machine substrate.
@@ -2096,10 +2286,11 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).
 - The snapshot shape (`{:state :data :meta?}`) and the persist/restore stability invariants per [§Snapshot shape](#snapshot-shape).
 - Inspection trace events (`:rf.machine.lifecycle/created`, `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/spawned`, `:rf.machine/destroyed`, etc. — see [009 §Trace events](009-Instrumentation.md) for the canonical emit-site list).
-- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, and `:rf.error/machine-unresolved-action` error categories.
+- The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, and `:rf.error/machine-invoke-all-with-invoke` error categories.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{ms-or-fn → transition-spec}`, epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/skipped-on-server` trace events.
+- The spawn-and-join `:invoke-all` capability per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all): state-node `:invoke-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf/spawned <parent> <invoke-id> :join]`, cancel-on-decision = `true` by default, and the `:rf.machine.invoke-all/started` / `:rf.machine.invoke-all/all-completed` / `:rf.machine.invoke-all/some-completed` / `:rf.machine.invoke-all/any-failed` / `:rf.machine.invoke/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, `:rf.error/machine-invoke-all-with-invoke`.
 
 ### Post-v1 — the `re-frame.machines` library
 
