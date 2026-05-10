@@ -131,11 +131,12 @@ The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` 
 
 `:line` and `:column` come from `(meta &form)`; `:ns` and `:file` come from the compile-time `*ns*` / `*file*`. The captured map is merged into the registration metadata and surfaces on `(rf/handler-meta kind id)` returns. The companion DOM-attribute contraction emitted by view substrates (`<ns>:<sym>:<line>:<col>`) is `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr) and [Spec 006 §Attribute value format](006-ReactiveSubstrate.md#attribute-value-format); `:file` is **not** part of the attribute string — consumers recover it via `(rf/handler-meta :view <handler-id>)`.
 
-This is a CLJS-implementation choice. Other-language implementations:
+This is a CLJS-implementation choice. Other in-scope JS-cross-compile language ports (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic)):
 
 - **TypeScript:** stack-frame inspection at registration time, or build-time codegen from a registry-discovery pass. Macros aren't available at the source level.
-- **Python:** the `inspect` module can capture source location at registration. `Id`-class wrapper logic can do this transparently.
-- **Kotlin / Rust:** built-in support for `__FILE__`/`__LINE__` macros (Rust) or `kotlin.io.path` source-tracking (Kotlin) or compile-time codegen.
+- **Squint:** macros run at compile time on the Squint side; the CLJS-style approach transfers directly.
+- **Melange / ReScript / Reason:** PPX (`bs.line`, `bs.file`) captures source coords at compile time; the resulting JS carries the captured strings as constants.
+- **Fable (F#) / Scala.js / PureScript / Kotlin/JS:** compile-time source-position primitives in each source language (`__SOURCE_FILE__` / `__LINE__` in F#; `sourcecode.Compat` macros in Scala; `Type.SourcePos`-style helpers in PureScript; `kotlin.reflect` / annotation processing in Kotlin) — surface the coords through a small wrapper around the host's React binding's `reg-*` equivalent.
 
 Source coords are valuable for navigation (jump-to-source from a tool, navigate-from-error, AI-source-cite) but their absence does not violate conformance. Per [Principles.md §Optional capabilities](Principles.md), source-coord capture is opt-in.
 
