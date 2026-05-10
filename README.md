@@ -64,7 +64,7 @@ The reference implementation comes with a growing AI- and developer-facing tools
 
 **Pre-beta.** The first tagged release will be `v0.0.1.beta` — Clojars publishing is wired up; no public artefact has been cut yet.
 
-The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. The 12-chapter human-facing guide lives at [`docs/guide/`](docs/guide/).
+The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. Indeed, a working reference implementation has been generated.
 
 ## AI First
 
