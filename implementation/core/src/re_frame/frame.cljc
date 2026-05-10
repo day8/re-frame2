@@ -216,8 +216,17 @@
     ;; (2) signal active-machine teardown so observers can hook in.
     (let [container (get-frame-db id)
           db        (when container (adapter/read-container container))
-          machines  (get db :rf/machines)]
+          machines  (get db :rf/machines)
+          ;; rf2-wvkn — fire the in-flight HTTP abort hook for each
+          ;; surviving machine before the trace events. Late-bound; nil
+          ;; when the http artefact is absent. Per Spec 005 §Cancellation
+          ;; cascade — frame-destroy is one of the documented destroy
+          ;; triggers.
+          abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
+        (when abort-http
+          (try (abort-http machine-id)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))
         (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
                      {:frame      id
                       :machine-id machine-id

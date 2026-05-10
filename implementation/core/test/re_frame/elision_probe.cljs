@@ -93,8 +93,9 @@
 (defn ^:export touch-http-managed! []
   ;; Spec 014 — `:rf.http/managed` ships gated trace ops:
   ;;
-  ;;   :rf.http/retry-attempt           (info trace, both transports)
-  ;;   :rf.warning/decode-defaulted     (warning trace, both transports)
+  ;;   :rf.http/retry-attempt              (info trace, both transports)
+  ;;   :rf.warning/decode-defaulted        (warning trace, both transports)
+  ;;   :rf.http/aborted-on-actor-destroy   (info trace, rf2-wvkn cancellation cascade)
   ;;
   ;; All emit sites are wrapped in `(when interop/debug-enabled? ...)`,
   ;; so under :advanced + goog.DEBUG=false the branches DCE and the
@@ -119,7 +120,11 @@
   (rf/dispatch-sync [:probe/http-touch])
   ;; Touch clear-all-in-flight! so the in-flight registry surface is
   ;; reachable; the probe doesn't actually issue a real request.
-  (http-managed/clear-all-in-flight!))
+  (http-managed/clear-all-in-flight!)
+  ;; rf2-wvkn — touch the public abort-on-actor-destroy fn so its body
+  ;; (with the gated `:rf.http/aborted-on-actor-destroy` trace emit)
+  ;; sits in a reachable module graph for the elision check.
+  (http-managed/abort-on-actor-destroy :probe/never-spawned-actor-id))
 
 ;; ---- Tool-Pair §Time-travel epoch surface (rf2-gox8) ----------------------
 

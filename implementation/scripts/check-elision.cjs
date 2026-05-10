@@ -85,6 +85,13 @@ const DEV_ONLY_SENTINELS = [
   // interop/debug-enabled?. The string fragment must elide in production.
   { source: 're-frame.http-managed/maybe-emit-decode-defaulted! (rf.warning/decode-defaulted)',
     sentinel: 'rf.warning/decode-defaulted' },
+  // re-frame.http-managed — :rf.http/aborted-on-actor-destroy trace op
+  // (Spec 014 §Abort on actor destroy, rf2-wvkn). Emitted by
+  // abort-on-actor-destroy when the cancellation-cascade hook fires.
+  // The emit site is `(when interop/debug-enabled? ...)`; the string
+  // fragment must elide in production.
+  { source: 're-frame.http-managed/abort-on-actor-destroy (rf.http/aborted-on-actor-destroy)',
+    sentinel: 'rf.http/aborted-on-actor-destroy' },
   // re-frame.epoch — :rf.epoch/snapshotted trace op (Tool-Pair §Time-
   // travel, Spec 009 §register-epoch-cb). Emitted by settle! after a
   // drain-settle commits a record. The whole settle! body sits inside

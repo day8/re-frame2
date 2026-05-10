@@ -89,6 +89,7 @@
     :http/reg-http-interceptor             re-frame.http-managed/reg-http-interceptor       ;; rf2-6y3q
     :http/clear-http-interceptor           re-frame.http-managed/clear-http-interceptor     ;; rf2-6y3q
     :http/clear-all-http-interceptors!     re-frame.http-managed/clear-all-http-interceptors! ;; rf2-6y3q
+    :http/abort-on-actor-destroy           re-frame.http-managed/abort-on-actor-destroy     ;; rf2-wvkn — :invoke cancellation cascade
     :subs/subscribe-value     re-frame.subs/subscribe-value
     :ssr/render-tree-hash        re-frame.ssr/render-tree-hash
     :ssr/render-to-string        re-frame.ssr/render-to-string

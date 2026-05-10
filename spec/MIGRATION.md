@@ -1547,6 +1547,18 @@ The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren
 
 **Cross-references.** [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the dropped-slot record.
 
+### M-42. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
+
+Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:invoke-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
+
+**Direction.** Additive — no user-side change required. Apps that previously threaded `:rf.http/managed-abort` calls through `:exit` actions or relied on the request's reply landing on a destroyed actor (no observer; benign no-op) continue to work. Apps that wrote bespoke abort-on-exit logic can simplify.
+
+**What changes.** The `:rf.http/managed` fx records each in-flight request's `actor-id` (the originating event vector's first element when that element is a spawned actor's address). On `:rf.machine/destroy` of that actor, the runtime invokes a new late-bind hook `:http/abort-on-actor-destroy` that aborts every in-flight request whose actor-id matches. Each abort emits a `:rf.http/aborted-on-actor-destroy` trace event and the reply lands as `:rf.http/aborted` with `:reason :actor-destroyed`.
+
+**What does NOT change.** Direct dispatches from ordinary event handlers (no spawned-actor envelope) are NOT subject to the cascade. The user-supplied `:request-id` and `:rf.http/managed-abort` fx remain available for app-level abort. The orthogonal indexing means a request can be aborted by either path without interference.
+
+**Cross-references.** [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts); [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy); [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) for the trace event registration.
+
 ---
 
 ## Opt-in modernisation (only if asked)

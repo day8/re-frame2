@@ -1114,7 +1114,7 @@ A state may have multiple in-flight transition triggers concurrently:
 1. The first trigger to dequeue at the parent's handler (timer expiry, user dispatch, child dispatch, `:always` microstep) drives the transition.
 2. The transition's exit cascade runs (per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca)).
 3. As part of the exit cascade, the runtime advances `:rf/after-epoch` — every other in-flight `:after` timer from the just-exited state goes stale on its eventual firing.
-4. Any `:invoke`-spawned child is destroyed via `:rf.machine/destroy` (the desugared `:exit` action). Per [rf2-wvkn]'s in-flight-abort contract once it lands, in-flight `:rf.http/managed` requests inside the destroyed child cascade to abort — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
+4. Any `:invoke`-spawned child is destroyed via `:rf.machine/destroy` (the desugared `:exit` action). Per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract (rf2-wvkn), in-flight `:rf.http/managed` requests inside the destroyed child cascade to abort — `:after` firing is one trigger of the same cancellation cascade as a parent-destroys-child shutdown.
 5. User-dispatched events queued for the just-exited state but not yet drained are processed by the now-current state's `:on` map (which may handle them, route to `:*` wildcard, or emit `:rf.warning/machine-unhandled-event`).
 
 The cancellation cascade is **uniform across triggers** — the runtime does not distinguish "the timer fired" from "the user dispatched" from "the child completed" at the cascade level; each is just an event at the parent's handler boundary that resolves to a transition out of the state. The `:rf.machine.timer/stale-after` traces ([§Trace events](#trace-events)) are how observers see "this `:after` was racing and lost."
@@ -1626,7 +1626,7 @@ An earlier draft of this spec carried a `:timeout-ms` slot on `:invoke` / `:invo
   :on     {:auth/succeeded :authenticated}}}
 ```
 
-When the 30000 ms `:after` timer fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts per [rf2-wvkn]'s contract once it lands), and the machine transitions to `:auth-failed`. The wall-clock spans the child's retries because the timer is anchored to **state entry** of `:authenticating`, not to any individual HTTP attempt; the child's internal retry behaviour does not affect the parent's `:after` countdown.
+When the 30000 ms `:after` timer fires, the parent's exit cascade destroys the `:auth-flow` child (which itself cascades any in-flight `:rf.http/managed` aborts per the [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) contract, rf2-wvkn), and the machine transitions to `:auth-failed`. The wall-clock spans the child's retries because the timer is anchored to **state entry** of `:authenticating`, not to any individual HTTP attempt; the child's internal retry behaviour does not affect the parent's `:after` countdown.
 
 Symmetric for `:invoke-all`:
 
@@ -1660,6 +1660,72 @@ A `:after`-driven cascade out of the `:invoke`-bearing state destroys any spawne
 - [§Delayed `:after` transitions](#delayed-after-transitions) — the canonical primitive's full grammar and semantics.
 - [findings/boot-as-statemachine-dash8-rf8.md §M3](findings/boot-as-statemachine-dash8-rf8.md) — the boot-machine use case that originally motivated `:timeout-ms`; the M3 finding's resolution is now "use the parent state's `:after`."
 - [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after) — pre-1.0 spec lock; the dropped-slot record.
+
+## Cancellation cascade — in-flight `:rf.http/managed` aborts
+
+> **Resolves [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — rf2-wvkn.** The pre-resolution gap was: when a parent state machine cancels a spawned child mid-execution (parent state exit, parent destroy, `:after` firing, `:invoke-all` cancel-on-decision), what happens to in-flight `:rf.http/managed` requests the child kicked off? Spec 005 + Spec 014 didn't explicitly cover the cross-feature contract. This section is the contract.
+
+### The contract
+
+When the runtime destroys a spawned actor — by **any** trigger — every in-flight `:rf.http/managed` request that was issued from inside that actor's event handlers is aborted. Triggers include:
+
+1. **Parent state exit.** The standard exit cascade emits `:rf.machine/destroy` for the `:invoke`d child (per [§Declarative `:invoke` §Desugaring rules](#desugaring-rules)). The destroy handler aborts the child's in-flight HTTP.
+2. **Parent's `:after` firing.** `:after` exit is a state exit; the cascade above runs unchanged (per [§Whichever fires first wins](#whichever-fires-first-wins)).
+3. **`:invoke-all` cancel-on-decision.** When the join resolves and `:cancel-on-decision?` is `true` (the default), the runtime emits `:rf.machine/destroy` per surviving sibling (per [§Cancel-on-decision](#cancel-on-decision-default-true)). Each siblings' in-flight HTTP aborts.
+4. **`:invoke-all` parent state exit.** Symmetric to (1), but the per-child teardown loop (per [§Spawn-id tracking](#spawn-id-tracking)) cascades the abort to every child the `:children` map tracks.
+5. **Imperative `[:rf.machine/destroy <actor-id>]`.** A user-authored destroy action emitting the legacy keyword form (per the spawn-fx 5-arity destroy) ALSO aborts that actor's in-flight HTTP. The contract is uniform across triggers — **wherever an actor is destroyed, its HTTP cascades to abort.**
+6. **Frame destroy.** `frame.cljc`'s frame-exit walk over surviving machine instances destroys each in turn (per [Spec 002 §Lifecycle](002-Frames.md#lifecycle)); each destroy fires the same abort-on-actor-destroy hook.
+
+The abort surfaces as a normal `:rf.http/aborted` failure on the request's reply path — the `:on-failure` callback (or the merged-reply default) sees `{:kind :rf.http/aborted :reason :actor-destroyed}` per [Spec 014 §Aborts](014-HTTPRequests.md#abort-on-actor-destroy). For most calling code there is no observable difference from a manual `:rf.http/managed-abort`; the `:reason :actor-destroyed` discriminates for callers that care.
+
+### What is "in-flight inside an actor"
+
+A request is "in-flight inside actor `<spawned-id>`" if and only if its originating event vector's first element was `<spawned-id>`. The originating event vector flows to the `:rf.http/managed` fx through the standard fx 5-arity (`:event` on the fx ctx, per [Spec 002 §Routing the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope)), and the http fx records the (`request-id`, `actor-id`) tuple in its in-flight registry alongside the abort-handle.
+
+The actor-id is **the spawned actor's own machine address** (e.g., `:http/post#1`), not the parent's address. A request that the parent (`:auth/main`) issued directly is NOT in-flight inside any spawned actor — it is in-flight inside the parent's event-handler context, which has no spawn-registry slot. The parent's request is unaffected by any child-actor destroy. See [§Open question — direct dispatches from event handlers](#open-question--direct-dispatches-from-event-handlers).
+
+### What about the request's own `:request-id`?
+
+The `:request-id` (per [Spec 014 §Aborts](014-HTTPRequests.md#aborts)) is **orthogonal** to the actor-id. A request can carry both (a stable `:request-id` for app-level abort/supersede AND an actor-id stamped by the runtime); the in-flight registry indexes both ways. A `:rf.http/managed-abort` fx with the request-id aborts the one request; the actor-destroy hook walks every request whose actor-id matches and aborts each. Neither indexing supersedes the other; they coexist.
+
+If a request was issued without `:request-id` from inside a spawned actor, it is still tracked by actor-id and is still aborted on actor-destroy. The `:request-id` is for app-level addressability; actor-id tracking is for runtime cleanup.
+
+### Open question — direct dispatches from event handlers
+
+Events dispatched directly from ordinary `reg-event-fx` handlers — i.e. the originating event vector is for an event-id that is NOT a spawned actor's address — issue `:rf.http/managed` requests that are NOT subject to the actor-destroy cancellation cascade. There is no actor-id to correlate against.
+
+This is **deliberate.** Cancellation tied to actor lifetime is semantically the right scope: the child actor exists to run until the parent says "we no longer care"; the parent saying so kills the actor and the actor's outstanding work. An ordinary event handler has no analogous lifecycle peg — its work is launched as a side effect and outlives the handler that fired it; the only way to abort it is via an explicit `:rf.http/managed-abort` keyed on the user-supplied `:request-id`, exactly as before this contract.
+
+If an app wants HTTP requests that are tied to a state's lifetime, the answer is to spawn a child machine that issues them — the `:invoke` or `:invoke-all` declaration is the explicit way to bind HTTP-request lifetime to state-occupancy lifetime. There is no ambient "abort on every state transition out" sugar for direct-dispatch HTTP.
+
+### The hook
+
+The destroy-side abort fires through a late-bind hook (per [`re-frame.late-bind`](../implementation/core/src/re_frame/late_bind.cljc)) — `re-frame.machines` does NOT statically `:require` `re-frame.http-managed`. The hook key is `:http/abort-on-actor-destroy`; the http artefact registers a fn `(fn [actor-id])` at ns-load time; the machines artefact's destroy path looks the fn up at call time and invokes it once per destroyed actor. When the http artefact is not on the classpath the hook resolves to nil and the destroy proceeds without any abort cascade — apps that don't issue managed-HTTP requests pay nothing.
+
+Symmetric to how `re-frame.machines` already publishes `:machines/spawn-fx` / `:machines/destroy-machine-fx` (per [`re-frame.late-bind` hook table](../implementation/core/src/re_frame/late_bind.cljc)) and how `re-frame.flows` and `re-frame.routing` flow up their own seams.
+
+### Trace event
+
+Each individual abort emits `:rf.http/aborted-on-actor-destroy` (registered in [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set)). One trace per cancelled request. The trace's `:tags` carry `:request-id` (when set on the request), `:actor-id` (the destroyed spawned-actor address), and `:url` (the request's URL).
+
+The reply payload itself is a standard `:rf.http/aborted` failure; tools that subscribe to the http-failure-category trace stream see this category alongside the user-initiated aborts. The `:reason :actor-destroyed` tag is the discriminator.
+
+### Why one mechanism, not two
+
+The same hook fires across every destroy trigger — `:invoke` exit, `:invoke-all` exit, cancel-on-decision, `:after` cascade, frame destroy. There is no per-trigger HTTP-abort code path. This means:
+
+- Authors writing a `:invoke`-based child whose body fires `:rf.http/managed` get cleanup automatically — no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id`.
+- The "parent reloads mid-flight" case ([findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md)) is covered by the frame-destroy walk firing the same hook against every surviving machine.
+- The exit cascade from `:after` (per [§Whichever fires first wins](#whichever-fires-first-wins)) reuses the destroy path, so the wall-clock-timeout case is identical to the parent-decides-to-cancel case.
+
+### Cross-references
+
+- [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — the http side of the contract; trace event registration; envelope details.
+- [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) — `:rf.http/aborted-on-actor-destroy` category registration.
+- [§Declarative `:invoke` §Desugaring rules](#desugaring-rules) — the `:rf.machine/destroy` fx that fires the hook.
+- [§Cancel-on-decision](#cancel-on-decision-default-true) — `:invoke-all`'s sibling-cancel cascade routes through the same destroy fx.
+- [§Whichever fires first wins](#whichever-fires-first-wins) — the `:after` cascade routes through the same destroy fx.
+- [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — the original gap analysis.
 
 ## Spawn-and-join via `:invoke-all`
 
@@ -2434,9 +2500,10 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `:rf.error/machine-grammar-not-in-v1`, `:rf.error/machine-action-exception`, `:rf.error/machine-action-wrote-db`, `:rf.error/machine-raise-depth-exceeded`, `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-always-self-loop`, `:rf.error/machine-unresolved-guard`, `:rf.error/machine-unresolved-action`, `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, and `:rf.error/machine-invoke-all-with-invoke` error categories. (The pre-rf2-3y3y `:rf.error/machine-invoke-timeout-*` categories are retired alongside `:timeout-ms` itself; per [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).)
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
-- The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{<delay> → <transition-spec>}` where `<delay>` is `pos-int?`, a subscription vector (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)), or `(fn [snapshot] ms)`. Epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled-on-resolution` / `:rf.machine.timer/skipped-on-server` trace events. The whichever-fires-first cancellation cascade (per [§Whichever fires first wins](#whichever-fires-first-wins)) composes with rf2-wvkn's in-flight `:rf.http/managed` abort contract once that lands. Per rf2-3y3y.
+- The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{<delay> → <transition-spec>}` where `<delay>` is `pos-int?`, a subscription vector (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)), or `(fn [snapshot] ms)`. Epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled-on-resolution` / `:rf.machine.timer/skipped-on-server` trace events. The whichever-fires-first cancellation cascade (per [§Whichever fires first wins](#whichever-fires-first-wins)) composes with the in-flight `:rf.http/managed` abort contract per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) (rf2-wvkn). Per rf2-3y3y.
 - The spawn-and-join `:invoke-all` capability per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all): state-node `:invoke-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf/spawned <parent> <invoke-id> :join]`, cancel-on-decision = `true` by default, and the `:rf.machine.invoke-all/started` / `:rf.machine.invoke-all/all-completed` / `:rf.machine.invoke-all/some-completed` / `:rf.machine.invoke-all/any-failed` / `:rf.machine.invoke/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, `:rf.error/machine-invoke-all-with-invoke`.
 - ~~The wall-clock `:timeout-ms` capability~~ — DROPPED per rf2-3y3y. State-level `:after` is the canonical wall-clock-timeout primitive on `:invoke` / `:invoke-all`-bearing states. See [§Wall-clock timeouts on `:invoke` — use parent state's `:after`](#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).
+- The cancellation cascade for in-flight `:rf.http/managed` requests per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts): the `:rf.machine/destroy` path aborts every in-flight `:rf.http/managed` request the destroyed actor had issued, via the `:http/abort-on-actor-destroy` late-bind hook. Triggers include parent state exit, parent's `:after` firing, `:invoke-all` cancel-on-decision, frame destroy, and imperative `[:rf.machine/destroy <actor-id>]`. Each abort emits `:rf.http/aborted-on-actor-destroy` per [Spec 009 §Trace events](009-Instrumentation.md). Direct dispatches from event handlers (no spawned-actor envelope) are NOT subject to the cascade — apps that want HTTP-tied-to-state-occupancy lifetimes spawn child machines. Per rf2-wvkn.
 
 ### Post-v1 — the `re-frame.machines` library
 
