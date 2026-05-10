@@ -46,7 +46,7 @@
             ;; :rf.error/ssr-artefact-missing.
             [re-frame.ssr]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [realworld.schema]
             [realworld.http]
             [realworld.routing :as routing]
@@ -262,7 +262,7 @@
     (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).

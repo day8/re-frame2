@@ -14,7 +14,7 @@
   exactly that path, so the stub needs to fail every request."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [state-machine-walkthrough.core])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
@@ -89,7 +89,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   ;; Install the canned-failure override on the default frame so every
   ;; `:rf.http/managed` request resolves :failure. The chapter's

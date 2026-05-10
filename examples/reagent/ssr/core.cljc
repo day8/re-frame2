@@ -55,7 +55,7 @@
             [re-frame.ssr]
             #?(:cljs [cljs.reader])
             #?(:cljs [reagent.dom.client :as rdc])
-            #?(:cljs [re-frame.substrate.reagent :as reagent-adapter])))
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -255,7 +255,7 @@
      ;; first call installs the adapter and creates :rf/default; subsequent
      ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
      ;;
-     ;; rf2-84po: requiring re-frame.substrate.reagent (above) registered
+     ;; rf2-84po: requiring re-frame.adapter.reagent (above) registered
      ;; the Reagent adapter as the default at ns-load time, so no-arg
      ;; init! resolves through the registry.
      (rf/init!)

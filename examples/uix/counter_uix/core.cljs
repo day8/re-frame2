@@ -19,7 +19,7 @@
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core    :as rf]
-            [re-frame.substrate.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as uix-adapter]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
@@ -67,7 +67,7 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.uix ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.uix ns-load auto-registers as default.
   (rf/init!)
   (rf/dispatch-sync [:counter/initialise])
   (uix-dom/render-root ($ counter-app) root))

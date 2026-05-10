@@ -10,7 +10,7 @@
   runtime_cljs_test.cljs; this file completes the matrix on CLJS."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). We do NOT

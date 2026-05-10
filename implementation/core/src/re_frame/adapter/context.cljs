@@ -1,4 +1,4 @@
-(ns re-frame.substrate.context
+(ns re-frame.adapter.context
   "Shared React context for frame propagation across substrate adapters.
 
   Per Spec 006 §Frame-provider via React context, the frame keyword is
@@ -14,7 +14,7 @@
     1. Core already :requires React directly via re-frame.views, so this
        file adds no new transitive runtime dep. The plain-atom adapter
        (the JVM-runnable half) does not load this ns — it sits in
-       re_frame/substrate/context.cljs (CLJS-only) and the JVM build
+       re_frame/adapter/context.cljs (CLJS-only) and the JVM build
        never sees it.
 
     2. Both adapters MUST share the *same* React.createContext object —

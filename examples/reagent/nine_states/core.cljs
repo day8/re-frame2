@@ -68,7 +68,7 @@
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
             [re-frame.views]
-            [re-frame.substrate.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
 
 ;; ============================================================================
@@ -726,7 +726,7 @@
     (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process canned-stub fxs above. The example runs standalone — no

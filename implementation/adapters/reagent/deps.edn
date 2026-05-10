@@ -1,17 +1,16 @@
-;; day8/re-frame-2-reagent — Reagent substrate adapter (rf2-0hxm).
+;; day8/re-frame-2-reagent — Reagent adapter (rf2-0hxm).
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention: each substrate
-;; adapter ships in its own Maven artefact so a Reagent-only app does not
-;; transitively pull in UIx or Helix code (and vice versa). This artefact
-;; supplies the re-frame.substrate.reagent ns and depends on the core
-;; artefact for everything else.
+;; Per Spec 006 §Adapter shipping convention: each adapter ships in its
+;; own Maven artefact so a Reagent-only app does not transitively pull
+;; in UIx or Helix code (and vice versa). This artefact supplies the
+;; re-frame.adapter.reagent ns and depends on the core artefact for
+;; everything else.
 ;;
 ;; The core artefact already carries Reagent as a runtime dep because the
 ;; CLJS-side re-frame.views layer is currently Reagent-coupled per the
-;; rf2-0hxm decision; the substrate-adapter split here ships the adapter
-;; map separately, which is the slice the bundle-isolation argument
-;; needs. Full views-layer decoupling lands with the UIx adapter
-;; (rf2-3yij).
+;; rf2-0hxm decision; the adapter split here ships the adapter map
+;; separately, which is the slice the bundle-isolation argument needs.
+;; Full views-layer decoupling lands with the UIx adapter (rf2-3yij).
 {:paths ["src"]
  :deps  {day8/re-frame-2 {:local/root "../../core"}}
 
@@ -37,7 +36,7 @@
 
   :clein/build
   {:lib      day8/re-frame-2-reagent
-   :main     re-frame.substrate.reagent
+   :main     re-frame.adapter.reagent
    :url      "https://github.com/day8/re-frame2"
    :version  "../../../VERSION"
    :license  {:name "MIT"

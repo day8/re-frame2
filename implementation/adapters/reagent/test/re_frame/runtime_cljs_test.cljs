@@ -24,7 +24,7 @@
             ;; fire before the epoch-history-cljs / restore-* tests
             ;; below reach into the late-bind table at call time.
             [re-frame.epoch]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.views-macros :refer [with-frame bound-fn reg-view]]))
@@ -602,7 +602,7 @@
   (testing "build-frame-provider remains the lower-level substrate"
     ;; Per the bead: build-frame-provider stays in re-frame.views as
     ;; substrate. The user-facing API is rf/frame-provider; the substrate
-    ;; hook into re-frame.substrate.reagent/register-context-provider is
+    ;; hook into re-frame.adapter.reagent/register-context-provider is
     ;; build-frame-provider. Both are callable; both produce the same
     ;; final hiccup shape when invoked with a frame keyword.
     ;; rf2-4y60: build-frame-provider is 0-arity — the returned component

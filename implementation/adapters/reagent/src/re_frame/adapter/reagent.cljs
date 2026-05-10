@@ -1,10 +1,10 @@
-(ns re-frame.substrate.reagent
+(ns re-frame.adapter.reagent
   "The Reagent adapter — browser default. Per Spec 006 §CLJS reference:
   Reagent as default adapter.
 
   Ships in its own Maven artefact (day8/re-frame-2-reagent) per
-  Spec 006 §Substrate-adapter shipping convention (rf2-0hxm). Apps that
-  use Reagent depend on both day8/re-frame-2 (core) and this artefact;
+  Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use
+  Reagent depend on both day8/re-frame-2 (core) and this artefact;
   apps targeting a different substrate (UIx, Helix) depend on the
   matching adapter artefact instead. Core does *not* :require this ns —
   the dependency direction is adapter → core.
@@ -114,14 +114,14 @@
 ;; its ns-load resolves the hook and wires the emitter through it. When
 ;; ssr is absent the hook is never consumed and render-to-string raises
 ;; the "no-hiccup-emitter-bound" error on first call. Per Spec 006
-;; §Substrate-adapter shipping convention (rf2-0hxm).
+;; §Adapter shipping convention (rf2-0hxm).
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
 ;; ---- default-adapter registration (rf2-84po) -----------------------------
 ;;
 ;; Register this adapter as a default-resolution candidate for
 ;; `(rf/init!)` (no args). Consumers who `(:require
-;; [re-frame.substrate.reagent])` pick up Reagent as the default at
+;; [re-frame.adapter.reagent])` pick up Reagent as the default at
 ;; ns-load time without an explicit adapter arg.
 ;;
 ;; Wrapped in `defonce` so shadow-cljs hot-reload doesn't perturb the

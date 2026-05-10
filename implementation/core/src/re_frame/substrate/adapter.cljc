@@ -20,8 +20,8 @@
 
   Per rf2-84po (resolves rf2-4cb6) this namespace also owns the
   default-adapter registry consulted by `re-frame.core/init!` when called
-  with no args. Substrate-adapter namespaces (re-frame.substrate.reagent,
-  re-frame.substrate.uix, the JVM half of re-frame.substrate.plain-atom)
+  with no args. Substrate-adapter namespaces (re-frame.adapter.reagent,
+  re-frame.adapter.uix, the JVM half of re-frame.substrate.plain-atom)
   call `register-default-adapter!` at ns-load time; `(rf/init!)` looks up
   the registered default and either uses it (exactly-one), raises
   `:rf.error/no-adapter-registered` (zero), or
@@ -51,7 +51,7 @@
   the registry consistent.
 
   Per rf2-84po (resolves rf2-4cb6). Substrate adapters call this at
-  ns-load time, so consumers who `(:require [re-frame.substrate.reagent])`
+  ns-load time, so consumers who `(:require [re-frame.adapter.reagent])`
   pick up the default via `(rf/init!)` without an explicit adapter arg."
   [adapter-key adapter-spec]
   (swap! default-adapters assoc adapter-key adapter-spec)

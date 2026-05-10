@@ -16,7 +16,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
             [re-frame.views]
-            [re-frame.substrate.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
@@ -86,7 +86,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: requiring re-frame.substrate.reagent (above) registered
+  ;; rf2-84po: requiring re-frame.adapter.reagent (above) registered
   ;; the Reagent adapter as the default at ns-load time, so no-arg
   ;; init! resolves through the registry.
   (rf/init!)

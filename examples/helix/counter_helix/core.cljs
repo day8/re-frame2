@@ -21,7 +21,7 @@
             [helix.core         :as helix :refer [$ defnc]]
             [helix.dom          :as d]
             [re-frame.core      :as rf]
-            [re-frame.substrate.helix :as helix-adapter]))
+            [re-frame.adapter.helix :as helix-adapter]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
@@ -69,7 +69,7 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.helix ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.helix ns-load auto-registers as default.
   (rf/init!)
   (rf/dispatch-sync [:counter/initialise])
   (.render root ($ counter-app)))

@@ -33,7 +33,7 @@
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
-            [re-frame.substrate.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; -- App-db shape ------------------------------------------------------------
@@ -197,7 +197,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.reagent ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
   (rf/init!)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render root [counter-app]))

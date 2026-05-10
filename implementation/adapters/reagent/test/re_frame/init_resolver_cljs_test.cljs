@@ -4,7 +4,7 @@
 
   The JVM half (re-frame.boot-test) covers the resolver semantics
   end-to-end. This namespace adds the CLJS-specific branches: under
-  CLJS, requiring `re-frame.substrate.reagent` registers the Reagent
+  CLJS, requiring `re-frame.adapter.reagent` registers the Reagent
   adapter as the default at ns-load time, so a no-arg `(rf/init!)`
   picks Reagent without an explicit adapter argument. The multi-adapter
   branch is exercised by registering a synthetic second key alongside
@@ -16,7 +16,7 @@
             [re-frame.core :as rf]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.substrate.reagent :as reagent-adapter]))
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -35,7 +35,7 @@
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest reagent-ns-load-registers-as-default
-  (testing "requiring re-frame.substrate.reagent registers :reagent as a default adapter at ns-load time"
+  (testing "requiring re-frame.adapter.reagent registers :reagent as a default adapter at ns-load time"
     (is (contains? (adapter/registered-default-adapters) :reagent)
         "ns-load side-effect populates the registry")
     (is (identical? reagent-adapter/adapter

@@ -20,7 +20,7 @@
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http-managed]
-            [re-frame.substrate.helix :as helix-adapter]))
+            [re-frame.adapter.helix :as helix-adapter]))
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -222,7 +222,7 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.helix ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.helix ns-load auto-registers as default.
   (rf/init!)
   (rf/reg-frame :rf/default
     {:doc          "Login (Helix) demo frame."

@@ -16,7 +16,7 @@
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http-managed]
-            [re-frame.substrate.uix :as uix-adapter]))
+            [re-frame.adapter.uix :as uix-adapter]))
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -215,7 +215,7 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.substrate.uix ns-load auto-registers as default.
+  ;; rf2-84po: re-frame.adapter.uix ns-load auto-registers as default.
   (rf/init!)
   (rf/reg-frame :rf/default
     {:doc          "Login (UIx) demo frame."

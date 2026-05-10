@@ -120,7 +120,7 @@
             ;; with `(rf/init!)` alone. On CLJS the require pulls in the
             ;; symbol but plain-atom does NOT auto-register as default
             ;; (the substrate-specific ns the consumer requires —
-            ;; re-frame.substrate.reagent or .uix — is the registry
+            ;; re-frame.adapter.reagent or .uix — is the registry
             ;; populator). The alias is retained for the `:plain-atom`
             ;; lookup keyword and for explicit-spec tests.
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -1338,14 +1338,14 @@
         (throw (ex-info ":rf.error/no-adapter-registered"
                         {:where    'init!
                          :recovery :no-recovery
-                         :reason   "rf/init! was called with no args but no substrate adapter has registered as a default. Add a substrate dep (day8/re-frame-2-reagent or day8/re-frame-2-uix) and (:require [re-frame.substrate.reagent]) (or .uix) at app boot — the require's ns-load registers the adapter as the default. Tests / atypical setups can pass an adapter spec or keyword explicitly: (rf/init! :reagent) / (rf/init! :plain-atom) / (rf/init! my-adapter-map)."}))
+                         :reason   "rf/init! was called with no args but no substrate adapter has registered as a default. Add a substrate dep (day8/re-frame-2-reagent or day8/re-frame-2-uix) and (:require [re-frame.adapter.reagent]) (or .uix) at app boot — the require's ns-load registers the adapter as the default. Tests / atypical setups can pass an adapter spec or keyword explicitly: (rf/init! :reagent) / (rf/init! :plain-atom) / (rf/init! my-adapter-map)."}))
 
         :rf.error/multiple-default-adapters
         (throw (ex-info ":rf.error/multiple-default-adapters"
                         {:where    'init!
                          :keys     (:keys resolved)
                          :recovery :no-recovery
-                         :reason   "rf/init! was called with no args but more than one substrate adapter has registered as a default. This is most often a mixed-substrate app post rf2-3yij where both re-frame.substrate.reagent and re-frame.substrate.uix were required; pick one explicitly via (rf/init! :reagent) or (rf/init! :uix)."}))
+                         :reason   "rf/init! was called with no args but more than one substrate adapter has registered as a default. This is most often a mixed-substrate app post rf2-3yij where both re-frame.adapter.reagent and re-frame.adapter.uix were required; pick one explicitly via (rf/init! :reagent) or (rf/init! :uix)."}))
         ;; success
         (:adapter resolved)))
 
@@ -1382,7 +1382,7 @@
   Per rf2-84po (resolves rf2-4cb6). The no-arg form is the canonical
   surface: substrate-adapter namespaces register themselves as default
   candidates at ns-load time, so an app that
-  `(:require [re-frame.substrate.reagent])` boots with `(rf/init!)`
+  `(:require [re-frame.adapter.reagent])` boots with `(rf/init!)`
   alone. Tests and mixed-substrate apps disambiguate via the keyword
   form. Per Spec 006 §Adapter selection at boot."
   ([]        (init! nil))

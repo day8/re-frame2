@@ -16,7 +16,7 @@
   registrations, and the restore on the way out leaves them intact for
   any subsequent test ns."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.substrate.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
             [nine-states.core :as ns-core]))
