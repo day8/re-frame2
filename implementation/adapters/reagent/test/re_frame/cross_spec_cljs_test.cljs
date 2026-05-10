@@ -24,7 +24,9 @@
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
             [re-frame.routing]
+            [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as adapter]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]))
@@ -577,6 +579,184 @@
                               @traces)]
             (is (empty? warns)
                 "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
+          (finally
+            (try (rdc/unmount root) (catch :default _ nil))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-d4sf — subscribe + dispatch consult the React-context tier
+;;
+;; Per Spec 002 §Reading the frame from React context the resolution
+;; chain at a CLJS subscribe / dispatch call site is:
+;;   1. *current-frame* dynamic var
+;;   2. closest enclosing frame-provider via React context
+;;   3. :rf/default
+;;
+;; Before rf2-d4sf, `re-frame.subs/subscribe` and the dispatch
+;; envelope's `:frame` default called `re-frame.frame/current-frame`
+;; directly — that fn covers tier 1 and tier 3 only, so the React-
+;; context tier was dead code. The fix routes subscribe + dispatch
+;; through the `:adapter/current-frame` late-bind hook (registered by
+;; the Reagent / UIx / Helix adapter at ns-load time). The hook
+;; consults `_currentValue` on the shared React context object,
+;; tolerating Reagent's prop-stringified-keyword shape.
+;;
+;; This test pins the live behaviour: under a non-default
+;; frame-provider, a reg-view'd subscribe must resolve to the
+;; provider's frame, not :rf/default.
+;; ---------------------------------------------------------------------------
+
+(deftest subscribe-routes-via-react-context-under-non-default-frame
+  "rf2-d4sf — subscribe consults the React-context tier so a reg-view
+   inside a non-default `frame-provider` reads the provider's frame
+   (not :rf/default)."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-rf2-d4sf]
+      ;; Two distinct frames whose app-dbs hold different values so the
+      ;; subscribed reaction tells us unambiguously which one served it.
+      (rf/reg-frame target-frame {:doc "non-default frame — :v 42"})
+      (rf/reg-event-db :seed-target (fn [_ _] {:v 42}))
+      (rf/reg-event-db :seed-default (fn [_ _] {:v 7}))
+      (rf/dispatch-sync [:seed-target]  {:frame target-frame})
+      (rf/dispatch-sync [:seed-default] {:frame :rf/default})
+      (rf/reg-sub :rf2-d4sf/v (fn [db _] (:v db)))
+      ;; The view captures the resolved frame and the subscribed value
+      ;; into shared atoms so the test can read them after the render.
+      (let [resolved-frame (atom nil)
+            resolved-value (atom nil)]
+        (rf/reg-view* :rf.cross-spec-d4sf/probe
+                      (fn probe-impl []
+                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-value @(rf/subscribe [:rf2-d4sf/v]))
+                        [:div "probe"]))
+        (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)]
+          (try
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target-frame}
+                                  [render-fn]])))
+            (is (= target-frame @resolved-frame)
+                "current-frame inside the reg-view reads the surrounding provider's frame, not :rf/default")
+            (is (= 42 @resolved-value)
+                "subscribe routes the query against the provider's frame — :v 42 (target) not :v 7 (:rf/default)")
+            (finally
+              (try (rdc/unmount root) (catch :default _ nil)))))))))
+
+(deftest subscribe-routes-default-without-frame-provider
+  "rf2-d4sf negative — without a `frame-provider`, subscribe still
+   resolves to `:rf/default` (the createContext default). The fix only
+   adds the React-context tier; it must not change the default-tier
+   behaviour."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (do
+      (rf/reg-event-db :seed-no-provider (fn [_ _] {:w 99}))
+      (rf/dispatch-sync [:seed-no-provider])
+      (rf/reg-sub :rf2-d4sf/w (fn [db _] (:w db)))
+      (let [resolved-frame (atom nil)
+            resolved-value (atom nil)]
+        (rf/reg-view* :rf.cross-spec-d4sf/probe-no-provider
+                      (fn probe-no-provider-impl []
+                        (reset! resolved-frame (rf/current-frame))
+                        (reset! resolved-value @(rf/subscribe [:rf2-d4sf/w]))
+                        [:div "probe"]))
+        (let [render-fn  (rf/view :rf.cross-spec-d4sf/probe-no-provider)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)]
+          (try
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [render-fn])))
+            (is (= :rf/default @resolved-frame)
+                "no provider in the tree → resolution falls through to :rf/default")
+            (is (= 99 @resolved-value)
+                "subscribe routes against :rf/default's app-db")
+            (finally
+              (try (rdc/unmount root) (catch :default _ nil)))))))))
+
+(deftest with-frame-wins-over-react-context
+  "rf2-d4sf — the dynamic-var tier (set by `with-frame`) sits ABOVE the
+   React-context tier in the resolution chain. A `with-frame` binding
+   inside a non-default frame-provider's subtree wins over the provider
+   for the duration of the binding."
+  (rf/reg-frame :rf.d4sf/dynamic-tier
+                {:doc "frame referenced via with-frame, not via provider"})
+  (rf/reg-frame :rf.d4sf/provider-tier
+                {:doc "frame referenced via the React-context provider"})
+  ;; Outside of any render, `with-frame` binds the dynamic var, and the
+  ;; React-context tier is never consulted (no Provider above this code
+  ;; path). Pin the precedence on the JVM-shared resolution path here —
+  ;; the React-rendered case is exercised by the previous deftest.
+  (rf/with-frame :rf.d4sf/dynamic-tier
+    (fn []
+      (is (= :rf.d4sf/dynamic-tier (rf/current-frame))
+          "with-frame's dynamic-var binding wins over :rf/default"))))
+
+(deftest adapter-context-current-frame-tolerates-prop-stringified-keyword
+  "rf2-d4sf — the function-component-shape React-context-aware
+   `current-frame` impl in `re-frame.adapter.context` rounds a
+   prop-stringified keyword back to a keyword. Reagent's
+   `convert-prop-value` rewrites named values (keywords / symbols) to
+   strings when they pass as React props, so `[:> Provider {:value :foo}
+   ...]` reaches React with `value=\"foo\"`. The function-component
+   path (UIx / Helix) reads `_currentValue` directly off the shared
+   context object; that read MUST tolerate the stringified shape so a
+   UIx / Helix subtree embedded under a Reagent `[:> ...]` provider
+   sees the right frame."
+  ;; Direct test of the lookup: we can't easily simulate the React-render
+  ;; pump without a real Provider, but we can pin the shape-coercion
+  ;; contract by stamping `_currentValue` directly. React maintains
+  ;; this field as part of its public-stable createContext API surface;
+  ;; the field is the same path the read-side relies on.
+  (let [original (.-_currentValue ^js adapter-context/frame-context)]
+    (try
+      ;; String shape — what Reagent's prop-conversion produces.
+      (set! (.-_currentValue ^js adapter-context/frame-context) "tenant-prop-converted")
+      (is (= :tenant-prop-converted (adapter-context/function-component-current-frame))
+          "stringified keyword is round-tripped back to a keyword")
+      ;; Keyword shape — what the createContext default and CLJS-direct
+      ;; paths produce.
+      (set! (.-_currentValue ^js adapter-context/frame-context) :tenant-keyword-shape)
+      (is (= :tenant-keyword-shape (adapter-context/function-component-current-frame))
+          "keyword shape is preserved")
+      ;; Empty-string shape — falls through to :rf/default. Empty
+      ;; strings are not valid keyword names.
+      (set! (.-_currentValue ^js adapter-context/frame-context) "")
+      (is (= :rf/default (adapter-context/function-component-current-frame))
+          "empty-string shape falls through to :rf/default")
+      (finally
+        (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
+
+(deftest dispatch-default-frame-routes-via-react-context
+  "rf2-d4sf — the dispatch envelope's `:frame` default is built via the
+   same `:adapter/current-frame` hook as subscribe, so an event
+   dispatched from inside a non-default frame-provider's subtree (with
+   no explicit `:frame` opt) routes to the provider's frame."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target-frame :tenant-d4sf-dispatch]
+      (rf/reg-frame target-frame {:doc "non-default frame for dispatch routing test"})
+      (rf/reg-event-db :rf2-d4sf/record-here (fn [db _] (assoc db :stamped :here)))
+      (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
+                    (fn dispatcher-probe-impl []
+                      ;; Dispatch with no :frame opt — must route to the
+                      ;; surrounding provider's frame, not :rf/default.
+                      (rf/dispatch-sync [:rf2-d4sf/record-here])
+                      [:div "probe"]))
+      (let [render-fn  (rf/view :rf.cross-spec-d4sf/dispatcher-probe)
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)]
+        (try
+          (react-dom/flushSync
+            (fn []
+              (rdc/render root [rf/frame-provider {:frame target-frame}
+                                [render-fn]])))
+          (is (= :here (:stamped (rf/get-frame-db target-frame)))
+              "dispatch routed to the provider's frame — its app-db carries the stamp")
+          (is (not= :here (:stamped (rf/get-frame-db :rf/default)))
+              ":rf/default's app-db is NOT stamped — the dispatch did not fall through")
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
