@@ -67,6 +67,10 @@ bd close <id>         # Complete work
 - **Pull `main` from `origin` immediately after every PR merge.** Run `git pull --ff-only` as the very next step after `gh pr merge ... --rebase --admin --delete-branch`. No exceptions, no batching multiple merges before pulling. Mike glances at his local working tree to track progress; staleness leaves him with a wrong picture and breaks subsequent dispatches that worktree off `origin/main`. Same rule applies whether merge happened seconds ago or while another agent was running.
 - **Stash before pull when needed.** `decision-beads.md` and `.beads/issues.jsonl` may carry uncommitted local edits; stash before pulling and pop after if necessary.
 
+## Spec documents
+
+- **Human understanding comes first.** Spec documents are written for humans — default to plain, readable prose. But where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.
+
 ## Build & Test
 
 _Add your build and test commands here_
