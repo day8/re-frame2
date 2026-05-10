@@ -239,7 +239,7 @@
   ;; Each example has its own per-example shadow-cljs build, mirroring the
   ;; Reagent variants, so the bundle-isolation grep can verify a Reagent
   ;; example's main.js carries NO UIx code and vice versa. Per Spec 006
-  ;; §Substrate-adapter shipping convention.
+  ;; §Adapter shipping convention.
 
   :examples/counter-uix
   {:target     :browser
@@ -258,7 +258,7 @@
   ;; shadow-cljs build, mirroring the Reagent and UIx variants, so the
   ;; bundle-isolation grep can verify a Reagent / UIx example's main.js
   ;; carries NO Helix code and vice versa. Per Spec 006
-  ;; §Substrate-adapter shipping convention.
+  ;; §Adapter shipping convention.
 
   :examples/counter-helix
   {:target     :browser

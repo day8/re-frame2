@@ -248,25 +248,25 @@ The CLJS reference's published artefact set partitions across three tiers.
 | `re-frame-2-schemas` | [010](010-Schemas.md) | Malli schema layer |
 | `re-frame-2-epoch` | [Tool-Pair](Tool-Pair.md) | Tool-Pair epoch surfaces ([rf2-lt4e](#)) |
 
-**Per-substrate** — `day8/re-frame-2-<substrate>`. Rendering substrates:
+**Per-adapter** — `day8/re-frame-2-<adapter>`. Each adapter implements the [Spec 006 substrate contract](006-ReactiveSubstrate.md) for one rendering substrate:
 
-| Artefact | Spec | Substrate |
+| Artefact | Spec | Adapter (substrate it covers) |
 |---|---|---|
 | `re-frame-2-reagent` | [006](006-ReactiveSubstrate.md) | Reagent (browser default) |
 | `re-frame-2-uix` | [006](006-ReactiveSubstrate.md) | UIx — when [rf2-3yij](#) ships |
 | `re-frame-2-helix` | [006](006-ReactiveSubstrate.md) | Helix ([rf2-2qit](#)) |
 
-In the repository layout the three per-substrate adapters live under `implementation/adapters/<name>/` (one directory per adapter); per-feature artefacts stay flat under `implementation/<name>/`. Maven artefact names are unchanged — the on-disk grouping is a CLJS-reference repo concern; consumers of the published jars see the same coordinates as before. Per [rf2-zha9](#).
+In the repository layout the three adapters live under `implementation/adapters/<name>/` (one directory per adapter); per-feature artefacts stay flat under `implementation/<name>/`. Maven artefact names are unchanged — the on-disk grouping is a CLJS-reference repo concern; consumers of the published jars see the same coordinates as before. Per [rf2-zha9](#) (directory introduction) and [rf2-0imy](#) (canonical naming — `adapters/`, not `substrates/`).
 
 ### Independence rule
 
 Each per-feature artefact is **independent**. Core MUST NOT transitively `:require` any per-feature ns. Cross-references between features (e.g., flows depending on schemas at runtime) go through the late-bind hook registry, not direct requires. The discipline is exactly what makes opt-in work: a consumer who omits `re-frame-2-schemas` does not pay for it, and the features that *would* benefit from schemas if present detect the absence and degrade silently.
 
-The independence rule applies to the per-substrate tier too: the substrate adapters depend on core; core never depends on a substrate adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
+The independence rule applies to the per-adapter tier too: adapters depend on core; core never depends on an adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
 
 ### Naming convention
 
-The artefact-naming convention is `re-frame-2-<thing>`, where `<thing>` is the feature-id (per Spec topic) or substrate name. The Maven group is `day8` for the CLJS reference's published artefacts.
+The artefact-naming convention is `re-frame-2-<thing>`, where `<thing>` is the feature-id (per Spec topic) or adapter name. The Maven group is `day8` for the CLJS reference's published artefacts.
 
 The `*`-suffix convention for fn-versions of macros (per the Clojure idiom of `let`/`let*`, `fn`/`fn*`; see [§`*`-suffix naming for fn-versions of macros](#-suffix-naming-for-fn-versions-of-macros)) is orthogonal to artefact naming: `*`-suffix is symbol-naming inside an artefact; `re-frame-2-<thing>` is the artefact's coordinate.
 
@@ -282,14 +282,14 @@ The release pipeline — topological deploy DAG, recovery procedure when a parti
 
 ### Cross-references
 
-- [§Substrate-adapter shipping convention](#substrate-adapter-shipping-convention) below — the per-substrate tier in operational detail.
+- [§Adapter shipping convention](#adapter-shipping-convention) below — the per-adapter tier in operational detail.
 - [README §Project layout](../README.md#project-layout) — the per-artefact directory structure under `implementation/`.
 - [docs/release-process.md](../docs/release-process.md) — operational doc for cutting a release: topological DAG, recovery procedure, lockstep enforcement.
 - The per-feature split beads: [rf2-xbtj](#) (machines), [rf2-tfw3](#) (flows), [rf2-k682](#) (routing), [rf2-5kpd](#) (http), [rf2-uo7v](#) (ssr), [rf2-p7va](#) (schemas), [rf2-lt4e](#) (epoch). The umbrella is [rf2-5vjj](#); the CI/CD strategy is [rf2-w05l](#) / [rf2-ace2](#).
 
-## Substrate-adapter shipping convention
+## Adapter shipping convention
 
-Substrate adapters ship as **separate Maven artefacts** alongside the core (per [§Packaging conventions §Per-substrate](#packaging-conventions) above). The CLJS reference's published artefact set is:
+Adapters ship as **separate Maven artefacts** alongside the core (per [§Packaging conventions §Per-adapter](#packaging-conventions) above). The CLJS reference's published artefact set is:
 
 | Artefact | Contents |
 |---|---|
@@ -339,9 +339,9 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 
 **Conformance check (bundle isolation).** A production-elision build of an app that consumes `day8/re-frame-2-reagent` carries `re-frame.adapter.reagent` strings AND does NOT carry `re-frame.adapter.uix` or `re-frame.adapter.helix` strings (and, symmetrically, a UIx app's bundle contains `re-frame.adapter.uix` and is clean of `re-frame.adapter.reagent`). The CI's bundle-grep step (`scripts/check-bundle-isolation` invoked by examples/scripts) builds both the Reagent counter and the UIx counter under `:advanced` and asserts each pair of substrate-specific symbols is absent from the wrong bundle. The same applies to feature artefacts: a counter-style app that registers no schemas builds an `:advanced` bundle clean of `re-frame.schemas` symbols and Malli code; an app that registers no machines builds an `:advanced` bundle clean of `re-frame.machines` symbols, `reg-machine` / `machine-handler` / `machine-transition` strings, and the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that registers no flows builds an `:advanced` bundle clean of `re-frame.flows` symbols, the topological-sort engine, and the dirty-check `last-inputs` machinery; an app that issues no managed-HTTP requests builds an `:advanced` bundle clean of `re-frame.http-managed` symbols, the in-flight registry, the Fetch transport adapter, and every `:rf.http/*` keyword string; an app that doesn't add the epoch artefact builds an `:advanced` bundle clean of `re-frame.epoch` symbols, the per-frame `:rf/epoch-record` ring buffer, the per-cascade trace-capture path, the `:sub-runs` / `:renders` / `:effects` projection walker, and every `:rf.epoch/*` trace string. The check is a grep over the advanced-compile output. Per the rf2-0hxm, rf2-p7va, rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, and rf2-lt4e verification steps.
 
-**Default-adapter ns-load registration.** Per [rf2-84po](#) (resolves [rf2-4cb6](#)) each substrate-adapter ns calls `re-frame.substrate.adapter/register-default-adapter!` at load time, wrapped in a `defonce` so reload doesn't churn the registry. The Reagent adapter registers under `:reagent`, the UIx adapter under `:uix`, the Helix adapter under `:helix`; the plain-atom adapter registers under `:plain-atom` *on the JVM only* — on CLJS, plain-atom is a programmer-explicit choice via `(rf/init! :plain-atom)`. `(rf/init!)` with no args resolves through this registry; the multi-adapter case (e.g. Reagent + UIx + Helix in a mixed-substrate app) raises `:rf.error/multiple-default-adapters` so the consumer disambiguates via the keyword form rather than getting silent first-wins / last-wins behaviour. Future adapters (beyond the three React-shaped substrates) follow the same convention: a `defonce` at the bottom of the substrate ns, calling `register-default-adapter!` with the adapter's canonical key. See [Spec 006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) for the resolver semantics in detail.
+**Default-adapter ns-load registration.** Per [rf2-84po](#) (resolves [rf2-4cb6](#)) each adapter ns calls `re-frame.substrate.adapter/register-default-adapter!` at load time, wrapped in a `defonce` so reload doesn't churn the registry. The Reagent adapter registers under `:reagent`, the UIx adapter under `:uix`, the Helix adapter under `:helix`; the plain-atom adapter registers under `:plain-atom` *on the JVM only* — on CLJS, plain-atom is a programmer-explicit choice via `(rf/init! :plain-atom)`. `(rf/init!)` with no args resolves through this registry; the multi-adapter case (e.g. Reagent + UIx + Helix in a mixed-substrate app) raises `:rf.error/multiple-default-adapters` so the consumer disambiguates via the keyword form rather than getting silent first-wins / last-wins behaviour. Future adapters (beyond the three React-shaped substrates) follow the same convention: a `defonce` at the bottom of the adapter ns, calling `register-default-adapter!` with the adapter's canonical key. See [Spec 006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) for the resolver semantics in detail.
 
-**Substrate test matrix policy.** Reagent is the **canonical substrate**: the full re-frame2 test suite (every `clojure -M:test` run, every `node-test` build, every `:browser-test` run, every `examples` run, every conformance fixture) executes against the Reagent adapter. UIx ([rf2-3yij](#)) and Helix ([rf2-2qit](#)) adapters are **smoke-tested** via a representative subset — counter + login per Decision 7 of each substrate's locked-decision set (realworld is skipped for both UIx and Helix; deferred until a substrate user wants it). Full-substrate-matrix conformance — every test, every fixture, every example, against every shipped substrate — remains a per-substrate-adapter responsibility, not a re-frame2-core responsibility. The policy is a deliberate concentration of the test budget on the substrate the spec was authored against; the substrate-adapter contract (Spec 006 §The reactive-substrate adapter contract) is what the smoke pair confirms each non-canonical adapter has implemented correctly.
+**Adapter test matrix policy.** Reagent is the **canonical adapter**: the full re-frame2 test suite (every `clojure -M:test` run, every `node-test` build, every `:browser-test` run, every `examples` run, every conformance fixture) executes against the Reagent adapter. The UIx ([rf2-3yij](#)) and Helix ([rf2-2qit](#)) adapters are **smoke-tested** via a representative subset — counter + login per Decision 7 of each adapter's locked-decision set (realworld is skipped for both UIx and Helix; deferred until a substrate user wants it). Full per-adapter-matrix conformance — every test, every fixture, every example, against every shipped adapter — remains a per-adapter responsibility, not a re-frame2-core responsibility. The policy is a deliberate concentration of the test budget on the substrate the spec was authored against; the substrate contract (Spec 006 §The reactive-substrate adapter contract) is what the smoke pair confirms each non-canonical adapter has implemented correctly.
 
 ## Cross-references
 

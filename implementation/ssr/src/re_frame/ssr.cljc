@@ -364,7 +364,7 @@
   "Install this ns's render-to-string into a substrate adapter's
   :render-to-string slot. Called by adapter namespaces that ship in
   their own artefact for hosts that wire a custom adapter directly.
-  Per Spec 006 §Substrate-adapter shipping convention (rf2-0hxm).
+  Per Spec 006 §Adapter shipping convention (rf2-0hxm).
 
   The bundled Reagent adapter wires itself via the
   `:reagent/set-hiccup-emitter!` late-bind hook (rf2-uo7v) — this fn

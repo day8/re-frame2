@@ -84,7 +84,7 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the substrate-adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
+**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
 
 ## Pre-flight checklist
 

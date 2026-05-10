@@ -49,7 +49,7 @@
 ;; `:epoch/register-epoch-cb`, `:epoch/remove-epoch-cb`,
 ;; `:epoch/configure!`) that core's re-exports late-bind to.
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to epoch (`re-frame.core`'s `epoch-history` /

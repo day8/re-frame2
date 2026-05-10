@@ -16,7 +16,7 @@
 ;; resolves at runtime (re-frame.schemas uses `(resolve 'malli.core/validate)`
 ;; which only finds vars already loaded).
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends
 ;; on core; core never depends on this artefact. The cross-reference
 ;; from core to schemas (e.g. `re-frame.test-support`'s reset

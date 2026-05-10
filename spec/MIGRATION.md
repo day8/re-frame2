@@ -74,9 +74,9 @@ day8/re-frame-2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
 [day8/re-frame-2-reagent "<latest>"]
 ```
 
-`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.substrate.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
+`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
 
-**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame-2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame-2-uix` or `day8/re-frame-2-helix` instead. Per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention).
+**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame-2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame-2-uix` or `day8/re-frame-2-helix` instead. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention).
 
 **If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
 
@@ -1066,7 +1066,7 @@ CLJS apps additionally require `malli.core` somewhere in their boot path — `re
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-app-schema ...)`, `(rf/app-schema-at ...)`, `(rf/app-schemas ...)` still work, the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-p7va](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-p7va](#).
 
 ---
 
@@ -1095,7 +1095,7 @@ Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/create-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-xbtj](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-xbtj](#).
 
 ---
 
@@ -1125,7 +1125,7 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-route ...)`, `(rf/match-url ...)`, `(rf/route-url ...)` still work, the wrappers in core late-bind through the hook table to the routing artefact's implementations. The active surfaces throw `:rf.error/routing-artefact-missing` when the routing artefact is absent.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-k682](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-k682](#).
 
 ---
 
@@ -1154,7 +1154,7 @@ Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.f
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-flow ...)`, `(rf/clear-flow ...)` still work, the wrappers in core late-bind through the hook table to the flows artefact's implementations. The active surfaces throw `:rf.error/flows-artefact-missing` when the flows artefact is absent.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-tfw3](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-tfw3](#).
 
 ---
 
@@ -1185,7 +1185,7 @@ Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs 
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/with-managed-request-stubs ...)`, `(rf/install-managed-request-stubs! ...)`, `(rf/uninstall-managed-request-stubs!)` and `(rf/with-managed-request-stubs* ...)` still work, the wrappers in core late-bind through the hook table to the http artefact's implementations.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-5kpd](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-5kpd](#).
 
 ---
 
@@ -1216,7 +1216,7 @@ Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/r
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/render-to-string ...)`, `(rf/render-tree-hash ...)`, `(rf/reg-error-projector ...)` and `(rf/project-error ...)` still work, the wrappers in core late-bind through the hook table to the ssr artefact's implementations.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-uo7v](#).
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-uo7v](#).
 
 ---
 
@@ -1246,7 +1246,7 @@ Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/registe
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/epoch-history ...)`, `(rf/restore-epoch ...)`, `(rf/register-epoch-cb ...)`, `(rf/remove-epoch-cb ...)`, and `(rf/configure :epoch-history ...)` still work; the wrappers in core late-bind through the hook table to the epoch artefact's implementations.
 
-**Why:** see [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-lt4e](#) — the seventh and final per-feature split closes the rf2-5vjj Strategy B set.
+**Why:** see [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts) and [rf2-5vjj](#) on bundle-isolation through artefact split. Per [rf2-lt4e](#) — the seventh and final per-feature split closes the rf2-5vjj Strategy B set.
 
 ---
 
@@ -1316,23 +1316,54 @@ Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the r
 
 ---
 
-### M-37. Substrate adapters relocated to `implementation/substrates/<name>/` — no user-side action
+### M-37. Adapters relocated to `implementation/adapters/<name>/` — no user-side action
 
-**Type A — note only** (no codebase rewrite needed; Maven artefact names and CLJS namespaces are unchanged).
+**Type A — note only** (no codebase rewrite needed; Maven artefact names are unchanged).
 
-Per [rf2-zha9](#) the three substrate adapters now live under a single `implementation/substrates/` directory: `implementation/substrates/reagent/`, `implementation/substrates/uix/`, `implementation/substrates/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — substrates implement the [Spec 006 §reactive-substrate adapter contract](006-ReactiveSubstrate.md#the-reactive-substrate-adapter-contract); per-feature artefacts plug in via [`re-frame.late-bind`](Conventions.md#independence-rule).
+Per [rf2-zha9](#) the three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` under rf2-zha9 and renamed to `adapters/` under [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §reactive-substrate adapter contract](006-ReactiveSubstrate.md#the-reactive-substrate-adapter-contract); per-feature artefacts plug in via [`re-frame.late-bind`](Conventions.md#independence-rule).
 
-**No user-side migration.** Maven artefact names (`day8/re-frame-2-reagent`, `day8/re-frame-2-uix`, `day8/re-frame-2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. CLJS namespaces (`re-frame.substrate.reagent`, `re-frame.substrate.uix`, `re-frame.substrate.helix`) are unchanged. The on-disk move is a re-frame-2 *repository* concern; consumers of the published jars are unaffected.
+**No user-side migration.** Maven artefact names (`day8/re-frame-2-reagent`, `day8/re-frame-2-uix`, `day8/re-frame-2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame-2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstratename--re-frameadaptername).
 
 ---
 
-**Reporting M-12 through M-37.** These twenty-six rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-six separate preambles.
+### M-38. CLJS namespace rename — `re-frame.substrate.<name>` → `re-frame.adapter.<name>`
+
+**Type A — fully mechanical.** Agent applies the rewrite without asking; the substring rename is unambiguous.
+
+Per [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision — the four CLJS namespaces that name adapter implementations or adapter-shared utilities have been renamed under the canonical `re-frame.adapter.*` prefix. "**Substrate**" now refers exclusively to the abstract contract (Spec 006); "**adapter**" names each implementation:
+
+| Old (pre-rf2-0imy) | New (canonical) |
+|---|---|
+| `re-frame.substrate.reagent` | `re-frame.adapter.reagent` |
+| `re-frame.substrate.uix` | `re-frame.adapter.uix` |
+| `re-frame.substrate.helix` | `re-frame.adapter.helix` |
+| `re-frame.substrate.context` | `re-frame.adapter.context` |
+
+Apps update each `:require` line in their ns declarations:
+
+```clj
+;; before
+(:require [re-frame.substrate.reagent :as reagent-adapter])
+
+;; after
+(:require [re-frame.adapter.reagent :as reagent-adapter])
+```
+
+**Type A rewrite.** The substring `re-frame.substrate.{reagent|uix|helix|context}` has exactly one canonical replacement (`re-frame.adapter.{reagent|uix|helix|context}`); the agent rewrites every `:require` and any reference to the namespace symbol mechanically. The local alias on the right of `:as` is the consumer's choice and is left untouched.
+
+**No back-compat alias.** Pre-1.0 supports a clean rename; the old `re-frame.substrate.<name>` symbols do not resolve in re-frame2. The substrate-contract namespaces under `re-frame.substrate.*` (notably `re-frame.substrate.adapter` and `re-frame.substrate.plain-atom`) are unaffected by this rename and stay as-is — they are slated for separate redesign under [rf2-agql](#) (explicit `(rf/init! adapter-map)` form).
+
+**Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame-2-reagent` / `day8/re-frame-2-uix` / `day8/re-frame-2-helix` exactly as before. Only the `:require` lines move.
+
+---
+
+**Reporting M-12 through M-38.** These twenty-seven rules are smaller-surface concerns. The agent aggregates them into a single "review notes" section in the migration report rather than producing twenty-seven separate preambles.
 
 ---
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (substrate adapters relocated under `implementation/substrates/<name>/` — note only; Maven artefact names and CLJS namespaces are unchanged).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1562,7 +1593,7 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 **What changes.**
 
 - **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-uix` (lockstep version with core).
-- **Adapter install.** Drop the `[re-frame.substrate.reagent]` `:require` and add `[re-frame.substrate.uix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
+- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-3yij Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
@@ -1581,7 +1612,7 @@ re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Rea
 **What changes.**
 
 - **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-helix` (lockstep version with core).
-- **Adapter install.** Drop the `[re-frame.substrate.reagent]` `:require` and add `[re-frame.substrate.helix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
+- **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-2qit Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
 - **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.

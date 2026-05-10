@@ -30,7 +30,7 @@
 ;; handler, and publishes the late-bind hooks (`:ssr/render-tree-hash`)
 ;; and the plain-atom adapter's `:render-to-string` slot.
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to ssr (`re-frame.core`'s `render-to-string` /

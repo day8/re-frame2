@@ -43,7 +43,7 @@ First public pre-release. Mike fills in the release notes manually before taggin
 
 - Reactive substrate machinery: `defn`-shape `reg-view`, frame-aware re-renders, and `frame-provider` for substrate-agnostic apps (Spec 006).
 - `:rf.http/managed` effect family with retry / decode / abort semantics (Spec 014).
-- Multi-instance frames and the `frame-provider` substrate boundary that lets adapters ship independently of the core (Spec 006 §Substrate-adapter shipping convention).
+- Multi-instance frames and the `frame-provider` substrate boundary that lets adapters ship independently of the core (Spec 006 §Adapter shipping convention).
 - Production-elision contract (Spec 009): dev-only diagnostics drop out of advanced-compile bundles; CI gates on the elision probe (rf2-11hn).
 - Artefact split (rf2-0hxm + rf2-5vjj): `day8/re-frame-2` ships substrate-agnostic; the seven per-feature artefacts (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) ship as separate Maven coordinates so a consumer who omits a feature does not pay for it on the classpath; the per-substrate artefacts (`-reagent`, `-uix`) keep substrate code out of any app that has chosen the other substrate. All 10 artefacts ship in lockstep at the same VERSION per [rf2-w05l](#).
 - `MIGRATION.md` (`spec/MIGRATION.md`) for agent-driven migration of v1 codebases to v2.
