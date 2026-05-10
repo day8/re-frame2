@@ -224,6 +224,10 @@ The default `:accept` returns `{:ok decoded}` for 2xx responses, `{:failure {:ki
 
 ## Retry and backoff
 
+`:rf.http/managed`'s `:retry` slot owns **transport-level retry only** — retries whose decision is a pure function of the failure category and the attempt count. Network errors, 5xx, per-attempt timeouts, CORS rejection: each is a `:rf.http/*` category the runtime classifies before decode, and the policy is "given attempt N and a category from `:on`, wait `backoff(N)` ms, then re-issue the same request." The failure category, the attempt count, and the configured backoff are the only inputs; the response body, the application state, and the outcome of any other request never enter the picture.
+
+This is deliberate. Retry decisions that depend on more than category + attempt are **semantic retry** — the response body says "rate-limited, try again with the new token", or the application is in a state that gates whether to re-issue, or another in-flight request's outcome decides whether this one should retry. Semantic retry is owned by **state machines** (Spec 005), not by `:rf.http/managed`. See [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry) below.
+
 ```clojure
 :retry {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
         :max-attempts 4
@@ -244,6 +248,25 @@ The default `:accept` returns `{:ok decoded}` for 2xx responses, `{:failure {:ki
 | `:backoff.:jitter` | bool | Add random ±25% jitter to each delay. |
 
 Each retry advances the carried epoch (per Pattern-StaleDetection); a stale request (e.g. one whose target route changed mid-retry) is suppressed without dispatching the reply.
+
+### Boundary — transport vs semantic retry
+
+The retry-ownership rule, stated as a single test: **does the retry decision depend on anything other than the failure category and the attempt count?** If no, `:rf.http/managed` `:retry` is the right home. If yes, lift the retry into a state machine.
+
+| Decision shape | Owner | How |
+|---|---|---|
+| "After a 503, wait `backoff(N)` and try again — up to N times." | `:rf.http/managed` `:retry` | Function of attempt count + category. Transport. |
+| "After a network timeout, retry with exponential backoff." | `:rf.http/managed` `:retry` | Function of attempt count + category. Transport. |
+| "After a 401, refresh the token, **then** retry the original request." | State machine | Response-conditional; another request must succeed first. Semantic. |
+| "If the response body says `{:error \"rate-limited\" :retry-after 5}`, wait the body's hinted delay." | State machine | Body-conditional. Semantic. |
+| "Retry the failed write only if the user is still on the page that issued it." | State machine | App-state-conditional. Semantic. |
+| "Retry every load-asset call that failed during boot, but not if the user navigated away." | State machine | App-state-conditional, joined across multiple requests. Semantic. |
+
+**Why the split.** Transport retry is mechanical — every category's retry policy is the same shape, and the runtime can express it as a config map at the call site. Semantic retry is a **state transition with side-effecting prerequisites** — refreshing a token, checking app state, joining outcomes across requests. Encoding that into `:retry` would either bloat the slot's vocabulary (predicates over response body, dispatched-effect callbacks per attempt, nested conditions) or hide the control flow inside an opaque blob that doesn't show up in traces. Spec 005's machines already give the substrate for "transition on outcome with guards and entry actions"; semantic retry is just a state-machine transition, and the trace stream sees every decision.
+
+**The escape hatch.** When you reach for "retry-on body matches X", "retry-after refresh", or "retry-when app-state says go" — stop, lift the call site into a state machine state, give that state an `:invoke` of `:rf.http/managed` (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)), and write the semantic retry as a transition on the failure reply. The machine handles the conditional logic; `:rf.http/managed` keeps doing transport retry inside each attempt the machine launches. Both halves compose — a state machine that drives `:rf.http/managed` requests can still configure transport-level `:retry` on each of those requests; the machine's semantic retry sits *outside* the per-request retry loop.
+
+See [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) for a concrete demonstration of both halves working together (the auth flow that motivated the boundary in the first place — 5xx-retry-with-backoff at the transport layer, 401-vs-refresh at the semantic layer).
 
 ### Retry × `:on-failure` semantics
 
@@ -620,7 +643,10 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - [Pattern-RemoteData](Pattern-RemoteData.md) — the 5-key request-lifecycle slice; `:rf.http/managed` writes through this slice.
 - [Pattern-StaleDetection](Pattern-StaleDetection.md) — epoch carry; managed requests inherit it.
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
+- [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:invoke`.
+- [Spec 005 §Spawn-and-join via `:invoke-all`](005-StateMachines.md#spawn-and-join-via-invoke-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
 - [Spec 009 §Trace event envelope](009-Instrumentation.md) — trace envelope shape; `:rf.http/retry-attempt`, `:rf.warning/decode-defaulted`, and the `:rf.http/*` failure-category traces follow it.
 - [Spec 010 §Schemas](010-Schemas.md) — Malli decode integration; `:decode <schema>` runs through `010`'s decode pipeline.
+- [Pattern-Boot §Worked example — auth-machine and the retry-ownership boundary](Pattern-Boot.md#worked-example--auth-machine-and-the-retry-ownership-boundary) — the canonical end-to-end illustration of [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.http/*` namespace is reserved for this Spec.
 - [`re-frame-fetch-fx`](https://github.com/superstructor/re-frame-fetch-fx) — the inspiration; Spec 014 adds retry, accept-step, default-reply-addressing, schema-driven decode, JVM coverage, and stale-suppression on top.
