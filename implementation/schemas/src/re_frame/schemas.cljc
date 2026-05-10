@@ -500,29 +500,36 @@
   ([db] (validate-app-db! db nil (frame/current-frame)))
   ([db event-id] (validate-app-db! db event-id (frame/current-frame)))
   ([db event-id frame-id]
-   (when (and interop/debug-enabled? @validator-fn)
-     (doseq [[path m] (frame-schema-entries frame-id)]
-       (let [val-at (get-in db path)
-             schema (:schema m)]
-         (when-not (run-validator schema val-at)
-           (trace/emit-error! :rf.error/schema-validation-failure
-                              (cond-> {:where    :app-db
-                                       :path     path
-                                       :value    val-at
-                                       :frame    frame-id
-                                       :explain  (run-explainer schema val-at)
-                                       :reason   (str "App-db at path " path
-                                                      " failed schema " schema
-                                                      ": expected "
-                                                      (cond
-                                                        (and (vector? schema)
-                                                             (= 1 (count schema))
-                                                             (keyword? (first schema)))
-                                                        (first schema)
-                                                        :else schema)
-                                                      ", got " (type-of-value val-at) ".")
-                                       :recovery :no-recovery}
-                                event-id (assoc :failing-id event-id)))))))))
+   ;; Per Spec 009 §Production builds the entire body lives inside a
+   ;; `(when interop/debug-enabled? ...)` gate as the OUTERMOST form so
+   ;; :advanced + goog.DEBUG=false DCE-elides every reason string,
+   ;; keyword, validator deref, and trace call. The `@validator-fn`
+   ;; check is a runtime atom deref and must NOT be combined into the
+   ;; gate predicate (the deref defeats Closure's reachability proof).
+   (when interop/debug-enabled?
+     (when @validator-fn
+       (doseq [[path m] (frame-schema-entries frame-id)]
+         (let [val-at (get-in db path)
+               schema (:schema m)]
+           (when-not (run-validator schema val-at)
+             (trace/emit-error! :rf.error/schema-validation-failure
+                                (cond-> {:where    :app-db
+                                         :path     path
+                                         :value    val-at
+                                         :frame    frame-id
+                                         :explain  (run-explainer schema val-at)
+                                         :reason   (str "App-db at path " path
+                                                        " failed schema " schema
+                                                        ": expected "
+                                                        (cond
+                                                          (and (vector? schema)
+                                                               (= 1 (count schema))
+                                                               (keyword? (first schema)))
+                                                          (first schema)
+                                                          :else schema)
+                                                        ", got " (type-of-value val-at) ".")
+                                         :recovery :no-recovery}
+                                  event-id (assoc :failing-id event-id))))))))))
 
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,
@@ -540,26 +547,31 @@
   is pluggable; when none is registered this fn returns true (pass)
   without inspecting the schema."
   [event-id event handler-meta]
-  (if (and interop/debug-enabled? @validator-fn)
-    (if-let [schema (:spec handler-meta)]
-      (if (run-validator schema event)
-        true
-        (let [explanation (run-explainer schema event)]
-          (trace/emit-error! :rf.error/schema-validation-failure
-                             {:where       :event
-                              :event-id    event-id
-                              :failing-id  event-id
-                              :spec-id     event-id
-                              :received    event
-                              :event       event
-                              :malli-error explanation
-                              :explain     explanation
-                              :reason      (str "Event " event-id
-                                                " payload failed schema "
-                                                schema ", got "
-                                                (type-of-value event) ".")
-                              :recovery    :no-recovery})
-          false))
+  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+  ;; DCE-elides the entire body. The `@validator-fn` deref must live
+  ;; INSIDE the gate (atom deref is not a compile-time constant).
+  (if interop/debug-enabled?
+    (if @validator-fn
+      (if-let [schema (:spec handler-meta)]
+        (if (run-validator schema event)
+          true
+          (let [explanation (run-explainer schema event)]
+            (trace/emit-error! :rf.error/schema-validation-failure
+                               {:where       :event
+                                :event-id    event-id
+                                :failing-id  event-id
+                                :spec-id     event-id
+                                :received    event
+                                :event       event
+                                :malli-error explanation
+                                :explain     explanation
+                                :reason      (str "Event " event-id
+                                                  " payload failed schema "
+                                                  schema ", got "
+                                                  (type-of-value event) ".")
+                                :recovery    :no-recovery})
+            false))
+        true)
       true)
     true))
 
@@ -577,27 +589,32 @@
   Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
   pluggable; when none is registered this fn returns true."
   [sub-id query-v value sub-meta]
-  (if (and interop/debug-enabled? @validator-fn)
-    (if-let [schema (:spec sub-meta)]
-      (if (run-validator schema value)
-        true
-        (let [explanation (run-explainer schema value)]
-          (trace/emit-error! :rf.error/schema-validation-failure
-                             {:where       :sub-return
-                              :sub-id      sub-id
-                              :failing-id  sub-id
-                              :spec-id     sub-id
-                              :query-v     query-v
-                              :received    value
-                              :value       value
-                              :malli-error explanation
-                              :explain     explanation
-                              :reason      (str "Subscription " sub-id
-                                                " return value failed schema "
-                                                schema ", got "
-                                                (type-of-value value) ".")
-                              :recovery    :replaced-with-default})
-          false))
+  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+  ;; DCE-elides the entire body. The `@validator-fn` deref must live
+  ;; INSIDE the gate (atom deref is not a compile-time constant).
+  (if interop/debug-enabled?
+    (if @validator-fn
+      (if-let [schema (:spec sub-meta)]
+        (if (run-validator schema value)
+          true
+          (let [explanation (run-explainer schema value)]
+            (trace/emit-error! :rf.error/schema-validation-failure
+                               {:where       :sub-return
+                                :sub-id      sub-id
+                                :failing-id  sub-id
+                                :spec-id     sub-id
+                                :query-v     query-v
+                                :received    value
+                                :value       value
+                                :malli-error explanation
+                                :explain     explanation
+                                :reason      (str "Subscription " sub-id
+                                                  " return value failed schema "
+                                                  schema ", got "
+                                                  (type-of-value value) ".")
+                                :recovery    :replaced-with-default})
+            false))
+        true)
       true)
     true))
 
@@ -615,27 +632,32 @@
   Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
   pluggable; when none is registered this fn returns true."
   [cofx-id event-id value cofx-meta]
-  (if (and interop/debug-enabled? @validator-fn)
-    (if-let [schema (:spec cofx-meta)]
-      (if (run-validator schema value)
-        true
-        (let [explanation (run-explainer schema value)]
-          (trace/emit-error! :rf.error/schema-validation-failure
-                             {:where       :cofx
-                              :cofx-id     cofx-id
-                              :event-id    event-id
-                              :failing-id  event-id
-                              :spec-id     cofx-id
-                              :received    value
-                              :value       value
-                              :malli-error explanation
-                              :explain     explanation
-                              :reason      (str "Coeffect " cofx-id
-                                                " injected value failed schema "
-                                                schema ", got "
-                                                (type-of-value value) ".")
-                              :recovery    :no-recovery})
-          false))
+  ;; Outermost `interop/debug-enabled?` gate so :advanced + goog.DEBUG=false
+  ;; DCE-elides the entire body. The `@validator-fn` deref must live
+  ;; INSIDE the gate (atom deref is not a compile-time constant).
+  (if interop/debug-enabled?
+    (if @validator-fn
+      (if-let [schema (:spec cofx-meta)]
+        (if (run-validator schema value)
+          true
+          (let [explanation (run-explainer schema value)]
+            (trace/emit-error! :rf.error/schema-validation-failure
+                               {:where       :cofx
+                                :cofx-id     cofx-id
+                                :event-id    event-id
+                                :failing-id  event-id
+                                :spec-id     cofx-id
+                                :received    value
+                                :value       value
+                                :malli-error explanation
+                                :explain     explanation
+                                :reason      (str "Coeffect " cofx-id
+                                                  " injected value failed schema "
+                                                  schema ", got "
+                                                  (type-of-value value) ".")
+                                :recovery    :no-recovery})
+            false))
+        true)
       true)
     true))
 
