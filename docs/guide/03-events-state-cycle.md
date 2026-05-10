@@ -215,9 +215,23 @@ The pattern docs are themselves human-readable — closer in voice to this guide
 
 One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 3](../../spec/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
 
+## A note on app-db shape
+
+A frame's `app-db` is "your app's state, in one map." There's no required schema, but a useful convention is one top-level key per *feature* — each feature owning its own slice, accessed through that feature's subs and events:
+
+```clojure
+{:auth     {:user nil :loading? false :error nil}
+ :cart     {:items [] :checkout-state :idle}
+ :articles {:status :loaded :data [...] :loaded-at 1747...}
+ :route    {:id :route/home :params {}}
+ :ui       {:sidebar-open? true :modal nil}}
+```
+
+The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 07](07-server-side.md) shows this when SSR enters the picture.
+
 ## A note on naming
 
-The convention in re-frame2 events:
+The same prefix convention shapes event ids:
 
 - `:feature/verb-noun` — the past tense or imperative for the user's action: `:auth/log-in`, `:cart.item/remove`.
 - `:feature/loaded`, `:feature/load-failed`, `:feature/saved`, `:feature/save-failed` — the result-bearing follow-ups, named after the action they're a result of.
