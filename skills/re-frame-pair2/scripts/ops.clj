@@ -441,15 +441,22 @@
       (= a "--origin")          (recur (rest more) (assoc pred :origin (->kw (first more))))
       (= a "--frame")           (recur (rest more) (assoc pred :frame (->kw (first more))))
 
+      ;; rf2-gy3n: --custom (arbitrary CLJS predicate form) was advertised
+      ;; in earlier docs but never implemented. Implementing it requires
+      ;; designing the predicate-fn surface (security implications: the
+      ;; transport would eval untrusted CLJS), so it is removed from the
+      ;; documented surface for now. The flag is rejected with an
+      ;; explanatory error rather than silently skipped, so any stale
+      ;; caller surfaces clearly.
       (= a "--custom")
       (do
         (emit {:ok? false
-               :reason :not-yet-supported
+               :reason :unsupported-flag
                :flag :--custom
-               :hint (str "Arbitrary CLJS predicate filters are reserved "
-                          "but not yet implemented. Use --event-id-prefix, "
+               :hint (str "--custom (arbitrary CLJS predicate form) is "
+                          "not supported. Use --event-id, --event-id-prefix, "
                           "--effects, --touches-path, --sub-ran, --render, "
-                          "--origin, or --frame instead.")})
+                          "--origin, or --frame.")})
         (System/exit 1))
 
       :else                     (recur more pred))))

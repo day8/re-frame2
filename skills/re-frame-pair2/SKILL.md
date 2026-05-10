@@ -153,7 +153,7 @@ Each op below is a short `scripts/eval-cljs.sh` invocation wrapping a call into 
 | `watch/stream` | `scripts/watch-epochs.sh --stream --event-id-prefix :cart/` | Streams until disconnect, idle-timeout, or `watch/stop` |
 | `watch/stop` | `scripts/watch-epochs.sh --stop` | Terminates any active watch for this session |
 
-Predicates (any combination): `--event-id`, `--event-id-prefix`, `--effects`, `--timing-ms '>100'`, `--touches-path`, `--sub-ran`, `--render`, `--origin :pair|:app|:ui|:timer|:http`, `--frame :foo`, `--custom` (arbitrary CLJS predicate form).
+Predicates (any combination): `--event-id`, `--event-id-prefix`, `--effects`, `--timing-ms '>100'`, `--touches-path`, `--sub-ran`, `--render`, `--origin :pair|:app|:ui|:timer|:http`, `--frame :foo`.
 
 Mode rules:
 
@@ -307,7 +307,7 @@ When the user mentions a state machine (Spec 005), chain:
 1. `machines/list` — confirm it's registered.
 2. `machines/describe :auth` — return the spec map (`:initial`, `:states`, `:guards`, `:actions`, source coords).
 3. `machines/state :auth` — current snapshot, including `:rf/snapshot-version`.
-4. To watch transitions live: `watch/stream --custom '(fn [e] (some #(= :rf.machine/transition (:operation %)) (:trace-events e)))'`.
+4. To watch transitions live: `watch/stream` and inspect each emitted epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the watch layer is not currently supported; combine `--event-id-prefix` (to narrow by trigger) with caller-side filtering of the streamed epochs.
 5. Subscribe to the canonical machine sub: `subs/sample [:rf/machine :auth]`.
 
 ### "Dead code scan"
