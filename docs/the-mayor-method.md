@@ -64,6 +64,7 @@ Then drive the iteration with prompts like these:
 - **Propose alternatives.** *"What other approaches could solve this? What are their trade-offs?"*
 - **State the problem and the solution clearly.** *"Restate the problem in two sentences. Restate your solution in two sentences. If either is hard, the spec isn't ready."*
 - **Background audit.** *"Dispatch a background agent to look for reasons the spec might be wrong — bad assumptions, missing prior art, contradictions elsewhere in the repo. Append findings to the end of the doc."*
+- **Codebase sweep.** *"Dispatch a background agent to review the codebase looking for anything I might have missed — existing patterns, edge cases, conventions, callers — that the spec should account for. Append findings to the bottom of the spec document."*
 
 Read each response. Push back. Edit the spec. Repeat.
 
