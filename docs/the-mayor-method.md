@@ -154,6 +154,34 @@ That gives me a second opinion without letting the second opinion overwrite the 
 
 The point isn't that the other model is wrong. The point is: the model you trust most for decisions is the one whose decisions land. Other models contribute findings, not decisions.
 
+## Review Points 
+
+Every now and again, at certain checkpoints, I put this to the mayor:
+
+```
+For this repo, spawn agents to do each of the following independently …
+  Review with an eye to efficiency (but not at the expense of clarity)
+  Review for completeness
+  Review for correctness
+  Review for clarity and simplicity
+  Review for Best Practice
+  Review with an eye to test coverage and rigour
+  Review comments and explanation. 
+  Review for documentation updates, including READMEs and changelogs. 
+  Review for backwards compatibility 
+
+Create beads for each actionable observation. Action beads using background workers.
+```
+
+Using multiple lenses is a nice way to flush out problems.
+
+Sometimes the first line of that prompt is:
+```
+Regarding the recent commits (the body of work recently undertaken): 
+```
+
+The beads database is invaluable to the mayor AND the background worker agents doing the review. 
+
 ## What this gives you
 
 After a few weeks of working this way:
