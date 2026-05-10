@@ -8,7 +8,7 @@
 
 re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
 
-Unlike most frameworks, re-frame2 is defined by its **specification** (~22,000 lines across 35+ documents), not its implementation. The specification is complete enough that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
+Unlike most frameworks, re-frame2 is defined by its **specification** (~22K lines across 35+ documents), not its implementation. The specification is complete enough that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
 
 This pattern is NOT what you tend to see in React land. Most existing React-based JS/TS frameworks are organised around components as the primary architectural unit: state, effects, data fetching, and routing are usually attached to, colocated with, or composed around the view tree. By contrast, re-frame puts the event/data flow at the centre: events update centralised state, subscriptions derive data, and views sit at the end as render functions over reactive inputs. In summary, with re-frame, views are not central, they are derivative.
 
@@ -71,7 +71,7 @@ Some of the ways this manifests:
 
 The implication: **if you don't like this specification, change it, and one-shot your own framework.** Roll your own. The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that.
 
-The further implication is that value has moved up the chain. The value of code is now $0 and it is disposable. All the value is in the specification.
+The further implication is that value has moved up the chain. Assumoing you have a good enough spec, the value of code is now $0 and it is disposable. All the value is in the specification.
 
 **2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
