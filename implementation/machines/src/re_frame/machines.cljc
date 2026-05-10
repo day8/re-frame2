@@ -33,6 +33,7 @@
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as adapter]
@@ -613,6 +614,7 @@
                         ;; the runtime can write [:rf/spawned parent-id
                         ;; invoke-id] -> spawned-id (rf2-t07u).
                         spawn-args  (-> inv
+                                        (dissoc :timeout-ms :on-timeout)
                                         (assoc :id-prefix    machine-id)
                                         (assoc :rf/spawned-id spawned-id)
                                         (assoc :rf/parent-id  parent-id)
@@ -638,8 +640,28 @@
                                         (if new-data
                                           (assoc s :data new-data)
                                           s))
-                                      s)]
-                    [s' (conj acc-fx [:rf.machine/spawn spawn-args])])
+                                      s)
+                        ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop):
+                        ;; when :timeout-ms is set, emit a sibling
+                        ;; :rf.machine/timeout-schedule fx that the runtime
+                        ;; converts into a real wall-clock dispatch via
+                        ;; interop/set-timeout!. Carries the current epoch
+                        ;; so the synthetic timeout-elapsed event is
+                        ;; epoch-checked at delivery (re-entry advances the
+                        ;; epoch, invalidating in-flight windows).
+                        timeout-ms  (:timeout-ms inv)
+                        on-timeout  (:on-timeout inv)
+                        epoch       (or (get-in s' [:data :rf/after-epoch]) 0)
+                        timeout-fxs (when (and timeout-ms on-timeout)
+                                      [[:rf.machine/timeout-schedule
+                                        {:rf/parent-id parent-id
+                                         :rf/invoke-id invoke-id
+                                         :timeout-ms   timeout-ms
+                                         :on-timeout   on-timeout
+                                         :epoch        epoch}]])]
+                    [s' (vec (concat acc-fx
+                                     [[:rf.machine/spawn spawn-args]]
+                                     (or timeout-fxs [])))])
 
                   (:invoke-all n)
                   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw).
@@ -702,8 +724,25 @@
                                      (if new-data (assoc snap :data new-data) snap))
                                    snap)))
                              s
-                             children')]
-                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))])
+                             children')
+                        ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop):
+                        ;; for :invoke-all, the timeout applies to the
+                        ;; whole join. On expiry the runtime cancels every
+                        ;; surviving child (via the existing :rf.machine/destroy
+                        ;; teardown form for invoke-all) and dispatches
+                        ;; :on-timeout into the parent.
+                        timeout-ms  (:timeout-ms inv-all)
+                        on-timeout  (:on-timeout inv-all)
+                        epoch       (or (get-in s' [:data :rf/after-epoch]) 0)
+                        timeout-fxs (when (and timeout-ms on-timeout)
+                                      [[:rf.machine/timeout-schedule
+                                        {:rf/parent-id  parent-id
+                                         :rf/invoke-id  invoke-id
+                                         :rf/invoke-all true
+                                         :timeout-ms    timeout-ms
+                                         :on-timeout    on-timeout
+                                         :epoch         epoch}]])]
+                    [s' (vec (concat acc-fx [init-fx] child-spawn-fxs (or timeout-fxs [])))])
 
                   :else
                   [s acc-fx]))
@@ -1083,6 +1122,183 @@
                 new-db (assoc-in db [:rf/spawned parent-id invoke-id] join-state'')]
             {:db new-db :fx fx}))))))
 
+;; ---- :invoke / :invoke-all :timeout-ms interception (rf2-1lop) -----------
+;;
+;; Per Spec 005 §Wall-clock :timeout-ms, the synthetic event
+;;
+;;   [:rf.machine.invoke.timeout/elapsed
+;;    {:rf/invoke-id <prefix-path>
+;;     :rf/invoke-all <bool>
+;;     :timeout-ms   <ms>
+;;     :on-timeout   <event-vec>
+;;     :epoch        <captured-epoch>}]
+;;
+;; arrives at the parent machine after `interop/set-timeout!` fires (per
+;; timeout-schedule-fx). The interceptor below:
+;;
+;;   1. Verifies the carried epoch matches the snapshot's current
+;;      `:rf/after-epoch` (re-entry to the :invoke-bearing state advances
+;;      the epoch — same idiom as :after — invalidating in-flight
+;;      timeouts).
+;;   2. Verifies the active state still has the matching :invoke (or
+;;      :invoke-all) at the carried :rf/invoke-id with a :timeout-ms slot
+;;      (defensive — the spec could have been re-registered).
+;;   3. Emits :rf.machine.invoke/timed-out trace.
+;;   4. Builds destroy fx for the spawned actor(s) — single :invoke
+;;      destroys the one actor; :invoke-all destroys every surviving
+;;      child plus the join-state slot.
+;;   5. Builds dispatch fx for the user's :on-timeout event into the
+;;      parent (standard sub-event shape).
+;;
+;; Returns nil when the event is not a timeout-elapsed event (caller
+;; continues with normal machine-transition); returns an effect map
+;; {:db ... :fx ...} on a match.
+
+(defn- intercept-invoke-timeout-event
+  [machine db path snapshot parent-id inner-event]
+  (when (and (vector? inner-event)
+             (= :rf.machine.invoke.timeout/elapsed (first inner-event))
+             (map? (second inner-event)))
+    (let [payload      (second inner-event)
+          invoke-id    (:rf/invoke-id payload)
+          invoke-all?  (boolean (:rf/invoke-all payload))
+          timeout-ms   (:timeout-ms payload)
+          on-timeout   (:on-timeout payload)
+          carried-epc  (:epoch payload)
+          elapsed-ms   (:elapsed-ms payload)
+          current-epc  (or (get-in snapshot [:data :rf/after-epoch]) 0)
+          ;; Resolve the node at invoke-id in the machine's state tree.
+          inv-node     (when (vector? invoke-id) (node-at machine invoke-id))
+          ;; Verify the active state path still has the :invoke-bearing
+          ;; node as one of its prefixes — if the snapshot has moved past
+          ;; the invoke-bearing state, the timeout is stale.
+          active-path  (state-path (:state snapshot))
+          still-active? (and (seq active-path)
+                             (= (vec invoke-id)
+                                (vec (take (count invoke-id) active-path))))
+          slot-spec    (cond
+                         (and inv-node (:invoke inv-node))     (:invoke inv-node)
+                         (and inv-node (:invoke-all inv-node)) (:invoke-all inv-node)
+                         :else nil)
+          slot-timeout (when (map? slot-spec) (:timeout-ms slot-spec))
+          slot-on-to   (when (map? slot-spec) (:on-timeout slot-spec))
+          ;; Stale (epoch) or inactive: emit a stale-suppression trace
+          ;; and consume the event without firing.
+          stale?       (or (not= carried-epc current-epc)
+                           (not still-active?)
+                           (not (= timeout-ms slot-timeout))
+                           (not (= on-timeout slot-on-to)))]
+      (cond
+        stale?
+        (do (trace/emit! :machine :rf.machine.invoke.timeout/stale-suppressed
+                         {:machine-id      parent-id
+                          :invoke-id       invoke-id
+                          :timeout-ms      timeout-ms
+                          :scheduled-epoch carried-epc
+                          :current-epoch   current-epc
+                          :still-active?   still-active?
+                          :recovery        :replaced-with-default})
+            ;; Suppress: snapshot unchanged, no fx.
+            {:db db :fx []})
+
+        :else
+        (let [;; Build destroy fx — same shape apply-transition-once
+              ;; uses on exit. For :invoke-all carry :rf/invoke-all true
+              ;; so destroy-machine-fx walks the children map.
+              destroy-fx
+              (if invoke-all?
+                [[:rf.machine/destroy {:rf/parent-id  parent-id
+                                       :rf/invoke-id  invoke-id
+                                       :rf/invoke-all true}]]
+                [[:rf.machine/destroy {:rf/parent-id parent-id
+                                       :rf/invoke-id invoke-id}]])
+              ;; Per-sibling cancellation traces for :invoke-all so
+              ;; observers can attribute the cause as :on-timeout. The
+              ;; destroy fx itself emits :rf.machine/destroyed; this
+              ;; trace surfaces the timeout-cancellation reason.
+              _ (when invoke-all?
+                  (let [join-state (get-in db [:rf/spawned parent-id invoke-id])
+                        children   (when (map? join-state) (:children join-state))
+                        completed  (when (map? join-state)
+                                     (into #{} (concat (:done join-state)
+                                                       (:failed join-state))))
+                        survivors  (->> children
+                                        (remove (fn [[cid _]] (contains? completed cid))))]
+                    (doseq [[cid spawned-id] survivors]
+                      (trace/emit! :machine :rf.machine.invoke/cancelled-on-join-resolution
+                                   {:machine-id parent-id
+                                    :invoke-id  invoke-id
+                                    :child-id   cid
+                                    :spawned-id spawned-id
+                                    :join-event :on-timeout}))))
+              ;; The advisory children-status snapshot — only meaningful
+              ;; for :invoke-all. Per Spec 005 §Trace event: partial-
+              ;; progress is NOT preserved into :on-timeout itself, but
+              ;; the trace carries it so observers can correlate.
+              children-status
+              (when invoke-all?
+                (let [js (get-in db [:rf/spawned parent-id invoke-id])]
+                  (when (map? js)
+                    {:done    (or (:done   js) #{})
+                     :failed  (or (:failed js) #{})
+                     :pending (let [completed (into #{} (concat (:done   js)
+                                                                (:failed js)))]
+                                (->> (:children js)
+                                     (remove (fn [[cid _]] (contains? completed cid)))
+                                     (map first)
+                                     (into #{})))})))
+              tags (cond-> {:machine-id parent-id
+                            :invoke-id  invoke-id
+                            :timeout-ms timeout-ms
+                            :elapsed-ms elapsed-ms}
+                     children-status (assoc :children-status children-status))
+              _ (trace/emit! :machine :rf.machine.invoke/timed-out tags)
+              ;; Dispatch the user-supplied :on-timeout event into the
+              ;; parent. Standard sub-event shape: [<parent-id> <event-vec>].
+              dispatch-fx [[:dispatch (into [parent-id on-timeout] [])]]
+              fx (vec (concat destroy-fx dispatch-fx))]
+          {:db db :fx fx})))))
+
+(defn- validate-invoke-timeout!
+  "Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop): walk the state tree
+  at registration time and reject malformed :timeout-ms / :on-timeout
+  declarations on :invoke and :invoke-all.
+
+  Three error categories:
+    - :rf.error/machine-invoke-timeout-without-on-timeout — :timeout-ms
+      is set without :on-timeout (the runtime needs an event to dispatch
+      on expiry).
+    - :rf.error/machine-invoke-on-timeout-without-timeout — :on-timeout
+      is set without :timeout-ms (the slot would never fire).
+    - :rf.error/machine-invoke-timeout-not-positive — :timeout-ms is
+      non-positive."
+  [state-key state-node]
+  (doseq [[slot-key spec]
+          [[:invoke     (:invoke state-node)]
+           [:invoke-all (:invoke-all state-node)]]]
+    (when (map? spec)
+      (let [t  (:timeout-ms spec)
+            ot (:on-timeout spec)]
+        (cond
+          (and (some? t) (nil? ot))
+          (throw (ex-info ":rf.error/machine-invoke-timeout-without-on-timeout"
+                          {:state state-key :slot slot-key :timeout-ms t}))
+
+          (and (nil? t) (some? ot))
+          (throw (ex-info ":rf.error/machine-invoke-on-timeout-without-timeout"
+                          {:state state-key :slot slot-key :on-timeout ot}))
+
+          (and (some? t)
+               (or (not (number? t)) (not (pos? t))))
+          (throw (ex-info ":rf.error/machine-invoke-timeout-not-positive"
+                          {:state state-key :slot slot-key :timeout-ms t}))
+
+          (and (some? t) (not (vector? ot)))
+          (throw (ex-info ":rf.error/machine-invoke-timeout-without-on-timeout"
+                          {:state  state-key :slot slot-key
+                           :reason ":on-timeout must be an event vector"
+                           :on-timeout ot})))))))
+
 (defn- validate-invoke-all!
   "Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
   state tree at registration time and reject malformed :invoke-all
@@ -1182,9 +1398,12 @@
   [machine]
   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
   ;; full state tree (including nested :states) and reject malformed
-  ;; :invoke-all declarations at registration time.
+  ;; :invoke-all declarations at registration time. Per rf2-1lop:
+  ;; reject malformed :timeout-ms / :on-timeout pairings on :invoke
+  ;; and :invoke-all.
   (doseq [[s n] (walk-state-nodes machine)]
-    (validate-invoke-all! s n))
+    (validate-invoke-all! s n)
+    (validate-invoke-timeout! s n))
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
@@ -1284,7 +1503,16 @@
           ;; updates the runtime-owned join state and (on resolution)
           ;; fires per-sibling cancellations + the join event. Returns
           ;; nil if the event is not a child-event for the current state.
-          intercepted (intercept-invoke-all-event machine db path snapshot machine-id inner-event)]
+          ;;
+          ;; Per Spec 005 §Wall-clock :timeout-ms (rf2-1lop): intercept
+          ;; :rf.machine.invoke.timeout/elapsed events delivered by
+          ;; timeout-schedule-fx's wall-clock dispatch. On match (epoch
+          ;; + active state), emit the timed-out trace, run destroy,
+          ;; dispatch :on-timeout into the parent. Stale carries (re-
+          ;; entry advanced the epoch, or the machine has moved past
+          ;; the :invoke-bearing state) are suppressed.
+          intercepted (or (intercept-invoke-timeout-event machine db path snapshot machine-id inner-event)
+                          (intercept-invoke-all-event machine db path snapshot machine-id inner-event))]
       (if intercepted
         ;; The event was a join-protocol event; the intercept did its
         ;; bookkeeping in app-db and set up the resolution dispatch.
@@ -1813,6 +2041,74 @@
       (registrar/unregister! :event actor-id))
     nil))
 
+;; ---- timeout-schedule (rf2-1lop) ------------------------------------------
+
+(defn timeout-schedule-fx
+  "fx handler for `:rf.machine/timeout-schedule`. Per Spec 005 §Wall-clock
+  `:timeout-ms` (rf2-1lop), on entry to an `:invoke`-bearing or
+  `:invoke-all`-bearing state with `:timeout-ms`, the runtime emits this
+  fx alongside the spawn fx. The handler schedules a real wall-clock
+  dispatch via `interop/set-timeout!`.
+
+  After the user-supplied `:timeout-ms` elapses, the handler dispatches
+  the synthetic event:
+
+      [<parent-id> [:rf.machine.invoke.timeout/elapsed
+                     {:rf/invoke-id <invoke-id>
+                      :rf/invoke-all <bool>
+                      :timeout-ms <ms>
+                      :on-timeout <event-vec>
+                      :epoch <captured-epoch>}]]
+
+  into the parent machine. The parent's create-machine-handler boundary
+  intercepts this event (epoch-checked); on match it emits
+  `:rf.machine.invoke/timed-out`, runs the destroy (cancellation
+  cascade), and dispatches the user-supplied `:on-timeout` event into
+  the parent.
+
+  No-op under `:platform :server` (per Spec 005 §SSR mode) — symmetric
+  with `:after`'s SSR no-op rule. The conformance harness verifies the
+  `:rf.machine/timeout-schedule` fx is emitted; production drives the
+  setTimeout."
+  [{:keys [frame]} args]
+  (let [frame-id   (or frame :rf/default)
+        parent-id  (:rf/parent-id args)
+        invoke-id  (:rf/invoke-id args)
+        invoke-all? (:rf/invoke-all args)
+        timeout-ms (:timeout-ms args)
+        on-timeout (:on-timeout args)
+        epoch      (:epoch args)
+        platform   (or (get-in (frame/frame-meta frame-id) [:config :platform])
+                       :client)]
+    (trace/emit! :machine :rf.machine.invoke.timeout/scheduled
+                 {:frame      frame-id
+                  :machine-id parent-id
+                  :invoke-id  invoke-id
+                  :timeout-ms timeout-ms
+                  :on-timeout on-timeout
+                  :epoch      epoch
+                  :platform   platform})
+    ;; Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR)
+    ;; — wall-clock timers are no-ops on the server.
+    (when (and (not= :server platform)
+               (some? timeout-ms)
+               (some? on-timeout))
+      (let [start-ms (interop/now-ms)]
+        (interop/set-timeout!
+          (fn []
+            (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+              (let [elapsed-ms (- (interop/now-ms) start-ms)
+                    payload    {:rf/invoke-id   invoke-id
+                                :rf/invoke-all  (boolean invoke-all?)
+                                :timeout-ms     timeout-ms
+                                :on-timeout     on-timeout
+                                :epoch          epoch
+                                :elapsed-ms     elapsed-ms}]
+                (dispatch! [parent-id [:rf.machine.invoke.timeout/elapsed payload]]
+                           {:frame frame-id}))))
+          timeout-ms)))
+    nil))
+
 ;; ---- query API for system-id (Spec 005 §Named addressing via :system-id) -
 
 (defn machine-by-system-id
@@ -1828,9 +2124,10 @@
    (when-let [container (frame/get-frame-db frame-id)]
      (get-in (adapter/read-container container) [:rf/system-ids system-id]))))
 
-(fx/reg-fx :rf.machine/spawn            spawn-fx)
-(fx/reg-fx :rf.machine/destroy          destroy-machine-fx)
-(fx/reg-fx :rf.machine/invoke-all-init  invoke-all-init-fx)
+(fx/reg-fx :rf.machine/spawn             spawn-fx)
+(fx/reg-fx :rf.machine/destroy           destroy-machine-fx)
+(fx/reg-fx :rf.machine/invoke-all-init   invoke-all-init-fx)
+(fx/reg-fx :rf.machine/timeout-schedule  timeout-schedule-fx)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -1864,3 +2161,4 @@
 (late-bind/set-fn! :machines/spawn-fx               spawn-fx)
 (late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 (late-bind/set-fn! :machines/invoke-all-init-fx     invoke-all-init-fx)
+(late-bind/set-fn! :machines/timeout-schedule-fx    timeout-schedule-fx)
