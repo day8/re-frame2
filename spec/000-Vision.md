@@ -29,7 +29,9 @@ The headline shape:
 
 re-frame2's design is governed by **two hard constraints** on the reference implementation that must always hold, plus **fourteen goals** the pattern and the reference implementation optimise for. When a constraint conflicts with a goal, the constraint wins. When goals conflict, AI-first amenability is the tiebreaker — but in practice the lens-goals (AI-first amenability, AI-implementable from the spec alone, simplest computational model, Clojure ethos) usually point the same way, because they flow from the same insight: smaller, more precisely-specified execution models are easier for any reader — human or AI — to comprehend and reproduce.
 
-## The pattern (language-agnostic)
+## The pattern (JS-cross-compile-language-agnostic)
+
+> **Scope footnote.** "Language-agnostic" in this spec means **agnostic across the eight languages that cross-compile to JS and bind against React + VDOM** — ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS. re-frame2 commits to **React + VDOM** at the render-side (per [Spec 006](006-ReactiveSubstrate.md)); non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-cross-compile-to-JS host languages (Python, Ruby, native Rust, Go, server-side Kotlin / Java) are out of scope. Where this document or any other says "host" or "host language" without further qualification, read it as "one of the eight in scope above."
 
 A claim to be "this pattern" requires an implementation to supply this minimal core:
 
@@ -48,9 +50,9 @@ A claim to be "this pattern" requires an implementation to supply this minimal c
 
 Some pattern requirements admit multiple host realisations. The *capability* is required for conformance; the *mechanism* is the host's choice.
 
-- **Shape description — required (capability); schemas vs. types — host's choice (mechanism).** The pattern requires *some* description of the shapes flowing through the runtime — event vectors, registration metadata, the dispatch envelope, effect maps, `app-db` slices — so that AIs can read shapes before generating code, and so that consumers can validate at boundaries. **In dynamically typed hosts** (Clojure, Python, JavaScript, Ruby) this is the job of a runtime schema layer: Malli in the CLJS reference, Pydantic in a Python port, dry-rb in a Ruby port, Zod in a JS port. **In statically typed hosts** (TypeScript, Kotlin, Rust, F#) the host's type system does much of the same job at compile time. A TS port may choose to *also* ship Zod (or similar) for runtime boundary validation; it doesn't have to. The pattern requires shape description; schemas and types are interchangeable mechanisms. Implementations that omit a runtime schema layer (because their type system covers the territory) remain fully conformant.
+- **Shape description — required (capability); schemas vs. types — host's choice (mechanism).** The pattern requires *some* description of the shapes flowing through the runtime — event vectors, registration metadata, the dispatch envelope, effect maps, `app-db` slices — so that AIs can read shapes before generating code, and so that consumers can validate at boundaries. **In dynamically typed in-scope hosts** (ClojureScript, Squint) this is the job of a runtime schema layer: Malli in the CLJS reference, Zod (or similar) in a Squint port. **In statically typed in-scope hosts** (TypeScript, Melange / ReScript / Reason, Fable (F#), Scala.js, PureScript, Kotlin/JS) the host's type system does much of the same job at compile time. A statically-typed port may choose to *also* ship Zod (or similar) for runtime boundary validation; it doesn't have to. The pattern requires shape description; schemas and types are interchangeable mechanisms. Implementations that omit a runtime schema layer (because their type system covers the territory) remain fully conformant.
 - **Production elision of dev-time machinery** (tracing, schema validation). The CLJS reference uses Closure-compiler `goog-define` flags and dead-code elimination. Implementations on hosts without compile-time elision support may instead use boolean flags read at startup, debug builds vs release builds, or runtime no-op stubs. The cost profile differs but the AI-first surface is identical.
-- **Source-coordinate capture** at registration time. The CLJS reference uses macros (`reg-event-fx` is a macro that records `:ns`/`:line`/`:file`). A host without macros (TS, Python at runtime) might use stack-frame inspection at registration, build-time codegen, or omit source coords entirely. Source coords improve agent navigation; their absence does not violate the pattern.
+- **Source-coordinate capture** at registration time. The CLJS reference uses macros (`reg-event-fx` is a macro that records `:ns`/`:line`/`:file`). A host without macros (TS at runtime; the OCaml-derived ports) might use stack-frame inspection at registration, build-time codegen, or omit source coords entirely. Source coords improve agent navigation; their absence does not violate the pattern.
 
 ### The identity primitive — required properties
 
@@ -72,11 +74,14 @@ Together, these properties make ids **the lingua franca of the runtime** — eve
 
 | Host | Identity primitive |
 |---|---|
-| Clojure / CLJS | `:keyword` (e.g. `:cart.item/remove`). Native; satisfies all properties. |
+| ClojureScript (reference) | `:keyword` (e.g. `:cart.item/remove`). Native; satisfies all properties. |
 | TypeScript | Branded string types (`type EventId = string & { readonly __id: 'EventId' }`) with a naming convention (`'cart.item/remove'`). Use a small `id()` helper with interning + namespace parsing. ES `Symbol.for(...)` is *not* a fit — symbols don't serialise. |
-| Python | Strings with naming convention plus a small `Id` class wrapping `str` with `.namespace()`/`.local()` methods, or `enum.Enum` per kind for closed sets. |
-| Kotlin | Sealed-class hierarchies of `data object` ids, or value classes wrapping `String` with namespace parsing. |
-| Rust | A newtype `struct Id(&'static str)` with conventions, or `phf` interning for closed sets. |
+| Melange / ReScript / Reason | Polymorphic variants (`` `Cart_item_remove ``) for closed sets, or strings wrapped in an opaque `Id.t` with namespace parsing for open sets. |
+| Fable (F#) | Discriminated unions for closed id sets, or a single-case DU wrapping `string` (`type EventId = EventId of string`) with namespace-parsing helpers. |
+| Squint | Same as ClojureScript — Squint preserves Clojure keywords. |
+| Scala.js | Sealed `case object` hierarchies for closed sets, or value classes (`final class EventId(val s: String) extends AnyVal`) with namespace-parsing helpers. |
+| PureScript | Sum types for closed sets, or a `newtype EventId = EventId String` with `Eq`/`Ord` instances and namespace-parsing helpers. |
+| Kotlin/JS | Sealed-class hierarchies of `data object` ids, or value classes wrapping `String` with namespace parsing. |
 
 Implementations that violate any required property (e.g., relying on Java `==`-identity comparison, using `UUID`s as primary ids, using opaque integer ids) are not conformant. The spec leans heavily on cheap, namespaceable, human-readable, value-equal ids — diluting any of those properties cascades into broken behaviour at the registry, override, and trace layers.
 
@@ -93,7 +98,7 @@ These are excellent choices for the Clojure reference implementation but they ar
 - `goog-define` for production elision
 - Malli as the schema language
 
-A TypeScript or Python implementation will resolve each of these differently and still implement the same pattern.
+A TypeScript, Fable (F#), PureScript, Scala.js, Kotlin/JS, Squint, or Melange / ReScript / Reason implementation will resolve each of these differently and still implement the same pattern.
 
 ### Host-profile matrix
 
@@ -102,7 +107,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | Capability | Pattern-required | CLJS-reference-required | Optional / host-discretion | CLJS-only |
 |---|---|---|---|---|
 | Identity primitive (per [§The identity primitive](#the-identity-primitive--required-properties)) | yes | keywords | per host (branded strings, Id wrapper, sealed classes, …) | — |
-| Persistent data structures with structural sharing for `app-db` and frame state (in service of [§Frame state revertibility](#frame-state-revertibility)) | yes | yes (Clojure persistent collections) | per host — JS: Immer or Immutable.js (native JS without a library has prohibitive deep-copy cost); Python: pyrsistent or immutables; Rust: im-rs; Kotlin: im.kt; F# / Scala / OCaml: native PDS (zero ceremony); Go: requires a library or copy-on-write convention; an idiomatic-Go port without one would struggle | — |
+| Persistent data structures with structural sharing for `app-db` and frame state (in service of [§Frame state revertibility](#frame-state-revertibility)) | yes | yes (Clojure persistent collections) | per host — TS / Squint: Immer or Immutable.js (native JS without a library has prohibitive deep-copy cost); Kotlin/JS: im.kt or kotlinx.collections.immutable; Fable / Scala.js / PureScript / Melange / ReScript / Reason: native PDS from the source language (zero ceremony) | — |
 | Registry by `(kind, id)` with metadata | yes | yes | — | — |
 | Event handler contract `(state, event) → effects-map` | yes | yes | — | — |
 | Closed effect-map shape (`:db` and `:fx` only at top level) | yes | yes | — | — |
@@ -113,14 +118,14 @@ The capabilities below are partitioned by what every conformant implementation m
 | View contract `(state, props) → render-tree` | yes | yes (hiccup) | host-native render-tree shape | — |
 | Construction prompts (Layer 1 of the AI surface) | yes | yes | — | — |
 | Conformance corpus (EDN fixtures interpreted by the host) | yes (conform against) | yes | — | — |
-| Shape description (schemas in dynamic hosts; types in static hosts) | yes (some form) | yes (Malli) | yes — host's idiom (Pydantic / Zod / dry-rb / TS types / Kotlin types / Rust types) | — |
+| Shape description (schemas in dynamic hosts; types in static hosts) | yes (some form) | yes (Malli) | yes — host's idiom (Zod for TS / Squint; native types for Melange / ReScript / Reason / Fable / Scala.js / PureScript / Kotlin/JS) | — |
 | Production elision of dev-time machinery (trace, schema validation) | encouraged | yes (`goog-define`) | yes — host's mechanism (build flag, debug/release builds, runtime stubs) | — |
 | Source-coordinate capture at registration | encouraged | yes (macros) | yes — host's mechanism (stack inspection, build-time codegen, omit) | — |
 | `:platforms` metadata on `reg-fx` (SSR) | yes | yes | — | — |
 | `render-to-string` / SSR drain (per [011](011-SSR.md)) | yes | yes | — | — |
 | Hydration-mismatch detection | encouraged | yes | yes — host can ship as warn-and-replace or omit | — |
-| Reactive subscription tracking (auto-tracking, dispose lifecycle) | — | yes (Reagent atop React) | yes — host signal library (Solid, Svelte stores, Vue refs) | the *Reagent-specific* form |
-| React context as the frame-routing mechanism for views | — | yes (CLJS optimisation) | yes — explicit-frame-id is the portable form; React context is one realisation | yes |
+| Reactive subscription tracking (auto-tracking, dispose lifecycle) | — | yes (Reagent atop React) | yes — each port supplies the equivalent over its React binding (e.g. UIx / Helix `use-subscribe` hook over `useSyncExternalStore`; the same pattern in TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React) | the *Reagent-specific* form |
+| React context as the frame-routing mechanism for views | encouraged | yes | yes — every in-scope port targets React, so each port's React binding supplies a context-provider; explicit-frame-id remains the underlying contract | the *CLJS-Reagent shape* |
 | `re-frame-10x` epoch buffer integration | — | yes | yes — equivalent dev tool per host | yes |
 | Chrome Performance Timeline bridge (per [009](009-Instrumentation.md)) | — | yes | yes — equivalent profiler integration | yes |
 | ~~`re-frame.alpha` namespace~~ — *dissolved (rf2-7cb2 / rf2-s9dn); not shipped in v2* | — | — | — | — |
@@ -175,7 +180,7 @@ The CLJS reference makes the following bindings to the language-agnostic pattern
 | Build/dev tooling | shadow-cljs (test fixtures, hot reload, release elision) |
 | JVM interop | preserved — pure transition / sub computation runs on JVM for headless tests |
 
-A TypeScript reference would make different choices for each row (e.g., signals or `useSyncExternalStore` for state, Zod for schema, React or Vue or Svelte for substrate, JSX-as-data for render-tree, hooks or context for view-routing). A Python reference different again. The pattern survives the substitution.
+A TypeScript reference would make different choices for each row (e.g., `useSyncExternalStore` for state, Zod for schema, React + VDOM for substrate, JSX-as-data for render-tree, hooks or context for view-routing). A Fable / Scala.js / PureScript / Kotlin/JS reference different again. **All in-scope ports target React + VDOM** ([Spec 006](006-ReactiveSubstrate.md)); the substitution covers state-container, schema/type, identity primitive, source-coord capture, and the host's React binding — not the rendering substrate.
 
 ### What re-frame2 ships
 
@@ -236,7 +241,7 @@ This section is the canonical, ordered goal list. [Principles.md](Principles.md)
 5. **Embody the best of the Clojure ethos.** Data over APIs; immutability; pure functions at the centre, effects at the edges; **open shape descriptions** over closed records/structs/classes — shape is described by a schema (in dynamic hosts) or a type (in static hosts), neither closes the structure; stable contracts (Spec-ulation); late binding; programs that produce data.
 6. **Hierarchical FSM substrate with implementor-chosen capabilities.** The pattern anticipates a hierarchical FSM substrate with full actor semantics. Implementations declare which capabilities they support; conformance is graded against the claimed capability list. Parallel regions and history states are explicitly out of pattern scope; documented substitutes (separate machines per region; snapshot-as-value capture) cover their use cases. See [§Hierarchical FSM substrate with implementor-chosen capabilities](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities) below and [005 §Capability matrix](005-StateMachines.md#capability-matrix).
 7. **Mechanical upgrade from re-frame** (a property of the CLJS reference implementation; see C1).
-8. **Language-agnostic pattern.** The specification is implementable in any host language.
+8. **JS-cross-compile-language-agnostic pattern.** The specification is implementable in any of the eight in-scope JS-cross-compile languages that bind to React + VDOM (per [§The pattern](#the-pattern-js-cross-compile-language-agnostic)). The spec is not pattern-portable to non-React substrates or to non-cross-compile-to-JS hosts; that is a deliberate scope choice, not an oversight.
 9. **SSR-capable architecture.** Server rendering and hydration are part of the model. See Spec 011.
 10. **Real SPA concerns are first-class.** Routing, remote data, forms, persistence, error model.
 11. **Feature modularity.** A *feature* (events + subs + views + schemas + optional machine) is a coherent, shippable unit.
@@ -307,7 +312,7 @@ The two are related — a poorly designed shape forces hand-waving in the spec �
 #### Connection to other goals
 
 - **Goal 1 (AI-first amenability)** — same lens, different artefact. Amenability is about the runtime; this goal is about the spec.
-- **Goal 8 (language-agnostic pattern)** — Goal 2 is what makes language-agnosticism *actionable*. A pattern that's only implementable in a language that already has re-frame is not pattern-level; Goal 2 is how re-frame2 stops being CLJS-with-extra-steps.
+- **Goal 8 (JS-cross-compile-language-agnostic pattern)** — Goal 2 is what makes the cross-compile-language-agnosticism *actionable*. A pattern that's only implementable in a language that already has re-frame is not pattern-level; Goal 2 is how re-frame2 stops being CLJS-with-extra-steps.
 - **Goal 12 (strong introspection surface)** — the registrar query API, the trace stream, and the schema catalogue are how the AI verifies its implementation matches the spec. These same surfaces support Goal 2.
 - **Goal 6 (hierarchical FSM substrate with implementor-chosen capabilities)** — capability declarations make conformance *gradeable* per port; without them, "passes the conformance corpus" is binary and forces every port to commit to the full capability set. Goal 2's "the spec is precise enough that an AI can implement it" presupposes Goal 6's "the AI implements *what's claimed*, not the maximal substrate."
 
@@ -385,7 +390,7 @@ Concrete design preferences that flow from the goals + principles:
 
 - Prefer **definitions that can be serialised, inspected, and regenerated**.
 - Prefer **host adapters** over baking browser assumptions into the core model.
-- Treat **rendering substrate** and **runtime/event substrate** as related but separable layers (this pulls Spec 006's reactive-substrate work toward v1 relevance, since substrate-agnostic rendering is what SSR demands).
+- Treat **rendering substrate** and **runtime/event substrate** as related but separable layers (this pulls Spec 006's reactive-substrate work toward v1 relevance, since substrate-agnostic rendering — rendering that doesn't bake in a specific React binding — is what SSR demands; the rendering substrate itself is committed to React + VDOM per [Spec 006](006-ReactiveSubstrate.md)).
 - Treat **SSR + hydration** as a normal pathway the architecture must explain.
 - Prefer **stable ids and metadata-rich registries** over ad hoc composition.
 - Keep **migration rules** close to design changes so the AI-upgrade story remains executable.
