@@ -4,7 +4,7 @@
 
 ## Abstract
 
-re-frame2 is a **specification for a re-frame-flavoured library/pattern for building SPAs**, plus a **Clojure/CLJS reference implementation**. The pattern is meant to be implementable in any host language (TypeScript, Python, Kotlin, ...); the CLJS reference is the first realisation, and it inherits a mechanical-upgrade obligation toward existing re-frame applications.
+re-frame2 is a **specification for a re-frame-flavoured library/pattern for building SPAs**, plus a **Clojure/CLJS reference implementation**. The pattern is meant to be implementable in any **JS-cross-compile host language that targets React + VDOM** (TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS — alongside ClojureScript itself); the CLJS reference is the first realisation, and it inherits a mechanical-upgrade obligation toward existing re-frame applications.
 
 The pattern aims to be:
 
