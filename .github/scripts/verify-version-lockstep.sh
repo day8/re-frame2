@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9)
+# verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9;
+# adapters/ rename rf2-0imy)
 #
 # Asserts the lockstep-version contract documented in spec/Conventions.md
 # §Packaging conventions: every published artefact picks up its version
@@ -8,13 +9,14 @@
 # coordinate (which the release workflow rewrites to the matching
 # :mvn/version at deploy time).
 #
-# Per rf2-zha9 the substrate adapters (reagent, uix, helix) live at
-# implementation/substrates/<name>/ — one level deeper than the
-# per-feature artefacts (schemas, machines, routing, flows, http, ssr,
-# epoch) which stay at implementation/<name>/. The script tracks the
-# difference: substrate adapters declare :version "../../../VERSION"
-# and :local/root "../../core"; per-feature artefacts and core declare
-# :version "../../VERSION" and (for non-core) :local/root "../core".
+# Per rf2-zha9 the adapters (reagent, uix, helix) live at
+# implementation/adapters/<name>/ (renamed from substrates/ per
+# rf2-0imy) — one level deeper than the per-feature artefacts
+# (schemas, machines, routing, flows, http, ssr, epoch) which stay at
+# implementation/<name>/. The script tracks the difference: adapters
+# declare :version "../../../VERSION" and :local/root "../../core";
+# per-feature artefacts and core declare :version "../../VERSION" and
+# (for non-core) :local/root "../core".
 #
 # This script is the single source of truth for the lockstep contract;
 # both .github/workflows/test.yml (PR-time drift detection) and
@@ -43,8 +45,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # every artefact's pom at deploy time. Anything else is drift.
 #
 # Per rf2-zha9 the relative paths differ by tier:
-#   - core + per-feature (implementation/<name>/):    :version "../../VERSION"     :local/root "../core"
-#   - substrates (implementation/substrates/<name>/): :version "../../../VERSION"  :local/root "../../core"
+#   - core + per-feature (implementation/<name>/):  :version "../../VERSION"     :local/root "../core"
+#   - adapters (implementation/adapters/<name>/):   :version "../../../VERSION"  :local/root "../../core"
 
 VERSION_FILE="${REPO_ROOT}/VERSION"
 if [[ ! -f "${VERSION_FILE}" ]]; then
@@ -58,16 +60,16 @@ if [[ -z "${VERSION}" ]]; then
 fi
 echo "lockstep VERSION = ${VERSION}"
 
-# Map artefact name → on-disk subpath under implementation/. Substrate
-# adapters live under substrates/; per-feature artefacts (and core)
-# stay flat. Order matches the topological deploy DAG in release.yml so
-# a drift report reads top-down.
+# Map artefact name → on-disk subpath under implementation/. Adapters
+# live under adapters/; per-feature artefacts (and core) stay flat.
+# Order matches the topological deploy DAG in release.yml so a drift
+# report reads top-down.
 declare -A ARTEFACT_PATHS=(
   [core]="core"
   [schemas]="schemas"
-  [reagent]="substrates/reagent"
-  [uix]="substrates/uix"
-  [helix]="substrates/helix"
+  [reagent]="adapters/reagent"
+  [uix]="adapters/uix"
+  [helix]="adapters/helix"
   [machines]="machines"
   [routing]="routing"
   [flows]="flows"
@@ -82,12 +84,13 @@ ARTEFACTS=(core schemas reagent uix helix machines routing flows http ssr epoch)
 # artefact, so the :local/root core-reference check below skips it.
 NON_CORE=(schemas reagent uix helix machines routing flows http ssr epoch)
 
-# Substrate adapters are one directory deeper than per-feature artefacts.
-SUBSTRATES=(reagent uix helix)
+# Adapters (substrate adapters) are one directory deeper than per-feature
+# artefacts.
+ADAPTERS=(reagent uix helix)
 
-is_substrate() {
+is_adapter() {
   local needle="$1"
-  for s in "${SUBSTRATES[@]}"; do
+  for s in "${ADAPTERS[@]}"; do
     [[ "$s" == "$needle" ]] && return 0
   done
   return 1
@@ -111,11 +114,11 @@ for artefact in "${ARTEFACTS[@]}"; do
   # string here is the canonical drift signal — it bypasses the
   # single-source-of-truth and would let an artefact ship at a stale
   # version number.
-  if is_substrate "${artefact}"; then
+  if is_adapter "${artefact}"; then
     expected_version='"../../../VERSION"'
     if ! grep -qF ":version  ${expected_version}" "${deps_file}" \
        && ! grep -qF ":version ${expected_version}"  "${deps_file}"; then
-      echo "::error file=${rel_label}::expected ':version ${expected_version}' in :clein/build (lockstep contract; substrate adapters live one level deeper)"
+      echo "::error file=${rel_label}::expected ':version ${expected_version}' in :clein/build (lockstep contract; adapters live one level deeper)"
       errors=$((errors + 1))
     fi
   else
@@ -151,7 +154,7 @@ for artefact in "${NON_CORE[@]}"; do
   deps_file="${REPO_ROOT}/implementation/${subpath}/deps.edn"
   rel_label="implementation/${subpath}/deps.edn"
   [[ -f "${deps_file}" ]] || continue
-  if is_substrate "${artefact}"; then
+  if is_adapter "${artefact}"; then
     expected_local_root='day8/re-frame-2 {:local/root "../../core"}'
   else
     expected_local_root='day8/re-frame-2 {:local/root "../core"}'

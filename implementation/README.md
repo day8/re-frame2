@@ -14,7 +14,7 @@ CLJS suites are required CI checks. Open implementation beads live in
 ## Layout
 
 The implementation is split into per-Maven-artefact subdirectories per
-[Conventions §Substrate-adapter shipping convention](../spec/Conventions.md#substrate-adapter-shipping-convention)
+[Conventions §Adapter shipping convention](../spec/Conventions.md#adapter-shipping-convention)
 (rf2-0hxm). Each subdirectory carries its own `deps.edn`; the top-level
 `deps.edn` and `shadow-cljs.edn` are build coordinators that pull both
 artefacts onto a single classpath for the cross-substrate builds
@@ -54,26 +54,26 @@ implementation/
     test/re_frame/           JVM tests + the substrate-agnostic CLJS tests
                              (conformance, hash-check, elision-probe).
 
-  substrates/                Substrate adapters live here per rf2-zha9 — one
-                             directory per adapter (reagent, uix, helix). Per-feature
-                             artefacts (schemas, machines, ...) stay flat under
-                             implementation/.
+  adapters/                  Substrate adapters live here per rf2-zha9 (renamed from
+                             substrates/ per rf2-0imy) — one directory per adapter
+                             (reagent, uix, helix). Per-feature artefacts (schemas,
+                             machines, ...) stay flat under implementation/.
     reagent/                 day8/re-frame-2-reagent — the Reagent adapter artefact.
       deps.edn               :local/root dep on ../../core.
-      src/re_frame/substrate/
-        reagent.cljs         The Reagent substrate adapter.
+      src/re_frame/adapter/
+        reagent.cljs         The Reagent adapter.
       test/re_frame/         CLJS tests that exercise the Reagent adapter end-to-end
                              (cross-spec, events, hot-reload, http-managed, machines,
                              nine-states, realworld, render-key, routing, runtime,
                              schemas).
     uix/                     day8/re-frame-2-uix — the UIx adapter artefact (rf2-3yij).
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
-      src/re_frame/substrate/uix.cljs
-                             The UIx substrate adapter (use-subscribe, flush-views!, etc.).
+      src/re_frame/adapter/uix.cljs
+                             The UIx adapter (use-subscribe, flush-views!, etc.).
     helix/                   day8/re-frame-2-helix — the Helix adapter artefact (rf2-2qit).
       deps.edn               :local/root dep on ../../core; pulls lilactown/helix.
-      src/re_frame/substrate/helix.cljs
-                             The Helix substrate adapter.
+      src/re_frame/adapter/helix.cljs
+                             The Helix adapter.
 
   schemas/                   day8/re-frame-2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
@@ -120,7 +120,7 @@ cd implementation/core
 clojure -M:test
 
 # reagent artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
-cd implementation/substrates/reagent
+cd implementation/adapters/reagent
 clojure -M:test
 
 # schemas artefact

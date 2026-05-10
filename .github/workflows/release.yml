@@ -165,15 +165,15 @@ jobs:
         run: clojure -M:test
 
       - name: JVM tests (reagent artefact, classpath probe)
-        working-directory: implementation/substrates/reagent
+        working-directory: implementation/adapters/reagent
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
       - name: JVM tests (uix artefact, classpath probe)
-        working-directory: implementation/substrates/uix
+        working-directory: implementation/adapters/uix
         run: clojure -M:test || echo "no JVM-runnable tests in uix artefact (expected)"
 
       - name: JVM tests (helix artefact, classpath probe)
-        working-directory: implementation/substrates/helix
+        working-directory: implementation/adapters/helix
         run: clojure -M:test || echo "no JVM-runnable tests in helix artefact (expected)"
 
       - name: JVM tests (schemas artefact)
@@ -334,13 +334,13 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite reagent :local/root → :mvn/version
-        working-directory: implementation/substrates/reagent
+        working-directory: implementation/adapters/reagent
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/reagent/deps.edn"
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/reagent/deps.edn"
             exit 1
           fi
           BEFORE=':local/root "../../core"' \
@@ -350,7 +350,7 @@ jobs:
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy reagent adapter (day8/re-frame-2-reagent)
-        working-directory: implementation/substrates/reagent
+        working-directory: implementation/adapters/reagent
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
@@ -393,13 +393,13 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite uix :local/root → :mvn/version
-        working-directory: implementation/substrates/uix
+        working-directory: implementation/adapters/uix
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/uix/deps.edn"
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/uix/deps.edn"
             exit 1
           fi
           BEFORE=':local/root "../../core"' \
@@ -409,7 +409,7 @@ jobs:
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy uix adapter (day8/re-frame-2-uix)
-        working-directory: implementation/substrates/uix
+        working-directory: implementation/adapters/uix
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
@@ -452,13 +452,13 @@ jobs:
         run: clojure -M:clein install
 
       - name: Rewrite helix :local/root → :mvn/version
-        working-directory: implementation/substrates/helix
+        working-directory: implementation/adapters/helix
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
         run: |
           set -euo pipefail
           if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/substrates/helix/deps.edn"
+            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/helix/deps.edn"
             exit 1
           fi
           BEFORE=':local/root "../../core"' \
@@ -468,7 +468,7 @@ jobs:
           grep "day8/re-frame-2 " deps.edn
 
       - name: Deploy helix adapter (day8/re-frame-2-helix)
-        working-directory: implementation/substrates/helix
+        working-directory: implementation/adapters/helix
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
