@@ -120,8 +120,8 @@ Returns a **container** that holds an `app-db` value. The container is opaque to
 
 CLJS-Reagent: returns a Reagent `r/atom`.
 CLJS-headless: returns a `clojure.core/atom`.
-TS-Solid: returns a Solid signal.
-Python-RxPy: returns a `BehaviorSubject`.
+TS-React: returns a tiny atom-shape (`{value, subscribers}`) wired into React via `useSyncExternalStore`.
+Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint: same atom-shape over the host's React binding's `useSyncExternalStore` equivalent.
 
 ### `(read-container container) → value` and `(replace-container! container new-value) → nil`
 
@@ -146,7 +146,7 @@ If the adapter supports it, the core uses `subscribe-container` to wire reactive
 
 CLJS-Reagent: Reagent's reaction machinery handles this implicitly; `subscribe-container` returns a function that cancels the registration.
 CLJS-headless: not supported; returns `nil` (tests poll via `read-container`).
-TS-Solid: returns a function that calls Solid's `dispose` for the listener.
+TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint: returns a function that detaches the listener from the atom-shape's subscriber list (the same store `useSyncExternalStore` consumes).
 
 ### `(make-derived-value source-containers compute-fn) → container`
 
@@ -162,7 +162,7 @@ The returned container supports `read-container`; `replace-container!` is **not*
 
 The implementation is responsible for caching the derived value and recomputing only when an input changes by `=`.
 
-CLJS-Reagent: a Reagent `reaction`. CLJS-headless: not used (the core's `compute-sub` runs derivations on demand without caching). TS-Solid: `createMemo`. Vue: `computed`.
+CLJS-Reagent: a Reagent `reaction`. CLJS-headless: not used (the core's `compute-sub` runs derivations on demand without caching). TS-React / other JS-cross-compile ports: an `IDeref`+`IWatchable`-shaped wrapper that recomputes on read and broadcasts via the source containers' watch machinery (same shape used by the UIx / Helix adapters; see [§CLJS reference: UIx as alternative substrate](#cljs-reference-uix-as-alternative-substrate-rf2-3yij)).
 
 ### `(render render-tree mount-point opts) → unmount-fn`
 
@@ -171,7 +171,7 @@ Renders the render-tree onto the substrate's surface and returns a function that
 ```clojure
 (render render-tree mount-point opts)                   ;; → unmount-fn
 ;; render-tree: a serialisable nested data structure (per Spec 004)
-;; mount-point: implementation-specific (DOM element, Solid root, etc.)
+;; mount-point: implementation-specific (DOM element passed to react-dom/client.createRoot)
 ;; opts: open map; standard keys: :on-mismatch (per Spec 011), :hydrate? (boolean)
 ;; unmount-fn signature: (fn [] nil) — idempotent; releases all resources
 ```
@@ -199,8 +199,9 @@ Optional. For substrates with a context concept, returns a component that scopes
 ```
 
 CLJS-Reagent: returns the `frame-provider` Reagent component (a React Context Provider).
-TS-React: returns an equivalent React Context Provider component.
-Substrates without context (Solid scopes, function-arg-explicit): not supplied — the core falls back to explicit-frame-as-argument; the user's view code must thread the frame.
+TS-React: returns an equivalent `React.createContext`-backed Provider component.
+Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint: each returns the host React binding's `createContext`-backed Provider component (Feliz / Fable.React `createContext`, scalajs-react `createContext`, `React.Basic.Hooks.createContext`, kotlin-react `createContext`, ReasonReact `React.createContext`).
+Headless / SSR (no React, no DOM): not supplied — the core falls back to explicit-frame-as-argument; the user's view code threads the frame.
 
 ### Adapter disposal lifecycle
 
@@ -247,7 +248,7 @@ The rule:
 
 - **CLJS-Reagent.** Reagent's `Reaction` machinery caches derived values (memoisation: derivable). The track-cache that Reagent maintains for reaction graphs is regenerable from the underlying ratoms (which hold the frame value) — drop the cache, the next deref rebuilds it. Reagent's listener registry is transient. No observer state outside the frame value. ✓
 - **CLJS plain-atom (headless).** The container is a `clojure.core/atom`; the only operation is `reset!`. No reactivity layer, no caches, no listeners. Trivially compliant. ✓
-- **Hypothetical TS-Solid / Vue / RxPy.** Same constraint applies: signal libraries' caches and dependency-tracking tables are derivable; ports must verify their signal library doesn't squirrel away non-derivable state.
+- **TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint adapters.** Same constraint applies: each port's atom-shape subscriber registry, the `useSyncExternalStore` snapshot store React caches, and any derived-value memoisation must all be derivable from the frame's value. Ports verify the host React binding doesn't squirrel away non-derivable state outside the frame container.
 
 ### What an adapter MUST NOT do
 
@@ -317,7 +318,7 @@ When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape 
 
 ### Cross-host
 
-Substrate adapters that do not expose a DOM-attribute concept (Solid scopes, function-arg-explicit, headless test adapters) are exempt. Adapters whose host is React-shaped (Reagent, UIx [rf2-3yij], Helix [rf2-2qit]) MUST honour this contract. The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
+Headless test adapters (no DOM) are exempt. Every in-scope React-binding adapter MUST honour this contract: the CLJS reference (Reagent, UIx [rf2-3yij], Helix [rf2-2qit]) and every JS-cross-compile-language port (TypeScript-React, Feliz / Fable.React, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact / Melange-React). The [JVM SSR emitter](011-SSR.md#source-coord-annotation-under-ssr) is the server-side equivalent — it injects the same attribute when emitting HTML for a registered view, so server-rendered pages carry the annotation too.
 
 ### Source-coord stamping for state machines (rf2-8bp3)
 
@@ -483,7 +484,7 @@ The default of **50ms** is chosen empirically: long enough to bridge React re-re
 
 #### On-dispose hooks
 
-The `on-dispose` hook lets the adapter release substrate-specific resources (a Reagent reaction, a Solid signal, a Vue computed) before the cache slot is removed. Hooks fire **after** the grace-period elapses (or synchronously when `grace-period-ms = 0`). The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
+The `on-dispose` hook lets the adapter release substrate-specific resources (a Reagent reaction; a JS-cross-compile-port atom-shape's listener entry / derived-value memo) before the cache slot is removed. Hooks fire **after** the grace-period elapses (or synchronously when `grace-period-ms = 0`). The CLJS reference uses `interop/add-on-dispose!` per the Reagent realisation in [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
 
 #### Three subtleties
 
@@ -506,7 +507,7 @@ On destroy-frame F:
 
 Three contract guarantees this enforces:
 
-1. **No leaks.** Every cached substrate-specific resource (Reagent reaction, Solid signal) is released. Long-lived processes that create and destroy frames (test runs, SSR request handling) reach steady-state memory.
+1. **No leaks.** Every cached substrate-specific resource (Reagent reaction; JS-cross-compile-port atom-shape's listener entry / derived-value memo) is released. Long-lived processes that create and destroy frames (test runs, SSR request handling) reach steady-state memory.
 2. **No stale reads.** After `destroy-frame`, attempts to subscribe to `F` raise `:rf.error/frame-destroyed`. There is no path that returns a value from a destroyed frame's cache.
 3. **Adapter symmetry.** The adapter's `dispose-adapter!` ([§Adapter disposal lifecycle](#adapter-disposal-lifecycle)) is the per-process counterpart; it disposes every frame's sub-cache as part of process teardown.
 
@@ -521,8 +522,7 @@ Three contract guarantees this enforces:
 
 - **CLJS-Reagent.** Reagent's `Reaction` handles invalidation, ref-counting, and disposal automatically. Layer-1 reads via `r/atom` deref; layer-2+ build a graph of reactions; equality checks happen at each layer. The cache wraps Reagent's own machinery — see [§Sub-cache wiring (Reagent realisation)](#sub-cache-wiring-reagent-realisation).
 - **CLJS-headless / SSR.** No caching. `compute-sub` is a pure function that runs the sub's body fresh every time it's called. Cheap because no SSR run does it twice. The contract above is satisfied trivially: no cached values means no invalidation question.
-- **TypeScript with Solid.** Solid's `createMemo` does the equivalent: dependency tracking, equality check, automatic disposal when the owning scope tears down.
-- **Other-host implementations.** Must satisfy the algorithm above explicitly. Tools relying on the trace stream's `:sub/recomputed` events depend on the equality-check-on-invalidation rule.
+- **In-scope JS-cross-compile-language ports (TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint).** Must satisfy the algorithm above explicitly — the per-port adapter implements layer-1/2/3 invalidation atop its host's React binding. The atom-shape's watch/listener machinery and any derived-value memoisation cooperate with React's `useSyncExternalStore`-driven render scheduling to surface invalidation to views. Tools relying on the trace stream's `:sub/recomputed` events depend on the equality-check-on-invalidation rule.
 
 ## What happens when a sub references an unknown sub
 
@@ -711,6 +711,24 @@ What this gives:
 ```
 
 The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → React context → `:rf/default`) is documented in [002 §Reading the frame from React context](002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail).
+
+#### Frame propagation across React-binding ports
+
+**The CLJS-reference shape.** The shared `re-frame.adapter.context/frame-context` primitive lives in the **core artefact** (`day8/re-frame-2`) — a CLJS-only file that the JVM build does not load (per [000 §C2 Cross-platform](000-Vision.md#c2-cross-platform-jvm-interop-preserved)). Every React-shaped CLJS adapter (Reagent, UIx, Helix) consumes it; mixed-substrate apps therefore compose providers across substrates rather than silos.
+
+**Per-language ports realise the same contract via the host React binding's own context primitive.** The mechanism varies by binding; the contract — *a context value carrying the current frame-id keyword; views read it via the host React binding's hooks-equivalent* — does not. Per-port realisations:
+
+| Port | React-context primitive | Hooks-equivalent read |
+|---|---|---|
+| TypeScript-React | `React.createContext<FrameId>(":rf/default")` | `useContext(FrameContext)` |
+| Fable (F#) — Feliz / Fable.React | `React.createContext` | `React.useContext` |
+| Scala.js — scalajs-react / Slinky | `React.createContext` (binding-shaped) | `useContext` hook |
+| PureScript — `React.Basic.Hooks` | `Hooks.createContext` | `Hooks.useContext` |
+| Kotlin/JS — kotlin-react | `createContext` | `useContext` |
+| Melange / ReScript / Reason — ReasonReact | `React.createContext` | `React.useContext` |
+| Squint | reuses the CLJS-Reagent shape (Squint preserves Clojure keywords) | same as CLJS |
+
+The spec **does not** prescribe JS implementation details (`_currentValue` reads, class-component `:contextType` shapes, prop-stringification quirks) — those are port discretion. What the spec requires is the contract: the provider's *value* is a frame-id keyword (or the host's identity-primitive equivalent), and the views inside the provider's subtree resolve subscriptions / dispatches against that frame.
 
 **Adapter responsibility — `:adapter/current-frame` late-bind hook (rf2-d4sf).** Each React-shaped substrate adapter (Reagent, UIx, Helix) MUST register its React-context-aware `current-frame` impl through the `:adapter/current-frame` late-bind hook at namespace-load time. `re-frame.subs/subscribe`, `re-frame.subs/subscribe-value`, `re-frame.subs/unsubscribe`, and the dispatch envelope's `:frame` default consult the hook on CLJS so the React-context tier of the resolution chain is **live** rather than dead code. Without the registration the call sites fall back to `re-frame.frame/current-frame` (dynamic-var tier and `:rf/default` only); the React-context tier silently no-ops, so a `(rf/subscribe ...)` under a non-default `frame-provider` would route to `:rf/default` regardless of what the provider named. Hook signature: `(fn [] frame-id-keyword)`.
 
@@ -913,7 +931,7 @@ The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Convent
 
 In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§reactive-substrate adapter contract](#the-reactive-substrate-adapter-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move per [rf2-zha9](#); per [rf2-0imy](#) the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
 
-Per-host adapters for non-CLJS implementations (TS+React, TS+Solid, Vue, Python+RxPy, etc.) ship as separate packages, implementing the same contract — the per-adapter-artefact pattern is host-language-agnostic.
+Per-host adapters for non-CLJS implementations ship as separate packages, implementing the same contract — the per-adapter-artefact pattern is JS-cross-compile-language-agnostic across the eight in-scope hosts (TypeScript-React, Fable.React / Feliz, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact, Melange-React, Squint-with-React). All ship a React-binding adapter; non-React substrates are out of scope per [§Abstract](#abstract).
 
 ## Open questions
 
