@@ -68,16 +68,22 @@
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
-   :rf/default if it's the only registered frame -> nil (ambiguous)."
+   the sole registered frame -> nil (ambiguous).
+
+   Returns nil whenever more than one frame is registered AND the
+   session hasn't selected one (and the caller didn't pass an override).
+   Mutating ops then refuse via the `:ambiguous-frame` path in
+   `pair-dispatch-sync!`. Reads that nil-default to `:rf/default` would
+   silently land in the wrong frame, so the resolver is deliberately
+   conservative — callers either pin via `select-frame!`, pass an
+   explicit override, or get a clear refusal."
   ([] (current-frame nil))
   ([override]
    (or override
        @selected-frame
        (let [fids (rf/frame-ids)]
-         (cond
-           (= 1 (count fids)) (first fids)
-           (contains? fids :rf/default) :rf/default
-           :else nil)))))
+         (when (= 1 (count fids))
+           (first fids))))))
 
 (defn frames-list
   "All registered, non-destroyed frame ids plus the operating frame."
@@ -219,14 +225,29 @@
    (rf/sub-cache frame-id)))
 
 (defn subs-sample
-  "Subscribe to query-v and deref once. Goes through `rf/subscribe` so
-   the cache lifecycle is the standard one — fine for one-shot probes,
-   not for repeated polling outside a reactive context."
-  [query-v]
-  (try
-    @(rf/subscribe query-v)
-    (catch :default e
-      {:ok? false :reason :sub-error :message (.-message e)})))
+  "Subscribe to query-v in the operating frame and deref once. Goes
+   through `rf/subscribe` so the cache lifecycle is the standard one —
+   fine for one-shot probes, not for repeated polling outside a
+   reactive context.
+
+   Threads the resolved operating frame through `(rf/subscribe
+   frame-id query-v)` so a prior `select-frame!` (or an explicit
+   `frame-id` arg) actually steers the read. Returns
+   `{:ok? false :reason :ambiguous-frame}` if no frame can be
+   resolved — read ops shouldn't silently fall back to `:rf/default`
+   in a multi-frame session."
+  ([query-v] (subs-sample query-v (current-frame)))
+  ([query-v frame-id]
+   (cond
+     (nil? frame-id)
+     {:ok? false :reason :ambiguous-frame
+      :hint "Multi-frame session with no selected frame — pass `frame-id` or call `select-frame!` first."}
+
+     :else
+     (try
+       @(rf/subscribe frame-id query-v)
+       (catch :default e
+         {:ok? false :reason :sub-error :message (.-message e) :frame frame-id})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Machines (Spec 005)
