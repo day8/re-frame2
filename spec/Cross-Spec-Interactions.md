@@ -15,7 +15,7 @@ Each interaction is one numbered subsection with five fields:
 - **Scenario** — one sentence describing the situation that surfaces the interaction.
 - **Behaviour** — the decided outcome.
 - **Reason** — why the behaviour was chosen, often a constraint pulled forward from a goal.
-- **Status** — `Pinned` (a working fixture in [conformance/fixtures](conformance/fixtures/) verifies the behaviour) or `Provisional` (the rule is documented but not yet pinned by a fixture; the named fixture file does not exist).
+- **Status** — `Pinned`, `Provisional`, or `Locked` (see legend immediately below).
 
 Interactions are grouped by the Specs that meet, in roughly the order an implementor encounters them. The grouping is for navigation only; each interaction stands on its own.
 
@@ -25,8 +25,9 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 |---|---|
 | **`Pinned`** | A working fixture in the conformance corpus enforces this rule. An implementation that fails the fixture fails conformance. |
 | **`Provisional`** | The rule is documented as a decided behaviour, but no fixture exists yet. Implementations should follow it; deviation is not yet detectable through the corpus. Provisional → Pinned as fixtures land. |
+| **`Locked`** | The entry documents a normatively-settled, family-level architectural rule already owned by the cited Spec; there is no run-time scenario for a fixture to capture. The interaction exists here only to surface the rule from the perspective of where Specs meet. Locked entries do not transition to `Pinned`. |
 
-**Current state of the corpus (2026-05-09).** First wave of cross-Spec fixtures landed under bead rf2-bhhu — interactions 5, 6, 7, and 19 are now `Pinned`. The second wave (rf2-msd4) closed the conformance runner's `reg-machine` / `:throw` op gap and pinned interactions 11, 12, and 17. The remaining 13 stay `Provisional`; their fixture filenames remain *targets for future authoring* until the corresponding runner / runtime gaps close (rendering capability per [rf2-j9yf](#); adapter-lifecycle hooks; tool-pair time-travel; hot-reload-mid-cascade hooks; etc.). Pinning these is tracked under follow-up beads filed by rf2-bhhu. When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
+**Current state of the corpus (2026-05-09).** First wave of cross-Spec fixtures landed under bead rf2-bhhu — interactions 5, 6, 7, and 19 are now `Pinned`. The second wave (rf2-msd4) closed the conformance runner's `reg-machine` / `:throw` op gap and pinned interactions 11, 12, and 17. One entry (interaction 21) is `Locked` — a documentation-only family-level rule, owned by Spec 004, not fixture-trackable. The remaining 13 stay `Provisional`; their fixture filenames remain *targets for future authoring* until the corresponding runner / runtime gaps close (rendering capability per [rf2-j9yf](#); adapter-lifecycle hooks; tool-pair time-travel; hot-reload-mid-cascade hooks; etc.). Pinning these is tracked under follow-up beads filed by rf2-bhhu. When a fixture lands, the entry's status flips to **`Pinned`** and the filename becomes a live link.
 
 ## Frames × Machines
 
