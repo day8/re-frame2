@@ -61,9 +61,19 @@
                         emitted from inside another event's processing"
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
-        parent-dispatch-id (when interop/debug-enabled? *current-dispatch-id*)]
+        parent-dispatch-id (when interop/debug-enabled? *current-dispatch-id*)
+        ;; Per rf2-d4sf consult the `:adapter/current-frame` late-bind
+        ;; hook on CLJS so dispatch picks up the React-context tier of
+        ;; the resolution chain. Adapters publish the hook at ns-load
+        ;; time; when unbound (JVM build, or no adapter ns loaded yet)
+        ;; we fall back to `frame/current-frame` which honours the
+        ;; dynamic var and `:rf/default` only.
+        default-frame      #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
+                                      (f)
+                                      (frame/current-frame))
+                              :clj  (frame/current-frame))]
     (cond-> {:event                  event
-             :frame                  (or (:frame opts) (frame/current-frame))
+             :frame                  (or (:frame opts) default-frame)
              :fx-overrides           (:fx-overrides opts {})
              :interceptor-overrides  (:interceptor-overrides opts {})
              :trace-id               (:trace-id opts)

@@ -93,6 +93,9 @@
     :reagent/set-hiccup-emitter! re-frame.adapter.reagent/set-hiccup-emitter!
     :views/maybe-warn-plain-fn-under-non-default-frame!  re-frame.views/maybe-warn-plain-fn-under-non-default-frame!
     :views/clear-plain-fn-warned-pairs!                  re-frame.views/clear-plain-fn-warned-pairs!
+    :adapter/current-frame    re-frame.views/current-frame                                       ;; rf2-d4sf — Reagent path; class-component (.-context cmp)
+                              re-frame.adapter.context/function-component-current-frame          ;;          — UIx / Helix path; function-component _currentValue read
+                                                                                                  ;; Published by the active adapter ns at load time so subscribe / dispatch consult the React-context tier of the resolution chain. Signature: (fn []) -> frame-id keyword.
     :epoch/settle!            re-frame.epoch/settle!
     :epoch/discard-buffer!    re-frame.epoch/discard-buffer!
     :epoch/in-flight-buffer   re-frame.epoch/in-flight-buffer
