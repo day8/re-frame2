@@ -179,7 +179,7 @@ This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise
 
 ## Implementation note — persistent data structures
 
-Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other-language ports pick a host-idiomatic library (Immer or Immutable.js for JS; pyrsistent or immutables for Python; im-rs for Rust; native collections for F# / Scala / OCaml / Clojure). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
+Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other in-scope JS-cross-compile-language ports pick a host-idiomatic library (Immer or Immutable.js for TypeScript / Squint; im.kt or `kotlinx.collections.immutable` for Kotlin/JS; native PDS from the source language for Fable (F#) / Scala.js / PureScript / Melange / ReScript / Reason). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
 
 ## `*`-suffix naming for fn-versions of macros
 
