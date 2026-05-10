@@ -147,7 +147,7 @@ Pair-shaped tools and 10x v2's flow panel filter `op-type :flow` (per [Tool-Pair
 
 ## Subscription / consumption
 
-re-frame2's trace API uses **synchronous, event-at-a-time delivery** — every registered listener is invoked once per emitted trace event, in registration order, while the runtime is still on the emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD do minimal work in the callback (queue, append to a buffer, mark a flag) and defer expensive work to a separate timer or animation frame they own.
+re-frame2's trace API uses **synchronous, event-at-a-time delivery** — every registered listener is invoked once per emitted trace event while the runtime is still on the emit call stack. Listener-invocation order is **not contract**; tools must not depend on the order in which sibling listeners receive a given event. There is no batching, debounce window, or background delivery loop. Listeners SHOULD do minimal work in the callback (queue, append to a buffer, mark a flag) and defer expensive work to a separate timer or animation frame they own.
 
 ### The listener API
 
@@ -232,7 +232,8 @@ The two listener APIs are independent: tools may register either, both, or neith
 ### Listener invocation rules
 
 - **Synchronous, event-at-a-time.** Every registered listener is invoked once per emitted trace event, on the runtime's emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD return quickly; expensive work belongs on a tool-owned timer or rAF.
-- **In-order.** Listeners see events in emission order — i.e. the order the runtime fired them.
+- **Events arrive in emission order.** Each listener sees trace events in the order the runtime fired them. (This is about per-listener *event* order, not order *across* listeners — see the next rule.)
+- **Listener-invocation order is not contract.** When multiple listeners are registered, the order in which sibling listeners receive a given event is unspecified. Tools must not depend on order; each listener receives the same event independently. The same rule applies to `register-epoch-cb` callbacks.
 - **Exception isolation.** An exception thrown by a listener is caught and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools. The caught exception is logged via `re-frame.interop/log-error` (or the host equivalent) and otherwise discarded; the runtime does NOT emit a self-referential trace event for the failed listener (which would risk a re-entrant trace-emit storm). The same handling applies to exceptions thrown by an `register-epoch-cb` callback.
 - **No buffering between listeners and the runtime.** The framework does not retain a delivery buffer; the retain-N ring buffer described next is independent and exists for late-attaching tools.
 
@@ -294,7 +295,7 @@ The framework emits trace events from these call sites:
 - `flows.cljc` — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed` (per [013 §Flow tracing](013-Flows.md#flow-tracing)). All carry `:op-type :flow`.
 - `schemas.cljc` — `:rf.error/schema-validation-failure` (from `validate-app-db!` / `validate-event!` / `validate-cofx!` / `validate-sub-return!`).
 - `spec.cljc` — `:rf.error/schema-validation-failure :where :event :source :boundary` and `:rf.warning/boundary-without-spec` (from the `:spec/validate-at-boundary` interceptor; per [010 §Production builds](010-Schemas.md#production-builds) and rf2-r2uh).
-- `ssr.cljc` — `:warning :rf.warning/multiple-status-set`, `:warning :rf.warning/multiple-redirects`, `:rf.error/sanitised-on-projection`.
+- `ssr.cljc` — `:rf.ssr/hydration-mismatch` (carries `:failing-id` to discriminate body-mismatch from head-mismatch; per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection) and [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head)), `:warning :rf.warning/multiple-status-set`, `:warning :rf.warning/multiple-redirects`, `:rf.error/sanitised-on-projection`.
 - `epoch.cljc` — `:rf.epoch/snapshotted` per drain-settle, `:rf.epoch/restored` on restore success, `:rf.epoch/db-replaced` on `reset-frame-db!` success (rf2-zq55), plus the six restore-failure categories and the two reset-frame-db! failure categories (`:rf.epoch/reset-frame-db-during-drain`, `:rf.epoch/reset-frame-db-schema-mismatch`), plus `:rf.epoch.cb/silenced-on-frame-destroy` emitted once per `(frame-id, cb-id)` pair on the destroy-cascade boundary (rf2-d656).
 - `views.cljs` — `:view/render` per registered-view render (per [Spec 004 §Render-tree primitives](004-Views.md)).
 - `adapter/context.cljs` — `:rf.error/frame-context-corrupted` (function-component `_currentValue` read observed a non-coercible shape; per rf2-8q66).
@@ -642,14 +643,13 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/override-fallthrough` | An override was specified but no matching id existed | `:overrides-map`, `:looked-up-id` |
 | `:rf.fx/handled` | An fx was successfully dispatched (the runtime reached the fx and either ran the registered handler without exception or completed the reserved-fx-id action). Emitted by `re-frame.fx/handle-one-fx` on the success path so the `:rf/epoch-record` `:effects` projection captures one entry per dispatched fx (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)) | `:fx-id`, `:fx-args`, `:frame` |
 | `:rf.fx/skipped-on-platform` | An fx was skipped because its `:platforms` excluded the active platform (per [011](011-SSR.md)) | `:fx-id`, `:fx-args`, `:platform`, `:registered-platforms` |
-| `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree (per [011](011-SSR.md)) | `:server-hash`, `:client-hash`, `:first-diff-path?` |
+| `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree, OR the client-computed head model differs from the server-supplied head. The `:failing-id` discriminator routes the two cases (`:rf/hydrate` for the body, `:rf.ssr/head-mismatch` for the head). Per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection) and [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) | `:server-hash`, `:client-hash`, `:failing-id`, `:first-diff-path?` (body), `:head-id` (head) |
 | `:rf.warning/plain-fn-under-non-default-frame-once` | A plain (non-`reg-view`) Reagent fn rendered under a non-default frame; routed to `:rf/default`. Emitted at most once per `(component-id, non-default-frame-id)` pair — see [004 §Plain Reagent fns](004-Views.md) | `:fn-name`, `:rendered-under`, `:routed-to` |
 | `:rf.warning/no-clock-configured` | A timing-sensitive substrate feature (e.g. state-machine `:after` per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) was exercised on a host whose `re-frame.interop` clock primitives (`now-ms` / `schedule-after!` / `cancel-scheduled!`) weren't wired up. The runtime falls back to the host-native clock if available; this advisory surfaces so tests / agents can spot the missing wiring | `:feature` (e.g. `:rf.machine/after`), `:fallback` (the host-native clock used) |
 | `:rf.error/duplicate-url-binding` | A second frame attempted `:url-bound? true` while another already owns the URL. Per [012 §Multi-frame routing](012-Routing.md#multi-frame-routing) | `:existing-frame`, `:offending-frame` |
 | `:rf.error/system-id-collision` | A spawn whose `:system-id` was already bound in the per-frame `[:rf/system-ids]` reverse index displaced the previous binding. Last-write-wins, matching `reg-event-fx` re-registration semantics. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue | `:frame`, `:system-id`, `:existing-machine` (the displaced gensym'd id), `:rebound-to` (the new gensym'd id) |
 | `:rf.warning/multiple-status-set` | Two or more `:rf.server/set-status` calls in the same request drain. Last-write-wins; advisory for finding the conflicting handlers. Per [011 §Multiple-status policy](011-SSR.md#multiple-status-policy) | `:writes` (vector of `{:status :handler-id :event}` per write), `:final-status` |
 | `:rf.warning/multiple-redirects` | Two or more `:rf.server/redirect` calls in the same request drain. Last-write-wins. Per [011 §Redirect precedence](011-SSR.md#redirect-precedence) | `:writes` (vector), `:final-redirect` |
-| `:rf.warning/head-mismatch` | Client-computed head model differs from server-supplied head; client re-renders and replaces. Per [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) | `:server-hash`, `:client-hash`, `:head-id` |
 | `:rf.warning/interceptors-in-metadata-map` | A `reg-event-*` registration carried `:interceptors` inside its metadata-map; the chain is silently dropped. Per [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) and rf2-bbea | `:reg-fn` (the fn's name as a string), `:id`, `:offending-keys`, `:reason` |
 | `:rf.warning/boundary-without-spec` | The `:spec/validate-at-boundary` interceptor (per [010 §Production builds](010-Schemas.md#production-builds)) was attached to an event handler that carries no `:spec` metadata. The interceptor cannot validate without a schema; the dispatch passes through unchecked. Emitted at most once per `event-id` (suppression cache reset across frame destruction). Per [010 §Production builds](010-Schemas.md#production-builds) and rf2-r2uh | `:event-id`, `:event` (vector), `:reason` |
 | `:rf.error/sanitised-on-projection` | The active error projector threw or returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 public shape. Per [011 §Where sanitisation happens — before render](011-SSR.md#where-sanitisation-happens--before-render) | `:projector-id`, `:original-operation`, `:projection-failure-reason` |
@@ -822,10 +822,10 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.error/effect-map-shape` | `:logged-and-skipped` | The offending top-level key is dropped; `:db` and `:fx` still apply. One trace per offending key. Per [MIGRATION §M-8](MIGRATION.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level). |
 | `:rf.error/override-fallthrough` | `:replaced-with-default` | Use the registered fx as if no override existed. |
 | `:rf.fx/skipped-on-platform` | `:skipped` | Documented; not really an error. |
-| `:rf.ssr/hydration-mismatch` | `:warned-and-replaced` | Re-render client-side; the server's HTML is replaced. |
+| `:rf.ssr/hydration-mismatch` (body, `:failing-id :rf/hydrate`) | `:warned-and-replaced` | Re-render client-side; the server's HTML is replaced. |
+| `:rf.ssr/hydration-mismatch` (head, `:failing-id :rf.ssr/head-mismatch`) | `:warned-and-replaced` | Client renders its head; server's is replaced. |
 | `:rf.warning/multiple-status-set` | `:warned-and-replaced` | Last-write wins; advisory only. |
 | `:rf.warning/multiple-redirects` | `:warned-and-replaced` | Last-write wins; advisory only. |
-| `:rf.warning/head-mismatch` | `:warned-and-replaced` | Client renders its head; server's is replaced. |
 | `:rf.warning/interceptors-in-metadata-map` | `:ignored` | The mis-placed `:interceptors` chain is dropped; registration completes with no positional interceptors. |
 | `:rf.warning/boundary-without-spec` | `:no-recovery` | The boundary interceptor is a no-op for this dispatch (no schema to validate against); the handler runs as if the interceptor were absent. Emitted at most once per `event-id` to flag the misconfiguration. Per [010 §Production builds](010-Schemas.md#production-builds) and rf2-r2uh. |
 | `:rf.error/sanitised-on-projection` | `:replaced-with-default` | Runtime falls back to the locked generic-500 public-error shape. |
@@ -959,7 +959,7 @@ Trace events contain dispatched event vectors, which may include user input (pas
 
 ### Listener ordering
 
-Multiple listeners may register concurrently. Order is registration order (a `swap! assoc` on a single atom). Tools must not depend on order — they each receive the same event independently.
+Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-trace-cb!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-cb` (per [`register-epoch-cb` §Invocation rules](#register-epoch-cb--assembled-epoch-listener)).
 
 ### Trace correlation across the cascade
 

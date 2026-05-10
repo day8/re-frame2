@@ -319,7 +319,7 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `ssr-set-status.edn` | `:ssr/set-status` | `:rf.server/set-status 404` populates the response accumulator; HTML body still renders |
 | `ssr-cookie.edn` | `:ssr/cookie` | `:rf.server/set-cookie` adds a structured cookie to `:cookies`; host adapter would serialise to `Set-Cookie:` |
 | `ssr-head-emits.edn` | `:ssr/head-emits` | Active route's `:head` resolves to a registered head fn; rendered HTML's `<head>` contains the expected title/meta/link tags |
-| `ssr-head-hydration.edn` | `:ssr/head-hydration` | Hydration payload carries `:rf/head` + `:rf/head-hash`; client recomputes; matches; no `:rf.warning/head-mismatch` emitted |
+| `ssr-head-hydration.edn` | `:ssr/head-hydration` | Hydration payload carries `:rf/head` + `:rf/head-hash`; client recomputes; matches; no `:rf.ssr/hydration-mismatch` (`:failing-id :rf.ssr/head-mismatch`) emitted |
 | `ssr-error-sanitisation.edn` | `:ssr/error-sanitisation` | Handler throws; trace carries full detail; public response shape is locked generic-500; rendered HTML contains no internal detail |
 | `ssr-error-known-mapping.edn` | `:ssr/error-known-mapping` | Default projector maps `:rf.error/no-such-handler` (routing context) → `{:status 404 :code :not-found ...}` public-error |
 

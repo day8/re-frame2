@@ -412,13 +412,12 @@ Pattern-level error categories:
 | `:rf.error/derived-container-replaced` | `replace-container!` called on a derived container (per Spec 006 §make-derived-value) |
 | `:rf.error/adapter-disposed` | An adapter function was called after `dispose-adapter!` ran |
 | `:rf.fx/skipped-on-platform` | Fx was skipped because `:platforms` excluded the active platform |
-| `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree |
+| `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree, OR client-computed head differs from server-supplied head. `:failing-id` discriminates (`:rf/hydrate` for the body; `:rf.ssr/head-mismatch` for the head) |
 | `:rf.warning/plain-fn-under-non-default-frame-once` | Plain Reagent fn rendered under a non-default frame; emitted once per `(component-id, non-default-frame-id)` pair |
 | `:rf.warning/no-clock-configured` | A timing-sensitive substrate feature was exercised on a host whose interop clock layer is unwired |
 | `:rf.warning/route-shadowed-by-equal-score` | Two registered routes have an equal structural rank |
 | `:rf.warning/multiple-status-set` | Two or more `:rf.server/set-status` calls in the same request drain (last-write-wins) |
 | `:rf.warning/multiple-redirects` | Two or more `:rf.server/redirect` calls in the same request drain (last-write-wins) |
-| `:rf.warning/head-mismatch` | Client-computed head model differs from server-supplied head; client re-renders and replaces |
 | `:rf.error/sanitised-on-projection` | Error projector threw or returned a non-conforming shape; runtime fell back to the locked generic-500 public-error |
 
 ---
