@@ -8,6 +8,12 @@ If you're an AI agent or implementor, you want the [specification](../../spec/) 
 
 ## Chapters
 
+The guide is in two parts. The **core path** (chapters 01-07) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 08-12) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
+
+### Core path
+
+Read these in order. Each chapter assumes the previous one.
+
 | # | Chapter | What it covers |
 |---|---|---|
 | 01 | [Why re-frame2](01-why-re-frame2.md) | The argument. What problem this solves. Why it works. |
@@ -17,15 +23,24 @@ If you're an AI agent or implementor, you want the [specification](../../spec/) 
 | 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |
 | 06 | [Doing HTTP requests](06-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
 | 07 | [The server side](07-server-side.md) | SSR and hydration without losing your mind. |
-| 08 | [From re-frame v1](08-from-re-frame-v1.md) | What's the same, what's different, what to do. |
-| 09 | [The dynamic-model story](09-the-dynamic-model.md) | The deeper essay on *why* less-powerful is more. |
-| 10 | [Testing](10-testing.md) | `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
-| 11 | [Devtools and pair tools](11-devtools-and-pair-tools.md) | Trace stream, epoch history, time-travel, source-coords, `reset-frame-db!`. |
-| 12 | [Routing](12-routing.md) | URL ↔ state contract, `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
-
-After the chapters: read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login, routing, ssr, managed-http-counter, state-machine-walkthrough), then benchmarks (todomvc, 7GUIs, nine-states), then the RealWorld scaffold. Fifteen examples total, each with a Playwright smoke spec; the catalogue maps each one to the Specs it exercises.
 
 If you're impatient, read [01](01-why-re-frame2.md) and skip to [02](02-your-first-app.md). If you're skeptical, [01](01-why-re-frame2.md) is where the argument lives.
+
+### Optional deep dives
+
+Read these when the topic comes up — not as part of the linear sequence. They're independent of one another.
+
+| # | Chapter | When to read it |
+|---|---|---|
+| 08 | [From re-frame v1](08-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. |
+| 09 | [The dynamic-model story](09-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
+| 10 | [Testing](10-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
+| 11 | [Devtools and pair tools](11-devtools-and-pair-tools.md) | You're debugging or reaching for tooling — trace stream, epoch history, time-travel, source-coords, `reset-frame-db!`. |
+| 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
+
+### Worked examples
+
+Once you've finished the core path, read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login, routing, ssr, managed-http-counter, state-machine-walkthrough), then benchmarks (todomvc, 7GUIs, nine-states), then the RealWorld scaffold. Fifteen examples total, each with a Playwright smoke spec; the catalogue maps each one to the Specs it exercises.
 
 ## After the chapters — the system-understanding bridge
 
