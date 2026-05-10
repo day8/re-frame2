@@ -68,6 +68,7 @@ declare -A ARTEFACT_PATHS=(
   [core]="core"
   [schemas]="schemas"
   [reagent]="adapters/reagent"
+  [reagent-slim]="adapters/reagent-slim"
   [uix]="adapters/uix"
   [helix]="adapters/helix"
   [machines]="machines"
@@ -78,15 +79,15 @@ declare -A ARTEFACT_PATHS=(
   [epoch]="epoch"
 )
 
-ARTEFACTS=(core schemas reagent uix helix machines routing flows http ssr epoch)
+ARTEFACTS=(core schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
 
 # core is the lockstep root: it does not depend on any other re-frame-2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent uix helix machines routing flows http ssr epoch)
+NON_CORE=(schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
-ADAPTERS=(reagent uix helix)
+ADAPTERS=(reagent reagent-slim uix helix)
 
 is_adapter() {
   local needle="$1"
