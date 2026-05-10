@@ -15,7 +15,7 @@
   No test exercises both paths against a single fixture to confirm.
   This file pins parity from the JVM side (rf2-d4v7 sub-gap 3 /
   rf2-o423 audit); the CLJS-side counterpart lives at
-  `implementation/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`
+  `implementation/substrates/reagent/test/re_frame/source_coord_parity_cljs_test.cljs`
   and pins the same canonical literal against `format-source-coord`.
 
   Strategy: each helper is `defn-` (private), but Clojure exposes

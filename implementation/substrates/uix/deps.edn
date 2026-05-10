@@ -20,7 +20,7 @@
 ;; the other per-substrate artefacts (Reagent's :test alias is also
 ;; classpath-probe-only).
 {:paths ["src"]
- :deps  {day8/re-frame-2 {:local/root "../core"}
+ :deps  {day8/re-frame-2 {:local/root "../../core"}
          com.pitch/uix.core {:mvn/version "1.4.4"}
          com.pitch/uix.dom  {:mvn/version "1.4.4"}}
 
@@ -48,7 +48,7 @@
   {:lib      day8/re-frame-2-uix
    :main     re-frame.substrate.uix
    :url      "https://github.com/day8/re-frame2"
-   :version  "../../VERSION"
+   :version  "../../../VERSION"
    :license  {:name "MIT"
               :url  "https://opensource.org/licenses/MIT"}
    :src-dirs ["src"]}}}

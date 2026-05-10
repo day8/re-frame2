@@ -13,11 +13,16 @@
 ;;   - http/     (day8/re-frame-2-http,     rf2-5kpd)
 ;;   - ssr/      (day8/re-frame-2-ssr,      rf2-uo7v)
 ;;   - epoch/    (day8/re-frame-2-epoch,    rf2-lt4e)
-;; see implementation/core/deps.edn, implementation/reagent/deps.edn,
-;; implementation/helix/deps.edn, implementation/schemas/deps.edn,
-;; implementation/machines/deps.edn, implementation/routing/deps.edn,
-;; implementation/flows/deps.edn, implementation/http/deps.edn,
-;; implementation/ssr/deps.edn, and implementation/epoch/deps.edn.
+;; see implementation/core/deps.edn,
+;; implementation/substrates/reagent/deps.edn,
+;; implementation/substrates/uix/deps.edn,
+;; implementation/substrates/helix/deps.edn,
+;; implementation/schemas/deps.edn, implementation/machines/deps.edn,
+;; implementation/routing/deps.edn, implementation/flows/deps.edn,
+;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
+;; implementation/epoch/deps.edn. Per rf2-zha9 the substrate adapters
+;; live under implementation/substrates/; per-feature artefacts stay
+;; flat under implementation/.
 ;;
 ;; This top-level deps.edn is *not* itself a published artefact — it is
 ;; the build coordinator that pulls every artefact onto a single
@@ -27,9 +32,9 @@
 ;; via the per-artefact deps.edn directly.
 {:paths []
  :deps  {day8/re-frame-2          {:local/root "core"}
-         day8/re-frame-2-reagent  {:local/root "reagent"}
-         day8/re-frame-2-uix      {:local/root "uix"}
-         day8/re-frame-2-helix    {:local/root "helix"}
+         day8/re-frame-2-reagent  {:local/root "substrates/reagent"}
+         day8/re-frame-2-uix      {:local/root "substrates/uix"}
+         day8/re-frame-2-helix    {:local/root "substrates/helix"}
          day8/re-frame-2-schemas  {:local/root "schemas"}
          day8/re-frame-2-machines {:local/root "machines"}
          day8/re-frame-2-routing  {:local/root "routing"}
@@ -44,9 +49,9 @@
   ;; CI runs each artefact's :test alias separately.
   :test
   {:extra-paths ["core/test"
-                 "reagent/test"
-                 "uix/test"
-                 "helix/test"
+                 "substrates/reagent/test"
+                 "substrates/uix/test"
+                 "substrates/helix/test"
                  "schemas/test"
                  "machines/test"
                  "routing/test"

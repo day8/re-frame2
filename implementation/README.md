@@ -54,14 +54,26 @@ implementation/
     test/re_frame/           JVM tests + the substrate-agnostic CLJS tests
                              (conformance, hash-check, elision-probe).
 
-  reagent/                   day8/re-frame-2-reagent — the Reagent adapter artefact.
-    deps.edn                 :local/root dep on ../core.
-    src/re_frame/substrate/
-      reagent.cljs           The Reagent substrate adapter.
-    test/re_frame/           CLJS tests that exercise the Reagent adapter end-to-end
+  substrates/                Substrate adapters live here per rf2-zha9 — one
+                             directory per adapter (reagent, uix, helix). Per-feature
+                             artefacts (schemas, machines, ...) stay flat under
+                             implementation/.
+    reagent/                 day8/re-frame-2-reagent — the Reagent adapter artefact.
+      deps.edn               :local/root dep on ../../core.
+      src/re_frame/substrate/
+        reagent.cljs         The Reagent substrate adapter.
+      test/re_frame/         CLJS tests that exercise the Reagent adapter end-to-end
                              (cross-spec, events, hot-reload, http-managed, machines,
                              nine-states, realworld, render-key, routing, runtime,
                              schemas).
+    uix/                     day8/re-frame-2-uix — the UIx adapter artefact (rf2-3yij).
+      deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
+      src/re_frame/substrate/uix.cljs
+                             The UIx substrate adapter (use-subscribe, flush-views!, etc.).
+    helix/                   day8/re-frame-2-helix — the Helix adapter artefact (rf2-2qit).
+      deps.edn               :local/root dep on ../../core; pulls lilactown/helix.
+      src/re_frame/substrate/helix.cljs
+                             The Helix substrate adapter.
 
   schemas/                   day8/re-frame-2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
@@ -108,7 +120,7 @@ cd implementation/core
 clojure -M:test
 
 # reagent artefact (CLJS-only — JVM run is a classpath probe; 0 tests is normal)
-cd implementation/reagent
+cd implementation/substrates/reagent
 clojure -M:test
 
 # schemas artefact
