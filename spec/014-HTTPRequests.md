@@ -399,6 +399,101 @@ The two are mutually exclusive — pick one.
 
 The reply dispatch lands in the **same frame** the request was issued from. The fx captures `:frame` from the dispatch envelope's cofx (per Spec 002 §Routing) and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.
 
+## Middleware
+
+Per [rf2-6y3q](#) — apps repeatedly want to apply a transform to every outgoing `:rf.http/managed` request: attach a Bearer token, stamp a correlation-id, rewrite a base URL in dev. v1 ships a **per-frame request-side interceptor chain** that sits between the user's args and the transport.
+
+### Shape
+
+The interceptor shape matches re-frame2's event-handler interceptor idiom — each interceptor is a map `{:id <kw> :before (fn [ctx] ctx')}` — so authors reuse what they already know.
+
+```clojure
+(rf/reg-http-interceptor
+  {:frame  :rf/default
+   :id     :auth-header
+   :before (fn [ctx]
+             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+               (cond-> ctx
+                 token (assoc-in [:request :headers "Authorization"]
+                                 (str "Bearer " token)))))})
+```
+
+### `ctx` contract
+
+Each `:before` receives a context map with these keys:
+
+| Key | Type | Notes |
+|---|---|---|
+| `:request` | map | The `:request` envelope per [§Request envelope](#request-envelope). `:before` returns a ctx whose `:request` is the modified envelope. |
+| `:args` | map | The full `:rf.http/managed` args map (`:request` plus `:decode` / `:accept` / `:retry` / `:on-success` / ...). Read-only by convention; the only field the runtime threads onto the transport is `:request`. |
+| `:frame` | keyword | The resolved frame id. |
+| `:event` | vector | The originating event vector (or `[:rf.http/managed]` when not threaded). |
+
+The fn returns the (possibly-modified) ctx. The runtime threads its `:request` onto the next interceptor (or onto the transport when the chain is exhausted).
+
+### Chain order and frame scope
+
+- **Registration order.** The chain runs in the order `reg-http-interceptor` calls were made on that frame. Re-registering an existing id replaces the slot **in place** — the position is preserved.
+- **Per-frame.** An interceptor registered against frame A does NOT fire for a request dispatched from frame B. Multi-frame apps register independent chains per frame; the auth interceptor on the user-app frame doesn't leak into a hypothetical admin-app frame.
+- **`:before`-only in v1.** Response-side transforms (the moral equivalent of an `:after`) are out of scope for v1 — sticking with the request-side keeps the contract small. The `:after` slot is reserved for future extension; an interceptor map carrying `:after` registers cleanly today (the runtime ignores the key) and will compose with v2's response-side hook when it lands.
+
+### Failure mode
+
+A throw inside any `:before` classifies as `:rf.error/http-interceptor-failed`. The runtime:
+
+1. Emits a `:rf.error/http-interceptor-failed` trace event with `:frame`, `:interceptor-id`, `:url`, and `:cause` tags (per [009 §Error categories](009-Instrumentation.md#error-categories-initial-set)).
+2. Re-throws the wrapped ex-info, which the `re-frame.fx` outer catch converts to `:rf.error/fx-handler-exception` (so `:rf.fx/handled` does NOT fire).
+3. Does NOT dispatch the request — the transport never sees it.
+
+Pair tools and 10x panels see exactly two traces per interceptor failure: the per-interceptor `:rf.error/http-interceptor-failed` (which carries `:interceptor-id`) and the cascade-level `:rf.error/fx-handler-exception` (which carries `:fx-id :rf.http/managed`). Apps that want to recover gracefully wrap the throwing logic inside the `:before` itself — the chain has no recovery cofx.
+
+### Clearing
+
+`(rf/clear-http-interceptor id)` removes the slot on `:rf/default`; `(rf/clear-http-interceptor frame-id id)` targets a specific frame. The single-arity is the common case (single-frame apps); the two-arity is unambiguous for multi-frame.
+
+Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the slot in place.
+
+### Trace events
+
+| `:operation` | `:op-type` | When |
+|---|---|---|
+| `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Tags: `:frame`, `:id`. |
+| `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot (no trace fires for a clear-of-unknown-id). Tags: `:frame`, `:id`. |
+| `:rf.error/http-interceptor-failed` | `:error` | A `:before` threw; see [§Failure mode](#failure-mode). Tags: `:frame`, `:interceptor-id`, `:url`, `:cause`. |
+
+### Example — Bearer auth with a single registration
+
+```clojure
+(rf/reg-http-interceptor
+  {:frame  :rf/default
+   :id     :app/bearer-auth
+   :before (fn [ctx]
+             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+               (cond-> ctx
+                 token (assoc-in [:request :headers "Authorization"]
+                                 (str "Bearer " token)))))})
+
+;; All subsequent `:rf.http/managed` requests on `:rf/default` carry the
+;; header automatically — no per-call-site threading. The interceptor
+;; reads the auth slice on every request, so token rotation is picked
+;; up without re-registration.
+
+(rf/reg-event-fx :articles/list
+  (fn [_ _]
+    {:fx [[:rf.http/managed
+           {:request {:url "/articles"}                ;; no auth threading
+            :decode  ArticleListResponse}]]}))
+```
+
+### Public surface
+
+| API | Kind | Signature |
+|---|---|---|
+| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` |
+| `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
+
+Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame-2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
+
 ## Examples
 
 ### A — Simplest possible (sugar all the way down)
@@ -517,6 +612,7 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 - **WebSocket** — bidirectional. Lives in [Pattern-WebSocket](Pattern-WebSocket.md); state-machine-shaped.
 - **GraphQL-specific batching / persisted queries.** Layer on top — `:rf.http/managed` hands you the decoded response, your application wraps for batching.
 - **HTTP/2 server push.** Not a re-frame2 concern; the platform handles it transparently.
+- **Response-side interceptors (`:after`).** v1's middleware contract is request-side only ([§Middleware](#middleware), rf2-6y3q). Apps that want to project / log / retry on response paths use `:accept` (domain-failure normalisation) and the trace stream; a future `:after` slot composes additively when it lands.
 
 ## Cross-references
 
