@@ -12,14 +12,17 @@ The short version is at the bottom; here's the long-form first.
 
 ## Setup
 
-1. **Install [beads][beads].** It's the issue tracker — everything that outlives a single conversation goes here. The simplest way is to let the mayor do it:
+1. **Get a [Claude Max plan][claude-max].** This method dispatches a lot of background agents. On per-token API pricing the costs spiral fast — a subscription is the only sane way to run it. The 5x tier is a reasonable starting point; I run two 20x plans — one for personal projects, one for work.
+
+2. **Install [beads][beads].** It's the issue tracker — everything that outlives a single conversation goes here. The simplest way is to let the mayor do it:
 
    > *"Install beads for this project. Read the install docs at https://github.com/gastownhall/beads/blob/main/docs/INSTALLING.md, run the CLI install (Homebrew or the curl-pipe-bash script), then `bd init` in the project root, then `bd setup claude` to wire up the SessionStart / PreCompact hooks. Verify with `bd ready`."*
 
-2. **Open one Claude session and keep it open.** This is your **mayor**. It's the only session you talk to directly.
+3. **Open one Claude session and keep it open.** This is your **mayor**. It's the only session you talk to directly.
 
 That's the entire setup.
 
+[claude-max]: https://www.anthropic.com/pricing
 [beads]: https://github.com/gastownhall/beads
 
 ## What the mayor does
