@@ -83,7 +83,7 @@ What re-frame-pair2 can see inside a live re-frame2 app.
 
 | Guardrail | Status | Notes |
 |---|---|---|
-| `app-db/reset` is logged via `tap>` | *done* | Previous + next + timestamp are tap'd so the human sees the change |
+| `app-db/reset` is logged via `tap>` | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes, rf2-zq55) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. |
 | `repl/eval` treated as full-authority | *guardrail* | SKILL.md instructs Claude to prefer structured ops; the escape hatch is acknowledged |
 | Mutating ops refuse on `:ambiguous-frame` | *done* | Reads proceed against `:rf/default` after warning |
 | Watches and background processes always stop cleanly | *done* | Auto-terminate on disconnect, idle (default 30s), hard-cap (default 5min), or count cap (default 5) |
