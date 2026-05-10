@@ -50,9 +50,7 @@ Pre-alpha. Ports the v1 `re-frame-pair-improver` skill structure to target re-fr
 
 ## Install
 
-> Not yet published to npm. There is no package install path for this skill yet.
-
-To use it now, install it straight from a clone of this repo.
+`re-frame-pair-improver2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair-improver2/`.
 
 ### Install the skill in Claude Code
 
@@ -70,11 +68,13 @@ Best when you want the skill available everywhere and are happy to `git pull` up
 
 #### Project-local — for your whole team via the repo
 
-Install into the project's own `.claude/skills/re-frame-pair-improver2/` directory and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
+Copy the skill into the project's own `.claude/skills/re-frame-pair-improver2/` and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
 
-Because there is no npm package yet, do this by vendoring the repo contents or adding it as a submodule under `.claude/skills/re-frame-pair-improver2/`.
-
-For the plugin variant, check in the packaged files from this repo and reference the local plugin from the project's Claude configuration rather than a published package name.
+```bash
+cd your-re-frame2-project
+cp -r /path/to/re-frame2/skills/re-frame-pair-improver2 .claude/skills/re-frame-pair-improver2
+git add .claude/skills/re-frame-pair-improver2
+```
 
 #### Which to choose
 
