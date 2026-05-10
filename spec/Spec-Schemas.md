@@ -1062,7 +1062,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
-   [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+   [:system-id  {:optional true} :keyword]                                  ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame
+   [:timeout-ms {:optional true} pos-int?]                                  ;; per [005 §Wall-clock :timeout-ms]; wall-clock window for the spawned actor (spans retries); cancels the actor and dispatches :on-timeout on expiry
+   [:on-timeout {:optional true} [:vector :any]]])                          ;; required iff :timeout-ms is set; event vector dispatched into the parent on expiry — see [005 §Wall-clock :timeout-ms]
 
 ;; The :invoke-all spec on a state node — spawn-N-children-and-join. Per
 ;; [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
@@ -1103,7 +1105,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
    [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any / {:n N} / {:fn ...}
    [:on-any-failed    {:optional true} [:vector :any]]                      ;; optional; if absent, child failures don't short-circuit
-   [:cancel-on-decision? {:optional true} :boolean]])                       ;; default true
+   [:cancel-on-decision? {:optional true} :boolean]                         ;; default true
+   [:timeout-ms       {:optional true} pos-int?]                            ;; per [005 §Wall-clock :timeout-ms]; whole-join wall-clock window; on expiry surviving children are cancelled and :on-timeout is dispatched
+   [:on-timeout       {:optional true} [:vector :any]]])                    ;; required iff :timeout-ms is set; event vector dispatched into the parent on expiry — see [005 §Wall-clock :timeout-ms]
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
 ;; — runtime-managed and not part of the transition-table grammar. See
@@ -1155,6 +1159,8 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 **Guard / action reference resolution.** A `GuardRef` / `ActionRef` keyword is **machine-local** — it resolves to `(get-in spec [:guards <id>])` / `(get-in spec [:actions <id>])`, where `spec` is the root `::state-node` of the transition table. Resolution is performed at registration time: `create-machine-handler` walks the table (in `:on`, `:always`, `:entry`, `:exit` slots) and verifies each keyword reference resolves to a fn in the spec's `:guards` / `:actions` map. Unresolved references fail registration with `:rf.error/machine-unresolved-guard` (with `:tags {:guard-id <id> :machine-id <id>}`) or `:rf.error/machine-unresolved-action` (with `:tags {:action-id <id> :machine-id <id>}`). There is **no global guard/action registry** — each machine has its own `:guards` / `:actions` namespace. Cross-machine reuse is via Clojure vars referenced from each machine's map.
 
 **`:invoke` constraint.** The `:invoke` slot's `InvokeSpec` declares both `:machine-id` and `:definition` as optional, but **exactly one** must be supplied for any actual `:invoke` slot — Malli alone cannot express the xor without a richer combinator, so `create-machine-handler` enforces it at registration time and rejects malformed slots as a transition-table error. `:invoke` is registration-time sugar — see [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) for the desugaring rules; the runtime never sees an `:invoke` key at transition time.
+
+**`:timeout-ms` constraint.** When `:timeout-ms` is supplied (on either `:invoke` or `:invoke-all`), `:on-timeout` MUST also be supplied — the runtime needs an event to dispatch on expiry. `create-machine-handler` rejects the standalone `:timeout-ms` shape at registration time with `:rf.error/machine-invoke-timeout-without-on-timeout`. The reverse — `:on-timeout` without `:timeout-ms` — is rejected with `:rf.error/machine-invoke-on-timeout-without-timeout` (the slot would never fire). See [005 §Wall-clock `:timeout-ms`](005-StateMachines.md#wall-clock-timeout-ms-spans-retries).
 
 **`:always` constraints.** The `:always` slot is checked at registration time for two registration-error categories:
 
