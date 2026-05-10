@@ -146,43 +146,32 @@ Here's the kinds of conversations you can have with Claude.
 
 ## Install
 
-> Not yet published. The first tagged release (`v0.1.0-alpha.1`+) will appear on npm as `@day8/re-frame-pair2`.
-
-To run it *before* then — straight from a clone, with edits live — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md). Symlink the repo into `~/.claude/skills/re-frame-pair2/`, install babashka, done.
+`re-frame-pair2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair2/`.
 
 `re-frame-pair2` adds nothing to the host project beyond what re-frame2 already requires. On first connect, the skill injects its runtime helpers into your app over the REPL — no extra deps, no extra preloads, no extra closure-defines attributable to `re-frame-pair2`.
 
 ### Install the skill in Claude Code
 
-Both distributions (Agent Skill and Claude Code Plugin) ship the same `SKILL.md` and `scripts/*` shims. Choose a scope.
-
 #### Global — for you, across any re-frame2 project
 
-As an Agent Skill (recommended; portable across Claude clients):
+Symlink (or copy) the skill into your user Claude config:
 
 ```bash
-npx skills add day8/re-frame-pair2
+git clone https://github.com/day8/re-frame2.git    # one-time, anywhere
+ln -s "$(pwd)/re-frame2/skills/re-frame-pair2" ~/.claude/skills/re-frame-pair2
 ```
 
-As a Claude Code Plugin:
-
-```bash
-/plugin install re-frame-pair2@day8
-```
-
-Lands in your user Claude config (`~/.claude/`). Best when you work on several re-frame2 apps, or you're the only Claude Code user on this project.
+Best when you work on several re-frame2 apps, or you're the only Claude Code user on this project.
 
 #### Project-local — for your whole team via the repo
 
-Install into the project's own `.claude/skills/re-frame-pair2/` directory and commit it. Teammates who clone the repo and open Claude Code there get the skill on first use, pinned to the committed version.
+Copy the skill into the project's own `.claude/skills/re-frame-pair2/` and commit it. Teammates who clone the repo and open Claude Code there get the skill on first use, pinned to the committed version:
 
 ```bash
 cd your-re-frame2-project
-npx skills add --scope project day8/re-frame-pair2    # planned syntax
+cp -r /path/to/re-frame2/skills/re-frame-pair2 .claude/skills/re-frame-pair2
 git add .claude/skills/re-frame-pair2
 ```
-
-For the plugin variant, reference `re-frame-pair2@day8` in a checked-in `.claude/plugin.json`.
 
 #### Which to choose
 
