@@ -88,9 +88,7 @@ The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-c
 
 The architecture above assumes a view inside a `frame-provider` subtree picks up the surrounding frame. The CLJS reference uses **React context** to carry this — when you wrap a subtree with `[rf/frame-provider {:frame :left} ...]`, every registered view rendered underneath receives the frame id through context, and the auto-injected `dispatch`/`subscribe` resolves against it.
 
-In practice, the propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` will dispatch to `:left`. **Caveat:** as of today the CLJS implementation has a partial gap here — the resolution chain spec/002 §3 documents (dynamic-var → React context → `:rf/default`) is not fully wired in the current CLJS reference. Subscribe consults the dynamic-var tier and falls back to `:rf/default`; the React-context tier is documented but not yet connected in the read path. The split-counter example below works in the canonical case (one frame-per-mount, set up via `frame-provider` plus dispatch-sync seed events) because the dynamic-var tier carries the frame for each render, but more elaborate cases — sibling views under different frame-providers within a single render pass that BOTH need to read state — should be tested against your specific shape.
-
-The behaviour is tracked at [rf2-d4sf](#); the contract in this guide describes what works today, not what spec/002 §3 promises long-term. When the gap closes, the resolution is automatic — your code does not change. The chapter's example (and the runnable [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs)) exercises only the part that works today.
+The propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` dispatches to `:left`. The full resolution chain (dynamic-var → React context → `:rf/default`) is specified in [Spec 002 §3](../../spec/002-Frames.md); a partial implementation gap in the current CLJS reference is tracked at [rf2-d4sf](#). The split-counter example below exercises the part that works today; when the gap closes the resolution is automatic and your code does not change.
 
 ### The Var-reference idiom
 
@@ -205,30 +203,18 @@ Two instances of the same registered view, different frames. Each subtree's `dis
 
 ## Source coordinates on rendered DOM
 
-A small but load-bearing detail: every `reg-view`-rendered DOM element receives a `data-rf2-source-coord` attribute pointing back to the registration that produced it.
+One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-```html
-<button data-rf2-source-coord="counter.core:counter:48:5" ...>+</button>
-```
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 11 §Source coordinates](11-devtools-and-pair-tools.md#source-coordinates-clicking-a-button-back-to-its-source-line). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
 
-The four colon-separated segments are `<ns>:<sym>:<line>:<col>` — the registration's namespace, the registered symbol, and the source line/column captured at macro-expansion time. (To recover the file path too, look it up via `(rf/handler-meta :view <id>)`; the registration metadata carries `:rf/source-coord-meta` with `:ns`/`:line`/`:column`/`:file`.)
-
-The annotation is **mandatory** in the CLJS reference per [Spec 006](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) — every adapter whose host has a DOM-attribute concept injects it. It exists so pair-tools and devtools can take a clicked DOM node and resolve it back to the source line that produced the view; [chapter 11](11-devtools-and-pair-tools.md) walks through what tools do with it.
-
-Two production-elision details matter:
-
-- The annotation is **dev-only** — gated on the universal `re-frame.interop/debug-enabled?` flag (the CLJS mirror of `goog.DEBUG`). `:advanced` builds with `goog.DEBUG=false` strip the attribute via Closure DCE; the rendered HTML in production carries no `data-rf2-source-coord` bytes.
-- Components whose outermost return is a React Fragment, a `:>`-prefixed host component, or another non-DOM root are exempt — the runtime can't attach an attribute to a fragment. Pair-tools fall back to the registration's metadata for those nodes.
-
-You don't need to do anything to get the annotation. `reg-view` does it. The mention here is so you recognise the attribute when you see it in the inspector.
+<!-- TODO(rf2-q2x0 — discovered from rf2-u5sq): app-db shape and the flow/routing
+     forward-pointers below are kept inline because they have no obvious new
+     chapter home today. Future rework could fold "What lives in app-db" into
+     ch.03's state-shape territory and let flows/routing be pure forward-pointers. -->
 
 ## What lives in app-db
 
-The single most common question new re-frame users ask: *what shape should I put my app-db in?*
-
-The honest answer is: whatever shape suits your app. There's no required schema. `app-db` is "your app's state, in one map." How you organise that map is your business.
-
-That said, conventions help:
+A frame's `app-db` is "your app's state, in one map." There's no required schema, but a useful convention is one top-level key per *feature* — each feature owning its own slice, accessed through that feature's subs and events:
 
 ```clojure
 {:auth     {:user nil :loading? false :error nil}
@@ -238,21 +224,11 @@ That said, conventions help:
  :ui       {:sidebar-open? true :modal nil}}
 ```
 
-A top-level key per *feature*. Each feature owns its own slice. No feature reaches into another feature's slice directly — instead, it goes through the other feature's subs (to read) and dispatches the other feature's events (to write).
-
-This **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...` and `:cart.item/...`; subs that read the cart's slice live under `:cart/items`, `:cart/total`; views live under `:cart/summary`. The whole feature is identifiable by its prefix. Adding or removing a feature is a `git mv` away from being a single coherent unit.
-
-For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev. We'll see this in [chapter 07](07-server-side.md) when SSR enters the picture.
+The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 07](07-server-side.md) shows this when SSR enters the picture.
 
 ### Computed values as state — the flow escape hatch
 
-Most derived values you reach for in re-frame2 are subscriptions: the rectangle's area derived from `:width` and `:height`, the cart's total derived from its items, the form's submittable-state derived from validity flags. Subs live in the per-frame sub-cache and are consumed by views.
-
-Sometimes, though, the derived value isn't *just* for views. You want it **in `app-db`**, where:
-- another event handler can read it as plain data,
-- it survives SSR/hydration round-trips,
-- it shows up in the `app-db` inspector,
-- a registered schema can cover it.
+Most derived values are subscriptions — they live in the per-frame sub-cache and are consumed by views. Sometimes, though, the derived value isn't *just* for views: you want it **in `app-db`** so another event handler can read it as plain data, it survives SSR/hydration, it shows up in the inspector, a registered schema can cover it.
 
 That's what **flows** are for. A flow is a registered rule: "when these `app-db` paths change, run this pure function and write the result to that `app-db` path." Same compute-on-input-change semantics as subs; different storage location.
 
@@ -264,13 +240,11 @@ That's what **flows** are for. A flow is a registered rule: "when these `app-db`
    :path   [:area]})
 ```
 
-Flows are deliberately a **niche convenience**, not a sub replacement. Most derived values are still subs — flows pay an `app-db` write per recomputation, and they're only worth that cost when the derived value is genuinely part of the application's state. A typical re-frame2 app has dozens of subs and one or two flows. Full contract: [Spec 013](../../spec/013-Flows.md).
+Flows are deliberately a **niche convenience**, not a sub replacement — a typical re-frame2 app has dozens of subs and one or two flows. Full contract: [Spec 013](../../spec/013-Flows.md).
 
 ### Routing as state
 
-A specific case of "feature-as-slice" worth flagging: **routing**. The current route lives in `app-db` at `:route` — a small map of `{:id :params :query :fragment :transition :nav-token}`. Navigation is an event (`:rf.route/navigate`); URL changes are events (`:rf.route/handle-url-change`); the active route is a sub. There's no separate routing runtime, no route-aware components, no "route context" — it's just data that happens to be reflected in the address bar.
-
-The substrate gives you a few things you'd otherwise hand-roll: a deterministic ranking algorithm (so `/users/me` and `/users/:id` always agree on which one wins), per-navigation tokens that ride through async work and let stale results suppress themselves cleanly, fragments as a first-class part of the route slice, and `:can-leave` guards that pause navigation through `:rf/pending-navigation` so the user can confirm or cancel an "unsaved changes?" prompt. The full contract is in [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is just: routing is one more slice of `app-db`, not a parallel system.
+Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 12](12-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
 
 ## A small example: split counter
 
