@@ -1,0 +1,27 @@
+# editors
+.idea/
+.vscode/
+*.iml
+.nrepl-history
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CLJS build outputs
+target/
+.shadow-cljs/
+out/
+public/js/compiled/
+resources/public/js/compiled/
+node_modules/
+.cpcache/
+
+# logs / tmp
+*.log
+tmp/
+.tmp/
+
+# Claude Code working files (agent state, not project artefacts)
+.claude/
+CLAUDE.local.md
