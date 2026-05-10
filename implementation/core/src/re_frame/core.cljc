@@ -16,6 +16,13 @@
             [re-frame.subs :as subs]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
+            ;; re-frame.spec (Spec 010 §Production builds, rf2-r2uh)
+            ;; — schema-related interceptors. The boundary-validation
+            ;; interceptor lives here and reaches the optional schemas
+            ;; artefact via the `:schemas/validate-with-registered-fn`
+            ;; late-bind hook, so this require does NOT drag the
+            ;; schemas artefact onto core's classpath.
+            [re-frame.spec :as spec]
             ;; re-frame.schemas (Spec 010) ships as a separate Maven
             ;; artefact (day8/re-frame-2-schemas, rf2-p7va). The core
             ;; artefact MUST NOT `:require [re-frame.schemas]` — that
@@ -1146,6 +1153,23 @@
 (def inject-cofx     cofx/inject-cofx)
 (def path            std-interceptors/path)
 (def unwrap          std-interceptors/unwrap)
+
+;; ---- :spec/validate-at-boundary (rf2-r2uh) -------------------------------
+;;
+;; Per Spec 010 §Production builds — the production-side validation
+;; interceptor. Re-uses the handler's existing `:spec` metadata; no-op
+;; in dev (step-1 already validates), no-op when no validator is
+;; registered (per rf2-froe's nil-validator opt-out), no-op when the
+;; handler carries no `:spec` (and emits `:rf.warning/boundary-without-spec`
+;; once to flag the misconfiguration). On failure, skips the handler
+;; and emits `:rf.error/schema-validation-failure :where :event` —
+;; same recovery path as dev-mode step-1 failures.
+;;
+;; Users can write either `[rf/validate-at-boundary]` (this re-export)
+;; or import `re-frame.spec` directly and write `[spec/validate-at-boundary]`
+;; — both refer to the same value.
+
+(def validate-at-boundary spec/validate-at-boundary)
 
 ;; ---- trace ----------------------------------------------------------------
 
