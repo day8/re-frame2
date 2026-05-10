@@ -1,6 +1,6 @@
 # Reagent — examples
 
-The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Substrate test matrix policy](../../spec/Conventions.md#substrate-test-matrix-policy) for the policy and rationale.
+The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
 
 This directory holds the **full set of fifteen worked examples** that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source, a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The 7GUIs cluster has its own internal grouping under [`7Guis/`](7Guis/README.md).
 
@@ -43,6 +43,6 @@ shadow-cljs watch examples/counter
 
 ## Cross-references
 
-- [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate-adapter contract Reagent satisfies.
-- [`spec/Conventions.md`](../../spec/Conventions.md) — substrate test matrix policy, packaging conventions, the bundle-isolation argument.
+- [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate contract Reagent's adapter satisfies.
+- [`spec/Conventions.md`](../../spec/Conventions.md) — adapter test matrix policy, packaging conventions, the bundle-isolation argument.
 - [`examples/uix/`](../uix/) — UIx-substrate counterparts of `counter` and `login` (smoke-test pair per Decision 7).

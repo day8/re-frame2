@@ -213,7 +213,7 @@ A small but load-bearing detail: every `reg-view`-rendered DOM element receives 
 
 The four colon-separated segments are `<ns>:<sym>:<line>:<col>` — the registration's namespace, the registered symbol, and the source line/column captured at macro-expansion time. (To recover the file path too, look it up via `(rf/handler-meta :view <id>)`; the registration metadata carries `:rf/source-coord-meta` with `:ns`/`:line`/`:column`/`:file`.)
 
-The annotation is **mandatory** in the CLJS reference per [Spec 006](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) — every substrate adapter whose host has a DOM-attribute concept injects it. It exists so pair-tools and devtools can take a clicked DOM node and resolve it back to the source line that produced the view; [chapter 11](11-devtools-and-pair-tools.md) walks through what tools do with it.
+The annotation is **mandatory** in the CLJS reference per [Spec 006](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) — every adapter whose host has a DOM-attribute concept injects it. It exists so pair-tools and devtools can take a clicked DOM node and resolve it back to the source line that produced the view; [chapter 11](11-devtools-and-pair-tools.md) walks through what tools do with it.
 
 Two production-elision details matter:
 

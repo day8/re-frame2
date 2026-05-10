@@ -1,8 +1,8 @@
 # UIx — examples
 
-The UIx substrate adapter ([rf2-3yij](#); see [Spec 006 §Substrate-adapter shipping convention](../../spec/006-ReactiveSubstrate.md)). UIx is the second substrate adapter to ship; it consumes the same `re-frame.adapter.context` React Context that the Reagent adapter exposes (Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
+The UIx adapter ([rf2-3yij](#); see [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md)). UIx is the second adapter to ship; it consumes the same `re-frame.adapter.context` React Context that the Reagent adapter exposes (Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
 
-This directory holds the **smoke-test subset** for the UIx adapter, not a 1:1 mirror of the Reagent set. Per Decision 7 of [Spec 006 §Substrate-adapter shipping convention](../../spec/006-ReactiveSubstrate.md) and [Conventions §Substrate test matrix policy](../../spec/Conventions.md#substrate-test-matrix-policy): non-canonical substrates ship a representative subset; the standard trio is **counter + login + realworld**, and for UIx that is reduced to **counter + login** — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+This directory holds the **smoke-test subset** for the UIx adapter, not a 1:1 mirror of the Reagent set. Per Decision 7 of [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md) and [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative subset; the standard trio is **counter + login + realworld**, and for UIx that is reduced to **counter + login** — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
 
 ## Layout
 
@@ -44,6 +44,6 @@ shadow-cljs watch examples/counter-uix
 
 ## Cross-references
 
-- [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate-adapter contract; the seven decisions (frame Context, hooks-first, `use-subscribe`, no auto-injection, source-coord injection at the substrate boundary, `flush-views!` for tests, and the smoke-test subset).
-- [`spec/Conventions.md`](../../spec/Conventions.md#substrate-test-matrix-policy) — substrate test matrix policy: Reagent canonical, UIx (and future Helix) smoke-tested.
+- [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) — the substrate contract that adapters implement; the seven decisions (frame Context, hooks-first, `use-subscribe`, no auto-injection, source-coord injection at the substrate boundary, `flush-views!` for tests, and the smoke-test subset).
+- [`spec/Conventions.md`](../../spec/Conventions.md#adapter-test-matrix-policy) — adapter test matrix policy: Reagent canonical, UIx (and future Helix) smoke-tested.
 - [`examples/reagent/counter/`](../reagent/counter/) and [`examples/reagent/login/`](../reagent/login/) — the canonical Reagent counterparts (same dataflow; different view layer; namespace prefix without the `_uix` suffix).

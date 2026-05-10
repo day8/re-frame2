@@ -21,7 +21,7 @@
 #
 # Every per-feature artefact's *published* :deps depends only on core
 # (`day8/re-frame-2`); cross-feature references at runtime are wired
-# through `re-frame.late-bind` per Spec 006 §Substrate-adapter shipping
+# through `re-frame.late-bind` per Spec 006 §Adapter shipping
 # convention and the Conventions §Packaging conventions §Independence
 # rule. The DAG above reflects that: once core has shipped, every leaf
 # artefact is publishable independently and they fan out in parallel.

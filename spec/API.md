@@ -86,7 +86,7 @@
 
 ## UIx adapter (Spec 006, rf2-3yij)
 
-UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
+UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -106,7 +106,7 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 ## Helix adapter (Spec 006, rf2-2qit)
 
-Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Substrate-adapter shipping convention](Conventions.md#substrate-adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
+Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -374,7 +374,7 @@ Trace events emitted by epoch-history machinery:
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
-Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) and [Tool-Pair §Source-mapping](Tool-Pair.md), every substrate adapter whose host has a DOM-attribute concept MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in Spec 006 §Source-coord annotation. Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the same contract per [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
+Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1) and [Tool-Pair §Source-mapping](Tool-Pair.md), every adapter whose host has a DOM-attribute concept MUST inject `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on the rendered root DOM element of each registered view. Format and exemptions (Fragments, non-DOM roots) are documented in Spec 006 §Source-coord annotation. Annotation is gated on `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via dead-code elimination — there is no DOM-bytes cost in shipped bundles. The JVM SSR emitter mirrors the same contract per [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
 
 ### Error contract
 
@@ -403,8 +403,8 @@ Pattern-level error categories:
 | `:rf.error/override-fallthrough` | An override targeted an unregistered id |
 | `:rf.error/duplicate-url-binding` | Two frames declared `:url-bound? true` simultaneously (per Spec 012 R-4) |
 | `:rf.error/adapter-already-installed` | `install-adapter!` called after frames exist (per Spec 006 S-1) |
-| `:rf.error/no-adapter-registered` | `(rf/init!)` called with no args but no substrate adapter has registered as a default — consumer must require a substrate ns or pass an adapter explicitly (per Spec 006 §Adapter selection at boot, rf2-84po) |
-| `:rf.error/multiple-default-adapters` | `(rf/init!)` called with no args but more than one substrate adapter has registered as a default — consumer must disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)` (per Spec 006 §Adapter selection at boot, rf2-84po) |
+| `:rf.error/no-adapter-registered` | `(rf/init!)` called with no args but no adapter has registered as a default — consumer must require an adapter ns or pass an adapter explicitly (per Spec 006 §Adapter selection at boot, rf2-84po) |
+| `:rf.error/multiple-default-adapters` | `(rf/init!)` called with no args but more than one adapter has registered as a default — consumer must disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)` (per Spec 006 §Adapter selection at boot, rf2-84po) |
 | `:rf.error/unknown-adapter-key` | `(rf/init! :keyword)` called with a key that is not in the default-adapter registry (per Spec 006 §Adapter selection at boot, rf2-84po) |
 | `:rf.error/derived-container-replaced` | `replace-container!` called on a derived container (per Spec 006 §make-derived-value) |
 | `:rf.error/adapter-disposed` | An adapter function was called after `dispose-adapter!` ran |
@@ -525,7 +525,7 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 |---|---|---|---|---|
 | `make-restore-fn` | Fn | `(make-restore-fn)` / `(make-restore-fn frame-id)` → restore-fn | v1 (preserved + extended) | 002 |
 | `init!` | Fn | `(init!)` / `(init! :reagent)` / `(init! adapter-map)` — idempotent boot. No-arg resolves through the default-adapter registry (per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-84po). Zero registered raises `:rf.error/no-adapter-registered`; more than one raises `:rf.error/multiple-default-adapters`. Keyword form bypasses default-resolution; map form installs a literal spec. Ensures `:rf/default` frame is present | v1 | 006 |
-| `register-default-adapter!` | Fn | `(register-default-adapter! key adapter-map)` — substrate-adapter ns-load side-effect; idempotent. Populates the default-adapter registry consulted by no-arg `init!`. Per rf2-84po | v1 | 006 |
+| `register-default-adapter!` | Fn | `(register-default-adapter! key adapter-map)` — adapter ns-load side-effect; idempotent. Populates the default-adapter registry consulted by no-arg `init!`. Per rf2-84po | v1 | 006 |
 | `install-adapter!` | Fn | `(install-adapter! adapter-or-keyword)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
 | `init-platform` | Fn | `(init-platform :server \| :client)` — sets the active platform; defaults from build target | v1 | 011 |

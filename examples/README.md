@@ -7,7 +7,7 @@
 
 ## Layout — grouped by substrate
 
-Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx is the second substrate adapter ([rf2-3yij](#) Decision 7) and ships a curated smoke-test subset rather than a 1:1 mirror.
+Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx is the second adapter ([rf2-3yij](#) Decision 7) and ships a curated smoke-test subset rather than a 1:1 mirror.
 
 ```
 examples/
@@ -72,7 +72,7 @@ For the 7GUIs cluster's own narrative (entries 9–14 above plus the counter fro
 
 ## UIx
 
-The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Substrate-adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|

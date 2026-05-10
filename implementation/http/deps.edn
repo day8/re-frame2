@@ -26,7 +26,7 @@
 ;; `:http/uninstall-managed-request-stubs!`,
 ;; `:http/with-managed-request-stubs*`, `:http/clear-all-in-flight!`).
 ;;
-;; Per Spec 006 §Substrate-adapter shipping convention (and the
+;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to http (`re-frame.core`'s
