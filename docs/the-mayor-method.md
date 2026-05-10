@@ -216,6 +216,7 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 > *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch.*
 > *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
+> *- When writing or refining spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
 >
 > *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
 
