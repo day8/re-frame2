@@ -398,8 +398,8 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! reagent-adapter/adapter)
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process login stub above. The example runs standalone — no
   ;; backend required.

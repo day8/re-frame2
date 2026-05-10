@@ -215,8 +215,8 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.uix ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! uix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (UIx) demo frame."
      :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})

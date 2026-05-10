@@ -86,9 +86,9 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: requiring re-frame.adapter.reagent (above) registered
-  ;; the Reagent adapter as the default at ns-load time, so no-arg
-  ;; init! resolves through the registry.
-  (rf/init!)
+  ;; rf2-agql: rf/init! takes the adapter spec map directly. Each adapter
+  ;; ns exports an `adapter` var; consumers require the ns and pass the
+  ;; var explicitly. There is no default-adapter registry.
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render root [counter-app]))

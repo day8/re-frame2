@@ -222,8 +222,8 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.helix ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! helix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (Helix) demo frame."
      :fx-overrides {:rf.http/managed :rf.http/managed.login-demo}})

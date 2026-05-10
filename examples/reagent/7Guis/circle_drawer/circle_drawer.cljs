@@ -231,7 +231,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-84po: re-frame.adapter.reagent ns-load auto-registers as default.
-  (rf/init!)
+  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:drawer/initialise])
   (rdc/render react-root [drawer-view]))
