@@ -1269,6 +1269,51 @@
                          :recovery :no-recovery
                          :reason   "rf/with-managed-request-stubs requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
 
+;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
+;;
+;; Late-bound to the http artefact so core does not statically require it.
+;; When the http artefact is absent the lookup returns nil and the call
+;; raises :rf.error/http-artefact-missing with a clear "add the artefact"
+;; reason — matching the with-managed-request-stubs / install-managed-
+;; request-stubs! pattern.
+
+(defn reg-http-interceptor
+  "Spec 014 §Middleware — register a request-side interceptor on a
+  frame's `:rf.http/managed` middleware chain. The interceptor map
+  shape is `{:frame <frame-id> :id <kw> :before (fn [ctx] ctx')}`.
+
+  The chain runs in registration order before each request fires; each
+  `:before` receives a ctx `{:request :args :frame :event}` and returns
+  a (possibly-modified) ctx. The final `:request` is what the transport
+  ships. A throw inside any `:before` classifies as
+  `:rf.error/http-interceptor-failed`; the request is not dispatched.
+
+  Late-bound via `:http/reg-http-interceptor`. When the http artefact
+  is absent the call raises `:rf.error/http-artefact-missing`."
+  [interceptor]
+  (if-let [f (late-bind/get-fn :http/reg-http-interceptor)]
+    (f interceptor)
+    (throw (ex-info ":rf.error/http-artefact-missing"
+                    {:where    'reg-http-interceptor
+                     :recovery :no-recovery
+                     :reason   "rf/reg-http-interceptor requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+
+(defn clear-http-interceptor
+  "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
+  chain. Single-arity clears on `:rf/default`; two-arity targets the
+  named frame.
+
+  Late-bound via `:http/clear-http-interceptor`. When the http artefact
+  is absent the call raises `:rf.error/http-artefact-missing`."
+  ([id] (clear-http-interceptor :rf/default id))
+  ([frame id]
+   (if-let [f (late-bind/get-fn :http/clear-http-interceptor)]
+     (f frame id)
+     (throw (ex-info ":rf.error/http-artefact-missing"
+                     {:where    'clear-http-interceptor
+                      :recovery :no-recovery
+                      :reason   "rf/clear-http-interceptor requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
+
 (defn configure
   "Configure a runtime knob. Closed v1 keys (additive across versions
   per Spec-ulation):
