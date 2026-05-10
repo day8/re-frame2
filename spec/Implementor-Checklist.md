@@ -257,7 +257,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 #### T1. Trace-event delivery
 
 - **Why it matters.** Trace events flow into a single per-application stream; subscribers listen. Synchronous, in-order, event-at-a-time delivery per [009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules). Plus a retain-N ring buffer (per [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only)) for tools that attach after events have fired.
-- **Options by host.** Hand-rolled per host; the contract is just "deliver each emitted trace map to every registered callback synchronously, in registration order, on the runtime's emit call stack."
+- **Options by host.** Hand-rolled per host; the contract is just "deliver each emitted trace map to every registered callback synchronously, on the runtime's emit call stack." Listener-invocation order is not contract — implementations may use any registry shape (sorted map, hash map, vector) that delivers each event to every registered listener exactly once.
 - **Reference-impl picks.** CLJS uses a single atom (the listener registry) plus a separate ring-buffer atom; each emit walks the registry inline.
 - **Trade-offs.** Hot path: trace allocation must be cheap; listener invocation must short-circuit when no listeners are registered.
 

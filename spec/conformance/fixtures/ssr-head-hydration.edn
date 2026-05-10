@@ -6,7 +6,7 @@
 {:fixture/id           :ssr/head-hydration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
- :fixture/doc          "Hydration payload includes the server-supplied head model and head-hash. Client recomputes the head from the same state; computed head matches; no :rf.warning/head-mismatch emitted."
+ :fixture/doc          "Hydration payload includes the server-supplied head model and head-hash. Client recomputes the head from the same state; computed head matches; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted."
 
  :fixture/registry
  {:event {:rf/hydrate {:doc "Standard hydration handler."}}
@@ -49,11 +49,13 @@
    :meta  [{:name "description" :content "How re-frame2 ships SSR"}]
    :link  [{:rel "canonical" :href "https://example.com/articles/123"}]}
 
-  ;; Importantly: NO :rf.warning/head-mismatch trace.
+  ;; Importantly: NO :rf.ssr/hydration-mismatch trace with the
+  ;; head discriminator (:failing-id :rf.ssr/head-mismatch).
   ;; :source is a TOP-LEVEL field per Spec 009 §Required top-level fields,
   ;; not a key inside :tags.
   :trace-emissions
   [{:operation :event :source :ssr-hydration :tags {:event-id :rf/hydrate}}]
 
   :trace-not-emitted
-  [{:operation :rf.warning/head-mismatch}]}}
+  [{:operation :rf.ssr/hydration-mismatch
+    :tags      {:failing-id :rf.ssr/head-mismatch}}]}}

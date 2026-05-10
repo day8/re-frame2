@@ -348,6 +348,48 @@ Malli is the preferred schema library over `clojure.spec`:
 
 The `:spec` value is opaque to re-frame; only the registered validator function is invoked. A user wishing to use `clojure.spec` or another library registers the appropriate validator. Malli is the documented and supported default.
 
+For the bundle-cost tradeoffs of the Malli default and how to opt out, see [§Bundle cost](#bundle-cost) below.
+
+### Bundle cost
+
+The CLJS reference's Malli mandate adds ~24 KB gzipped to a typical re-frame2 production bundle (per `findings/malli-bundle-cost-audit.md` §3.2 / §4 — bead rf2-qnxf). The cost is real but bounded; the figures below come from a representative-scenario harness compiled `:advanced` with `:closure-defines {goog.DEBUG false}`:
+
+| Scenario | gzipped | Δ vs baseline |
+|---|---:|---:|
+| Baseline counter (no schemas, no Malli) | 91.7 KB | — |
+| `[re-frame.schemas]` required, no Malli | 97.2 KB | +5.6 KB |
+| `[re-frame.schemas] [malli.core]` required, no validation | 120.8 KB | +29.1 KB |
+| Typical app: `reg-app-schema` + `:spec` on every reg-* | 121.5 KB | +29.8 KB |
+| Heavy: validate + explain + decode + transform + generator | 156.1 KB | +64.5 KB |
+
+The typical-app delta is the **~24 KB gzipped headline**: the `re-frame.schemas` namespace adds ~5.6 KB, and `malli.core`'s reachable body adds ~24 KB on top. Validation *calls* are not in this cost — every `validate-*!` body is gated on `re-frame.interop/debug-enabled?` and Closure DCE eliminates the call sites in production (per [§Production builds](#production-builds) and the rf2-11hn strict-elision contract). The cost is `malli.core`'s **library code**, not validation activity.
+
+**Inter-namespace DCE works; intra-namespace DCE does not.** Closure prunes `malli.error`, `malli.transform`, `malli.generator`, etc. from a typical bundle because the user code doesn't require them — only `malli.core` survives. Inside `malli.core`, Closure cannot prove the data-driven dispatch internals dead, so the full namespace stays. The practical rule is: **require what you need at the namespace boundary; nothing more.**
+
+**Safe-in-production list** — namespaces it is OK to require directly from production code paths:
+
+- `malli.core` — the default validator and explainer route through it; the ~24 KB cost is paid once when any code path requires it.
+- `re-frame.schemas` — re-frame2's schemas artefact; ~5.6 KB on top of `malli.core`.
+
+**Restrict to dev / test / 10x tiers** — namespaces that bill per-namespace gzip and should NOT be required from production code:
+
+- `malli.error` — humanise + path-walk; ~6 KB gzipped. Use in dev panels and tests.
+- `malli.transform` — JSON transformer + decoders; ~9 KB gzipped. Only required directly when an app reaches for managed-HTTP's `:auto` decode arm.
+- `malli.generator` — test.check integration; ~15 KB gzipped (carries test.check transitively). Restrict to test code and property-based-test panels.
+- `malli.registry` — composite-registry helpers; ~3 KB gzipped (most lives in `malli.core`).
+- `malli.dev`, `malli.dev.pretty`, `malli.experimental`, `malli.instrument`, `malli.json-schema`, `malli.swagger`, `malli.provider`, `malli.util` — dev-only tooling; never bundle into production code.
+
+**Opt-out path — bypass Malli entirely.** Apps that don't want the Malli bundle install a different validator (or `nil`) via `set-schema-validator!` (per [§Non-Malli validators](#non-malli-validators--the-validator-fn-extension-point) and rf2-froe / PR #237). `set-schema-validator!` with `nil` is the documented hard-no-op: every `validate-*!` site short-circuits to `true`, no validate call ever runs, and the schemas artefact stops carrying a static dependency on Malli. Apps that don't `(:require [malli.core])` themselves pay only the ~5.6 KB schemas-artefact cost.
+
+```clojure
+;; Apps that want zero runtime validation surface (and zero Malli bundle cost)
+(rf/set-schema-validator! nil)
+```
+
+**Boundary-validation path — keep Malli on the production path for untrusted-source events only.** Apps that want Malli's bundle but only run validation at system boundaries attach `:spec/validate-at-boundary` (per [§Production builds](#production-builds) and rf2-r2uh / PR #242) to specific event handlers. The interceptor runs the registered validator against the handler's `:spec` regardless of the global elision flag — boundary handlers validate every payload while 99% of code has zero validation overhead.
+
+**Reframing the "Malli is hard to DCE" intuition.** The intuition is half-right. Closure cannot DCE *inside* `malli.core` (the dynamic-dispatch internals defeat dataflow analysis). But Closure CAN DCE *between* Malli namespaces (typical apps already only carry `malli.core`, not the error / transform / generator subset), and the mandate-cost is bounded by what `malli.core` weighs gzipped: ~24 KB. The heavy-decode scenario (which pulls `malli.error` + `malli.transform` + `malli.generator`) is worst-case; the typical-app cost is half that, and the opt-out path drops it to zero.
+
 ### What schemas don't do
 
 - **They don't enforce non-shape invariants.** Malli describes shapes (this is a string of length ≥ 8; this is a vector of TodoItems). Higher-level invariants (this user's email matches their account; this request's signature is valid) live in handlers, not schemas.

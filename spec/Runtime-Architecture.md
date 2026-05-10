@@ -23,7 +23,7 @@ The runtime is eight components plus a host-side **interop layer** that the CLJS
 | 5 | **Effect interpreter (`do-fx`)** | Walks the `:fx` vector in source order, dispatching each entry to its registered fx handler. | [002-Frames §`:fx` ordering](002-Frames.md#fx-ordering-and-atomicity-guarantees) |
 | 6 | **Sub-cache** | Per-frame derivation graph + memoised values. Invalidates on `app-db` change; disposes on frame destroy. | [006-ReactiveSubstrate §Subscription cache invalidation](006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics) |
 | 7 | **Reactive substrate adapter** | Bridges the core to a reactivity library (Reagent in CLJS reference). Turns container reads into view re-renders. | [006-ReactiveSubstrate](006-ReactiveSubstrate.md) |
-| 8 | **Trace bus** | Per-process event stream; listeners notified synchronously, in registration order, on each emit. Carries every dispatch, fx, machine transition, error, and registry mutation. | [009-Instrumentation](009-Instrumentation.md) |
+| 8 | **Trace bus** | Per-process event stream; listeners notified synchronously on each emit (listener-invocation order is not contract). Carries every dispatch, fx, machine transition, error, and registry mutation. | [009-Instrumentation](009-Instrumentation.md) |
 
 The **interop layer** (`re-frame.interop` in the CLJS reference) is not a runtime component — it is the host-abstraction surface the components call into for `next-tick`, `after-render`, mutable references, host-clock `now-ms`. Other hosts implement it natively; the interface stays small (per [Spec 002 §Interop layer](002-Frames.md#interop-layer--clock-primitives--see-spec-005)).
 
@@ -218,7 +218,7 @@ The Reagent-specific bridging pseudocode — which Reagent primitive realises wh
 **Invariants.**
 - Open shape ([009 §Open shape; new fields are additive](009-Instrumentation.md#open-shape-new-fields-are-additive)).
 - Compile-time elidable in production ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-- Listener invocation is synchronous, in registration order, on the runtime's emit call stack — every emit returns once every listener has run ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
+- Listener invocation is synchronous, on the runtime's emit call stack — every emit returns once every listener has run. Listener-invocation order is **not contract** ([009 §Listener invocation rules](009-Instrumentation.md#listener-invocation-rules)).
 
 ## Lifecycles
 
