@@ -1828,16 +1828,61 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    [:fixture/frame-config {:optional true} :map]
    [:fixture/dispatches   {:optional true} [:vector [:vector :any]]]
 
+   ;; `:fixture/calls` carries direct invocations of pure primitives (Mode B).
+   ;; Each entry dispatches on `:call`; per-op record shapes match the
+   ;; fixture-runner's case dispatch (`implementation/core/test/re_frame/conformance_test.clj` `run-call`).
+   ;; The six operators cover state-machine transitions, URL ↔ route helpers, and SSR rendering.
    [:fixture/calls
     {:optional true}
     [:vector
-     [:map
-      [:call                  [:= :machine-transition]]
-      [:definition            :any]
-      [:snapshot              :any]
-      [:event                 [:vector :any]]
-      [:expect-next-snapshot  :any]
-      [:expect-effects        [:vector :any]]]]]
+     [:multi {:dispatch :call}
+      ;; Pure machine-transition. Returns [next-snapshot effects].
+      [:machine-transition
+       [:map
+        [:call                 [:= :machine-transition]]
+        [:definition           :any]                                          ;; transition table per [005-StateMachines.md](005-StateMachines.md)
+        [:snapshot             :any]                                          ;; {:state :data} input snapshot
+        [:event                [:vector :any]]                                ;; event vector to apply
+        [:expect-next-snapshot :any]                                          ;; expected snapshot after transition
+        [:expect-effects       [:vector :any]]]]                              ;; expected fx vector returned by the action
+
+      ;; URL → route-match. `:expect` is the match map or `nil` for unmatched.
+      [:match-url
+       [:map
+        [:call    [:= :match-url]]
+        [:url     :string]
+        [:expect  :any]]]                                                     ;; {:route-id :params :query :validation-failed?} or nil
+
+      ;; route-id + params [+ query] → URL string.
+      [:route-url
+       [:map
+        [:call      [:= :route-url]]
+        [:route-id  :keyword]
+        [:params    :map]
+        [:query     {:optional true} :map]                                    ;; 3-arity form when present
+        [:expect    :string]]]                                                ;; the rebuilt URL
+
+      ;; Round-trip property: route-url ∘ match-url is identity for the URL.
+      [:round-trip
+       [:map
+        [:call  [:= :round-trip]]
+        [:url   :string]]]
+
+      ;; Asserts winner's :rf.route/rank tuple compares greater than loser's
+      ;; via lex compare. Per [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm).
+      [:assert-rank-greater
+       [:map
+        [:call    [:= :assert-rank-greater]]
+        [:winner  :keyword]                                                   ;; route-id expected to outrank
+        [:loser   :keyword]]]                                                 ;; route-id expected to be outranked
+
+      ;; SSR pure render. `:input` is hiccup or a registered-view event vector.
+      [:render-to-string
+       [:map
+        [:call    [:= :render-to-string]]
+        [:input   :any]                                                       ;; hiccup or [:view-id args ...]
+        [:opts    {:optional true} :map]                                      ;; {:doctype? bool} etc.
+        [:expect  :string]]]]]]                                               ;; expected HTML output
 
    [:fixture/expect
     {:optional true}
@@ -1846,8 +1891,7 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
      [:sub-values          {:optional true} [:map-of [:vector :any] :any]]
      [:sub-graph-topology  {:optional true} :map]
      [:trace-emissions     {:optional true} [:vector :map]]
-     [:effects-routed      {:optional true} [:vector :any]]
-     [:expected-fx-emitted {:optional true} [:vector :any]]]]])
+     [:effects-routed      {:optional true} [:vector :any]]]]])               ;; routed-fx pairs in declaration order, per [conformance/README.md](conformance/README.md) §Fixture lifecycle
 ```
 
 `:rf/fixture-handler-body` is a synonym for `:rf/handler-body-dsl` (defined above) — the fixture format reuses the canonical DSL grammar rather than redefining it. Reserved built-ins are enumerated in [conformance/README.md §Handler-body DSL builtins](conformance/README.md#handler-body-dsl-builtins).
