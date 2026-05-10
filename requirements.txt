@@ -5,3 +5,8 @@
 mkdocs==1.6.1
 mkdocs-material==9.5.44
 pymdown-extensions==10.11.2
+# Pin pygments below 2.20 (rf2-4jaz). Pygments 2.20.0 added an html.escape()
+# call around the HtmlFormatter `filename` option, which crashes when
+# pymdown-extensions 10.11.2 passes filename=None for fenced code blocks
+# without an explicit title. 2.19.x handled None silently.
+pygments==2.19.2
