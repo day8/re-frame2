@@ -62,6 +62,7 @@
     :actor/spawn
     :actor/invoke
     :actor/system-id                                   ;; rf2-suue / rf2-ecv4
+    :actor/timeout                                     ;; rf2-1lop
     ;; Flow capabilities — per Spec 013. The flow-*.edn fixtures
     ;; (recompute-on-input-change, multi-input-topo, noop-on-value-equal-
     ;; input, toggle-via-fx, hot-reload-preserves-output) declare these.
