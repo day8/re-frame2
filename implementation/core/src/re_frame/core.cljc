@@ -589,6 +589,40 @@
    (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
      (f opts-or-frame-id))))
 
+(defn set-schema-validator!
+  "Register the validator fn that every dev-time schema-validation site
+  routes through. Per Spec 010 §Non-Malli validators (rf2-froe) the
+  seam is the substitute-Malli extension point — apps that want to
+  drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle audit) swap
+  in their own validator at boot.
+
+  Argument shapes:
+
+    (rf/set-schema-validator! validate-fn)
+      validate-fn :: (fn [schema value] truthy?)
+                   | nil   ;; disables validation entirely
+
+    (rf/set-schema-validator! {:validate validate-fn :explain explain-fn})
+      Atomic swap of both fns at once.
+
+  Default behaviour ships Malli's validate / explain pair; calling
+  this fn replaces them. Returns nil when the schemas artefact is
+  not on the classpath (apps that don't want schemas don't need to
+  pull `day8/re-frame-2-schemas`)."
+  [validate-fn-or-map]
+  (when-let [f (late-bind/get-fn :schemas/set-schema-validator!)]
+    (f validate-fn-or-map)))
+
+(defn set-schema-explainer!
+  "Register the explainer fn — `(fn [schema value] explanation)` — used
+  to enrich schema-validation-failure traces' `:explain` key. Per
+  Spec 010 §Non-Malli validators (rf2-froe). See
+  `set-schema-validator!` for the validator companion. Returns nil
+  when the schemas artefact is not on the classpath."
+  [explain-fn]
+  (when-let [f (late-bind/get-fn :schemas/set-schema-explainer!)]
+    (f explain-fn)))
+
 #?(:clj
    (defmacro reg-machine
      "Register a machine as an event handler. Per Spec 001 the metadata

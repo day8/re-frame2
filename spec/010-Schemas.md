@@ -254,21 +254,40 @@ After the procedure above (using the CLJS reference's `pr-str` serialisation for
 
 ## Non-Malli validators — the validator-fn extension point
 
-The runtime never inspects the value stored in `:spec`. Validation always goes through a single registered **validator fn** of shape:
+The runtime never inspects the value stored in `:spec`. Validation always goes through a registered **validator fn**. The CLJS reference splits the surface into two fns — a fast pass/fail check on the hot path and an explainer used only on the failure branch — so the dev-mode validation site stays cheap:
 
 ```clojure
-(fn validator [schema value] result)
-;; result :: nil          — the value conforms (no error)
-;;       | {:explanation <data> :path? [...] :rule? <id>}    ;; structured failure
+;; The validator: pass/fail check on the hot path.
+(fn validate [schema value] truthy?)
+;;   truthy   — the value conforms
+;;   falsey   — the value fails the schema
+
+;; The explainer: invoked only when validate returns falsey, to
+;; populate the failure trace's :explain key.
+(fn explain  [schema value] explanation-or-nil)
 ```
 
-The validator fn is registered at the substrate level — typically once per app at boot, not per `:spec`:
+Both fns are registered at boot, before the first `reg-app-schema` or `:spec`-bearing `reg-*` lands:
 
 ```clojure
+;; (1) Just the validator — the explainer is left untouched.
 (rf/set-schema-validator! my-validator-fn)
+
+;; (2) Atomic swap of both fns at once.
+(rf/set-schema-validator! {:validate my-validator-fn
+                            :explain  my-explainer-fn})
+
+;; (3) Just the explainer — validator stays at its current value.
+(rf/set-schema-explainer! my-explainer-fn)
+
+;; (4) Hard no-op: passing nil disables validation everywhere.
+;;     Every validate-*! site short-circuits without inspecting the
+;;     schema. Apps that want zero validation surface (and zero Malli
+;;     bundle cost) install nil at boot.
+(rf/set-schema-validator! nil)
 ```
 
-The CLJS reference's default validator delegates to Malli (`(m/explain schema value)` adapted to the result shape above). Substituting a different validator (a `clojure.spec` adapter, a JSON-Schema validator, a host's structural-typecheck wrapper) is a **single registration call** — the rest of the spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+The CLJS reference's default validator/explainer pair delegates to Malli (`malli.core/validate` + `malli.core/explain`). Substituting a different validator (a `clojure.spec` adapter, a JSON-Schema validator, a host's structural-typecheck wrapper) is a **single registration call** — the rest of the spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 Locked rules:
 
@@ -276,8 +295,42 @@ Locked rules:
 - **The validator fn is pure** — same `(schema, value)` returns the same result. Implementations may memoise but tests must not depend on memoisation.
 - **The validator fn must be production-elidable** alongside `re-frame.interop/debug-enabled?` — calls to it disappear in prod builds (subject to the boundary-validation override per [§Production builds](#production-builds)).
 - **Schema digests** ([§Schema digest](#schema-digest)) are computed from the schema **values** as serialised by the registered validator's `serialise` companion fn (see [§Schema digest](#schema-digest)) — not from the validator. Two ports using different validators against the same Malli-EDN schemas produce the same digest; two ports using *different* schema languages produce different digests by construction.
+- **`nil` validator means no validation, not "every value fails"**. Setting validator to nil is the documented opt-out — every `validate-*!` site short-circuits to `true` (pass). The schemas mandate stays unchanged at the framework level (apps still attach `:spec` and `reg-app-schema`); only the runtime check is disabled.
 
 What the extension point does NOT cover: a *mix* of validators within one frame. The runtime resolves one validator and uses it for every `:spec` in the frame; a hybrid setup (Malli for app schemas, JSON-Schema for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
+
+### Worked example — installing a no-op validator at boot
+
+The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cost-audit.md` §3.7 / §4): an app that doesn't need runtime schema validation can install a no-op at boot and avoid pulling Malli into its production bundle.
+
+```clojure
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.schemas]   ;; load the schemas artefact (rf2-p7va)
+            ;; NOTE: we do NOT (:require [malli.core]) here — the
+            ;; default validator's (resolve 'malli.core/validate) returns
+            ;; nil and the no-op below replaces it entirely.
+            ))
+
+;; Install the no-op BEFORE the first reg-app-schema / :spec metadata.
+;; Any (fn [schema value] truthy?) that returns true unconditionally
+;; passes every value; nil disables the call site even faster.
+(rf/set-schema-validator! nil)
+
+;; Schemas attach as usual — they're inert data the framework still
+;; surfaces via app-schemas / app-schemas-digest, but no validate
+;; call ever runs against them.
+(rf/reg-app-schema [:user] [:map [:id :uuid]])
+(rf/reg-event-fx :auth/login
+  {:spec [:cat [:= :auth/login] [:map [:email :string]]]}
+  ...)
+```
+
+### Boundary-validation seam
+
+The validator/explainer pair also fronts the boundary-validation interceptor (`:spec/validate-at-boundary`, see [§Production builds](#production-builds)). The interceptor's call into the registered fns happens outside the `interop/debug-enabled?` gate — so a substituted validator covers both the dev-mode hot path and the prod-mode boundary surface.
+
+The schemas namespace exposes two fns the interceptor calls — `validate-with-registered-fn` and `explain-with-registered-fn` — both routing through the same atoms `set-schema-validator!` mutates. Apps that swap in their own validator therefore reach every validation surface with one call, not three.
 
 ## Notes
 
@@ -322,3 +375,5 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 ### Non-Malli library support
 
 Substitution is via a single `set-schema-validator!` registration; the `:spec` value is opaque to re-frame; the registered validator interprets it. Malli is the default and supported library; substitution is one call. See [§Non-Malli validators — the validator-fn extension point](#non-malli-validators--the-validator-fn-extension-point).
+
+The seam is implemented (rf2-froe): `(rf/set-schema-validator! validate-fn)`, `(rf/set-schema-validator! {:validate ... :explain ...})`, and `(rf/set-schema-explainer! explain-fn)` are all live in `re-frame.core` (re-exporting from `re-frame.schemas`). Default behaviour ships Malli's `validate` / `explain`; passing `nil` to `set-schema-validator!` is the documented hard-no-op for apps that want zero runtime validation surface. The schemas mandate at the framework level (every `reg-*` may attach `:spec`; `reg-app-schema` registers path schemas) is independent of which validator is registered.

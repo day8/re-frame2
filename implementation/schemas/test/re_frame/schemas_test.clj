@@ -25,7 +25,8 @@
   file covers the elision toggle (which fixtures cannot flip from EDN)
   and the projector-mapping shape (which is a separate surface from the
   trace emission)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -40,6 +41,10 @@
   (reset! frame/frames {})
   (reset! flows/flows {})
   (reset! schemas/schemas-by-frame {})
+  ;; Per rf2-froe — `set-schema-validator!` swaps the framework
+  ;; validator/explainer atoms; restore the Malli defaults so a test
+  ;; that mutates them does not poison sibling tests.
+  (schemas/reset-schema-validator!)
   (rf/init! plain-atom/adapter)
   (test-fn))
 
@@ -538,3 +543,182 @@
     (is (= (rf/app-schemas-digest :test/o1)
            (rf/app-schemas-digest :test/o2))
         "same schema set, different registration order → same digest")))
+
+;; ---- rf2-froe — set-schema-validator! seam -------------------------------
+;;
+;; Per Spec 010 §Non-Malli validators (rf2-froe) the validator and
+;; explainer fns are pluggable via `(rf/set-schema-validator! ...)` /
+;; `(rf/set-schema-explainer! ...)`. Default delegates to Malli; apps
+;; that want to drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle
+;; audit) substitute another fn (or `nil` for no-op).
+
+(deftest default-validator-delegates-to-malli
+  (testing "Per Spec 010 §Non-Malli validators — out of the box the
+            validator delegates to Malli; apps that don't call
+            set-schema-validator! get the same behaviour they had
+            before the seam landed."
+    (rf/reg-app-schema [:n] [:int])
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::default-malli (fn [ev] (swap! traces conj ev)))
+      ;; Malformed value triggers the default Malli validate to return
+      ;; falsey -> trace fires.
+      (schemas/validate-app-db! {:n "not-an-int"} :test/handler)
+      (rf/remove-trace-cb! ::default-malli)
+      (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces)]
+        (is (= 1 (count violations))
+            "default Malli validator catches the type mismatch")))))
+
+(deftest custom-validator-is-invoked-instead-of-malli
+  (testing "Per Spec 010 §Non-Malli validators — set-schema-validator! swaps
+            in any (fn [schema value] truthy?); the framework calls it on
+            every validation site instead of the default."
+    (let [calls (atom [])
+          ;; Mock validator: fail on any value containing the substring
+          ;; \"bad\"; pass everything else. Records every (schema, value)
+          ;; pair it sees so the test can assert the call.
+          custom (fn [schema value]
+                   (swap! calls conj [schema value])
+                   (not (and (string? value) (str/includes? value "bad"))))]
+      (rf/set-schema-validator! custom)
+      (rf/reg-app-schema [:label] :string)
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::custom (fn [ev] (swap! traces conj ev)))
+        (schemas/validate-app-db! {:label "hello"} :h/ok)        ;; passes
+        (schemas/validate-app-db! {:label "totally-bad"} :h/no)  ;; fails
+        (rf/remove-trace-cb! ::custom)
+        (is (= 2 (count @calls))
+            "custom validator was invoked for both validation calls")
+        (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations))
+              "exactly one trace fired — for the value the custom validator rejected")
+          (is (= "totally-bad" (-> violations first :tags :value))))))))
+
+(deftest nil-validator-disables-validation-everywhere
+  (testing "Per Spec 010 §Non-Malli validators — passing nil to
+            set-schema-validator! disables validation entirely; every
+            validate-* fn returns true without inspecting the schema."
+    (rf/set-schema-validator! nil)
+    (rf/reg-app-schema [:n] [:int])
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::nilv (fn [ev] (swap! traces conj ev)))
+      ;; Malformed value would normally fire a trace; with nil
+      ;; validator the call site short-circuits.
+      (schemas/validate-app-db! {:n "definitely-not-an-int"} :test/h)
+      (rf/remove-trace-cb! ::nilv)
+      (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
+                          @traces))
+          "nil validator: no validation, no trace, no surprise"))))
+
+(deftest nil-validator-also-disables-event-validation
+  (testing "Per Spec 010 §Non-Malli validators — nil validator covers every
+            validation site, not just app-db. The event-validation site
+            short-circuits too."
+    (rf/set-schema-validator! nil)
+    (let [calls (atom 0)]
+      (rf/reg-event-db :user/strict
+        {:spec [:cat [:= :user/strict] :int]}
+        (fn [db _] (swap! calls inc) db))
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::nile (fn [ev] (swap! traces conj ev)))
+        ;; A wildly malformed payload — but with no validator the
+        ;; check is skipped and the handler runs anyway.
+        (rf/dispatch-sync [:user/strict "not-an-int"])
+        (rf/remove-trace-cb! ::nile)
+        (is (= 1 @calls)
+            "handler ran — nil validator means no pre-handler check")
+        (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
+                            @traces))
+            "no validation trace fires when validator is nil")))))
+
+(deftest set-schema-validator-map-arity-installs-both-fns
+  (testing "Per Spec 010 §Non-Malli validators — the map arity of
+            set-schema-validator! installs validate and explain
+            atomically. Apps that want a custom explainer alongside
+            their custom validator use this form."
+    (let [validate-calls (atom 0)
+          explain-calls  (atom 0)
+          v-fn (fn [_s v] (swap! validate-calls inc) (= v :good))
+          e-fn (fn [s v]  (swap! explain-calls inc) {:my-explanation [s v]})]
+      (rf/set-schema-validator! {:validate v-fn :explain e-fn})
+      (rf/reg-app-schema [:k] :keyword)
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::map (fn [ev] (swap! traces conj ev)))
+        (schemas/validate-app-db! {:k :good}   :h/pass)
+        (schemas/validate-app-db! {:k :nope}   :h/fail)
+        (rf/remove-trace-cb! ::map)
+        (is (= 2 @validate-calls) "custom validate fn ran for both calls")
+        (is (= 1 @explain-calls)  "custom explain fn ran only on the failure path")
+        (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations)))
+          (is (= {:my-explanation [:keyword :nope]}
+                 (-> violations first :tags :explain))
+              "the trace's :explain key carries the custom explainer's output"))))))
+
+(deftest set-schema-explainer-only-leaves-validator-untouched
+  (testing "set-schema-explainer! swaps just the explainer; the validator
+            (default Malli) keeps catching real failures."
+    (let [explained (atom nil)
+          custom-e  (fn [_s v] (reset! explained v) {:custom-said v})]
+      ;; Validator stays at its default (Malli); only the explainer is
+      ;; substituted.
+      (rf/set-schema-explainer! custom-e)
+      (rf/reg-app-schema [:n] [:int])
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::eonly (fn [ev] (swap! traces conj ev)))
+        (schemas/validate-app-db! {:n "broken"} :h/oops)
+        (rf/remove-trace-cb! ::eonly)
+        (is (= "broken" @explained) "custom explainer ran with the bad value")
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (= {:custom-said "broken"} (-> v :tags :explain))))))))
+
+(deftest reset-schema-validator-restores-defaults
+  (testing "reset-schema-validator! brings the framework default back —
+            test-support helper for cleaning up after a custom
+            registration. After reset, the default Malli behaviour
+            resumes."
+    ;; Install a sabotage validator: passes everything (so a known-bad
+    ;; value would slip past).
+    (rf/set-schema-validator! (fn [_ _] true))
+    (rf/reg-app-schema [:n] [:int])
+    ;; First confirm the sabotage is in effect.
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::sab (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-app-db! {:n "bad"} :h/sabotage)
+      (rf/remove-trace-cb! ::sab)
+      (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
+                          @traces))
+          "sabotage validator passes everything — no trace"))
+    ;; Reset back to default Malli, retry the bad value, expect a trace.
+    (schemas/reset-schema-validator!)
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::rst (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-app-db! {:n "bad"} :h/back-to-default)
+      (rf/remove-trace-cb! ::rst)
+      (is (= 1 (count (filter #(= :rf.error/schema-validation-failure (:operation %))
+                              @traces)))
+          "default Malli validator is back in place — bad value catches"))))
+
+(deftest validate-with-registered-fn-bypasses-debug-gate
+  (testing "Per rf2-r2uh integration — validate-with-registered-fn is the
+            public seam the boundary-validation interceptor will call. It
+            does NOT consult interop/debug-enabled? (the boundary
+            interceptor runs in production by design); it routes through
+            the registered validator the same way the dev hot path does."
+    (rf/set-schema-validator! (fn [_ v] (= v :good)))
+    (with-redefs [interop/debug-enabled? false]
+      (is (true?  (schemas/validate-with-registered-fn :keyword :good))
+          "valid value passes — debug gate ignored")
+      (is (false? (schemas/validate-with-registered-fn :keyword :bad))
+          "invalid value fails — debug gate ignored"))))
+
+(deftest validator-set-via-public-api-is-visible-on-schemas-ns
+  (testing "The public re-export rf/set-schema-validator! flows through to
+            the schemas namespace's validator-fn atom."
+    (let [my-fn (fn [_ _] :sentinel)]
+      (rf/set-schema-validator! my-fn)
+      (is (= my-fn @schemas/validator-fn)
+          "the atom carries the fn the user registered"))))

@@ -15,8 +15,14 @@
   the active frame (`(frame/current-frame)`); `(reg-app-schema path
   schema {:frame frame-id})` registers explicitly.
 
-  This first-pass implementation uses Malli when available; if the user
-  hasn't pulled Malli into their project, schemas are silently ignored."
+  Per Spec 010 §Non-Malli validators (rf2-froe) the validator and
+  explainer fns are pluggable via `set-schema-validator!` /
+  `set-schema-explainer!`. The default validator delegates to Malli
+  (`(resolve 'malli.core/validate)`); apps that want to opt out — to
+  drop the ~24 KB gzipped Malli surface measured in
+  findings/malli-bundle-cost-audit.md — register a different fn (or
+  `nil` for a hard no-op). The `:spec` value remains opaque to the
+  framework; only the registered validator interprets it."
   (:require #?(:cljs [goog.crypt :as gcrypt])
             #?(:cljs [goog.crypt.Sha256])
             [re-frame.registrar :as registrar]
@@ -28,35 +34,169 @@
   #?(:clj (:import [java.security MessageDigest]
                    [java.nio.charset StandardCharsets])))
 
-(defn- malli-validate*
+;; ---- pluggable validator / explainer (rf2-froe) ---------------------------
+;;
+;; Per Spec 010 §Non-Malli validators — the validator-fn extension point.
+;; The framework never inspects the value stored in `:spec` directly;
+;; every validation site routes through the registered validator fn.
+;; This is the seam Malli plugs into by default; apps that want to drop
+;; the ~24 KB gzipped Malli surface (rf2-qnxf) call
+;; `(rf/set-schema-validator! some-other-fn)` (or `nil` for no-op) at
+;; boot before any reg-app-schema / :spec metadata lands.
+;;
+;; Two fns are registered separately so the validate hot path stays
+;; cheap (validate returns truthy/falsey; explain is only invoked on
+;; the failure branch to populate the trace's `:explain` key):
+;;
+;;   :validate (fn [schema value] truthy?)
+;;             — same shape as Malli's `validate`. nil disables; the
+;;             call site treats nil as "pass everything".
+;;
+;;   :explain  (fn [schema value] explanation)
+;;             — same shape as Malli's `explain`. nil = no explanation
+;;             attached to the failure trace.
+;;
+;; A combined `(set-schema-validator! {:validate ... :explain ...})`
+;; arity exists for callers who want to install both atomically.
+
+(defn- default-malli-validate
+  "The default validator — delegates to malli.core/validate. Returns
+  truthy on conform, falsey on fail. When Malli is not on the
+  classpath the resolve returns nil and we treat the value as
+  passing (we cannot disprove the shape). Apps that want
+  Malli-absent behaviour to be a hard fail register a stricter
+  validator via `set-schema-validator!`."
   [schema value]
-  ;; Defensive: if Malli isn't loaded, treat as 'pass'. Real builds will
-  ;; have Malli on the path. Uses requiring-resolve on JVM (lazy load);
-  ;; on CLJS we require malli.core directly via :require so the var is
-  ;; reachable through resolve.
   #?(:clj
      (try
-       (let [validate (requiring-resolve 'malli.core/validate)]
-         (validate schema value))
+       (if-let [v (requiring-resolve 'malli.core/validate)]
+         (v schema value)
+         true)
        (catch Throwable _ true))
      :cljs
      (try
-       (let [validate (resolve 'malli.core/validate)]
-         (if validate (validate schema value) true))
+       (if-let [v (resolve 'malli.core/validate)]
+         (v schema value)
+         true)
        (catch :default _ true))))
 
-(defn- malli-explain*
+(defn- default-malli-explain
+  "The default explainer — delegates to malli.core/explain. Returns
+  the Malli explanation map on fail or nil on conform / when Malli
+  is not on the classpath."
   [schema value]
   #?(:clj
      (try
-       (let [explain (requiring-resolve 'malli.core/explain)]
-         (explain schema value))
+       (when-let [e (requiring-resolve 'malli.core/explain)]
+         (e schema value))
        (catch Throwable _ nil))
      :cljs
      (try
-       (let [explain (resolve 'malli.core/explain)]
-         (when explain (explain schema value)))
+       (when-let [e (resolve 'malli.core/explain)]
+         (e schema value))
        (catch :default _ nil))))
+
+(defonce
+  ^{:doc "The currently-registered validator fn — `(fn [schema value]
+          truthy?)`. Default delegates to Malli; apps swap via
+          `set-schema-validator!`. Setting the atom to `nil` disables
+          validation everywhere (every `validate-*!` call returns
+          true without inspecting the schema)."}
+  validator-fn
+  (atom default-malli-validate))
+
+(defonce
+  ^{:doc "The currently-registered explainer fn — `(fn [schema value]
+          explanation)`. Populates the failure trace's `:explain`
+          key. Default delegates to Malli's `explain`; nil means no
+          explanation is attached."}
+  explainer-fn
+  (atom default-malli-explain))
+
+(defn set-schema-validator!
+  "Register the validator fn that every dev-time validation site routes
+  through. Per Spec 010 §Non-Malli validators (rf2-froe) the seam is
+  the substitute-Malli extension point — apps that want to drop Malli
+  (the ~24 KB gzipped surface measured in the rf2-qnxf bundle audit)
+  swap in their own validator at boot, before the first `reg-app-schema`
+  or `:spec`-bearing `reg-*` lands.
+
+  Argument shapes:
+
+    (set-schema-validator! validate-fn)
+      validate-fn :: (fn [schema value] truthy?)
+                   | nil   ;; disables validation entirely
+      Same signature as `malli.core/validate` — truthy on conform,
+      falsey on fail. The explainer is left untouched (apps that want
+      to also swap explanations call `set-schema-explainer!`).
+
+    (set-schema-validator! {:validate validate-fn :explain explain-fn})
+      Atomic swap of both fns at once. Either key may be `nil` to
+      disable the corresponding hot path. Keys not supplied leave the
+      existing registration in place.
+
+  Per Spec 010 §Non-Malli validators the validator-fn must be pure
+  (same `(schema, value)` returns the same result) and must be
+  production-elidable alongside `re-frame.interop/debug-enabled?` —
+  every call site is already gated on `debug-enabled?`, so the
+  validator's body is unreachable in `:advanced` + `goog.DEBUG=false`
+  builds.
+
+  Last-write-wins on re-registration. Returns the validator that was
+  installed (may be nil)."
+  [validate-fn-or-map]
+  (cond
+    (map? validate-fn-or-map)
+    (let [{:keys [validate explain]
+           :or   {validate ::unset
+                  explain  ::unset}} validate-fn-or-map]
+      (when-not (= ::unset validate) (reset! validator-fn validate))
+      (when-not (= ::unset explain)  (reset! explainer-fn  explain))
+      @validator-fn)
+
+    :else
+    (do (reset! validator-fn validate-fn-or-map)
+        @validator-fn)))
+
+(defn set-schema-explainer!
+  "Register the explainer fn — `(fn [schema value] explanation)` — that
+  every failure-trace site calls to enrich the trace's `:explain` key.
+  See `set-schema-validator!`. Setting `nil` disables explanations
+  (the failure trace simply omits the `:explain` data).
+
+  Last-write-wins. Returns the explainer that was installed (may be
+  nil)."
+  [explain-fn]
+  (reset! explainer-fn explain-fn)
+  @explainer-fn)
+
+(defn reset-schema-validator!
+  "Reset the validator and explainer atoms back to the default Malli-
+  delegating fns. Test-support helper — restores the framework default
+  after a test that called `set-schema-validator!` / `set-schema-
+  explainer!`."
+  []
+  (reset! validator-fn default-malli-validate)
+  (reset! explainer-fn default-malli-explain))
+
+(defn- run-validator
+  "Hot-path entry — invoke the registered validator fn against a
+  `(schema, value)` pair. Returns true (pass) when no validator is
+  registered (nil) so the call sites treat 'no validator' as 'no
+  validation' rather than 'every value fails'."
+  [schema value]
+  (if-let [f @validator-fn]
+    (f schema value)
+    true))
+
+(defn- run-explainer
+  "Hot-path entry — invoke the registered explainer fn against a
+  `(schema, value)` pair. Returns nil when no explainer is registered
+  (nil); call sites then omit the `:explain` key from the failure
+  trace."
+  [schema value]
+  (when-let [f @explainer-fn]
+    (f schema value)))
 
 ;; ---- per-frame storage ----------------------------------------------------
 ;;
@@ -340,10 +480,15 @@
 (defn validate-app-db!
   "After a handler commits :db, walk every registered app-schema for the
   named frame and validate the post-state. Failures trace as
-  :rf.error/schema-validation-failure with a Malli explanation.
+  :rf.error/schema-validation-failure with the registered explainer's
+  output attached.
 
   Per Spec 010 §Per-frame schemas only the named frame's schemas are
   walked — schemas registered against sibling frames are ignored.
+
+  Validation routes through the registered validator/explainer fns
+  (rf2-froe). When `set-schema-validator!` has been called with `nil`
+  this fn is a hard no-op for every schema in the frame.
 
   Arities:
     (validate-app-db! db)                       ;; current frame
@@ -355,17 +500,17 @@
   ([db] (validate-app-db! db nil (frame/current-frame)))
   ([db event-id] (validate-app-db! db event-id (frame/current-frame)))
   ([db event-id frame-id]
-   (when interop/debug-enabled?
+   (when (and interop/debug-enabled? @validator-fn)
      (doseq [[path m] (frame-schema-entries frame-id)]
        (let [val-at (get-in db path)
              schema (:schema m)]
-         (when-not (malli-validate* schema val-at)
+         (when-not (run-validator schema val-at)
            (trace/emit-error! :rf.error/schema-validation-failure
                               (cond-> {:where    :app-db
                                        :path     path
                                        :value    val-at
                                        :frame    frame-id
-                                       :explain  (malli-explain* schema val-at)
+                                       :explain  (run-explainer schema val-at)
                                        :reason   (str "App-db at path " path
                                                       " failed schema " schema
                                                       ": expected "
@@ -390,13 +535,16 @@
 
   Per Spec 009 §Production builds the entire body lives inside a
   `(when interop/debug-enabled? ...)` gate so :advanced+goog.DEBUG=false
-  DCE-elides every reason string, every keyword, and every malli call."
+  DCE-elides every reason string, every keyword, and every validator
+  call. Per Spec 010 §Non-Malli validators (rf2-froe) the validator
+  is pluggable; when none is registered this fn returns true (pass)
+  without inspecting the schema."
   [event-id event handler-meta]
-  (if interop/debug-enabled?
+  (if (and interop/debug-enabled? @validator-fn)
     (if-let [schema (:spec handler-meta)]
-      (if (malli-validate* schema event)
+      (if (run-validator schema event)
         true
-        (do
+        (let [explanation (run-explainer schema event)]
           (trace/emit-error! :rf.error/schema-validation-failure
                              {:where       :event
                               :event-id    event-id
@@ -404,8 +552,8 @@
                               :spec-id     event-id
                               :received    event
                               :event       event
-                              :malli-error (malli-explain* schema event)
-                              :explain     (malli-explain* schema event)
+                              :malli-error explanation
+                              :explain     explanation
                               :reason      (str "Event " event-id
                                                 " payload failed schema "
                                                 schema ", got "
@@ -425,13 +573,15 @@
   default (nil) per the :replaced-with-default recovery.
 
   Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly."
+  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly.
+  Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
+  pluggable; when none is registered this fn returns true."
   [sub-id query-v value sub-meta]
-  (if interop/debug-enabled?
+  (if (and interop/debug-enabled? @validator-fn)
     (if-let [schema (:spec sub-meta)]
-      (if (malli-validate* schema value)
+      (if (run-validator schema value)
         true
-        (do
+        (let [explanation (run-explainer schema value)]
           (trace/emit-error! :rf.error/schema-validation-failure
                              {:where       :sub-return
                               :sub-id      sub-id
@@ -440,8 +590,8 @@
                               :query-v     query-v
                               :received    value
                               :value       value
-                              :malli-error (malli-explain* schema value)
-                              :explain     (malli-explain* schema value)
+                              :malli-error explanation
+                              :explain     explanation
                               :reason      (str "Subscription " sub-id
                                                 " return value failed schema "
                                                 schema ", got "
@@ -461,13 +611,15 @@
   responsible for skipping the handler (recovery: :no-recovery).
 
   Per Spec 009 §Production builds the entire body lives inside a
-  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly."
+  `(when interop/debug-enabled? ...)` gate so DCE elides it cleanly.
+  Per Spec 010 §Non-Malli validators (rf2-froe) the validator is
+  pluggable; when none is registered this fn returns true."
   [cofx-id event-id value cofx-meta]
-  (if interop/debug-enabled?
+  (if (and interop/debug-enabled? @validator-fn)
     (if-let [schema (:spec cofx-meta)]
-      (if (malli-validate* schema value)
+      (if (run-validator schema value)
         true
-        (do
+        (let [explanation (run-explainer schema value)]
           (trace/emit-error! :rf.error/schema-validation-failure
                              {:where       :cofx
                               :cofx-id     cofx-id
@@ -476,8 +628,8 @@
                               :spec-id     cofx-id
                               :received    value
                               :value       value
-                              :malli-error (malli-explain* schema value)
-                              :explain     (malli-explain* schema value)
+                              :malli-error explanation
+                              :explain     explanation
                               :reason      (str "Coeffect " cofx-id
                                                 " injected value failed schema "
                                                 schema ", got "
@@ -486,6 +638,44 @@
           false))
       true)
     true))
+
+;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
+;;
+;; The boundary-validation interceptor (rf2-r2uh, NOT YET IMPLEMENTED)
+;; runs `:spec` validation on a handler at production-build time —
+;; outside the `interop/debug-enabled?` gate that guards the hot-path
+;; validate-*! fns above. Per Spec 010 §Production builds the boundary
+;; interceptor MUST route through the same registered validator the
+;; dev-mode hot path uses (so a substituted validator covers both
+;; surfaces). This namespace publishes `validate-with-registered-fn`
+;; as the call the interceptor reaches for; rf2-r2uh wires the
+;; interceptor through it.
+;;
+;; Contract: returns true on conform; false on fail; true (pass) when
+;; no validator is registered. Does NOT emit a trace — the boundary
+;; interceptor is responsible for emitting :rf.error/schema-validation-
+;; failure :where :event with the appropriate envelope. Pure check
+;; surface.
+
+(defn validate-with-registered-fn
+  "Apply the registered validator to `(schema, value)`. Public seam for
+  the boundary-validation interceptor (rf2-r2uh). Returns true on
+  conform; false on fail; true when no validator is registered (the
+  call-site treats no-validator as no-validation, mirroring the hot
+  path).
+
+  Does NOT consult `interop/debug-enabled?` — the boundary interceptor
+  runs in production by design."
+  [schema value]
+  (run-validator schema value))
+
+(defn explain-with-registered-fn
+  "Apply the registered explainer to `(schema, value)`. Companion to
+  `validate-with-registered-fn` for the boundary-validation
+  interceptor (rf2-r2uh). Returns the explanation map / data on fail;
+  nil when the schema conforms or no explainer is registered."
+  [schema value]
+  (run-explainer schema value))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -511,11 +701,17 @@
 (late-bind/set-fn! :schemas/validate-cofx!       validate-cofx!)
 (late-bind/set-fn! :schemas/frame-schema-entries frame-schema-entries)
 
+;; Boundary-validation seam (rf2-r2uh integration).
+(late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)
+(late-bind/set-fn! :schemas/explain-with-registered-fn  explain-with-registered-fn)
+
 ;; Public-API re-export hooks (consumed by re-frame.core).
-(late-bind/set-fn! :schemas/reg-app-schema       reg-app-schema)
-(late-bind/set-fn! :schemas/app-schema-at        app-schema-at)
-(late-bind/set-fn! :schemas/app-schemas          app-schemas)
-(late-bind/set-fn! :schemas/app-schemas-digest   app-schemas-digest)
+(late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
+(late-bind/set-fn! :schemas/app-schema-at         app-schema-at)
+(late-bind/set-fn! :schemas/app-schemas           app-schemas)
+(late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)
+(late-bind/set-fn! :schemas/set-schema-validator! set-schema-validator!)
+(late-bind/set-fn! :schemas/set-schema-explainer! set-schema-explainer!)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; reset-runtime-fixture). The fixture wants to capture and restore
