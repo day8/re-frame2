@@ -58,11 +58,11 @@
   the resolution-chain contracts under test here — see rf2-c5jz
   for the namespace-stripping issue.
 
-  Scenario-3 pins the *current* behaviour for corrupted
-  `_currentValue` reads (silent fall-through to `:rf/default`). The
-  bead-3 expectation (a structured error event on corruption) is
-  filed as rf2-8q66; once that lands, scenario-3 updates to assert
-  the trace event."
+  Scenario-3 asserts the structured `:rf.error/frame-context-corrupted`
+  trace event fires on a corrupted `_currentValue` read (rf2-8q66
+  closed). Recovery is `:replaced-with-default` — observable
+  behaviour at the call site is unchanged (still resolves to
+  `:rf/default`); the error event is the new diagnostic surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.dom.client :as rdc]
             ["react" :as React]
@@ -191,26 +191,31 @@
 ;; observable + diagnostic — emits a structured error event, not a
 ;; silent fallback."
 ;;
-;; The current runtime (re-frame.adapter.context/coerce-context-value)
-;; tolerates only `keyword` and non-empty `string` shapes; anything
-;; else (nil, false, number, object) silently maps to nil and the
-;; lookup chain proceeds to `:rf/default`. There is no
-;; `:rf.error/frame-context-corrupted` (or similar) trace today.
-;;
-;; Per the bead workflow: a scenario that reveals a behavioural gap is
-;; documented as a passing assertion of the *current* observable
-;; behaviour, plus a `bd` bead capturing the gap. The structured-error
-;; expectation is filed as rf2-8q66.
+;; rf2-8q66 closed: when `_currentValue` is a shape
+;; `coerce-context-value` cannot resolve to a frame keyword (nil,
+;; false, number, JS object, empty string), the runtime emits
+;; `:rf.error/frame-context-corrupted` (op-type `:error`, recovery
+;; `:replaced-with-default`) and falls through to `:rf/default`. The
+;; observable resolution still lands on `:rf/default` so apps don't
+;; break — the error event is the new diagnostic surface.
 
-(deftest scenario-3-context-corrupted-current-behaviour
+(defn- collect-traces [k]
+  (let [traces (atom [])]
+    (rf/register-trace-cb! k (fn [ev] (swap! traces conj ev)))
+    traces))
+
+(defn- corruption-traces [traces]
+  (filter #(= :rf.error/frame-context-corrupted (:operation %)) @traces))
+
+(deftest scenario-3-context-corrupted-emits-structured-error
   "Scenario 3 — context-not-present / corrupted error path.
 
-   Pins the *current* behaviour: a non-keyword / non-string
-   `_currentValue` on the shared frame-context falls through to
-   `:rf/default` silently. The bead expectation that this should
-   instead emit a structured error event is filed as rf2-8q66 —
-   fixing it would change observable behaviour and is out of scope
-   for this test ns (rf2-22ds is coverage, not implementation).
+   Asserts the rf2-8q66 contract: a non-coercible `_currentValue` on
+   the shared frame-context emits `:rf.error/frame-context-corrupted`
+   (op-type `:error`, recovery `:replaced-with-default`) and falls
+   through to `:rf/default`. The fall-through is the unchanged
+   pre-rf2-8q66 behaviour; the error event is the new observable
+   surface.
 
    Direct test against the function-component-shape resolver because
    the only ways to corrupt `_currentValue` involve either bypassing
@@ -218,31 +223,69 @@
    does not allow) or directly poking the field — the latter is what
    we do here, since it is the substrate-level seam the resolver
    reads."
-  (let [original (.-_currentValue ^js adapter-context/frame-context)]
+  (let [original (.-_currentValue ^js adapter-context/frame-context)
+        traces   (collect-traces ::scenario-3)]
     (try
-      (testing "nil _currentValue silently falls through to :rf/default (gap: rf2-8q66)"
+      (testing "nil _currentValue: error trace fires; resolves to :rf/default"
+        (reset! traces [])
         (set! (.-_currentValue ^js adapter-context/frame-context) nil)
         (is (= :rf/default (adapter-context/function-component-current-frame))
-            "nil falls through to :rf/default (current behaviour)"))
-      (testing "false _currentValue silently falls through to :rf/default (gap: rf2-8q66)"
+            "still falls through to :rf/default (recovery preserved)")
+        (let [errs (corruption-traces traces)]
+          (is (= 1 (count errs))
+              "one :rf.error/frame-context-corrupted event fired")
+          (is (= :error (:op-type (first errs)))
+              ":op-type is :error per Spec 009 §Error contract")
+          (is (= :replaced-with-default (:recovery (first errs)))
+              ":recovery is :replaced-with-default — fall-through preserved")
+          (is (= :nil (-> errs first :tags :type))
+              ":tags :type names the corrupted shape")
+          (is (contains? (-> errs first :tags) :received)
+              ":tags :received carries the offending value")))
+      (testing "false _currentValue: error trace fires; resolves to :rf/default"
+        (reset! traces [])
         (set! (.-_currentValue ^js adapter-context/frame-context) false)
         (is (= :rf/default (adapter-context/function-component-current-frame))
-            "false falls through to :rf/default (current behaviour)"))
-      (testing "numeric _currentValue silently falls through to :rf/default (gap: rf2-8q66)"
+            "still falls through to :rf/default")
+        (let [errs (corruption-traces traces)]
+          (is (= 1 (count errs))
+              "one error trace per corrupted read")
+          (is (= :boolean (-> errs first :tags :type))
+              ":tags :type identifies false as a boolean shape")))
+      (testing "numeric _currentValue: error trace fires; resolves to :rf/default"
+        (reset! traces [])
         (set! (.-_currentValue ^js adapter-context/frame-context) 42)
         (is (= :rf/default (adapter-context/function-component-current-frame))
-            "non-keyword non-string falls through to :rf/default (current behaviour)"))
-      (testing "object _currentValue silently falls through to :rf/default (gap: rf2-8q66)"
+            "still falls through to :rf/default")
+        (let [errs (corruption-traces traces)]
+          (is (= 1 (count errs))
+              "one error trace per corrupted read")
+          (is (= :number (-> errs first :tags :type))
+              ":tags :type identifies the number shape")
+          (is (= 42 (-> errs first :tags :received))
+              ":tags :received echoes the offending value")))
+      (testing "JS object _currentValue: error trace fires; resolves to :rf/default"
+        (reset! traces [])
         (set! (.-_currentValue ^js adapter-context/frame-context) #js {:not "a frame"})
         (is (= :rf/default (adapter-context/function-component-current-frame))
-            "JS object falls through to :rf/default (current behaviour)"))
-      (testing "empty-string _currentValue falls through to :rf/default"
-        ;; Empty strings are a documented degenerate case — no valid
-        ;; keyword name. coerce-context-value already handles this.
+            "still falls through to :rf/default")
+        (let [errs (corruption-traces traces)]
+          (is (= 1 (count errs))
+              "one error trace per corrupted read")
+          (is (= :js-object (-> errs first :tags :type))
+              ":tags :type identifies the JS object shape")))
+      (testing "empty-string _currentValue: error trace fires; resolves to :rf/default"
+        (reset! traces [])
         (set! (.-_currentValue ^js adapter-context/frame-context) "")
         (is (= :rf/default (adapter-context/function-component-current-frame))
-            "empty string is a documented fall-through to :rf/default"))
+            "still falls through to :rf/default")
+        (let [errs (corruption-traces traces)]
+          (is (= 1 (count errs))
+              "one error trace per corrupted read")
+          (is (= :empty-string (-> errs first :tags :type))
+              ":tags :type identifies empty-string distinctly from string")))
       (finally
+        (rf/remove-trace-cb! ::scenario-3)
         (set! (.-_currentValue ^js adapter-context/frame-context) original)))))
 
 ;; ---- Scenario 4: cross-frame subscribe resolution -------------------------

@@ -296,6 +296,7 @@ The framework emits trace events from these call sites:
 - `ssr.cljc` — `:warning :rf.warning/multiple-status-set`, `:warning :rf.warning/multiple-redirects`, `:rf.error/sanitised-on-projection`.
 - `epoch.cljc` — `:rf.epoch/snapshotted` per drain-settle, `:rf.epoch/restored` on restore success, `:rf.epoch/db-replaced` on `reset-frame-db!` success (rf2-zq55), plus the six restore-failure categories and the two reset-frame-db! failure categories (`:rf.epoch/reset-frame-db-during-drain`, `:rf.epoch/reset-frame-db-schema-mismatch`), plus `:rf.epoch.cb/silenced-on-frame-destroy` emitted once per `(frame-id, cb-id)` pair on the destroy-cascade boundary (rf2-d656).
 - `views.cljs` — `:view/render` per registered-view render (per [Spec 004 §Render-tree primitives](004-Views.md)).
+- `adapter/context.cljs` — `:rf.error/frame-context-corrupted` (function-component `_currentValue` read observed a non-coercible shape; per rf2-8q66).
 - `std_interceptors.cljc` — `:rf.error/unwrap-bad-event-shape`.
 - `http_managed.cljc` — `:warning :rf.http/cljs-only-key-ignored-on-jvm`, `:warning :rf.warning/decode-defaulted`, `:info :rf.http/retry-attempt`, `:info :rf.http.interceptor/registered`, `:info :rf.http.interceptor/cleared`, `:error :rf.error/http-interceptor-failed` (request-side interceptor `:before` threw, per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q), plus the Spec 014 failure categories.
 
@@ -684,6 +685,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/no-adapter-specified` | `(rf/init! …)` was called with no args, nil, or a non-map argument (e.g. a keyword). The only legal call shape is `(rf/init! adapter-map)` — require the adapter ns and pass its `adapter` Var, e.g. `(rf/init! reagent/adapter)`. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-agql. Surfaced as a thrown ex-info, not a trace | `:where` (`'init!`), `:received` (when nil/keyword/non-map), `:expected`, `:recovery` (`:no-recovery`), `:reason` |
 | `:rf.error/render-on-headless-adapter` | `render` was called on the plain-atom (JVM/SSR) adapter, which only supports `render-to-string` (per [006](006-Substrate.md)) | `:reason` |
 | `:rf.error/no-hiccup-emitter-bound` | `render-to-string` was called before the SSR namespace bound the hiccup emitter via `set-hiccup-emitter!` (per [011](011-SSR.md)) | `:reason`, `:render-tree` |
+| `:rf.error/frame-context-corrupted` | A function-component frame-id read (`_currentValue` on the shared React context) observed a value `coerce-context-value` cannot resolve to a frame keyword — nil, false, a number, an empty string, or a JS object. Real-world triggers: a subtree rendered through an unwrapped portal, a Provider authored with a non-keyword `:value`, or a library mutating `_currentValue` externally. Per [006 §Frame-provider via React context](006-ReactiveSubstrate.md) and rf2-8q66 | `:received` (the offending value), `:type` (a short keyword tag — `:nil` / `:boolean` / `:number` / `:string` / `:empty-string` / `:keyword` / `:symbol` / `:map` / `:vector` / `:sequential` / `:collection` / `:fn` / `:js-object`), `:reason` |
 | `:rf.error/flow-cycle` | A flow registration introduced a cycle in the flow-dependency graph (per [013 §Topological ordering](013-Flows.md)). Registration is rejected | `:cycle` (the offending flow ids) |
 | `:rf.error/flow-missing-id` | A `reg-flow` call's flow map omitted `:id` (per [013](013-Flows.md)) | `:flow` (the offending map) |
 | `:rf.error/flow-bad-inputs` | A `reg-flow` call's flow `:inputs` was not a vector of paths (per [013](013-Flows.md)) | `:flow`, `:reason` |
@@ -856,6 +858,7 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.error/adapter-already-installed` | `:no-recovery` | The call throws; the existing adapter remains installed. |
 | `:rf.error/render-on-headless-adapter` | `:no-recovery` | The call throws; user should use `render-to-string` on this adapter. |
 | `:rf.error/no-hiccup-emitter-bound` | `:no-recovery` | The call throws; SSR namespace must be required so `set-hiccup-emitter!` runs. |
+| `:rf.error/frame-context-corrupted` | `:replaced-with-default` | The function-component resolution chain falls through to `:rf/default`. Pre-rf2-8q66 observable behaviour preserved; the error event is the new diagnostic surface. Per [006 §Frame-provider via React context](006-ReactiveSubstrate.md). |
 | `:rf.error/flow-cycle` | `:no-recovery` | Flow registration is rejected. |
 | `:rf.error/flow-missing-id` | `:no-recovery` | Flow registration is rejected. |
 | `:rf.error/flow-bad-inputs` | `:no-recovery` | Flow registration is rejected. |
