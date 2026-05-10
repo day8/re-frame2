@@ -321,11 +321,21 @@
               (this-as this
                 (bind-and-call this #(f this))))))
 
-    (when-let [f (:component-will-unmount spec)]
+    ;; componentWillUnmount: always installed (even when the user
+    ;; spec has no :component-will-unmount) so the per-instance render
+    ;; Reaction can dispose its watch graph. Without this, Reactions
+    ;; the component subscribed to retain references to the (now-
+    ;; unmounted) component and prevent GC. Per IMPL-SPEC §3.4 +
+    ;; Stage 4-D wiring.
+    (let [user-fn (:component-will-unmount spec)]
       (set! (.-componentWillUnmount proto)
             (fn []
-              (this-as this
-                (bind-and-call this #(f this))))))
+              (this-as ^js this
+                (when-some [rea (.-cljsRenderRea this)]
+                  (ratom/dispose! rea)
+                  (set! (.-cljsRenderRea this) nil))
+                (when user-fn
+                  (bind-and-call this #(user-fn this)))))))
 
     (when-let [f (:component-did-update spec)]
       ;; React calls componentDidUpdate(prevProps, prevState, snapshot).
@@ -395,34 +405,59 @@
     klass))
 
 ;; ---------------------------------------------------------------------------
-;; React class construction (per IMPL-SPEC §6.3)
+;; React class construction (per IMPL-SPEC §6.3 + §4.4)
 ;;
 ;; The class extends React.Component. The constructor stashes the
 ;; initial argv (read from props.__rfArgv) on the instance; render
 ;; delegates to wrap-render with the user's :reagent-render fn.
-;; Each render path also marks-rendered + queues a deref-capture so
-;; reactive deps wire up correctly.
 ;;
-;; Re-render on dependency change is wired via the batching ns:
-;; render-time derefs of an RAtom or Reaction call notify-deref-watcher!
-;; on a Reaction wrapping the render itself (Stage 4-D's job). For
-;; Stage 4-C the class is structurally complete; reactive subscription
-;; sits at the render-fn boundary (Stage 4-D wires deref-capture +
-;; queue-render!).
+;; Reactive subscription wiring (Stage 4-D, per IMPL-SPEC §4.4 path 1):
+;; the render method runs the user's render fn inside a Reaction so
+;; that any RAtom / Reaction deref'd during render registers as a
+;; dependency. When a dep changes, the Reaction recomputes (which we
+;; ignore) and the watch fires, enqueueing this React component for
+;; re-render via `batching/queue-render!`.
+;;
+;; Per IMPL-SPEC §4.4 path 1 + Stage 4-A handoff: without this wiring,
+;; views render once and never update on dep change. The Reaction is
+;; per-component and lives on the instance as `cljsRenderRea`.
 ;; ---------------------------------------------------------------------------
 
 (defn- make-render-method
-  "Build the React `render` method. Wraps the user's render fn with
-  Form-1/2 detection and binds *current-component* + clears the dirty
-  flag. Reactive subscription wiring (deref-capture + queue-render! on
-  dep change) lands with Stage 4-D's hiccup-translation pass; for
-  4-C the render path is structurally complete."
+  "Build the React `render` method. Wraps the user's render fn with:
+
+    1. Form-1/2 detection via `wrap-render`.
+    2. *current-component* binding for the duration of the render.
+    3. mark-rendered to clear the dirty flag for the next dep-change cycle.
+    4. Per-component Reaction wrapping the render so deref'd RAtoms /
+       Reactions register as dependencies; on dep change the Reaction
+       schedules re-render via batching/queue-render!. Per IMPL-SPEC
+       §4.4 path 1 + Stage 4-D wiring.
+
+  The Reaction is created lazily on first render and cached on the
+  instance as `.-cljsRenderRea`. It returns the rendered React element;
+  on subsequent dep-driven recomputes it queues a forceUpdate without
+  needing the result (React's own commit produces the DOM)."
   [render-fn]
   (fn []
-    (this-as this
+    (this-as ^js this
       (binding [*current-component* this]
         (batching/mark-rendered this)
-        (wrap-render this render-fn)))))
+        (let [rea (or (.-cljsRenderRea this)
+                      (let [r (ratom/make-reaction
+                                #(wrap-render this render-fn)
+                                :auto-run
+                                ;; Custom auto-run: don't synchronously
+                                ;; recompute on dep change; instead queue
+                                ;; a re-render of this React component.
+                                ;; React drives the next render via its
+                                ;; reconciler; the Reaction recomputes
+                                ;; inside that next render.
+                                (fn [_r]
+                                  (batching/queue-render! this)))]
+                        (set! (.-cljsRenderRea this) r)
+                        r))]
+          @rea)))))
 
 (defn- copy-argv-from-props!
   "Read the argv off React's `props` and stash it on `c` as
