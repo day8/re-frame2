@@ -292,27 +292,34 @@
      "Tiny pure-Clojure JSON reader. Returns Clojure data with keyword
      keys for objects. Sufficient for the on-the-wire shapes :rf.http/managed
      decodes; not a full RFC-8259 parser. Used only when Cheshire isn't
-     on the classpath."
+     on the classpath.
+
+     Each helper returns [value next-p]: the cursor is threaded through
+     return values rather than carried in a mutable atom."
      [^String s]
-     (let [n (count s)
-           p (atom 0)]
-       (letfn [(peek-c [] (when (< @p n) (.charAt s @p)))
-               (skip-ws [] (while (let [c (peek-c)]
-                                    (and c (Character/isWhitespace c)))
-                             (swap! p inc)))
-               (read-string-lit []
-                 (swap! p inc)                         ;; opening "
-                 (let [sb (StringBuilder.)]
-                   (loop []
-                     (let [c (peek-c)]
-                       (cond
-                         (nil? c) (throw (ex-info "unterminated string" {}))
-                         (= c \")  (do (swap! p inc) (.toString sb))
-                         (= c \\)
-                         (do (swap! p inc)
-                             (let [esc (peek-c)]
-                               (swap! p inc)
-                               (.append sb (case esc
+     (let [n        (count s)
+           peek-c   (fn [p] (when (< p n) (.charAt s p)))
+           skip-ws  (fn [p]
+                      (loop [p p]
+                        (let [c (peek-c p)]
+                          (if (and c (Character/isWhitespace ^char c))
+                            (recur (inc p))
+                            p))))]
+       (letfn [(read-string-lit [p]
+                 ;; p points at opening ".
+                 (loop [p  (inc p)
+                        sb (StringBuilder.)]
+                   (let [c (peek-c p)]
+                     (cond
+                       (nil? c)  (throw (ex-info "unterminated string" {}))
+                       (= c \")  [(.toString sb) (inc p)]
+                       (= c \\)
+                       (let [esc (peek-c (inc p))]
+                         (case esc
+                           \u  (let [hex (subs s (+ p 2) (+ p 6))]
+                                 (.append sb (char (Integer/parseInt hex 16)))
+                                 (recur (+ p 6) sb))
+                           (do (.append sb (case esc
                                              \"  \"
                                              \\ \\
                                              \/ \/
@@ -321,75 +328,76 @@
                                              \n \newline
                                              \r \return
                                              \t \tab
-                                             \u (let [hex (subs s @p (+ @p 4))]
-                                                  (swap! p + 4)
-                                                  (char (Integer/parseInt hex 16)))
                                              esc))
-                               (recur)))
-                         :else
-                         (do (.append sb c) (swap! p inc) (recur)))))))
-               (read-number []
-                 (let [start @p]
-                   (while (let [c (peek-c)]
-                            (and c (or (Character/isDigit c)
-                                       (#{\- \+ \. \e \E} c))))
-                     (swap! p inc))
-                   (let [t (subs s start @p)]
-                     (if (or (.contains t ".") (.contains t "e") (.contains t "E"))
-                       (Double/parseDouble t)
-                       (Long/parseLong t)))))
-               (read-keyword-tok []
+                               (recur (+ p 2) sb))))
+                       :else
+                       (do (.append sb c) (recur (inc p) sb))))))
+               (read-number [p]
+                 (let [end (loop [m p]
+                             (let [c (peek-c m)]
+                               (if (and c (or (Character/isDigit ^char c)
+                                              (#{\- \+ \. \e \E} c)))
+                                 (recur (inc m))
+                                 m)))
+                       t   (subs s p end)]
+                   [(if (or (.contains t ".") (.contains t "e") (.contains t "E"))
+                      (Double/parseDouble t)
+                      (Long/parseLong t))
+                    end]))
+               (read-keyword-tok [p]
                  (cond
-                   (.startsWith (subs s @p) "true")  (do (swap! p + 4) true)
-                   (.startsWith (subs s @p) "false") (do (swap! p + 5) false)
-                   (.startsWith (subs s @p) "null")  (do (swap! p + 4) nil)
-                   :else (throw (ex-info "bad token" {:at @p}))))
-               (read-array []
-                 (swap! p inc)                          ;; [
-                 (skip-ws)
-                 (if (= \] (peek-c))
-                   (do (swap! p inc) [])
-                   (loop [acc []]
-                     (skip-ws)
-                     (let [v (read-val)
-                           _ (skip-ws)
-                           c (peek-c)]
-                       (cond
-                         (= c \,) (do (swap! p inc) (recur (conj acc v)))
-                         (= c \]) (do (swap! p inc) (conj acc v))
-                         :else (throw (ex-info "expected , or ]" {:at @p})))))))
-               (read-object []
-                 (swap! p inc)                          ;; {
-                 (skip-ws)
-                 (if (= \} (peek-c))
-                   (do (swap! p inc) {})
-                   (loop [acc {}]
-                     (skip-ws)
-                     (let [k (keyword (read-string-lit))
-                           _ (skip-ws)
-                           _ (when (not= \: (peek-c))
-                               (throw (ex-info "expected :" {:at @p})))
-                           _ (swap! p inc)
-                           _ (skip-ws)
-                           v (read-val)
-                           _ (skip-ws)
-                           c (peek-c)
-                           acc' (assoc acc k v)]
-                       (cond
-                         (= c \,) (do (swap! p inc) (recur acc'))
-                         (= c \}) (do (swap! p inc) acc')
-                         :else (throw (ex-info "expected , or }" {:at @p})))))))
-               (read-val []
-                 (skip-ws)
-                 (let [c (peek-c)]
+                   (.startsWith (subs s p) "true")  [true  (+ p 4)]
+                   (.startsWith (subs s p) "false") [false (+ p 5)]
+                   (.startsWith (subs s p) "null")  [nil   (+ p 4)]
+                   :else (throw (ex-info "bad token" {:at p}))))
+               (read-array [p]
+                 (let [p (inc p)                    ;; consume [
+                       p (skip-ws p)]
+                   (if (= \] (peek-c p))
+                     [[] (inc p)]
+                     (loop [p   p
+                            acc []]
+                       (let [p          (skip-ws p)
+                             [v p]      (read-val p)
+                             p          (skip-ws p)
+                             c          (peek-c p)
+                             acc'       (conj acc v)]
+                         (cond
+                           (= c \,) (recur (inc p) acc')
+                           (= c \]) [acc' (inc p)]
+                           :else    (throw (ex-info "expected , or ]" {:at p}))))))))
+               (read-object [p]
+                 (let [p (inc p)                    ;; consume {
+                       p (skip-ws p)]
+                   (if (= \} (peek-c p))
+                     [{} (inc p)]
+                     (loop [p   p
+                            acc {}]
+                       (let [p         (skip-ws p)
+                             [k p]     (read-string-lit p)
+                             p         (skip-ws p)
+                             _         (when (not= \: (peek-c p))
+                                         (throw (ex-info "expected :" {:at p})))
+                             p         (inc p)
+                             p         (skip-ws p)
+                             [v p]     (read-val p)
+                             p         (skip-ws p)
+                             c         (peek-c p)
+                             acc'      (assoc acc (keyword k) v)]
+                         (cond
+                           (= c \,) (recur (inc p) acc')
+                           (= c \}) [acc' (inc p)]
+                           :else    (throw (ex-info "expected , or }" {:at p}))))))))
+               (read-val [p]
+                 (let [p (skip-ws p)
+                       c (peek-c p)]
                    (cond
-                     (= c \")  (read-string-lit)
-                     (= c \{)  (read-object)
-                     (= c \[)  (read-array)
-                     (or (= c \-) (and c (Character/isDigit c))) (read-number)
-                     :else     (read-keyword-tok))))]
-         (skip-ws)
-         (read-val)))))
+                     (= c \")  (read-string-lit p)
+                     (= c \{)  (read-object p)
+                     (= c \[)  (read-array p)
+                     (or (= c \-) (and c (Character/isDigit ^char c))) (read-number p)
+                     :else     (read-keyword-tok p))))]
+         (first (read-val (skip-ws 0)))))))
 
 (defn- json-parse [s]
   #?(:clj  (let [read (try (requiring-resolve 'cheshire.core/parse-string)
