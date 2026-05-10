@@ -765,48 +765,51 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 ### Adapter selection at boot
 
-Per [rf2-84po](#) (resolves [rf2-4cb6](#)) `(rf/init!)` resolves the adapter through a default-adapter registry populated by adapter ns-loads:
+Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
 
 ```clojure
-;; Adapter side: each adapter ns calls register-default-adapter!
-;; at load time. The registration is idempotent — wrapping in defonce
-;; means a hot-reload doesn't churn the registry.
+;; Reagent (CLJS, day8/re-frame-2-reagent):
+(require '[re-frame.core :as rf]
+         '[re-frame.adapter.reagent :as reagent])
+(rf/init! reagent/adapter)
 
-;; In re-frame.adapter.reagent (CLJS, day8/re-frame-2-reagent):
-(defonce ^:private __register
-  (re-frame.substrate.adapter/register-default-adapter! :reagent adapter))
+;; UIx (CLJS, day8/re-frame-2-uix):
+(require '[re-frame.core :as rf]
+         '[re-frame.adapter.uix :as uix])
+(rf/init! uix/adapter)
 
-;; In re-frame.adapter.uix (CLJS, day8/re-frame-2-uix):
-(defonce ^:private __register
-  (re-frame.substrate.adapter/register-default-adapter! :uix adapter))
+;; Helix (CLJS, day8/re-frame-2-helix):
+(require '[re-frame.core :as rf]
+         '[re-frame.adapter.helix :as helix])
+(rf/init! helix/adapter)
 
-;; In re-frame.substrate.plain-atom (JVM only — see below):
-#?(:clj
-   (defonce ^:private __register
-     (re-frame.substrate.adapter/register-default-adapter! :plain-atom adapter)))
+;; SSR / JVM (day8/re-frame-2-ssr):
+(require '[re-frame.core :as rf]
+         '[re-frame.ssr :as ssr])
+(rf/init! ssr/adapter)
+
+;; Headless / plain-atom (re-frame.substrate.plain-atom in core):
+(require '[re-frame.core :as rf]
+         '[re-frame.substrate.plain-atom :as plain-atom])
+(rf/init! plain-atom/adapter)
 ```
 
-`(rf/init!)` accepts three argument shapes:
+`(rf/init! …)` accepts exactly one argument shape:
 
-- `(rf/init!)` — **no args**, resolve through the registry.
-- `(rf/init! :reagent)` — **keyword pick** from the registry.
-- `(rf/init! adapter-map)` — **literal adapter spec**, installed as-is.
+- `(rf/init! adapter-map)` — install the literal adapter spec.
 
-The no-arg resolver enumerates the registered keys and dispatches:
+Calling `(rf/init!)` with no args raises `:rf.error/no-adapter-specified`. Calling `(rf/init! :reagent)` (or any non-map value) raises the same error — there is no default-adapter registry and no keyword-to-adapter lookup table. The error message points the consumer at the adapter-ns + adapter-Var pattern.
 
-| Registered count | Behaviour | Error category |
-|---|---|---|
-| 1 | Install that adapter | — |
-| 0 | Raise | `:rf.error/no-adapter-registered` |
-| >1 | Raise (consumer must disambiguate via the keyword form) | `:rf.error/multiple-default-adapters` |
+**No registry, no implicit defaults.** The previous design (rf2-84po) shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. rf2-agql drops the registry entirely. Two reasons:
 
-The multi-adapter case is a **hard error**, not a last-wins or first-wins fallback. Rationale: post [rf2-3yij](#), Reagent and UIx can both be on the classpath in mixed-substrate apps; silently picking one would surface as a subtle, hard-to-diagnose bug. The thrown ex-info's `:keys` enumerate the registered candidates so the consumer can disambiguate via `(rf/init! :reagent)` / `(rf/init! :uix)` without spelunking through deps.
+1. **Explicit > implicit at the call site.** Reading any app's `run` function tells you exactly which adapter is in use, with no need to chase ns-load side-effects through the require graph.
+2. **Bundle-size.** A registry is bundle weight even when unused. Under rf2-agql, an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
 
-**JVM-only plain-atom registration.** The plain-atom adapter auto-registers as default **on the JVM only** (`#?(:clj …)`). On CLJS the registry is populated only by the adapter ns the consumer explicitly required (`re-frame.adapter.reagent` or `re-frame.adapter.uix`). Rationale: on CLJS, `re-frame.core` transitively requires `re-frame.substrate.plain-atom` (its render-to-string wiring still flows through), so if plain-atom auto-registered on CLJS too, every CLJS app would have plain-atom + the consumer's adapter registered and hit the multi-adapter error. The JVM-only registration keeps the policy meaningful: on the JVM, plain-atom is the only candidate; on CLJS, only the explicitly-required adapter is. CLJS apps that want plain-atom (rare — Node-side SSR not via the JVM SSR artefact) call `(rf/init! :plain-atom)` or `(rf/init! plain-atom/adapter)` explicitly.
+A mixed-substrate app — say a build that imports both `re-frame.adapter.reagent` (for stories) and `re-frame.adapter.uix` (for production views) — picks the active adapter by passing the right Var to `init!`. There is no multi-adapter ambiguity to resolve at boot: only one adapter is ever installed.
 
-`install-adapter!` is called once per process by `init!`'s implementation. Subsequent calls without an intervening `dispose-adapter!` raise `:rf.error/adapter-already-installed` ([§Single adapter per process](#single-adapter-per-process)). The default-adapter registry is **decoupled** from the installed-adapter slot: dispose only clears the slot, leaving registrations in place so a subsequent `(rf/init!)` resolves cleanly.
+`install-adapter!` is called once per process by `init!`'s implementation. Subsequent calls without an intervening `dispose-adapter!` raise `:rf.error/adapter-already-installed` ([§Single adapter per process](#single-adapter-per-process)).
 
-Other CLJS adapters (UIx, Helix) plug in via the same shape, replacing only the React-rendering and context-provider primitives; the sub-cache wiring and the plain-atom JVM half are unchanged.
+The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each export their `adapter` Var; the contract surface is the same nine-fn map (see [§The adapter API contract](#the-reactive-substrate-adapter-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
 
 ## CLJS reference: UIx as alternative substrate (rf2-3yij)
 
@@ -910,13 +913,13 @@ The current contract is single-adapter-per-process. If a concrete use case for p
 
 ### Adapter selection
 
-Per [rf2-84po](#) (resolves [rf2-4cb6](#)) the default adapter is selected through a registry populated by adapter ns-loads — see [§Adapter selection at boot](#adapter-selection-at-boot) above for the mechanism, the three-case resolver table, and the rationale for hard-erroring rather than silently picking when more than one adapter has registered.
+Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) the consumer passes an adapter spec map explicitly to `(rf/init! adapter-map)`. There is no default-adapter registry. Each adapter namespace exports an `adapter` Var; consumers require the namespace and pass the Var.
 
-Tests and atypical setups override via `(rf/init! :plain-atom)`, `(rf/init! :reagent)`, or `(rf/init! my-adapter-map)` at startup, before any frame is created. Re-installing after frames exist is an error (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected).
+See [§Adapter selection at boot](#adapter-selection-at-boot) above for the boot-time wiring, the legal call shapes, and the rationale (explicit > implicit; bundle-size; no implicit cross-adapter coupling).
 
-SSR-on-Node-in-CLJS (rare but valid) installs `:plain-atom` explicitly via the keyword form; the plain-atom adapter is reachable by name on CLJS even though it does not auto-register as a default-resolution candidate there.
+Re-installing after frames exist is an error (`:rf.error/adapter-already-installed` trace event; recovery: `:no-recovery`, the call is rejected).
 
-Other-language ports follow the same pattern: a default-adapter registry populated by adapter-package ns-load side-effects, with the `(init! key)` and `(init! adapter-map)` overrides available.
+Other-language ports follow the same pattern: each adapter package exports a public adapter spec; the consumer requires the package and passes the spec to the language's `init!` equivalent.
 
 ### Adapter introspection
 
