@@ -1,5 +1,6 @@
 # Clojure / CLJS
 /.cpcache/
+**/.cpcache/
 /.shadow-cljs/
 /target/
 /out/
