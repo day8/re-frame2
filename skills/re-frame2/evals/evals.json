@@ -1,0 +1,111 @@
+{
+  "skill_name": "re-frame2",
+  "schema_version": "1",
+  "convention": "anthropics/skills/skill-creator evals.json — per skills/skill-creator/references/schemas.md",
+  "dimensions": [
+    "discovery — does the skill trigger from frontmatter alone on prompts that don't name re-frame2?",
+    "recipe-correctness — does the produced code match the canonical idioms in the relevant leaf (verified by grepping the output for required tokens)?",
+    "routing-correctness — does the agent redirect to SKILL-REDIRECT.md (deep dives, v1 migration) or to the re-frame2-setup skill (greenfield scaffolding) when the prompt calls for it, instead of authoring application source?"
+  ],
+  "evals": [
+    {
+      "id": 1,
+      "name": "discovery-no-name-mention-http-lifecycle",
+      "dimension": "discovery",
+      "prompt": "I'm building a ClojureScript SPA with Reagent. I have a screen that loads a list of articles from /api/articles and re-fetches when the user changes the tag filter. While re-fetching I want to keep the current articles on screen — don't blank the page. How do I structure the state and events for this?",
+      "expected_output": "The agent recognises this as re-frame2 territory from the frontmatter triggers (ClojureScript, Reagent, app-db / events / subs context, fetch-with-revalidate) and consults skills/re-frame2/. It loads patterns/remote-data.md and produces a Pattern-RemoteData slice-form declaration with the :loading vs :fetching split.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked (skill load event observed; or SKILL.md / patterns/remote-data.md is read).",
+        "The output names the re-frame2 reg-* macros explicitly (reg-event-fx for load, reg-event-db for loaded, reg-sub for views).",
+        "The output distinguishes :loading from :fetching as separate status values — uses both keywords and explains the empty-page-spinner vs background-revalidate distinction.",
+        "The output produces a 5-key slice shape matching the canonical declaration: keys include :status, :data, :error, :loaded-at, :attempt (or a clearly equivalent superset).",
+        "The output uses :rf.http/managed (or names the host's HTTP fx surface) — does NOT invent a parallel HTTP layer.",
+        "The output does NOT invoke a separate re-frame v1 reference, nor synthesise its own pattern from first principles."
+      ]
+    },
+    {
+      "id": 2,
+      "name": "discovery-state-machine-websocket-lifecycle",
+      "dimension": "discovery",
+      "prompt": "We've got a real-time dashboard where the browser keeps a persistent connection open to push updates. It needs to handle reconnects with backoff, re-subscribe to topics after reconnect, and queue outgoing messages while disconnected. What's the cleanest way to model this?",
+      "expected_output": "The agent recognises this as a connection-lifecycle prompt (persistent connection, reconnect, backoff, queue) and routes to skills/re-frame2/patterns/websocket.md plus reference/state-machines/reg-machine.md. The produced code uses reg-machine with hierarchical compound state and :invoke for the socket actor.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked.",
+        "The agent reads patterns/websocket.md (or the equivalent canonical pattern leaf), not just SKILL.md.",
+        "The output uses reg-machine (or create-machine-handler) — not a plain reg-event-db slice — to model the connection lifecycle.",
+        "The output declares an :active parent compound state with leaf states (:connecting, :authenticating or similar, :connected) so the socket actor's lifetime spans the parent.",
+        "The output uses :invoke to anchor the socket actor on the parent state, not on a single leaf.",
+        "The output models :reconnecting with backoff via :after (delay) and bumps a retry counter in :data.",
+        "The output does NOT use core.async, manifolds, or any non-re-frame2 reactive primitive."
+      ]
+    },
+    {
+      "id": 3,
+      "name": "recipe-correctness-form-submit-lifecycle",
+      "dimension": "recipe-correctness",
+      "prompt": "Write me a re-frame2 login form. Two fields, email and password. Inline per-field error messages, but errors should only appear after the user blurs the field OR has hit submit. Disable the submit button while a request is in flight. Server can return either a structured field-level error (e.g. password too weak) or a non-field error (e.g. credentials invalid).",
+      "expected_output": "The agent loads patterns/forms.md and produces a Pattern-Forms slice-form declaration. The seven canonical events appear; the :touched / :submit-attempted? gating rule for per-field error visibility is implemented; structured server errors land in :errors and non-field errors in :submit-error (or use the reserved :_form key inside :errors).",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and patterns/forms.md is read.",
+        "The output's form slice has at least these keys: :draft, :status, :errors, :touched, :submit-attempted?, :submit-error — i.e. the canonical 7-key shape (presence test, not exhaustive equality).",
+        "The output's :field-error sub (or equivalent) gates visibility on (or :submit-attempted? (:touched field)) — both touch and submit-attempt are checked.",
+        "The output uses reg-event-fx for :submit and reg-event-db for :edit-field, :blur-field, :submit-success, :submit-error (or equivalent).",
+        "The output distinguishes structured field errors (-> :errors) from non-field / transport failures (-> :submit-error or :_form). The agent acknowledges this two-channel rule explicitly.",
+        "The output registers a reg-app-schema for the slice path AND a separate schema for the form's draft value (two schemas, per the leaf's guidance).",
+        "The output uses :rf.http/managed for the submit fx, with :on-success / :on-failure dispatching the lifecycle events."
+      ]
+    },
+    {
+      "id": 4,
+      "name": "recipe-correctness-state-machine-http-region",
+      "dimension": "recipe-correctness",
+      "prompt": "Register a re-frame2 state machine that drives the lifecycle of an HTTP request to load a popular-tags list. Start :idle, go :loading on first fetch and :fetching on subsequent fetches (keep prior data on screen). On success store the tags. On failure expose the error. Use tags so a view can ask 'is anything in flight right now?' without caring whether it's the first load or a revalidate.",
+      "expected_output": "The agent loads reference/state-machines/reg-machine.md and reference/state-machines/tags.md, and produces a reg-machine declaration with five states (:idle :loading :fetching :loaded :error) and a :tags slot on each state. The :tags/in-flight tag covers both :loading and :fetching. Actions and guards are registered as keyword entries in the top-level lookup tables.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and reference/state-machines/reg-machine.md is read.",
+        "The output calls (rf/reg-machine ...) with a machine-id keyword and a machine-map.",
+        "The machine declares :initial, :data, and :states (or :type :parallel + :regions — but for this prompt :initial + :states is the canonical shape).",
+        "The machine has at least the five canonical states: :idle, :loading, :fetching, :loaded, :error.",
+        "Each in-flight state carries a :tags set that includes a shared 'in-flight'-style tag (e.g. :tags/in-flight) so a single has-tag? query answers 'anything in flight?'.",
+        "Actions are registered as keyword entries in the top-level :actions map and referenced by keyword from transitions (not exclusively inlined as anonymous fns) — the inspectability bias.",
+        "Action functions return an effect-shaped map {:data ...} (and/or {:fx ...}) — not a bare data map.",
+        "The output requires re-frame.machines at the namespace top (the artefact load-hook) OR notes that requirement.",
+        "The output uses neither :rf/* nor :rf.machine/* keyword namespaces for application event names — those are reserved."
+      ]
+    },
+    {
+      "id": 5,
+      "name": "routing-correctness-v1-migration",
+      "dimension": "routing-correctness",
+      "prompt": "I've got a 6-year-old re-frame v1 application. We use re-frame-http-fx, re-frame-async-flow-fx, and a lot of reg-event-db with named interceptors. We want to migrate to re-frame2. Walk me through the migration — what changes, what breaks, what the equivalents are.",
+      "expected_output": "This is migration, not authoring. The agent does NOT write fresh re-frame2 application code in response. Instead it routes the user to SKILL-REDIRECT.md — specifically the 'Migration from re-frame v1' pointer — and consults that doc rather than trying to derive v1→v2 deltas from memory.",
+      "files": [],
+      "expectations": [
+        "The agent does NOT produce a wall of new re-frame2 source code as the primary response.",
+        "The agent points the user at SKILL-REDIRECT.md (or the migration guide URL it carries) for the v1→v2 deltas.",
+        "The agent does NOT re-derive the v1 surface from training memory — it acknowledges that v1→v2 drift makes confident recall unreliable.",
+        "If the agent surfaces specific v2 equivalents for re-frame-http-fx and re-frame-async-flow-fx, it cites them from the redirect target or the relevant pattern leaf (:rf.http/managed, Pattern-AsyncEffect, machines+:invoke) — not from invented memory.",
+        "The agent does NOT load the re-frame2-setup skill (this is a migration, not a greenfield scaffold)."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "routing-correctness-greenfield-scaffold",
+      "dimension": "routing-correctness",
+      "prompt": "I want to start a brand new re-frame2 project from scratch. Empty directory. Set me up — deps.edn, shadow-cljs config, the artefact dependencies, a minimal index.html, the namespace skeleton, and a hello-world view.",
+      "expected_output": "This is project scaffolding, not application authoring. The agent does NOT improvise a deps.edn / shadow-cljs.edn / package.json from inside the re-frame2 skill. It defers to the sibling skill re-frame2-setup, which owns the scaffolding recipe.",
+      "files": [],
+      "expectations": [
+        "The agent recognises this as outside the re-frame2 skill's scope (the 'When NOT to use this skill' table in SKILL.md sends greenfield setup to re-frame2-setup).",
+        "The agent either (a) invokes / hands off to the re-frame2-setup skill, OR (b) explicitly tells the user that skills/re-frame2-setup/ is the right surface for this and does not improvise the scaffold.",
+        "The agent does NOT write a deps.edn or shadow-cljs.edn from scratch out of the re-frame2 skill body.",
+        "The agent does NOT read or cite re-frame v1 setup conventions (lein, re-frame-template) as if they applied — re-frame2 is the v2 line.",
+        "If the agent does sketch any scaffold while handing off, it correctly names the artefact coordinates (day8/re-frame2, day8/re-frame2-machines for state machines) rather than re-frame v1 coordinates."
+      ]
+    }
+  ]
+}
