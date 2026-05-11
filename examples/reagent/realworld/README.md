@@ -24,7 +24,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 ## Other patterns this example exercises
 
 - **Auth state machine** — login, register, session-restore, logout as one machine (Spec 005); each transition issues a managed-HTTP request and routes the reply through machine actions.
-- **Pattern-NineStates** — the home page (`articles.cljs`) uses a parallel-region state machine (`:realworld/articles-home`) with three orthogonal axes (`:feed` × `:filter` × `:data`); a render-priority table + a selector sub (`:articles.home/render`) collapse the tag union to a single render keyword so the root view is a `case`, not a priority `cond`. The canonical worked example is in `examples/reagent/nine_states/`; this is the production-shaped variant. See [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md).
+- **Pattern-NineStates** — the home page (`articles.cljs`) uses a parallel-region state machine (`:realworld/articles-home`) with three orthogonal axes (`:feed` × `:filter` × `:data`); a render-priority table + a selector sub (`:articles.home/render`) collapse the tag union to a single render keyword so the root view is a `case`, not a priority `cond`. The profile pages (`profile.cljs`) apply the same shape at smaller scale: a `:ui/profile` parallel machine with two regions (`:tab` × `:data`), its own render-priority table, and a `:profile/render` selector sub — the cross-axis "which slice's articles to render" math lives in the machine instead of a sub that branches on the route id. The canonical worked example is in `examples/reagent/nine_states/`; this is the production-shaped variant. See [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md).
 - **Pattern-RemoteData** — your feed, article detail, comments, profile banner, authored articles, favorited articles, and tags all use the same lifecycle slice (Pattern-RemoteData). The home page's `:articles` slice keeps its slice shape for the optimistic-update paths (`favorites.cljs/find-article` scans across `[:articles :feed :profile.articles :profile.favorites]`) while the home-page render decision is driven by the parallel machine's tags.
 - **Pattern-Forms** — login, register, comment post, article editor, and settings reuse the same draft/submission shape.
 - **Routing** — route table, path params, query params, auth gating, route-driven loads, and navigation blocking for the editor.
@@ -45,7 +45,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 | `favorites.cljs` | implemented | Favorite toggle and followed-authors feed; optimistic updates with managed-HTTP rollback. |
 | `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete. **`:article/load` uses default reply addressing.** |
 | `article_editor.cljs` | implemented | New/edit/delete article plus unsaved-change guard. |
-| `profile.cljs` | implemented | Profile banner, authored/favorited tabs, follow/unfollow. |
+| `profile.cljs` | implemented | Profile banner, authored/favorited tabs, follow/unfollow. Uses Pattern-NineStates — a `:ui/profile` parallel machine with two regions (`:tab` × `:data`) + a render-priority table; the root view is a `case` over `:profile/render`. |
 | `settings.cljs` | implemented | User settings form and logout affordance. |
 | `tags.cljs` | implemented | Home-page query helpers (`?tag=` and `?feed=your`). |
 | `ssr.cljc` | implemented | RealWorld-specific hydration payload helper; pairs with `../ssr/core.cljc`. |
