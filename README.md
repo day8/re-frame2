@@ -195,6 +195,8 @@ implementation/                CLJS reference implementation — split into per-
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
                                it — bundle-isolated from production builds (rf2-e6g9).
+  template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2 apps
+                               (rf2-lrtc); the v1 re-frame-template's v2 successor. Build-time scaffold.
   story/                       day8/re-frame2-story — Storybook-flavoured playground (in design)
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate
                                jar per rf2-m6tu §6.1 (in design)

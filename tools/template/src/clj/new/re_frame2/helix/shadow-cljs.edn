@@ -1,0 +1,18 @@
+;; {{name}} — shadow-cljs build config (Helix substrate).
+{:deps   {:aliases [:shadow]}
+ :source-paths ["src"]
+
+ :dev-http {8280 "resources/public"}
+
+ :builds
+ {:app
+  {:target     :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+   :modules    {:main {:init-fn {{namespace}}.core/init}}
+   :devtools   {:after-load {{namespace}}.core/init}}
+
+  :test
+  {:target    :node-test
+   :output-to "out/node-test.js"
+   :ns-regexp "-test$"}}}

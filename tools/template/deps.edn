@@ -1,0 +1,64 @@
+;; day8/re-frame2-template — scaffolding tool for new re-frame2 apps
+;; (rf2-lrtc). The v2 equivalent of v1's day8/re-frame-template.
+;;
+;; Per tools/README.md the artefact is a downstream build-time tool —
+;; it generates fresh re-frame2 apps, it does not run inside them. The
+;; bundle-isolation contract is satisfied trivially: this jar is never
+;; on a consumer's runtime classpath; consumers invoke it via clj-new
+;; (`clojure -X:project/new :template re-frame2 :name acme/my-app`) and
+;; what lands in their project is the generated source tree, not this
+;; jar.
+;;
+;; Implementation shape: clj-new template (Option A per the bead).
+;; Rationale documented in README.md §Implementation choice.
+;;
+;; The template ships three substrate variants — Reagent (default), UIx,
+;; and Helix — selected at scaffold time via the `:substrate` arg. The
+;; generated app depends on:
+;;   - day8/re-frame2          (core)
+;;   - day8/re-frame2-<subst>  (Reagent / UIx / Helix adapter)
+;; at the alpha-channel coord (see VERSION at the repo root: 0.0.1.alpha).
+;;
+;; This deps.edn is the contract; the template logic lives under
+;; src/clj/new/re_frame2.clj and its resource tree under
+;; src/clj/new/re_frame2/. clj-new's renderer discovers both via the
+;; classpath (`clj/new/<template>/<file>`).
+{:paths ["src"]
+ :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
+         ;; clj-new supplies clj.new.templates: renderer / project-data /
+         ;; ->files / name-to-path / sanitize-ns. Pinning to the same
+         ;; current line the rest of the Clojure community uses.
+         com.github.seancorfield/clj-new {:mvn/version "1.3.415"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy — modelled on the per-adapter deploy aliases. The
+  ;; published artefact is consumed by users via clj-new, which resolves
+  ;; templates from Clojars/Maven Central automatically. Per the
+  ;; clj-new convention, the artefact published here is named
+  ;; day8/clj-template.re-frame2 (clj-new's resolution rule: when a
+  ;; user passes `:template re-frame2` to `clj-new/create`, it searches
+  ;; for `<group>/clj-template.re-frame2`).
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/clj-template.re-frame2
+   :main     clj.new.re-frame2
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]
+   ;; The template's resource tree (src/clj/new/re_frame2/) is part of
+   ;; the published jar — clj-new's renderer loads it from the
+   ;; classpath. clein's default :src-dirs ["src"] already includes
+   ;; the resource tree because clj-new keeps templates under
+   ;; src/clj/new/<name>/.
+   }}}
