@@ -1661,7 +1661,7 @@ Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spa
 
 ### Why one primitive, not two
 
-An earlier draft of this spec carried a `:timeout-ms` slot on `:invoke` / `:invoke-all` for "the whole spawned actor must terminate within N ms (spanning retries)." That slot is **dropped**. The motivating use case — a boot machine wanting "the auth phase completes in 30 s total, including retries" — is fully served by the parent state's `:after` map (per [§Whichever fires first wins](#whichever-fires-first-wins) and the cancellation cascade). Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. Per [findings/boot-as-statemachine-dash8-rf8.md §M3 follow-up](findings/boot-as-statemachine-dash8-rf8.md), the M3 finding's resolution is now "use the parent state's `:after`."
+An earlier draft of this spec carried a `:timeout-ms` slot on `:invoke` / `:invoke-all` for "the whole spawned actor must terminate within N ms (spanning retries)." That slot is **dropped**. The motivating use case — a boot machine wanting "the auth phase completes in 30 s total, including retries" — is fully served by the parent state's `:after` map (per [§Whichever fires first wins](#whichever-fires-first-wins) and the cancellation cascade). Maintaining two timeout mechanisms (state-level `:after` + invoke-level `:timeout-ms`) created a learnability tax with no expressive benefit. Per the boot-as-state-machine §M3 follow-up (rf2-1lop), the M3 finding's resolution is now "use the parent state's `:after`."
 
 ```clojure
 {:authenticating
@@ -1703,12 +1703,12 @@ A `:after`-driven cascade out of the `:invoke`-bearing state destroys any spawne
 
 - [§Whichever fires first wins](#whichever-fires-first-wins) — the cancellation cascade that an `:after` firing triggers is the same cascade as a parent-destroys-child shutdown.
 - [§Delayed `:after` transitions](#delayed-after-transitions) — the canonical primitive's full grammar and semantics.
-- [findings/boot-as-statemachine-dash8-rf8.md §M3](findings/boot-as-statemachine-dash8-rf8.md) — the boot-machine use case that originally motivated `:timeout-ms`; the M3 finding's resolution is now "use the parent state's `:after`."
+- Boot-as-state-machine §M3 (rf2-1lop) — the boot-machine use case that originally motivated `:timeout-ms`; the M3 finding's resolution is now "use the parent state's `:after`."
 - [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after) — pre-1.0 spec lock; the dropped-slot record.
 
 ## Cancellation cascade — in-flight `:rf.http/managed` aborts
 
-> **Resolves [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — rf2-wvkn.** The pre-resolution gap was: when a parent state machine cancels a spawned child mid-execution (parent state exit, parent destroy, `:after` firing, `:invoke-all` cancel-on-decision), what happens to in-flight `:rf.http/managed` requests the child kicked off? Spec 005 + Spec 014 didn't explicitly cover the cross-feature contract. This section is the contract.
+> **Resolves boot-as-state-machine §M2 (rf2-wvkn).** The pre-resolution gap was: when a parent state machine cancels a spawned child mid-execution (parent state exit, parent destroy, `:after` firing, `:invoke-all` cancel-on-decision), what happens to in-flight `:rf.http/managed` requests the child kicked off? Spec 005 + Spec 014 didn't explicitly cover the cross-feature contract. This section is the contract.
 
 ### The contract
 
@@ -1760,7 +1760,7 @@ The reply payload itself is a standard `:rf.http/aborted` failure; tools that su
 The same hook fires across every destroy trigger — `:invoke` exit, `:invoke-all` exit, cancel-on-decision, `:after` cascade, frame destroy. There is no per-trigger HTTP-abort code path. This means:
 
 - Authors writing a `:invoke`-based child whose body fires `:rf.http/managed` get cleanup automatically — no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id`.
-- The "parent reloads mid-flight" case ([findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md)) is covered by the frame-destroy walk firing the same hook against every surviving machine.
+- The "parent reloads mid-flight" case (boot-as-state-machine §M2, rf2-wvkn) is covered by the frame-destroy walk firing the same hook against every surviving machine.
 - The exit cascade from `:after` (per [§Whichever fires first wins](#whichever-fires-first-wins)) reuses the destroy path, so the wall-clock-timeout case is identical to the parent-decides-to-cancel case.
 
 ### Cross-references
@@ -1770,11 +1770,11 @@ The same hook fires across every destroy trigger — `:invoke` exit, `:invoke-al
 - [§Declarative `:invoke` §Desugaring rules](#desugaring-rules) — the `:rf.machine/destroy` fx that fires the hook.
 - [§Cancel-on-decision](#cancel-on-decision-default-true) — `:invoke-all`'s sibling-cancel cascade routes through the same destroy fx.
 - [§Whichever fires first wins](#whichever-fires-first-wins) — the `:after` cascade routes through the same destroy fx.
-- [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — the original gap analysis.
+- Boot-as-state-machine §M2 (rf2-wvkn) — the original gap analysis.
 
 ## Spawn-and-join via `:invoke-all`
 
-`:invoke-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per [findings/boot-as-statemachine-dash8-rf8.md §M1](#)).
+`:invoke-all` is **declarative sugar** for "spawn N children in parallel, fire one of three parent events when the join condition resolves." It is the answer to the boot-as-state-machine pattern: hydrate phases that fan out N requests and join on a `:seen-all-of?` predicate (per boot-as-state-machine §M1, rf2-6vmw).
 
 `:invoke-all` is **registration-time sugar.** `create-machine-handler` walks the spec at construction time and rewrites every `:invoke-all` slot into entry/exit actions emitting N parallel `:rf.machine/spawn` fx (on entry) and per-child `:rf.machine/destroy` fx (on exit), plus an internal join-state hook that watches the parent's events for child-completion signals and fires the parent-level join event when the join condition resolves.
 

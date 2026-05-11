@@ -34,18 +34,38 @@ import re
 
 GH_BLOB_BASE = "https://github.com/day8/re-frame2/blob/main"
 
-# Case 1: guide/* pages link to spec via ../../spec/ — collapse one level.
+# Case 1a: guide/* pages link to spec via ../../spec/ — collapse one level.
 _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
 
+# Case 1b: docs-root pages (e.g. docs/release-process.md) link to spec via
+# ../spec/ — correct for the GitHub source tree (where spec/ lives at the
+# repo root, one level up from docs/). In the staged tree spec/ is copied
+# into docs/spec/, so from a docs-root page the correct path is plain
+# spec/ (one fewer ../).
+_DOCSROOT_TO_SPEC = re.compile(r'\]\(\.\./spec/')
+
+# Case 1c: spec/* pages link to docs/-root pages (e.g. release-process.md)
+# via ../docs/ — correct for the GitHub source tree (where docs/ lives at
+# the repo root, one level up from spec/). In the staged tree spec/X.md is
+# at docs/spec/X.md and docs-root pages are at docs/X.md, so the correct
+# relative path from spec/ is ../release-process.md, i.e. ../ (no docs/
+# segment).
+_SPEC_TO_DOCSROOT = re.compile(r'\]\(\.\./docs/')
+
 # Case 2: cross-tree refs that don't exist in the staged docs tree.
-# These rewrites apply to ALL pages (guide/ and spec/), since both trees
-# reference examples/ and root README.md from their own depth in the source
-# layout.
+# These rewrites apply to ALL pages (guide/, spec/, and docs/-root pages
+# like release-process.md), since each tree references examples/, root
+# README.md, .github/, CHANGELOG.md, VERSION, and implementation/ from
+# its own depth in the source layout.
 #
-# From guide/ source (docs/guide/X.md), the path to repo-root is ../../
-# From spec/  source (spec/X.md, staged at docs/spec/X.md), it is ../
+# From guide/ source (docs/guide/X.md),                path to repo-root: ../../
+# From spec/  source (spec/X.md, staged at docs/spec/X.md):               ../
+# From docs/  source (docs/X.md, e.g. release-process.md):                ../
 #
-# Both depths are rewritten to the same absolute GitHub URL.
+# Spec-depth and docs-depth share the same ../prefix, so a single ../-rule
+# covers both. The guide-depth rule (../../) handles the third case.
+#
+# All depths are rewritten to the same absolute GitHub URL.
 _REWRITES = (
     # examples/ tree (anchor or no anchor; trailing path captured greedily
     # up to the closing paren or whitespace).
@@ -58,6 +78,26 @@ _REWRITES = (
      rf']({GH_BLOB_BASE}/README.md\1)'),
     (re.compile(r'\]\(\.\./README\.md(#[^)\s]*)?\)'),
      rf']({GH_BLOB_BASE}/README.md\1)'),
+    # .github/ tree (workflows, scripts, anything under .github/).
+    (re.compile(r'\]\(\.\./\.\./\.github/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/.github/\1)'),
+    (re.compile(r'\]\(\.\./\.github/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/.github/\1)'),
+    # root CHANGELOG.md
+    (re.compile(r'\]\(\.\./\.\./CHANGELOG\.md(#[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/CHANGELOG.md\1)'),
+    (re.compile(r'\]\(\.\./CHANGELOG\.md(#[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/CHANGELOG.md\1)'),
+    # root VERSION file
+    (re.compile(r'\]\(\.\./\.\./VERSION\)'),
+     rf']({GH_BLOB_BASE}/VERSION)'),
+    (re.compile(r'\]\(\.\./VERSION\)'),
+     rf']({GH_BLOB_BASE}/VERSION)'),
+    # implementation/ tree (source files; not docs to render).
+    (re.compile(r'\]\(\.\./\.\./implementation/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/implementation/\1)'),
+    (re.compile(r'\]\(\.\./implementation/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/implementation/\1)'),
 )
 
 
@@ -72,6 +112,14 @@ def on_page_markdown(markdown, page, config, files):
 
     if src.startswith('guide/'):
         markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
+    elif src.startswith('spec/'):
+        # Spec pages link to docs-root pages via ../docs/ — collapse the
+        # docs/ segment so the staged-tree path is ../release-process.md
+        # (sibling of docs/spec/ in the docs_dir).
+        markdown = _SPEC_TO_DOCSROOT.sub('](../', markdown)
+    elif '/' not in src:
+        # Docs-root page (e.g. release-process.md). Rewrite ../spec/ -> spec/.
+        markdown = _DOCSROOT_TO_SPEC.sub('](spec/', markdown)
 
     for pattern, replacement in _REWRITES:
         markdown = pattern.sub(replacement, markdown)

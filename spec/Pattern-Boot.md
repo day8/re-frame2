@@ -281,7 +281,7 @@ The boundary is teachable in three sentences:
 
 The auth flow above runs **after init** — the machine reaches `:loading-me` because the user already has a (possibly stale) token from an earlier session, and `:refreshing` is the answer to "the token expired mid-session." Init is different: there's no token to refresh, so a 401 routes straight to `:login` rather than `:refreshing`. Apps that distinguish the two carry an `:init?` flag in `:data` and gate the `:got-401?` transition on `(and got-401? (not init?))`; init's 401 falls through to `:login`. The transport-level retry of 5xx applies identically in both modes — it doesn't care whether the request is the init fetch or a mid-session refetch.
 
-Cross-references: this section is the worked example referenced from [Spec 014 §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry); the broader research that surfaced the boundary lives in [findings/boot-as-statemachine-dash8-rf8.md](../findings/boot-as-statemachine-dash8-rf8.md) (the Dash8 / rf8 boot-flow study that motivated rf2-wylu).
+Cross-references: this section is the worked example referenced from [Spec 014 §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry); the broader research that surfaced the boundary is the Dash8 / rf8 boot-flow study (rf2-wylu).
 
 ### Boot UI — reading progress from the snapshot
 
@@ -395,5 +395,5 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.
 - [014-HTTPRequests §Boundary — transport vs semantic retry](014-HTTPRequests.md#boundary--transport-vs-semantic-retry) — the retry-ownership rule the auth-machine worked example illustrates.
-- [findings/boot-as-statemachine-dash8-rf8.md](../findings/boot-as-statemachine-dash8-rf8.md) — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary (rf2-wylu).
+- Boot-as-state-machine study (rf2-wylu) — the Dash8 / rf8 study that surfaced the hybrid retry-ownership boundary.
 - [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — single-purpose flow machine; same shape, narrower scope.

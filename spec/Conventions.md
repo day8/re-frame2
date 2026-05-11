@@ -33,7 +33,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 
 ### Error-id and warning-id grammar
 
-Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>` — a single-segment kebab-case category under the reserved sub-namespace. The `:rf.error/*` and `:rf.warning/*` table rows above reserve the namespaces; the per-category vocabulary (the closed set of `<category>` values, what each one means, and which trace `:operation` it maps to) is enumerated in [009 §Error namespace convention](009-Instrumentation.md#error-namespace-convention). The same `:rf.<prefix>/<category>` shape applies to `:rf.fx/*` advisories, `:rf.ssr/*` advisories, and `:rf.epoch/*` operations — Conventions reserves the prefixes; 009 owns the per-prefix grammar.
+Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>` — a single-segment kebab-case category under the reserved sub-namespace. The `:rf.error/*` and `:rf.warning/*` table rows above reserve the namespaces; the per-category vocabulary (the closed set of `<category>` values, what each one means, and which trace `:operation` it maps to) is enumerated in [009 §Error namespace convention](009-Instrumentation.md#error-namespace-convention-five-prefix-shapes). The same `:rf.<prefix>/<category>` shape applies to `:rf.fx/*` advisories, `:rf.ssr/*` advisories, and `:rf.epoch/*` operations — Conventions reserves the prefixes; 009 owns the per-prefix grammar.
 
 ### v1-compat alias
 
