@@ -1,4 +1,4 @@
-;; day8/re-frame-2-ssr — ssr artefact (rf2-uo7v,
+;; day8/re-frame2-ssr — ssr artefact (rf2-uo7v,
 ;; sixth per-feature split per rf2-5vjj Strategy B).
 ;;
 ;; Per Spec 011 the server-side rendering and hydration surface — the
@@ -19,8 +19,8 @@
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
-;;   {:deps {day8/re-frame-2     {:mvn/version "..."}
-;;           day8/re-frame-2-ssr {:mvn/version "..."}}}
+;;   {:deps {day8/re-frame2     {:mvn/version "..."}
+;;           day8/re-frame2-ssr {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.ssr` in any namespace that calls
 ;; `rf/render-to-string`, `rf/render-tree-hash`, `rf/reg-error-projector`,
@@ -38,7 +38,7 @@
 ;; re-exports) flow through `re-frame.late-bind` exactly as the
 ;; schemas / machines / routing / flows / http hooks already do.
 {:paths ["src"]
- :deps  {day8/re-frame-2 {:local/root "../core"}}
+ :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
  {:test {:extra-paths ["test"]
@@ -53,10 +53,10 @@
          ;; Mirrors the pattern in core/deps.edn, routing/deps.edn,
          ;; flows/deps.edn, and http/deps.edn. None of these is required
          ;; for production ssr builds.
-         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
-                       day8/re-frame-2-flows    {:local/root "../flows"}
-                       day8/re-frame-2-routing  {:local/root "../routing"}
-                       day8/re-frame-2-machines {:local/root "../machines"}
+         :extra-deps  {day8/re-frame2-schemas  {:local/root "../schemas"}
+                       day8/re-frame2-flows    {:local/root "../flows"}
+                       day8/re-frame2-routing  {:local/root "../routing"}
+                       day8/re-frame2-machines {:local/root "../machines"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
@@ -65,7 +65,7 @@
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;
-  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame2`
   ;; core dep above is replaced by an :mvn/version coordinate — clein
   ;; reads :deps and writes them into pom.xml, and a :local/root entry
   ;; would resolve to nothing for downstream consumers. The release
@@ -76,7 +76,7 @@
           :main-opts  ["-m" "noahtheduke.clein"]}
 
   :clein/build
-  {:lib      day8/re-frame-2-ssr
+  {:lib      day8/re-frame2-ssr
    :main     re-frame.ssr
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"

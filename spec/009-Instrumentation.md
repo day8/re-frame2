@@ -693,12 +693,12 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/flow-bad-inputs` | A `reg-flow` call's flow `:inputs` was not a vector of paths (per [013](013-Flows.md)) | `:flow`, `:reason` |
 | `:rf.error/flow-bad-output` | A `reg-flow` call's flow `:output` was not a fn (per [013](013-Flows.md)) | `:flow`, `:reason` |
 | `:rf.error/flow-bad-path` | A `reg-flow` call's flow `:path` was not a vector (per [013](013-Flows.md)) | `:flow`, `:reason` |
-| `:rf.error/flows-artefact-missing` | A flow API (`reg-flow`, `clear-flow`, the flow fxs) was called but the optional `day8/re-frame-2-flows` artefact is not on the classpath. Per [MIGRATION §M-31 artefact splits](MIGRATION.md). Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
-| `:rf.error/ssr-artefact-missing` | An SSR API (`render-to-string`, `render-tree-hash`, `reg-error-projector`, `project-error`) was called but the optional `day8/re-frame-2-ssr` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
-| `:rf.error/routing-artefact-missing` | A routing API (`reg-route`, `match-url`, `route-url`) was called but the optional `day8/re-frame-2-routing` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
-| `:rf.error/schemas-artefact-missing` | A schemas API (`reg-app-schema`) was called but the optional `day8/re-frame-2-schemas` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:path`, `:reason` |
-| `:rf.error/machines-artefact-missing` | A machines API (`reg-machine`, `reg-machine*`) was called but the optional `day8/re-frame-2-machines` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:machine-id`, `:reason` |
-| `:rf.error/http-artefact-missing` | A managed-HTTP API was called but the optional `day8/re-frame-2-http` artefact (per [014 §Implementation status](014-HTTPRequests.md#implementation-status)) is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/flows-artefact-missing` | A flow API (`reg-flow`, `clear-flow`, the flow fxs) was called but the optional `day8/re-frame2-flows` artefact is not on the classpath. Per [MIGRATION §M-31 artefact splits](MIGRATION.md). Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/ssr-artefact-missing` | An SSR API (`render-to-string`, `render-tree-hash`, `reg-error-projector`, `project-error`) was called but the optional `day8/re-frame2-ssr` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/routing-artefact-missing` | A routing API (`reg-route`, `match-url`, `route-url`) was called but the optional `day8/re-frame2-routing` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
+| `:rf.error/schemas-artefact-missing` | A schemas API (`reg-app-schema`) was called but the optional `day8/re-frame2-schemas` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:path`, `:reason` |
+| `:rf.error/machines-artefact-missing` | A machines API (`reg-machine`, `reg-machine*`) was called but the optional `day8/re-frame2-machines` artefact is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:machine-id`, `:reason` |
+| `:rf.error/http-artefact-missing` | A managed-HTTP API was called but the optional `day8/re-frame2-http` artefact (per [014 §Implementation status](014-HTTPRequests.md#implementation-status)) is not on the classpath. Surfaced as a thrown ex-info, not a trace | `:where` (the calling fn), `:reason` |
 | `:rf.warning/route-shadowed-by-equal-score` | A `reg-route` registered a pattern whose [`:rf/route-rank`](Spec-Schemas.md#rfroute-rank) tuple equals an already-registered pattern's; the new route shadows the old per stable sort order (per [Spec-Schemas §`:rf/route-rank`](Spec-Schemas.md#rfroute-rank) and [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm)) | `:route-id` (the new id), `:shadowed` (the displaced id) |
 | `:rf.warning/decode-defaulted` | A managed-HTTP request fell through to the default `:auto` decode pipeline because no `:decode` was supplied (per [014 §Default decode](014-HTTPRequests.md)). Informational; the auto-decode is supported | `:request-id`, `:url`, `:content-type`, `:resolved-decoder` |
 | `:rf.warning/write-after-destroy` | The substrate adapter's `replace-container!` was called with a nil container — the frame was likely destroyed mid-drain or before a scheduled write fired. Per [006](006-ReactiveSubstrate.md) | `:reason` |
@@ -868,12 +868,12 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.error/flow-bad-inputs` | `:no-recovery` | Flow registration is rejected. |
 | `:rf.error/flow-bad-output` | `:no-recovery` | Flow registration is rejected. |
 | `:rf.error/flow-bad-path` | `:no-recovery` | Flow registration is rejected. |
-| `:rf.error/flows-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-flows` to deps. |
-| `:rf.error/ssr-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-ssr` to deps. |
-| `:rf.error/routing-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-routing` to deps. |
-| `:rf.error/schemas-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-schemas` to deps. |
-| `:rf.error/machines-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-machines` to deps. |
-| `:rf.error/http-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame-2-http` to deps. |
+| `:rf.error/flows-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-flows` to deps. |
+| `:rf.error/ssr-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-ssr` to deps. |
+| `:rf.error/routing-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-routing` to deps. |
+| `:rf.error/schemas-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-schemas` to deps. |
+| `:rf.error/machines-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-machines` to deps. |
+| `:rf.error/http-artefact-missing` | `:no-recovery` | The call throws an ex-info; user adds `day8/re-frame2-http` to deps. |
 | `:rf.warning/route-shadowed-by-equal-score` | `:warned-and-replaced` | The new route registers; equal-score sibling is shadowed by stable sort. |
 | `:rf.warning/decode-defaulted` | `:ignored` | Informational; auto-decode proceeds normally. |
 | `:rf.warning/write-after-destroy` | `:no-recovery` | The write is dropped; the substrate's `replace-container!` is not invoked. |

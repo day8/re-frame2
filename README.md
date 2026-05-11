@@ -59,7 +59,7 @@ You can build production apps on the reference today (Clojars publish lands with
 The reference implementation comes with a growing AI- and developer-facing toolset:
 
 - **`re-frame-pair2`** — an nREPL-attached AI pair-programming companion. Watches, traces, and interacts with your running app.
-- **`re-frame-2-story`** *(in design)* — Storybook-flavoured component playground with frame-aware controls, machine-state visualisation, and time-travel.
+- **`re-frame2-story`** *(in design)* — Storybook-flavoured component playground with frame-aware controls, machine-state visualisation, and time-travel.
 - **`re-frame-10x` v2** *(in design)* — interactive devtools panel for the runtime.
 - **Source-coord stamping** — every registration carries its source location; click-to-source from any tool.
 - **Trace bus** — a first-class observability surface that all tooling consumes.
@@ -159,30 +159,30 @@ examples/                      Worked examples
 implementation/                CLJS reference implementation — split into per-artefact subdirs
                                (per Conventions §Packaging conventions; tier rollout per rf2-0hxm
                                for the substrate split, rf2-5vjj for the per-feature splits).
-  core/                        day8/re-frame-2 — registry, drain, fx, dispatch, subscribe,
+  core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace; today still carries machines, flows, routing,
                                http, ssr, schemas, epoch (per-feature splits pending — see
                                Ownership.md "Artefact" column for the per-surface bead).
   adapters/                    Substrate adapters (rf2-zha9; renamed from substrates/ per
                                rf2-0imy). Per-feature artefacts (schemas, machines, ...) stay
                                flat under implementation/ alongside core.
-    reagent/                   day8/re-frame-2-reagent — the Reagent adapter (browser default)
-    uix/                       day8/re-frame-2-uix — the UIx adapter (rf2-3yij)
-    helix/                     day8/re-frame-2-helix — the Helix adapter (rf2-2qit)
+    reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
+    uix/                       day8/re-frame2-uix — the UIx adapter (rf2-3yij)
+    helix/                     day8/re-frame2-helix — the Helix adapter (rf2-2qit)
   shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
                                for the browser/elision/examples builds
   deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
                                it — bundle-isolated from production builds (rf2-e6g9).
-  story/                       day8/re-frame-2-story — Storybook-flavoured playground (in design)
-  story-mcp/                   day8/re-frame-2-story-mcp — MCP agent surface for story; separate
+  story/                       day8/re-frame2-story — Storybook-flavoured playground (in design)
+  story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate
                                jar per rf2-m6tu §6.1 (in design)
-  machines-viz/                day8/re-frame-2-machines-viz — XState-style state-chart visualisation
+  machines-viz/                day8/re-frame2-machines-viz — XState-style state-chart visualisation
                                (in design)
-  machines-viz-mcp/            day8/re-frame-2-machines-viz-mcp — MCP surface for machines-viz;
+  machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP surface for machines-viz;
                                likely separate jar (in design)
-  10x/                         day8/re-frame-2-10x — re-frame-10x v2 (in design; partial answer to
+  10x/                         day8/re-frame2-10x — re-frame-10x v2 (in design; partial answer to
                                rf2-tijr's repo-placement question)
 skills/                        Claude skills (planned; pair-improver and friends)
 ```

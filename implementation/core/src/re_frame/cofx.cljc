@@ -75,7 +75,7 @@
        (if-let [meta (registrar/lookup :cofx cofx-id)]
          (-> ((:handler-fn meta) ctx)
              (maybe-validate-cofx! cofx-id meta))
-         (do (println "re-frame-2: no cofx registered for" cofx-id)
+         (do (println "re-frame2: no cofx registered for" cofx-id)
              ctx)))))
   ([cofx-id value]
    (interceptor/->interceptor
@@ -85,7 +85,7 @@
        (if-let [meta (registrar/lookup :cofx cofx-id)]
          (-> ((:handler-fn meta) ctx value)
              (maybe-validate-cofx! cofx-id meta))
-         (do (println "re-frame-2: no cofx registered for" cofx-id)
+         (do (println "re-frame2: no cofx registered for" cofx-id)
              ctx))))))
 
 ;; ---- standard cofx --------------------------------------------------------

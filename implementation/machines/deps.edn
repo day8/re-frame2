@@ -1,4 +1,4 @@
-;; day8/re-frame-2-machines — state-machine artefact (rf2-xbtj,
+;; day8/re-frame2-machines — state-machine artefact (rf2-xbtj,
 ;; second per-feature split per rf2-5vjj Strategy B).
 ;;
 ;; Per Spec 005 §State machines the machine grammar
@@ -12,8 +12,8 @@
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
-;;   {:deps {day8/re-frame-2          {:mvn/version "..."}
-;;           day8/re-frame-2-machines {:mvn/version "..."}}}
+;;   {:deps {day8/re-frame2          {:mvn/version "..."}
+;;           day8/re-frame2-machines {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.machines` in any namespace that calls
 ;; `rf/reg-machine` or relies on the `:rf/machine` framework sub —
@@ -29,7 +29,7 @@
 ;; `(machines/reset-counters!)` step) flow through `re-frame.late-bind`
 ;; exactly as the schemas / router / flows hooks already do.
 {:paths ["src"]
- :deps  {day8/re-frame-2 {:local/root "../core"}}
+ :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
  {:test {:extra-paths ["test"]
@@ -41,7 +41,7 @@
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;
-  ;; IMPORTANT: when this artefact is published, the `day8/re-frame-2`
+  ;; IMPORTANT: when this artefact is published, the `day8/re-frame2`
   ;; core dep above is replaced by an :mvn/version coordinate — clein
   ;; reads :deps and writes them into pom.xml, and a :local/root entry
   ;; would resolve to nothing for downstream consumers. The release
@@ -52,7 +52,7 @@
           :main-opts  ["-m" "noahtheduke.clein"]}
 
   :clein/build
-  {:lib      day8/re-frame-2-machines
+  {:lib      day8/re-frame2-machines
    :main     re-frame.machines
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"

@@ -24,7 +24,7 @@
             ;; schemas artefact onto core's classpath.
             [re-frame.spec :as spec]
             ;; re-frame.schemas (Spec 010) ships as a separate Maven
-            ;; artefact (day8/re-frame-2-schemas, rf2-p7va). The core
+            ;; artefact (day8/re-frame2-schemas, rf2-p7va). The core
             ;; artefact MUST NOT `:require [re-frame.schemas]` — that
             ;; would pull schemas (and its Malli dep) onto every
             ;; consumer's classpath even when no schema is registered.
@@ -33,7 +33,7 @@
             ;; schemas artefact populates from its own ns-load.
             [re-frame.late-bind :as late-bind]
             ;; re-frame.flows (Spec 013) ships as a separate Maven
-            ;; artefact (day8/re-frame-2-flows, rf2-tfw3). The core
+            ;; artefact (day8/re-frame2-flows, rf2-tfw3). The core
             ;; artefact MUST NOT `:require [re-frame.flows]` — that
             ;; would pull the namespace, the per-frame flow registry,
             ;; the topological-sort engine, and the dirty-check
@@ -44,7 +44,7 @@
             ;; its own ns-load.
             ;;
             ;; re-frame.machines (Spec 005) ships as a separate Maven
-            ;; artefact (day8/re-frame-2-machines, rf2-xbtj). The core
+            ;; artefact (day8/re-frame2-machines, rf2-xbtj). The core
             ;; artefact MUST NOT `:require [re-frame.machines]` — that
             ;; would pull the machines namespace and its `:rf/machine`
             ;; sub registration onto every consumer's classpath even
@@ -54,7 +54,7 @@
             ;; populates from its own ns-load.
             ;;
             ;; re-frame.routing (Spec 012) ships as a separate Maven
-            ;; artefact (day8/re-frame-2-routing, rf2-k682). The core
+            ;; artefact (day8/re-frame2-routing, rf2-k682). The core
             ;; artefact MUST NOT `:require [re-frame.routing]` — that
             ;; would pull the namespace, the route-rank / pattern-compile
             ;; / nav-token machinery, the `:rf/route` reg-sub family,
@@ -65,7 +65,7 @@
             ;; which the routing artefact populates from its own ns-load.
             ;;
             ;; re-frame.http-managed (Spec 014) ships as a separate Maven
-            ;; artefact (day8/re-frame-2-http, rf2-5kpd). The core
+            ;; artefact (day8/re-frame2-http, rf2-5kpd). The core
             ;; artefact MUST NOT `:require [re-frame.http-managed]` —
             ;; that would pull the namespace, the in-flight request
             ;; registry, the Fetch / `java.net.http.HttpClient`
@@ -79,7 +79,7 @@
             ;; artefact populates from its own ns-load.
             ;;
             ;; re-frame.ssr (Spec 011) ships as a separate Maven artefact
-            ;; (day8/re-frame-2-ssr, rf2-uo7v). The core artefact MUST
+            ;; (day8/re-frame2-ssr, rf2-uo7v). The core artefact MUST
             ;; NOT `:require [re-frame.ssr]` — that would pull the pure
             ;; hiccup → HTML emitter, the FNV-1a render-tree-hash
             ;; machinery, the per-request `[:rf/response]` accumulator,
@@ -96,7 +96,7 @@
             ;; ns-load.
             ;;
             ;; re-frame.epoch (Tool-Pair §Time-travel) ships as a
-            ;; separate Maven artefact (day8/re-frame-2-epoch,
+            ;; separate Maven artefact (day8/re-frame2-epoch,
             ;; rf2-lt4e — the seventh and final per-feature split per
             ;; rf2-5vjj Strategy B). The core artefact MUST NOT
             ;; `:require [re-frame.epoch]` — that would pull the
@@ -402,7 +402,7 @@
 
 ;; render-to-string / render-tree-hash are late-bound via the hook table
 ;; so core does not statically require re-frame.ssr (rf2-uo7v — ssr
-;; ships in day8/re-frame-2-ssr). When the ssr artefact is not on the
+;; ships in day8/re-frame2-ssr). When the ssr artefact is not on the
 ;; classpath the lookups return nil and the wrappers raise
 ;; :rf.error/ssr-artefact-missing.
 (defn render-to-string
@@ -420,7 +420,7 @@
      (throw (ex-info ":rf.error/ssr-artefact-missing"
                      {:where    'render-to-string
                       :recovery :no-recovery
-                      :reason   "rf/render-to-string requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+                      :reason   "rf/render-to-string requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
 
 (defn render-tree-hash
   "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
@@ -433,14 +433,14 @@
     (throw (ex-info ":rf.error/ssr-artefact-missing"
                     {:where    'render-tree-hash
                      :recovery :no-recovery
-                     :reason   "rf/render-tree-hash requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+                     :reason   "rf/render-tree-hash requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
 
 ;; reg-flow / clear-flow are late-bound via the hook table so core does
 ;; not statically require re-frame.flows (rf2-tfw3 — flows ships in
-;; day8/re-frame-2-flows). When the flows artefact is not on the
+;; day8/re-frame2-flows). When the flows artefact is not on the
 ;; classpath the lookups return nil and the wrappers raise
 ;; :rf.error/flows-artefact-missing.
 (defn clear-flow
@@ -454,7 +454,7 @@
                      {:where    'clear-flow
                       :flow-id  id
                       :recovery :no-recovery
-                      :reason   "rf/clear-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
+                      :reason   "rf/clear-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
 
 #?(:clj
    (defmacro reg-flow
@@ -463,10 +463,10 @@
      site.
 
      Per rf2-tfw3 the flows implementation lives in the
-     `day8/re-frame-2-flows` artefact; the emitted form looks the
+     `day8/re-frame2-flows` artefact; the emitted form looks the
      producing fn up via the late-bind hook table so core never
      statically requires it. Apps that use `reg-flow` MUST add
-     `day8/re-frame-2-flows` to their deps and require
+     `day8/re-frame2-flows` to their deps and require
      `re-frame.flows` at app boot; without it, the lookup returns nil
      and the call throws a clear error."
      [& args]
@@ -487,7 +487,7 @@
             (throw (ex-info ":rf.error/flows-artefact-missing"
                             {:where    'reg-flow
                              :recovery :no-recovery
-                             :reason   "rf/reg-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))))
+                             :reason   "rf/reg-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))))
 
 #?(:clj
    (defmacro reg-route
@@ -496,10 +496,10 @@
      site.
 
      Per rf2-k682 the routing implementation lives in the
-     `day8/re-frame-2-routing` artefact; the emitted form looks the
+     `day8/re-frame2-routing` artefact; the emitted form looks the
      producing fn up via the late-bind hook table so core never
      statically requires it. Apps that use `reg-route` MUST add
-     `day8/re-frame-2-routing` to their deps and require
+     `day8/re-frame2-routing` to their deps and require
      `re-frame.routing` at app boot; without it, the lookup returns
      nil and the call throws a clear error."
      [id metadata]
@@ -521,7 +521,7 @@
                             {:where    'reg-route
                              :route-id ~id
                              :recovery :no-recovery
-                             :reason   "rf/reg-route requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))))
+                             :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))))
 
 #?(:clj
    (defmacro reg-app-schema
@@ -535,10 +535,10 @@
      usually `:rf/default` unless called inside `(with-frame ...)`.
 
      Per rf2-p7va the schemas implementation lives in the
-     `day8/re-frame-2-schemas` artefact; the emitted form looks the
+     `day8/re-frame2-schemas` artefact; the emitted form looks the
      producing fn up via the late-bind hook table so core never
      statically requires it. Apps that use `reg-app-schema` MUST add
-     `day8/re-frame-2-schemas` to their deps; without it, the lookup
+     `day8/re-frame2-schemas` to their deps; without it, the lookup
      returns `nil` and the call throws a clear error."
      {:arglists '([path schema] [path schema opts])}
      [path schema & [opts]]
@@ -562,7 +562,7 @@
                             {:where    'reg-app-schema
                              :path     ~path
                              :recovery :no-recovery
-                             :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))))
+                             :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))))
 
 ;; Schema introspection — pure fn re-exports (no source-coord capture
 ;; needed, these are read-only public queries). Late-bound through the
@@ -615,7 +615,7 @@
   Default behaviour ships Malli's validate / explain pair; calling
   this fn replaces them. Returns nil when the schemas artefact is
   not on the classpath (apps that don't want schemas don't need to
-  pull `day8/re-frame-2-schemas`)."
+  pull `day8/re-frame2-schemas`)."
   [validate-fn-or-map]
   (when-let [f (late-bind/get-fn :schemas/set-schema-validator!)]
     (f validate-fn-or-map)))
@@ -649,10 +649,10 @@
      survive.
 
      Per rf2-xbtj the machines implementation lives in the
-     `day8/re-frame-2-machines` artefact; the emitted form looks the
+     `day8/re-frame2-machines` artefact; the emitted form looks the
      producing fn up via the late-bind hook table so core never statically
      requires it. Apps that use `reg-machine` MUST add
-     `day8/re-frame-2-machines` to their deps and require
+     `day8/re-frame2-machines` to their deps and require
      `re-frame.machines` at app boot; without it, the lookup returns nil
      and the call throws a clear error.
 
@@ -702,7 +702,7 @@
                               {:where      'reg-machine
                                :machine-id ~machine-id
                                :recovery   :no-recovery
-                               :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+                               :reason     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
          `(binding [source-coords/*pending-coords*
                     (cond-> {:ns '~ns-sym}
                       ~file        (assoc :file ~file)
@@ -724,13 +724,13 @@
                                 {:where      'reg-machine
                                  :machine-id ~machine-id
                                  :recovery   :no-recovery
-                                 :reason     "rf/reg-machine requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))))
+                                 :reason     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))))
 
 #?(:cljs
    (do
      ;; reg-flow is late-bound via the hook table so core does not
      ;; statically require re-frame.flows (rf2-tfw3 — flows ships in
-     ;; day8/re-frame-2-flows).
+     ;; day8/re-frame2-flows).
      (defn reg-flow
        ([flow] (reg-flow flow {}))
        ([flow opts]
@@ -739,10 +739,10 @@
           (throw (ex-info ":rf.error/flows-artefact-missing"
                           {:where    'reg-flow
                            :recovery :no-recovery
-                           :reason   "rf/reg-flow requires day8/re-frame-2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
+                           :reason   "rf/reg-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
      ;; reg-route is late-bound via the hook table so core does not
      ;; statically require re-frame.routing (rf2-k682 — routing ships in
-     ;; day8/re-frame-2-routing).
+     ;; day8/re-frame2-routing).
      (defn reg-route
        [id metadata]
        (if-let [f (late-bind/get-fn :routing/reg-route)]
@@ -751,10 +751,10 @@
                          {:where    'reg-route
                           :route-id id
                           :recovery :no-recovery
-                          :reason   "rf/reg-route requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
+                          :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
      ;; reg-app-schema is late-bound via the hook table so core does not
      ;; statically require re-frame.schemas (rf2-p7va — schemas ships
-     ;; in day8/re-frame-2-schemas).
+     ;; in day8/re-frame2-schemas).
      (defn reg-app-schema
        ([path schema] (reg-app-schema path schema {}))
        ([path schema opts]
@@ -764,10 +764,10 @@
                           {:where    'reg-app-schema
                            :path     path
                            :recovery :no-recovery
-                           :reason   "rf/reg-app-schema requires day8/re-frame-2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
+                           :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
      ;; reg-machine* is late-bound via the hook table so core does not
      ;; statically require re-frame.machines (rf2-xbtj — machines ships
-     ;; in day8/re-frame-2-machines). Per Spec 005 §reg-machine vs
+     ;; in day8/re-frame2-machines). Per Spec 005 §reg-machine vs
      ;; reg-machine* (rf2-8bp3) this is the plain-fn surface — used by
      ;; the `reg-machine` macro's emitted form, by code-gen pipelines
      ;; that already carry a stamped spec, and by REPL workflows that
@@ -782,7 +782,7 @@
                          {:where      'reg-machine*
                           :machine-id machine-id
                           :recovery   :no-recovery
-                          :reason     "rf/reg-machine* requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
+                          :reason     "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
 
 ;; Plain-fn surface for the JVM. Used by code-gen pipelines and the
 ;; conformance corpus when registering machines without a literal spec
@@ -796,11 +796,11 @@
                        {:where      'reg-machine*
                         :machine-id machine-id
                         :recovery   :no-recovery
-                        :reason     "rf/reg-machine* requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))
+                        :reason     "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind ships
 ;; with its default :rf.ssr/default-error-projector. Per rf2-uo7v ssr
-;; ships in day8/re-frame-2-ssr; the producing fn is looked up through
+;; ships in day8/re-frame2-ssr; the producing fn is looked up through
 ;; the late-bind hook table so core never statically requires
 ;; re-frame.ssr. When the ssr artefact is not on the classpath the
 ;; lookup returns nil and the call raises :rf.error/ssr-artefact-missing.
@@ -817,7 +817,7 @@
                      {:where    'reg-error-projector
                       :id       id
                       :recovery :no-recovery
-                      :reason   "rf/reg-error-projector requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+                      :reason   "rf/reg-error-projector requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
 
 #?(:clj
    (defmacro reg-error-projector
@@ -860,7 +860,7 @@
                     {:where    'project-error
                      :frame    frame-id
                      :recovery :no-recovery
-                     :reason   "rf/project-error requires day8/re-frame-2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+                     :reason   "rf/project-error requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
 
 ;; ---- clearing -------------------------------------------------------------
 
@@ -962,7 +962,7 @@
 ;; ---- routing helpers ------------------------------------------------------
 ;;
 ;; Per rf2-k682 the routing surface lives in the
-;; `day8/re-frame-2-routing` artefact. The re-exports below late-bind
+;; `day8/re-frame2-routing` artefact. The re-exports below late-bind
 ;; through the hook table so core does not statically require
 ;; re-frame.routing. When the routing artefact is not on the classpath
 ;; the lookups return nil and the wrappers raise
@@ -979,7 +979,7 @@
     (throw (ex-info ":rf.error/routing-artefact-missing"
                     {:where    'match-url
                      :recovery :no-recovery
-                     :reason   "rf/match-url requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
+                     :reason   "rf/match-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Inverse of `match-url` —
@@ -993,12 +993,12 @@
                      {:where    'route-url
                       :route-id route-id
                       :recovery :no-recovery
-                      :reason   "rf/route-url requires day8/re-frame-2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))
+                      :reason   "rf/route-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
 ;; Per rf2-xbtj the machines surface lives in the
-;; `day8/re-frame-2-machines` artefact. The re-exports below late-bind
+;; `day8/re-frame2-machines` artefact. The re-exports below late-bind
 ;; through the hook table so core does not statically require
 ;; re-frame.machines. When the machines artefact is not on the
 ;; classpath the lookups return nil and the wrappers raise
@@ -1014,7 +1014,7 @@
     (throw (ex-info ":rf.error/machines-artefact-missing"
                     {:where    'create-machine-handler
                      :recovery :no-recovery
-                     :reason   "rf/create-machine-handler requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+                     :reason   "rf/create-machine-handler requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
 
 (defn machine-transition
   "Pure (machine, snapshot, event) -> [snapshot fx]. Per Spec 005
@@ -1025,7 +1025,7 @@
     (throw (ex-info ":rf.error/machines-artefact-missing"
                     {:where    'machine-transition
                      :recovery :no-recovery
-                     :reason   "rf/machine-transition requires day8/re-frame-2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+                     :reason   "rf/machine-transition requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
 
 (defn machines
   "Return a sequence of registered machine ids. Per Spec 005
@@ -1187,7 +1187,7 @@
 ;; rewinds the frame's app-db to a recorded epoch's `:db-after`.
 ;;
 ;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-;; Strategy B), the epoch surface ships in `day8/re-frame-2-epoch`; the
+;; Strategy B), the epoch surface ships in `day8/re-frame2-epoch`; the
 ;; four re-exports below late-bind through the hook table so core never
 ;; statically requires it. When the epoch artefact is not on the
 ;; classpath, the lookups return nil and the wrappers degrade quietly:
@@ -1201,7 +1201,7 @@
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs, when the
   ring buffer's depth is 0 (recording disabled), or when the
-  `day8/re-frame-2-epoch` artefact is not on the classpath. Late-bound
+  `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
   via `:epoch/epoch-history`."
   [frame-id]
   (if-let [f (late-bind/get-fn :epoch/epoch-history)]
@@ -1213,7 +1213,7 @@
   Per Tool-Pair §Time-travel: returns `true` on success, `false` on any
   of the six documented failure modes (each emits a structured
   `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
-  when the `day8/re-frame-2-epoch` artefact is not on the classpath.
+  when the `day8/re-frame2-epoch` artefact is not on the classpath.
   Late-bound via `:epoch/restore-epoch`."
   [frame-id epoch-id]
   (if-let [f (late-bind/get-fn :epoch/restore-epoch)]
@@ -1224,7 +1224,7 @@
   "Register a callback fired once per drain-settle with the assembled
   `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
-  id. No-op (returns nil) when the `day8/re-frame-2-epoch` artefact is
+  id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
   not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
   [id f]
   (when-let [g (late-bind/get-fn :epoch/register-epoch-cb)]
@@ -1232,7 +1232,7 @@
 
 (defn remove-epoch-cb
   "Remove the listener registered under id. No-op when the
-  `day8/re-frame-2-epoch` artefact is not on the classpath. Late-bound
+  `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
   via `:epoch/remove-epoch-cb`."
   [id]
   (when-let [f (late-bind/get-fn :epoch/remove-epoch-cb)]
@@ -1260,7 +1260,7 @@
   Dev-only — gated on `interop/debug-enabled?`. Production builds
   (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
   via `:epoch/reset-frame-db!`; raises `:rf.error/epoch-artefact-missing`
-  when the `day8/re-frame-2-epoch` artefact is not on the classpath
+  when the `day8/re-frame2-epoch` artefact is not on the classpath
   (the surface records an epoch and so cannot degrade silently — the
   caller's invariant is 'undo works after this call').
 
@@ -1271,13 +1271,13 @@
     (throw (ex-info ":rf.error/epoch-artefact-missing"
                     {:where    'reset-frame-db!
                      :recovery :no-recovery
-                     :reason   "rf/reset-frame-db! requires day8/re-frame-2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))
+                     :reason   "rf/reset-frame-db! requires day8/re-frame2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
 ;; Per rf2-5kpd the `:rf.http/managed` family is registered at
 ;; re-frame.http-managed ns-load time (per Spec 014 §Implementation
-;; status), but the namespace ships in the day8/re-frame-2-http
+;; status), but the namespace ships in the day8/re-frame2-http
 ;; artefact. The core artefact does NOT `:require [re-frame.http-managed]`
 ;; — apps that don't issue managed-HTTP requests don't carry the
 ;; transport adapters or the `:rf.http/*` keyword strings on the
@@ -1296,7 +1296,7 @@
     (throw (ex-info ":rf.error/http-artefact-missing"
                     {:where    'install-managed-request-stubs!
                      :recovery :no-recovery
-                     :reason   "rf/install-managed-request-stubs! requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+                     :reason   "rf/install-managed-request-stubs! requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
 
 (defn uninstall-managed-request-stubs!
   "Spec 014 §Testing — remove the per-call fx-override installed by
@@ -1308,7 +1308,7 @@
     (throw (ex-info ":rf.error/http-artefact-missing"
                     {:where    'uninstall-managed-request-stubs!
                      :recovery :no-recovery
-                     :reason   "rf/uninstall-managed-request-stubs! requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+                     :reason   "rf/uninstall-managed-request-stubs! requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
 
 (defn with-managed-request-stubs*
   "Function form: install stubs, run thunk, uninstall. Late-bound via
@@ -1319,7 +1319,7 @@
     (throw (ex-info ":rf.error/http-artefact-missing"
                     {:where    'with-managed-request-stubs*
                      :recovery :no-recovery
-                     :reason   "rf/with-managed-request-stubs* requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+                     :reason   "rf/with-managed-request-stubs* requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
 
 #?(:clj
    (defmacro with-managed-request-stubs
@@ -1327,10 +1327,10 @@
      `{[method url] {:reply <:ok|:failure>}}`.
 
      Per rf2-5kpd the http implementation lives in the
-     `day8/re-frame-2-http` artefact; the emitted form looks the
+     `day8/re-frame2-http` artefact; the emitted form looks the
      producing fn up via the late-bind hook table so core never
      statically requires it. Apps that use `with-managed-request-stubs`
-     MUST add `day8/re-frame-2-http` to their deps and require
+     MUST add `day8/re-frame2-http` to their deps and require
      `re-frame.http-managed` at app boot; without it, the lookup
      returns nil and the call throws a clear error."
      [stubs & body]
@@ -1339,7 +1339,7 @@
         (throw (ex-info ":rf.error/http-artefact-missing"
                         {:where    'with-managed-request-stubs
                          :recovery :no-recovery
-                         :reason   "rf/with-managed-request-stubs requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
+                         :reason   "rf/with-managed-request-stubs requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
 
 ;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
 ;;
@@ -1368,7 +1368,7 @@
     (throw (ex-info ":rf.error/http-artefact-missing"
                     {:where    'reg-http-interceptor
                      :recovery :no-recovery
-                     :reason   "rf/reg-http-interceptor requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+                     :reason   "rf/reg-http-interceptor requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
 
 (defn clear-http-interceptor
   "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
@@ -1384,7 +1384,7 @@
      (throw (ex-info ":rf.error/http-artefact-missing"
                      {:where    'clear-http-interceptor
                       :recovery :no-recovery
-                      :reason   "rf/clear-http-interceptor requires day8/re-frame-2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
+                      :reason   "rf/clear-http-interceptor requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
 
 (defn configure
   "Configure a runtime knob. Closed v1 keys (additive across versions
@@ -1404,7 +1404,7 @@
   per Spec 009) will land additively."
   [knob opts]
   (case knob
-    ;; :epoch-history is published by the `day8/re-frame-2-epoch`
+    ;; :epoch-history is published by the `day8/re-frame2-epoch`
     ;; artefact (rf2-lt4e). When the artefact is not on the classpath
     ;; the configure call is a silent no-op — the epoch surface is
     ;; dev-tier, so an absent artefact means recording is already off
@@ -1483,7 +1483,7 @@
 ;; reg-subs live in `re-frame.routing` and register at that namespace's
 ;; load time, so the smoke-test fixture's `require :reload` recovers them
 ;; after `registrar/clear-all!`. Per rf2-k682 — routing ships in
-;; `day8/re-frame-2-routing`.
+;; `day8/re-frame2-routing`.
 ;;
 ;; The `:rf/machine` reg-sub lives in `re-frame.machines` and registers
 ;; at that namespace's load time, similarly. Per Spec 005 §Subscribing

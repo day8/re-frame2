@@ -56,25 +56,25 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             ;; re-frame.flows (Spec 013) ships as a separate artefact
-            ;; (day8/re-frame-2-flows, rf2-tfw3). The reset fixture
+            ;; (day8/re-frame2-flows, rf2-tfw3). The reset fixture
             ;; touches the per-frame flows registry and the dirty-check
             ;; `last-inputs` map through the late-bind hook table —
             ;; when the flows artefact is not on the classpath the
             ;; lookups return nil and the flow reset steps no-op
             ;; (correct: there is no flow state to preserve).
             ;; re-frame.machines (Spec 005) ships as a separate artefact
-            ;; (day8/re-frame-2-machines, rf2-xbtj) — the reset fixture
+            ;; (day8/re-frame2-machines, rf2-xbtj) — the reset fixture
             ;; touches the machines spawn-counter through the late-bind
             ;; hook table when the artefact is loaded, no-ops when not.
             ;; re-frame.schemas (Spec 010) ships as a separate artefact
-            ;; (day8/re-frame-2-schemas, rf2-p7va). The reset fixture
+            ;; (day8/re-frame2-schemas, rf2-p7va). The reset fixture
             ;; touches the per-frame schema registry through the
             ;; late-bind hook table — when the schemas artefact is not
             ;; on the classpath the lookups return nil and the schema
             ;; steps no-op (correct: there is no schema state to
             ;; preserve).
             ;; re-frame.http-managed (Spec 014) ships as a separate
-            ;; artefact (day8/re-frame-2-http, rf2-5kpd). The reset
+            ;; artefact (day8/re-frame2-http, rf2-5kpd). The reset
             ;; fixture clears the in-flight request registry through
             ;; the late-bind hook table — when the http artefact is
             ;; not on the classpath the lookup returns nil and the
@@ -215,7 +215,7 @@
            ;; Late-bind: when the schemas artefact is loaded, snap and
            ;; restore the per-frame schema registry. When it isn't,
            ;; the hooks return nil and the schema steps no-op. Per
-           ;; rf2-p7va — schemas ships in day8/re-frame-2-schemas and
+           ;; rf2-p7va — schemas ships in day8/re-frame2-schemas and
            ;; this namespace must not statically require it.
            snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
            clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
@@ -228,7 +228,7 @@
          ;; map. When it isn't, the hooks return nil and the flow
          ;; reset steps no-op (correct: there is no flow state to
          ;; reset). Per rf2-tfw3 — flows ships in
-         ;; day8/re-frame-2-flows.
+         ;; day8/re-frame2-flows.
          (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
            (reset-flows!))
          (when-let [reset-li! (late-bind/get-fn :flows/reset-last-inputs!)]
@@ -239,7 +239,7 @@
          ;; spawn-counter so id allocation is stable across fixture
          ;; runs. When it isn't, the hook returns nil and this is a
          ;; no-op (correct: there is no counter state to reset).
-         ;; Per rf2-xbtj — machines ships in day8/re-frame-2-machines.
+         ;; Per rf2-xbtj — machines ships in day8/re-frame2-machines.
          (when-let [reset-counters! (late-bind/get-fn :machines/reset-counters!)]
            (reset-counters!))
          ;; Late-bind: when the routing artefact is loaded, reset the
@@ -247,7 +247,7 @@
          ;; across fixture runs. When it isn't, the hook returns nil
          ;; and this is a no-op (correct: there is no counter state to
          ;; reset). Per rf2-k682 — routing ships in
-         ;; day8/re-frame-2-routing.
+         ;; day8/re-frame2-routing.
          (when-let [reset-counters! (late-bind/get-fn :routing/reset-counters!)]
            (reset-counters!))
          ;; Late-bind: when the http artefact is loaded, drop the
@@ -255,7 +255,7 @@
          ;; sibling test cannot survive into this one. When it isn't,
          ;; the hook returns nil and this is a no-op (correct: there
          ;; is no request state to clear). Per rf2-5kpd — http ships
-         ;; in day8/re-frame-2-http.
+         ;; in day8/re-frame2-http.
          (when-let [clear-in-flight! (late-bind/get-fn :http/clear-all-in-flight!)]
            (clear-in-flight!))
          ;; Late-bind: when the epoch artefact is loaded, drop the
@@ -263,7 +263,7 @@
          ;; so a previous test's recorded epochs / callbacks cannot
          ;; survive into this one. When it isn't, the hooks return
          ;; nil and these are no-ops (correct: there is no epoch state
-         ;; to clear). Per rf2-lt4e — epoch ships in day8/re-frame-2-epoch.
+         ;; to clear). Per rf2-lt4e — epoch ships in day8/re-frame2-epoch.
          (when-let [clear-history! (late-bind/get-fn :epoch/clear-history!)]
            (clear-history!))
          (when-let [clear-epoch-cbs! (late-bind/get-fn :epoch/clear-epoch-cbs!)]

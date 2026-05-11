@@ -1204,7 +1204,7 @@
   (testing "Per the rf2-5b6x missing-artefact error contract:
             rf/reset-frame-db! raises :rf.error/epoch-artefact-missing
             when the :epoch/reset-frame-db! late-bind hook is nil
-            (i.e. the day8/re-frame-2-epoch artefact is not loaded).
+            (i.e. the day8/re-frame2-epoch artefact is not loaded).
             Unlike restore-epoch / register-epoch-cb (which degrade
             silently), reset-frame-db! cannot — its caller's invariant
             is 'undo works after this call', so absence must be loud."

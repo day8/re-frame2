@@ -39,7 +39,7 @@ implementation/
   shadow-cljs.edn            Top-level shadow build: pulls every artefact's src+test paths
                              plus ../examples for the cross-substrate test and example bundles.
 
-  core/                      day8/re-frame-2 — the core artefact.
+  core/                      day8/re-frame2 — the core artefact.
     deps.edn                 Core's own deps (clojure, clojurescript, reagent).
     src/re_frame/
       interop.{clj,cljs}     JVM / CLJS host primitives.
@@ -74,7 +74,7 @@ implementation/
                              substrates/ per rf2-0imy) — one directory per adapter
                              (reagent, uix, helix, reagent-slim). Per-feature artefacts
                              (schemas, machines, ...) stay flat under implementation/.
-    reagent/                 day8/re-frame-2-reagent — the Reagent adapter artefact.
+    reagent/                 day8/re-frame2-reagent — the Reagent adapter artefact.
       deps.edn               :local/root dep on ../../core.
       src/re_frame/adapter/
         reagent.cljs         The Reagent adapter.
@@ -82,11 +82,11 @@ implementation/
                              (cross-spec, events, hot-reload, http-managed, machines,
                              nine-states, realworld, render-key, routing, runtime,
                              schemas).
-    uix/                     day8/re-frame-2-uix — the UIx adapter artefact (rf2-3yij).
+    uix/                     day8/re-frame2-uix — the UIx adapter artefact (rf2-3yij).
       deps.edn               :local/root dep on ../../core; pulls com.pitch/uix.{core,dom}.
       src/re_frame/adapter/uix.cljs
                              The UIx adapter (use-subscribe, flush-views!, etc.).
-    helix/                   day8/re-frame-2-helix — the Helix adapter artefact (rf2-2qit).
+    helix/                   day8/re-frame2-helix — the Helix adapter artefact (rf2-2qit).
       deps.edn               :local/root dep on ../../core; pulls lilactown/helix.
       src/re_frame/adapter/helix.cljs
                              The Helix adapter.
@@ -97,41 +97,41 @@ implementation/
                              hiccup translation, render-to-static-markup, throw-on-call
                              shims, examples + MIGRATION.
 
-  schemas/                   day8/re-frame-2-schemas — schemas (Spec 010, rf2-p7va).
+  schemas/                   day8/re-frame2-schemas — schemas (Spec 010, rf2-p7va).
     deps.edn                 :local/root dep on ../core; pulls Malli for runtime validation.
     src/re_frame/schemas.cljc      Malli runtime validation.
     test/re_frame/                 JVM + CLJS schema tests.
 
-  machines/                  day8/re-frame-2-machines — state machines (Spec 005, rf2-xbtj).
+  machines/                  day8/re-frame2-machines — state machines (Spec 005, rf2-xbtj).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/machines.cljc     Hierarchical FSM, :always, :after, :invoke / spawn / destroy.
     test/re_frame/                 CLJS machine tests.
 
-  routing/                   day8/re-frame-2-routing — routing (Spec 012, rf2-k682).
+  routing/                   day8/re-frame2-routing — routing (Spec 012, rf2-k682).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/routing.cljc      reg-route, 6-rule rank cascade, query coercion,
                                    nav protocol, :rf.route/* events, :rf.nav/* fxs,
                                    :rf/route reg-sub family.
     test/re_frame/                 JVM routing tests.
 
-  flows/                     day8/re-frame-2-flows — flows (Spec 013, rf2-tfw3).
+  flows/                     day8/re-frame2-flows — flows (Spec 013, rf2-tfw3).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/flows.cljc        reg-flow, topo-sort, dirty-check + hot-reload.
     test/re_frame/                 JVM flows tests.
 
-  http/                      day8/re-frame-2-http — managed HTTP (Spec 014, rf2-5kpd).
+  http/                      day8/re-frame2-http — managed HTTP (Spec 014, rf2-5kpd).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/http_managed.cljc :rf.http/managed args-map, decode pipeline, retry,
                                    abort, frame-aware reply addressing.
     test/re_frame/                 JVM + CLJS http-managed tests.
 
-  ssr/                       day8/re-frame-2-ssr — SSR (Spec 011, rf2-uo7v).
+  ssr/                       day8/re-frame2-ssr — SSR (Spec 011, rf2-uo7v).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/ssr.cljc          Hiccup → HTML5 emitter, :rf/hydrate, :rf.server/* fx,
                                    error projector.
     test/re_frame/                 JVM SSR end-to-end tests + source-coord parity tests.
 
-  epoch/                     day8/re-frame-2-epoch — per-frame epoch history
+  epoch/                     day8/re-frame2-epoch — per-frame epoch history
                              (Tool-Pair §Time-travel, rf2-lt4e).
     deps.edn                 :local/root dep on ../core.
     src/re_frame/epoch.cljc        Per-frame :rf/epoch-record ring buffer + projection

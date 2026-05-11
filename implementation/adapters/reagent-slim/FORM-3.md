@@ -542,7 +542,7 @@ idioms.
 
 ## §7 Cross-references
 
-- **Stage 1 findings doc** (rf2-ui6g) — `findings/re-frame-2-reagent-stage1-api-surface.md`,
+- **Stage 1 findings doc** (rf2-ui6g) — `findings/re-frame2-reagent-stage1-api-surface.md`,
   §6 DECISION-3 (the cap decision rationale) and §1.10 (Form-1/2/3 conventions).
 - **re-com + re-frame-10x audit** (rf2-cgcv) —
   `findings/recom-react19-readiness-audit.md`, §4 (six-key cap recommendation

@@ -24,7 +24,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Per rf2-p7va, re-frame.schemas ships in
-            ;; day8/re-frame-2-schemas. Loading the ns here registers
+            ;; day8/re-frame2-schemas. Loading the ns here registers
             ;; its late-bind hooks so rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.adapter.reagent :as reagent-adapter])

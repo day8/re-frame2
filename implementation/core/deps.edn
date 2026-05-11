@@ -1,4 +1,4 @@
-;; day8/re-frame-2 — core artefact (rf2-0hxm).
+;; day8/re-frame2 — core artefact (rf2-0hxm).
 ;;
 ;; Per Spec 006 §Adapter shipping convention: adapters ship as separate
 ;; Maven artefacts; this is the core (registry, drain, fx, trace) and
@@ -7,19 +7,19 @@
 ;; the Reagent adapter is in implementation/adapters/reagent/. Per rf2-p7va
 ;; (the first per-feature split per rf2-5vjj Strategy B) the Spec 010
 ;; schema-attachment surface
-;; lives in implementation/schemas/ (`day8/re-frame-2-schemas`); per
+;; lives in implementation/schemas/ (`day8/re-frame2-schemas`); per
 ;; rf2-xbtj (the second per-feature split) the Spec 005 state-machine
-;; surface lives in implementation/machines/ (`day8/re-frame-2-machines`);
+;; surface lives in implementation/machines/ (`day8/re-frame2-machines`);
 ;; per rf2-k682 (the third per-feature split) the Spec 012 routing
-;; surface lives in implementation/routing/ (`day8/re-frame-2-routing`);
+;; surface lives in implementation/routing/ (`day8/re-frame2-routing`);
 ;; per rf2-tfw3 (the fourth per-feature split) the Spec 013 flows
-;; surface lives in implementation/flows/ (`day8/re-frame-2-flows`);
+;; surface lives in implementation/flows/ (`day8/re-frame2-flows`);
 ;; per rf2-5kpd (the fifth per-feature split) the Spec 014 managed-HTTP
-;; surface lives in implementation/http/ (`day8/re-frame-2-http`); per
+;; surface lives in implementation/http/ (`day8/re-frame2-http`); per
 ;; rf2-uo7v (the sixth per-feature split) the Spec 011 SSR surface
-;; lives in implementation/ssr/ (`day8/re-frame-2-ssr`); per rf2-lt4e
+;; lives in implementation/ssr/ (`day8/re-frame2-ssr`); per rf2-lt4e
 ;; (the seventh and final per-feature split) the Tool-Pair epoch
-;; surface lives in implementation/epoch/ (`day8/re-frame-2-epoch`).
+;; surface lives in implementation/epoch/ (`day8/re-frame2-epoch`).
 ;;
 ;; Reagent appears as a dependency here because re-frame.views (CLJS-only
 ;; reg-view) is currently Reagent-coupled per Spec 006 §CLJS reference
@@ -79,13 +79,13 @@
   ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
   ;; implementation/epoch/deps.edn.
   :test {:extra-paths ["test" "../../examples/reagent"]
-         :extra-deps  {day8/re-frame-2-schemas  {:local/root "../schemas"}
-                       day8/re-frame-2-machines {:local/root "../machines"}
-                       day8/re-frame-2-routing  {:local/root "../routing"}
-                       day8/re-frame-2-flows    {:local/root "../flows"}
-                       day8/re-frame-2-http     {:local/root "../http"}
-                       day8/re-frame-2-ssr      {:local/root "../ssr"}
-                       day8/re-frame-2-epoch    {:local/root "../epoch"}
+         :extra-deps  {day8/re-frame2-schemas  {:local/root "../schemas"}
+                       day8/re-frame2-machines {:local/root "../machines"}
+                       day8/re-frame2-routing  {:local/root "../routing"}
+                       day8/re-frame2-flows    {:local/root "../flows"}
+                       day8/re-frame2-http     {:local/root "../http"}
+                       day8/re-frame2-ssr      {:local/root "../ssr"}
+                       day8/re-frame2-epoch    {:local/root "../epoch"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "cognitect.test-runner"]}
@@ -100,7 +100,7 @@
           :main-opts  ["-m" "noahtheduke.clein"]}
 
   ;; Build descriptor consumed by clein. Per-artefact: this builds the
-  ;; `day8/re-frame-2` core artefact. The Reagent adapter has its own
+  ;; `day8/re-frame2` core artefact. The Reagent adapter has its own
   ;; build descriptor in implementation/adapters/reagent/deps.edn
   ;; (per rf2-zha9 / rf2-0imy).
   ;;
@@ -108,7 +108,7 @@
   ;; source of truth for both artefacts. Mike updates VERSION in the
   ;; release commit, then tags `v<contents>` (e.g. `v0.0.1.alpha`).
   :clein/build
-  {:lib      day8/re-frame-2
+  {:lib      day8/re-frame2
    :main     re-frame.core
    :url      "https://github.com/day8/re-frame2"
    :version  "../../VERSION"

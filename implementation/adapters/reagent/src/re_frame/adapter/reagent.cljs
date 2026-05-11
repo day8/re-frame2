@@ -2,14 +2,14 @@
   "The Reagent adapter — browser default. Per Spec 006 §CLJS reference:
   Reagent as default adapter.
 
-  Ships in its own Maven artefact (day8/re-frame-2-reagent) per
+  Ships in its own Maven artefact (day8/re-frame2-reagent) per
   Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use
-  Reagent depend on both day8/re-frame-2 (core) and this artefact;
+  Reagent depend on both day8/re-frame2 (core) and this artefact;
   apps targeting a different substrate (UIx, Helix) depend on the
   matching adapter artefact instead. Core does *not* :require this ns —
   the dependency direction is adapter → core.
 
-  Per rf2-uo7v the SSR surface ships in `day8/re-frame-2-ssr` —
+  Per rf2-uo7v the SSR surface ships in `day8/re-frame2-ssr` —
   this adapter MUST NOT statically `:require [re-frame.ssr]` either,
   because that would drag the SSR namespace, the FNV-1a render-tree-hash
   machinery, the per-request `[:rf/response]` accumulator, and every
@@ -113,7 +113,7 @@
    :dispose-adapter!          dispose-adapter!})
 
 ;; Wire ssr's render-to-string into this adapter's :render-to-string
-;; slot. Per rf2-uo7v ssr ships in day8/re-frame-2-ssr; this adapter
+;; slot. Per rf2-uo7v ssr ships in day8/re-frame2-ssr; this adapter
 ;; cannot statically `:require [re-frame.ssr]` without dragging the SSR
 ;; namespace into every Reagent bundle. Publish set-hiccup-emitter!
 ;; through the late-bind hook table — when the ssr artefact is loaded,

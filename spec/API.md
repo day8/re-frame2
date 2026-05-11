@@ -86,7 +86,7 @@
 
 ## UIx adapter (Spec 006, rf2-3yij)
 
-UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame-2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
+UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-uix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting UIx `:require [re-frame.adapter.uix :as uix-adapter]` and call the surfaces directly.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
@@ -106,7 +106,7 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 ## Helix adapter (Spec 006, rf2-2qit)
 
-Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame-2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
+Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-frame2-helix`) — they are NOT re-exported from `re-frame.core` because core has no static dependency on the adapter (the dependency direction is adapter → core per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)). Apps targeting Helix `:require [re-frame.adapter.helix :as helix-adapter]` and call the surfaces directly. The Helix adapter mirrors the UIx adapter exactly — the eight rf2-3yij decisions transfer one-for-one to rf2-2qit.
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|

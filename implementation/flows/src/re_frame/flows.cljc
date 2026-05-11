@@ -13,8 +13,8 @@
 
   ## Artefact (rf2-tfw3, fourth per-feature split per rf2-5vjj Strategy B)
 
-  This namespace ships in `day8/re-frame-2-flows`, separate from the
-  core artefact (`day8/re-frame-2`). The core artefact's `re-frame.core`
+  This namespace ships in `day8/re-frame2-flows`, separate from the
+  core artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
   re-exports of `reg-flow` / `clear-flow`, and the `:rf.fx/reg-flow` /
   `:rf.fx/clear-flow` runtime fxs in `re-frame.fx`, look this
   namespace's entry points up via the `re-frame.late-bind` hook table —

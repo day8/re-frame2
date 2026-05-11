@@ -1706,7 +1706,7 @@
 ;; cascades cross an :invoke-bearing state. Per rf2-xbtj these handlers
 ;; live in this namespace (rather than `re-frame.fx`'s reserved
 ;; case-block) so an app that doesn't pull in
-;; `day8/re-frame-2-machines` carries neither the trace strings
+;; `day8/re-frame2-machines` carries neither the trace strings
 ;; (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor the handler
 ;; symbols on its production-elision bundle.
 ;;
@@ -2441,7 +2441,7 @@
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Per rf2-xbtj the machines surface ships in
-;; `day8/re-frame-2-machines`. `re-frame.core` and `re-frame.test-support`
+;; `day8/re-frame2-machines`. `re-frame.core` and `re-frame.test-support`
 ;; MUST NOT `:require [re-frame.machines]` — the artefact is optional, and
 ;; a static require would force every consumer of the core artefact to
 ;; drag the namespace's `:rf/machine` sub registration (and the spawn

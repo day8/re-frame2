@@ -29,7 +29,7 @@
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame-2-http.
+            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
             ;; and family) and publishes the late-bind hooks; without
@@ -37,7 +37,7 @@
             ;; :rf.error/no-such-fx. RealWorld is the canonical Spec 014
             ;; demo so the require is mandatory here.
             [re-frame.http-managed]
-            ;; rf2-uo7v: SSR ships in day8/re-frame-2-ssr. Requiring
+            ;; rf2-uo7v: SSR ships in day8/re-frame2-ssr. Requiring
             ;; re-frame.ssr at app boot publishes the late-bind hooks
             ;; (`:ssr/render-tree-hash` etc.) and registers the
             ;; `:rf/hydrate` handler — the RealWorld ssr.cljc helper

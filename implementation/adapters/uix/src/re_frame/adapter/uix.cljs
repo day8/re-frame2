@@ -2,10 +2,10 @@
   "The UIx adapter — the second canonical browser substrate (rf2-3yij).
   Per Spec 006 §CLJS reference: UIx as alternative substrate.
 
-  Ships in its own Maven artefact (day8/re-frame-2-uix) per
+  Ships in its own Maven artefact (day8/re-frame2-uix) per
   Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use UIx
-  depend on both day8/re-frame-2 (core) and this artefact; apps
-  targeting Reagent depend on day8/re-frame-2-reagent instead.
+  depend on both day8/re-frame2 (core) and this artefact; apps
+  targeting Reagent depend on day8/re-frame2-reagent instead.
   Core does *not* :require this ns — the dependency direction is
   adapter → core.
 

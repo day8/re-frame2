@@ -50,17 +50,17 @@
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Per rf2-p7va, the Spec 010 schema-attachment ns lives in
-            ;; the day8/re-frame-2-schemas artefact. Loading the ns
+            ;; the day8/re-frame2-schemas artefact. Loading the ns
             ;; here registers its late-bind hooks so the
             ;; rf/reg-app-schema calls below resolve.
             [re-frame.schemas]
             ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
-            ;; day8/re-frame-2-machines artefact. Loading the ns here
+            ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/create-machine-handler
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
-            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame-2-http.
+            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot triggers its
             ;; load-time fx registrations (`:rf.http/managed` and
             ;; family); without it, dispatching `:rf.http/managed`

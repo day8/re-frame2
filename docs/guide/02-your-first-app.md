@@ -290,18 +290,18 @@ Each ships as its own Maven artefact alongside core (per Strategy B — see [rf2
 
 ```clojure
 ;; deps.edn — Reagent (the canonical "first app" stack)
-{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
-        day8/re-frame-2-reagent  {:mvn/version "2.0.0"}
+{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
+        day8/re-frame2-reagent  {:mvn/version "2.0.0"}
         reagent                   {:mvn/version "2.0.0"}}}
 
 ;; deps.edn — UIx
-{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
-        day8/re-frame-2-uix      {:mvn/version "2.0.0"}
+{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
+        day8/re-frame2-uix      {:mvn/version "2.0.0"}
         com.pitch/uix.core       {:mvn/version "..."}}}
 
 ;; deps.edn — Helix
-{:deps {day8/re-frame-2          {:mvn/version "2.0.0"}
-        day8/re-frame-2-helix    {:mvn/version "2.0.0"}
+{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
+        day8/re-frame2-helix    {:mvn/version "2.0.0"}
         lilactown/helix          {:mvn/version "..."}}}
 ```
 

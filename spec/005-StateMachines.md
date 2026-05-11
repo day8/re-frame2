@@ -538,7 +538,7 @@ Alongside the underlying `reg-event-fx + create-machine-handler` form (per [§Re
 - `(rf/reg-machine machine-id machine)` — **macro**. Walks the literal spec form at expansion time and stamps a per-element source-coord index onto the spec's `:rf.machine/source-coords` key (per [§Source-coord stamping](#source-coord-stamping-rf2-8bp3)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface.
 - `(rf/reg-machine* machine-id machine)` — **plain fn**. Equivalent to `(reg-event-fx machine-id (create-machine-handler machine))` plus the registration-metadata stamp. No source-coord walking — the spec is opaque data at the call site.
 
-Both forms live in `re-frame.machines` (the `day8/re-frame-2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
+Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
@@ -547,7 +547,7 @@ Both forms live in `re-frame.machines` (the `day8/re-frame-2-machines` artefact,
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping-rf2-8bp3) for the per-element index.
 
-`reg-machine` is itself **late-bound** — `re-frame.core` carries the macro and a stub fn that resolves the producer through the late-bind hook table at registration time. Apps that use `reg-machine` MUST add `day8/re-frame-2-machines` to their deps and require `re-frame.machines` at app boot; without it, the lookup throws `:rf.error/machines-artefact-missing`.
+`reg-machine` is itself **late-bound** — `re-frame.core` carries the macro and a stub fn that resolves the producer through the late-bind hook table at registration time. Apps that use `reg-machine` MUST add `day8/re-frame2-machines` to their deps and require `re-frame.machines` at app boot; without it, the lookup throws `:rf.error/machines-artefact-missing`.
 
 ### `reg-machine` vs `reg-machine*`
 

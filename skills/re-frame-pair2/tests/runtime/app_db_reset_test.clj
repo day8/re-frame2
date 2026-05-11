@@ -197,7 +197,7 @@
 
 (deftest catches-throw
   (testing "the :rf.error/epoch-artefact-missing throw from
-            rf/reset-frame-db! (when the day8/re-frame-2-epoch artefact
+            rf/reset-frame-db! (when the day8/re-frame2-epoch artefact
             isn't loaded) is caught and surfaced — the caller sees the
             failure rather than a stack trace"
     (is (calls? 'try app-db-reset-form)

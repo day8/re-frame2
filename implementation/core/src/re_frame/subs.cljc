@@ -73,7 +73,7 @@
          :handler-fn    (first remaining)}
 
         :else
-        (throw (ex-info "re-frame-2: bad reg-sub args"
+        (throw (ex-info "re-frame2: bad reg-sub args"
                         {:id id :remaining remaining}))))))
 
 (defn reg-sub
