@@ -63,6 +63,7 @@
     :routing/nav-token
     :actor/spawn
     :actor/invoke
+    :actor/spawn-and-join                              ;; rf2-6vmw / rf2-er0t
     :actor/system-id                                   ;; rf2-suue / rf2-ecv4
     :actor/timeout                                     ;; rf2-1lop
     ;; Flow capabilities — per Spec 013. The flow-*.edn fixtures
