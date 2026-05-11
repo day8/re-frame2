@@ -424,5 +424,5 @@ The split is the inverse of what most React-side test suites accumulate over tim
 
 ## Next
 
-- [11 — Devtools and pair tools](11-devtools-and-pair-tools.md) — the trace stream, time-travel, source-coords, and how AI/REPL companions attach.
+- [11 — Tooling](11-devtools-and-pair-tools.md) — the trace bus, epochs, time-travel, source-coords, and the tools that attach to them.
 - [Spec 008 — Testing](../../spec/008-Testing.md) — the full normative surface, JVM/CLJS boundary, and adapter notes.
