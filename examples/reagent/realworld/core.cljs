@@ -17,7 +17,8 @@
      tags.cljs             — popular-tags machine (:data-region
                              machine variant of Pattern-RemoteData) +
                              home-page query helpers
-     settings.cljs         — user settings page
+     settings.cljs         — user settings page (:form-region machine
+                             variant of Pattern-Forms)
      routing.cljs          — route registrations + router wiring
      schema.cljs           — Malli schemas for the example slices
      http.cljs             — request-builder + retry policy for :rf.http/managed
@@ -77,6 +78,7 @@
           [:dispatch [:profile/initialise]]
           [:dispatch [:feed/initialise]]
           [:dispatch [:tags/initialise]]
+          [:dispatch [:settings/initialise]]
           [:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
