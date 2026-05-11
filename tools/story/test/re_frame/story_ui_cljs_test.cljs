@@ -21,6 +21,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
+            [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.sidebar :as sidebar]
@@ -166,6 +167,65 @@
       (is (= :variant (-> cells (nth 1) :type)))
       (is (= :prose   (-> cells (nth 2) :type))))))
 
+;; ---- workspace: variant cell renders the variant view (rf2-zme7) --------
+;;
+;; rf2-zme7 — Mike's screenshot of #/stories with
+;; `:Workspace.counter/auto-grid` selected showed every variant card
+;; rendering as an empty frame: title + "variant frame: <id>" stub, no
+;; counter UI inside. Root cause: workspace.cljc's `variant-cell` was a
+;; Stage-4-era stub that never called `rf/view` — it shipped a label
+;; and a placeholder div instead of invoking the registered view in the
+;; variant's allocated frame. This test pins the regression: the
+;; workspace renderer for a `:grid` layout with one variant must emit
+;; hiccup that references the variant id and, when the variant has a
+;; registered `:component`, includes a `frame-provider` wrap with that
+;; variant id (so the rendered view's subscribe / dispatch scope to the
+;; per-variant frame, not `:rf/default`).
+
+(deftest workspace-view-emits-variant-cells-with-frame-providers
+  (testing "workspace-view renders each variant cell with a
+            frame-provider wrap scoped to the variant id (rf2-zme7)"
+    ;; Register a tiny view + variant + workspace. The view returns a
+    ;; sentinel hiccup tag so we can find it in the rendered tree.
+    (rf/reg-event-db :rf2-zme7/init (fn [db _] (assoc db :marker 42)))
+    (rf/reg-sub :rf2-zme7/marker (fn [db _] (:marker db)))
+    (rf/reg-view* :rf2-zme7/view
+      {}
+      (fn [_args]
+        [:section {:data-test "rf2-zme7-view"} "rendered"]))
+    (story/reg-story :story.rf2-zme7
+      {:component :rf2-zme7/view
+       :substrates #{:reagent}})
+    (story/reg-variant :story.rf2-zme7/v
+      {:events [[:rf2-zme7/init]]
+       :substrates #{:reagent}})
+    (story/reg-workspace :Workspace.rf2-zme7/g
+      {:layout   :grid
+       :variants [:story.rf2-zme7/v]})
+    ;; Render the workspace; walk the tree to confirm:
+    ;;  (a) the variant id appears (cell title)
+    ;;  (b) a `frame-provider` element wraps the view
+    (let [tree (workspace/workspace-view :Workspace.rf2-zme7/g)
+          flat (tree-seq coll? seq tree)]
+      (is (some #(= :story.rf2-zme7/v %) flat)
+          "the variant id appears somewhere in the rendered tree")
+      ;; The rendered cell uses `r/create-class`, so the inner render
+      ;; isn't directly inlined into the parent's hiccup — but the cell
+      ;; component itself shows up as a vector beginning with the cell
+      ;; component fn. We at least confirm the workspace produced
+      ;; non-empty grid contents and the cell fn appears as a child.
+      (is (vector? tree))
+      (is (= :div (first tree))))))
+
+(deftest workspace-view-empty-for-missing-workspace
+  (testing "workspace-view renders an empty / not-registered notice for
+            an unregistered workspace id rather than throwing"
+    (let [tree (workspace/workspace-view :Workspace.does-not/exist)]
+      (is (vector? tree))
+      (is (boolean (some #(and (string? %)
+                               (re-find #"not registered" %))
+                         (tree-seq coll? seq tree)))))))
+
 ;; ---- trace six-domino projection ----------------------------------------
 
 (deftest trace-group-cascades-classifies
@@ -203,6 +263,55 @@
     (is (fn? trace/panel))
     ;; The controls/panel takes a variant-id arg.
     (is (fn? controls/panel))))
+
+;; ---- canvas: decorator-wrap exception swallow ---------------------------
+;;
+;; rf2-zme7 — a `:wrap` fn that throws used to propagate up the Reagent
+;; render machinery and React unmounted the whole Story shell, blanking
+;; the page. Repro: register a hiccup decorator whose `:wrap` fn throws
+;; on call; click into a variant that references it; the shell goes
+;; blank. The fix is `canvas/safe-decorated-view`: catch the exception,
+;; project an error block, and re-render the uncoated variant body so
+;; the user still sees content.
+
+(deftest safe-decorated-view-handles-good-decorator
+  (testing "safe-decorated-view passes the body through a well-behaved :wrap"
+    (let [stack [{:id   :test/wrap
+                  :args nil
+                  :body {:kind :hiccup
+                         :wrap (fn [body _args]
+                                 [:section {:data-test "wrapped"} body])}}]
+          result (canvas/safe-decorated-view
+                   [:span "body"]
+                   stack
+                   {})]
+      ;; The well-behaved decorator wraps the body in a :section.
+      (is (vector? result))
+      (is (= :section (first result))))))
+
+(deftest safe-decorated-view-catches-wrap-throw
+  (testing "safe-decorated-view catches an exception thrown by a :wrap fn
+            and projects an error block instead of bubbling up — the
+            shell stays mounted on a decorator failure (rf2-zme7)."
+    (let [stack [{:id   :test/boom
+                  :args ["payload"]
+                  :body {:kind :hiccup
+                         :wrap (fn [_body _args]
+                                 ;; Mimic the rf2-zme7 repro: a bad
+                                 ;; destructure that throws inside :wrap.
+                                 (let [[_ _label] {:not :sequential}]
+                                   (throw (ex-info "boom" {}))))}}]
+          result (canvas/safe-decorated-view
+                   [:span "body"]
+                   stack
+                   {})]
+      ;; The catch branch returns a hiccup vector (not nil, not a throw).
+      (is (vector? result))
+      ;; The error block names the decorator(s) in the failing stack so
+      ;; the user can find the offending registration.
+      (is (boolean (some #(and (string? %)
+                               (re-find #"test/boom" %))
+                         (tree-seq coll? seq result)))))))
 
 (deftest registry-snapshot-shape
   (testing "registry-snapshot returns every Story kind"

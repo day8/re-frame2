@@ -19,6 +19,7 @@
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.story.config :as config]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
@@ -27,6 +28,40 @@
             [re-frame.story.ui.multi-substrate :as multi-substrate]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]))
+
+;; ---- namespace-preserving frame-provider --------------------------------
+;;
+;; Per rf2-c5jz / rf2-zme7: stock Reagent's `convert-prop-value` calls
+;; `(name kw)` on named prop values, so a `[:> Provider {:value
+;; :story.counter/clicked-three-times}]` reaches React with
+;; `value="clicked-three-times"` — the namespace is dropped before the
+;; subscribe-time `coerce-context-value` can read it. The reagent-slim
+;; adapter (rf2-6hyy) narrows this so non-HTML props pass keywords
+;; through unchanged, but Story's reference example targets stock
+;; Reagent (and the rf2-zme7 repro IS on stock Reagent).
+;;
+;; The fix: bypass Reagent's prop conversion by emitting the React
+;; element directly via `adapter-context/provider-element`, which uses
+;; `React.createElement` with the raw `#js {:value frame-kw}` — no
+;; conversion, no name-stripping. The keyword survives the
+;; React-context round trip and the variant's frame is what subscribe
+;; resolves under.
+
+(defn frame-provider-ns-safe
+  "A Reagent component that scopes a namespaced frame keyword to its
+  subtree via the React context backing `rf/frame-provider` — but
+  bypasses Reagent's prop-conversion so the namespace is preserved.
+
+  Usage:
+    [frame-provider-ns-safe {:frame :story.counter/clicked-three-times}
+     [child-component args]]
+
+  The component returns a single React element built via
+  `React.createElement` directly. Reagent treats fn-returning-element
+  as a valid render result, so this drops into normal hiccup trees."
+  [props child]
+  (let [frame-kw (or (:frame props) :rf/default)]
+    (adapter-context/provider-element frame-kw (r/as-element child))))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -83,14 +118,43 @@
 
 ;; ---- decorated-view wrapper ---------------------------------------------
 
-(defn- decorated-view
-  "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators.
-  Returns a hiccup vector."
+(defn safe-decorated-view
+  "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators,
+  catching any exception thrown by a `:wrap` fn so the canvas never
+  bubbles into a render-tree crash that blanks the shell.
+
+  Per IMPL-SPEC §2.2 + §5.5 the canvas's contract is 'failures render
+  inline rather than aborting'. The Stage 4 path collected
+  `resolve-decorators` errors only — runtime throws from inside a
+  user-supplied `:wrap` fn used to propagate up Reagent's render
+  machinery and React unmounted the whole shell (rf2-zme7). This wrapper
+  closes that loop: a thrown exception becomes a hiccup error block
+  alongside the variant frame.
+
+  Returns either the decorator-applied hiccup tree, or, on throw, a
+  hiccup error block that names the offending decorator stack."
   [view-hiccup hiccup-decorators effective-args]
-  (decorators/apply-hiccup-decorators
-    hiccup-decorators
-    view-hiccup
-    effective-args))
+  (try
+    (decorators/apply-hiccup-decorators
+      hiccup-decorators
+      view-hiccup
+      effective-args)
+    (catch :default e
+      [:div {:style (:error styles)}
+       [:div "Decorator wrap threw — variant rendered without decorators."]
+       [:div {:style {:margin-top "4px"}}
+        (str (.-message e))]
+       (when-let [ids (seq (keep :id hiccup-decorators))]
+         [:div {:style {:margin-top "4px" :color "#fbb"}}
+          (str "decorators in stack: "
+               (str/join ", " (map pr-str ids)))])
+       ;; Render the variant body itself uncoated so the user still sees
+       ;; *something* — the page never blanks on a decorator failure.
+       [:div {:style {:margin-top "8px"
+                      :padding "8px"
+                      :background "#1e1e1e"
+                      :border "1px dashed #555"}}
+        view-hiccup]])))
 
 ;; ---- error projection ---------------------------------------------------
 
@@ -191,14 +255,19 @@
        :else
        (let [resolved-view (rf/view view-id)]
          (if resolved-view
-           ;; The variant's frame is allocated; the view should
-           ;; subscribe through the frame context. We render directly
-           ;; under the frame keyword.
-           [:div
-            (decorated-view
-              [resolved-view eff-args]
-              (:hiccup decorator-pack)
-              eff-args)]
+           ;; The variant's frame is allocated; scope the rendered
+           ;; view's subscribe / dispatch to it via a frame-provider
+           ;; that preserves the namespace of a `:story.x/y`-shaped
+           ;; variant id (per rf2-c5jz; the rf2-zme7 fix path). The
+           ;; standard `rf/frame-provider` uses Reagent's `:>` interop
+           ;; which calls `(name kw)` on prop values and drops the
+           ;; namespace before React sees it.
+           [frame-provider-ns-safe {:frame variant-id}
+            [:div
+             (safe-decorated-view
+               [resolved-view eff-args]
+               (:hiccup decorator-pack)
+               eff-args)]]
            [:div {:style (:empty styles)}
             (str ":component " (pr-str view-id) " is not registered as a view")])))
      (render-errors (:errors decorator-pack))

@@ -111,15 +111,21 @@
   (story/reg-decorator :counter-with-stories/log-decorator
     {:doc  "Wrap the variant in a labelled outline — a tiny custom
            decorator alongside Story's canonical `:rf.story/layout-
-           debug.*` set. The first ref-arg becomes the label."
+           debug.*` set. The first ref-arg becomes the label.
+
+           Per IMPL-SPEC §5.3 (`apply-hiccup-decorators`): the `:wrap`
+           fn receives `[body args-map]`. Decorator ref-args from
+           `[:dec-id arg1 arg2 ...]` references arrive under
+           `(:decorator/args args-map)` — that's where the label lives."
      :kind :hiccup
-     :wrap (fn [body [_ label]]
-             [:div {:style {:border  "1px dashed #888"
-                            :padding "0.5em"
-                            :margin  "0.25em"}}
-              [:div {:style {:font-size "10px" :color "#888"}}
-               (str "decorator: " (or label "log"))]
-              body])})
+     :wrap (fn [body args]
+             (let [label (first (:decorator/args args))]
+               [:div {:style {:border  "1px dashed #888"
+                              :padding "0.5em"
+                              :margin  "0.25em"}}
+                [:div {:style {:font-size "10px" :color "#888"}}
+                 (str "decorator: " (or label "log"))]
+                body]))})
 
   ;; -------------------------------------------------------------------------
   ;; reg-story-panel — a project-custom right-pane panel

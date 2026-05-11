@@ -28,7 +28,24 @@
   Per IMPL-SPEC §2.8.4 the `:variants-grid` layout is the v1 devcards-
   style multi-variant pane."
   (:require [re-frame.story.registrar :as registrar]
-            #?(:cljs [re-frame.story.ui.canvas :as canvas])))
+            #?@(:cljs [[reagent.core :as r]
+                       [re-frame.core :as rf]
+                       [re-frame.story.args :as args]
+                       [re-frame.story.config :as config]
+                       [re-frame.story.decorators :as decorators]
+                       [re-frame.story.runtime :as runtime]
+                       ;; canvas/frame-provider-ns-safe is the
+                       ;; namespace-preserving frame-provider variant the
+                       ;; canvas uses to avoid Reagent's `:>` interop
+                       ;; calling `(name kw)` and dropping the namespace
+                       ;; off the variant frame keyword (rf2-c5jz path
+                       ;; under the rf2-zme7 fix). Variant cells re-use
+                       ;; it for the same reason: variant frames have
+                       ;; namespaced ids of the form `:story.x/y`, and a
+                       ;; namespace-dropping provider would scope the
+                       ;; subtree to `:y` — a frame that does not exist.
+                       [re-frame.story.ui.canvas :as canvas]
+                       [re-frame.story.ui.state :as state]])))
 
 ;; ---- pure: layout resolution --------------------------------------------
 
@@ -128,20 +145,166 @@
 ;; ---- the Reagent renderer ------------------------------------------------
 
 #?(:cljs
-   (defn- variant-cell
-     "Render one variant cell in a workspace grid. Stage 4 leans on the
-     same `canvas/canvas-inner`-style approach but in a smaller frame.
-     We render the variant's name as a title and stub the actual view
-     under it — Stage 6 brings the full render into each cell when the
-     multi-substrate layer lands."
+   (defn- variant-component-id
+     "Resolve the variant's `:component` view id — variant body first,
+     falling back to the parent story (per IMPL-SPEC §3.1, the parent
+     story usually carries the `:component`)."
      [variant-id]
-     [:div {:style (:cell styles)}
-      [:div {:style (:cell-title styles)} (str (pr-str variant-id))]
-      ;; Stage 4: each cell is a label + frame indicator. The variant's
-      ;; live render uses the canvas component when the user clicks into
-      ;; the cell (Stage 6 brings inline rendering with the multi-
-      ;; substrate switcher).
-      [:div "variant frame: " (pr-str variant-id)]]))
+     (let [vb       (registrar/handler-meta :variant variant-id)
+           story-id (args/parent-story-id variant-id)
+           sb       (when story-id
+                      (registrar/handler-meta :story story-id))]
+       (or (:component vb) (:component sb)))))
+
+#?(:cljs
+   (defn- run-variant-with-shell-opts!
+     "Drive `run-variant` for `variant-id` with the current shell
+     state's modes / cell overrides / substrate. Mirrors
+     `canvas/run-with-shell-opts!`; reproduced here so the workspace
+     mounts each cell's frame independently of which variant the canvas
+     happens to have last rendered."
+     [variant-id]
+     (let [shell @state/shell-state-atom
+           opts  {:active-modes   (:active-modes shell)
+                  :cell-overrides (get-in shell [:cell-overrides variant-id])
+                  :substrate      (:substrate shell)
+                  :render?        true}]
+       (runtime/run-variant variant-id opts)
+       nil)))
+
+#?(:cljs
+   (defn- variant-cell-inner
+     "Read the variant's resolved view + decorator pack + effective
+     args and render the variant body inside the cell. Mirrors
+     `canvas/canvas-inner` at a smaller scale — single substrate, no
+     share affordance, errors render inline.
+
+     Per spec/007 §Relationship-with-frames + tools/story
+     feature-set §4.2: each variant cell wraps the rendered view in a
+     `frame-provider` scoped to the variant id, so the view's
+     subscribe / dispatch (resolved via React context at render time)
+     target the per-variant frame the runtime allocated. Without the
+     wrap, subscriptions fall through to `:rf/default` and every cell
+     reads the same app-db — which is why the four counter cards
+     previously rendered identically (or empty when `:rf/default`
+     carries no `:count`)."
+     [variant-id]
+     (let [view-id        (variant-component-id variant-id)
+           shell          @state/shell-state-atom
+           decorator-pack (decorators/resolve-decorators variant-id)
+           eff-args       (args/resolve-args
+                            variant-id
+                            {:active-modes   (:active-modes shell)
+                             :cell-overrides (get-in shell
+                                                     [:cell-overrides
+                                                      variant-id])})
+           assertions     (runtime/read-assertions variant-id)
+           errors         (:errors decorator-pack)]
+       [:div {:style (:cell styles)}
+        [:div {:style (:cell-title styles)}
+         [:span (pr-str variant-id)]
+         (when view-id
+           [:span {:style {:color "#888" :margin-left "8px"
+                           :font-weight "normal"}}
+            (str "→ " (pr-str view-id))])]
+        (cond
+          (nil? view-id)
+          [:div {:style {:color "#888" :font-style "italic"
+                         :padding "8px 0"}}
+           "variant has no :component registered — register one on the story or variant body"]
+
+          :else
+          (let [resolved-view (rf/view view-id)]
+            (if resolved-view
+              ;; Scope the rendered view's subscribe / dispatch to the
+              ;; variant's allocated frame via the namespace-preserving
+              ;; provider exported by canvas. The cells in a workspace
+              ;; share a parent React tree, so per-cell wraps are the
+              ;; load-bearing isolation — without them every cell
+              ;; subscribes against whichever frame happened to be the
+              ;; React-context default at the workspace's mount site,
+              ;; and the variant body's :counter/initialise dispatches
+              ;; (which DID route to the variant's frame) become
+              ;; invisible to the view. Plain `rf/frame-provider` goes
+              ;; through Reagent's `:>` interop which calls `(name kw)`
+              ;; on prop values and drops the namespace before React
+              ;; sees it; `canvas/frame-provider-ns-safe` bypasses that
+              ;; via a direct `React.createElement` call.
+              [canvas/frame-provider-ns-safe {:frame variant-id}
+               [:div
+                (canvas/safe-decorated-view
+                  [resolved-view eff-args]
+                  (:hiccup decorator-pack)
+                  eff-args)]]
+              [:div {:style {:color "#888" :font-style "italic"
+                             :padding "8px 0"}}
+               (str ":component " (pr-str view-id)
+                    " is not registered as a view")])))
+        (when (seq errors)
+          [:div {:style {:background "#5a1d1d"
+                         :border "1px solid #be4040"
+                         :color "#fdd"
+                         :padding "6px"
+                         :margin-top "6px"
+                         :font-size "10px"
+                         :border-radius "3px"}}
+           [:div "Decorator errors:"]
+           (for [[i e] (map-indexed vector errors)]
+             ^{:key i}
+             [:div (pr-str e)])])
+        (when (seq assertions)
+          [:div {:style {:margin-top "6px"}}
+           (for [[i a] (map-indexed vector assertions)]
+             ^{:key i}
+             [:div {:style {:padding "2px 6px"
+                            :border-left "3px solid #be4040"
+                            :margin "2px 0"
+                            :background "#332"
+                            :font-size "10px"}}
+              (pr-str a)])])])))
+
+#?(:cljs
+   (defn- variant-cell
+     "Reagent component for one variant cell. Pre-allocates the
+     variant's frame and dispatches its `:events` slot SYNCHRONOUSLY
+     before the first render, then re-runs on each
+     `:hot-reload-tick` bump so the cell stays in sync with fingerprint
+     drift.
+
+     Per rf2-zme7: the pre-allocation must happen before any subscribe
+     deref. A `:component-did-mount` hook fires AFTER React's first
+     commit — by which point the view body has already called
+     `(subscribe [:count])` against a non-existent frame and
+     `(deref nil)` has thrown `IDeref.-deref defined for type null`,
+     blanking the shell. `r/with-let` runs its bindings exactly once
+     per mount, before the body — that's the right hook for the
+     synchronous pre-allocation. `run-variant` allocates the frame and
+     drains `:events` synchronously via `dispatch-sync`, so by the
+     time the inner view renders the variant's app-db has its
+     initialised state.
+
+     For canvas-resident single-variant mode the equivalent pre-
+     allocation lives on the selection-watcher in shell.cljs
+     (`ensure-variant-frame!`); workspace mode has no shell-level edge
+     to hang off (one selection drives N variants), so the cell itself
+     owns the pre-allocation.
+
+     The per-cell `last-tick` atom tracks the most-recent
+     `:hot-reload-tick` value seen by THIS cell: re-running
+     `run-variant` only when the tick advances avoids re-dispatching
+     the variant's `:events` on every re-render — which would otherwise
+     reset state on every user interaction (an inc click re-renders the
+     cell, an unconditional re-run of `:events` would clobber the
+     count back to its initial value)."
+     [variant-id]
+     (r/with-let [_init     (run-variant-with-shell-opts! variant-id)
+                  last-tick (atom 0)]
+       (let [shell @state/shell-state-atom
+             tick  (or (:hot-reload-tick shell) 0)]
+         (when (> tick @last-tick)
+           (reset! last-tick tick)
+           (run-variant-with-shell-opts! variant-id))
+         [variant-cell-inner variant-id]))))
 
 #?(:cljs
    (defn- prose-block
