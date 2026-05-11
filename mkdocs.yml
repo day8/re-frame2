@@ -62,7 +62,7 @@ nav:
     - "08 — From re-frame v1": guide/08-from-re-frame-v1.md
     - "09 — The dynamic model": guide/09-the-dynamic-model.md
     - "10 — Testing": guide/10-testing.md
-    - "11 — Devtools and pair tools": guide/11-devtools-and-pair-tools.md
+    - "11 — Tooling": guide/11-devtools-and-pair-tools.md
     - "12 — Routing": guide/12-routing.md
     - "13 — Where to go next": guide/13-where-next.md
 

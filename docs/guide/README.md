@@ -35,7 +35,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 08 | [From re-frame v1](08-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. |
 | 09 | [The dynamic-model story](09-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
 | 10 | [Testing](10-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
-| 11 | [Devtools and pair tools](11-devtools-and-pair-tools.md) | You're debugging or reaching for tooling — trace stream, epoch history, time-travel, source-coords, `reset-frame-db!`. |
+| 11 | [Tooling](11-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame-2-story`, `re-frame-10x` v2). |
 | 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 
 ### Close-out

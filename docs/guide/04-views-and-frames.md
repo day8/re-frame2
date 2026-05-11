@@ -205,7 +205,7 @@ Two instances of the same registered view, different frames. Each subtree's `dis
 
 One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 11 §Source coordinates](11-devtools-and-pair-tools.md#source-coordinates-clicking-a-button-back-to-its-source-line). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 11 §Click-to-source](11-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
 
 <!-- TODO(rf2-q2x0 — discovered from rf2-u5sq): the flow and routing sub-sections
      below are kept inline as forward-pointers. The "What lives in app-db" sibling
