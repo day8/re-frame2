@@ -31,7 +31,8 @@
     "LICENSE",
     "scripts/",
     ".claude-plugin/",
-    "docs/"
+    "docs/",
+    "references/"
   ],
   "publishConfig": {
     "access": "public"
