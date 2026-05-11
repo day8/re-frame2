@@ -198,10 +198,6 @@
     {:db (assoc db :articles (request-slice []))
      :fx [[:dispatch [:realworld/articles-home [:reset]]]]}))
 
-(rf/reg-event-db :tags/initialise
-  (fn [db _]
-    (assoc db :tags (request-slice []))))
-
 ;; ============================================================================
 ;; GLOBAL FEED
 ;; ============================================================================
@@ -280,43 +276,6 @@
      :fx [[:dispatch [:realworld/articles-home [:reset]]]]}))
 
 ;; ============================================================================
-;; TAGS
-;; ============================================================================
-
-(rf/reg-event-fx :tags/load
-  {:doc "Fetch the popular-tags list. Public endpoint; data-fetch retry."
-   :rf.http/decode-schemas [schema/TagsResponse]}
-  (fn [{:keys [db]} _]
-    {:db (-> db
-             (assoc-in [:tags :status]
-                       (if (seq (get-in db [:tags :data])) :fetching :loading))
-             (assoc-in [:tags :error] nil)
-             (update-in [:tags :attempt] (fnil inc 0)))
-     :fx [[:rf.http/managed
-           (rh/request {:method     :get
-                        :path       "/tags"
-                        :auth?      false
-                        :decode     schema/TagsResponse
-                        :retry      rh/data-fetch-retry
-                        :request-id :tags/load
-                        :on-success [:tags/loaded]
-                        :on-failure [:tags/load-failed]})]]}))
-
-(rf/reg-event-db :tags/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:tags :status] :loaded)
-        (assoc-in [:tags :data] (vec (:tags value)))
-        (assoc-in [:tags :error] nil)
-        (assoc-in [:tags :loaded-at] (current-time-ms)))))
-
-(rf/reg-event-db :tags/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:tags :status] :error)
-        (assoc-in [:tags :error] (rh/failure->message failure)))))
-
-;; ============================================================================
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
@@ -324,10 +283,11 @@
 (rf/reg-sub :articles/data       :<- [:articles] (fn [s _] (:data s)))
 (rf/reg-sub :articles/error      :<- [:articles] (fn [s _] (:error s)))
 
-(rf/reg-sub :tags                (fn [db _] (:tags db)))
-(rf/reg-sub :tags/data           :<- [:tags] (fn [s _] (:data s)))
-(rf/reg-sub :tags/loading?       :<- [:tags]
-  (fn [s _] (#{:loading :fetching} (:status s))))
+;; The `:tags/data` sub is defined in `realworld.tags`. Per rf2-0i4y
+;; the popular-tags lifecycle is the :data-region machine variant of
+;; Pattern-RemoteData — the slice is gone, items are projected off
+;; the `:realworld/tags` machine's `:data`. The home view's sidebar
+;; below consumes `:tags/data` as before; only the source changed.
 
 ;; ---- render-priority + :articles.home/render selector ----
 ;;

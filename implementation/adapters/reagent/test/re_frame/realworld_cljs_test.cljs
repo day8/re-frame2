@@ -75,7 +75,11 @@
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"
-    (tags-t/tag-query-test)))
+    (tags-t/tag-query-test))
+  (testing ":realworld/tags machine — load happy path (rf2-0i4y)"
+    (tags-t/tags-machine-load-test))
+  (testing ":realworld/tags machine — failure path lands in :error (rf2-0i4y)"
+    (tags-t/tags-machine-failure-test)))
 
 (deftest realworld-routing
   (testing "navigate, handle-url-change, query, and not-found all resolve"
