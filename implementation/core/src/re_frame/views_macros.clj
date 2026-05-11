@@ -15,7 +15,8 @@
                                                          bound-fn]]))"
   ;; bound-fn shadows clojure.core/bound-fn — the v2 surface deliberately
   ;; reuses the name (per Spec 002 §bound-fn) for the frame-capturing form.
-  (:refer-clojure :exclude [bound-fn]))
+  (:refer-clojure :exclude [bound-fn])
+  (:require [re-frame.source-coords :as source-coords]))
 
 ;; ---- with-frame ----------------------------------------------------------
 ;;
@@ -150,8 +151,6 @@
                     "(re-frame.core/reg-view* :id render-fn).")
                {:sym sym :got (first more) :args-after-sym (vec more)})))
     (let [{:keys [docstring args body]} parsed
-          line (:line form-meta)
-          col  (:column form-meta)
           form-tag (reagent-slim-form-tag body)
           def-form (if docstring
                      `(def ~sym ~docstring (re-frame.core/view ~id))
@@ -176,10 +175,7 @@
                           ~@body)))]
       `(do
          (binding [re-frame.source-coords/*pending-coords*
-                   (cond-> {:ns '~current-ns-sym}
-                     ~current-file (assoc :file ~current-file)
-                     ~line         (assoc :line ~line)
-                     ~col          (assoc :column ~col))]
+                   ~(source-coords/coords-form form-meta current-file current-ns-sym)]
            (re-frame.core/reg-view* ~id
              ~full-slot-meta
              ~fn-form))
