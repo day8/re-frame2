@@ -24,6 +24,12 @@
   the `:source` key — tools / 10x / IDE jump-to-source consume this via
   `(story/handler-meta kind id)`.
 
+  `:file` resolution prefers `(:file (meta &form))` over `*file*` —
+  see `coords-form` for the rationale (rf2-ulxi). The short version:
+  the CLJS analyzer never binds Clojure's `*file*` during macro
+  expansion, so reading it returns `\"NO_SOURCE_PATH\"`; the reader-
+  attached `:file` on the form's metadata is the portable answer.
+
   ## Form-B `:variants` desugaring
 
   `expand-reg-story` checks for a literal `:variants` map in the body
@@ -43,12 +49,38 @@
 
   Returns a compile-time Clojure form (a `cond->` expression) that
   evaluates to the map at runtime. Mirrors
-  `re-frame.core/reg-event-db`'s coord-capture pattern."
+  `re-frame.core/reg-event-db`'s coord-capture pattern.
+
+  ## :file resolution (rf2-ulxi)
+
+  `:file` comes from `(:file form-meta)` first — the CLJS analyzer reads
+  source files via `tools.reader/indexing-push-back-reader` with the
+  filename argument set, and tools.reader stamps `{:file ...}` on every
+  collection-form's metadata. Falling back to `*file*` covers the JVM
+  compilation path where `clojure.lang.Compiler` binds `*file*` itself
+  but the reader does NOT attach `:file` to form metadata.
+
+  Reading `*file*` alone is wrong for CLJS because `cljs.analyzer/
+  macroexpand-1*` binds `*cljs-file*` (not Clojure's `*file*`) during
+  macro expansion — so `*file*` retains whatever the JVM compiler last
+  set it to, which is `\"NO_SOURCE_PATH\"` on a fresh classloader. The
+  form-meta path is the portable answer because the reader-attached
+  `:file` survives across both compilation hosts.
+
+  Also rejects the `\"NO_SOURCE_PATH\"` sentinel from either source — if
+  *both* sources resolve to the sentinel, omit `:file` entirely (better
+  no `:file` than a poison value that defeats jump-to-source)."
   [form-meta file ns-sym]
-  `(cond-> {:ns '~ns-sym}
-     ~file               (assoc :file ~file)
-     ~(:line form-meta)   (assoc :line ~(:line form-meta))
-     ~(:column form-meta) (assoc :column ~(:column form-meta))))
+  (let [meta-file  (:file form-meta)
+        no-source? #(or (nil? %) (= "NO_SOURCE_PATH" %))
+        chosen     (cond
+                     (not (no-source? meta-file)) meta-file
+                     (not (no-source? file))      file
+                     :else                        nil)]
+    `(cond-> {:ns '~ns-sym}
+       ~chosen              (assoc :file ~chosen)
+       ~(:line form-meta)   (assoc :line ~(:line form-meta))
+       ~(:column form-meta) (assoc :column ~(:column form-meta)))))
 
 (defn variant-id-for
   "Build the variant id from a story id and a variant-name key.
