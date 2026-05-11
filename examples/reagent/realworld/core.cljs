@@ -9,12 +9,14 @@
 
    This is single-file glue; the per-feature work lives in:
      auth.cljs             — login / register / session-restore
-     articles.cljs         — global feed + tag list + home page
+     articles.cljs         — global feed + home page
      comments.cljs         — article detail + comments
      article_editor.cljs   — create / edit / delete article
      profile.cljs          — public profile routes
      favorites.cljs        — favorite toggle + your-feed slice
-     tags.cljs             — home-page query helpers
+     tags.cljs             — popular-tags machine (rf2-0i4y, :data-region
+                             machine variant of Pattern-RemoteData) +
+                             home-page query helpers
      settings.cljs         — user settings page
      routing.cljs          — route registrations + router wiring
      schema.cljs           — Malli schemas for the example slices

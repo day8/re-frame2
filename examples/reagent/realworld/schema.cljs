@@ -141,6 +141,20 @@
    [:data  [:map
             [:error [:maybe :string]]]]])
 
+(def TagsSnapshot
+  "Snapshot shape for the `:realworld/tags` machine — the
+   :data-region machine variant of Pattern-RemoteData (rf2-0i4y). The
+   state-keyword IS the Pattern-RemoteData status enum; `:data` carries
+   the items, error, loaded-at, and attempt fields that the slice form
+   would store in the slice itself."
+  [:map
+   [:state [:enum :idle :loading :fetching :loaded :error]]
+   [:data  [:map
+            [:tags      [:vector :string]]
+            [:error     [:maybe :any]]
+            [:loaded-at [:maybe :int]]
+            [:attempt   :int]]]])
+
 (def FormSlice
   [:map
    [:draft :any]
@@ -183,7 +197,11 @@
 (rf/reg-app-schema [:articles :data]           [:vector Article])
 (rf/reg-app-schema [:article]                  RequestSlice)
 (rf/reg-app-schema [:article :data]            [:maybe Article])
-(rf/reg-app-schema [:tags]                     RequestSlice)
+;; The `:tags` slice from the slice-form era is gone; the popular-tags
+;; lifecycle is now the `:realworld/tags` machine (rf2-0i4y, the
+;; :data-region machine variant of Pattern-RemoteData). The snapshot
+;; lives at `[:rf/machines :realworld/tags]`.
+(rf/reg-app-schema [:rf/machines :realworld/tags] TagsSnapshot)
 (rf/reg-app-schema [:profile]                  RequestSlice)
 (rf/reg-app-schema [:profile :data]            [:maybe Profile])
 (rf/reg-app-schema [:profile.articles]         RequestSlice)

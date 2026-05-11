@@ -23,8 +23,10 @@
                                  :fx-overrides {:rf.http/managed     :rf.http/managed.canned-success-empty
                                                 :auth.session/store  :rf/no-op
                                                 :auth.session/clear  :rf/no-op}})]
-    ;; After init: auth, articles, and tags slices are present.
+    ;; After init: auth + articles slices and the :realworld/tags
+    ;; machine snapshot are present. The tags machine replaces the
+    ;; slice-form `:tags` resource (rf2-0i4y).
     (let [db (rf/get-frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))
-      (assert (contains? db :tags)))))
+      (assert (contains? (:rf/machines db) :realworld/tags)))))
