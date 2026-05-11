@@ -172,6 +172,18 @@ implementation/                CLJS reference implementation — split into per-
   shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
                                for the browser/elision/examples builds
   deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
+tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
+                               API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
+                               it — bundle-isolated from production builds (rf2-e6g9).
+  story/                       day8/re-frame-2-story — Storybook-flavoured playground (in design)
+  story-mcp/                   day8/re-frame-2-story-mcp — MCP agent surface for story; separate
+                               jar per rf2-m6tu §6.1 (in design)
+  machines-viz/                day8/re-frame-2-machines-viz — XState-style state-chart visualisation
+                               (in design)
+  machines-viz-mcp/            day8/re-frame-2-machines-viz-mcp — MCP surface for machines-viz;
+                               likely separate jar (in design)
+  10x/                         day8/re-frame-2-10x — re-frame-10x v2 (in design; partial answer to
+                               rf2-tijr's repo-placement question)
 skills/                        Claude skills (planned; pair-improver and friends)
 ```
 
