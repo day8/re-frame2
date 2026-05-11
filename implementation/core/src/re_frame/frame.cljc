@@ -11,7 +11,8 @@
   Reserved frame ids:
     :rf/default              — universal default frame (always present)
     :rf.frame/<gensym>       — anonymous instances from make-frame"
-  (:require [re-frame.registrar :as registrar]
+  (:require [clojure.string]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -69,12 +70,33 @@
      :lifecycle (:lifecycle f)}))
 
 (defn frame-ids
-  "All registered, non-destroyed frame ids."
-  []
-  (into #{}
-        (comp (filter (fn [[_ f]] (not (get-in f [:lifecycle :destroyed?]))))
-              (map key))
-        @frames))
+  "All registered, non-destroyed frame ids.
+
+  Two arities:
+    (frame-ids)
+      Return the full id set.
+    (frame-ids ns-prefix)
+      Return the subset whose id-namespace starts with `ns-prefix`
+      (a string). Namespaceless ids (e.g. `:rf/default`'s namespace is
+      `\"rf\"` — keyword-namespace, not value-namespace) are matched
+      against the keyword's `namespace` component; ids with no
+      namespace are excluded.
+
+  Per Spec 002 §The public registrar query API."
+  ([]
+   (into #{}
+         (comp (filter (fn [[_ f]] (not (get-in f [:lifecycle :destroyed?]))))
+               (map key))
+         @frames))
+  ([ns-prefix]
+   (let [prefix (str ns-prefix)]
+     (into #{}
+           (comp (filter (fn [[_ f]] (not (get-in f [:lifecycle :destroyed?]))))
+                 (map key)
+                 (filter (fn [k]
+                           (when-let [ns (namespace k)]
+                             (clojure.string/starts-with? ns prefix)))))
+           @frames))))
 
 (defn get-frame-db
   "Return the underlying app-db container for the frame. Tools and tests

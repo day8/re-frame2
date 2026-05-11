@@ -138,7 +138,7 @@
   ;; lives in re-frame.core; CLJS users can write `rf/reg-view` after
   ;; `(:require [re-frame.core :as rf])` without an explicit
   ;; `:require-macros` clause at the call site.
-  #?(:cljs (:require-macros [re-frame.core :refer [reg-view]])))
+  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -929,13 +929,64 @@
       [query-v]
       (subscribe frame query-v))))
 
-(defn with-frame
-  "Run `thunk` with *current-frame* bound to `frame-id`. The macro form
-  in re-frame.views wraps an expression in a thunk; this fn variant
-  is JVM-friendly for tests / SSR / REPL."
-  [frame-id thunk]
-  (binding [frame/*current-frame* frame-id]
-    (thunk)))
+;; with-frame is a macro (per Spec 002 §with-frame and spec/API.md row 74).
+;; Two shapes:
+;;
+;;   Shape 1 — bare keyword (operate on an existing frame):
+;;     (with-frame :scratch body...)
+;;     => (binding [frame/*current-frame* :scratch] body...)
+;;
+;;   Shape 2 — let-binding (create, use, destroy):
+;;     (with-frame [f (make-frame opts)] body...)
+;;     => (let [f (make-frame opts)]
+;;          (try
+;;            (binding [frame/*current-frame* f] body...)
+;;            (finally (destroy-frame f))))
+;;
+;; The discriminator is the first argument: a vector triggers Shape 2;
+;; anything else is Shape 1. The fn-form `(with-frame frame-id thunk)`
+;; is no longer supported — callers wanting a thunk-style wrapper should
+;; write `(with-frame :foo (thunk))` (the thunk call sits inside the
+;; macro body, identical semantics) or call `binding` directly.
+
+#?(:clj
+   (defmacro with-frame
+     "Run `body` with `*current-frame*` bound to the given frame-id.
+     Per Spec 002 §with-frame the macro accepts two shapes:
+
+       (with-frame :keyword body+)
+         Shape 1 — pin `*current-frame*` to the supplied frame-id for the
+         body's duration. The frame is NOT created or destroyed by the
+         macro; the keyword is used as-is.
+
+       (with-frame [sym expr] body+)
+         Shape 2 — evaluate `expr` (typically `(make-frame opts)` or
+         `(reg-frame :id opts)`), bind the result to `sym`, run `body`
+         with `*current-frame*` bound to that frame, and destroy the
+         frame on exit (success or exception).
+
+     The discriminator is the first argument: a vector triggers Shape 2,
+     anything else triggers Shape 1.
+
+     For async closures that fire after the body returns, capture the
+     frame keyword via `bound-fn` / `bound-dispatcher` / `bound-subscriber`
+     — the dynamic binding has unwound by then, and (under Shape 2) the
+     frame has already been destroyed."
+     {:arglists '([frame-id body+] [[sym expr] body+])}
+     [bindings & body]
+     (cond
+       (and (vector? bindings) (= 2 (count bindings)))
+       (let [[sym expr] bindings]
+         `(let [~sym ~expr]
+            (try
+              (binding [frame/*current-frame* ~sym]
+                ~@body)
+              (finally
+                (destroy-frame ~sym)))))
+
+       :else
+       `(binding [frame/*current-frame* ~bindings]
+          ~@body))))
 
 (defn bound-dispatcher
   "Capture the current frame and return a frame-bound dispatch fn that
@@ -950,8 +1001,11 @@
   (subscriber))
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
-;; reg-view (the macro), with-frame live in re-frame.views-macros (CLJS-
-;; only macros — users `(:require-macros [re-frame.views-macros :refer ...])`).
+;; reg-view (the macro) lives above as a JVM/CLJS-shared `#?(:clj defmacro)`.
+;; The legacy import path `re-frame.views-macros` continues to provide
+;; `reg-view` and `with-frame` shims that emit the same expansion shape,
+;; so existing examples keep working without an across-the-board sweep
+;; of `:require-macros` imports.
 ;; frame-provider is a Reagent component re-exported here so `rf/frame-provider`
 ;; is the canonical user-facing surface (per Spec 002 §What `frame-provider` is
 ;; and the API.md table); it lives in re-frame.views to keep React/Reagent off

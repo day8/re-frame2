@@ -189,9 +189,8 @@
    (defn handle-request [request]
      (let [f (rf/make-frame {:on-create [:rf/server-init request]})]
        (rf/with-frame f
-         (fn []
-           (let [final-db (rf/get-frame-db f)
-                 hiccup   ((rf/view :app/root))
+         (let [final-db (rf/get-frame-db f)
+               hiccup   ((rf/view :app/root))
                  ;; render-to-string with :emit-hash? embeds
                  ;; data-rf-render-hash="<hex>" on the root element. The
                  ;; client recomputes the hash after its first render and
@@ -220,7 +219,7 @@
                    (pr-str payload)
                    "</script>"
                    "<script src='/main.js'></script>"
-                   "</body></html>")}))))))
+                   "</body></html>")})))))
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT
@@ -304,7 +303,7 @@
            ;; and not from :rf/default.
            hiccup      ((rf/view :app/root))
            html        (rf/with-frame f
-                         (fn [] (rf/render-to-string hiccup {:emit-hash? true})))
+                         (rf/render-to-string hiccup {:emit-hash? true}))
            render-hash (rf/render-tree-hash hiccup)]
        ;; State was loaded.
        (assert (= 2 (count (:articles final-db))))
