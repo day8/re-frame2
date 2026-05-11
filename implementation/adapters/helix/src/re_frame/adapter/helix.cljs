@@ -21,6 +21,7 @@
   reactive-atom primitive)."
   (:require ["react"             :as React]
             ["react-dom/client"  :as react-dom-client]
+            [reagent.core        :as r]
             [reagent.ratom       :as ratom]
             [helix.core          :as helix]
             [helix.hooks         :as helix-hooks]
@@ -452,3 +453,67 @@
         (if previous
           (previous)
           (frame/current-frame))))))
+
+;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
+;; `re-frame.interop` through the late-bind hook table. Helix's derived
+;; values (this ns, ~line 124) reify stock `reagent.ratom/IDisposable`
+;; — the cache wiring at `re-frame.subs` calls `interop/add-on-dispose!`
+;; against them and the protocol dispatch finds the reify shape.
+;; Accordingly Helix's hooks delegate to stock Reagent's `r/atom`,
+;; `ratom/make-reaction`, etc. Helix itself ships no reactive-atom
+;; primitive (it is the minimal-React-wrapper niche per rf2-2qit),
+;; so `interop/make-reaction` under a Helix-installed app falls back
+;; to stock Reagent's.
+;;
+;; Per rf2-0d35: route through the installed adapter, mirroring the
+;; `:adapter/current-frame` pattern above. Helix's impl runs only when
+;; the Helix adapter is the `(rf/init!)`-installed one; otherwise the
+;; hook chains to a previously-registered reader.
+(let [previous (late-bind/get-fn :adapter/ratom)]
+  (late-bind/set-fn! :adapter/ratom
+    (fn helix-adapter-ratom-routed [v]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/atom v)
+        (when previous (previous v))))))
+
+(let [previous (late-bind/get-fn :adapter/ratom?)]
+  (late-bind/set-fn! :adapter/ratom?
+    (fn helix-adapter-ratom?-routed [x]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (satisfies? ratom/IReactiveAtom ^js x)
+        (if previous (previous x) false)))))
+
+(let [previous (late-bind/get-fn :adapter/make-reaction)]
+  (late-bind/set-fn! :adapter/make-reaction
+    (fn helix-adapter-make-reaction-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/make-reaction f)
+        (when previous (previous f))))))
+
+(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
+  (late-bind/set-fn! :adapter/add-on-dispose!
+    (fn helix-adapter-add-on-dispose!-routed [a-ratom f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/add-on-dispose! a-ratom f)
+        (when previous (previous a-ratom f))))))
+
+(let [previous (late-bind/get-fn :adapter/dispose!)]
+  (late-bind/set-fn! :adapter/dispose!
+    (fn helix-adapter-dispose!-routed [a-ratom]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/dispose! a-ratom)
+        (when previous (previous a-ratom))))))
+
+(let [previous (late-bind/get-fn :adapter/reactive?)]
+  (late-bind/set-fn! :adapter/reactive?
+    (fn helix-adapter-reactive?-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/reactive?)
+        (if previous (previous) false)))))
+
+(let [previous (late-bind/get-fn :adapter/after-render)]
+  (late-bind/set-fn! :adapter/after-render
+    (fn helix-adapter-after-render-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/after-render f)
+        (when previous (previous f))))))

@@ -241,20 +241,28 @@
           "extends React.Component (isReactComponent inherited)"))))
 
 (deftest create-class-render-delegates-to-wrap-render
-  (testing "instantiating + calling .render produces the user's hiccup"
+  (testing "instantiating + calling .render produces a React element wrapping the user's hiccup"
     ;; Per stock-Reagent's :reagent-render contract (and IMPL-SPEC §5.1's
     ;; wrap-render), the render fn does NOT receive `this`. It receives
     ;; the user-args slice of the argv (i.e. argv minus the head). User
     ;; code that wants `this` reads it via `current-component`.
+    ;;
+    ;; Per rf2-08t0: wrap-render returns raw hiccup (per IMPL-SPEC §5.1)
+    ;; but the class's render() method MUST return a React element — so
+    ;; make-render-method runs the deref'd hiccup through the registered
+    ;; as-element converter before returning. The assertion shape mirrors
+    ;; stock Reagent: render produces a React element whose .-type is
+    ;; the DOM tag from the hiccup head.
     (let [render-fn (fn [n] [:p "got=" n])
           ^js klass (component/create-class*
                       {:reagent-render render-fn})
           props     #js {:__rfArgv [render-fn 99]}
           ;; Synthesise a class instance — pass props to constructor.
-          inst      (new klass props)]
-      (is (= [:p "got=" 99]
-             (.call (.. klass -prototype -render) inst))
-          "render method returns the hiccup the user fn produced"))))
+          inst      (new klass props)
+          ^js el    (.call (.. klass -prototype -render) inst)]
+      (is (some? el) "render method returns a non-nil React element")
+      (is (= "p" (.-type el))
+          ".-type is the DOM tag from the hiccup head"))))
 
 (deftest create-class-binds-current-component-during-render
   (testing "*current-component* is bound to `this` during render"
@@ -506,14 +514,18 @@
       (is (identical? k1 k2)
           "second call returns the cached class"))))
 
-(deftest fn-to-class-render-yields-hiccup
-  (testing "the cached class's render produces the user fn's hiccup"
+(deftest fn-to-class-render-yields-react-element
+  (testing "the cached class's render produces a React element wrapping the user fn's hiccup"
+    ;; Per rf2-08t0: render() returns a React element (not raw hiccup);
+    ;; make-render-method converts via the registered as-element fn.
     (let [f     (fn [n] [:p "n=" n])
           ^js klass (component/fn-to-class f)
           props #js {:__rfArgv [f 5]}
-          inst  (new klass props)]
-      (is (= [:p "n=" 5]
-             (.call (.. klass -prototype -render) inst))))))
+          inst  (new klass props)
+          ^js el    (.call (.. klass -prototype -render) inst)]
+      (is (some? el) "render returns a non-nil React element")
+      (is (= "p" (.-type el))
+          ".-type is the DOM tag from the hiccup head"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-3 accessors

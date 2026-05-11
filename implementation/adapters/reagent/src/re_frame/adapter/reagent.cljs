@@ -200,3 +200,78 @@
       (if (identical? adapter (substrate-adapter/current-adapter))
         (r/current-component)
         (when previous (previous))))))
+
+;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
+;; `re-frame.interop` (`ratom`, `ratom?`, `make-reaction`,
+;; `add-on-dispose!`, `dispose!`, `reactive?`, `after-render`) through
+;; the late-bind hook table. Before rf2-s36l, `interop.cljs` statically
+;; `:require`d `reagent.core` / `reagent.ratom` and forwarded every call
+;; to stock Reagent's namespace — which silently misrouted slim-adapter
+;; reactions (`reagent2.ratom/Reaction` doesn't reify stock Reagent's
+;; `IDisposable`) and broke the counter-slim-and-fast smoke at first
+;; `subscribe`. Each adapter ns now publishes its substrate's impls
+;; here; this adapter wires the classic bridge to stock Reagent.
+;;
+;; Per rf2-0d35: route through the installed adapter, mirroring the
+;; pattern used by `:adapter/current-frame` and `:adapter/current-
+;; component` above. In test bundles that load multiple adapter ns's
+;; the last-loaded would otherwise silently win at the hook regardless
+;; of which adapter was actually `(rf/init!)`-installed. Each routed
+;; hook runs THIS adapter's impl only when this adapter is the
+;; installed one; otherwise it chains to the previously-registered
+;; reader (which itself does the same active-adapter check for ITS
+;; adapter). The chain terminates with nil when no adapter is
+;; installed — interop.cljs treats nil cleanly (callers either return
+;; nil/false or no-op).
+;;
+;; UIx and Helix adapters reify stock `reagent.ratom/IDisposable` on
+;; their derived values (uix.cljs:121, helix.cljs:124), so they wire
+;; their hooks to the same stock-Reagent impls below.
+(let [previous (late-bind/get-fn :adapter/ratom)]
+  (late-bind/set-fn! :adapter/ratom
+    (fn reagent-adapter-ratom-routed [v]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/atom v)
+        (when previous (previous v))))))
+
+(let [previous (late-bind/get-fn :adapter/ratom?)]
+  (late-bind/set-fn! :adapter/ratom?
+    (fn reagent-adapter-ratom?-routed [x]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (satisfies? ratom/IReactiveAtom ^js x)
+        (if previous (previous x) false)))))
+
+(let [previous (late-bind/get-fn :adapter/make-reaction)]
+  (late-bind/set-fn! :adapter/make-reaction
+    (fn reagent-adapter-make-reaction-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/make-reaction f)
+        (when previous (previous f))))))
+
+(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
+  (late-bind/set-fn! :adapter/add-on-dispose!
+    (fn reagent-adapter-add-on-dispose!-routed [a-ratom f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/add-on-dispose! a-ratom f)
+        (when previous (previous a-ratom f))))))
+
+(let [previous (late-bind/get-fn :adapter/dispose!)]
+  (late-bind/set-fn! :adapter/dispose!
+    (fn reagent-adapter-dispose!-routed [a-ratom]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/dispose! a-ratom)
+        (when previous (previous a-ratom))))))
+
+(let [previous (late-bind/get-fn :adapter/reactive?)]
+  (late-bind/set-fn! :adapter/reactive?
+    (fn reagent-adapter-reactive?-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/reactive?)
+        (if previous (previous) false)))))
+
+(let [previous (late-bind/get-fn :adapter/after-render)]
+  (late-bind/set-fn! :adapter/after-render
+    (fn reagent-adapter-after-render-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/after-render f)
+        (when previous (previous f))))))

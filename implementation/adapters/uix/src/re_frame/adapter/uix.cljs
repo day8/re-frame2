@@ -18,6 +18,7 @@
   Per rf2-3yij Decision 8 we target UIx 2.x (hooks-based)."
   (:require ["react"          :as React]
             ["react-dom/client" :as react-dom-client]
+            [reagent.core     :as r]
             [reagent.ratom    :as ratom]
             [uix.core         :as uix]
             [uix.dom          :as uix-dom]
@@ -453,3 +454,69 @@
         (if previous
           (previous)
           (frame/current-frame))))))
+
+;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
+;; `re-frame.interop` through the late-bind hook table. UIx's derived
+;; values (this ns, ~line 121) reify stock `reagent.ratom/IDisposable`
+;; — the cache wiring at `re-frame.subs` calls `interop/add-on-dispose!`
+;; against them and the protocol dispatch finds the reify shape.
+;; Accordingly UIx's hooks delegate to stock Reagent's `r/atom`,
+;; `ratom/make-reaction`, etc. UIx itself ships no reactive-atom
+;; primitive (per the rf2-3yij design), so `interop/make-reaction`
+;; under a UIx-installed app falls back to stock Reagent's
+;; (mostly used by user code paths that interleave Reagent reactions
+;; with UIx components; the UIx adapter's own derived-value impl
+;; never calls back into `interop/make-reaction`).
+;;
+;; Per rf2-0d35: route through the installed adapter, mirroring the
+;; `:adapter/current-frame` pattern above. UIx's impl runs only when
+;; the UIx adapter is the `(rf/init!)`-installed one; otherwise the
+;; hook chains to a previously-registered reader.
+(let [previous (late-bind/get-fn :adapter/ratom)]
+  (late-bind/set-fn! :adapter/ratom
+    (fn uix-adapter-ratom-routed [v]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/atom v)
+        (when previous (previous v))))))
+
+(let [previous (late-bind/get-fn :adapter/ratom?)]
+  (late-bind/set-fn! :adapter/ratom?
+    (fn uix-adapter-ratom?-routed [x]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (satisfies? ratom/IReactiveAtom ^js x)
+        (if previous (previous x) false)))))
+
+(let [previous (late-bind/get-fn :adapter/make-reaction)]
+  (late-bind/set-fn! :adapter/make-reaction
+    (fn uix-adapter-make-reaction-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/make-reaction f)
+        (when previous (previous f))))))
+
+(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
+  (late-bind/set-fn! :adapter/add-on-dispose!
+    (fn uix-adapter-add-on-dispose!-routed [a-ratom f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/add-on-dispose! a-ratom f)
+        (when previous (previous a-ratom f))))))
+
+(let [previous (late-bind/get-fn :adapter/dispose!)]
+  (late-bind/set-fn! :adapter/dispose!
+    (fn uix-adapter-dispose!-routed [a-ratom]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/dispose! a-ratom)
+        (when previous (previous a-ratom))))))
+
+(let [previous (late-bind/get-fn :adapter/reactive?)]
+  (late-bind/set-fn! :adapter/reactive?
+    (fn uix-adapter-reactive?-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/reactive?)
+        (if previous (previous) false)))))
+
+(let [previous (late-bind/get-fn :adapter/after-render)]
+  (late-bind/set-fn! :adapter/after-render
+    (fn uix-adapter-after-render-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/after-render f)
+        (when previous (previous f))))))
