@@ -154,6 +154,22 @@
             [:loaded-at [:maybe :int]]
             [:attempt   :int]]]])
 
+(def SettingsFormSnapshot
+  "Snapshot shape for the `:settings/form` machine — the
+   :form-region machine variant of Pattern-Forms. The state-keyword
+   IS the form lifecycle (`:neutral` / `:incorrect` / `:correct`
+   + `:submitting`); `:data` carries the draft + per-field
+   validation state + the projected submit-error string."
+  [:map
+   [:state [:enum :neutral :incorrect :correct :submitting]]
+   [:data  [:map
+            [:draft        :map]
+            [:submitted    [:maybe :map]]
+            [:errors       [:map-of :keyword [:vector :string]]]
+            [:touched      [:set :keyword]]
+            [:submit-error [:maybe :string]]
+            [:loaded-at    [:maybe :int]]]]])
+
 (def FormSlice
   [:map
    [:draft :any]
@@ -213,4 +229,8 @@
 (rf/reg-app-schema [:feed :data]               [:vector Article])
 (rf/reg-app-schema [:comment-form]             FormSlice)
 (rf/reg-app-schema [:editor]                   EditorSlice)
-(rf/reg-app-schema [:settings]                 FormSlice)
+;; The `:settings` slice from the slice-form era is gone; the settings
+;; form lifecycle is now the `:settings/form` machine (the :form-region
+;; machine variant of Pattern-Forms). The snapshot lives at
+;; `[:rf/machines :settings/form]`.
+(rf/reg-app-schema [:rf/machines :settings/form] SettingsFormSnapshot)

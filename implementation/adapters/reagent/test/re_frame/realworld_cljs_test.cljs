@@ -70,8 +70,12 @@
     (profile-t/profile-load-test)))
 
 (deftest realworld-settings
-  (testing "settings save propagates the new bio into auth/user"
-    (settings-t/settings-test)))
+  (testing ":settings/form machine — happy path lands in :correct (rf2-6d3x)"
+    (settings-t/settings-test))
+  (testing ":settings/form machine — failure path lands in :incorrect (rf2-6d3x)"
+    (settings-t/settings-failure-test))
+  (testing ":settings/form machine — :submit-invalid / :edit cycle (rf2-6d3x)"
+    (settings-t/settings-validation-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"

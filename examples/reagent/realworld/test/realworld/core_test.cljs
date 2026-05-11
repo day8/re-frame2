@@ -23,9 +23,12 @@
                                                 :auth.session/store  :rf/no-op
                                                 :auth.session/clear  :rf/no-op}})]
     ;; After init: auth + articles slices and the :realworld/tags
-    ;; machine snapshot are present. The tags machine replaces the
-    ;; slice-form `:tags` resource.
+    ;; and :settings/form machine snapshots are present. The tags
+    ;; machine replaces the slice-form `:tags` resource; the
+    ;; settings/form machine replaces the slice-form `:settings`
+    ;; resource.
     (let [db (rf/get-frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))
-      (assert (contains? (:rf/machines db) :realworld/tags)))))
+      (assert (contains? (:rf/machines db) :realworld/tags))
+      (assert (contains? (:rf/machines db) :settings/form)))))
