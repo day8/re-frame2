@@ -387,3 +387,68 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n]))
         "unsubscribe against a missing entry leaves the cache untouched")))
+
+;; ---- rf2-fi4m: unsubscribe-then-no-recompute under value-change ----------
+;;
+;; Per test-coverage-review-2026-05-12 P3-26: `unsubscribe` symmetry with
+;; `subscribe` is covered transitively through ref-counting, but no direct
+;; deftest pins the value-change contract: once every subscriber has
+;; unsubscribed and the entry has been disposed, a subsequent app-db
+;; change MUST NOT recompute the sub fn.
+
+(deftest unsubscribe-then-no-recompute-under-value-change
+  (testing "after full unsubscription, a state change does NOT re-invoke
+            the sub's compute fn — the cache entry has been disposed,
+            its watch on app-db unwound"
+    (subs/configure! {:grace-period-ms 0})  ;; sync dispose so the contract is observable
+    (let [recompute-count (atom 0)]
+      (rf/reg-event-db :seed   (fn [_ _]   {:n 0}))
+      (rf/reg-event-db :update (fn [db [_ n]] (assoc db :n n)))
+      (rf/reg-sub :n (fn [db _]
+                       (swap! recompute-count inc)
+                       (:n db)))
+      (rf/dispatch-sync [:seed])
+
+      ;; Step 1: two ref-counted subscribes against [:n].
+      (let [r1 (rf/subscribe [:n])
+            r2 (rf/subscribe [:n])]
+        (is (identical? r1 r2)
+            "the cache returns the same reaction across both subscribes")
+        ;; First read forces compute.
+        (is (= 0 @r1))
+        (is (= 1 @recompute-count) "compute fn ran once for the initial read")
+        (is (= 2 (entry-ref-count [:n]))
+            "ref-count is 2 — both subscribers are tracked")
+
+        ;; Step 2: change the source value. The reaction recomputes once.
+        (rf/dispatch-sync [:update 1])
+        (is (= 1 @r1) "reaction reflects the new value")
+        (is (= 2 @recompute-count) "compute fn ran exactly once for the change")
+
+        ;; Step 3: first unsubscribe — sub still cached (ref-count > 0).
+        (rf/unsubscribe [:n])
+        (is (contains? (cache-keys) [:n])
+            "cache slot is still present (one ref remains)")
+        (is (= 1 (entry-ref-count [:n])) "ref-count dropped to 1")
+
+        ;; Step 4: second unsubscribe — drops to 0 → synchronous dispose
+        ;; (grace=0 fixture). The cache slot is gone; the underlying
+        ;; reaction's watch on app-db is unwound.
+        (rf/unsubscribe [:n])
+        (is (not (contains? (cache-keys) [:n]))
+            "cache slot disposed — no remaining ref")
+        (let [count-after-dispose @recompute-count]
+
+          ;; Step 5: a subsequent app-db change MUST NOT re-invoke the
+          ;; compute fn. The reaction has been disposed; there is no
+          ;; live cache entry to recompute, and the watch the reaction
+          ;; held on the app-db container was removed at dispose-time.
+          (rf/dispatch-sync [:update 2])
+          (is (= count-after-dispose @recompute-count)
+              "compute fn did NOT run after full unsubscription — the
+               reaction was disposed; its watch on app-db is gone")
+          (rf/dispatch-sync [:update 3])
+          (rf/dispatch-sync [:update 4])
+          (is (= count-after-dispose @recompute-count)
+              "subsequent state changes still do not recompute"))))))
+

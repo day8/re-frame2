@@ -374,3 +374,71 @@
     (rf/dispatch-sync [:tick] {:frame :drain.test/X})
     (is (= 2 (:n (rf/get-frame-db :drain.test/X))))
     (is (= 1 (:n (rf/get-frame-db :drain.test/Y))))))
+
+;; ---- rf2-6guf: drain-depth-exceeded preserves OTHER frames' app-db --------
+;;
+;; Per test-coverage-review-2026-05-12 P3-25: the existing
+;; `drain-depth-exceeded-rolls-back-app-db` only exercises :rf/default. The
+;; broader contract is "rollback is scoped to the FRAME that exceeded the
+;; depth — other frames' app-dbs are untouched, and the depth-exceeded
+;; trace carries the right frame id".
+
+(deftest drain-depth-exceeded-isolated-to-the-overflowing-frame
+  (testing "depth-exceed on frame :B rolls back :B's app-db only; :A's
+            app-db is byte-identical to its pre-dispatch state; the
+            depth-exceeded trace carries :B"
+    (rf/reg-event-db :seed/A (fn [_ _] {:where :A :counter 0 :marker :pristine}))
+    (rf/reg-event-db :seed/B (fn [_ _] {:where :B :counter 0 :marker :pristine}))
+    (rf/reg-frame :drain.iso/A
+                  {:on-create   [:seed/A]
+                   :drain-depth 50})
+    ;; Frame :B has the tight drain-depth so :B's loop event trips it.
+    (rf/reg-frame :drain.iso/B
+                  {:on-create   [:seed/B]
+                   :drain-depth 4})
+
+    ;; Capture :A's pre-dispatch state — this is what we'll compare to.
+    (let [a-pre  (rf/get-frame-db :drain.iso/A)
+          traces (atom [])]
+      (rf/register-trace-cb! ::iso (fn [ev] (swap! traces conj ev)))
+
+      ;; Register a loop event under :B that infinitely self-dispatches.
+      ;; Each iteration writes to :B's :db, so we can see whether the
+      ;; rollback actually fires.
+      (rf/reg-event-fx :loop/B
+        (fn [{:keys [db]} _]
+          {:db {:where :B
+                :counter (inc (:counter db 0))
+                :marker  :mid-cascade}
+           :fx [[:dispatch [:loop/B]]]}))
+
+      ;; Dispatch the loop on :B. This trips the drain-depth limit; :B's
+      ;; app-db rolls back to the pre-drain snapshot.
+      (rf/dispatch-sync [:loop/B] {:frame :drain.iso/B})
+
+      ;; --- (a) :B's app-db is rolled back to its :on-create state.
+      (is (= {:where :B :counter 0 :marker :pristine}
+             (rf/get-frame-db :drain.iso/B))
+          ":B's app-db is rolled back to the pre-drain snapshot")
+
+      ;; --- (b) :A's app-db is byte-identical to its pre-dispatch state.
+      (is (= a-pre (rf/get-frame-db :drain.iso/A))
+          ":A's app-db is untouched (value-equal to pre-dispatch)")
+      (is (= {:where :A :counter 0 :marker :pristine}
+             (rf/get-frame-db :drain.iso/A))
+          ":A's app-db remains exactly its :on-create state")
+
+      ;; --- (c) the depth-exceeded trace carries :B, not :A.
+      (let [hit (some (fn [ev]
+                        (when (= :rf.error/drain-depth-exceeded
+                                 (:operation ev))
+                          ev))
+                      @traces)]
+        (is (some? hit) "drain-depth-exceeded trace was emitted")
+        (is (= :drain.iso/B (get-in hit [:tags :frame]))
+            "the trace's :frame tag is :B (the overflowing frame), not :A")
+        (is (true? (get-in hit [:tags :rollback?]))
+            ":rollback? true tag flags the atomic rollback"))
+
+      (rf/remove-trace-cb! ::iso))))
+

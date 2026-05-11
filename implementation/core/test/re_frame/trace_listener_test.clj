@@ -226,3 +226,69 @@
           "emit! body is gated on interop/debug-enabled?")
       (is (re-find #"\(defn-? emit-error![\s\S]*?interop/debug-enabled\?" src)
           "emit-error! body is gated on interop/debug-enabled?"))))
+
+;; ---- rf2-61iu: clear-trace-cbs! direct contract pin ----------------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-21: every fixture above calls
+;; `(trace/clear-trace-cbs!)`, but no deftest pins the contract directly.
+;; This test exercises the documented behaviour: clear drops every
+;; registered listener; a subsequent emission lands on NONE of them;
+;; re-registration after a clear restores delivery.
+
+(deftest clear-trace-cbs-drops-every-listener
+  (testing "clear-trace-cbs! drops every listener; subsequent emits hit
+            zero listeners; re-registration after clear restores delivery"
+    ;; Setup: three listeners under distinct keys, each appending to its
+    ;; own observation atom.
+    (let [seen-a (atom [])
+          seen-b (atom [])
+          seen-c (atom [])]
+      (rf/register-trace-cb! ::clear-a (fn [ev] (swap! seen-a conj ev)))
+      (rf/register-trace-cb! ::clear-b (fn [ev] (swap! seen-b conj ev)))
+      (rf/register-trace-cb! ::clear-c (fn [ev] (swap! seen-c conj ev)))
+      (rf/reg-event-db :clear/seed (fn [db _] (assoc db :seeded? true)))
+
+      ;; First dispatch — every listener observes the cascade.
+      (rf/dispatch-sync [:clear/seed])
+      (let [a-count-1 (count @seen-a)
+            b-count-1 (count @seen-b)
+            c-count-1 (count @seen-c)]
+        (is (pos? a-count-1) "listener A received events from the first dispatch")
+        (is (pos? b-count-1) "listener B received events from the first dispatch")
+        (is (pos? c-count-1) "listener C received events from the first dispatch")
+        ;; All three listeners observed the same number of events (per-
+        ;; event delivery, not batching).
+        (is (= a-count-1 b-count-1 c-count-1)
+            "every registered listener received the same number of events")
+
+        ;; Clear every cb.
+        (trace/clear-trace-cbs!)
+
+        ;; A subsequent dispatch lands on NONE of the cleared listeners.
+        (rf/dispatch-sync [:clear/seed])
+        (is (= a-count-1 (count @seen-a))
+            "listener A did NOT receive events after clear-trace-cbs!")
+        (is (= b-count-1 (count @seen-b))
+            "listener B did NOT receive events after clear-trace-cbs!")
+        (is (= c-count-1 (count @seen-c))
+            "listener C did NOT receive events after clear-trace-cbs!")
+
+        ;; Re-register a listener; new emissions land on it.
+        (let [seen-d (atom [])]
+          (rf/register-trace-cb! ::clear-d (fn [ev] (swap! seen-d conj ev)))
+          (rf/dispatch-sync [:clear/seed])
+          (is (pos? (count @seen-d))
+              "re-registered listener D received events after a fresh dispatch")
+          (rf/remove-trace-cb! ::clear-d))
+
+        ;; And the originally-cleared listeners STILL do not receive —
+        ;; they were dissoc'd, not paused.
+        (is (= a-count-1 (count @seen-a))
+            "A stays cleared — clear-trace-cbs! is permanent, not pause")))))
+
+(deftest clear-trace-cbs-returns-nil
+  (testing "clear-trace-cbs! returns nil per Spec 009 §The listener API"
+    (rf/register-trace-cb! ::ret-nil (fn [_ev]))
+    (is (nil? (trace/clear-trace-cbs!))
+        "clear-trace-cbs! is a side-effecting nil-returning fn")))
+

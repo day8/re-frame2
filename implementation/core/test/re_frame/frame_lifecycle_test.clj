@@ -579,3 +579,147 @@
                            @recorded)]
         (is (pos? (count warns))
             ":rf.warning/write-after-destroy fired for the post-destroy write")))))
+
+;; ---- rf2-2e6k: frame-ids / frame-meta re-export round-trip ----------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-18: frame-lifecycle exercises read
+;; via direct atom reads. The public re-exports `rf/frame-ids` and
+;; `rf/frame-meta` (core.cljc:1160-1161) are the documented introspection
+;; surface; this test pins their round-trip contract.
+
+(deftest frame-ids-round-trip
+  (testing "(rf/frame-ids) returns every registered, non-destroyed frame id
+            plus :rf/default"
+    (rf/reg-frame :tenants/acme    {:doc "acme tenant"  :preset :default})
+    (rf/reg-frame :tenants/widgets {:doc "widgets co"   :preset :default})
+    (let [ids (rf/frame-ids)]
+      (is (set? ids) "frame-ids returns a set")
+      (is (contains? ids :rf/default)
+          ":rf/default appears alongside user-registered frames")
+      (is (contains? ids :tenants/acme))
+      (is (contains? ids :tenants/widgets))
+      ;; Sanity: a never-registered id is absent.
+      (is (not (contains? ids :tenants/nonexistent))
+          "frame-ids excludes ids that were never registered"))))
+
+(deftest frame-meta-round-trip
+  (testing "(rf/frame-meta id) returns the registered metadata map shape"
+    (rf/reg-frame :tenants/acme {:doc          "acme tenant"
+                                 :preset       :default
+                                 :fx-overrides {:rf.http/managed
+                                                :rf.http/managed-canned-success}})
+    (let [m (rf/frame-meta :tenants/acme)]
+      (is (map? m) "frame-meta returns a map")
+      (is (= :tenants/acme (:id m))
+          ":id reflects the registered frame id")
+      (is (map? (:config m))
+          ":config slot is the metadata map merged into the frame record")
+      (is (= "acme tenant" (get-in m [:config :doc]))
+          "user-supplied :doc round-trips through :config")
+      (is (= {:rf.http/managed :rf.http/managed-canned-success}
+             (get-in m [:config :fx-overrides]))
+          ":fx-overrides round-trips through :config")
+      (is (map? (:lifecycle m))
+          ":lifecycle slot carries the frame's lifecycle map")
+      (is (number? (get-in m [:lifecycle :created-at]))
+          ":lifecycle :created-at is the host clock at reg-frame time"))))
+
+(deftest frame-meta-nonexistent-is-nil
+  (testing "(rf/frame-meta id) on an unregistered id returns nil cleanly
+            (no throw, no warning)"
+    (is (nil? (rf/frame-meta :no-such-frame))
+        "missing frame-id → nil (frame-meta delegates to frame which gates
+         on the registry)")
+    ;; A destroyed frame is also indistinguishable from never-registered
+    ;; per the documented surface — `frame` returns nil for destroyed.
+    (rf/reg-frame :short-lived {:doc "will be destroyed"})
+    (rf/destroy-frame :short-lived)
+    (is (nil? (rf/frame-meta :short-lived))
+        "frame-meta on a destroyed frame returns nil (no resurrection)")))
+
+;; ---- rf2-mwrh: reset-frame! partial-state preservation contract -----------
+;;
+;; Per test-coverage-review-2026-05-12 P3-27: `rf/reset-frame` is re-exported
+;; (core.cljc:438 → frame/reset-frame!) but no test pins what it does. The
+;; impl is `destroy-frame! followed by reg-frame with the same config` —
+;; this test pins the contract that flows from that definition:
+;;   - app-db is reset (fresh container).
+;;   - sub-cache is cleared (sub re-registers against the fresh frame).
+;;   - The config metadata is preserved (same :doc, same :on-create, etc.).
+;;   - :on-create re-runs (the new frame is freshly booted).
+;;   - The frame is still queryable (not in the destroyed state).
+
+(deftest reset-frame-preserves-config-resets-app-db
+  (testing "rf/reset-frame: app-db is reset, config metadata is preserved,
+            :on-create re-runs, frame remains queryable"
+    (let [boot-count (atom 0)]
+      (rf/reg-event-db :seed
+        (fn [_ [_ payload]]
+          (swap! boot-count inc)
+          {:booted? true :payload payload :extra :seeded}))
+      (rf/reg-frame :app/main
+                    {:doc       "frame with on-create"
+                     :on-create [:seed {:hello "world"}]
+                     :fx-overrides {:custom :value}})
+      ;; First :on-create dispatch increments the counter.
+      (is (= 1 @boot-count) ":on-create ran once at reg-frame time")
+      (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
+             (rf/get-frame-db :app/main))
+          "app-db reflects :on-create commit")
+
+      ;; Mutate app-db: a subsequent event extends the value.
+      (rf/reg-event-db :extend (fn [db _] (assoc db :runtime-write? true)))
+      (rf/dispatch-sync [:extend] {:frame :app/main})
+      (is (true? (:runtime-write? (rf/get-frame-db :app/main)))
+          "mutation is visible before reset-frame")
+
+      ;; Capture the original frame record so we can compare.
+      (let [orig-record    (frame/frame :app/main)
+            orig-app-db    (:app-db orig-record)
+            orig-sub-cache (:sub-cache orig-record)
+            orig-router    (:router orig-record)]
+
+        ;; Reset.
+        (rf/reset-frame :app/main)
+
+        ;; After reset: the frame is queryable.
+        (let [new-record (frame/frame :app/main)]
+          (is (some? new-record)
+              "the frame still exists post-reset (not destroyed)")
+          ;; Config metadata preserved: same :doc, same :on-create,
+          ;; same :fx-overrides.
+          (is (= "frame with on-create" (get-in new-record [:config :doc]))
+              ":config :doc preserved across reset")
+          (is (= [:seed {:hello "world"}]
+                 (get-in new-record [:config :on-create]))
+              ":config :on-create preserved across reset")
+          (is (= {:custom :value} (get-in new-record [:config :fx-overrides]))
+              ":config :fx-overrides preserved across reset")
+          ;; The slot identity-replaceable parts are FRESH containers.
+          (is (not (identical? orig-app-db (:app-db new-record)))
+              "app-db container is a fresh allocation post-reset")
+          (is (not (identical? orig-sub-cache (:sub-cache new-record)))
+              "sub-cache atom is fresh post-reset")
+          (is (not (identical? orig-router (:router new-record)))
+              "router atom is fresh post-reset"))
+
+        ;; :on-create re-ran on the fresh frame: counter incremented.
+        (is (= 2 @boot-count)
+            ":on-create re-dispatches against the freshly-registered frame")
+
+        ;; The runtime mutation is gone — fresh app-db reflects only
+        ;; :on-create's commit, not the prior :extend.
+        (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
+               (rf/get-frame-db :app/main))
+            "app-db is reset to :on-create state; runtime writes are gone")
+        (is (nil? (:runtime-write? (rf/get-frame-db :app/main)))
+            "the :extend handler's write is absent — reset wiped runtime state")))))
+
+(deftest reset-frame-on-missing-id-is-noop
+  (testing "rf/reset-frame against an unregistered frame is a silent no-op"
+    ;; frame/reset-frame! only fires when (frame id) returns non-nil.
+    ;; Calling against an unknown id must not throw.
+    (is (nil? (rf/reset-frame :no/such-frame))
+        "reset-frame on a missing id returns nil without throwing")
+    (is (nil? (frame/frame :no/such-frame))
+        "the missing frame is still absent")))

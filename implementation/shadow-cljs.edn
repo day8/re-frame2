@@ -143,6 +143,50 @@
    :devtools  {:http-port 8022
                :http-root "out/browser-test-schemas-boundary-prod"}}
 
+  ;; Production-mode elision smoke (Spec 009 §Production builds, beads
+  ;; rf2-2zdu / rf2-uwg5).
+  ;;
+  ;; Compiles every `*-prod-test.cljs` namespace under :advanced with
+  ;; goog.DEBUG=false. Under this combination, the Closure compiler
+  ;; constant-folds `re-frame.interop/debug-enabled?` to `false`, so:
+  ;;
+  ;;   - `re-frame.trace/emit!` body DCEs — registered listeners do
+  ;;     not fire (rf2-2zdu).
+  ;;   - `re-frame.views/reg-view*`'s `(when interop/debug-enabled? ...)`
+  ;;     source-coord injection branch DCEs — registered views render
+  ;;     without `data-rf2-source-coord` (rf2-uwg5).
+  ;;
+  ;; The JVM smokes for both these contracts use `with-redefs` on the
+  ;; CLJ-side debug flag — useful but cannot prove the genuine
+  ;; `:advanced` constant-fold. This browser-test build does.
+  ;;
+  ;; The ns-regexp `-prod-test$` matches only files named
+  ;; `*_prod_test.cljs` — distinct from the default `:browser-test` /
+  ;; `:node-test` builds (which use `-cljs-test$` / `cljs-test$`) and
+  ;; from the schemas-boundary-prod build (which uses
+  ;; `-boundary-prod-test$`). So these prod-elision tests run ONLY
+  ;; under this build. Running them under DEBUG=true would FAIL by
+  ;; design — the assertions are "no trace listener fires" /
+  ;; "no source-coord annotation appears", both only true in prod.
+  ;;
+  ;; Uses the custom `re-frame.prod-elision-runner` (mirroring the
+  ;; schemas-boundary-prod runner) because cljs-test-display's default
+  ;; runner re-assigns a Closure @define under :advanced.
+  ;; Pin via ns-regexp `-elision-prod-test$` so the schemas-boundary-prod
+  ;; tests (which match `-boundary-prod-test$`) and these new
+  ;; prod-elision tests (which match `-elision-prod-test$`) live in
+  ;; separate buckets. Test files are
+  ;; `trace_listener_elision_prod_test.cljs` and
+  ;; `source_coord_dom_elision_prod_test.cljs`.
+  :browser-test-prod-elision
+  {:target    :browser-test
+   :ns-regexp "-elision-prod-test$"
+   :test-dir  "out/browser-test-prod-elision"
+   :runner-ns re-frame.prod-elision-runner
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :devtools  {:http-port 8023
+               :http-root "out/browser-test-prod-elision"}}
+
   ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
   ;;
   ;; Compiles re-frame.elision-probe under :advanced with goog.DEBUG=false.
