@@ -265,8 +265,8 @@ Per [011-SSR.md](011-SSR.md):
 - [011-SSR.md](011-SSR.md) — SSR-side fetch handling and `:platforms` metadata
 - [009-Instrumentation.md §Error contract](009-Instrumentation.md#error-contract) — `:rf.error/fx-handler-exception` for failed fetches
 - [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — the login feature uses a simplified version of this lifecycle
-- [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that composes this lifecycle into `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many`.
-- [examples/reagent/nine_states/](../examples/reagent/nine_states/) — worked example exercising all five status states + data-shape variations (Empty / One / Some / Too Many).
+- [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that folds this lifecycle into the `:data` region of a parallel `:fsm/tags`-enabled state machine, composing the request lifecycle with form-validity and mode axes into the canonical `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` rendering.
+- [examples/reagent/nine_states/](../examples/reagent/nine_states/) — worked example whose `:data` region exercises all the lifecycle states + cardinality variations (Empty / One / Some / Too Many) inside the parallel-machine shape.
 - [examples/reagent/realworld/articles.cljs](../examples/reagent/realworld/articles.cljs) — the RealWorld (Conduit) article-list page is the canonical full-shape exercise: standard 5-key slice, four lifecycle events, convenience subs, route `:on-match` integration, headless tests covering load + revalidate + failure.
 
 ## Conformance checklist

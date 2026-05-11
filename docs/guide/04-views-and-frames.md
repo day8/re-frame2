@@ -242,17 +242,17 @@ Once your view is reading state from `app-db`, a temptation appears: branch the 
 
 | # | State | Typical source |
 |---|---|---|
-| 1 | **Nothing** — user hasn't asked for a fetch yet | Remote-data slice `:status :idle` |
-| 2 | **Loading** — first fetch in flight | `:status :loading` |
-| 3 | **Empty** — loaded, zero results | `:status :loaded` + count `0` |
-| 4 | **One** — loaded, exactly one result | `:status :loaded` + count `1` |
-| 5 | **Some** — loaded, manageable list | `:status :loaded` + bounded count |
-| 6 | **Too Many** — loaded, count above a domain threshold | `:status :loaded` + count > threshold |
-| 7 | **Incorrect** — user input invalid, user can fix it | Form slice errors + touched visibility |
-| 8 | **Correct** — visible success acknowledgement | Form slice `:status :submitted` |
-| 9 | **Done / Frozen** — domain reached terminal / read-only | Terminal machine state, or `:archived?` |
+| 1 | **Nothing** — user hasn't asked for a fetch yet | `:data` region at `:nothing` |
+| 2 | **Loading** — first fetch in flight | `:data` region at `:loading` |
+| 3 | **Empty** — loaded, zero results | `:data` region at `:empty` |
+| 4 | **One** — loaded, exactly one result | `:data` region at `:one` |
+| 5 | **Some** — loaded, manageable list | `:data` region at `:some` |
+| 6 | **Too Many** — loaded, count above a domain threshold | `:data` region at `:too-many` |
+| 7 | **Incorrect** — user input invalid, user can fix it | `:form` region at `:incorrect` |
+| 8 | **Correct** — visible success acknowledgement | `:form` region at `:correct` |
+| 9 | **Done / Frozen** — domain reached terminal / read-only | `:mode` region at `:done` |
 
-The pattern is a **design checklist** plus a **rendering convention**, not a universal ontology — most pages don't need all nine, but most pages do need *more than three*. The states are derived from the slices you already have (remote-data, form, machine snapshot), not mirrored into a new page-local enum. Each becomes a named sub (`:ui.state/empty?`, `:ui.state/incorrect?`, …) and the root view branches explicitly across them — so each branch is testable, each branch is reviewable, and "we forgot what happens when the result is empty" stops being a class of bug.
+The pattern is a **design checklist** plus a **rendering convention**, not a universal ontology — most pages don't need all nine, but most pages do need *more than three*. The shape is one `:type :parallel` state machine with three regions (`:data` / `:form` / `:mode`); every state declares `:tags` from a small canonical vocabulary (`:data/loading`, `:form/invalid`, `:mode/done`, …); a single render-priority table + selector sub collapses the tag union into one render-model keyword, and the root view's `case` over that keyword is the only branch site. "We forgot what happens when the result is empty" stops being a class of bug because the region's `:empty` state is enumerable from the machine declaration.
 
 Full convention plus a worked example: [`spec/Pattern-NineStates.md`](../../spec/Pattern-NineStates.md) and [`examples/reagent/nine_states/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/nine_states).
 
