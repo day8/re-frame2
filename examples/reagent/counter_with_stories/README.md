@@ -77,7 +77,7 @@ hot-reload the Story shell against your edits.
 
 ## Bundle isolation
 
-Per [IMPL-SPEC §6.5](../../../tools/story/IMPL-SPEC.md) and the
+Per [`tools/story/spec/005-SOTA-Features.md` §Production elision](../../../tools/story/spec/005-SOTA-Features.md) and the
 Stage-8 sentinel addition to
 [`implementation/scripts/check-bundle-isolation.cjs`](../../../implementation/scripts/check-bundle-isolation.cjs),
 the counter example's `:advanced` bundle MUST NOT carry any Story
@@ -97,6 +97,6 @@ implementation symbols. The contract is enforced by:
 ## See also
 
 - The guide chapter at [`docs/guide/14-stories.md`](../../../docs/guide/14-stories.md).
-- The Story tool's authoring contract at [`tools/story/IMPL-SPEC.md`](../../../tools/story/IMPL-SPEC.md).
+- The Story tool's authoring contract at [`tools/story/spec/`](../../../tools/story/spec/).
 - The normative spec at [`spec/007-Stories.md`](../../../spec/007-Stories.md).
 - The agent-facing MCP surface at [`tools/story-mcp/`](../../../tools/story-mcp/).

@@ -263,7 +263,7 @@ This is the whole story (no pun intended) about how a tool with this much surfac
 ## Where to go next
 
 - **The worked example** — [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories). Four variants, two workspaces, every `reg-*` form, and a passing integration test.
-- **The implementation contract** — [`tools/story/IMPL-SPEC.md`](https://github.com/day8/re-frame2/blob/main/tools/story/IMPL-SPEC.md). What the runtime actually does, decision-by-decision. The §6 elision section + §5.2 args precedence chain are the most-referenced parts.
+- **The implementation contract** — [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec). What the runtime actually does, decision-by-decision. The [`005-SOTA-Features.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/005-SOTA-Features.md) §Production elision section + [`002-Runtime.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/002-Runtime.md) §Args resolution precedence are the most-referenced parts.
 - **The normative spec** — [`spec/007-Stories.md`](../../spec/007-Stories.md). The id grammar lock, the variant-as-data lock, the seven canonical assertions. When the IMPL-SPEC and Spec 007 disagree, Spec 007 wins.
 - **The agent surface** — [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md). The MCP server, the sixteen tools, the protocol shape, the write-gate.
 - **Spec 008 — Testing** ([Testing](../../spec/008-Testing.md)). Story's `run-variant` is the runner cljs.test / clojure.test reach for; the shape is locked there.

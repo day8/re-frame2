@@ -1,7 +1,7 @@
 ;; day8/re-frame2-story-mcp — MCP (Model Context Protocol) agent surface
 ;; for re-frame2-story (rf2-tgci; Stage 7 of rf2-u6fb).
 ;;
-;; Per tools/story/IMPL-SPEC.md §7 the agent surface ships as a separate
+;; Per tools/story/spec/006-MCP-Surface.md the agent surface ships as a separate
 ;; artefact from `day8/re-frame2-story` so the MCP server can be loaded
 ;; without dragging the entire Story UI / authoring macro substrate into
 ;; the classpath, and so consumers of Story-the-tool need not pull in
