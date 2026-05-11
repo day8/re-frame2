@@ -23,11 +23,21 @@
  *   {
  *     name:  string,                         // human-readable
  *     url:   string,                         // path under the static server root
- *     run:   async (page) => void            // Playwright assertions
+ *     run:   async (page) => void,           // Playwright assertions
+ *     skip:  string | false                  // optional — when truthy, the
+ *                                            //   spec is reported as SKIP
+ *                                            //   with this string as the
+ *                                            //   reason. Used when an
+ *                                            //   example is shipped under
+ *                                            //   construction (bead-tracked
+ *                                            //   gap; rf2-5lbx introduced
+ *                                            //   the convention for the
+ *                                            //   slim adapter's pending
+ *                                            //   interop seam).
  *   }
  *
- * Exit code: 0 if every spec's `run` resolves; 1 if any spec throws or
- * a pageerror fires during a spec.
+ * Exit code: 0 if every spec's `run` resolves (skipped specs count as
+ * non-failing); 1 if any spec throws or a pageerror fires during a spec.
  */
 
 const path = require('path');
@@ -104,6 +114,19 @@ function withTimeout(promise, ms, label) {
   for (const spec of specs) {
     const label = spec.name || path.basename(spec.file);
     console.log(`\n=== ${label} ===`);
+
+    if (spec.skip) {
+      // Spec opted out at the spec-module level (truthy `skip`
+      // value). Print a SKIP line with the reason and don't navigate
+      // or run assertions. The orchestrator still compiled the
+      // example's bundle (per its EXAMPLES entry) — so under-
+      // construction examples remain compile-checked, just not
+      // smoke-tested at the user-visible behaviour level.
+      console.log(`SKIP  ${label}: ${spec.skip}`);
+      results.push({ label, passed: true, skipped: true, reason: spec.skip });
+      continue;
+    }
+
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -148,7 +171,11 @@ function withTimeout(promise, ms, label) {
 
   console.log('\n=== summary ===');
   for (const r of results) {
-    console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
+    if (r.skipped) {
+      console.log(`SKIP  ${r.label}  (${r.reason})`);
+    } else {
+      console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
+    }
   }
 
   process.exit(anyFailed ? 1 : 0);

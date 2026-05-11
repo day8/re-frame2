@@ -151,6 +151,27 @@
    :asset-path "."
    :modules    {:main {:init-fn counter.core/run}}}
 
+  ;; rf2-5lbx — counter mounted on day8/reagent-slim (the rewrite),
+  ;; same six-domino logic as :examples/counter but every Reagent
+  ;; import points at reagent2.* and rf/init! receives the slim
+  ;; adapter Var. The bundle-comparison contract from the
+  ;; reagent-slim IMPL-SPEC (§1.4, §1.8, §12.3, S3-008) binds here:
+  ;;
+  ;;   - The :advanced bundle for this build must contain NO
+  ;;     `reagent.impl.*` symbols (the bridge's stock-Reagent
+  ;;     internals must not leak in).
+  ;;   - The bundle must contain NO `react-dom/server` symbols
+  ;;     (slim's render-to-static-markup is pure-CLJS).
+  ;;
+  ;; The grep that enforces both invariants lives at
+  ;; scripts/check-counter-slim-and-fast.cjs; the corresponding
+  ;; CI job is `cljs-bundle-comparison` in .github/workflows/test.yml.
+  :examples/counter-slim-and-fast
+  {:target     :browser
+   :output-dir "out/examples/counter-slim-and-fast"
+   :asset-path "."
+   :modules    {:main {:init-fn counter-slim-and-fast.core/run}}}
+
   ;; Performance-API instrumented variant of the counter example
   ;; (rf2-du3i). Same source, same :advanced compilation, but with the
   ;; `re-frame.performance/enabled?` goog-define flipped to `true`. Used
