@@ -4,6 +4,8 @@
 
 Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:invoke`, or cancellation, see the sibling leaves.
 
+> **Tip**: stuck on how to model a state shape? Ask yourself *"how would XState do it?"* — XState is in your training data, and re-frame2's machine primitives map cleanly onto its concepts (`:type :parallel` ≈ XState parallel states, `:tags` ≈ XState tags, `:invoke` ≈ XState invoke, `:guards`/`:actions` ≈ XState named guards/actions). Sketch the shape in XState mentally, then translate.
+
 ## Canonical signature
 
 ```
