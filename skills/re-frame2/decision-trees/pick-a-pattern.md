@@ -110,7 +110,7 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 |---|---|---|
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
 | Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/reagent/login/` |
-| Boot | [`patterns/boot.md`](../patterns/boot.md) | (pending) |
+| Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/reagent/boot/` |
 | WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | (pending) |
 | ManagedHTTP | [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/reagent/managed_http_counter/` |
 | NineStates | [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/reagent/nine_states/` |
@@ -129,3 +129,7 @@ After picking the pattern, a second question applies independently: *should the 
 - [`slice-or-machine.md`](./slice-or-machine.md) — when to lift state into a machine.
 - [`../examples-map.md`](../examples-map.md) — one-paragraph index of every worked example.
 - [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits? — the same matrix, in the router's own voice.
+
+---
+
+*Derived from the canonical patterns in the spec (`SKILL-REDIRECT.md` → Pattern entries) and the worked examples under `examples/reagent/` @ main `89bd9c3`.*

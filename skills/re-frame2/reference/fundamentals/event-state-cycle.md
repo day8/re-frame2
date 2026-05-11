@@ -102,3 +102,7 @@ After this single `dispatch-sync`:
 ## Deeper material
 
 Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame-pair2, microtask scheduling, the interceptor model in full: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Instrumentation (009)**, **Runtime architecture**, **Tool-Pair contract**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/{router,events,cofx,fx,subs}.cljc` and the substrate adapters under `implementation/core/src/re_frame/substrate/` @ main `89bd9c3`. Re-verify line numbers after router or interceptor-chain changes.*

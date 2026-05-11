@@ -195,3 +195,7 @@ In v2 `dispatch-sync` already drains synchronously, so for greenfield tests this
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-value`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `has-tag?` or `(get-in db [:rf/machines id])` — not internal machine namespaces.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
+
+---
+
+*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface) and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support surface changes.*

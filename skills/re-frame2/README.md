@@ -21,18 +21,19 @@ skills/re-frame2/
 ├── README.md                         This file.
 ├── LICENSE                           MIT.
 ├── package.json                      npm distribution metadata.
+├── examples-map.md                   One-paragraph index of every worked example.
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
 ├── reference/
-│   ├── fundamentals/                 Frames, events/fx, subs, views, schemas, the cycle, conventions.
-│   ├── state-machines/               reg-machine, regions, tags, invoke, cancellation, decision tree.
+│   ├── fundamentals/                 events, fx, cofx, subs, frames, schemas, event-state-cycle, project-structure.
+│   ├── state-machines/               reg-machine, regions, tags, invoke, cancellation.
 │   ├── tooling/                      Stories, routing.
 │   └── cross-cutting/                Testing, API cheatsheet.
-├── patterns/                         One leaf per canonical pattern.
-└── decision-trees/                   "Which pattern?" and "Which state shape?"
+├── patterns/                         One leaf per canonical pattern (9 leaves).
+└── decision-trees/                   pick-a-pattern, slice-or-machine.
 ```
 
-Leaf files are populated by follow-on beads off the parent rf2-qumf. This bead (rf2-eipb) seeds the structure and `SKILL.md`; downstream beads fill `reference/`, `patterns/`, and `decision-trees/`.
+The scaffolding was seeded by rf2-eipb. The leaves were authored by follow-on beads off the parent rf2-qumf (rf2-9tuz fundamentals, rf2-a04c state-machines, rf2-4yc1 tooling, rf2-0tkn cross-cutting, rf2-w5tc project-structure, rf2-p6ut / rf2-60kv / rf2-e57j pattern batches, rf2-g6fh decision-trees). The integration pass (rf2-l086) reconciles the loading map and adds derived-from-implementation footers.
 
 ## Install
 
@@ -77,7 +78,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Scaffolding.** This bead (rf2-eipb) seeds the directory structure and the router `SKILL.md`. The leaf files under `reference/`, `patterns/`, and `decision-trees/` are populated by follow-on beads — see rf2-qumf for the bead roster.
+**Alpha.** Scaffolding + leaves are in place; the integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is now linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight.
 
 ## License
 

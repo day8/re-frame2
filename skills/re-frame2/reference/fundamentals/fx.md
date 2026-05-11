@@ -90,3 +90,7 @@ Per `fx.cljc:4-9`:
 ## Deeper material
 
 Per-frame fx overrides, the full reserved fx-id table, `:rf.http/managed`, flows, machine fx-ids: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — HTTP requests (014)**, **EP — Flows (013)**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/fx.cljc`, `implementation/core/src/re_frame/events.cljc`, and `implementation/core/src/re_frame/frame.cljc` @ main `89bd9c3`. Re-verify line numbers after fx-walker or fx-overrides changes.*

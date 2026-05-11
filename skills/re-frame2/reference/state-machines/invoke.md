@@ -97,3 +97,7 @@ Validation happens at registration (`machines.cljc:1653`): `:on-child-done` / `:
 ## Deeper material
 
 For the full declarative-`:invoke` desugaring rules, composition with hierarchical states, and the `:invoke-all` join-semantics matrix, see `SKILL-REDIRECT.md` → *EP — State machines (005)* §Declarative `:invoke` and §Spawn-and-join via `:invoke-all`. For the canonical worked example exercising `:invoke` + `:after` + hierarchical states, see `SKILL-REDIRECT.md` → *Pattern — WebSocket*.
+
+---
+
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (declarative-`:invoke` desugar, `:invoke-all` join engine, `:on-spawn` stamping) @ main `89bd9c3`, and `spec/conformance/fixtures/invoke-all-*` fixtures. Re-verify after `:invoke`/`:invoke-all` runtime changes (e.g. rf2-3y3y `:timeout-ms` removal, rf2-er0t spawn-args contract).*

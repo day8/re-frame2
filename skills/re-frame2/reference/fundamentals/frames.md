@@ -114,3 +114,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame` to 
 ## Deeper material
 
 Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / Helix / UIx, `dispatch-to-system`: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/frame.cljc`, `implementation/core/src/re_frame/core.cljc`, and `implementation/reagent/src/re_frame/adapter/reagent.cljs` @ main `89bd9c3`. Re-verify line numbers after frame-resolution or adapter-late-bind changes (e.g. rf2-s36l).*

@@ -167,3 +167,7 @@ For the machine-form wrapper in production use, see the auth-flow worked example
 - Test stubs (`with-managed-request-stubs`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)* §Testing.
 - The retry-ownership worked example → `patterns/boot.md`.
 - `:invoke` substrate the wrapper rides on → SKILL-REDIRECT.md → *EP — State machines (005)*.
+
+---
+
+*Derived from `examples/reagent/managed_http_counter/` and the `:rf.http/managed` machine-form wrapper in `implementation/http/` (artefact source) @ main `89bd9c3`. Re-verify after `:rf.http/managed` args-map or retry-policy changes.*
