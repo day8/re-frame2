@@ -23,7 +23,7 @@ When you hit a recurring shape — async work, websockets, forms, remote data, b
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
 - [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
-- [Pattern-NineStates](../../spec/Pattern-NineStates.md) — the nine async-with-cancel states laid out explicitly, with the state machine that drives them.
+- [Pattern-NineStates](../../spec/Pattern-NineStates.md) — the nine canonical UI render states (`Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`) modelled as one parallel state machine with three regions plus `:fsm/tags`.
 
 Browse the rest under [`spec/`](../../spec/README.md).
 

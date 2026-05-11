@@ -279,8 +279,8 @@ Forms typically don't need SSR-rendered hydration; the form is interactive clien
 - [Pattern-RemoteData.md](Pattern-RemoteData.md) — the submit lifecycle reuses the request-lifecycle slice when the server is involved
 - [005-StateMachines.md](005-StateMachines.md) — multi-step wizards use machines on top of the form slice
 - [examples/reagent/login/core.cljs](../examples/reagent/login/core.cljs) — login form built on this convention plus a state machine
-- [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that turns form validation and success into explicit `Incorrect` / `Correct` UI states.
-- [examples/reagent/nine_states/](../examples/reagent/nine_states/) — worked example whose Incorrect state exercises this form lifecycle (validation errors, touched-field display, recovery to Correct).
+- [Pattern-NineStates.md](Pattern-NineStates.md) — the page-level convention that folds form validation and success into the `:form` region of a parallel state machine, surfacing `Incorrect` / `Correct` as tag-tagged states alongside the data and mode axes.
+- [examples/reagent/nine_states/](../examples/reagent/nine_states/) — worked example whose `:form` region exercises this lifecycle (validation errors, touched-field display, recovery from `:incorrect` to `:neutral` via `:edit`).
 - [examples/reagent/realworld/auth.cljs](../examples/reagent/realworld/auth.cljs) — RealWorld's login and register forms exercise the full convention; [article_editor.cljs](../examples/reagent/realworld/article_editor.cljs) and [comments.cljs](../examples/reagent/realworld/comments.cljs) extend it across more shapes.
 
 ## Conformance checklist
