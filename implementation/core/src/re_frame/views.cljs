@@ -366,9 +366,47 @@
   attribute value carries `<ns>:<sym>:<line>:<col>`, derived from the
   registry id and the coords captured by the reg-view macro at
   expansion time. Production builds elide the entire annotation
-  branch via the `interop/debug-enabled?` gate."
+  branch via the `interop/debug-enabled?` gate.
+
+  Per rf2-00li: substrates whose `render-fn` returns React elements
+  (UIx, Helix) cannot be served by the hiccup-shape `inject-source-
+  coord-attr` walk below — a React element is neither a hiccup
+  vector nor a fn, so the walk would mis-classify it as a non-DOM
+  root and skip annotation with a one-shot warning. Those adapters
+  publish a substrate-side `wrap-view` through the `:adapter/wrap-
+  view` late-bind hook. When the hook is set, the substrate-supplied
+  wrap-view replaces the inline annotation path: it wraps `render-fn`
+  so each call returns a React element with `data-rf2-source-coord`
+  injected via `React.cloneElement`. The Reagent adapter does NOT
+  publish the hook (it has no React-side walk needed); the inline
+  hiccup walk continues to serve it."
   [id metadata render-fn]
-  (let [coord-attr (when interop/debug-enabled?
+  (let [adapter-wrap-view (late-bind/get-fn :adapter/wrap-view)
+        ;; rf2-00li: if an adapter has registered a substrate-side
+        ;; wrap-view (UIx, Helix), call it to wrap render-fn before
+        ;; binding into the frame-aware-view. This replaces the inline
+        ;; hiccup-shape walk for substrates whose render-fn output is
+        ;; a React element.
+        ;;
+        ;; The hook may be registered (e.g. test bundle loaded UIx +
+        ;; Helix adapter ns's) yet return nil — each adapter's routing
+        ;; closure returns nil when its own adapter is NOT the
+        ;; installed one (per rf2-0d35), so the chain bottoms out at
+        ;; nil when the Reagent adapter is installed even though
+        ;; UIx + Helix have published into the hook. A nil from the
+        ;; hook means "no substrate wrap applied" — keep render-fn
+        ;; unchanged and run the inline hiccup walk (the Reagent
+        ;; behaviour) below.
+        ;;
+        ;; The adapter's wrap-view body itself sits inside
+        ;; `(when interop/debug-enabled? ...)`, so under :advanced +
+        ;; goog.DEBUG=false the wrapped fn collapses to the bare
+        ;; user-fn (no cloneElement) — keeping the elision contract.
+        wrapped-by-adapter (when adapter-wrap-view
+                             (adapter-wrap-view id metadata render-fn))
+        wrap-applied?      (some? wrapped-by-adapter)
+        render-fn          (if wrap-applied? wrapped-by-adapter render-fn)
+        coord-attr (when (and interop/debug-enabled? (not wrap-applied?))
                      (format-source-coord id metadata))
         wrapped (with-meta
                   (fn frame-aware-view [& args]
@@ -387,7 +425,7 @@
                         ;; bare `(apply render-fn args)` call.
                         (let [out (performance/mark-and-measure :render id
                                     (apply render-fn args))]
-                          (if interop/debug-enabled?
+                          (if (and interop/debug-enabled? (not wrap-applied?))
                             (inject-source-coord-attr id coord-attr out)
                             out)))))
                   {:contextType frame-context})]

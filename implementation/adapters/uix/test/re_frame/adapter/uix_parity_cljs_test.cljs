@@ -12,17 +12,15 @@
   asserts the UIx adapter respects the same contract.
 
   ---------------------------------------------------------------------------
-  IMPORTANT (rf2-00li): the source-coord-DOM-annotation test is
-  currently :disabled. Investigation surfaced that the UIx adapter
-  exposes a `wrap-view` fn (uix.cljs:375) that injects
-  `data-rf2-source-coord` on the rendered root, but `reg-view*` (in
-  core.cljc / views.cljs) never calls it. The Reagent adapter wires
-  the annotation inline inside `views/reg-view*`; the UIx-side
-  dispatch is missing. Until rf2-00li lands, a registered UIx view's
-  rendered output carries no source-coord annotation — the test
-  documents the desired contract and points at the bug bead.
+  rf2-00li: the source-coord-DOM-annotation test is now active. The
+  UIx adapter publishes its `wrap-view` (uix.cljs) through the
+  `:adapter/wrap-view` late-bind hook; `views/reg-view*` consults the
+  hook and routes registered render-fns through the substrate-side
+  wrapper, which uses `React.cloneElement` to inject
+  `data-rf2-source-coord` on the rendered root React element.
   ---------------------------------------------------------------------------"
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require ["react" :as React]
+            [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]
@@ -123,23 +121,65 @@
       (is (= :ran @out-from-fn)
           "the wrapped fn invokes the user fn"))))
 
-;; --- (disabled, rf2-00li) — DOM-annotation through reg-view ---------------
+;; --- (rf2-00li) — DOM-annotation through reg-view ------------------------
 ;;
-;; The full contract — `rf/reg-view ...` produces a rendered root with
-;; `data-rf2-source-coord` — depends on reg-view* dispatching through
-;; the installed adapter's wrap-view. As of this commit that wiring is
-;; absent; see rf2-00li. The test contract lives in this commented
-;; block; promote to a deftest after rf2-00li lands.
-;;
-;;   (deftest reg-view-produces-source-coord-annotation-uix
-;;     (testing "Per rf2-00li (pending): reg-view* under the UIx adapter
-;;               injects data-rf2-source-coord on the rendered root via
-;;               (adapter/wrap-view id metadata user-fn)"
-;;       (rf/reg-view* :rf.uix-parity-test/annotated
-;;                     (fn [] [:span "hi"]))
-;;       (let [render (rf/view :rf.uix-parity-test/annotated)
-;;             out    (render)]
-;;         ;; render returns a React element under UIx, not hiccup; the
-;;         ;; assertion shape depends on the wiring approach. Pin once
-;;         ;; the wiring lands.
-;;         (is (some? out)))))
+;; The full contract — `(rf/reg-view* id render-fn)` produces, when called,
+;; a React element whose root carries `data-rf2-source-coord` — depends on
+;; reg-view* dispatching through the installed adapter's `wrap-view`. With
+;; the rf2-00li wiring in place, the UIx adapter publishes its `wrap-view`
+;; through the `:adapter/wrap-view` late-bind hook and `views/reg-view*`
+;; routes registered render-fns through it (instead of through the
+;; hiccup-shape inline walk, which would mis-classify a React element
+;; as a non-DOM root and skip annotation).
+
+(defn- react-element-source-coord
+  "Pull `data-rf2-source-coord` off a React element's `.-props`, or nil."
+  [el]
+  (when (and el (.-props el))
+    (aget (.-props el) "data-rf2-source-coord")))
+
+(deftest reg-view-produces-source-coord-annotation-uix
+  (testing "Per rf2-00li: reg-view* under the UIx adapter routes the
+            render-fn through (adapter/wrap-view id metadata user-fn) so
+            the rendered React element carries data-rf2-source-coord on
+            its root. The user-fn returns a real React element (the
+            shape an UIx component head produces); the wrapper's
+            React.cloneElement injects the attr."
+    (let [user-fn (fn []
+                    (React/createElement "span" #js {} "hi"))]
+      (rf/reg-view* :rf.uix-parity-test/annotated user-fn)
+      (let [render (rf/view :rf.uix-parity-test/annotated)
+            out    (render)]
+        (is (some? out)
+            "the registered fn returned a non-nil React element")
+        (is (= "span" (.-type out))
+            "root element's type is preserved (still a span)")
+        (let [attr (react-element-source-coord out)]
+          (is (string? attr)
+              "data-rf2-source-coord is present on the root element")
+          ;; <ns>:<sym>:<line>:<col> — programmatic reg-view* has no
+          ;; macro-captured coords so line/col are `?`.
+          (is (= "rf.uix-parity-test:annotated:?:?" attr)
+              (str "attribute value matches "
+                   "<ns>:<sym>:?:? for programmatic reg-view*; got "
+                   (pr-str attr))))))))
+
+(deftest reg-view-non-dom-root-is-exempt-uix
+  (testing "Per Spec 006 §Source-coord annotation (Fragment exemption):
+            a React element whose `type` is not a DOM-tag string (e.g.
+            a function component, or React.Fragment) passes through
+            unchanged — the cloneElement injection is skipped and the
+            output's props are untouched."
+    (let [Frag    (.-Fragment React)
+          user-fn (fn []
+                    (React/createElement Frag nil
+                                         (React/createElement "p" nil "a")
+                                         (React/createElement "p" nil "b")))]
+      (rf/reg-view* :rf.uix-parity-test/fragment-root user-fn)
+      (let [render (rf/view :rf.uix-parity-test/fragment-root)
+            out    (render)]
+        (is (some? out))
+        (is (identical? Frag (.-type out))
+            "Fragment root preserved as the element type")
+        (is (nil? (react-element-source-coord out))
+            "no data-rf2-source-coord on the Fragment root (exempt)")))))
