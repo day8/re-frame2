@@ -64,6 +64,7 @@ nav:
     - "10 — Testing": guide/10-testing.md
     - "11 — Devtools and pair tools": guide/11-devtools-and-pair-tools.md
     - "12 — Routing": guide/12-routing.md
+    - "13 — Where to go next": guide/13-where-next.md
 
   - Spec:
     - Overview: spec/README.md
