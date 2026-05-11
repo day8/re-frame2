@@ -11,8 +11,8 @@ re-frame2 ships as a coordinated set of Maven artefacts, all driven from a singl
 The release pipeline reflects a small set of decisions Mike made up front (rf2-r382). They are recorded here so future contributors don't have to re-derive them from the workflow.
 
 1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships ten — and are documented in [§Topological deploy DAG](#topological-deploy-dag).
-2. **Channel gating — pre-1.0 = beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.beta` (and `v0.0.1.beta-N` / `v0.0.2.beta` etc. for subsequent betas). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
-3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.beta` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full ten-artefact set** (core + schemas + reagent + uix + machines + routing + flows + http + ssr + epoch); no artefact "comes later" — they all ship together at every release per the lockstep contract below.
+2. **Channel gating — pre-1.0 = alpha/beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.alpha` (and `v0.0.1.alpha-N` / `v0.0.2.alpha` etc. for subsequent alphas; the same pattern with `.beta` once we promote). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
+3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full ten-artefact set** (core + schemas + reagent + uix + machines + routing + flows + http + ssr + epoch); no artefact "comes later" — they all ship together at every release per the lockstep contract below.
 4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
 5. **Artefact set ships together at lockstep VERSION.** All 10 artefacts ship at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract (rf2-w05l) is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh). Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep.
 
@@ -21,6 +21,7 @@ The release pipeline reflects a small set of decisions Mike made up front (rf2-r
 | Channel | Tag pattern | VERSION file content | Example |
 |---|---|---|---|
 | Stable | `vX.Y.Z` | `X.Y.Z` | `v1.0.0` ↔ `1.0.0` |
+| Alpha | `v0.0.1.alpha` (or `v0.0.1.alpha-N` for recovery / increments) | matches the tag minus the leading `v` | `v0.0.1.alpha-2` ↔ `0.0.1.alpha-2` |
 | Beta | `v0.0.1.beta` (or `v0.0.1.beta-N` for recovery / increments) | matches the tag minus the leading `v` | `v0.0.1.beta-2` ↔ `0.0.1.beta-2` |
 | Pre-release (alpha / rc) | `vX.Y.Z-alpha.N`, `vX.Y.Z-rc.N` | matches the tag minus the leading `v` | `v1.0.0-rc.1` ↔ `1.0.0-rc.1` |
 
@@ -31,8 +32,8 @@ The release workflow's tag glob is `v[0-9]+.[0-9]+.[0-9]+*`. Tag must match the 
 Tag push. Push a tag matching the pattern above and the release workflow runs end-to-end:
 
 ```bash
-git tag v0.0.1.beta-1
-git push origin v0.0.1.beta-1
+git tag v0.0.1.alpha-1
+git push origin v0.0.1.alpha-1
 ```
 
 There is no `workflow_dispatch` trigger by design: a release commit always carries an updated `VERSION` and a CHANGELOG entry, and the tag-push trigger keeps that coupling tight.
@@ -106,7 +107,7 @@ If a deploy job fails part-way through (e.g. `deploy-core` shipped, but `deploy-
 1. **Diagnose.** Read the failing job's logs. Common causes: transient Clojars 5xx (re-runs cleanly on retry), credential rotation (CLOJARS_USERNAME / CLOJARS_PASSWORD secrets stale), pom-validation regression in the leaf's clein descriptor, network outage during the leaf's `clojure -M:clein deploy`.
 2. **Decide whether the partial set is publishable as-is.** A consumer pinning the bumped version expects a coherent set; the partial set the failed run left on Clojars is not coherent. Do not promote it.
 3. **Fix the cause locally.** Land the fix on `main` via the normal PR flow.
-4. **Bump VERSION** in a release-recovery commit. For betas, increment the suffix: `0.0.1.beta` → `0.0.1.beta-1`. For stable, bump the patch: `1.0.0` → `1.0.1`.
+4. **Bump VERSION** in a release-recovery commit. For pre-releases, increment the suffix: `0.0.1.alpha` → `0.0.1.alpha-1`. For stable, bump the patch: `1.0.0` → `1.0.1`.
 5. **Re-tag** with the bumped VERSION. The workflow ships every artefact at the new version, restoring the lockstep contract on the consumer side: a consumer pinning the bumped version pulls a coherent set; the partial-release artefacts from the failed run are tombstoned-by-supersession (still on Clojars, but nobody pins them).
 6. **Note the abandoned version** in CHANGELOG.md so future readers don't try to pin it.
 
