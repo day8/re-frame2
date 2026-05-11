@@ -1,0 +1,54 @@
+;; day8/re-frame2-story — Storybook-class component playground for
+;; re-frame2 (rf2-u6fb parent epic; Stage 1 spec rf2-2hir).
+;;
+;; Per tools/README.md the artefact is a downstream consumer of
+;; implementation/core/ (and the implementation/adapters/reagent/ shell
+;; substrate) — Story does not register new framework primitives; every
+;; surface it exposes is built on the spec/007 contract over the spec/002
+;; frame primitive and the spec/009 instrumentation API.
+;;
+;; The MCP agent surface ships as a separate artefact under tools/story-mcp/
+;; (day8/re-frame2-story-mcp). This artefact carries no stdio / JSON-RPC
+;; dependency.
+;;
+;; Stage 2 (rf2-* TBD by Stage 1 bead-filing) lands src/ and test/ trees.
+;; Until then this deps.edn is the contract; sources arrive with Stage 2.
+{:paths ["src"]
+ :deps  {day8/re-frame2          {:local/root "../../implementation/core"}
+         day8/re-frame2-reagent  {:local/root "../../implementation/adapters/reagent"}
+
+         ;; Reagent is Story's UI-shell substrate at v1 (see IMPL-SPEC §8).
+         ;; Reagent ships in implementation/core's :deps; this entry is
+         ;; explicit because Story's UI shell directly :require's reagent.
+         ;; If implementation/core's coupling to Reagent ever loosens, this
+         ;; dep stays.
+         reagent/reagent         {:mvn/version "1.2.0"}
+
+         ;; Malli drives Story's three-level args / argtypes auto-derivation
+         ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
+         ;; already a transitive dep via implementation/core; declared
+         ;; explicitly because Story's controls layer reaches into it.
+         metosin/malli           {:mvn/version "0.16.4"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy. Mirrors implementation/adapters/reagent/deps.edn —
+  ;; the release workflow rewrites :local/root → :mvn/version before
+  ;; invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-story
+   :main     re-frame.story
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}
