@@ -1013,6 +1013,16 @@
 (def ^:private always-depth-limit-default 16)
 (def ^:private raise-depth-limit-default  16)
 
+;; Forward-declared so `drain-raises` can call `machine-transition` directly,
+;; without resorting to `(resolve `machine-transition)` — the anti-pattern
+;; re-frame.late-bind's docstring warns about. Direct call eliminates a per-
+;; raise Var-construction allocation on CLJS and removes the misleading
+;; surface (a reader skimming the body would otherwise infer a cross-namespace
+;; late-bind). The full `(declare machine-transition machine-transition-single)`
+;; further below stays so the parallel-region helpers (which also forward-
+;; reference `machine-transition`) keep compiling.
+(declare machine-transition)
+
 (defn- drain-raises
   "Drain the :raise queue inside fx-vec. Each :raise becomes an inline
   recursive machine-transition call; non-:raise fx pass through to the
@@ -1042,7 +1052,7 @@
           ;; fx vector is appended to the pending list (NOT prepended)
           ;; per Spec 005 §Drain semantics §Level 3 step 3 — the raise
           ;; queue is drained depth-first, but new fx land at the end.
-          (let [step-result ((resolve `machine-transition) machine snap args)]
+          (let [step-result (machine-transition machine snap args)]
             (if (and (vector? step-result)
                      (= ::action-failed (first step-result)))
               ;; Per Spec 005 §Errors: an action throw inside a raised
