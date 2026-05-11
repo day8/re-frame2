@@ -136,10 +136,10 @@ The capabilities below are partitioned by what every conformant implementation m
 | Multi-frame ergonomics in views via implicit context | — | yes | yes — explicit `:frame` arg is the portable form | the *implicit* form |
 | `re-frame-pair` runtime AI companion (Layer 2 of the AI surface) | encouraged | v1 deliverable | yes — host's REPL/inspector + protocol mapping | yes |
 | `re-frame-pair-improver` Claude skill (Layer 3 of the AI surface) | — | v1 deliverable | not host-specific | — |
-| **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
-| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` | yes — host picks its claimed list | — |
-| **Parallel regions** (FSM-richness) — out of pattern scope; substitute is separate machines per region | out of scope | not claimed | not claimed | — |
-| **History states** (FSM-richness) — out of pattern scope; substitute is snapshot-as-value capture | out of scope | not claimed | not claimed | — |
+| **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
+| **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` + spawn-and-join (`:invoke-all`) + `:system-id` | yes — host picks its claimed list | — |
+| **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob; per rf2-l67o | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
+| **History states** (FSM-richness) — out of v1 scope; substitute is snapshot-as-value capture | post-v1 | not claimed | not claimed | — |
 
 Reading the matrix:
 
@@ -339,10 +339,11 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - **Hierarchical compound states** — main new work: entry/exit cascading along the path; deep state-id resolution; transition resolution across compound levels.
 - **Eventless `:always`** — transitions that fire as soon as a guard becomes true.
 - **Delayed `:after`** — transitions that fire after a time delay (timing semantics need care for SSR/testing).
+- **State tags** (`:fsm/tags`) — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union; `:rf/machine-has-tag?` framework sub. Per rf2-ee0d (Nine States Stage 1).
+- **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:invoke` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per rf2-l67o (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
 
 **FSM-richness — v1 SKIPS, with documented substitutes:**
 
-- **Parallel regions** — substitute: *separate machines per region, coordinated via cross-actor dispatch*. All atomicity, inspectability, and undo benefits ride on the existing single-store machinery. See [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features) for a worked media-player example.
 - **History states** — substitute: *snapshot-as-value capture*. Snapshots at `[:rf/machines <id>]` are already values; user copies on leave, restores on re-enter. xstate needs history states because its runtime lacks first-class snapshot-as-value semantics; re-frame2's [Goal 3 — Frame state revertibility](#frame-state-revertibility) gives this for free.
 
 **Actor-model — v1 includes:**
@@ -351,6 +352,8 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - Imperative spawn / destroy — ✓ specced.
 - Cross-actor send via `:fx` — ✓ specced.
 - **Declarative `:invoke`** (sugar over spawn) — runtime translates a state's `:invoke` into entry/exit actions that spawn / destroy a child actor. No new mechanics; pure sugar.
+- **Spawn-and-join via `:invoke-all`** — sugar over N parallel `:invoke`s with `:all` / `:any` / `{:n N}` / `{:fn ...}` join condition; cancel-on-decision default. Per rf2-6vmw.
+- **`:system-id` named-machine addressing** — per-frame reverse index from user-supplied `:system-id` to actor id; `(rf/machine-by-system-id sid)` resolves. Per rf2-suue / rf2-ecv4.
 
 **Actor-model — out of v1 scope (possibly never):**
 
@@ -360,7 +363,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 
 - **Ports differ in ambition.** A small TS port may ship flat FSMs only; a Kotlin port may match the CLJS reference's full capability set. Both can be conformant *for their claimed set*.
 - **Conformance is graded, not binary.** "Passes 47/47 of the flat-FSM fixtures and 0/12 of the hierarchical-states fixtures" is more honest than "fails the conformance corpus." Implementors and users see exactly what works and what doesn't.
-- **Substitutes are first-class.** Parallel and history are not gaps — they are explicit "out of pattern scope; here's the documented substitute" cases. The substrate is *better* without them, given re-frame2's snapshot-as-value foundation.
+- **Substitutes are first-class.** History remains an explicit "out of pattern scope; here's the documented substitute" case — the snapshot-as-value foundation makes history-state machinery unnecessary. Parallel regions were on the substitute list pre rf2-l67o; per Nine States Stage 2 they are now a first-class capability claimed by the v1 reference, with the N-machines-per-region substitute retained for the conceptually-independent-features case.
 
 #### Failure mode
 

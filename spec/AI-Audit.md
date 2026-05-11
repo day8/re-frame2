@@ -227,13 +227,13 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
-| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; substitutes for parallel and history specced. |
-| Spec-Schemas | ◐ | `:rf/transition-table` schema covers the flat-FSM grammar; hierarchical / eventless / delayed / declarative-`:invoke` schema additions remain to be written. |
-| Construction-Prompts | ✓ | CP-5 forward-points at substitutes for parallel-feeling and history-feeling workflows. |
+| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions and tags are now first-class capabilities (rf2-l67o / rf2-ee0d); substitute for history specced. |
+| Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:invoke` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
+| Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the history-state snapshot-capture substitute. |
 | conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
 | Other Specs (002, 008, 009, 011, 012) | n/a | Capability-list scoping is FSM-and-actor-specific; other Specs aren't capability-graded in the same way (they are pattern-required as a whole). |
 
-**Gaps:** schema additions in Spec-Schemas for hierarchical-states / eventless / delayed / declarative-`:invoke`.
+**Gaps:** none currently outstanding for the FSM-richness / actor-model schema surface.
 
 ## Cross-cutting goal: Frame state revertibility
 

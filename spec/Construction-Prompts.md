@@ -511,7 +511,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 After this action, `(:pending-request data)` is the new actor's id; subsequent transitions can dispatch to it. The spawned actor's snapshot lives at `[:rf/machines <gensym'd-id>]` (runtime-managed; the spawn-spec does not pick a location). The `:on-spawn` callback is an inline fn here — that's appropriate; it's a single non-branching `assoc`.
 
-**Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, or substitutes for parallel-regions / history-states, consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
+**Deeper guidance — see the appendix.** When you need the inline-fn vs named-action escape-hatch test, the v1 grammar subset, the parallel-regions decision between `:type :parallel` and the N-machines substitute, or the history-state substitute, consult [CP-5 Machine Guide](CP-5-MachineGuide.md). It's a sibling appendix to keep CP-5 itself a build-facing prompt rather than a second machine spec.
 
 **Pattern-level discipline:**
 

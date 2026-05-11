@@ -44,7 +44,7 @@ For each row, the implementor declares **yes** (the implementation supports the 
 
 The FSM/actor substrate from [005](005-StateMachines.md) — transition tables, `create-machine-handler`, the `:rf/machines` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support, declarative `:invoke`. Substantial work. The pattern remains useful without machines (events / subs / fx / app-db / views are self-sufficient); many small frameworks ship without machines initially.
 
-**Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke`. Smaller ports can claim less; conformance grades against the claimed list.
+**Declaring yes implies** picking an FSM-richness capability list and an actor-model capability list per [005 §Capability matrix](005-StateMachines.md#capability-matrix). The CLJS reference claims flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions`, plus own-state + spawn/destroy + cross-actor `:fx` + declarative `:invoke` + spawn-and-join (`:invoke-all`) + `:system-id`. Smaller ports can claim less; conformance grades against the claimed list.
 
 **Gate:** does the application surface include state-bearing flows that the events+subs+fx triad makes awkward (auth flows, multi-step wizards, drag-and-drop, timer-driven transitions)?
 
@@ -466,8 +466,8 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 **Capability tags** (per [conformance/README §Capability tagging](conformance/README.md#capability-tagging)) come in family namespaces:
 
 - `:core/*` — pattern-required basics. Every conformant implementation runs these.
-- `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`). Run if Q1 yes and the matching capability is claimed.
-- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`). Run if Q1 yes and the matching capability is claimed.
+- `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`). Run if Q1 yes and the matching capability is claimed.
+- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`). Run if Q1 yes and the matching capability is claimed.
 - `:routing/*` — run if Q2 yes.
 - `:ssr/*` — run if Q3 yes.
 - `:schemas/*` — run if Q4 yes (regardless of mechanism).
