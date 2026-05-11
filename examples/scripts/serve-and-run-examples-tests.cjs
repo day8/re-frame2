@@ -206,6 +206,14 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter_with_stories', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter-with-stories'),
   },
+  // Pattern-LongRunningWork worked example (rf2-o9fg) —
+  // :invoke-all spawn-and-join with progress reporting and a
+  // cooperative cancellation cascade on parent-unmount.
+  {
+    build: 'examples/long-running-work',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'long_running_work', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'long-running-work'),
+  },
 ];
 
 function compileAll() {
