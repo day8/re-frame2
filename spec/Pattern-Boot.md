@@ -112,7 +112,15 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
       :resolve-initial-route
       ;; Reads :route from URL and seeds the :route slice (per Spec 012).
       (fn [_ _]
-        {:fx [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})}
+        {:fx [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
+
+      :enter-routing
+      ;; Compound entry action for :routing — :set-phase + :resolve-initial-route
+      ;; in one fn. (Per [005 §State nodes] :entry takes one fn or one
+      ;; registered id, never a vector.)
+      (fn [data _]
+        {:data (assoc data :phase :routing :phase-attempt 0)
+         :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})}
 
      :states
      {;; :configuring runs an explicit Pattern-AsyncEffect instance: the boot
@@ -169,7 +177,7 @@ Each phase uses `:invoke` to spawn the async work; transitions on success or fai
        :on    {:hydrate/done {:target :routing}}}
 
       :routing
-      {:entry [:set-phase :resolve-initial-route]
+      {:entry :enter-routing
        ;; If the running app needs the WebSocket URL from config, the :ready
        ;; transition threads it into the connection machine's :connect event
        ;; (per Pattern-AsyncEffect mechanism 1):
