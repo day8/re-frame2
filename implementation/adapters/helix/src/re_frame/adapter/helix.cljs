@@ -517,3 +517,31 @@
       (if (identical? adapter (substrate-adapter/current-adapter))
         (r/after-render f)
         (when previous (previous f))))))
+
+;; Per rf2-00li: publish the Helix substrate's `wrap-view` through the
+;; late-bind hook so `re-frame.views/reg-view*` routes registered
+;; render-fns through React.cloneElement-based source-coord injection
+;; instead of the hiccup-shape inline walk (which would mis-classify
+;; React-element output as a non-DOM root). Per rf2-0d35 the impl runs
+;; ONLY when the Helix adapter is the `(rf/init!)`-installed one;
+;; otherwise the hook chains to a previously-registered reader.
+;;
+;; Returns nil when no adapter in the chain is the installed one —
+;; views.cljs reads that as "no substrate-side wrap applied, fall back
+;; to the inline hiccup walk for the Reagent path." This contract
+;; matters when a test bundle loads multiple adapter ns's: every
+;; React-shaped adapter registers a routing closure, but only the
+;; installed one applies its wrap-view; for Reagent (which does NOT
+;; register a wrap-view) the chain bottoms out at nil and the inline
+;; walk runs.
+;;
+;; Production-elision: the inner `wrap-view` body sits inside
+;; `(when interop/debug-enabled? ...)` (per Spec 009 §Production
+;; builds); under :advanced + goog.DEBUG=false the wrapped fn collapses
+;; to the bare user-fn and the cloneElement branch DCEs.
+(let [previous (late-bind/get-fn :adapter/wrap-view)]
+  (late-bind/set-fn! :adapter/wrap-view
+    (fn helix-adapter-wrap-view-routed [id metadata user-fn]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (wrap-view id metadata user-fn)
+        (when previous (previous id metadata user-fn))))))
