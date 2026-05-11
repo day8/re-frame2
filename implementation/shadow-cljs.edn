@@ -101,6 +101,41 @@
    :devtools  {:http-port 8021
                :http-root "out/browser-test"}}
 
+  ;; Production-mode boundary smoke (Spec 010 §Production builds, rf2-r2uh /
+  ;; rf2-84e9).
+  ;;
+  ;; Compiles `re-frame.schemas-boundary-prod-test` under :advanced with
+  ;; `goog.DEBUG=false`. Under this combination, the Closure compiler
+  ;; constant-folds `re-frame.interop/debug-enabled?` to `false`,
+  ;; so `re-frame.spec/dev-mode?` folds with it and the boundary
+  ;; interceptor takes its production validation branch. The JVM smoke
+  ;; cannot prove the genuine `:advanced` constant-fold (it rebinds
+  ;; `spec/dev-mode?` via `with-redefs`); this browser-test build does.
+  ;;
+  ;; The ns-regexp `-boundary-prod-test$` matches only files named
+  ;; `*_boundary_prod_test.cljs` — distinct from the default
+  ;; `:browser-test` build's `-cljs-test$` and `:node-test` build's
+  ;; `cljs-test$`, so this test file is run ONLY under this prod-mode
+  ;; build. Running it under DEBUG=true would fail (the dev-mode boundary
+  ;; is a no-op by design); the companion node-test ns
+  ;; `re-frame.schemas-cljs-test` carries the dev-mode assertions.
+  ;;
+  ;; The :runner-ns is a custom runner (re-frame.schemas-boundary-prod-runner)
+  ;; instead of the default `shadow.test.browser`. The default runner uses
+  ;; `cljs-test-display.core/init!` which does `(set! root-node-id …)` on
+  ;; a `(goog-define root-node-id …)` — and Closure rejects re-assigning a
+  ;; @define under :advanced. The custom runner runs cljs.test directly
+  ;; and prints its summary to the browser console where the Playwright
+  ;; orchestrator already watches for the "Ran N tests" line.
+  :browser-test-schemas-boundary-prod
+  {:target    :browser-test
+   :ns-regexp "-boundary-prod-test$"
+   :test-dir  "out/browser-test-schemas-boundary-prod"
+   :runner-ns re-frame.schemas-boundary-prod-runner
+   :compiler-options {:closure-defines {goog.DEBUG false}}
+   :devtools  {:http-port 8022
+               :http-root "out/browser-test-schemas-boundary-prod"}}
+
   ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
   ;;
   ;; Compiles re-frame.elision-probe under :advanced with goog.DEBUG=false.
