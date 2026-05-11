@@ -341,6 +341,49 @@
                      (.call (.. klass -prototype -componentWillUnmount) inst)
                      (done))))))))
 
+(deftest render-second-render-recomputes-reaction-rf2-u5p5
+  (testing "rf2-u5p5: second render after dep change recomputes the Reaction, not returns cached state"
+    ;; Regression for rf2-u5p5: the render path used to do a plain
+    ;; `@cljsRenderRea` on every render. After a dep change, the
+    ;; Reaction's `_handle-change` calls the auto-run callback
+    ;; (queue-render!) but does NOT mark `dirty?` (matching stock
+    ;; Reagent's kernel — only the nil-auto-run path enqueues).
+    ;; So a follow-up `-deref` with `dirty? = false` returns the cached
+    ;; prior state rather than recomputing, and the user-visible count
+    ;; never updates.
+    ;;
+    ;; The fix: on subsequent render entries, call `._run rea false`
+    ;; directly so deref-capture re-runs the user fn with the latest
+    ;; subscribed state. This test would FAIL against the pre-fix
+    ;; render path even though the deref-capture-queues-rerender test
+    ;; passed (that test only verified forceUpdate fired, not that the
+    ;; subsequent render produced updated output).
+    (let [a            (ratom/atom 0)
+          ;; Capture the hiccup produced on each render via a side-
+          ;; channel; the render method returns a React element after
+          ;; `->react-element`, so we read .-cljsArgv-equivalent off the
+          ;; element to verify it carries the current `@a`.
+          last-seen    (atom nil)
+          render-fn    (fn []
+                         (let [v @a]
+                           (reset! last-seen v)
+                           [:div v]))
+          ^js klass    (component/create-class*
+                         {:reagent-render render-fn})
+          inst         (new klass #js {:__rfArgv [render-fn]})]
+      (set! (.-forceUpdate inst) (fn [] nil))
+      ;; First render: reads `a = 0`.
+      (.call (.. klass -prototype -render) inst)
+      (is (= 0 @last-seen) "first render saw a=0")
+      ;; Mutate the dep.
+      (swap! a inc)
+      ;; Simulate React's re-entry: call render() again. Pre-fix this
+      ;; returned cached hiccup (a=0); post-fix it recomputes (a=1).
+      (.call (.. klass -prototype -render) inst)
+      (is (= 1 @last-seen)
+          "second render after dep change saw a=1 (recompute, not cache)")
+      (.call (.. klass -prototype -componentWillUnmount) inst))))
+
 (deftest render-componentwillunmount-disposes-render-reaction
   (testing "componentWillUnmount disposes the per-instance render Reaction"
     (let [a            (ratom/atom 0)
