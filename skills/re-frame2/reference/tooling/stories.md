@@ -2,6 +2,8 @@
 
 > Authoring `reg-story` / `reg-variant` (and the five other Story `reg-*` macros). Assumes you already know what a component playground / story is — this leaf only covers re-frame2's specific declarations.
 
+> **Tip**: stuck on how to model a story/variant/workspace shape? Ask *"how would Storybook do it?"* — Storybook is in your training data and re-frame2's primitives map cleanly: `reg-story` ≈ CSF story, `reg-variant` ≈ story export (`Default` / `WithProps` / etc.), `reg-decorator` ≈ Storybook decorator, `reg-story-panel` ≈ addon panel, `play` sequence ≈ Storybook play. Differences worth noting: re-frame2 has **`reg-workspace` as first-class composition** (Storybook doesn't quite — closer to Ladle's compose); `reg-mode` is re-frame2-specific (app-state modes like dark/light, not Storybook themes). Sketch in Storybook mentally, then translate.
+
 ## When to load this leaf
 
 - Author or edit a `.cljs` namespace under `<app>/stories/*` that uses `re-frame.story`.
