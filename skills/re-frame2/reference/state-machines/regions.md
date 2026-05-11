@@ -119,3 +119,7 @@ Per Spec 005 §When to reach for parallel regions: pick parallel regions when th
 ## Deeper material
 
 For the full parallel-regions contract — broadcast routing, per-region scoping, capability gating, registration-time validation — see `SKILL-REDIRECT.md` → *EP — State machines (005)* §Parallel regions.
+
+---
+
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (parallel-regions validator, broadcast, tag union) @ main `89bd9c3`, and the worked examples `examples/reagent/realworld/tags.cljs` and `examples/reagent/nine_states/core.cljs`. Re-verify after parallel-regions or broadcast-routing changes.*

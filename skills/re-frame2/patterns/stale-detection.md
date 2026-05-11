@@ -126,3 +126,7 @@ No standalone example app — every state machine using `:after` is an inline ex
 ## Pointer to the spec
 
 Full rationale — including the architectural properties that make the pattern work, the trace-event family-naming rule, the ownership table for every container type, and the worked example of applying the pattern to a hypothetical `:debounced-input` substrate — lives in *Pattern — Stale detection* (see `SKILL-REDIRECT.md` at the repo root). The first instance of the pattern (substrate-owned `:after` epoch) is in Spec 005 §Epoch-based stale detection; the second (routing nav-tokens) is in Spec 012 §Navigation tokens.
+
+---
+
+*Derived from Pattern-StaleDetection in the spec @ main `89bd9c3`. Substrate-owned variants are tested under `spec/conformance/fixtures/` (search `stale-after`, `nav-token`). Re-verify after epoch-suppression or trace-event family-naming changes.*

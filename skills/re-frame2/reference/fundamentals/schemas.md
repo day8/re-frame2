@@ -106,3 +106,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:spe
 ## Deeper material
 
 Validation-order spec, per-step recovery, digest algorithm, the schemas artefact's full surface, non-Malli validator authoring, machine snapshot schemas: `SKILL-REDIRECT.md` → **EP — Schemas (010)**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Re-verify line numbers after `validate-at-boundary` or `set-schema-validator!` changes (rf2-84e9, rf2-froe).*

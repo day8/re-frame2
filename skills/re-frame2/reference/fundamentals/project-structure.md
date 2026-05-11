@@ -181,3 +181,7 @@ frame — and let `core` orchestrate the wiring.
 - A `.cljs` ns required from a `.cljc` ns → the `.cljc` won't load on
   JVM; widen the source to `.cljc`.
 - `reg-route` in two files → split routing table; consolidate.
+
+---
+
+*Derived from the canonical worked examples (`examples/reagent/realworld/`, `examples/reagent/counter/`, `examples/reagent/login/`, `examples/reagent/ssr/`, `examples/reagent/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*

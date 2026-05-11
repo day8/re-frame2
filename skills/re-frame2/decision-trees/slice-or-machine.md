@@ -19,7 +19,7 @@ Before walking the tree, rule out the cases where there is no state shape to cho
 
 1. **Is this a pure derivation?** If the value is a function of other values already in `app-db`, it is a `reg-sub`, not a slice. No state shape needed.
 2. **Is this a transient cofx value?** If the value is computed at dispatch time and used inside one event (e.g. `:rf/now`, a generated id), it is a registered cofx, not state.
-3. **Is this a machine's `:data`?** Per [`spec/005-StateMachines.md` §Naming](../../spec/005-StateMachines.md), each machine carries its own private `:data` map distinct from `app-db`. Extended state local to a machine lives in `:data`, not in a slice.
+3. **Is this a machine's `:data`?** Per [`spec/005-StateMachines.md` §Naming](../../../spec/005-StateMachines.md), each machine carries its own private `:data` map distinct from `app-db`. Extended state local to a machine lives in `:data`, not in a slice.
 
 If none of those apply, walk Step 1.
 
@@ -49,7 +49,7 @@ Examples:
 - A WebSocket reconnect-backoff timer that must not fire after the user manually re-connected.
 - A long-running batch job whose mid-flight chunks must stop processing when the user navigates away.
 
-If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:invoke` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](../../spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](../../spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
+If yes → **machine**. Machine snapshots advance `:rf/after-epoch` on every state entry; in-flight `:after` timers and `:invoke` replies carry the captured epoch and are dropped on mismatch (per [`spec/Pattern-StaleDetection.md`](../../../spec/Pattern-StaleDetection.md) and [`spec/005-StateMachines.md` §Epoch-based stale detection](../../../spec/005-StateMachines.md)). A slice cannot express the cancellation cascade without re-implementing the epoch idiom by hand — at which point you have built a machine in disguise.
 
 ### Tell 3 — terminal-state matters
 
@@ -92,7 +92,7 @@ Rule of thumb: if removing the lifecycle would gut the parent feature, it is a r
 This question only applies after Step 1 picked slice.
 
 - **Pattern-slice?** If the slice is the canonical shape of a named pattern (RemoteData's 5-key slice; Forms' 7-key slice), use the pattern's canonical path convention. Pattern leaves name the slot.
-- **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](../../spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
+- **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](../../../spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
 - **Schema?** Register a schema for the slice via `reg-app-schema` only if the slice crosses a trust boundary (incoming HTTP payload, persisted state on restore). Don't schema-fence every internal key (per SKILL.md cardinal rule 4).
 
 ## Step 4 — the four tells, restated as a worked checklist
@@ -122,9 +122,15 @@ If the example contradicts the leaf you'd pick from this tree, **the example win
 ## Cross-references
 
 - [`pick-a-pattern.md`](./pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
-- [`../reference/state-machines/basics.md`](../reference/state-machines/basics.md) — how to author `reg-machine` (states / initial / guards / actions).
-- [`../reference/state-machines/regions-and-tags.md`](../reference/state-machines/regions-and-tags.md) — parallel regions, tags, cancellation cascade.
-- [`../reference/state-machines/decision-tree.md`](../reference/state-machines/decision-tree.md) — a deeper-level slice/region/machine tree on the reference side.
-- [`../reference/fundamentals/events-and-fx.md`](../reference/fundamentals/events-and-fx.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
+- [`../reference/state-machines/reg-machine.md`](../reference/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
+- [`../reference/state-machines/regions.md`](../reference/state-machines/regions.md) — single-region and `:type :parallel` regions.
+- [`../reference/state-machines/tags.md`](../reference/state-machines/tags.md) — `:tags` on states + `has-tag?` query.
+- [`../reference/state-machines/invoke.md`](../reference/state-machines/invoke.md) — `:invoke` and `:invoke-all` for child machines.
+- [`../reference/state-machines/cancellation.md`](../reference/state-machines/cancellation.md) — the actor-destroy cascade.
+- [`../reference/fundamentals/events.md`](../reference/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
 - [`../reference/fundamentals/schemas.md`](../reference/fundamentals/schemas.md) — `reg-app-schema` at boundaries.
 - [`../examples-map.md`](../examples-map.md) — example-app index for shape-verification.
+
+---
+
+*Derived from EP — State machines (005) and the slice-vs-machine reasoning in `spec/Pattern-RemoteData.md` / `spec/Pattern-Forms.md` / `spec/Pattern-NineStates.md` @ main `89bd9c3`.*

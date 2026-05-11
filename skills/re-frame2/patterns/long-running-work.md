@@ -183,3 +183,7 @@ The worker machines themselves are lifecycle-agnostic — they do not know React
 ## Pointer to the spec
 
 Full rationale — including the `:invoke-all` runtime contract, the join-state map layout, alternative `:join` modes (`:any`, `:n-of`), and the migration table from v1's self-redispatch / `:abandonment-required` flag / `^:flush-dom` — lives in *Pattern — Long-running work* and Spec 005 *State machines* (see `SKILL-REDIRECT.md` at the repo root).
+
+---
+
+*Derived from Pattern-LongRunningWork in the spec and the in-flight `examples/reagent/long_running_work/` (rf2-o9fg) @ main `89bd9c3`. Re-verify after `:invoke-all` join-engine changes or once the example merges.*

@@ -99,3 +99,7 @@ For tests that don't need a render shell, run variants headless from a JVM test 
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `SKILL-REDIRECT.md` → *Guide — Stories*.
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
+
+---
+
+*Derived from `tools/story/` (artefact source) and `examples/reagent/counter_with_stories/` @ main `89bd9c3`. Re-verify after Story-macro grammar changes or new `:rf.assert/*` events.*

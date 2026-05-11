@@ -159,3 +159,7 @@ Three options exist for "when do per-field errors show?":
 - Spec: `SKILL-REDIRECT.md` → *Pattern — Forms* (full slice schema, conformance checklist, async-validation composition, SSR considerations).
 - Substrate: `SKILL-REDIRECT.md` → *EP — Schemas (010)* (boundary validation), *EP — State machines (005)* (machine form).
 - Compose: `patterns/nine-states.md` (the `:form` region of a parallel machine), `patterns/remote-data.md` (the submit's request lifecycle).
+
+---
+
+*Derived from `examples/reagent/realworld/auth.cljs` (slice form), `examples/reagent/realworld/settings.cljs` (machine form), and `examples/reagent/login/` @ main `89bd9c3`. Re-verify if Forms-pattern slice shape changes.*

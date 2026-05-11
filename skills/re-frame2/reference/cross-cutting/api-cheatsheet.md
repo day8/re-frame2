@@ -124,3 +124,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/sub-cache` (CLJS) / `rf/sub-topology` | dynamic / static sub graph reads |
 
 Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (registrations / writes) or degrade to `nil`/`[]`/`false` (read-only queries) when the artefact is absent.
+
+---
+
+*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main `89bd9c3`. Re-verify when new public surface lands.*

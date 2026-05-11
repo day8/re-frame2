@@ -129,3 +129,7 @@ The split exists for one reason: the UI for an empty page mid-load is a spinner;
 - HTTP fx: `SKILL-REDIRECT.md` → *EP — HTTP requests (014)* (the `:rf.http/managed` surface, retry semantics, failure categories, cancellation cascade).
 - Compose: `patterns/nine-states.md` (the `:data` region of a parallel machine).
 - Stale: `SKILL-REDIRECT.md` → *Pattern — Stale detection* (epoch idiom).
+
+---
+
+*Derived from `examples/reagent/realworld/articles.cljs` (slice form) and `examples/reagent/realworld/tags.cljs` (machine form) @ main `89bd9c3`. Re-verify if RealWorld's slice shape changes.*

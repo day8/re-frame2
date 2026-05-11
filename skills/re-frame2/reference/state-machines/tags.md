@@ -97,3 +97,7 @@ If a tag would only ever match exactly one state, the tag is redundant — query
 ## Deeper material
 
 For the full state-tags contract — declaration shape, snapshot semantics, the rationale vs `:status` slices — see `SKILL-REDIRECT.md` → *EP — State machines (005)* §State tags, and `SKILL-REDIRECT.md` → *Pattern — Nine states* for the canonical worked example.
+
+---
+
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (`compute-tags`, `commit-tags`, parallel-tag-union, `:rf/machine-has-tag?` sub) and `implementation/core/src/re_frame/core.cljc` (`has-tag?` sugar) @ main `89bd9c3`. Re-verify after tag-union or `has-tag?` changes.*

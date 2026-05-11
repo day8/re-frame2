@@ -126,3 +126,7 @@ No standalone example app — the HTTP instance appears in `examples/reagent/log
 ## Pointer to the spec
 
 Full rationale, the architectural properties that make the shape work, and the complete list of concrete instances (HTTP, workers, sockets, IDB, crypto, native bridges, LLMs, sensors) live in *Pattern — Async effect* (see `SKILL-REDIRECT.md` at the repo root).
+
+---
+
+*Derived from Pattern-AsyncEffect in the spec @ main `89bd9c3`, with the HTTP instance shape extracted from `examples/reagent/login/` and `examples/reagent/managed_http_counter/`. No standalone example; re-verify against the chosen substrate when authoring a new instance.*

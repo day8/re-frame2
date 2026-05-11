@@ -74,3 +74,7 @@ Pure handlers are testable, replayable (for re-frame-pair2 epoch restore), and s
 ## Deeper material
 
 Cofx validation (`:spec`), the late-bind seam for `:schemas/validate-cofx!`, full coeffect-map shape: `SKILL-REDIRECT.md` → **EP — Schemas (010)**, **Definitive API reference**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/cofx.cljc` @ main `89bd9c3`. Re-verify line numbers after cofx-chain or schema-validation changes.*

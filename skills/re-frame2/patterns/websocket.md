@@ -168,3 +168,7 @@ Caller-side:
 - Full pattern doc, including request-reply correlation worked example, heartbeat variations, anti-patterns, and SSR composition → SKILL-REDIRECT.md → *Pattern — WebSocket*.
 - The state-machine substrate (`:invoke`, `:after`, `:always`, hierarchical states) → SKILL-REDIRECT.md → *EP — State machines (005)*.
 - Connection-epoch idiom (the second use of stale-detection in this pattern) → SKILL-REDIRECT.md → *Pattern — Stale detection*.
+
+---
+
+*Derived from Pattern-WebSocket in the spec @ main `89bd9c3`. The worked example `examples/reagent/websocket/` is in flight via rf2-yf97; re-verify and link once it merges.*

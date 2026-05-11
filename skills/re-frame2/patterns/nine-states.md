@@ -120,3 +120,7 @@ The render-priority **vector** is the load-bearing move. A priority `cond` in th
 - Spec: `SKILL-REDIRECT.md` → *Pattern — Nine states* (full rules, transition tables, managed-HTTP integration, render-priority during mid-flight cross-region overlaps).
 - Substrate: `SKILL-REDIRECT.md` → *EP — State machines (005)* (§Parallel regions, §State tags).
 - Lifecycle composition: `patterns/remote-data.md` (the `:data` region) and `patterns/forms.md` (the `:form` region).
+
+---
+
+*Derived from `examples/reagent/nine_states/core.cljs` @ main `89bd9c3`. Re-verify after substantial reshape of the nine-states example.*

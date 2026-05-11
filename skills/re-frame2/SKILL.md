@@ -1,6 +1,6 @@
 ---
 name: re-frame2
-description: Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines (reg-machine, parallel regions, tags, invoke), schemas, stories, routing, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection). Use this skill whenever the user mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx, reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema, dispatch, subscribe, app-db, frames, regions, tags, the nine UI states, managed HTTP, or RemoteData lifecycles — even when re-frame2 is not named explicitly. Authoring only (writing new code). For live-app inspection use re-frame-pair2; for greenfield project bootstrap use re-frame2-setup.
+description: Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines (reg-machine, parallel regions, tags, invoke), schemas, stories, routing, tests, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection). Use this skill whenever the user mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx, reg-cofx, reg-view, reg-machine, reg-route, reg-story, reg-app-schema, dispatch, subscribe, app-db, frames, regions, tags, the nine UI states, managed HTTP, RemoteData lifecycles, writing tests for a re-frame2 app, or state-machine-for-HTTP shapes — even when re-frame2 is not named explicitly. Authoring only (writing new code). For live-app inspection use re-frame-pair2; for greenfield project bootstrap use re-frame2-setup.
 ---
 
 # re-frame2
@@ -29,7 +29,7 @@ These hold across every leaf in this skill.
 
 1. **Implementation is ground truth.** When the spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`, not against `spec/`. Spec is *why*; impl is *what*.
 2. **Recipes over explanations.** Reach for a canonical shape; do not derive from first principles. If a pattern leaf exists, use the shape it gives; do not invent a parallel one.
-3. **Distinguish orchestration from state.** Use **state machines** (`reg-machine`) when the answer to "what can the system do next" depends on the current mode (connecting / connected / disconnected; idle / submitting / submitted; loading / loaded / error). Use **slices** (a key in `app-db` driven by `reg-event-db`) when state is a field, not a mode. See `decision-trees/pick-a-state-shape.md`.
+3. **Distinguish orchestration from state.** Use **state machines** (`reg-machine`) when the answer to "what can the system do next" depends on the current mode (connecting / connected / disconnected; idle / submitting / submitted; loading / loaded / error). Use **slices** (a key in `app-db` driven by `reg-event-db`) when state is a field, not a mode. See `decision-trees/slice-or-machine.md`.
 4. **Schemas at boundaries, not everywhere.** Register `reg-app-schema` for the paths that cross trust boundaries (incoming HTTP payloads, persisted state on restore, machine snapshot restores). Do not schema-fence every internal key.
 5. **Examples in `examples/reagent/<x>/` are canonical.** When a pattern has a worked example, prefer the example's shape over a synthesised one. The example reflects the implementation as currently shipped.
 6. **Frames before globals.** Code talks to a frame (`(rf/dispatch [:foo])` against the default frame; or `(rf/dispatch {:frame :stories} [:foo])` to target one). Do not import frame internals; do not bypass `dispatch` / `subscribe` to mutate state.
@@ -39,7 +39,7 @@ These hold across every leaf in this skill.
 
 ## Decision: state machine, slice, or region?
 
-Quick rule (see `decision-trees/pick-a-state-shape.md` for the worked rules):
+Quick rule (see `decision-trees/slice-or-machine.md` for the worked rules):
 
 - **Slice** — a single key in `app-db` updated by `reg-event-db`. Use for fields, lists, flags whose value evolves but whose *legal transitions* do not need enforcement.
 - **State machine** (`reg-machine`) — a top-level orchestrator. Use when the legal next transitions depend on the current state; when a feature has more than two interesting modes; when concurrent independent sub-modes exist (use `:fsm/parallel-regions`); when a step needs cancellation semantics (use `:fsm/tags` + cascade).
@@ -71,23 +71,26 @@ Read the leaf that matches the task. Each leaf is ≤250 lines, target ~150. Rea
 
 | Task shape | Leaf |
 |---|---|
-| Author an event handler (`reg-event-db` / `reg-event-fx`) and its effects map | `reference/fundamentals/events-and-fx.md` |
-| Author a subscription, layered subs, dynamic args, machine subs | `reference/fundamentals/subscriptions.md` |
-| Author a view, reagent integration, render keys, source-coord capture | `reference/fundamentals/views.md` |
+| Author an event handler (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`) | `reference/fundamentals/events.md` |
+| Author a custom effect (`reg-fx`), shape the `:fx` vector | `reference/fundamentals/fx.md` |
+| Author a coeffect (`reg-cofx`), attach via `inject-cofx` | `reference/fundamentals/cofx.md` |
+| Author a subscription, layered subs, dynamic args, machine subs | `reference/fundamentals/subs.md` |
 | Register an app-db schema; validate at the boundary | `reference/fundamentals/schemas.md` |
 | Understand frames, frame ids, default frame, per-frame config | `reference/fundamentals/frames.md` |
-| Walk the six-domino cycle end to end (mental model anchor) | `reference/fundamentals/the-cycle.md` |
-| Pick keyword prefixes, name handlers, follow the `:rf/*` rule | `reference/fundamentals/conventions.md` |
+| Walk the event-state cycle end to end (mental model anchor) | `reference/fundamentals/event-state-cycle.md` |
+| Lay out the source tree — where each kind of file goes | `reference/fundamentals/project-structure.md` |
 
 ### State machines — `reference/state-machines/`
 
 | Task shape | Leaf |
 |---|---|
-| Author a `reg-machine` with `:states`, `:initial`, `:guards`, `:actions` | `reference/state-machines/basics.md` |
-| Compose parallel regions, tags, cancellation cascade | `reference/state-machines/regions-and-tags.md` |
-| Use `:invoke` to spawn a child machine; consume its result | `reference/state-machines/invoke-and-children.md` |
-| Understand cancellation propagation, terminal states, snapshot version | `reference/state-machines/cancellation.md` |
-| Pick between slice / region / top-level machine | `reference/state-machines/decision-tree.md` |
+| Author a `reg-machine` with `:states`, `:initial`, `:guards`, `:actions` | `reference/state-machines/reg-machine.md` |
+| Compose parallel regions (single-region + `:type :parallel`) | `reference/state-machines/regions.md` |
+| Declare `:tags` on states, query with `has-tag?` | `reference/state-machines/tags.md` |
+| Use `:invoke` to spawn a child machine; consume its result; `:invoke-all` | `reference/state-machines/invoke.md` |
+| Understand the cancellation cascade — what fires on actor destroy | `reference/state-machines/cancellation.md` |
+
+For the slice / region / top-level-machine decision, see `decision-trees/slice-or-machine.md`.
 
 ### Tooling — `reference/tooling/`
 
@@ -111,7 +114,7 @@ One leaf per canonical pattern. Each leaf opens with load triggers, gives the ca
 |---|---|---|
 | RemoteData | `patterns/remote-data.md` | (mini-example inline; example app pending) |
 | Forms | `patterns/forms.md` | `examples/reagent/login/` |
-| Boot | `patterns/boot.md` | `examples/reagent/boot/` (pending) |
+| Boot | `patterns/boot.md` | `examples/reagent/boot/` |
 | WebSocket | `patterns/websocket.md` | `examples/reagent/websocket/` (pending) |
 | NineStates | `patterns/nine-states.md` | `examples/reagent/nine_states/` |
 | ManagedHTTP | `patterns/managed-http.md` | `examples/reagent/managed_http_counter/` |
@@ -126,7 +129,7 @@ For the cross-reference of pattern → example app, see `examples-map.md`.
 | Question | File |
 |---|---|
 | "I want to build X — which pattern?" | `decision-trees/pick-a-pattern.md` |
-| "Should this be a slice, a region, or a top-level machine?" | `decision-trees/pick-a-state-shape.md` |
+| "Should this be a slice, a region, or a top-level machine?" | `decision-trees/slice-or-machine.md` |
 
 ## Authoring workflow (every task)
 

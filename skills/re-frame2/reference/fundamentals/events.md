@@ -71,3 +71,7 @@ The `:db` and `:fx` keys are the **only** legal top-level keys in an `fx`-handle
 ## Deeper material
 
 Full effect-map contract, interceptor chain composition, dispatch envelope shape, the dev-time `:spec` validator: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — Schemas (010)**, **Definitive API reference**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/events.cljc` and `implementation/core/src/re_frame/core.cljc` @ main `89bd9c3`. Re-verify line numbers after substantial registrar / events refactors.*

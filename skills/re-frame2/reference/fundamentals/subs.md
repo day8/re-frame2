@@ -81,3 +81,7 @@ For tests that need a different grace period: `(rf/configure :sub-cache {:grace-
 ## Deeper material
 
 Sub topology inspection (`sub-topology`), cache snapshots, the disposal algorithm under reconcile, validation against `:spec`: `SKILL-REDIRECT.md` → **EP — Reactive substrate (006)**, **Definitive API reference**.
+
+---
+
+*Derived from `implementation/core/src/re_frame/subs.cljc` @ main `89bd9c3`. Re-verify line numbers after sub-cache disposal-algorithm changes.*

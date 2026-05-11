@@ -2,7 +2,7 @@
 
 Application boot as a chained-async sequence — the canonical state-machine shape for "read config → authenticate → load profile → hydrate → resolve route → ready".
 
-> **Status of the worked example:** `examples/reagent/boot/` is in flight via rf2-dsm2. Until it lands, the canonical declaration below is the source of truth; this leaf will be upgraded to link the example after merge.
+> **Worked example:** `examples/reagent/boot/` ships the canonical Pattern-Boot machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:invoke`'d loader machine and a fan-out `:invoke-all` parallel-load step. Read it alongside this leaf.
 
 ## When to use this pattern
 
@@ -153,9 +153,9 @@ No parallel `:loading?` flag; the machine's state IS the UI signal.
 
 ## Worked example
 
-`examples/reagent/boot/` (pending — in flight via rf2-dsm2). Until merged, treat the canonical declaration above as the source of truth. The follow-on EX-2 bead upgrades this leaf to link the example once shipped.
+`examples/reagent/boot/` — the canonical Pattern-Boot worked example. The `:app/boot` machine cycles through `:configuring → :loading-deps → :hydrating → :ready` (with `:failed` as a terminal sibling). The `:configuring` state `:invoke`s a single reusable `:boot/loader` child for `/config`; the `:loading-deps` state fans out THREE parallel `:boot/loader` children via `:invoke-all` for routes / flags / user; the `:hydrating` state applies the four staged payloads to top-level app-db slices via one `:enter-hydrating` action and self-transitions to `:ready`. See `examples/reagent/boot/boot.cljs` for the spec and `examples/reagent/boot/schema.cljs` for the boundary schemas.
 
-A narrower instance — single-purpose flow machine, same shape — already lives at `examples/reagent/login/core.cljs` (auth flow as a state machine using `create-machine-handler` and `:invoke`).
+A narrower instance — single-purpose flow machine, same shape — also lives at `examples/reagent/login/core.cljs` (auth flow as a state machine using `create-machine-handler` and `:invoke`).
 
 ## Pointers
 
@@ -164,3 +164,7 @@ A narrower instance — single-purpose flow machine, same shape — already live
 - State-machine substrate (`:invoke`, `:after`, restore semantics) → SKILL-REDIRECT.md → *EP — State machines (005)*.
 - SSR `:rf/server-init` and hydration handoff → SKILL-REDIRECT.md → *EP — SSR (011)*.
 - The retry-ownership boundary → `patterns/managed-http.md` + SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
+
+---
+
+*Derived from `examples/reagent/boot/boot.cljs` (the canonical Pattern-Boot machine — `:configuring`/`:loading-deps`/`:hydrating`/`:ready`/`:failed`) and Pattern-Boot in the spec @ main `89bd9c3`. Re-verify if the boot example's state set or hydration shape changes.*

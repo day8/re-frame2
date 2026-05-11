@@ -100,3 +100,7 @@ The same hook fires across every destroy trigger — `:invoke` exit, `:invoke-al
 ## Deeper material
 
 For the full cancellation contract — trace events, the late-bind hook surface, the cross-spec interaction with `:rf.http/managed`'s abort envelope — see `SKILL-REDIRECT.md` → *EP — State machines (005)* §Cancellation cascade and `SKILL-REDIRECT.md` → *EP — HTTP requests (014)* §Abort on actor destroy.
+
+---
+
+*Derived from `implementation/machines/src/re_frame/machines.cljc` (destroy fx + abort hook seam) and `implementation/core/src/re_frame/frame.cljc` (frame-destroy walk) @ main `89bd9c3`. Re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes (e.g. rf2-wvkn invoke-cancellation-contract).*

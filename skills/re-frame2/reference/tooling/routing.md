@@ -146,3 +146,7 @@ Flow on `:rf/url-requested`:
 - Slice schema (`:rf/route-slice`), pattern schema (`:rf/route-pattern`), rank schema (`:rf/route-rank`) → `SKILL-REDIRECT.md` → *Spec schemas*.
 - Interceptor-based guards (`auth-guard`, redirects), tags-driven policies → *EP — Routing (012)* §Redirects and guards.
 - SSR routing (server frame handles `:rf.route/handle-url-change` on the request URL) → `SKILL-REDIRECT.md` → *EP — SSR (011)*.
+
+---
+
+*Derived from `implementation/routing/` (artefact source) and `examples/reagent/routing/` @ main `89bd9c3`. Re-verify after route-metadata or `:can-leave` protocol changes.*
