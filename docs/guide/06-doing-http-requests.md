@@ -317,7 +317,7 @@ If you're coming from a re-frame v1 codebase that registered its own `:http` fx 
 4. Adopt the closed `:rf.http/*` failure category set in your error-handling branches — your code that branched on `(:status err)` becomes branching on `(:kind failure)`.
 5. (Optional) Convert per-call success handlers to default reply addressing if the pre-request and post-reply logic naturally co-locate.
 
-The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../spec/MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2--rf2-s9dn) for callers that depended on the alpha namespace's now-removed query/registration shape, and the per-fx migration is mechanical (Type A) for the standard cases.
+The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../spec/MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2-rf2-s9dn) for callers that depended on the alpha namespace's now-removed query/registration shape, and the per-fx migration is mechanical (Type A) for the standard cases.
 
 ## Cross-references
 
