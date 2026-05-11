@@ -45,7 +45,7 @@
 ;; Per-frame last-inputs, keyed by [frame-id flow-id] → last seen input vec.
 (defonce ^:private last-inputs (atom {}))
 
-;; ---- topological sort (memoised) ------------------------------------------
+;; ---- topological sort -----------------------------------------------------
 
 (defn- prefix? [a b]
   (and (>= (count b) (count a))
@@ -94,14 +94,11 @@
                       {:cycle (vec (keys @remaining))})))
     @order))
 
-(def ^:private topo-sort* (memoize topo-sort))
-
-(defn- invalidate-topo! []
-  ;; Cheap: rebuild memoise key by re-deref. Rather than tracking memo
-  ;; cache, we rely on shape: callers call ordered-flows which dereferences
-  ;; @flows; if @flows changes since last memoise call, the memoise misses.
-  ;; (We could use core.memoize for explicit invalidation; for v1 this is fine.)
-  nil)
+;; Note: `topo-sort` runs on every drain via `run-flows!`. A memo was
+;; trialled here and removed (rf2-cd00): the per-frame flow map is tiny
+;; (Kahn over a handful of nodes), and a memo whose key is the flow map
+;; needs explicit invalidation on every reg-flow / clear-flow anyway.
+;; The unmemoised call is the cheapest correct option.
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -152,7 +149,6 @@
          (swap! flows update frame-id dissoc flow-id)
          (registrar/unregister! :flow flow-id)
          (throw e)))
-     (invalidate-topo!)
      ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires after
      ;; reg-flow successfully completes (including post-cycle-detection).
      ;; Tools observe this to track the flow population over hot reloads /
@@ -198,7 +194,6 @@
          (when (every? (fn [[_ frame-flows]] (not (contains? frame-flows id)))
                        @flows)
            (registrar/unregister! :flow id))
-         (invalidate-topo!)
          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
          ;; clear-flow has removed the flow from the per-frame registry
          ;; and dissoc-in'd its output path. Tools observe this to drop
