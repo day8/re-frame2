@@ -454,8 +454,16 @@
        (swap! cache
               (fn [m]
                 (if-let [entry (get m k)]
-                  (let [n (dec (or (:ref-count entry) 1))]
-                    (if (<= n 0)
+                  (let [old-n (or (:ref-count entry) 1)
+                        n     (max 0 (dec old-n))]
+                    ;; Only trigger drop-to-zero on the 1→0 transition AND only
+                    ;; when no grace-period timer is already in flight. Calling
+                    ;; `unsubscribe` past zero (idempotent misuse — e.g. cleanup
+                    ;; in both a teardown hook and a `finally`) must not stack
+                    ;; new `pending-dispose` timers on top of the prior handle.
+                    (if (and (= 1 old-n)
+                             (zero? n)
+                             (nil? (:pending-dispose entry)))
                       (do (reset! dropped-to-zero? true)
                           (assoc m k (assoc entry :ref-count 0)))
                       (assoc-in m [k :ref-count] n)))

@@ -316,3 +316,74 @@
 
     (rf/clear-subscription-cache! :rf/default)
     (is (empty? (cache-keys)))))
+
+;; ---- idempotent unsubscribe (rf2-zikr) ------------------------------------
+;;
+;; Per Spec 006 §Reference counting and disposal: `unsubscribe` is
+;; ref-count-based. Calling it past zero (cleanup in both a teardown hook
+;; and a `finally`) must be idempotent — it must NOT
+;;
+;;   (a) decrement the ref-count into negative territory, OR
+;;   (b) schedule a second `pending-dispose` timer on top of the existing
+;;       handle (leaking the prior handle).
+;;
+;; The fix clamps the decrement at zero and only triggers drop-to-zero on
+;; the 1→0 transition when no pending-dispose is already in flight.
+;;
+;; Pre-fix, the second unsubscribe computed `n = -1`, took the
+;; `(<= n 0)` branch a second time, and called `set-timeout!` again — the
+;; outer swap then overwrote the prior `:pending-dispose` slot, leaking the
+;; original handle. This test asserts the post-fix invariant directly: the
+;; ref-count stays at 0 and the same `:pending-dispose` handle is preserved
+;; across repeated `unsubscribe` calls.
+
+(deftest unsubscribe-past-zero-is-idempotent
+  (testing "calling unsubscribe twice for the same sub-id does not leak pending-dispose handles (rf2-zikr)"
+    (subs/configure! {:grace-period-ms 60000})  ;; long grace; we won't let it fire
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:n])
+    (is (= 1 (entry-ref-count [:n])))
+
+    ;; First unsubscribe — ref-count 1→0, dispose scheduled, handle stashed.
+    (rf/unsubscribe [:n])
+    (is (= 0 (entry-ref-count [:n]))
+        "first unsubscribe lands ref-count at zero")
+    (is (pending-dispose? [:n])
+        "first unsubscribe schedules the dispose timer")
+    (let [handle-after-first
+          (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
+
+      ;; Second unsubscribe — must be a no-op. Pre-fix this took
+      ;; ref-count to -1 AND scheduled a new timer, overwriting
+      ;; `handle-after-first` and leaking it.
+      (rf/unsubscribe [:n])
+      (is (= 0 (entry-ref-count [:n]))
+          "ref-count clamped at zero — does NOT go negative on extra unsubscribe")
+      (is (pending-dispose? [:n])
+          "the original pending-dispose handle is preserved (not overwritten)")
+      (let [handle-after-second
+            (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
+        (is (identical? handle-after-first handle-after-second)
+            "the same timer handle is on the slot after the second unsubscribe — no new schedule was made"))
+
+      ;; And a third call for good measure — still idempotent.
+      (rf/unsubscribe [:n])
+      (is (= 0 (entry-ref-count [:n])))
+      (let [handle-after-third
+            (get-in @(:sub-cache (frame/frame :rf/default)) [[:n] :pending-dispose])]
+        (is (identical? handle-after-first handle-after-third)
+            "third unsubscribe still preserves the original handle"))))
+
+  (testing "extra unsubscribe before any subscribe is a complete no-op"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:init])
+    ;; No subscribe — the entry doesn't exist; unsubscribe must not throw,
+    ;; must not create an entry, and must not schedule a timer.
+    (rf/unsubscribe [:n])
+    (is (not (contains? (cache-keys) [:n]))
+        "unsubscribe against a missing entry leaves the cache untouched")))
