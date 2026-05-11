@@ -7,11 +7,11 @@
 
 re-frame2 is the axe. Same as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
 
-## What Is It?
+## What is it?
 
 re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
 
-## What's Novel And Interesting?
+## What's novel and interesting?
 
 Three things:
 
@@ -65,7 +65,7 @@ Opt in:
 - **Server-side rendering** — hiccup → HTML, hydration round-trip, error projection. SSR that doesn't require a different mental model.
 - **Time-travel / debugging** — every event leaves an epoch; restore any prior state.
 
-## Reference Implementation
+## Reference implementation
 
 The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end.
 
@@ -93,7 +93,7 @@ The reference implementation comes with a growing AI- and developer-facing tools
 
 The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. Indeed, a working reference implementation has been generated.
 
-## AI First
+## AI first
 
 re-frame2 is AI-first, and that decision permeates every other decision in the project. If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with that disposition lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
 
@@ -105,7 +105,7 @@ Here's how AI-first shows up in practice:
 
 3. **Migration is AI-driven**. re-frame2 contains breaking changes from v1. I am not happy about this. To soften the blow, the repo ships a complete migration prompt for an AI — currently 40+ rules, mechanical where the rewrite can be mechanical, flagged-for-human-review in the rare cases where the rewrite depends on intent. And to the Clojurists reading: I apologise for the breakage. It hurts my soul too. Please, please don't tell Mr Hickey.
 
-## re-frame First
+## re-frame first
 
 re-frame was created in late 2014. Over ten years later, I believe — and I have skin in this game, so weigh accordingly — that it is still a state-of-the-art pattern for SPA development. The reason is not that the world stopped innovating. It's that re-frame happened to land on a small set of decisions early which turned out to compose extremely well, and the JavaScript ecosystem has spent ten years independently rediscovering them, one painful migration at a time.
 
@@ -121,7 +121,7 @@ I can't tell you what an advantage it is, in practice, to have a small predictab
 
 The repo has two audiences and they each get their own docs.
 
-### For Humans
+### For humans
 
 It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort. Kidding.
 
