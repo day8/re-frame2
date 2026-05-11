@@ -18,8 +18,9 @@ Here's the file, in full, with the surrounding ceremony removed:
 
 ```clojure
 (ns counter.core
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]))
+  (:require [reagent.dom.client       :as rdc]
+            [re-frame.core            :as rf]
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; Frame
 (rf/reg-frame :rf/default
@@ -51,10 +52,11 @@ Here's the file, in full, with the surrounding ceremony removed:
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)   ;; wire the Reagent substrate
   (rdc/render root [counter]))
 ```
 
-That's everything. Forty lines. Let's take it apart.
+That's everything. Copy-paste-runnable. Let's take it apart.
 
 ## The frame
 
@@ -177,36 +179,31 @@ There's a tradeoff: plain Reagent functions also work, but they don't get frame-
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
+  (rf/init! reagent-adapter/adapter)   ;; wire the Reagent substrate
   (rdc/render root [counter]))
 ```
 
-This is the part that's not really re-frame2 — it's the React/Reagent runtime asking "where in the page do I render?" `defonce` makes sure the root is created once even if the file is hot-reloaded. `[counter]` is hiccup referencing the Var that `reg-view` defed; `rdc/render` mounts it.
+Three things happen here.
 
-> **Minimum-viable mount.** A real app's `run` does two more things before `rdc/render`:
->
-> ```clojure
-> (ns counter.core
->   (:require [reagent.dom.client :as rdc]
->             [re-frame.core :as rf]
->             [re-frame.adapter.reagent :as reagent]))
->
-> (defn ^:export run []
->   (rf/init! reagent/adapter)                  ;; wire the substrate
->   (rf/dispatch-sync [:counter/initialise])    ;; seed app-db
->   (rdc/render root [counter]))
-> ```
->
-> `(rf/init! reagent/adapter)` installs the Reagent adapter into the runtime — the Var `reagent/adapter` is the spec map exported by `re-frame.adapter.reagent`, ready to pass straight in. `dispatch-sync` fires the initialisation event synchronously so `app-db` is populated *before* the first render — otherwise the view briefly sees an empty `app-db`. (In the chapter's example we wired `:on-create [:counter/initialise]` into `reg-frame` instead, which seeds `app-db` at frame-creation time; either form works.) The runnable [`examples/reagent/counter/core.cljs`](https://github.com/day8/re-frame2/blob/main/examples/reagent/counter/core.cljs) shows the full mount, including both lines. They were elided above to keep the narrative focused on `reg-view`; everything else in the chapter assumes they're present.
+`defonce root` creates the React root once. The `defonce` matters: if the file is hot-reloaded, we want the existing root to survive so React can patch it in place rather than re-mount from scratch.
+
+`(rf/init! reagent-adapter/adapter)` wires re-frame2 to the Reagent substrate. The runtime needs to know which view library it's driving (Reagent vs UIx vs Helix vs SSR), and `init!` is where that binding happens. We require `re-frame.adapter.reagent :as reagent-adapter` at the top of the file and pass its exported `adapter` Var. The call is **idempotent** — calling it twice is a no-op — so hot-reload is safe.
+
+`(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
+
+Why is `init!` essential? Without it, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. The next section unpacks why the call shape is the way it is.
+
+You may notice there's no `dispatch-sync [:counter/initialise]` call — we don't need one because the frame's `:on-create [:counter/initialise]` fires that event synchronously at `reg-frame` time. `dispatch-sync` is the alternative when you'd rather seed `app-db` at mount time than at frame-creation time; either works.
 
 ### `init!` and how the adapter gets wired
 
-The line `(rf/init! reagent/adapter)` deserves a closer look — it's where the adapter is bound to the runtime.
+The line `(rf/init! reagent-adapter/adapter)` deserves a closer look — it's where the adapter is bound to the runtime.
 
 The call shape is fixed:
 
 ```clojure
 ;; Pass the adapter you want — explicit, always.
-(rf/init! reagent/adapter)
+(rf/init! reagent-adapter/adapter)
 ```
 
 Each adapter namespace exports an `adapter` Var (the nine-fn spec map Spec 006 documents). You require the namespace and pass the Var. **Explicit at the call site, every time.** Reading any app's `run` function tells you exactly which adapter the runtime is wired to, with no ns-load side-effects to chase.
@@ -221,7 +218,7 @@ When the page loads, here's what runs:
 
 1. `reg-frame :rf/default` registers (and creates) the default frame. The `:on-create` event `[:counter/initialise]` fires synchronously. The handler returns `{:count 5}`. The frame's `app-db` is now `{:count 5}`.
 
-2. `run` is called. It mounts the `counter` view at the root.
+2. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate adapter into the runtime. Then `rdc/render` mounts the `counter` view at the root.
 
 3. The view's body runs. `@(subscribe [:count])` returns `5`. The hiccup tree is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent renders that as DOM.
 
