@@ -1828,29 +1828,41 @@
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
-  ;; For parallel-region machines, the same `:guards` / `:actions` are
-  ;; shared across regions — we walk every region's top-level :states
-  ;; for the validation, but the guard/action lookup goes through the
-  ;; parent's shared maps.
-  (let [top-level-states (if (parallel? machine)
-                           (mapcat (fn [[_ region]] (:states region)) (:regions machine))
-                           (:states machine))]
-    (doseq [[s state-node] top-level-states]
-      (let [transitions (mapcat
-                         (fn [[_ t]]
-                           (if (vector? t) t [t]))
-                         (:on state-node))]
-        (doseq [t transitions]
-          (when-let [g (:guard t)]
-            (when (and (keyword? g)
-                       (not (contains? (:guards machine) g)))
-              (throw (ex-info ":rf.error/machine-unresolved-guard"
-                              {:guard g :state s}))))
-          (when-let [a (:action t)]
-            (when (and (keyword? a)
-                       (not (contains? (:actions machine) a)))
-              (throw (ex-info ":rf.error/machine-unresolved-action"
-                              {:action a :state s}))))))))
+  ;;
+  ;; Per rf2-oz9t: drive the validation off `walk-state-nodes` so every
+  ;; state in the tree is checked, not just top-level :states. Cover
+  ;; every transition-bearing slot the runtime resolves keyword refs
+  ;; through: `:on` transition tables, `:always` transitions, and the
+  ;; single-action `:entry` / `:exit` slots. For parallel-region
+  ;; machines, `walk-state-nodes` already iterates every region's
+  ;; state-tree; the shared `:guards` / `:actions` maps live at the
+  ;; parent (machine) level.
+  (let [guards-map  (:guards machine)
+        actions-map (:actions machine)
+        check-guard! (fn [g s]
+                       (when (and (keyword? g)
+                                  (not (contains? guards-map g)))
+                         (throw (ex-info ":rf.error/machine-unresolved-guard"
+                                         {:guard g :state s}))))
+        check-action! (fn [a s]
+                        (when (and (keyword? a)
+                                   (not (contains? actions-map a)))
+                          (throw (ex-info ":rf.error/machine-unresolved-action"
+                                          {:action a :state s}))))]
+    (doseq [[s state-node] (walk-state-nodes machine)]
+      ;; :on transitions: { event-key → transition | [transition ...] }.
+      (doseq [[_ t] (:on state-node)
+              t     (if (vector? t) t [t])]
+        (check-guard!  (:guard t)  s)
+        (check-action! (:action t) s))
+      ;; :always transitions: a vector of transition maps. Each may
+      ;; carry :guard and/or :action just like :on entries.
+      (doseq [t (:always state-node)]
+        (check-guard!  (:guard t)  s)
+        (check-action! (:action t) s))
+      ;; :entry / :exit slots: a single action-ref (keyword or fn).
+      (check-action! (:entry state-node) s)
+      (check-action! (:exit  state-node) s)))
   (fn [{:keys [db frame] :as _cofx} event]
     (let [;; Per Spec 005 §Registration: id comes from event[0] (the
           ;; surrounding reg-event-fx id), NOT from the spec map.

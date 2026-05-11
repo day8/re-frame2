@@ -1,0 +1,208 @@
+(ns re-frame.nested-validation-test
+  "Per rf2-oz9t — verify-the-gap-first probe for the machine
+  registration-time validator's coverage of :guard / :action keyword
+  references in NESTED states and in non-`:on` slots
+  (`:always`, `:entry`, `:exit`).
+
+  Background: in `re-frame.machines`, `create-machine-handler`
+  validates keyword `:guard` / `:action` references via a manual
+  top-level `doseq` over `(:states machine)`, walking only `:on`
+  transitions. The sibling helper `walk-state-nodes` (used just above
+  for other registration-time validation) walks recursively but is NOT
+  reused for guard/action validation. Spec 005 implies the
+  registration-time validator should cover the full state tree and
+  every transition-bearing slot, not just top-level `:on`.
+
+  These tests pin the observable behaviour. If a misuse passes
+  registration silently and only manifests at runtime, the gap is real
+  and the validator needs to drive off the recursive walker. If the
+  registration throws clearly, the narrow pass is structurally
+  sufficient and a code comment should explain why.
+
+  Each test registers a machine that points at an unregistered
+  keyword from a single misuse site, isolated so the failure mode is
+  unambiguous."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.machines :as machines]))
+
+(defn- reset-runtime [test-fn]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (rf/init! plain-atom/adapter)
+  (require 're-frame.machines :reload)
+  (machines/reset-counters!)
+  (test-fn))
+
+(use-fixtures :each reset-runtime)
+
+(defn- registration-throws?
+  "Try registering `machine` under `machine-id`. Returns the
+  ExceptionInfo if registration threw, else nil. Quarantines the
+  thrown error so individual tests can assert on its shape."
+  [machine-id machine]
+  (try (rf/reg-machine machine-id machine) nil
+       (catch clojure.lang.ExceptionInfo e e)))
+
+;; ---- baseline: TOP-level :on misuse IS caught ----------------------------
+
+(deftest top-level-on-guard-keyword-unresolved
+  (testing "Top-level :on transition with unregistered :guard keyword fails registration (baseline)"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:on {:go [{:target :other
+                                         :guard  :no-such-guard}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-on-guard m)]
+      (is (some? thrown) "top-level :on :guard misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+          "error category names the unresolved-guard contract")
+      (is (= :no-such-guard (:guard (ex-data thrown)))
+          "ex-data carries the offending guard keyword"))))
+
+(deftest top-level-on-action-keyword-unresolved
+  (testing "Top-level :on transition with unregistered :action keyword fails registration (baseline)"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:on {:go [{:target :other
+                                         :action :no-such-action}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-on-action m)]
+      (is (some? thrown) "top-level :on :action misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+          "error category names the unresolved-action contract")
+      (is (= :no-such-action (:action (ex-data thrown)))
+          "ex-data carries the offending action keyword"))))
+
+;; ---- gap probe: NESTED-state :on -----------------------------------------
+
+(deftest nested-on-guard-keyword-unresolved
+  (testing "Nested-state :on transition with unregistered :guard keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:on {:go [{:target :other
+                                                            :guard  :no-such-guard}]}}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-on-guard m)]
+      (is (some? thrown)
+          "nested-state :on :guard misuse SHOULD throw at registration"))))
+
+(deftest nested-on-action-keyword-unresolved
+  (testing "Nested-state :on transition with unregistered :action keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:on {:go [{:target :other
+                                                            :action :no-such-action}]}}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-on-action m)]
+      (is (some? thrown)
+          "nested-state :on :action misuse SHOULD throw at registration"))))
+
+;; ---- gap probe: :always slot (top-level + nested) -----------------------
+
+(deftest top-level-always-guard-keyword-unresolved
+  (testing "Top-level :always with unregistered :guard keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:always [{:target :other
+                                        :guard  :no-such-guard}]}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-always-guard m)]
+      (is (some? thrown)
+          "top-level :always :guard misuse SHOULD throw at registration"))))
+
+(deftest top-level-always-action-keyword-unresolved
+  (testing "Top-level :always with unregistered :action keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:always [{:target :other
+                                        :action :no-such-action}]}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-always-action m)]
+      (is (some? thrown)
+          "top-level :always :action misuse SHOULD throw at registration"))))
+
+(deftest nested-always-guard-keyword-unresolved
+  (testing "Nested-state :always with unregistered :guard keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always [{:target :other
+                                                           :guard  :no-such-guard}]}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-always-guard m)]
+      (is (some? thrown)
+          "nested :always :guard misuse SHOULD throw at registration"))))
+
+(deftest nested-always-action-keyword-unresolved
+  (testing "Nested-state :always with unregistered :action keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always [{:target :other
+                                                           :action :no-such-action}]}
+                                         :other {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-always-action m)]
+      (is (some? thrown)
+          "nested :always :action misuse SHOULD throw at registration"))))
+
+;; ---- gap probe: :entry / :exit action references -------------------------
+
+(deftest top-level-entry-action-keyword-unresolved
+  (testing "Top-level :entry referencing an unregistered action keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:entry :no-such-action}}}
+          thrown (registration-throws? :rf.nested-validation/top-entry-action m)]
+      (is (some? thrown)
+          "top-level :entry action misuse SHOULD throw at registration"))))
+
+(deftest top-level-exit-action-keyword-unresolved
+  (testing "Top-level :exit referencing an unregistered action keyword fails registration"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {}
+             :states  {:idle {:exit :no-such-action
+                              :on   {:go :other}}
+                       :other {}}}
+          thrown (registration-throws? :rf.nested-validation/top-exit-action m)]
+      (is (some? thrown)
+          "top-level :exit action misuse SHOULD throw at registration"))))
+
+(deftest nested-entry-action-keyword-unresolved
+  (testing "Nested-state :entry referencing an unregistered action keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:entry :no-such-action}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-entry-action m)]
+      (is (some? thrown)
+          "nested-state :entry action misuse SHOULD throw at registration"))))
+
+(deftest nested-exit-action-keyword-unresolved
+  (testing "Nested-state :exit referencing an unregistered action keyword fails registration"
+    (let [m {:initial :outer
+             :guards  {}
+             :actions {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:exit :no-such-action
+                                                 :on   {:go :sibling}}
+                                         :sibling {}}}}}
+          thrown (registration-throws? :rf.nested-validation/nested-exit-action m)]
+      (is (some? thrown)
+          "nested-state :exit action misuse SHOULD throw at registration"))))
