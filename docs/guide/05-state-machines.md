@@ -536,5 +536,6 @@ When the flow has the shape of a machine, write a machine.
 
 ## Next
 
+- [05a — Forms](05a-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
 - [06 — Doing HTTP requests](06-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
 - [07 — The server side](07-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.

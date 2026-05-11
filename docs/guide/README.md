@@ -10,6 +10,8 @@ If you're an AI agent or implementor, you want the [specification](../../spec/RE
 
 The guide is in two parts. The **core path** (chapters 01-07) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 08-12) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
 
+Chapter **05a — Forms** sits between 05 and 06 as a side-track: not load-bearing for the mental model the way 05 is, but standard enough that most readers will want it before they reach 06. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
+
 ### Core path
 
 Read these in order. Each chapter assumes the previous one.
@@ -21,6 +23,7 @@ Read these in order. Each chapter assumes the previous one.
 | 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
 | 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
 | 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |
+| 05a | [Forms](05a-forms.md) | The standard form slice, seven-event lifecycle, error-visibility rule. |
 | 06 | [Doing HTTP requests](06-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
 | 07 | [The server side](07-server-side.md) | SSR and hydration without losing your mind. |
 
@@ -75,7 +78,7 @@ The specification ships a family of **Pattern docs** — convention, not Spec, n
 
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard 5-key lifecycle slice.
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice.
+- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [05a — Forms](05a-forms.md).)
 - [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init with progress UI and fail-fatal points.
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
