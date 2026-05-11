@@ -206,6 +206,7 @@ Each of these has been distilled into a **Pattern** doc — convention, not Spec
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
 - [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
+- [Pattern-NineStates](../../spec/Pattern-NineStates.md) — making the nine common UI states (`Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`) explicit in data so each branch is testable.
 
 The pattern docs are themselves human-readable — closer in voice to this guide than to the Specs. When the shape of a feature you're building matches one of them, read the pattern doc and copy the shape; don't invent a new one.
 

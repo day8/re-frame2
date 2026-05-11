@@ -273,6 +273,36 @@ The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:
 
 The canned-stub fxs gate on `interop/debug-enabled?` — they elide in production builds, so tests pay no production cost.
 
+## The standard request-lifecycle slice
+
+`:rf.http/managed` gives you the *mechanics* of a request — fire it, decode the reply, retry, abort. It doesn't give you the *shape* of the slice you write that reply into. Across every feature that loads remote data, the same five-key shape recurs:
+
+```clojure
+{:status     :idle | :loading | :fetching | :loaded | :error
+ :data       <result-or-nil>
+ :error      <error-or-nil>
+ :loaded-at  <timestamp-or-nil>
+ :attempt    <int>}                 ;; bumps on every fetch; 0 means "never fetched"
+```
+
+This is **Pattern-RemoteData** — convention, not Spec. Every team that builds a non-trivial app converges on something like it; the pattern doc just names a canonical shape so codebases (and AI scaffolds) don't each invent a slightly different one.
+
+The load-bearing piece is the **`:loading` vs `:fetching` split**:
+
+| Status | Meaning | Typical UI | Has `:data`? |
+|---|---|---|---|
+| `:idle` | Never fetched. | Empty state / call-to-action. | No. |
+| `:loading` | First fetch in flight. No `:data` yet. | Spinner / skeleton. | No. |
+| `:fetching` | Re-fetch in flight while we already have `:data` (revalidation, polling, retry-with-data). | Subtle progress indicator at most; **never blank the page**. | Yes (the previous `:data`). |
+| `:loaded` | Fetch completed. `:data` is fresh. | Render `:data`. | Yes. |
+| `:error` | The most recent fetch failed. Prior `:data` may still be present. | Error UI; offer retry; still render stale `:data` if appropriate. | Maybe. |
+
+The split exists because the UI for an empty page mid-load is a spinner, but the UI for a page that already has data and is refreshing isn't — without the split, every revalidation flashes a spinner over loaded content.
+
+Four standard events shape the slice, namespaced per feature (`:articles/load`, `:articles/loaded`, `:articles/load-failed`, optionally `:articles/reset`). The `:load` handler picks `:loading` vs `:fetching` based on whether `:data` is currently `nil`; `:loaded` sets `:data` and `:loaded-at`; `:load-failed` records the error but keeps any prior `:data` so the view can still render staleness rather than blank. Convenience subs like `:loading?` (truly empty + in-flight) and `:fetching?` (any in-flight) drive views without per-feature gymnastics.
+
+For the full slice schema, the four-event walkthrough, optimistic-update rollback, and the `:loaded-at` / `:stale-after-ms` freshness story, see [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md). The RealWorld example exercises the full shape across `articles`, `feed`, `profile`, and `comments` slices.
+
 ## Worked example — `examples/reagent/managed_http_counter/`
 
 The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's the same counter from chapter 02, extended with HTTP — each button issues a managed request and the reply lands back in app-db. The counter's spine carries through unchanged; HTTP layers on top.
