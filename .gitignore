@@ -23,8 +23,9 @@ Thumbs.db
 .env.local
 .envrc
 
-# Findings (exploratory workspace — local-only, never committed)
-/findings/
+# AI working tree (local-only — findings, map, super-prompt playground)
+# Per docs/the-mayor-method.md
+/ai/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
