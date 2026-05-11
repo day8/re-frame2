@@ -1,8 +1,8 @@
 (ns realworld.http
   "HTTP helpers for the RealWorld (Conduit) example.
 
-   This is the canonical Spec 014 demo (rf2-kauy / rf2-o8t6). Every Conduit
-   endpoint goes out via `:rf.http/managed` — the framework-shipped managed
+   This is the canonical Spec 014 demo. Every Conduit endpoint goes
+   out via `:rf.http/managed` — the framework-shipped managed
    HTTP fx. The framework owns transport, decoding, status classification,
    retry-with-backoff, abort, and reply addressing; the example just
    composes request maps.

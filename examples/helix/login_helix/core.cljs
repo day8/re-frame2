@@ -1,5 +1,5 @@
 (ns login-helix.core
-  "Helix variant of the login example (rf2-2qit Decision 7).
+  "Helix variant of the login example.
 
    Same dataflow, schemas, machine, and HTTP stub as
    examples/reagent/login and examples/uix/login_uix, but views are
@@ -8,9 +8,8 @@
    Spec 010 schemas, and Spec 014 managed-HTTP surfaces are
    substrate-agnostic — only the view layer differs across substrates.
 
-   Per rf2-2qit Decision 4 reg-view stays Reagent-only; Helix
-   components are plain `defnc`. Per Decision 3 there is no
-   auto-injection."
+   `reg-view` stays Reagent-only; Helix components are plain `defnc`.
+   There is no auto-injection."
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
@@ -222,7 +221,7 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (Helix) demo frame."

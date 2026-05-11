@@ -1,7 +1,7 @@
 (ns realworld.comments-test
   "Headless tests for realworld.comments — article-detail load and
-   comment-post happy path. Retrofitted under rf2-o8t6 to use Spec 014's
-   `:rf.http/managed` substrate via the framework-shipped canned-stub fxs.
+   comment-post happy path. Uses Spec 014's `:rf.http/managed`
+   substrate via the framework-shipped canned-stub fxs.
 
    The `:article/load` event uses default reply addressing (Spec 014
    §Reply addressing — default form): no explicit `:on-success` /

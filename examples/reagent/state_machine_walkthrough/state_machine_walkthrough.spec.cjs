@@ -1,5 +1,5 @@
 /*
- * State-machines walkthrough — lockout scenario (rf2-vq2s).
+ * State-machines walkthrough — lockout scenario.
  *
  * Walks the login flow through the chapter's canonical lockout path:
  *

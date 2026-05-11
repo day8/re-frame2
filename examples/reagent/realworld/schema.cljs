@@ -17,10 +17,9 @@
    - Authentication tokens are JWT strings, returned as the `:token` field
      of the `User` payload after login or registration."
   (:require [re-frame.core :as rf]
-            ;; Per rf2-p7va, re-frame.schemas ships in
-            ;; day8/re-frame2-schemas. Loading the ns here registers
-            ;; its late-bind hooks so rf/reg-app-schema resolves at
-            ;; the call sites below.
+            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
+            ;; Loading the ns here registers its late-bind hooks so
+            ;; rf/reg-app-schema resolves at the call sites below.
             [re-frame.schemas]))
 
 ;; ============================================================================
@@ -143,7 +142,7 @@
 
 (def TagsSnapshot
   "Snapshot shape for the `:realworld/tags` machine — the
-   :data-region machine variant of Pattern-RemoteData (rf2-0i4y). The
+   :data-region machine variant of Pattern-RemoteData. The
    state-keyword IS the Pattern-RemoteData status enum; `:data` carries
    the items, error, loaded-at, and attempt fields that the slice form
    would store in the slice itself."
@@ -198,9 +197,9 @@
 (rf/reg-app-schema [:article]                  RequestSlice)
 (rf/reg-app-schema [:article :data]            [:maybe Article])
 ;; The `:tags` slice from the slice-form era is gone; the popular-tags
-;; lifecycle is now the `:realworld/tags` machine (rf2-0i4y, the
-;; :data-region machine variant of Pattern-RemoteData). The snapshot
-;; lives at `[:rf/machines :realworld/tags]`.
+;; lifecycle is now the `:realworld/tags` machine (the :data-region
+;; machine variant of Pattern-RemoteData). The snapshot lives at
+;; `[:rf/machines :realworld/tags]`.
 (rf/reg-app-schema [:rf/machines :realworld/tags] TagsSnapshot)
 (rf/reg-app-schema [:profile]                  RequestSlice)
 (rf/reg-app-schema [:profile :data]            [:maybe Profile])

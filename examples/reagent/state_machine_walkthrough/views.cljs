@@ -1,5 +1,5 @@
 (ns state-machine-walkthrough.views
-  "Browser entry-point for the state-machines walkthrough (rf2-vq2s).
+  "Browser entry-point for the state-machines walkthrough.
 
   The pure machine, fxs, subs and headless tests live in `core.cljc`
   alongside docs/guide/05-state-machines.md. This namespace is the
@@ -89,7 +89,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   ;; Install the canned-failure override on the default frame so every
   ;; `:rf.http/managed` request resolves :failure. The chapter's

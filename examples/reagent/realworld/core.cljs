@@ -14,7 +14,7 @@
      article_editor.cljs   — create / edit / delete article
      profile.cljs          — public profile routes
      favorites.cljs        — favorite toggle + your-feed slice
-     tags.cljs             — popular-tags machine (rf2-0i4y, :data-region
+     tags.cljs             — popular-tags machine (:data-region
                              machine variant of Pattern-RemoteData) +
                              home-page query helpers
      settings.cljs         — user settings page
@@ -23,15 +23,14 @@
      http.cljs             — request-builder + retry policy for :rf.http/managed
      ssr.cljc              — hydration payload helper for the RealWorld app
 
-   This is the canonical Spec 014 (`:rf.http/managed`) demo per
-   rf2-kauy / rf2-o8t6. Every Conduit endpoint goes via the
-   framework-shipped managed-HTTP fx; the demo entry below installs a
-   canned-stub override so the headless smoke and Playwright run without
-   a network."
+   This is the canonical Spec 014 (`:rf.http/managed`) demo. Every
+   Conduit endpoint goes via the framework-shipped managed-HTTP fx;
+   the demo entry below installs a canned-stub override so the headless
+   smoke and Playwright run without a network."
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame2-http.
+            ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
             ;; and family) and publishes the late-bind hooks; without
@@ -39,7 +38,7 @@
             ;; :rf.error/no-such-fx. RealWorld is the canonical Spec 014
             ;; demo so the require is mandatory here.
             [re-frame.http-managed]
-            ;; rf2-uo7v: SSR ships in day8/re-frame2-ssr. Requiring
+            ;; SSR ships in day8/re-frame2-ssr. Requiring
             ;; re-frame.ssr at app boot publishes the late-bind hooks
             ;; (`:ssr/render-tree-hash` etc.) and registers the
             ;; `:rf/hydrate` handler — the RealWorld ssr.cljc helper
@@ -257,14 +256,14 @@
           20)))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
-;; the `root-view` reg-view above (rf2-562e). Gated on (exists? js/document)
-;; so the ns is safe to require under :node-test (rf2-4v73).
+;; the `root-view` reg-view above. Gated on (exists? js/document)
+;; so the ns is safe to require under :node-test.
 (defonce react-root
   (when (exists? js/document)
     (rdc/create-root (js/document.getElementById "app"))))
 
 ;; ============================================================================
-;; HTTP REQUEST INTERCEPTOR — Spec 014 §Middleware (rf2-6y3q)
+;; HTTP REQUEST INTERCEPTOR — Spec 014 §Middleware
 ;; ============================================================================
 ;;
 ;; Demonstrates the per-frame request interceptor surface: a single
@@ -290,15 +289,15 @@
                       (str "Token " token)))))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :fx-overrides {:rf.http/managed :rf.http/managed.realworld-demo}})
-  ;; rf2-6y3q — register the Bearer-auth interceptor at app boot. Order
-  ;; matters: before :app/initialise dispatches, since session-restore
-  ;; will fire authenticated requests as soon as the JWT is hydrated.
+  ;; Register the Bearer-auth interceptor at app boot. Order matters:
+  ;; before :app/initialise dispatches, since session-restore will fire
+  ;; authenticated requests as soon as the JWT is hydrated.
   (rf/reg-http-interceptor
     {:frame  :rf/default
      :id     :realworld/bearer-auth

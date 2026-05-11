@@ -1,5 +1,5 @@
 /*
- * Login — smoke test (rf2-w3vn).
+ * Login — smoke test.
  *
  * Drives the login state machine end-to-end through the UI:
  *

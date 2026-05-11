@@ -1,8 +1,7 @@
 (ns realworld.settings-test
   "Headless test for realworld.settings — settings save propagates new
-   user data into the auth slice. Retrofitted under rf2-o8t6 to use
-   Spec 014's `:rf.http/managed` substrate via the framework-shipped
-   canned-stub fxs."
+   user data into the auth slice. Uses Spec 014's `:rf.http/managed`
+   substrate via the framework-shipped canned-stub fxs."
   (:require [re-frame.core :as rf]
             [realworld.settings]
             [realworld.test-helpers :as th])

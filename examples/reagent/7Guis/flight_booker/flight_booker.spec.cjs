@@ -1,5 +1,5 @@
 /*
- * 7GUIs #3 — Flight Booker — smoke test (rf2-lyj0).
+ * 7GUIs #3 — Flight Booker — smoke test.
  *
  * Drives constrained-input UI:
  *

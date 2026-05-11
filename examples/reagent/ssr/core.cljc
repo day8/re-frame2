@@ -23,7 +23,7 @@
      diffs server vs. client hashes after first render and emits
      :rf.ssr/hydration-mismatch on disagreement
 
-   Runnable form (rf2-vq2s): the hand-written `index.html` next to this
+   Runnable form: the hand-written `index.html` next to this
    file ships with pre-rendered HTML inside `<div id='app'>` and a pre-
    baked `<script id='__rf_payload'>` — exactly the shape `handle-request`
    below would emit if a real Clojure server were sitting in front. The
@@ -31,12 +31,11 @@
    renders against the now-seeded app-db."
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; Per rf2-p7va, re-frame.schemas ships in
-            ;; day8/re-frame2-schemas. Loading the ns here registers
-            ;; its late-bind hooks so rf/reg-app-schema resolves at
-            ;; the call sites below.
+            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
+            ;; Loading the ns here registers its late-bind hooks so
+            ;; rf/reg-app-schema resolves at the call sites below.
             [re-frame.schemas]
-            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame2-http.
+            ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Loading the ns here registers the `:rf.http/managed` fx
             ;; family — the SSR worked example dispatches
             ;; `:rf.http/managed` for the article-list fetch and uses
@@ -44,7 +43,7 @@
             ;; stub during render. Without the require, the override
             ;; would target an unregistered fx-id.
             [re-frame.http-managed]
-            ;; Per rf2-uo7v, SSR ships in day8/re-frame2-ssr. Loading
+            ;; SSR ships in day8/re-frame2-ssr. Loading
             ;; the ns here registers the six `:rf.server/*` server-only
             ;; fxs, the `:rf/hydrate` event, and the
             ;; `:rf.ssr/default-error-projector`, and publishes the
@@ -119,7 +118,7 @@
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 
 ;; ============================================================================
-;; CLIENT-SIDE INTERACTIVITY EVENTS  (rf2-vq2s)
+;; CLIENT-SIDE INTERACTIVITY EVENTS
 ;; ============================================================================
 ;;
 ;; A small interactive surface so we can verify that hydration left the
@@ -255,7 +254,7 @@
      ;; first call installs the adapter and creates :rf/default; subsequent
      ;; calls (e.g. shadow-cljs hot reloads) are no-ops.
      ;;
-     ;; rf2-agql: pass the adapter spec map directly. There is no
+     ;; Pass the adapter spec map directly. There is no
      ;; default-adapter registry — each adapter ns exports an `adapter`
      ;; var the consumer requires and passes here.
      (rf/init! reagent-adapter/adapter)
@@ -276,9 +275,9 @@
 #?(:clj
    (defn ssr-tests []
      ;; Boot the runtime (idempotent) — installs the SSR adapter and the
-     ;; :rf/default frame. Per rf2-agql `re-frame.ssr` exports its own
-     ;; `adapter` var (the JVM-side counterpart of reagent/uix/helix
-     ;; adapters); pass it explicitly.
+     ;; :rf/default frame. `re-frame.ssr` exports its own `adapter` var
+     ;; (the JVM-side counterpart of reagent/uix/helix adapters); pass it
+     ;; explicitly.
      (rf/init! ssr/adapter)
      ;; Stub `:rf.http/managed` so the test doesn't make real network
      ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`

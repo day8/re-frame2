@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Orchestrator for the examples Playwright suite (rf2-lyj0).
+ * Orchestrator for the examples Playwright suite.
  *
  * 1. Compiles every example shadow-cljs build (one per example).
  * 2. Stages each example's hand-written index.html into its
@@ -47,7 +47,7 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter', 'index.html'),
     outDir: path.join(OUT_ROOT, 'counter'),
   },
-  // Performance-API instrumented variant of the counter (rf2-du3i).
+  // Performance-API instrumented variant of the counter.
   // Same source, same :advanced compilation, but with the
   // `re-frame.performance/enabled?` goog-define flipped to true. The
   // paired counter-perf.spec.cjs asserts that a real dispatch through
@@ -98,7 +98,7 @@ const EXAMPLES = [
       },
     ],
   },
-  // Spec 014 — managed HTTP counter (rf2-cfig). Stages a static
+  // Spec 014 — managed HTTP counter. Stages a static
   // /api/inc.json for the +1 button to fetch; a missing /api/does-not-exist
   // path naturally produces a 404 from http-server for the Fail button.
   {
@@ -112,7 +112,6 @@ const EXAMPLES = [
       },
     ],
   },
-  // Phase 3 — rf2-w3vn.
   {
     build: 'examples/crud',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', '7Guis', 'crud', 'crud.html'),
@@ -133,11 +132,11 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'login', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login'),
   },
-  // rf2-3yij — UIx adapter smoke trio (Decision 7: counter + login,
-  // realworld skipped). Different folders from the canonical Reagent
-  // versions so the bundle-isolation grep can confirm UIx code does
-  // NOT appear in Reagent-substrate examples and vice versa. Per
-  // rf2-kx74 the UIx tree lives under examples/uix/.
+  // UIx adapter smoke trio (counter + login, realworld skipped).
+  // Different folders from the canonical Reagent versions so the
+  // bundle-isolation grep can confirm UIx code does NOT appear in
+  // Reagent-substrate examples and vice versa. The UIx tree lives
+  // under examples/uix/.
   {
     build: 'examples/counter-uix',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'counter_uix', 'index.html'),
@@ -148,12 +147,12 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'uix', 'login_uix', 'index.html'),
     outDir: path.join(OUT_ROOT, 'login-uix'),
   },
-  // rf2-2qit — Helix adapter smoke trio (Decision 7: counter + login,
-  // realworld skipped — the eight UIx decisions transfer unchanged).
-  // Different folders from the canonical Reagent and UIx versions so
-  // the bundle-isolation grep can confirm Helix code does NOT appear
-  // in Reagent / UIx-substrate examples and vice versa. Per rf2-kx74
-  // the Helix tree lives under examples/helix/.
+  // Helix adapter smoke trio (counter + login, realworld skipped —
+  // the eight UIx decisions transfer unchanged). Different folders
+  // from the canonical Reagent and UIx versions so the
+  // bundle-isolation grep can confirm Helix code does NOT appear
+  // in Reagent / UIx-substrate examples and vice versa. The Helix
+  // tree lives under examples/helix/.
   {
     build: 'examples/counter-helix',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'helix', 'counter_helix', 'index.html'),
@@ -169,19 +168,19 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'realworld', 'index.html'),
     outDir: path.join(OUT_ROOT, 'realworld'),
   },
-  // rf2-vq2s — runnable companion to docs/guide/05-state-machines.md.
+  // Runnable companion to docs/guide/05-state-machines.md.
   {
     build: 'examples/state-machine-walkthrough',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'state_machine_walkthrough', 'index.html'),
     outDir: path.join(OUT_ROOT, 'state-machine-walkthrough'),
   },
-  // rf2-vq2s — SSR + hydration walkthrough.
+  // SSR + hydration walkthrough.
   {
     build: 'examples/ssr',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'ssr', 'index.html'),
     outDir: path.join(OUT_ROOT, 'ssr'),
   },
-  // Story Stage 8 (rf2-c9mm) — the canonical counter app with the
+  // Story Stage 8 — the canonical counter app with the
   // seven `reg-*` Story macros wired up. URL-hash-routed: `#/`
   // renders the live counter; `#/stories` mounts the Story shell.
   {

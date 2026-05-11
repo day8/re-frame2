@@ -189,7 +189,7 @@ If you don't need any other registration metadata (no `:doc`, no `:interceptors`
 
 This is exactly `(reg-event-fx machine-id (create-machine-handler machine))` — same effect, less ceremony.
 
-`reg-machine` is a **macro** (since [rf2-8bp3](../../spec/005-StateMachines.md#source-coord-stamping-rf2-8bp3)). At expansion time it walks the literal spec form and stamps a flat coord index under `:rf.machine/source-coords` on the machine's metadata, keyed by spec-path tuples like `[:guards :form-valid?]`, `[:actions :commit]`, `[:states :form :on :submit]`. The coord index is what lets pair-tools take a clicked transition arrow in a state-diagram visualisation and jump to the source line that wrote it. It's dev-only — production builds elide the index alongside other source-coord annotations.
+`reg-machine` is a **macro**. At expansion time it walks the literal spec form and stamps a flat coord index under `:rf.machine/source-coords` on the machine's metadata, keyed by spec-path tuples like `[:guards :form-valid?]`, `[:actions :commit]`, `[:states :form :on :submit]`. The coord index is what lets pair-tools take a clicked transition arrow in a state-diagram visualisation and jump to the source line that wrote it. It's dev-only — production builds elide the index alongside other source-coord annotations.
 
 In day-to-day code you will not see the coord index unless you go looking for it. `(rf/machine-meta :auth.login/flow)` returns it under the `:rf.machine/source-coords` key.
 
@@ -799,7 +799,7 @@ For most apps, you do not call `:rf.machine/spawn` directly. The declarative `:i
 
 #### The runtime-tracked spawn registry
 
-Earlier drafts of the spec asked the user to write the spawned actor-id into a chosen `:data` key (e.g. `:auth-actor`) inside their `:on-spawn` action, then read that key on destroy to pass it to `:rf.machine/destroy`. That contract had a worked-example bug ([rf2-t07u](#)): if you wrote the id into `:auth-actor` but the runtime hardcoded a magic `:pending` key when destroying, your actor would silently leak on every state exit.
+Earlier drafts of the spec asked the user to write the spawned actor-id into a chosen `:data` key (e.g. `:auth-actor`) inside their `:on-spawn` action, then read that key on destroy to pass it to `:rf.machine/destroy`. That contract had a worked-example bug: if you wrote the id into `:auth-actor` but the runtime hardcoded a magic `:pending` key when destroying, your actor would silently leak on every state exit.
 
 That is fixed (per PR #172). The runtime now keeps an internal **spawn registry** at `[:rf/spawned <parent-id> <invoke-id>]` in the spawning frame's `app-db`. When a state with `:invoke` is entered, the runtime writes the spawned actor-id there. On exit, the runtime reads it back and emits the destroy fx with the right id. **You don't have to track the actor-id yourself.**
 
@@ -852,7 +852,7 @@ The standard cross-machine pattern still works — `[:fx [[:dispatch [<other-id>
 
 This is **opt-in** and **orthogonal** to gensym'd ids. Most spawns won't need it. Reach for `:system-id` when you have a stable role (one auth flow, one primary request, one wizard) that other parts of the frame need to talk to by name.
 
-A note on the 3-arity escape hatch covered earlier: the runtime detects "this fn declared three positional parameters" by inspecting the fn's arglist. **Variadic fns** like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity (per [rf2-1e0n](#) and follow-up rf2-l04j). If you actually want the introspection slot, write a real 3-arity fn rather than reaching for a variadic shorthand — the variadic case is a footgun, not a clever shortcut.
+A note on the 3-arity escape hatch covered earlier: the runtime detects "this fn declared three positional parameters" by inspecting the fn's arglist. **Variadic fns** like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity. If you actually want the introspection slot, write a real 3-arity fn rather than reaching for a variadic shorthand — the variadic case is a footgun, not a clever shortcut.
 
 ## A runnable example
 

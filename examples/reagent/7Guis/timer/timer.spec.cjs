@@ -1,5 +1,5 @@
 /*
- * 7GUIs #4 — Timer — smoke test (rf2-lyj0).
+ * 7GUIs #4 — Timer — smoke test.
  *
  * The timer is driven by `:dispatch-later` ticks every 100ms. The smoke
  * test verifies the timer ticks (elapsed advances), the slider changes

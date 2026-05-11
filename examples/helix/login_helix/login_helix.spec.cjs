@@ -1,5 +1,5 @@
 /*
- * Login (Helix) — smoke test (rf2-2qit Decision 7).
+ * Login (Helix) — smoke test.
  *
  * Same machine + HTTP stub as examples/reagent/login and
  * examples/uix/login_uix; views go through the Helix adapter. Asserts

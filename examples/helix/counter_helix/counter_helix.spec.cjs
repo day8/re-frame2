@@ -1,5 +1,5 @@
 /*
- * Counter (Helix) example — smoke test (rf2-2qit Decision 7).
+ * Counter (Helix) example — smoke test.
  *
  * Renders the same dataflow as examples/reagent/counter and
  * examples/uix/counter_uix, but through the Helix substrate adapter.

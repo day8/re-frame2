@@ -13,9 +13,9 @@
  * post-interaction state).
  *
  * Why a hand-rolled runner rather than @playwright/test:
- *   - Mirrors the run-browser-tests.cjs pattern already used by rf2-zoem
- *     (PR #15) — same dependencies (`playwright`), same console-tap +
- *     pageerror discipline, same exit-code contract.
+ *   - Mirrors the run-browser-tests.cjs pattern (PR #15) — same
+ *     dependencies (`playwright`), same console-tap + pageerror
+ *     discipline, same exit-code contract.
  *   - Avoids dragging in @playwright/test as a separate devDep when
  *     the spec surface is small and the orchestration is straightforward.
  *
@@ -34,7 +34,7 @@ const path = require('path');
 const fs = require('fs');
 
 // playwright is a devDependency of implementation/package.json — there
-// is no examples/package.json by design (rf2-gqm7). Resolve playwright
+// is no examples/package.json by design. Resolve playwright
 // out of implementation/node_modules explicitly so the runner can be
 // invoked from any cwd.
 const IMPL_ROOT = path.resolve(__dirname, '..', '..', 'implementation');

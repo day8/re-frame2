@@ -4,7 +4,7 @@
    This sketch demonstrates:
    - Pattern-NineStates — one parallel state machine with three orthogonal
      regions (`:feed` × `:filter` × `:data`) replacing the prior multi-axis
-     state-in-separate-slices shape (per rf2-qbau).
+     state-in-separate-slices shape.
    - Pattern-RemoteData lifecycle folded into the `:data` region; the
      region's state-keyword IS the status. The actual article items still
      live in app-db slices (`:articles`, `:feed`) so optimistic-update
@@ -17,7 +17,7 @@
      machine's tag union (per Pattern-NineStates §4).
    - view reuse across the home page and profile pages."
   (:require [re-frame.core :as rf]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/reg-machine (called
             ;; below at ns-load) and the `:rf/machine` framework subs
@@ -283,8 +283,8 @@
 (rf/reg-sub :articles/data       :<- [:articles] (fn [s _] (:data s)))
 (rf/reg-sub :articles/error      :<- [:articles] (fn [s _] (:error s)))
 
-;; The `:tags/data` sub is defined in `realworld.tags`. Per rf2-0i4y
-;; the popular-tags lifecycle is the :data-region machine variant of
+;; The `:tags/data` sub is defined in `realworld.tags`. The
+;; popular-tags lifecycle is the :data-region machine variant of
 ;; Pattern-RemoteData — the slice is gone, items are projected off
 ;; the `:realworld/tags` machine's `:data`. The home view's sidebar
 ;; below consumes `:tags/data` as before; only the source changed.

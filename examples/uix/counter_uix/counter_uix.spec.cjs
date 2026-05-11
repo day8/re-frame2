@@ -1,5 +1,5 @@
 /*
- * Counter (UIx) example — smoke test (rf2-3yij Decision 7).
+ * Counter (UIx) example — smoke test.
  *
  * Renders the same dataflow as examples/reagent/counter, but through the UIx
  * substrate adapter. The smoke trio (per Conventions §Substrate test

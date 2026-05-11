@@ -335,7 +335,7 @@ Listening for restore outcomes:
 
 ### Reference: `reset-frame-db!` failure modes and synthetic epoch
 
-`reset-frame-db!` (rf2-zq55, shipped in PR #170) bypasses the dispatch loop, replaces the frame's `app-db` container directly, and **records a synthetic epoch** so `restore-epoch` can rewind past the injection. The synthetic epoch carries:
+`reset-frame-db!` (shipped in PR #170) bypasses the dispatch loop, replaces the frame's `app-db` container directly, and **records a synthetic epoch** so `restore-epoch` can rewind past the injection. The synthetic epoch carries:
 
 - `:event-id :rf.epoch/db-replaced`
 - `:trigger-event [:rf.epoch/db-replaced]`
@@ -386,7 +386,7 @@ The four colon-separated segments are `<ns>:<sym>:<line>:<col>`:
 - `<line>` — source line at `reg-view` macro-expansion time
 - `<col>` — source column
 
-The format is a **public, parseable contract** (rf2-q7r0, per [Spec-Schemas §`:rf/source-coord-attr`](../../spec/Spec-Schemas.md#rfsource-coord-attr)). Tools split on the colon and recover the four pieces directly.
+The format is a **public, parseable contract** (per [Spec-Schemas §`:rf/source-coord-attr`](../../spec/Spec-Schemas.md#rfsource-coord-attr)). Tools split on the colon and recover the four pieces directly.
 
 To recover the file path too, follow the parsed handler-id back to the registration metadata via `:rf/source-coord-meta` (per [Spec-Schemas](../../spec/Spec-Schemas.md)), which carries all four keys including `:file`. The DOM attribute is the cheap-on-the-wire form; the registration metadata is the rich form.
 
@@ -414,7 +414,7 @@ Subscriptions chain — `:count-doubled` depends on `:count`. The framework know
 ;;    :edges #{[:count-doubled :count] ...}}
 ```
 
-This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers). The shape lives in [Spec 006 §Subscription topology](../../spec/006-ReactiveSubstrate.md); the function shipped in PR #142 (rf2-8nzo).
+This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers). The shape lives in [Spec 006 §Subscription topology](../../spec/006-ReactiveSubstrate.md); the function shipped in PR #142.
 
 ### Reference: behaviour against destroyed frames
 
@@ -434,7 +434,7 @@ The pattern: **read-shaped surfaces return an empty shape** (so a defensive `(wh
 
 Why "silencing" is a trace and not a return value: the `register-epoch-cb` callback never sees a record from a destroyed frame — the runtime stops producing records the moment the destroy walks. A tool that didn't know its observed frame was destroyed would see a callback that simply *stopped firing*, with no signal to route off. The silencing trace closes that gap.
 
-The full contract is in [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames). Pattern source: rf2-d656.
+The full contract is in [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
 ## Next
 

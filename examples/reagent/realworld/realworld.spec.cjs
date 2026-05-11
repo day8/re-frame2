@@ -1,10 +1,10 @@
 /*
- * RealWorld (Conduit) — Spec 014 (`:rf.http/managed`) demo (rf2-o8t6).
+ * RealWorld (Conduit) — Spec 014 (`:rf.http/managed`) demo.
  *
- * The realworld example is the canonical Spec 014 demo per
- * rf2-kauy / rf2-o8t6: every Conduit endpoint goes via `:rf.http/managed`,
- * with a canned-stub override (Spec 014 §Testing) routing requests to
- * synthesised replies — no network required.
+ * The realworld example is the canonical Spec 014 demo: every Conduit
+ * endpoint goes via `:rf.http/managed`, with a canned-stub override
+ * (Spec 014 §Testing) routing requests to synthesised replies —
+ * no network required.
  *
  * Coverage:
  *   - Loads cleanly (no pageerror, no uncaught exceptions).

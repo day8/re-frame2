@@ -1,5 +1,5 @@
 /*
- * Managed HTTP counter — Spec 014 §`:rf.http/managed` smoke (rf2-cfig).
+ * Managed HTTP counter — Spec 014 §`:rf.http/managed` smoke.
  *
  * - Initial render: count=0, status=idle.
  * - +1 button: real round-trip via Fetch to /api/inc.json (a static

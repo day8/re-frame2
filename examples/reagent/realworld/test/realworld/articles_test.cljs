@@ -1,7 +1,7 @@
 (ns realworld.articles-test
   "Headless tests for realworld.articles — global feed loading + failure
-   paths. Retrofitted under rf2-o8t6 to use Spec 014's `:rf.http/managed`
-   substrate via the framework-shipped canned-stub fxs."
+   paths. Uses Spec 014's `:rf.http/managed` substrate via the
+   framework-shipped canned-stub fxs."
   (:require [re-frame.core :as rf]
             [realworld.articles]
             [realworld.test-helpers :as th])

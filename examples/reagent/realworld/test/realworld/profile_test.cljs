@@ -1,7 +1,7 @@
 (ns realworld.profile-test
   "Headless test for realworld.profile — profile + authored-articles
-   load. Retrofitted under rf2-o8t6 to use Spec 014's `:rf.http/managed`
-   substrate via the framework-shipped canned-stub fxs."
+   load. Uses Spec 014's `:rf.http/managed` substrate via the
+   framework-shipped canned-stub fxs."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [realworld.profile]

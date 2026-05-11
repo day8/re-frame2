@@ -1,6 +1,6 @@
 (ns counter-with-stories.stories-cljs-test
   "Integration tests for the counter-with-stories example. Per Stage 8
-  (rf2-c9mm) these run under the top-level `node-test` build
+  these run under the top-level `node-test` build
   (`npm run test:cljs`) to assert the example's stories registry is
   intact end-to-end:
 
@@ -30,7 +30,7 @@
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
-;; Snapshot/restore the registrar around each test (rf2-am9d): the
+;; Snapshot/restore the registrar around each test: the
 ;; framework-shipped events / fxs / subs registered at ns-load
 ;; (machines `:rf/machine` sub, Story lifecycle machine, the counter
 ;; app's events / subs / fx, the canonical `:rf.assert/*` handlers)

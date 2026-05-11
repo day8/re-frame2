@@ -2,7 +2,7 @@
   "Popular-tags list plus home-page query helpers (`?tag=` / `?feed=`).
 
    This namespace demonstrates the **`:data-region` machine variant** of
-   Pattern-RemoteData (rf2-0i4y): the popular-tags lifecycle is modelled
+   Pattern-RemoteData: the popular-tags lifecycle is modelled
    as a single-region state machine — `:realworld/tags` — whose
    state-keyword IS the Pattern-RemoteData status. Every other
    remote-data resource in realworld (`:articles`, `:feed`, `:article`,
@@ -23,11 +23,11 @@
      collapse into per-state `:tags` queried with `rf/has-tag?`.
 
    Routing pieces (`:home/load`, `:home/show-global-feed`, etc.) sit
-   below — they predate the rf2-0i4y refactor and are unaffected by it,
+   below — they predate the refactor and are unaffected by it,
    though they dispatch `:tags/load` so the new machine fetches when
    the home route activates."
   (:require [re-frame.core :as rf]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/reg-machine (called
             ;; below at ns-load) and the `:rf/machine` / `:rf/machine-has-tag?`
@@ -217,7 +217,7 @@
     (get-in snap [:data :error])))
 
 ;; ============================================================================
-;; HOME-PAGE QUERY HELPERS  (predate rf2-0i4y; unaffected by the refactor)
+;; HOME-PAGE QUERY HELPERS  (predate the machine refactor; unaffected by it)
 ;; ============================================================================
 ;;
 ;; The route-query driven part of the home page:

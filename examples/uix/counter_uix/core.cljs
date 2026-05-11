@@ -1,5 +1,5 @@
 (ns counter-uix.core
-  "UIx variant of the counter example (rf2-3yij Decision 7).
+  "UIx variant of the counter example.
 
    Exercises the same dataflow as examples/reagent/counter but renders it
    through the UIx adapter — the React state model is hooks all the way
@@ -7,10 +7,10 @@
 
      - `rf/init!` with the UIx adapter
      - `reg-event-db` / `reg-event-fx` / `reg-sub` (substrate-agnostic)
-     - `use-subscribe` hook (rf2-3yij Decision 1; UIx idiomatic)
-     - `rf/dispatcher` for click handlers (Decision 3 — components call
+     - `use-subscribe` hook (UIx idiomatic)
+     - `rf/dispatcher` for click handlers (components call
        dispatch / use-subscribe directly, no auto-injection)
-     - The shared frame-context (Decision 2) — the same React Context
+     - The shared frame-context — the same React Context
        object the Reagent adapter consumes
 
    Different folder from examples/reagent/counter so the canonical Reagent
@@ -45,8 +45,8 @@
 
 ;; -- Views -------------------------------------------------------------------
 ;;
-;; Per rf2-3yij Decision 4 reg-view (the macro) stays Reagent-only;
-;; UIx users write `defui` directly. Per Decision 3 there is no auto
+;; `reg-view` (the macro) stays Reagent-only;
+;; UIx users write `defui` directly. There is no auto
 ;; injection — the component calls `use-subscribe` and `rf/dispatcher`
 ;; explicitly.
 
@@ -67,7 +67,7 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! uix-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (uix-dom/render-root ($ counter-app) root))

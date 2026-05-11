@@ -1,12 +1,10 @@
 (ns realworld.auth-test
   "Headless tests for realworld.auth — the auth state machine.
 
-   These were previously inline in realworld/auth.cljs; extracted under
-   rf2-4v73 so production code stays test-free. Retrofitted under rf2-o8t6
-   to use Spec 014's `:rf.http/managed` substrate — each test stubs
-   `:rf.http/managed` via `:fx-overrides` and synthesises the canonical
-   reply shape (`{:kind :success :value v}` / `{:kind :failure :failure m}`)
-   through the framework-shipped canned-stub fxs.
+   Each test stubs `:rf.http/managed` via `:fx-overrides` and synthesises
+   the canonical reply shape (`{:kind :success :value v}` /
+   `{:kind :failure :failure m}`) through the framework-shipped
+   canned-stub fxs.
 
    Each test fn keeps its original signature (a plain zero-arg fn) so the
    integration runner can call them as before."
