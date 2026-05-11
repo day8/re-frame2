@@ -8,16 +8,21 @@
 
 re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
 
-Unlike most frameworks, re-frame2 is defined by its **specification** (~22K lines across 35+ documents), not its implementation. The specification is complete enough that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
+## What's Novel And Interesting?
 
-This pattern is NOT what you tend to see in React land. Most existing React-based JS/TS frameworks are organised around components as the primary architectural unit: state, effects, data fetching, and routing are usually attached to, colocated with, or composed around the view tree. By contrast, re-frame puts the event/data flow at the centre: events update centralised state, subscriptions derive data, and views sit at the end as render functions over reactive inputs. In summary, with re-frame, views are not central, they are derivative.
+Three things:
 
-Instead, a re-frame2 application is a virtual machine. Registered handlers are the instruction set, events are the program, the runtime executes them through the highly predictable six-step pipeline every time. State is explicit, data is immutable, effects are isolated, views stay at the edge of the data flow (they are not central!). This results in a simple, highly traceable computational model — perfect for AI and tooling.
+**1. Spec-first.** Unlike most frameworks, re-frame2 is defined by its **specification**, not its implementation. The specification is complete enough (~22K lines across 35+ documents) that an AI can one-shot a working implementation in any language that cross-compiles to JavaScript and reaches React: ClojureScript, TypeScript, Melange / ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint.
+
+**2. Views are derivative, not central.** The re-frame2 pattern is NOT what you tend to see in React land. Most existing React-based JS/TS libraries/frameworks are organised around components as the primary architectural unit: state, effects, data fetching, and routing are usually attached to, colocated with, or composed around the view tree. By contrast, re-frame puts the event/data flow at the centre: events update centralised state, subscriptions derive data, and views sit at the end as render functions over reactive inputs. In summary, with re-frame, views are not central, they are derivative.
+
+Your re-frame2 application is a small virtual machine. Registered handlers are the instruction set, events (coming from user actions, FSM transitions, or websockets, etc) are the program. The runtime executes every statement in the program (every event) via a highly predictable six-step pipeline and at the end of the pipeline are views which update derivatively. I repeat for emphasis: views are not central. This results in a simple, highly traceable computational model — easy to understand and perfect for tooling.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 > 
 > — Me, being snarky about the direction of the JS/TS frameworks
 
+**3. Tooling is first-class.** Because the runtime is a predictable pipeline with a single, deeply integrated trace bus, every tool attaches to one surface and gets the whole picture for free. Source-coord stamping on every handler and DOM element means click-to-source from any panel. Every event leaves an epoch — scrub forwards and backwards. The trace bus lets observers (devtools, AI pair programmers, tests, story panels) consume the runtime live.
 
 ### The core
 
@@ -36,7 +41,6 @@ Instead, a re-frame2 application is a virtual machine. Registered handlers are t
 - **Managed HTTP** — request retry, abort, encode/decode, in-flight registry, per-frame interceptors.
 - **Server-side rendering** — hiccup → HTML, hydration round-trip, error projection.
 - **Time-travel / debugging** — every event leaves an epoch; restore any prior state.
-
 
 ## Reference Implementation
 
@@ -62,13 +66,13 @@ The reference implementation comes with a growing AI- and developer-facing tools
 
 ## Status
 
-**Pre-beta.** The first tagged release will be `v0.0.1.beta` — Clojars publishing is wired up; no public artefact has been cut yet.
+**Alpha.** The first tagged release will be `v0.0.1.alpha` — Clojars publishing is wired up; no public artefact has been cut yet.
 
 The specification has been audited end-to-end multiple times — precision passes, readability passes, plus targeted audits of test coverage, Tool-Pair surfaces, and AI-implementability. Stable enough to build on. Indeed, a working reference implementation has been generated.
 
 ## AI First
 
-re-frame2 is AI-first and that permeates every decision. Now, the artisanal craftsman in you might find this offensive, and as someone who has agonised endlessly over the human ergonomics of my code and UIs, I get it. But that time has passed. All that matters now is AI ergonomics.
+re-frame2 is AI-first and that permeates every decision. Now, the artisanal craftsman in you might find this offensive, and as someone who has agonised endlessly over the human ergonomics of my code and UIs, I get it. But that time has passed. AI ergonomics is now as important as human ergonomics.
 
 Some of the ways this manifests:
 
@@ -76,7 +80,7 @@ Some of the ways this manifests:
 
 The implication: **if you don't like this specification, change it, and one-shot your own framework.** Roll your own. The spec is the artefact; the implementation is downstream. Historically, frameworks ship the implementation as the deliverable and treat the spec (if it exists) as documentation; re-frame2 inverts that.
 
-The further implication is that value has moved up the chain. Assumoing you have a good enough spec, the value of code is now $0 and it is disposable. All the value is in the specification.
+The further implication is that value has moved up the chain. Assuming you have a good enough spec, the value of code is trending to $0 and it is disposable. All the value is in the specification.
 
 **2. re-frame2 applications are designed to be highly AI-pair-programmable.** Apps built on re-frame2 expose deep trace and integration points **at run time** specifically for an AI to use. So, your AI doesn't just get to work with static code, it can work with the actual dynamics of your app. An improved version of [re-frame-pair](https://github.com/day8/re-frame-pair) — an nREPL-attached AI companion that watches/traces and interacts with a running app — will be carried forward and formalised for v2.
 
@@ -100,7 +104,7 @@ The repo has two audiences and they each get their own docs.
 
 ### For Humans
 
-It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort.  Kidding.
+It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort. Kidding.
 
 [The guide](docs/guide/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
 
@@ -109,8 +113,8 @@ After that, consider browsing:
   - Pattern docs such as:
     - [How to do Async](spec/Pattern-AsyncEffect.md)
     - [How to do WebSockets](spec/Pattern-WebSocket.md)
-  - [the examples](examples/README.md). 
-  - Maybe then glance at the rest of [the Pattern Specification](spec/README.md). But remember it dry and AI-oriented, not human-oriented.
+  - [The examples](examples/README.md).
+  - Maybe then glance at the rest of [the Pattern Specification](spec/README.md). But remember it's dry and AI-oriented, not human-oriented.
 
 ### For AIs
 
