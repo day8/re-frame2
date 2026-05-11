@@ -210,10 +210,10 @@ The selector sub re-runs only when the tag union changes; Reagent's equality ded
 
 ## Why this shape
 
-Compared to the pre-parallel-regions variant (see the appendix), the parallel-machine shape gives:
+The parallel-machine shape gives:
 
 - **The three axes are visible in the machine declaration.** Anyone reading `:regions {:data ... :form ... :mode ...}` sees the model immediately.
-- **No mutual-exclusion lie.** Multiple axes can be true simultaneously; the priority is explicit in *data* (the render-priority vector) rather than buried in *control flow* (a priority `cond`'s clause order). The legacy variant's "correct? AND one?" overlap (post-submit on an empty list, `:form/success` and `:data/one` are both true) is a first-class property of the model now, not a workaround.
+- **No mutual-exclusion lie.** Multiple axes can be true simultaneously; the priority is explicit in *data* (the render-priority vector) rather than buried in *control flow* (a priority `cond`'s clause order). The "correct? AND one?" overlap (post-submit on an empty list, `:form/success` and `:data/one` are both true) is a first-class property of the model, not a workaround.
 - **Tags carry the query intent.** "Is the page in any loading state?" → `(rf/has-tag? :ui/nine-states :data/loading)`. The view doesn't need a separate `:ui.state/loading?` sub.
 - **Adding an axis is one region, not a row × column expansion.** A permissions axis becomes a fourth region with two states (`:editable` / `:read-only`); the render priority gains one entry; the view's `case` gains one branch.
 
@@ -253,6 +253,130 @@ State 9 comes from a terminal transition in the `:mode` region. Use it when the 
 - closed incident
 
 The `:done` state carries the `:mode/read-only` tag; the view inspects that tag (`(rf/has-tag? :ui/nine-states :mode/read-only)`) to disable inputs, control buttons, and other affordances. Do not use `:mode/done` as a synonym for "request succeeded" — that's the `:form/success` tag in the form region.
+
+## Working with managed HTTP
+
+The `:data` region's lifecycle is the page-level shape of a remote-data fetch. The canonical HTTP fx in re-frame2 — `:rf.http/managed`, per [014-HTTPRequests](014-HTTPRequests.md) — is what feeds that lifecycle in practice. This section shows how the two fit together.
+
+The mapping is direct: the events the `:data` region listens for (`:fetch-started`, `:fetch-succeeded`, `:fetch-failed`) line up one-for-one with the dispatch surface a managed-HTTP call presents (dispatch on issue, `:on-success` on reply, `:on-failure` on failure). No new substrate. The fx kicks the region into `:loading`; its `:on-success` reply drives the region's `:fetch-succeeded` action, which lands the items in shared `:data` and steps through `:resolving` to the cardinality bucket; its `:on-failure` reply drives `:fetch-failed`, which lands the failure map at `[:data :error]` and the region in `:error`.
+
+### Mapping — region states ↔ managed-HTTP lifecycle
+
+| `:data` region state | Managed-HTTP lifecycle | Notes |
+|---|---|---|
+| `:nothing` | No request yet issued. | Initial state; carries `:data/nothing`. |
+| `:loading` | Request in flight (any attempt, including retries). | Carries `:data/loading` + `:data/transient`. The transport-retry loop sits *inside* `:loading` — intermediate `:rf.http/transport` / `:rf.http/http-5xx` attempts emit `:rf.http/retry-attempt` traces but do not advance the region (per 014 §Retry × `:on-failure` semantics). |
+| `:resolving` | 2xx reply received, decoded, accepted; `:items` has just been written. | Eventless microstep; the cardinality `:always`-cascade fires here. |
+| `:empty` / `:one` / `:some` / `:too-many` | Resolution settled into a cardinality bucket. | Guard-selected by `(count (:items data))` against `too-many-threshold`; first match wins. |
+| `:error` | One of the eight `:rf.http/*` failure categories surfaced after retries exhausted. | The failure map at `[:data :error]` is the standard 014 shape: `{:kind :rf.http/* ...kind-tags...}`. |
+
+The same shape works whether the fx is dispatched directly (`:fx [[:rf.http/managed ...]]`) or threaded through `:rf.http/managed`'s child-invokable wrapper (`:invoke {:machine-id :rf.http/managed ...}` per [014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper)). The reply lands at an event id, the event id broadcasts `:fetch-succeeded` / `:fetch-failed` into the page machine, and the region picks the bucket.
+
+### Worked transition table
+
+The transitions the page-level event handler drives, for a `:counter/load`-shaped fetch:
+
+| User intent | Event dispatched | `:data` region transition | Notes |
+|---|---|---|---|
+| First load | `[:counter/load]` | `:nothing → :loading` | The handler broadcasts `:fetch-started` and issues `:rf.http/managed`. |
+| Retry from a bucket | `[:counter/load]` | `:empty | :one | :some | :too-many | :error → :loading` | Same handler; the `:on {:fetch-started :loading}` map on each bucket makes the reload uniform. |
+| Reply success | `[:counter/loaded {:rf/reply {:kind :success :value items}}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
+| Reply failure | `[:counter/loaded {:rf/reply {:kind :failure :failure failure-map}}]` | `:loading → :error` | The `:set-error` action stamps the failure map at `[:data :error]`. |
+| User-driven reset | `[:counter/reset]` | `* → :nothing` | Optional, per [Pattern-RemoteData](Pattern-RemoteData.md). |
+
+A minimal co-located handler:
+
+```clojure
+(rf/reg-event-fx :counter/load
+  (fn [_ [_ {:keys [page] :as msg}]]
+    (if-let [reply (:rf/reply msg)]
+      ;; Reply path — fold the reply into the machine.
+      (case (:kind reply)
+        :success
+        {:fx [[:dispatch [:ui/nine-states
+                          [:fetch-succeeded {:items (:value reply)}]]]]}
+
+        :failure
+        {:fx [[:dispatch [:ui/nine-states
+                          [:fetch-failed {:failure (:failure reply)}]]]]})
+
+      ;; Initial dispatch — kick the region into :loading and issue the request.
+      {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
+            [:rf.http/managed
+             {:request    {:method :get
+                           :url    "/api/counters"
+                           :params {:page (or page 1)}}
+              :decode     CounterListResponse
+              :retry      {:on           #{:rf.http/transport :rf.http/http-5xx}
+                           :max-attempts 3
+                           :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}
+              :request-id :counter/load}]]})))
+```
+
+One handler covers issue + reply. The machine's `:resolving` cascade decides whether the reply lands at `:empty`, `:one`, `:some`, or `:too-many`; the handler doesn't.
+
+### Cardinality is a region concern, not a handler concern
+
+The above handler treats every successful reply identically — it forwards `:fetch-succeeded {:items value}` and lets the `:data` region pick the cardinality bucket. This is the point of the region's `:resolving` cascade: the count → bucket mapping lives in **data** (the `:guards` + `:always`-vector on `:resolving`), not in the handler. Different `too-many-threshold`s per page just change the guard's named constant; the handler is unchanged.
+
+If the API returns a richer success shape (a struct with `:total-count`, `:items`, `:page`), normalise it inside the handler's reply branch before dispatching `:fetch-succeeded` — the cardinality cascade reads `(count (:items data))` and doesn't care what the wire shape looked like.
+
+### Cancellation cascade
+
+The `:data` region's `:loading` state usually has an `:invoke` of `:rf.http/managed`'s machine wrapper when the request's lifetime should be bound to the region's. With that wiring, navigating away mid-fetch causes the parent's state to exit, which destroys the wrapper actor, which fires the late-bind `:http/abort-on-actor-destroy` hook (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — rf2-wvkn). The in-flight HTTP request is cancelled with `:reason :actor-destroyed`; the `:rf.http/aborted-on-actor-destroy` trace fires.
+
+```clojure
+:loading
+{:tags  #{:data/loading :data/transient}
+ :invoke {:machine-id :rf.http/managed
+          :data       {:request    {:method :get :url "/api/counters"}
+                       :decode     CounterListResponse
+                       :request-id :counter/load}}
+ :on    {:succeeded {:target :resolving :action :set-items}
+         :failed    {:target :error     :action :set-error}
+         :reset     :nothing}}             ;; user-driven reset cancels the wrapper
+```
+
+`:reset` from a bucket — fired by a navigation handler or an explicit user gesture — exits `:loading`, the wrapper is destroyed, and the in-flight request is aborted. No `:rf.http/managed-abort` call needed; the lifetime binding handles it.
+
+Pages that issue managed HTTP from an event handler directly (the `:fx [[:rf.http/managed ...]]` form above, not the `:invoke` form) don't get the actor-destroy cascade — per [014 §Direct dispatches from event handlers — NOT covered](014-HTTPRequests.md#direct-dispatches-from-event-handlers--not-covered), only requests issued from inside a spawned actor are subject to actor-destroy cancellation. Apps that want navigation-mid-fetch cancellation in that case have two options: lift the call into the `:invoke` form above, or issue an explicit `[:rf.http/managed-abort :counter/load]` from the navigation handler against the same `:request-id`.
+
+### Stale-detection
+
+Even with cancellation in place, the network may have already returned by the time the cancellation runs (the bytes are in the page's buffer, the decoder is about to fire). Per [Pattern-StaleDetection](Pattern-StaleDetection.md), correctness lives in stale-detection, not in cancellation: the runtime can deliver a stale reply and the handler suppresses on epoch mismatch.
+
+When the page issues a fresh `:counter/load` while a previous one is still in flight, the previous request's reply must not land — its `:items` would clobber the freshly-`:loading` region's eventual real reply. Two mechanisms compose here:
+
+1. **`:request-id` supersession.** Using a stable `:request-id` (e.g. `:counter/load` above), the second `:rf.http/managed` with the same id supersedes the first — the older request is aborted with `:reason :request-id-superseded` (per [014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)). The first request's `:on-failure` fires with `:kind :rf.http/aborted`, and the reply branch can ignore aborted replies before broadcasting `:fetch-failed`:
+
+   ```clojure
+   :failure
+   (when-not (= :rf.http/aborted (-> reply :failure :kind))
+     {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure (:failure reply)}]]]]})
+   ```
+
+2. **Connection-epoch on the dispatched reply.** For request shapes where `:request-id` isn't enough (e.g. the same id is reused after the user has navigated away and back, and an outstanding earlier reply may still be in flight), the page-level container carries an epoch and the reply suppresses on mismatch. The epoch advances on every life event of the container (a reset, a route re-enter); the dispatched success/failure event carries the epoch it was issued under; the handler compares on receipt. This is the canonical staleness idiom; see [Pattern-StaleDetection](Pattern-StaleDetection.md).
+
+In practice, `:request-id` supersession handles the common "user typed faster than the server responded" case; the epoch handles "the page was destroyed and recreated" cases. Both are cheap; use both when in doubt.
+
+### Cross-region implications — render priority during mid-flight
+
+The page machine has three regions running in parallel; a managed-HTTP reply landing in the `:data` region is one of them. The render-priority vector (per §4 above) decides what the user actually sees when more than one region's tags are present.
+
+The interesting cases:
+
+- **`:form` region `:correct` lands while `:data` region is `:loading`.** Tags `:form/success` AND `:data/loading` are both in the union. The render-priority table puts `:form/success` above `:data/loading` (see the vector in §The shape), so the success acknowledgement wins. The spinner is suppressed under the toast — which is what the user actually wants: the post-submit success confirmation is the load-bearing piece of feedback in that instant; the spinner can re-appear when the success state ages out (`:form/transient` is the tag that flags this).
+- **`:mode` region `:done` lands while `:data` region is `:loading`.** Tags `:mode/done` AND `:data/loading` are both in the union. `:mode/done` is at the top of the priority vector — the archived view wins outright, the spinner never renders. The in-flight HTTP request continues in the background; when it lands, the reply still folds into `:items` (or `:error`), but the user is looking at the archived view. If you want the request cancelled when `:mode` flips to `:done`, wire the wrapper actor's lifetime to the `:active` state of the `:mode` region (not the `:loading` state of `:data`) and the cancellation cascade takes care of it.
+- **`:data` region `:error` lands while `:form` region is `:incorrect`.** Both `:data/error` and `:form/invalid` are in the union. The render-priority vector puts `:form/invalid` above `:data/error` — the inline form error wins. This matches what users expect: the field-level error is closer to the user's attention than the page-level fetch error.
+
+The point of the render-priority vector is that these cross-region overlaps are first-class. The reply lands honestly into its own region; the union of tags reflects every truth simultaneously; the priority decides the single render-model keyword; the root view's `case` branches. No cross-region `cond`s in event handlers, no "is the page also loading?" guards in submit logic.
+
+### Cross-references
+
+- [014-HTTPRequests](014-HTTPRequests.md) — the managed-HTTP surface: args map, failure categories, retry semantics, abort, machine wrapper.
+- [Pattern-RemoteData](Pattern-RemoteData.md) — the request-lifecycle slice the `:data` region's states fold; `:rf.http/managed` writes through it.
+- [Pattern-StaleDetection](Pattern-StaleDetection.md) — the epoch idiom for suppressing stale replies.
+- [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy) — the cancellation cascade contract (rf2-wvkn).
 
 ## Worked example
 
@@ -297,6 +421,8 @@ The point is not numerology. The point is to make the **important** UI states ex
 - [005-StateMachines.md §State tags](005-StateMachines.md#state-tags) — the substrate.
 - [Pattern-RemoteData.md](Pattern-RemoteData.md) — the lifecycle folded into the `:data` region.
 - [Pattern-Forms.md](Pattern-Forms.md) — the lifecycle folded into the `:form` region.
+- [014-HTTPRequests.md](014-HTTPRequests.md) — the canonical managed-HTTP fx that feeds the `:data` region; see [§Working with managed HTTP](#working-with-managed-http) for the integration.
+- [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — the epoch idiom for suppressing stale HTTP replies.
 - [CP-5-MachineGuide.md §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — the N-machines-per-region pattern, the right answer when axes are independent features.
 - [004-Views.md §Loading state is explicit](004-Views.md#loading-state-is-explicit-not-implicit) — the explicit-state view philosophy this pattern exemplifies.
 - [examples/reagent/nine_states/README.md](../examples/reagent/nine_states/README.md) — worked example.
@@ -311,55 +437,3 @@ A page applies this pattern well when:
 - The root view branches via `case` over the resolved render-model keyword.
 - Tag-shaped predicates are read via `(rf/has-tag? machine-id tag)` (the framework sub `:rf/machine-has-tag?`) rather than via per-state boolean discriminator subs.
 - The headless test fixture per state drives `app-db` to the state and asserts against the tag union and the resolved `:ui/render` keyword.
-
----
-
-## Appendix — Pre-parallel-regions variant (deprecated but supported)
-
-Before re-frame2 shipped `:fsm/tags` and `:fsm/parallel-regions`, the pattern was implemented with **nine boolean discriminator subs** and a root-level priority `cond`. That variant still works — neither capability removed an existing primitive — but new code should use the parallel-machine variant above. The legacy variant is documented here so existing pages have a reference.
-
-### Shape
-
-```clojure
-;; nine boolean subs, one per state
-(rf/reg-sub :ui.state/nothing?
-  :<- [:todos/status]
-  (fn [status _] (= status :idle)))
-
-(rf/reg-sub :ui.state/loading?
-  :<- [:todos/status]
-  (fn [status _] (= status :loading)))
-
-(rf/reg-sub :ui.state/empty?
-  :<- [:todos/status]
-  :<- [:todos/count]
-  (fn [[status n] _] (and (= status :loaded) (zero? n))))
-
-;; ... seven more ...
-
-;; root view branches via priority cond
-(reg-view root-view []
-  (cond
-    @(subscribe [:ui.state/done?])      [view-done]
-    @(subscribe [:ui.state/incorrect?]) [view-incorrect]
-    @(subscribe [:ui.state/correct?])   [view-correct]
-    @(subscribe [:ui.state/nothing?])   [view-nothing]
-    @(subscribe [:ui.state/loading?])   [view-loading]
-    @(subscribe [:ui.state/empty?])     [view-empty]
-    @(subscribe [:ui.state/one?])       [view-one]
-    @(subscribe [:ui.state/some?])      [view-some]
-    @(subscribe [:ui.state/too-many?])  [view-too-many]
-    :else                               [view-fallback]))
-```
-
-### Why deprecated
-
-The nine boolean subs aren't mutually exclusive (a post-submit on a single-item list is `:ui.state/correct?` AND `:ui.state/one?` simultaneously); the cond's priority order is the only thing stopping double-rendering. That's a priority hack, not a state model.
-
-The three orthogonal axes (data cardinality / form validity / mode) are flattened into a single sub-vocabulary; the view layer recomposes them via priority order, and a tooling consumer that asks "what data state is this page in?" cannot get an answer without re-deriving it from the seven flat boolean subs.
-
-Adding an axis grows the sub population multiplicatively — a permissions axis adds row × column expansion to the priority cond, plus new subs to discriminate every combination the view renders.
-
-### Why still supported
-
-The legacy variant uses no capability beyond Layer-3 `:<-` subs, which ship in every conforming re-frame2 host. Pages that already follow the variant don't have to migrate; they keep working unchanged. The framework's only commitment is that `:rf/machine`, `:rf/machine-has-tag?`, and the regular sub graph all remain first-class so a page can adopt the parallel-machine variant incrementally (e.g. introduce the machine alongside the existing subs, then drop subs one at a time as views switch to tag queries).
