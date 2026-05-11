@@ -67,6 +67,11 @@
                 "../examples/reagent/7Guis"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
+                ;; rf2-o9fg — long-running-work example's fixtures live
+                ;; under examples/reagent/long_running_work/test/ to
+                ;; keep the production source test-free (same layout
+                ;; convention as realworld/ and nine_states/).
+                "../examples/reagent/long_running_work/test"
                 "../examples/uix"
                 "../examples/helix"]
  :dependencies [[reagent           "2.0.1"]
@@ -366,6 +371,18 @@
    :output-dir "out/examples/ssr"
    :asset-path "."
    :modules    {:main {:init-fn ssr.core/run}}}
+
+  ;; Pattern-LongRunningWork worked example (rf2-o9fg) —
+  ;; :invoke-all spawn-and-join with progress reporting and
+  ;; cooperative cancellation on parent-unmount. The parent
+  ;; coordinator :work/flow spawns three :work/processor children
+  ;; via :invoke-all; each child yields between chunks via :after;
+  ;; cancellation cascades via the desugared :exit fx.
+  :examples/long-running-work
+  {:target     :browser
+   :output-dir "out/examples/long-running-work"
+   :asset-path "."
+   :modules    {:main {:init-fn long-running-work.core/run}}}
 
   ;; Story Stage 8 (rf2-c9mm) — the canonical counter with the seven
   ;; `reg-*` Story macros wired up. URL-hash-routed: `#/` renders
