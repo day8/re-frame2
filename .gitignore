@@ -23,6 +23,9 @@ Thumbs.db
 .env.local
 .envrc
 
+# Findings (exploratory workspace — local-only, never committed)
+/findings/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
