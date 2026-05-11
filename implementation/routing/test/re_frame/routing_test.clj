@@ -41,7 +41,7 @@
             ;; reg-sub installations. Without this require the
             ;; rf/reg-route call below would throw
             ;; :rf.error/routing-artefact-missing.
-            [re-frame.routing]
+            [re-frame.routing :as routing]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -334,3 +334,61 @@
           ":route/account.billing carries :parent :route/account")
       (is (nil? (:parent account-meta))
           "the parent route itself has no :parent (chain root)"))))
+
+;; ---- Spec 012 §Scroll restoration — pure helpers (rf2-1aqz) --------------
+;;
+;; Per Spec 012 §Scroll restoration and routing.cljc:506/511, the scroll-
+;; restoration helpers are pure: `lookup-scroll-position` reads from a
+;; db value, `save-scroll-position` returns a db value with the saved
+;; position assoc'd in. Per Spec 012 §Multi-frame routing the saved-
+;; position map lives at `[:rf.route/scroll-positions]` INSIDE each
+;; frame's app-db — so per-frame isolation is achieved by routing the
+;; helpers through the appropriate frame's db value.
+;;
+;; Pre-rf2-1aqz the helpers were reachable only through the navigate
+;; flow's scroll fx; a regression in either fn would only surface via
+;; integration. These tests pin the round-trip directly.
+
+(deftest scroll-position-lookup-after-save
+  (testing "save-scroll-position then lookup-scroll-position round-trips
+            the saved [x y] for the same url"
+    (let [db0 {}
+          db1 (routing/save-scroll-position db0 "/articles"  [0 250])
+          db2 (routing/save-scroll-position db1 "/dashboard" [10 800])]
+      (is (= [0 250]  (routing/lookup-scroll-position db2 "/articles"))
+          "saved position for /articles is retrievable")
+      (is (= [10 800] (routing/lookup-scroll-position db2 "/dashboard"))
+          "saved position for /dashboard is retrievable; URLs are isolated")
+      (is (nil? (routing/lookup-scroll-position db2 "/unsaved"))
+          "an unseen url returns nil — no false positives"))))
+
+(deftest scroll-position-overwrites-on-resave
+  (testing "save-scroll-position over an existing url replaces the saved value"
+    (let [db1 (routing/save-scroll-position {}  "/page" [0 100])
+          db2 (routing/save-scroll-position db1 "/page" [0 999])]
+      (is (= [0 999] (routing/lookup-scroll-position db2 "/page"))
+          "second save overwrites the first under the same url"))))
+
+(deftest scroll-position-per-frame-isolation
+  (testing "save-scroll-position is per-frame — the helpers thread through
+            each frame's own db, so a position saved under :rf/default
+            is invisible from another frame's db value"
+    ;; Simulate two frames' independent app-dbs: each is its own map.
+    ;; The helpers operate on db values, so isolation is achieved by
+    ;; passing the right frame's db.
+    (let [frame-A-db (routing/save-scroll-position {} "/shared-url" [0 250])
+          frame-B-db (routing/save-scroll-position {} "/shared-url" [0 999])]
+      (is (= [0 250] (routing/lookup-scroll-position frame-A-db "/shared-url"))
+          "frame A's db carries A's saved position")
+      (is (= [0 999] (routing/lookup-scroll-position frame-B-db "/shared-url"))
+          "frame B's db carries B's saved position — values are not shared")
+      (is (nil? (routing/lookup-scroll-position {} "/shared-url"))
+          "a fresh db (third frame, never-saved) returns nil for the same url"))))
+
+(deftest scroll-position-storage-shape
+  (testing "save-scroll-position assoc's into [:rf.route/scroll-positions <url>]"
+    ;; Pin the storage shape. Tools and migrations inspect this path
+    ;; directly; pinning here keeps the contract stable.
+    (let [db1 (routing/save-scroll-position {} "/x" [5 50])]
+      (is (= [5 50] (get-in db1 [:rf.route/scroll-positions "/x"]))
+          "the saved [x y] lives at [:rf.route/scroll-positions <url>] in the db"))))

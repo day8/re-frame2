@@ -31,7 +31,9 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
+  (require 're-frame.machines :reload)
   (require 're-frame.http-managed :reload)
+  ((requiring-resolve 're-frame.machines/reset-counters!))
   (http-managed/clear-all-in-flight!)
   (t))
 
@@ -417,6 +419,131 @@
       (fn [_ _] {}))
     (let [m (rf/handler-meta :event :article/load)]
       (is (= [::ArticleResponse] (:rf.http/decode-schemas m))))))
+
+;; ---- actor-in-flight-snapshot shape contract (rf2-kyl7) -------------------
+;;
+;; Per rf2-kyl7: `actor-in-flight-snapshot` and `in-flight-snapshot`
+;; are read by assertions across http_actor_destroy_cancellation_test
+;; and http_managed_machine_test, but no test PINS THE SHAPE of the
+;; snapshot — which keys, which values. A wire-protocol regression
+;; (e.g. someone changing the value to a single handle instead of a
+;; vector of handles) would slip through every existing assertion.
+;;
+;; Source: http_managed.cljc:177-189. Storage is:
+;;   `actor-in-flight` : actor-id → vector of handle maps
+;;   `in-flight`       : request-id → single handle map
+;; Each handle map carries `:abort-fn`, `:url`, plus the framework
+;; stamps `:request-id` and `:actor-id` (when applicable).
+
+(defn- await-condition!
+  [pred timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (loop []
+      (cond
+        (pred) :done
+        (> (System/currentTimeMillis) deadline)
+        (throw (ex-info "timeout awaiting condition" {}))
+        :else (do (Thread/sleep 25) (recur))))))
+
+(deftest actor-in-flight-snapshot-shape
+  (testing "actor-in-flight-snapshot is a map keyed by actor-id, value is a
+            vector of handle maps each carrying :abort-fn / :url / :request-id
+            / :actor-id. in-flight-snapshot is keyed by request-id."
+    (let [latch (CountDownLatch. 1)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; Block — both requests must remain in-flight while the test
+              ;; reads the snapshots.
+              (.await latch 10 TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json" "{}")))]
+      (try
+        ;; Issue two requests from inside a spawned actor so both land
+        ;; in the actor-in-flight index. The actor pattern mirrors
+        ;; http_actor_destroy_cancellation_test (2).
+        (require 're-frame.machines :reload)
+        (rf/reg-machine :kyl7/worker
+          {:initial :idle
+           :data    {:port port}
+           :actions
+           {:fire-two
+            (fn [data _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/a")}
+                      :request-id :kyl7/a
+                      :decode     :json
+                      :on-success nil
+                      :on-failure nil}]
+                    [:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" (:port data) "/b")}
+                      :request-id :kyl7/b
+                      :decode     :json
+                      :on-success nil
+                      :on-failure nil}]]})}
+           :states  {:idle    {:on {:start :running}}
+                     :running {:entry :fire-two}}})
+        (rf/reg-machine :kyl7/sup
+          {:initial :idle
+           :states
+           {:idle    {:on {:start :working}}
+            :working {:invoke {:machine-id :kyl7/worker
+                               :start      [:start]}}}})
+        (rf/dispatch-sync [:kyl7/sup [:start]])
+
+        ;; Wait for both requests to be in-flight under the same actor.
+        (await-condition!
+          #(let [snap (http-managed/actor-in-flight-snapshot)]
+             (and (= 1 (count snap))
+                  (= 2 (count (val (first snap))))))
+          5000)
+
+        ;; ---- actor-in-flight-snapshot shape ----
+        (let [actor-snap (http-managed/actor-in-flight-snapshot)]
+          (is (map? actor-snap)
+              "actor-in-flight-snapshot returns a map")
+          (is (= 1 (count actor-snap))
+              "one actor key — the spawned :kyl7/worker child")
+          (let [[actor-id handles] (first actor-snap)]
+            (is (keyword? actor-id)
+                "actor-id is a keyword (the spawned actor's address)")
+            (is (= :kyl7/worker#1 actor-id)
+                "actor-id is the deterministic spawn id of the child")
+            (is (vector? handles)
+                "value under each actor-id is a vector (multiple in-flight requests
+                 from the same actor accumulate as siblings)")
+            (is (= 2 (count handles))
+                "two in-flight requests from this actor")
+            (doseq [h handles]
+              (is (map? h)
+                  "each handle is a map")
+              (is (fn? (:abort-fn h))
+                  ":abort-fn is the no-arg cancellation fn")
+              (is (string? (:url h))
+                  ":url stamps the resolved URL for diagnostic visibility")
+              (is (= actor-id (:actor-id h))
+                  ":actor-id stamped on the handle matches its index key")
+              (is (#{:kyl7/a :kyl7/b} (:request-id h))
+                  ":request-id stamped on the handle matches the user-supplied id"))))
+
+        ;; ---- in-flight-snapshot shape (request-id-keyed) ----
+        (let [req-snap (http-managed/in-flight-snapshot)]
+          (is (map? req-snap)
+              "in-flight-snapshot returns a map")
+          (is (= 2 (count req-snap))
+              "two request-id keys — one per in-flight request")
+          (is (= #{:kyl7/a :kyl7/b} (set (keys req-snap)))
+              "request-id keys match the user-supplied :request-id values")
+          (doseq [[req-id handle] req-snap]
+            (is (map? handle)
+                "each value is a SINGLE handle map (NOT a vector — unlike actor index)")
+            (is (= req-id (:request-id handle))
+                ":request-id on the handle matches its index key")
+            (is (fn? (:abort-fn handle))
+                ":abort-fn is the cancellation fn (same as actor-index handle)")))
+
+        ;; Release so the JDK sockets close cleanly.
+        (.countDown latch)
+        (finally (stop-server! srv))))))
 
 ;; ---- 13. timeout failure category -----------------------------------------
 

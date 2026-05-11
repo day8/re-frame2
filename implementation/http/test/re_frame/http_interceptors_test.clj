@@ -354,3 +354,108 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
       (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))))
+
+;; ---- 8. clear-all-http-interceptors! bulk-clear (rf2-lfvi) -----------------
+;;
+;; Per rf2-lfvi: only the single-id `clear-http-interceptor` is covered by
+;; the test above (`clear-http-interceptor-unregisters`). The bulk-clear
+;; helper at `http_managed.cljc:390` is uncovered. Test fixtures and the
+;; reset-runtime path use the bulk form to drop every registered chain;
+;; a regression that left even one slot populated would only surface as
+;; cross-test pollution.
+
+(deftest clear-all-http-interceptors-empties-every-frame-chain
+  (testing "clear-all-http-interceptors! drops every registered :before
+            across every frame; subsequent requests fire NO interceptors"
+    (let [seen-headers (atom [])
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (swap! seen-headers conj
+                     {:a (header-of ex "X-A")
+                      :b (header-of ex "X-B")
+                      :c (header-of ex "X-C")})
+              (write-response! ex 200 "application/json" "{}")))]
+      (try
+        ;; Register three interceptors on :rf/default.
+        (rf/reg-http-interceptor
+          {:id :hdr-a :before (fn [ctx] (assoc-in ctx [:request :headers "X-A"] "1"))})
+        (rf/reg-http-interceptor
+          {:id :hdr-b :before (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2"))})
+        (rf/reg-http-interceptor
+          {:id :hdr-c :before (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3"))})
+
+        ;; Confirm the per-frame chain has all three before the bulk-clear.
+        (let [chain (get @http-managed/interceptors :rf/default)]
+          (is (= 3 (count chain)))
+          (is (= #{:hdr-a :hdr-b :hdr-c}
+                 (set (map :id chain)))
+              "all three ids appear in the :rf/default chain"))
+
+        (rf/reg-event-fx :test.lfvi/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (-> db (update :replies (fnil conj []) reply))}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode  :json}]]})))
+
+        ;; First dispatch — all three interceptors fire.
+        (rf/dispatch-sync [:test.lfvi/load])
+        (await-reply! #(= 1 (count (:replies %))) 5000)
+        (let [first-req (first @seen-headers)]
+          (is (= "1" (:a first-req)) "X-A header from :hdr-a interceptor")
+          (is (= "2" (:b first-req)) "X-B header from :hdr-b interceptor")
+          (is (= "3" (:c first-req)) "X-C header from :hdr-c interceptor"))
+
+        ;; Bulk clear.
+        (reset! seen-headers [])
+        (http-managed/clear-all-http-interceptors!)
+
+        ;; Atom is now empty.
+        (is (= {} @http-managed/interceptors)
+            "the per-frame chain atom is now empty across every frame")
+
+        ;; Second dispatch — none of the cleared interceptors fire.
+        (rf/dispatch-sync [:test.lfvi/load])
+        (await-reply! #(= 2 (count (:replies %))) 5000)
+        (let [second-req (first @seen-headers)]
+          (is (nil? (:a second-req)) "X-A is absent after bulk-clear")
+          (is (nil? (:b second-req)) "X-B is absent after bulk-clear")
+          (is (nil? (:c second-req)) "X-C is absent after bulk-clear"))
+
+        (finally (stop-server! srv))))))
+
+(deftest clear-all-http-interceptors-leaves-other-registries-untouched
+  (testing "clear-all-http-interceptors! touches only the http interceptor
+            registry — :event / :sub / :fx slots are preserved"
+    (rf/reg-http-interceptor
+      {:id :test.lfvi/dummy :before identity})
+    (rf/reg-event-db :test.lfvi/ev (fn [db _] db))
+    (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
+    (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
+
+    (is (seq @http-managed/interceptors)
+        "pre-clear: interceptor atom has entries")
+
+    (http-managed/clear-all-http-interceptors!)
+
+    (is (= {} @http-managed/interceptors)
+        ":http interceptor atom is empty")
+    (is (some? (registrar/lookup :event :test.lfvi/ev))
+        ":event kind is untouched by the bulk-clear")
+    (is (some? (registrar/lookup :sub :test.lfvi/sub))
+        ":sub kind is untouched")
+    (is (some? (registrar/lookup :fx :test.lfvi/fx))
+        ":fx kind is untouched")))
+
+(deftest clear-all-http-interceptors-is-idempotent
+  (testing "calling clear-all-http-interceptors! on an empty registry is a no-op"
+    (is (= {} @http-managed/interceptors)
+        "starting clean (per fixture)")
+    (is (nil? (http-managed/clear-all-http-interceptors!))
+        "first call returns nil")
+    (is (nil? (http-managed/clear-all-http-interceptors!))
+        "second call on the already-empty registry is also nil")
+    (is (= {} @http-managed/interceptors)
+        "atom stays empty")))

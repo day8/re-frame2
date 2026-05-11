@@ -307,6 +307,67 @@
           (is (string? (get-in t [:tags :reason]))
               ":reason is a one-sentence human-facing description"))))))
 
+;; ---- clear-fx round-trip (rf2-634y) --------------------------------------
+;;
+;; Per Spec 002 / API.md §Lifecycle and `core.cljc:869`: `rf/clear-fx` is
+;; an alias of `fx/unregister-fx`. Used by hot-reload tooling and by
+;; `http_managed.cljc:1606` for stub uninstall. Pre-rf2-634y no test
+;; pinned this behaviour.
+;;
+;; Source: implementation/core/src/re_frame/fx.cljc:49.
+
+(deftest clear-fx-removes-and-restores
+  (testing "register :test/touch → fires; clear-fx → traces :rf.error/no-such-fx;
+            re-register → fires again. The registry slot is not poisoned by clear."
+    (let [counter (atom 0)
+          traces  (collect-traces! ::clear-fx)]
+      (rf/reg-fx :test.634y/touch
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! counter inc)))
+      (rf/reg-event-fx :test.634y/run
+                       (fn [_ _] {:fx [[:test.634y/touch :payload]]}))
+
+      ;; 1. Pre-clear: dispatch increments the counter.
+      (rf/dispatch-sync [:test.634y/run])
+      (is (= 1 @counter) "registered :test.634y/touch fired on dispatch")
+
+      ;; 2. Clear via the public alias.
+      (rf/clear-fx :test.634y/touch)
+      (is (nil? (registrar/lookup :fx :test.634y/touch))
+          "registry slot is gone after clear-fx")
+
+      ;; 3. Post-clear: dispatch does NOT increment and traces no-such-fx.
+      (rf/dispatch-sync [:test.634y/run])
+      (is (= 1 @counter)
+          "the counter did NOT increment — the cleared fx did not fire")
+      (let [missing (filter #(= :rf.error/no-such-fx (:operation %)) @traces)]
+        (is (pos? (count missing))
+            "a :rf.error/no-such-fx trace fired for the cleared fx-id")
+        (is (some #(= :test.634y/touch (get-in % [:tags :fx-id])) missing)
+            ":fx-id in the trace identifies the cleared handler"))
+
+      ;; 4. Re-register and confirm idempotence: clear-fx didn't poison
+      ;;    the registrar's per-kind slot machinery.
+      (rf/reg-fx :test.634y/touch
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! counter inc)))
+      (rf/dispatch-sync [:test.634y/run])
+      (is (= 2 @counter)
+          "after re-registration, the fx fires again — clear-fx is idempotent and reversible")
+      (rf/remove-trace-cb! ::clear-fx))))
+
+(deftest clear-fx-idempotent-on-unknown-id
+  (testing "clear-fx against an un-registered fx-id is a no-op (idempotent)"
+    ;; Tooling calls clear-fx defensively before re-registering; a
+    ;; second clear on an already-gone slot must not throw.
+    (rf/reg-fx :test.634y/once (fn [_ _] nil))
+    (rf/clear-fx :test.634y/once)
+    ;; Second clear on the already-gone slot.
+    (is (nil? (rf/clear-fx :test.634y/once))
+        "double-clear is a no-op, not an exception")
+    (is (nil? (registrar/lookup :fx :test.634y/once))
+        "the slot stays gone")))
+
 (deftest multiple-legacy-effect-map-keys-each-emit-a-trace
   (testing "an effect map with several legacy top-level keys traces each one and still applies :db / :fx"
     (let [traces (collect-traces! ::shape-multi)
