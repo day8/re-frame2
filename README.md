@@ -53,7 +53,7 @@ These are the surfaces every re-frame2 app uses, more or less by default:
 - **Events + effects** — events drive transitions; effects are data, not callbacks. You return a description of what should happen; the runtime does it. Effects compose, effects are testable, effects are observable, effects are stubbable.
 - **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, with the bookkeeping handled for you.
 - **State machines** — FSMs for auth flows, multi-step forms, HTTP connections, websockets, anywhere the question "what state am I in?" matters more than "what data do I have?".
-- **Tracing deeply integrated** — every event, every effect, every state change emits to a single trace bus. Devtools, AI pair-programmers, tests, story panels all consume the same surface, and source-coord stamping means click-to-source from any signal.
+- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate in surveillance state.
 
 ### Batteries included
 
