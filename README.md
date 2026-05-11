@@ -52,8 +52,8 @@ These are the surfaces every re-frame2 app uses, more or less by default:
 - **Frame-scoped revertibility** — pointer-swap state revert. Time-travel and undo at zero copy cost, because the state was immutable to begin with and the runtime just holds onto the old pointer.
 - **Events + effects** — events drive transitions; effects are data, not callbacks. You return a description of what should happen; the runtime does it. Effects compose, effects are testable, effects are observable, effects are stubbable.
 - **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, with the bookkeeping handled for you.
-- **State machines** — FSMs for auth flows, multi-step forms, HTTP connections, websockets, anywhere the question "what state am I in?" matters more than "what data do I have?".
-- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate in surveillance state.
+- **State machines** — FSMs for auth flows, multi-step forms, HTTP connections, websockets, etc. State machines are everywhere but usually not formalised like they should be. And, of course, we like them because they are a lovely simple computational model — and the simpler the computational model, the better.
+- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate surveillance state.
 
 ### Batteries included
 
