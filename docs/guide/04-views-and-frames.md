@@ -12,9 +12,9 @@ In the simplest case (one app, one page) these collapse together: there's *the* 
 A **view** is a function. It takes some inputs (props, mostly) and returns a description of what should be on the screen. In re-frame2, that description is **hiccup**: nested Clojure vectors that look like the DOM tree they describe.
 
 ```clojure
-[:div.greeting
- [:h1 "Hello"]
- [:p "Welcome back, " [:strong "Mike"] "."]]
+[:div.counter
+ [:h1 "Apples"]
+ [:p "Count: " [:strong "5"]]]
 ```
 
 Hiccup is *just data*. You can `pprint` it. You can build it programmatically. You can ship it across the wire. You can write a hiccup → HTML emitter that runs on the JVM (which is exactly what server-side rendering uses).
@@ -23,31 +23,31 @@ The fact that hiccup is data, rather than JSX-flavoured pseudo-HTML or a templat
 
 ### Plain views vs registered views
 
-The simplest view is a plain Clojure function:
+The chapter-02 counter view was the simplest case — no arguments, all state read through a sub. A small step up is a view that takes an argument. Suppose we want the counter to display a label alongside its number:
 
 ```clojure
-(defn greeting [name]
-  [:div.greeting
-   [:h1 "Hello"]
-   [:p "Welcome back, " [:strong name] "."]])
+(defn labelled-counter [label]
+  [:div.counter
+   [:h1 label]
+   [:span @(rf/subscribe [:count])]])
 ```
 
-You can use it anywhere by referencing the var: `[greeting "Mike"]` inside another piece of hiccup. Reagent (the underlying view substrate in the CLJS reference) calls the function and substitutes its return value into the tree.
+You can use it anywhere by referencing the var: `[labelled-counter "Apples"]` inside another piece of hiccup. Reagent (the underlying view substrate in the CLJS reference) calls the function and substitutes its return value into the tree.
 
 For most apps, this works fine. There's no ceremony, no registration, nothing to register or look up.
 
 But there's a sharper version: **registered views**.
 
 ```clojure
-(rf/reg-view greeting [name]
-  [:div.greeting
-   [:h1 "Hello"]
-   [:p "Welcome back, " [:strong name] "."]])
+(rf/reg-view labelled-counter [label]
+  [:div.counter
+   [:h1 label]
+   [:span @(subscribe [:count])]])
 ```
 
 Two things change:
 
-1. The view is registered under an auto-derived keyword, `(keyword *ns* "greeting")`. It's now in the registry alongside events, subs, fx. Tooling can list it. AIs can introspect it. You can query its `:doc`/`:spec` metadata.
+1. The view is registered under an auto-derived keyword, `(keyword *ns* "labelled-counter")`. It's now in the registry alongside events, subs, fx. Tooling can list it. AIs can introspect it. You can query its `:doc`/`:spec` metadata.
 
 2. **Inside the view's body, `dispatch` and `subscribe` are bound to the surrounding frame.** This is the load-bearing reason to register views. Without it, plain Reagent functions read state from a hard-coded default frame; you can't put two instances of the same view next to each other showing different state.
 
@@ -76,10 +76,10 @@ Form-1 views — render fns whose body is a literal hiccup expression — get th
   [:div @(subscribe [:count])])
 
 ;; Form-2 — captures args; useful for setup-once-then-render
-(rf/reg-view greeting [name]
-  (let [greeted-at (js/Date.now)]
-    (fn render [name]
-      [:div "Hello, " name " (at " greeted-at ")"])))
+(rf/reg-view labelled-counter [label]
+  (let [mounted-at (js/Date.now)]
+    (fn render [label]
+      [:div label ": " @(subscribe [:count]) " (mounted " mounted-at ")"])))
 ```
 
 The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-class`) or a non-literal-fn body — the message points you at the underlying fn `reg-view*` for those rare cases. The compile-time check is the load-bearing piece: it stops the auto-inject from silently doing the wrong thing when the body shape isn't what the macro can rewrite.
@@ -95,17 +95,17 @@ The propagation is part of `reg-view`'s contract: a registered view inside `fram
 `reg-view` is defn-shape: it auto-defs the symbol you supply. Reference that var like any other Reagent component:
 
 ```clojure
-(rf/reg-view greeting [name] ...)
+(rf/reg-view labelled-counter [label] ...)
 
 ;; ... elsewhere
 [:div
- [greeting "Mike"]
- [greeting "Sandra"]]
+ [labelled-counter "Apples"]
+ [labelled-counter "Oranges"]]
 ```
 
 This reads exactly like Reagent. There's nothing to learn. It just happens to work for the multi-frame case because of the registration that's also happening.
 
-An alternative form exists — `(rf/view :my-ns/greeting)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `view` is the escape hatch for those specific cases.
+An alternative form exists — `(rf/view :my-ns/labelled-counter)` for runtime-id'd dispatch and late-binding (cross-module reference, hot-reload-sensitive call sites) — but the Var idiom is what you'll see most. `view` is the escape hatch for those specific cases.
 
 ## Frames
 
@@ -160,10 +160,10 @@ Both end with the same shape: a frame is in the global frame registry under its 
 Most frames you'll register fall into one of four shapes: a normal client app, a per-test fixture, a story variant, a per-request SSR frame. Writing the metadata for each by hand each time would be repetitive *and* would make the intent of the call site invisible. So re-frame2 ships a closed set of four canonical **presets**:
 
 ```clojure
-(rf/reg-frame :test/auth-flow      {:preset :test})
-(rf/reg-frame :story.cart/loading  {:preset :story})
-(rf/reg-frame :ssr.req/abc123      {:preset :ssr-server})
-(rf/reg-frame :app/main            {:preset :default})  ;; same as omitting :preset
+(rf/reg-frame :test/counter-flow      {:preset :test})
+(rf/reg-frame :story.counter/loading  {:preset :story})
+(rf/reg-frame :ssr.req/abc123         {:preset :ssr-server})
+(rf/reg-frame :app/main               {:preset :default})  ;; same as omitting :preset
 ```
 
 Each preset expands at registration time into a fixed bundle — `:test` redirects `:rf.http/managed` to the canned-success stub (so HTTP fx don't reach the network in tests) and stamps `:drain-depth 100`; `:story` does the same redirect and tightens `:drain-depth` to 16 so runaway dispatch cascades fail fast under a story; `:ssr-server` sets `:platform :server` and wires the server-projection error path. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets-capability-bundles-for-common-configurations).

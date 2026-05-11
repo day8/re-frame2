@@ -2,9 +2,7 @@
 
 Most SPAs spend their lives talking to a server. A handler dispatches; a fetch goes out; some milliseconds later a reply lands; the handler integrates the reply; the view re-renders. Repeat a few thousand times per session.
 
-[Chapter 03](03-events-state-cycle.md) introduced the *shape* of that interaction: side-effects are data, the runtime interprets, the handler stays pure. This chapter narrows in on **the canonical mechanism re-frame2 ships for HTTP** — the `:rf.http/managed` fx — and walks through the contract end-to-end.
-
-The full normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md). This chapter is the human-track companion: what the fx is, what it does, why it's shaped the way it is, and how the runnable examples exercise it.
+[Chapter 03](03-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. The full normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md); this chapter is the human-track companion.
 
 ## What `:rf.http/managed` is
 
@@ -12,18 +10,18 @@ A registered fx whose args map describes an HTTP request *as data*, and whose ru
 
 You don't write the fetch. You don't write the `.then` chain. You don't reach for `js/fetch` or `java.net.http.HttpClient` directly. You return a map, the runtime does the rest.
 
-A first taste, in the simplest possible form:
+A first taste, in the simplest possible form — a button that asks the server for an increment and applies the reply to the counter:
 
 ```clojure
-(rf/reg-event-fx :ping
+(rf/reg-event-fx :counter/+1
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply branch — same handler, different role.
-      {:db (assoc db :pinged-at (:elapsed-at reply))}
+      {:db (update db :count + (-> reply :value :delta))}
 
       ;; Initial branch — issue the managed request.
       {:fx [[:rf.http/managed
-             {:request {:url "/ping"}}]]})))
+             {:request {:url "/api/inc.json"}}]]})))
 ```
 
 Two lines of fx, no decode, no accept, no retry. Default `:method` is `:get`. Default decode is `:auto` (sniff the response Content-Type). Default reply addressing dispatches *back to this same event id* with `:rf/reply` merged into the original message — so one handler covers both roles, distinguishable by `(:rf/reply msg)`.
@@ -51,20 +49,20 @@ The args map for `:rf.http/managed` is small. The required keys are `:request` (
 
 ```clojure
 {:request    {:method  :post
-              :url     "/api/articles"
-              :params  {:tag "clojure"}
-              :body    {:title "..."}
+              :url     "/api/counter"
+              :params  {:scope "session"}
+              :body    {:delta 1}
               :request-content-type :json
               :headers {"X-Trace" "abc"}}
- :decode     ArticleResponse           ;; Malli schema, kw, fn, or :auto
+ :decode     CounterResponse           ;; Malli schema, kw, fn, or :auto
  :accept     (fn [decoded] {:ok decoded})  ;; default = success-on-2xx
  :retry      {:on #{:rf.http/transport :rf.http/http-5xx}
               :max-attempts 4
               :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
  :timeout-ms 30000
- :on-success [:articles/loaded]        ;; default = back to originator
- :on-failure [:articles/load-error]    ;; default = back to originator
- :request-id :articles/load            ;; for abort + supersede
+ :on-success [:counter/loaded]         ;; default = back to originator
+ :on-failure [:counter/load-error]     ;; default = back to originator
+ :request-id :counter/load             ;; for abort + supersede
  :abort-signal external-controller-signal}
 ```
 
@@ -91,28 +89,28 @@ When you don't specify `:on-success` / `:on-failure`, the fx captures the origin
 So your handler ends up looking like:
 
 ```clojure
-(rf/reg-event-fx :article/load
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
+(rf/reg-event-fx :counter/load
+  (fn [{:keys [db]} [_ {:as msg}]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply path
       (case (:kind reply)
         :success
         {:db (-> db
-                 (assoc-in [:article :status] :loaded)
-                 (assoc-in [:article :data]   (:value reply)))}
+                 (assoc :counter/status :loaded)
+                 (assoc :count (-> reply :value :count)))}
 
         :failure
         {:db (-> db
-                 (assoc-in [:article :status] :error)
-                 (assoc-in [:article :error]  (:failure reply)))})
+                 (assoc :counter/status :error)
+                 (assoc :counter/error  (:failure reply)))})
 
       ;; Initial path
       {:db (-> db
-               (assoc-in [:article :status] :loading)
-               (assoc-in [:article :error]  nil))
+               (assoc :counter/status :loading)
+               (assoc :counter/error  nil))
        :fx [[:rf.http/managed
-             {:request {:url (str "/articles/" slug)}
-              :decode  ArticleResponse}]]})))
+             {:request {:url "/api/counter"}
+              :decode  CounterResponse}]]})))
 ```
 
 One handler, two roles, distinguishable by the `:rf/reply` sentinel. The reply payload's outer shape is `{:kind :success :value v}` or `{:kind :failure :failure m}`; the inner `:kind` (under `:failure`) names the `:rf.http/*` category.
@@ -144,7 +142,7 @@ The `:decode` key controls how the response body is parsed.
 
 The `:decode` key takes:
 
-- **A Malli schema** (the canonical form): `:decode ArticleResponse`. The fx parses the body by content-type, runs Malli's `decode`, hands the validated value to `:accept`. A 2xx body that fails to decode classifies as `:rf.http/decode-failure`.
+- **A Malli schema** (the canonical form): `:decode CounterResponse`. The fx parses the body by content-type, runs Malli's `decode`, hands the validated value to `:accept`. A 2xx body that fails to decode classifies as `:rf.http/decode-failure`.
 - **A keyword**: `:decode :json` (force JSON), `:text`, `:blob`, `:array-buffer`, `:form-data`. No Malli step.
 - **A function** `(fn [body-text headers] decoded)` — full control. Throwing on a 2xx classifies as `:rf.http/decode-failure`.
 - **`:auto`** (the default): sniff the response Content-Type. `application/json*` → JSON. `text/*` → text. Otherwise blob. Whenever `:auto` resolves and the user did NOT explicitly supply `:decode`, the runtime emits a single `:rf.warning/decode-defaulted` trace per request — informational, not an error, just visible in tooling so you can choose to be explicit.
@@ -154,18 +152,18 @@ The `:decode` key takes:
 Pair tools and AI generators want to know which schemas a handler expects from the wire — without invoking the handler. Declare them at registration time via the `:rf.http/decode-schemas` metadata key:
 
 ```clojure
-(rf/reg-event-fx :article/load
-  {:doc                    "Load an article."
-   :rf.http/decode-schemas [ArticleResponse]}     ;; declared up-front for tooling
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
+(rf/reg-event-fx :counter/load
+  {:doc                    "Load the persisted counter."
+   :rf.http/decode-schemas [CounterResponse]}     ;; declared up-front for tooling
+  (fn [{:keys [db]} [_ {:as msg}]]
     (if-let [reply (:rf/reply msg)]
       ...
       {:fx [[:rf.http/managed
-             {:request {:url (str "/articles/" slug)}
-              :decode  ArticleResponse}]]})))     ;; same schema at the call site
+             {:request {:url "/api/counter"}
+              :decode  CounterResponse}]]})))     ;; same schema at the call site
 ```
 
-Then `(rf/handler-meta :event :article/load)` returns metadata carrying `:rf.http/decode-schemas [ArticleResponse]`, which tools introspect. **Optional, never enforced** — the runtime does not cross-check that the call-site `:decode` matches the declared schemas. The metadata is reflective sugar; runtime enforcement would want a `defmanaged-event-fx` macro that DRYs the declaration, which is out of v1 scope.
+Then `(rf/handler-meta :event :counter/load)` returns metadata carrying `:rf.http/decode-schemas [CounterResponse]`, which tools introspect. **Optional, never enforced** — the runtime does not cross-check that the call-site `:decode` matches the declared schemas. The metadata is reflective sugar; runtime enforcement would want a `defmanaged-event-fx` macro that DRYs the declaration, which is out of v1 scope.
 
 ## Retry and backoff
 
@@ -190,12 +188,13 @@ A common shape in real apps: declare a shared retry policy for read-only data fe
    :max-attempts 3
    :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
 
-;; Apply to reads:
-[:rf.http/managed {:request {:url "/articles"} :decode ArticleListResponse :retry data-fetch-retry}]
+;; Apply to reads — e.g. loading the persisted counter:
+[:rf.http/managed {:request {:url "/api/counter"} :decode CounterResponse :retry data-fetch-retry}]
 
-;; Don't apply to writes:
-[:rf.http/managed {:request {:method :post :url "/articles" :body draft :request-content-type :json}
-                   :decode  ArticleResponse}]
+;; Don't apply to writes — e.g. saving the counter:
+[:rf.http/managed {:request {:method :post :url "/api/counter"
+                             :body {:count (:count db)} :request-content-type :json}
+                   :decode  CounterResponse}]
 ```
 
 The realworld example does exactly this — see `examples/reagent/realworld/http.cljs`.
@@ -205,15 +204,15 @@ The realworld example does exactly this — see `examples/reagent/realworld/http
 A stable id on the request lets a subsequent `:rf.http/managed-abort` fx cancel the in-flight request. The id can be anything `=`-comparable: a keyword, a string, a vector, a uuid.
 
 ```clojure
-(rf/reg-event-fx :search/query
-  (fn [{:keys [db]} [_ {:keys [q] :as msg}]]
+(rf/reg-event-fx :counter/start-long
+  (fn [{:keys [db]} [_ {:as msg}]]
     (if-let [reply (:rf/reply msg)]
-      ;; ...handle results...
-      {:fx [[:rf.http/managed-abort :search]                 ;; cancel previous
+      ;; ...handle the late reply (or its :rf.http/aborted form)...
+      {:fx [[:rf.http/managed-abort :counter/long]           ;; cancel previous
             [:rf.http/managed
-             {:request    {:url "/search" :params {:q q}}
-              :request-id :search
-              :decode     SearchResponse}]]})))
+             {:request    {:url "/api/long"}
+              :request-id :counter/long
+              :decode     CounterResponse}]]})))
 ```
 
 When two in-flight requests share an id, issuing a new one with the same id supersedes the old one — the previous request aborts with `:reason :request-id-superseded`. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id with `:reason :user`. Aborted requests dispatch `:on-failure` (or the default reply path) with `:kind :rf.http/aborted`.
@@ -246,11 +245,11 @@ Tests want managed-HTTP requests to resolve against canned data, not the network
 
 ```clojure
 ;; Success stub — synthesises a success reply.
-(rf/dispatch-sync [:article/load {:slug "hello"}]
+(rf/dispatch-sync [:counter/load]
                   {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
 
 ;; Failure stub — synthesises a failure reply.
-(rf/dispatch-sync [:article/load {:slug "missing"}]
+(rf/dispatch-sync [:counter/load]
                   {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
 ```
 
@@ -262,12 +261,12 @@ For test suites that exercise many requests:
 
 ```clojure
 (rf/with-managed-request-stubs
-  {[:get  "/articles/hello"]   {:reply {:ok hello-article}}
-   [:get  "/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
-   [:post "/articles"]         {:reply {:ok new-article}}}
-  (rf/dispatch-sync [:article/load {:slug "hello"}])
-  (rf/dispatch-sync [:article/load {:slug "missing"}])
-  (rf/dispatch-sync [:article/create {:title "..."}]))
+  {[:get  "/api/counter"]       {:reply {:ok {:count 5}}}
+   [:get  "/api/does-not-exist"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
+   [:post "/api/counter"]        {:reply {:ok {:count 6}}}}
+  (rf/dispatch-sync [:counter/load])
+  (rf/dispatch-sync [:counter/load-bad])
+  (rf/dispatch-sync [:counter/save]))
 ```
 
 The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply. Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network.
@@ -276,7 +275,7 @@ The canned-stub fxs gate on `interop/debug-enabled?` — they elide in productio
 
 ## Worked example — `examples/reagent/managed_http_counter/`
 
-The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's a counter where each button issues a managed HTTP request and the reply lands back in app-db.
+The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's the same counter from chapter 02, extended with HTTP — each button issues a managed request and the reply lands back in app-db. The counter's spine carries through unchanged; HTTP layers on top.
 
 Five buttons, each exercising a different slice of the contract:
 
