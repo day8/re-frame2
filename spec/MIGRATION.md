@@ -1487,14 +1487,14 @@ The migration message string carries the migration target inline so a stack-trac
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite), **M-44** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
 
 ---
 
-### M-39. `:invoke-all` spawn-and-join is added — additive, no user-side action
+### M-43. `:invoke-all` spawn-and-join is added — additive, no user-side action
 
 **Type B — additive feature** (no rewrite needed; the spec adds a new state-node key but no existing behaviour changes).
 
@@ -1514,7 +1514,7 @@ Per [rf2-6vmw](#) and [005 §Spawn-and-join via `:invoke-all`](005-StateMachines
 
 ---
 
-### M-41. `:timeout-ms` REMOVED from `:invoke` / `:invoke-all` — use parent state's `:after`
+### M-44. `:timeout-ms` REMOVED from `:invoke` / `:invoke-all` — use parent state's `:after`
 
 **Type A — pre-1.0 spec lock; mechanical rewrite where the slot was used.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that adopted the never-shipped `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` rewrite mechanically to the parent state's `:after` map.
 
@@ -1588,7 +1588,7 @@ The semantics are equivalent: when 30000 / 60000 ms elapse without the child(ren
 
 **Cross-references.** [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) for the canonical primitive's full grammar (including the new subscription-vector delay form); [005 §Whichever fires first wins](005-StateMachines.md#whichever-fires-first-wins) for the cancellation cascade; [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) for the dropped-slot record.
 
-### M-42. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
+### M-45. `:rf.http/managed` requests issued from spawned actors abort on actor-destroy (additive)
 
 Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destroyed (parent state exit, parent's `:after` firing, `:invoke-all` cancel-on-decision, frame destroy), in-flight `:rf.http/managed` requests the actor had issued continued running until they completed naturally. Per [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) and [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy), the runtime now aborts those requests automatically on actor-destroy.
 
@@ -1600,7 +1600,7 @@ Pre-release framing: pre-rf2-wvkn, when a spawned state-machine actor was destro
 
 **Cross-references.** [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts); [Spec 014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy); [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) for the trace event registration.
 
-### M-43. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
+### M-46. `:rf.http/managed` ships as a child-invokable machine in addition to the fx (additive)
 
 Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registered as a state machine under the same id — usable directly via `:invoke {:machine-id :rf.http/managed :data {:request {...}}}` from a parent machine's state node. The fx form is unchanged and remains the canonical surface for event-handler-issued requests.
 
@@ -1612,7 +1612,7 @@ Pre-release framing: per [rf2-ijm7](#), `:rf.http/managed` is now ALSO registere
 
 **Cross-references.** [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data` (rf2-ijm7)](005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data-rf2-ijm7); [Spec 005 §Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](005-StateMachines.md#synthetic-rfmachinespawned-on-spawn-rf2-ijm7).
 
-### M-44. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
+### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
 Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nodes may now declare `:tags <set-of-keywords>`. The runtime maintains a derived union at `[:rf/machines <id> :tags]` recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar answer the predicate question.
 
@@ -1626,7 +1626,7 @@ Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nod
 
 **Cross-references.** [Spec 005 §State tags](005-StateMachines.md#state-tags) for the full grammar; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema extensions; [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix) for the `:fsm/tags` row.
 
-### M-45. Parallel regions shipped — `:type :parallel` machines with map-shaped `:state` (additive)
+### M-48. Parallel regions shipped — `:type :parallel` machines with map-shaped `:state` (additive)
 
 Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarations may now declare `:type :parallel` at the root and a `:regions` map of region-name → state-tree. Each region is a full state-node body running independently; all regions are active simultaneously; the snapshot's `:state` becomes a **map** of region-name → that region's keyword-or-vector-path. Transitions broadcast across regions; the macrostep drain settles every region before commit; `:data` is shared across regions; `:tags` union across every active state-node in every region.
 
@@ -1640,9 +1640,9 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarati
 
 **Cross-references.** [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions) for the full grammar; [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema extensions; [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) for the N-machine pattern; [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix) for the `:fsm/parallel-regions` row.
 
-### M-46. Snapshot `:state` widens to a third arm — map of region-name → state (additive; readers that pattern-match on `:state` may widen)
+### M-49. Snapshot `:state` widens to a third arm — map of region-name → state (additive; readers that pattern-match on `:state` may widen)
 
-Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-45](#m-45-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
+Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
 
 **Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `(rf/sub-machine id)` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
 
@@ -1654,7 +1654,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 
-**Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-45](#m-45-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state) above for the registration-side change.
+**Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state) above for the registration-side change.
 
 ---
 

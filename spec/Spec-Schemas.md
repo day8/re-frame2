@@ -1074,7 +1074,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
 ;; an :invoke-bearing state are expressed via the parent state's :after slot. See
 ;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
-;; [MIGRATION §M-41].
+;; [MIGRATION §M-44].
 
 ;; The :invoke-all spec on a state node — spawn-N-children-and-join. Per
 ;; [005 §Spawn-and-join via :invoke-all](005-StateMachines.md#spawn-and-join-via-invoke-all)
@@ -1119,7 +1119,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; The pre-rf2-3y3y :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
 ;; an :invoke-all-bearing state are expressed via the parent state's :after slot. See
 ;; [005 §Wall-clock timeouts on :invoke — use parent state's :after] and
-;; [MIGRATION §M-41].
+;; [MIGRATION §M-44].
 
 ;; The snapshot's location in app-db is the reserved path [:rf/machines <id>]
 ;; — runtime-managed and not part of the transition-table grammar. See
@@ -1174,7 +1174,7 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 **`:type :parallel` constraint.** A root state-node declaring `:type :parallel` MUST declare a non-empty `:regions` map and MUST NOT declare `:initial` or `:states` — those slots are mutually exclusive with `:regions`. Each region's value is itself a full `::state-node` body (its own `:initial` + `:states` for the compound case, or no `:states` for a flat region). `create-machine-handler` validates the shape at registration time and rejects malformed declarations with `:rf.error/machine-parallel-bad-shape`. Nested parallel regions (a region whose own state-tree contains another `:type :parallel`) are not supported in v1; the validator rejects them with `:rf.error/machine-parallel-nested-not-supported`. Per rf2-l67o (Nine States Stage 2) and [005 §Parallel regions](005-StateMachines.md#parallel-regions).
 
-**`:timeout-ms` removed.** Per rf2-3y3y, the pre-release `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` are DROPPED. State-level `:after` on the parent state subsumes the wall-clock guard, with the standard exit-cascade destroying spawned children. `create-machine-handler` rejects any `:timeout-ms` or `:on-timeout` key on either slot at registration time with `:rf.error/invoke-timeout-ms-removed`. The retired error categories `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, and `:rf.error/machine-invoke-timeout-not-positive` are no longer emitted. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).
+**`:timeout-ms` removed.** Per rf2-3y3y, the pre-release `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` are DROPPED. State-level `:after` on the parent state subsumes the wall-clock guard, with the standard exit-cascade destroying spawned children. `create-machine-handler` rejects any `:timeout-ms` or `:on-timeout` key on either slot at registration time with `:rf.error/invoke-timeout-ms-removed`. The retired error categories `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, and `:rf.error/machine-invoke-timeout-not-positive` are no longer emitted. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-44](MIGRATION.md#m-44-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).
 
 **`:always` constraints.** The `:always` slot is checked at registration time for two registration-error categories:
 
