@@ -23,7 +23,7 @@
      fn refer to the same lexical bindings — Clojure lexical closure
      does the right thing.'
 
-  This is the pre-beta gap that rf2-o423 surfaced (rf2-d4v7 sub-gap 1):
+  This is the pre-alpha gap that rf2-o423 surfaced (rf2-d4v7 sub-gap 1):
   the Form-1 happy path is covered by views-macros-test, but the
   Form-2 boundary — does the inner fn see the injected names? — was
   only documented in Spec 004 §Form-2 and the macro source comment,

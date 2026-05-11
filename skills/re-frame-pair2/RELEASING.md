@@ -1,6 +1,6 @@
 # Releasing re-frame-pair2
 
-> **Note (consolidation):** As of re-frame2 `v0.0.1.beta` prep, this skill lives at
+> **Note (consolidation):** As of re-frame2 `v0.0.1.alpha` prep, this skill lives at
 > `re-frame2/skills/re-frame-pair2/`. The standalone `day8/re-frame-pair2`
 > repo is no longer the source of truth. The standalone `release.yml`
 > workflow described below has been removed from this copy; release flow

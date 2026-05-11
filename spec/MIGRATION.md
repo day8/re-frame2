@@ -1261,7 +1261,7 @@ Per [rf2-t07u](#) (Option A revised), the runtime now tracks each declarative-`:
 
 **What to look for** in the codebase:
 
-- Machine specs that declared `:invoke` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-beta these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
+- Machine specs that declared `:invoke` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the rf2-t07u change makes them correct without user-side rewrite.
 - Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [data _] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
 - User-supplied `:exit` action bodies that read `(get-in db [:rf/machines (:pending data)])` to peek at the child's last snapshot before the auto-destroy fires — these continue to work unchanged. The composition rule ([§Composition with explicit `:entry` / `:exit`](005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 

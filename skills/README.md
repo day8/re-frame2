@@ -5,7 +5,7 @@ subdirectory is a self-contained skill with its own `SKILL.md`, scripts,
 and packaging metadata.
 
 These skills were consolidated here from formerly-standalone repositories
-during the `v0.0.1.beta` prep — keeping the skill source colocated with the
+during the `v0.0.1.alpha` prep — keeping the skill source colocated with the
 re-frame2 surfaces it consumes, so the spec, implementation, and tooling
 travel together.
 

@@ -106,7 +106,7 @@
   ;;
   ;; :version is a relative path to the repo-root VERSION file — single
   ;; source of truth for both artefacts. Mike updates VERSION in the
-  ;; release commit, then tags `v<contents>` (e.g. `v0.0.1.beta`).
+  ;; release commit, then tags `v<contents>` (e.g. `v0.0.1.alpha`).
   :clein/build
   {:lib      day8/re-frame-2
    :main     re-frame.core

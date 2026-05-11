@@ -35,7 +35,7 @@ Spec changes are tracked separately under `spec/` and referenced from each entry
 
 ### Spec
 
-## [0.0.1.beta] — _unreleased_
+## [0.0.1.alpha] — _unreleased_
 
 First public pre-release. Mike fills in the release notes manually before tagging — this template lists the major themes that landed in the lead-up to the cut so the eventual notes have a starting point. None of these are commitments; the final list ships when the tag does.
 
@@ -65,5 +65,5 @@ First public pre-release. Mike fills in the release notes manually before taggin
 - `spec/Conventions.md` — published Maven coordinates and the per-substrate dependency shape.
 - `spec/MIGRATION.md` — v1 → v2 migration rules.
 
-[Unreleased]: https://github.com/day8/re-frame2/compare/v0.0.1.beta...HEAD
-[0.0.1.beta]: https://github.com/day8/re-frame2/releases/tag/v0.0.1.beta
+[Unreleased]: https://github.com/day8/re-frame2/compare/v0.0.1.alpha...HEAD
+[0.0.1.alpha]: https://github.com/day8/re-frame2/releases/tag/v0.0.1.alpha

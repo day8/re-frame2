@@ -52,7 +52,7 @@ It provides three popular CLJS-flavoured substrates:
 - **UIx** — modern hooks-based React layer.
 - **Helix** — minimal React wrapper.
 
-You can build production apps on the reference today (Clojars publish lands with `v0.0.1.beta`).
+You can build production apps on the reference today (Clojars publish lands with `v0.0.1.alpha`).
 
 ### Tooling
 
