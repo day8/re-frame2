@@ -51,7 +51,8 @@ tools/
 ├── <tool>/
 │   ├── deps.edn              ; declares day8/re-frame2-<tool>
 │   ├── src/...               ; tool source
-│   └── test/...              ; tool tests
+│   ├── test/...              ; tool tests
+│   └── spec/...              ; the tool's normative spec (see below)
 └── ...
 ```
 
@@ -77,6 +78,52 @@ there's more than one tool to coordinate. Not needed yet.
   never on a consumer's runtime classpath, so the bundle-isolation
   contract holds trivially. It is the one tool in this directory whose
   job is generation rather than runtime observation.
+
+## Per-tool `spec/` folder convention (rf2-bfax)
+
+Every tool ships a local `spec/` folder, complete enough that the tool
+could *almost* be one-shotted from it. Same posture the project-level
+[`spec/`](../spec/) has to the framework: the spec/ folder is the
+normative contract; `src/` is its downstream consequence.
+
+Why each tool needs its own:
+
+- **Design decisions are preserved in committed form.** Decisions
+  iterated across multiple sessions (locked options, dropped
+  alternatives, the reasoning trail) survive in the repo rather than
+  in `findings/` (which is gitignored and local-only).
+- **Audit findings are preserved.** Research that informed the design
+  (Storybook surveys, XState parity audits, etc.) gets committed into
+  `tools/<tool>/spec/findings/` so it isn't lost when the local
+  `findings/` directory is cleaned up.
+- **One-shot-able.** A future contributor (human or AI) can read the
+  spec folder and rebuild the tool with high fidelity.
+
+Typical structure:
+
+```
+tools/<tool>/spec/
+├── 000-Vision.md             ; goals, hard constraints, non-goals
+├── 001-<area>.md             ; per-capability normative docs
+├── 002-<area>.md
+├── ...
+├── Principles.md             ; the tool's design principles
+├── API.md                    ; consolidated public API surface
+├── DESIGN-RATIONALE.md       ; WHY each major call was made
+└── findings/                 ; committed audit / research content
+    ├── <research-doc>.md
+    └── ...
+```
+
+The shape mirrors the project-level [`spec/`](../spec/) — `000-Vision`
++ numbered capability docs + `Principles` + `API` + (here) an explicit
+`DESIGN-RATIONALE` and committed `findings/`. Add `MIGRATION.md` and
+`Spec-Schemas.md` per-tool if the tool warrants them.
+
+The convention does **not** confuse with the project-level `spec/`.
+That folder is the framework's normative contract. The tool-level
+`spec/` is the tool's normative contract — bounded scope, downstream
+of the framework's spec.
 
 ## Future homes
 

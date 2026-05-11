@@ -33,7 +33,7 @@ For about ten years now, the React world has been organised around a particular 
 
 re-frame rejects that. Instead, events update centralised state. Subscriptions derive values from that state. Views sit at the end of the flow — they're render functions over reactive inputs, and they fire when their inputs change, and that is the entire job they have. There is no useState in a re-frame view. There is no useEffect. There is no "lifting state up" because state was never down there in the first place.
 
-A re-frame2 app is, quite literally, a small virtual machine. Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the program. The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. At the end of that pipeline, views update derivatively, because their reactive inputs changed.
+**A re-frame2 app is, quite literally, a small virtual machine.** Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the program. The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. At the end of that pipeline, views update derivatively, because their reactive inputs changed.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 > 
@@ -53,12 +53,13 @@ These are the surfaces every re-frame2 app uses, more or less by default:
 - **Events + effects** — events drive transitions; effects are data, not callbacks. You return a description of what should happen; the runtime does it. Effects compose, effects are testable, effects are observable, effects are stubbable.
 - **Subscriptions** — pure derived values with explicit dependency tracking and recompute suppression. Computed-once, fanned-out, with the bookkeeping handled for you.
 - **State machines** — FSMs for auth flows, multi-step forms, HTTP connections, websockets, etc. State machines are everywhere but usually not formalised like they should be. And, of course, we like them because they are a lovely simple computational model — and the simpler the computational model, the better.
-- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate surveillance state.
+
 
 ### Batteries included
 
 Opt in:
 
+- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. A re-frame2 app is, quite literally, a small virtual machine with instrumentation built in. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate surveillance state.
 - **Routing** — URL-driven navigation with frame-aware semantics. Per-pane routes are possible because frames are a thing.
 - **Validation / schemas** — Malli-backed boundary checks, opt-in, production-elidable. You pay for what you turn on.
 - **Flows** — derived computation graphs that recompute only on input change. Reactive without the gymnastics.
