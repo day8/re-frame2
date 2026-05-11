@@ -459,15 +459,54 @@ shared. The "variant body is pure data" rule is preserved.
 Body:
 
 ```clojure
-{:doc       "..."
- :title     "Display name"
- :placement :right | :left | :bottom | :top | :modal
- :render    <view-id>                            ; registered :view that renders the panel
- :for       #{<context-id>}}                    ; optional — restrict to specific story-tool contexts
+{:doc          "..."
+ :title        "Display name"
+ :placement    :right | :left | :bottom | :top | :modal
+ :render       <view-id>                            ; registered :view that renders the panel
+ :for          #{<context-id>}                     ; optional — restrict to specific story-tool contexts
+ :enabled-when (optional)}                          ; optional registry-predicate fn
 ```
 
 Per spec/007 §Story-tool extension hook. Stage 4 (render shell) reads
-`(rf/handlers :story-panel)` and lays them out.
+`(rf/handlers :story-panel)` and lays them out; Stage 6 (rf2-zhwd) adds
+the v1.0 panel set + the tooling-embed contract below.
+
+##### Panel-registration contract (Stage 6 lock)
+
+Per IMPL-SPEC §4.5 the `reg-story-panel` surface is the **single hook**
+through which tooling embeds itself into the Story chrome — no new
+registry kind, no parallel mounting protocol. The contract:
+
+1. **`:render` is a `:view` id.** The shell renders the panel by calling
+   `(rf/view <render-id>)` and invoking the resolved fn with the current
+   `variant-id`. Late-bind: the actual view can register from a
+   different artefact (e.g. `day8/re-frame2-10x` for the epoch panel)
+   so long as the same `:view` id is registered before the user opens
+   the panel.
+
+2. **Placement is one of five slots.** `:right` / `:left` / `:bottom`
+   / `:top` host the panel inline; `:modal` opens it over the canvas.
+   Each placement is an independent host; multiple panels at the same
+   placement stack in id order.
+
+3. **Visibility flows through `:panel-visibility`.** The shell state's
+   `:panel-visibility` map (keyed by panel id) is the on/off switch.
+   Unspecified → visible; explicit `false` → hidden. Users toggle via
+   the chrome's panel-list affordance.
+
+4. **Author calls `reg-story-panel` from anywhere on the classpath.**
+   Stage 6's built-ins (`:rf.story.panel/a11y` /
+   `:rf.story.panel/layout-debug` / `:rf.story.panel/epoch`) register
+   from inside `install-canonical-vocabulary!`; third-party tooling
+   (e.g. Causa's epoch view, future statechart-viz panels) registers
+   from its own boot.
+
+5. **The 10x embed.** Per IMPL-SPEC §2.7 + §2.8.9: Stage 6 ships
+   `:rf.story.panel/epoch` registered against a STUB view. The Causa
+   library (`tools/10x/`, rf2-buor) registers the live view under the
+   same `:rf.story.panel/epoch-view` id when present; the shell's
+   late-bind `rf/view` lookup picks Causa's view automatically. If
+   Causa is absent the stub renders documenting the contract.
 
 #### `(reg-tag id metadata)`
 
@@ -1455,11 +1494,12 @@ Plus from Phase 2 §5.2 (additions ship in v1):
 
 | Item | Bead reference |
 |---|---|
-| Layout-debug overlay trio (measure / outline / pseudo) | Stage 6 |
+| Layout-debug overlay trio (measure / outline / pseudo) | Stage 6 (rf2-zhwd) |
 | `reg-mode` saved-tuple primitive | Stage 2 |
 | `:variants-grid` workspace layout | Stage 4 |
-| Per-variant QR code in share menu | Stage 4 |
-| Multi-substrate side-by-side pane (substrate-failures inline) | Stage 4 |
+| Per-variant QR code in share menu | Stage 6 (rf2-zhwd) |
+| Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 (rf2-zhwd) |
+| 10x epoch panel embed (stub + contract) | Stage 6 (rf2-zhwd) |
 
 ### 11.2 v1.1 (first follow-up)
 

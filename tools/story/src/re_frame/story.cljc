@@ -57,10 +57,17 @@
             [re-frame.story.assertions :as assertions]
             [re-frame.story.fx-stubs  :as fx-stubs]
             [re-frame.story.play      :as play]
+            ;; Stage 6 (rf2-zhwd) — SOTA features. layout-debug + share
+            ;; live in .cljc; multi-substrate / a11y / panels are
+            ;; CLJS-only so the JVM classpath stays lean.
+            [re-frame.story.layout-debug :as layout-debug]
+            [re-frame.story.share        :as share]
             ;; Stage 4 (rf2-ekai) — UI shell. CLJS-only require so JVM
             ;; consumers (tests, REPL exploration) don't pull Reagent /
             ;; reagent.dom.client into their classpath.
             #?(:cljs [re-frame.story.ui.shell :as ui-shell])
+            #?(:cljs [re-frame.story.ui.panels :as ui-panels])
+            #?(:cljs [re-frame.story.ui.multi-substrate :as ui-multi-substrate])
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
@@ -360,6 +367,14 @@
   - The late-bound stub-event tap so emitted fx-ids reach the
     assertion accumulator (for `:rf.assert/effect-emitted`).
 
+  Stage 6 (rf2-zhwd) adds:
+  - The three layout-debug decorators (`:rf.story/layout-debug.measure`
+    / `.outline` / `.pseudo`).
+  - The v1.0 built-in story panels: a11y, layout-debug toggles, and the
+    10x epoch panel STUB.
+  - The Reagent substrate is registered against the multi-substrate
+    grid renderer (so `:substrates #{:reagent ...}` works out of the box).
+
   Project-specific tags must register via `reg-tag` *before* use; an
   unregistered tag on a variant's `:tags` set raises `:rf.error/unknown-tag`."
   []
@@ -377,7 +392,16 @@
   (frames/set-drop-assertion-accumulators-fn!
     (fn [frame-id]
       (assertions/drop-trace-accumulators! frame-id)
-      (play/drop-pending-exceptions! frame-id))))
+      (play/drop-pending-exceptions! frame-id)))
+  ;; Stage 6 — SOTA features.
+  ;; Layout-debug decorators register on both JVM and CLJS (the .cljc
+  ;; module declares the three :hiccup-kind decorators against the
+  ;; story registrar).
+  (layout-debug/install-canonical-layout-debug!)
+  ;; CLJS-only Stage 6 surfaces: multi-substrate Reagent default +
+  ;; the v1.0 panel set.
+  #?(:cljs (ui-multi-substrate/install-reagent-substrate!))
+  #?(:cljs (ui-panels/install-canonical-panels!)))
 
 ;; ---- configure! ---------------------------------------------------------
 
@@ -574,6 +598,65 @@
                       [:rf.assert/effect-emitted :http]]})"
   fx-stubs/force-fx-stub-id)
 
+;; ---- Stage 6 (rf2-zhwd) public SOTA-feature surface ---------------------
+
+(def layout-debug-measure-id
+  "Per IMPL-SPEC §2.8.6 — the registered decorator id for the
+  Storybook-style layout measure overlay. Use on a variant's
+  `:decorators` slot:
+
+      (story/reg-variant :story.button/pressed
+        {:decorators [[story/layout-debug-measure-id]]})"
+  layout-debug/id-measure)
+
+(def layout-debug-outline-id
+  "Per IMPL-SPEC §2.8.6 — Pesticide-style coloured outlines on every
+  descendant element."
+  layout-debug/id-outline)
+
+(def layout-debug-pseudo-id
+  "Per IMPL-SPEC §2.8.6 — pseudo-state forcing. Ref-args is a set
+  from `#{:hover :focus :active :visited}`; default is `#{:hover}`:
+
+      (story/reg-variant :story.link/hovered
+        {:decorators [[story/layout-debug-pseudo-id #{:hover}]]})"
+  layout-debug/id-pseudo)
+
+(defn variant-share-url
+  "Per IMPL-SPEC §2.8.5 — build a sharable URL for a variant against
+  `base-url`. Encodes active modes + cell-overrides + substrate so a
+  scan-and-share session reproduces the cell.
+
+  Pure data → data; JVM + CLJS portable.
+
+  `opts`:
+    :active-modes    coll of registered mode ids
+    :cell-overrides  {arg-key → value}
+    :substrate       active substrate"
+  ([variant-id]                (share/variant-share-url variant-id))
+  ([variant-id base-url opts]  (share/variant-share-url variant-id base-url opts)))
+
+#?(:cljs
+   (defn register-substrate!
+     "Per IMPL-SPEC §2.2 + §2.8.4 — register a substrate render fn under
+     `substrate-id`. The host app calls this once at boot for each
+     substrate it wants Story to render against (UIx, Helix, etc.). The
+     Reagent substrate is registered automatically by
+     `install-canonical-vocabulary!`.
+
+     `render-fn` takes `(variant-id view-id args)` and returns a hiccup
+     vector (Reagent) or a React element (UIx / Helix)."
+     [substrate-id render-fn]
+     (ui-multi-substrate/register-substrate! substrate-id render-fn)))
+
+#?(:cljs
+   (defn registered-substrates
+     "Per IMPL-SPEC §2.2 — return the set of registered substrate ids.
+     Used by tooling that enumerates the available substrates for a
+     variant's `:substrates` opt-in."
+     []
+     (ui-multi-substrate/registered-substrates)))
+
 ;; ---- public helpers (decorator / args resolution surfacing) -------------
 
 (defn resolve-args
@@ -602,11 +685,15 @@
     handlers, play sequence execution wired into `run-variant`, the
     built-in `:rf.story/force-fx-stub` decorator, `assertions-passing?`,
     and the non-default `:loaders-complete-when` forms).
-  - Stage 6+ extends — SOTA panels, MCP, examples + guide.
+  - Stage 6 — `:sota-features` (adds the layout-debug decorator trio,
+    per-variant QR share, multi-substrate side-by-side renderer, the
+    a11y / layout-debug / 10x-epoch story panels, and the
+    `reg-story-panel` contract documented in IMPL-SPEC §4.5).
+  - Stage 7+ extends — MCP, examples + guide.
 
   Tools that adapt to the loaded surface read this; agents can ask
   the runtime which Stage is live."
-  :assertions+play)
+  :sota-features)
 
 ;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
 ;;

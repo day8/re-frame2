@@ -42,9 +42,9 @@
 
 ;; ---- stage marker --------------------------------------------------------
 
-(deftest stage-5-marker
-  (testing "Stage 5 advertises :assertions+play"
-    (is (= :assertions+play story/stage))))
+(deftest stage-6-marker
+  (testing "Stage 6 advertises :sota-features"
+    (is (= :sota-features story/stage))))
 
 ;; ---- public API additions ------------------------------------------------
 
