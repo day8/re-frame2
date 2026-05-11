@@ -201,7 +201,7 @@ Each of these has been distilled into a **Pattern** doc — convention, not Spec
 
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice.
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft/submitted/status/errors as a standard slice.
+- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft/submitted/status/errors as a standard slice. (Guide: [05a — Forms](05a-forms.md).)
 - [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init, progress UI, fail-fatal points.
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.

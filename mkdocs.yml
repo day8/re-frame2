@@ -57,6 +57,7 @@ nav:
     - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
     - "04 — Views and frames": guide/04-views-and-frames.md
     - "05 — State machines": guide/05-state-machines.md
+    - "05a — Forms": guide/05a-forms.md
     - "06 — Doing HTTP requests": guide/06-doing-http-requests.md
     - "07 — The server side": guide/07-server-side.md
     - "08 — From re-frame v1": guide/08-from-re-frame-v1.md
