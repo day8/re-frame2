@@ -12,17 +12,17 @@ That sounds bureaucratic. The payoff is enormous. Let's see why.
 
 ## The problem with side-effects in handlers
 
-Imagine the obvious thing: an event handler that fetches user data on login.
+The counter from chapter 02 only changed `app-db`. The moment the counter wants to reach outside itself — fetch the next increment from a server, persist its value to localStorage, beep — the temptation is to do the obvious thing right there in the handler:
 
 ```clojure
 ;; ❌ Don't do this
-(rf/reg-event-db :user/login
-  (fn [db [_ creds]]
-    (.then (js/fetch "/api/login" #js {:method "POST" :body creds})
+(rf/reg-event-db :counter/inc-from-server
+  (fn [db _event]
+    (.then (js/fetch "/api/inc.json")
            (fn [resp]
              ;; ... what now?
              ))
-    (assoc db :auth/loading? true)))
+    (assoc db :counter/loading? true)))
 ```
 
 There are at least three problems with this.
@@ -37,19 +37,17 @@ The solution: **don't let the handler do the side-effect. Have it describe the s
 
 ## Effects as data
 
-Here's the same login event in re-frame2 idiom:
+Here's the same counter-fetch event in re-frame2 idiom:
 
 ```clojure
-(rf/reg-event-fx :user/login
-  (fn [{:keys [db]} [_ creds]]
-    {:db (assoc db :auth/loading? true)
+(rf/reg-event-fx :counter/inc-from-server
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :counter/loading? true)
      :fx [[:rf.http/managed
-           {:request    {:method :post
-                         :url    "/api/login"
-                         :body   creds
-                         :request-content-type :json}
-            :on-success [:user/login-success]
-            :on-failure [:user/login-error]}]]}))
+           {:request    {:method :get
+                         :url    "/api/inc.json"}
+            :on-success [:counter/inc-loaded]
+            :on-failure [:counter/inc-error]}]]}))
 ```
 
 Three things changed:
@@ -61,24 +59,24 @@ Three things changed:
 Then there are two follow-up handlers, each pure:
 
 ```clojure
-(rf/reg-event-db :user/login-success
+(rf/reg-event-db :counter/inc-loaded
   (fn [db [_ {:keys [value]}]]
     (-> db
-        (assoc :auth/loading? false)
-        (assoc :auth/user (:user value)))))
+        (assoc :counter/loading? false)
+        (update :count + (:delta value)))))
 
-(rf/reg-event-db :user/login-error
+(rf/reg-event-db :counter/inc-error
   (fn [db [_ {:keys [failure]}]]
     (-> db
-        (assoc :auth/loading? false)
-        (assoc :auth/error failure))))
+        (assoc :counter/loading? false)
+        (assoc :counter/error failure))))
 ```
 
-The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:user/login-success {:kind :success :value v}]` or `[:user/login-error {:kind :failure :failure m}]`. Those events go through the queue exactly like any other event. The cycle runs.
+The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:counter/inc-loaded {:kind :success :value v}]` or `[:counter/inc-error {:kind :failure :failure m}]`. Those events go through the queue exactly like any other event. The cycle runs.
 
 `:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, schema-driven decode, frame-aware reply addressing — and it's covered in detail in [chapter 06 — Doing HTTP requests](06-doing-http-requests.md). This chapter uses it to make the effects-as-data shape concrete; the full surface lives there.
 
-This shape makes the dynamic story tractable again. You can trace the login flow by reading three handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
+This shape makes the dynamic story tractable again. You can trace the counter-fetch flow by reading three handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
 
 ## The standard effect map
 
@@ -92,11 +90,11 @@ The shape an `reg-event-fx` handler returns is intentionally narrow: two top-lev
 That's all. Top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` from re-frame v1 are gone — they fold into `:fx` as `[:dispatch ...]` / `[:dispatch-later {...}]` rows. The single shape across every effect is the load-bearing piece: tooling, tests, and the runtime each see one consistent grammar instead of two parallel ones. (This consolidation is migration rule M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md).)
 
 ```clojure
-{:db (assoc db :saved? true)
+{:db (assoc db :counter/saved? true)
  :fx [[:rf.http/managed
-       {:request {:method :post :url "/api/save" :body (:draft db)
+       {:request {:method :post :url "/api/counter" :body {:count (:count db)}
                   :request-content-type :json}}]
-      [:localstorage/set  {:key "last-saved" :value (now)}]
+      [:localstorage/set  {:key "counter" :value (:count db)}]
       [:rf.nav/push-url   "/saved"]
       [:dispatch          [:notification/show "Saved!"]]]}
 ```
@@ -129,7 +127,7 @@ For HTTP, the framework already ships `:rf.http/managed` — managed decoding, r
 
 ## Why effects-as-data is worth the verbosity
 
-It is more verbose. The login flow in idiomatic React is one async function with `await`. In re-frame2 it's three handlers + a registered fx. Six places where you'd have one.
+It is more verbose. The fetch-an-increment flow in idiomatic React is one async function with `await`. In re-frame2 it's three handlers + a registered fx. Six places where you'd have one.
 
 The benefits:
 
@@ -139,11 +137,11 @@ The benefits:
 
 ```clojure
 (rf/with-managed-request-stubs
-  {[:post "/api/login"] {:reply {:ok {:user {:email "test@example.com"}}}}}
+  {[:get "/api/inc.json"] {:reply {:ok {:delta 1}}}}
   (rf/with-frame [f (rf/make-frame
-                     {:on-create [:user/login {:email "a@b.c" :password "..."}]})]
-    (is (= "test@example.com"
-           (-> (rf/get-frame-db f) :auth/user :email)))))
+                     {:on-create [:counter/initialise]})]
+    (rf/dispatch-sync [:counter/inc-from-server] {:frame f})
+    (is (= 6 (:count (rf/get-frame-db f))))))
 ```
 
 The framework ships `with-managed-request-stubs` (and the lower-level `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs) precisely so tests can synthesise managed-HTTP replies without a network. It's a registry redirect, not a mock — the same dispatch shape the real fx produces lands in the test handler.
