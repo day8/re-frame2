@@ -1,0 +1,183 @@
+(ns re-frame.story-mcp.protocol
+  "MCP / JSON-RPC 2.0 wire-format helpers.
+
+  Per https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+  the stdio transport is newline-delimited JSON-RPC: one message per
+  line on stdin/stdout, UTF-8, no embedded newlines, no extra noise on
+  stdout (only valid MCP messages). stderr is free-form logging.
+
+  This namespace owns the wire framing — read a line, parse JSON,
+  validate the JSON-RPC envelope shape, hand off to a handler, serialise
+  the response, write a line. The handler logic itself (`tools/list`,
+  `tools/call`, etc.) lives in `re-frame.story-mcp.server`; the tool
+  implementations live in `re-frame.story-mcp.tools`.
+
+  ## JSON-RPC error codes
+
+  Per JSON-RPC 2.0 §5.1 and MCP's reuse of them:
+
+  | Code     | Name              | When                                    |
+  |----------|-------------------|-----------------------------------------|
+  | -32700   | parse-error       | Malformed JSON on the wire.             |
+  | -32600   | invalid-request   | Not a valid JSON-RPC request envelope.  |
+  | -32601   | method-not-found  | Unknown method (incl. unknown tool).    |
+  | -32602   | invalid-params    | Method recognised, params shape wrong.  |
+  | -32603   | internal-error    | Server-side fault.                      |
+
+  Tool-execution errors (a known tool returning a failure) use the
+  `tools/call` result shape with `isError: true` per the MCP spec §Error
+  Handling guidance — they are NOT protocol-level errors."
+  (:require [cheshire.core :as json]
+            [clojure.string :as str]))
+
+;; ---- error codes ----------------------------------------------------------
+
+(def ^:const code-parse-error      -32700)
+(def ^:const code-invalid-request  -32600)
+(def ^:const code-method-not-found -32601)
+(def ^:const code-invalid-params   -32602)
+(def ^:const code-internal-error   -32603)
+
+;; ---- envelope construction -----------------------------------------------
+
+(defn response
+  "Build a JSON-RPC success response envelope. `id` is the request id
+  (echoed from the request); `result` is the method-specific payload."
+  [id result]
+  {:jsonrpc "2.0"
+   :id      id
+   :result  result})
+
+(defn error-response
+  "Build a JSON-RPC error response envelope.
+
+  `id` may be `nil` (for top-of-protocol failures where the id couldn't
+  be parsed); per JSON-RPC 2.0 §5 the `id` slot is always present in an
+  error response — `null` is the correct value when unknown."
+  ([id code message]
+   (error-response id code message nil))
+  ([id code message data]
+   {:jsonrpc "2.0"
+    :id      id
+    :error   (cond-> {:code code :message message}
+               (some? data) (assoc :data data))}))
+
+(defn notification?
+  "Per JSON-RPC 2.0 §4.1, a notification is a request without an `id`.
+  Notifications get no response. Assumes keys have been keywordised
+  (parse-json does this)."
+  [message]
+  (and (map? message)
+       (not (contains? message :id))))
+
+(defn request?
+  "True iff `message` has the JSON-RPC request shape (`jsonrpc:\"2.0\"`,
+  `method` present, `id` present). The `id` MAY be a number, string, or
+  null per the spec — we accept any non-vector / non-map scalar."
+  [message]
+  (and (map? message)
+       (= "2.0" (:jsonrpc message))
+       (contains? message :method)
+       (contains? message :id)))
+
+(defn valid-envelope?
+  "True iff `message` is a syntactically-valid JSON-RPC 2.0 request OR
+  notification — both shapes are accepted here; the dispatcher decides
+  which to act on. Notifications omit `id`; requests carry it."
+  [message]
+  (and (map? message)
+       (= "2.0" (:jsonrpc message))
+       (string? (:method message))
+       (not (str/blank? (:method message)))))
+
+;; ---- JSON I/O ------------------------------------------------------------
+
+(defn parse-json
+  "Parse a JSON string into a Clojure map. Returns the parsed value, or
+  throws `ex-info` with `:rf.error/parse-error` on a malformed payload.
+
+  Keys are converted to keywords for ergonomic dispatch — this matches
+  what the rest of the namespace expects (`(:method m)`, `(:jsonrpc m)`,
+  `(:id m)`). String keys inside `params` are NOT converted: tool
+  argument maps are typically keyword-keyed at the tools layer, but
+  user-supplied JSON-keys may be arbitrary strings; the tool dispatcher
+  re-keywordises the top level when it parses arguments."
+  [^String s]
+  (try
+    (json/parse-string s true)
+    (catch Throwable e
+      (throw (ex-info "re-frame2-story-mcp: JSON parse failure"
+                      {:rf.error :rf.error/parse-error
+                       :raw      (when s (subs s 0 (min 200 (count s))))}
+                      e)))))
+
+(defn write-json
+  "Serialise `message` to JSON. Returns the string (no trailing newline —
+  the line-writer at `server.cljc` adds it). Throws on a non-encodable
+  value; the catch path at the dispatcher turns the throw into an
+  internal-error response."
+  [message]
+  (json/generate-string message))
+
+;; ---- frame I/O (stdio line-delimited) ------------------------------------
+
+(defn read-frame
+  "Read one newline-delimited JSON frame from `^java.io.BufferedReader reader`.
+  Returns the parsed map, or `::eof` when the reader has closed, or
+  throws `:rf.error/parse-error` on malformed JSON.
+
+  Empty / whitespace lines are silently consumed (some agent hosts emit
+  trailing newlines)."
+  [^java.io.BufferedReader reader]
+  (loop []
+    (let [line (.readLine reader)]
+      (cond
+        (nil? line)                   ::eof
+        (str/blank? line)             (recur)
+        :else                         (parse-json line)))))
+
+(defn write-frame!
+  "Write one newline-delimited JSON frame to `^java.io.Writer writer`,
+  flushing immediately. Per the MCP stdio transport spec, every message
+  must terminate with a newline and contain no embedded newlines —
+  Cheshire's default `generate-string` doesn't emit newlines.
+
+  Throws if the encoder fails (the caller is expected to translate that
+  into an internal-error response before retrying the write)."
+  [^java.io.Writer writer message]
+  (.write writer ^String (write-json message))
+  (.write writer "\n")
+  (.flush writer)
+  nil)
+
+;; ---- error helpers -------------------------------------------------------
+
+(defn parse-error
+  "Build a parse-error response. `id` is `nil` because by definition we
+  couldn't parse the request to extract one."
+  []
+  (error-response nil code-parse-error "Parse error"))
+
+(defn method-not-found
+  "Build a method-not-found error for `method`. Used by the dispatcher
+  when `(:method message)` doesn't match a registered handler — and by
+  `tools/call` when the named tool isn't in the registry."
+  [id method]
+  (error-response id code-method-not-found
+                  (str "Method not found: " method)))
+
+(defn invalid-params
+  "Build an invalid-params error. `details` is human-readable."
+  [id details]
+  (error-response id code-invalid-params
+                  (str "Invalid params: " details)))
+
+(defn internal-error
+  "Build an internal-error response. `details` is human-readable. The
+  `:data` slot carries a structured error map per JSON-RPC 2.0 §5.1
+  (the spec allows servers to attach arbitrary `data` to error
+  responses; agent clients may surface it for debugging)."
+  ([id details]
+   (internal-error id details nil))
+  ([id details data]
+   (error-response id code-internal-error details data)))
