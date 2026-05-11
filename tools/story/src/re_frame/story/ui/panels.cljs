@@ -1,0 +1,281 @@
+(ns re-frame.story.ui.panels
+  "Built-in story panels — the registry-resolved chrome slots Stage 6
+  (rf2-zhwd) ships with v1.0.
+
+  ## Panel registration contract
+
+  Per IMPL-SPEC §3.1 + §4.5 (Stage 6 addition) — a story panel is
+  registered via:
+
+      (rf/reg-story-panel <panel-id>
+        {:doc          \"...\"
+         :title        \"...\"             ;; sidebar / tab label
+         :placement    :right|:left|:bottom|:top|:modal
+         :render       <view-id>          ;; registered view that renders the panel
+         :enabled-when (optional)         ;; predicate fn from registry → boolean
+         :for          #{<context-id>}})  ;; optional: contexts the panel belongs to
+
+  The shell's panel-host component reads `(rf/handlers :story-panel)`
+  + the shell's `:panel-visibility` map and renders every visible
+  panel into its `:placement` slot. The `:render` view receives the
+  current variant-id as its single arg.
+
+  Stage 6 wires this for the v1.0 panels:
+
+  - `:rf.story.panel/a11y`   — axe-core scanner (see `re-frame.story.ui.a11y`).
+  - `:rf.story.panel/epoch`  — re-frame-10x epoch panel STUB (this ns;
+                                placeholder until Causa ships v1.0).
+  - `:rf.story.panel/layout-debug` — the three layout-debug decorator
+                                toggles, hosted as a controls-style chrome.
+
+  ## 10x epoch panel — STUB
+
+  Per IMPL-SPEC §2.7 + §2.8.9 the 10x epoch panel ships in v1.0 as a
+  `reg-story-panel` registration. The actual 10x v2 (working name
+  Causa — `tools/10x/`, bd rf2-buor) is in design. Stage 6 ships a
+  stub view that documents the contract; the live embed lands when
+  Causa publishes its panel-render view id.
+
+  When Causa is ready, the stub registration replaces with:
+
+      (rf/reg-story-panel :rf.story.panel/epoch
+        {:title \"Epochs (10x)\"
+         :placement :bottom
+         :render :rf.epoch-10x/panel-view})
+
+  …and the late-bind look-up in `re-frame.core/view` finds the panel
+  view registered by the Causa library when present, otherwise the
+  stub view registered here."
+  (:require [reagent.core :as r]
+            [re-frame.core :as rf]
+            [re-frame.story.config :as config]
+            [re-frame.story.layout-debug :as layout-debug]
+            [re-frame.story.registrar :as story-registrar]
+            [re-frame.story.ui.a11y :as a11y]))
+
+;; ---- styling -------------------------------------------------------------
+
+(def ^:private styles
+  {:stub-wrap    {:padding "12px"
+                  :background "#252526"
+                  :color "#cccccc"
+                  :font-family "monospace"
+                  :font-size "11px"
+                  :border-top "1px solid #444"}
+   :stub-title   {:color "#9cdcfe"
+                  :font-weight "bold"
+                  :margin-bottom "8px"
+                  :text-transform "uppercase"
+                  :font-size "10px"
+                  :letter-spacing "0.5px"}
+   :stub-body    {:color "#888"
+                  :line-height "1.5"}
+   :stub-code    {:padding "8px"
+                  :background "#1e1e1e"
+                  :border "1px solid #444"
+                  :border-radius "3px"
+                  :margin-top "8px"
+                  :font-size "10px"
+                  :overflow-x "auto"}
+   :layout-wrap  {:padding "8px"
+                  :background "#252526"
+                  :color "#cccccc"
+                  :font-family "monospace"
+                  :font-size "11px"
+                  :border-top "1px solid #444"}
+   :layout-title {:font-weight "bold"
+                  :color "#888"
+                  :text-transform "uppercase"
+                  :font-size "10px"
+                  :letter-spacing "0.5px"
+                  :margin-bottom "6px"}
+   :toggle       {:display "flex"
+                  :align-items "center"
+                  :gap "8px"
+                  :padding "4px 0"
+                  :cursor "pointer"
+                  :user-select "none"}
+   :decor-id     {:color "#9cdcfe"}
+   :hint         {:color "#666"
+                  :font-style "italic"
+                  :font-size "10px"
+                  :margin-top "6px"}})
+
+;; ---- 10x epoch panel stub ----------------------------------------------
+
+(def ^:const epoch-panel-id
+  "Story-panel id for the 10x epoch panel embed. Per IMPL-SPEC §2.7."
+  :rf.story.panel/epoch)
+
+(def ^:const epoch-panel-render-id
+  "View id the panel registration points at. The actual view (this ns
+  ships a stub; Causa replaces with the live panel via the same id
+  later) is registered as a re-frame view so the late-bind lookup in
+  `re-frame.core/view` finds whichever ships."
+  :rf.story.panel/epoch-view)
+
+(defn epoch-stub-view
+  "STUB view for the 10x epoch panel. Per IMPL-SPEC §2.7 + Stage 6
+  (rf2-zhwd) — displays a contract description until Causa
+  (`tools/10x/`, rf2-buor) ships its panel view.
+
+  The stub registration is the deliverable for Stage 6; the live view
+  replaces the same registered view id when Causa publishes."
+  [_variant-id]
+  [:div {:style (:stub-wrap styles)}
+   [:div {:style (:stub-title styles)} "Epochs (10x) — stub"]
+   [:div {:style (:stub-body styles)}
+    "The 10x epoch panel will be embedded here once Causa ships v1.0."]
+   [:div {:style (:stub-body styles)}
+    "Stage 6 (rf2-zhwd) ships the panel-registration contract; the live "
+    "view will register under the same id (" (pr-str epoch-panel-render-id)
+    ") when " [:code "day8/re-frame2-10x"] " is on the classpath."]
+   [:pre {:style (:stub-code styles)}
+    (str "(rf/reg-story-panel " epoch-panel-id "\n"
+         "  {:title     \"Epochs (10x)\"\n"
+         "   :placement :bottom\n"
+         "   :render    " epoch-panel-render-id "})")]])
+
+;; ---- layout-debug controls panel ---------------------------------------
+
+(def ^:const layout-debug-panel-id
+  :rf.story.panel/layout-debug)
+
+(def ^:const layout-debug-render-id
+  :rf.story.panel/layout-debug-view)
+
+(defonce
+  ^{:doc "Per-variant layout-debug toggle state. `{variant-id →
+         #{decorator-id ...}}`. Reagent atom for reactive renders.
+
+         The state is informational at Stage 6 — the toggle records
+         which decorators the author *wants* applied at the variant
+         level. The Stage-6-or-later canvas can read this and merge
+         it into the resolved decorator stack on the fly."}
+  layout-debug-toggles
+  (r/atom {}))
+
+(defn toggle-layout-debug!
+  [variant-id decorator-id]
+  (swap! layout-debug-toggles update variant-id
+         (fn [s] (let [s (or s #{})]
+                   (if (contains? s decorator-id)
+                     (disj s decorator-id)
+                     (conj s decorator-id))))))
+
+(defn active-layout-debug-decorators
+  "Return the set of layout-debug decorator ids the user has toggled
+  on for `variant-id`. Pure read."
+  [variant-id]
+  (get @layout-debug-toggles variant-id #{}))
+
+(defn layout-debug-view
+  "Layout-debug controls panel. Lists the three layout-debug decorators
+  with toggles so the user can enable / disable each at runtime without
+  touching variant body."
+  [variant-id]
+  (let [active (active-layout-debug-decorators variant-id)]
+    [:div {:style (:layout-wrap styles)}
+     [:div {:style (:layout-title styles)} "Layout-debug"]
+     (for [id [layout-debug/id-measure
+               layout-debug/id-outline
+               layout-debug/id-pseudo]]
+       ^{:key id}
+       [:label {:style    (:toggle styles)
+                :on-click (fn [_] (when variant-id
+                                    (toggle-layout-debug! variant-id id)))}
+        [:input {:type     "checkbox"
+                 :checked  (boolean (contains? active id))
+                 :readOnly true}]
+        [:span {:style (:decor-id styles)} (str id)]])
+     [:div {:style (:hint styles)}
+      "toggle adds the decorator at variant render time (per IMPL-SPEC §2.8.6)"]]))
+
+;; ---- registration -------------------------------------------------------
+
+(defn- reg-view!
+  "Register a panel-render view. Idempotent."
+  [view-id render-fn]
+  (rf/reg-view* view-id render-fn))
+
+(defn install-canonical-panels!
+  "Register the Stage 6 (rf2-zhwd) v1.0 panel set:
+
+  - `:rf.story.panel/epoch` — the 10x epoch panel embed STUB.
+  - `:rf.story.panel/layout-debug` — the layout-debug toggle panel.
+
+  The a11y panel registers separately via
+  `re-frame.story.ui.a11y/install-canonical-a11y!` (so axe-core's
+  lazy-load contract stays in its own module).
+
+  Idempotent. Production builds with `:rf.story/enabled?` false skip
+  registration."
+  []
+  (when config/enabled?
+    ;; 10x epoch panel STUB.
+    (reg-view! epoch-panel-render-id epoch-stub-view)
+    (story-registrar/reg-story-panel*
+      epoch-panel-id
+      {:doc       "re-frame-10x epoch panel embed (stub until Causa v1.0)."
+       :title     "Epochs (10x)"
+       :placement :bottom
+       :render    epoch-panel-render-id})
+    ;; Layout-debug controls panel.
+    (reg-view! layout-debug-render-id layout-debug-view)
+    (story-registrar/reg-story-panel*
+      layout-debug-panel-id
+      {:doc       "Layout-debug decorator toggles (measure / outline / pseudo)."
+       :title     "Layout-debug"
+       :placement :right
+       :render    layout-debug-render-id})
+    ;; A11y panel — registers in its own ns.
+    (a11y/install-canonical-a11y!)))
+
+;; ---- panel host ---------------------------------------------------------
+
+(def ^:private host-styles
+  {:right-host  {:display "flex" :flex-direction "column"}
+   :bottom-host {:border-top "1px solid #444"
+                 :background "#252526"}
+   :panel-head  {:display "flex"
+                 :justify-content "space-between"
+                 :align-items "center"
+                 :padding "4px 10px"
+                 :background "#2d2d30"
+                 :border-bottom "1px solid #444"
+                 :color "#888"
+                 :font-family "monospace"
+                 :font-size "10px"
+                 :text-transform "uppercase"
+                 :letter-spacing "0.5px"}})
+
+(defn render-panels-at-placement
+  "Render every registered `:story-panel` whose `:placement` matches
+  `placement` and whose visibility flag in the shell state is truthy.
+  Stage 6 (rf2-zhwd).
+
+  Returns a hiccup vector wrapping the resolved panels."
+  [placement variant-id panel-visibility]
+  (let [panels (story-registrar/handlers :story-panel)
+        slots  (->> panels
+                    (filter (fn [[pid body]]
+                              (and (= placement (:placement body))
+                                   ;; default visible unless explicit false
+                                   (let [vis (get panel-visibility pid)]
+                                     (or (nil? vis) (true? vis))))))
+                    (sort-by (fn [[pid _]] (str pid))))]
+    [:div
+     (for [[pid body] slots]
+       (let [view-id (:render body)
+             view-fn (rf/view view-id)]
+         ^{:key pid}
+         [:div
+          [:div {:style (:panel-head host-styles)}
+           [:span (:title body)]
+           [:span {:style {:color "#666"}} (str pid)]]
+          (if view-fn
+            [view-fn variant-id]
+            [:div {:style {:padding "8px" :color "#888"
+                           :font-style "italic" :font-size "10px"}}
+             (str "panel " (pr-str pid)
+                  " has no registered :render view (" (pr-str view-id) ")")])]))]))

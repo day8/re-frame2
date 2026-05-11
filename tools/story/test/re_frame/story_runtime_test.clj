@@ -68,8 +68,8 @@
 ;; ---- stage marker --------------------------------------------------------
 
 (deftest stage-marker-runtime
-  (testing "Stage 5 supersedes Stage 4 — the loaded surface advertises :assertions+play"
-    (is (= :assertions+play story/stage))))
+  (testing "Stage 6 supersedes Stage 5 — the loaded surface advertises :sota-features"
+    (is (= :sota-features story/stage))))
 
 ;; ===========================================================================
 ;; ARGS PRECEDENCE

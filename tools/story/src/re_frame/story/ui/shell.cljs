@@ -44,6 +44,7 @@
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
+            [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -186,7 +187,12 @@
 ;; ---- the top-level component ---------------------------------------------
 
 (defn- right-panel
-  "The right-side pane — controls + scrubber + trace stacked vertically."
+  "The right-side pane — controls + scrubber + trace + Stage-6
+  registered story-panels stacked vertically.
+
+  Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
+  `reg-story-panel` registration with `:placement :right` appears here.
+  The built-in v1.0 panels (a11y, layout-debug toggles) ride this path."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
@@ -197,15 +203,21 @@
      (when (and (:scrubber vis) variant-id)
        [scrubber/panel variant-id])
      (when (and (:trace vis) variant-id)
-       [trace/panel variant-id])]))
+       [trace/panel variant-id])
+     ;; Stage 6: render any registered :right-placement story panels.
+     (when variant-id
+       [panels/render-panels-at-placement :right variant-id vis])]))
 
 (defn- main-pane
   "The main content pane — workspace if one is selected, otherwise the
-  variant canvas."
+  variant canvas. Stage 6 (rf2-zhwd) appends any registered
+  `:bottom`-placement story panels (e.g. the 10x epoch panel stub)
+  below the canvas."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
-        ws-id      (:selected-workspace shell)]
+        ws-id      (:selected-workspace shell)
+        vis        (:panel-visibility shell)]
     [:div {:style (:main styles)}
      (cond
        ws-id    [workspace/workspace-view ws-id]
@@ -215,7 +227,9 @@
                       :color "#666"
                       :font-style "italic"
                       :text-align "center"}}
-        "Select a variant or workspace from the sidebar."])]))
+        "Select a variant or workspace from the sidebar."])
+     (when variant-id
+       [panels/render-panels-at-placement :bottom variant-id vis])]))
 
 (defn shell
   "The top-level shell component. Composes the sidebar, main pane, and

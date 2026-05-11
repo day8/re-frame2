@@ -16,13 +16,16 @@
   spec/004 / rf2-piag exposes. The view must be registered against the
   variant's frame; the runtime allocates the frame, so any
   frame-scoped subscriptions resolve through it correctly."
-  (:require [reagent.core :as r]
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.args :as args]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.runtime :as runtime]
+            [re-frame.story.ui.multi-substrate :as multi-substrate]
+            [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]))
 
 ;; ---- styling -------------------------------------------------------------
@@ -122,10 +125,28 @@
     (runtime/run-variant variant-id opts)
     nil))
 
+(defn- variant-substrate-set
+  "Resolve the variant's effective substrate set. Per IMPL-SPEC §3.1
+  the variant body's `:substrates` wins, otherwise the parent story's
+  `:substrates`, otherwise the shell's host substrate. The canvas uses
+  this to decide single-substrate vs side-by-side rendering. Stage 6
+  (rf2-zhwd)."
+  [variant-id]
+  (let [vb (registrar/handler-meta :variant variant-id)
+        sid (args/parent-story-id variant-id)
+        sb (when sid (registrar/handler-meta :story sid))]
+    (multi-substrate/resolve-substrate-set
+      vb sb (or (:substrate @state/shell-state-atom) :reagent))))
+
 (defn- canvas-inner
   "The inner render fn — reads the variant's frame-db reactively. Split
   out so the outer `canvas` component can wrap with a lifecycle for
-  run-variant + tear-down."
+  run-variant + tear-down.
+
+  Per Stage 6 (rf2-zhwd) the inner render branches on
+  `(count (variant-substrate-set variant-id))`:
+  - 1 substrate → single-pane render (Stage 4 path)
+  - >1 substrate → multi-substrate side-by-side grid (IMPL-SPEC §2.2)."
   [variant-id]
   (let [view-id        (variant-component variant-id)
         decorator-pack (decorators/resolve-decorators variant-id)
@@ -136,13 +157,24 @@
                           :cell-overrides
                           (get-in @state/shell-state-atom
                                   [:cell-overrides variant-id])})
-        assertions     (runtime/read-assertions variant-id)]
+        assertions     (runtime/read-assertions variant-id)
+        substrates     (variant-substrate-set variant-id)
+        multi?         (and variant-id (> (count substrates) 1))]
     [:div {:style (:frame styles)}
      [:div {:style (:title styles)}
-      (str (pr-str variant-id))
+      [:span (str (pr-str variant-id))]
       (when view-id
         [:span {:style {:color "#666" :margin-left "8px"}}
-         (str "→ " (pr-str view-id))])]
+         (str "→ " (pr-str view-id))])
+      (when multi?
+        [:span {:style {:color "#888" :margin-left "8px"
+                        :font-size "10px" :font-weight "normal"}}
+         (str " (substrates: "
+              (str/join ", " (map name (sort-by name substrates)))
+              ")")])
+      ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
+      (when variant-id
+        [share/share-button variant-id])]
      (cond
        (nil? variant-id)
        [:div {:style (:empty styles)} "no variant selected"]
@@ -150,6 +182,11 @@
        (nil? view-id)
        [:div {:style (:empty styles)}
         "variant has no :component registered — register one on the story or variant body"]
+
+       multi?
+       ;; Stage 6: multi-substrate side-by-side grid. Per IMPL-SPEC §2.2
+       ;; failures render inline rather than aborting.
+       [multi-substrate/multi-substrate-grid variant-id]
 
        :else
        (let [resolved-view (rf/view view-id)]
