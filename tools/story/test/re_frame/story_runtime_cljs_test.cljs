@@ -61,8 +61,8 @@
 ;; ---- stage marker -------------------------------------------------------
 
 (deftest cljs-stage-marker
-  (testing "Stage 4 supersedes Stage 3 — the loaded CLJS surface advertises :render-shell"
-    (is (= :render-shell story/stage))))
+  (testing "Stage 5 supersedes Stage 4 — the loaded CLJS surface advertises :assertions+play"
+    (is (= :assertions+play story/stage))))
 
 ;; ---- run-variant returns a Promise --------------------------------------
 

@@ -42,9 +42,9 @@
 
 ;; ---- stage marker --------------------------------------------------------
 
-(deftest stage-4-marker
-  (testing "Stage 4 advertises :render-shell"
-    (is (= :render-shell story/stage))))
+(deftest stage-5-marker
+  (testing "Stage 5 advertises :assertions+play"
+    (is (= :assertions+play story/stage))))
 
 ;; ---- public API additions ------------------------------------------------
 
