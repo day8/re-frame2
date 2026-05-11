@@ -313,12 +313,64 @@ Each of these is opt-in — implementations declare which capabilities they supp
 
 ## Patterns that bottom out in machines
 
-Two of the recurring shapes from [chapter 03](03-events-state-cycle.md) end up being state machines underneath:
+Two recurring shapes from [chapter 03](03-events-state-cycle.md) are state machines underneath. Both are pattern docs (convention), not Specs (contract). The shape is worth knowing in outline even if you don't write one today — the moment you reach for `setTimeout`-driven reconnect logic or an `:app/init` event that does six things, you'll recognise it.
 
-- [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — a long-lived connection has phases (`:disconnected`, `:connecting`, `:connected`, `:reconnecting`, `:failed`), retry-with-backoff via `:after`, queued sends while disconnected, server-pushed events. The whole connection lifecycle is naturally a machine; messages flowing over an open connection are ordinary async-effect interactions.
-- [Pattern-Boot](../../spec/Pattern-Boot.md) — multi-step initialisation with sequential dependencies, visible progress, fail-fatal points, and recoverable retry. For trivial boots a chained event sequence works; for non-trivial boots the canonical answer is a boot machine.
+### Pattern-WebSocket — a connection as a machine
 
-Both are pattern docs (convention), not Specs (contract). When the shape of a feature you're building is one of these, read the pattern doc and copy the shape.
+WebSocket, Server-Sent Events, WebRTC peers — anything with retry, backoff, heartbeat, subscriptions, and server-pushed events — is state-machine-shaped:
+
+```text
+:disconnected ─open─►   :connecting
+:connecting   ─opened─► :authenticating
+:authenticating ─ok─►   :connected ◄─┐
+:connected    ─close─►  :reconnecting ─after backoff─► :connecting
+:reconnecting ─max retries─► :failed
+```
+
+`:connected` typically has sub-states (`:idle / :sending / :receiving`); `:reconnecting` carries the exponential-backoff counter in `:data`; subscribed topics live in `:data :subscriptions` and re-issue automatically on entry to `:connected` (so subscriptions survive reconnects). Messages flowing *over* the open connection are ordinary Pattern-AsyncEffect interactions — request-reply with a correlation id; the connection machine is the long-lived host.
+
+The connection machine composes the locked substrate end-to-end: hierarchical states for `:connected`, `:after` for backoff, `:always` for max-retries guards and queue flushing on entry, `:invoke` to spawn a child socket actor that owns the actual `WebSocket` object. No new mechanism — just one machine exercising every primitive at once. Full walkthrough: [`spec/Pattern-WebSocket.md`](../../spec/Pattern-WebSocket.md).
+
+### Pattern-Boot — initialisation as a machine
+
+For trivial boots — one or two steps, no error states, no progress UI — a chain of dispatched events is fine:
+
+```clojure
+(rf/reg-event-fx :app/init
+  (fn [_ _]
+    {:fx [[:dispatch [:config/load]]]}))
+
+(rf/reg-event-fx :config/load
+  (fn [_ _]
+    {:fx [[:rf.http/managed
+           {:request    {:url "/config"}
+            :on-success [:config/loaded]
+            :on-failure [:app/init-failed]}]]}))
+
+(rf/reg-event-fx :config/loaded
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc db :config (:body value))
+     :fx [[:dispatch [:app/ready]]]}))
+```
+
+The frame's `:on-create` fires `:app/init`, the chain runs to completion, the UI renders.
+
+Once the boot graph has more than a few steps — auth restoration, profile load, hydration from `localStorage`, route resolution, real-time connect — chained events scatter logic across N unrelated handlers. The canonical answer is a **boot state machine** with named phases:
+
+| State | Meaning |
+|---|---|
+| `:configuring` | Reading static config. |
+| `:authenticating` | Restoring session token; refreshing if needed. |
+| `:loading-profile` | Fetching user profile / feature flags. |
+| `:hydrating` | Applying client-side persistent state. |
+| `:routing` | Resolving the initial route. |
+| `:ready` | Boot complete. (Terminal.) |
+| `:auth-failed` / `:fatal-error` | Per-phase error states. |
+| `:retrying-auth` | Recovery state with `:after` backoff. |
+
+Each phase `:invoke`s the async work; transitions on success / failure; entry actions update the visible-progress slice in `:data`. The boot UI subscribes to the snapshot and renders "Loading config…" / "Signing in…" / "Almost ready…" by state. The whole sequence is one inspectable, testable, traceable machine.
+
+The boot machine is also the canonical seam between **host-supplied static config** (a `/config` endpoint, build-time env vars) and the **running app's dynamic state** — `:configuring` lands the config into `:data`; subsequent states read from `:data :config` and thread values into the next phase's spawn-spec rather than reaching into globals. Full walkthrough including the auth-machine's transport-vs-semantic retry boundary: [`spec/Pattern-Boot.md`](../../spec/Pattern-Boot.md).
 
 ## When to reach for a machine, and when not to
 

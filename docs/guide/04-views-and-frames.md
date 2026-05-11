@@ -234,6 +234,28 @@ Flows are deliberately a **niche convenience**, not a sub replacement — a typi
 
 Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 12](12-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
 
+## Making the common UI states explicit — Pattern-NineStates
+
+Once your view is reading state from `app-db`, a temptation appears: branch the render on a few obvious cases (`loading`, `loaded`, `error`) and call it done. The trouble is that most pages have more than three meaningful states, and the missing ones — the empty result, the single-item case, the too-many-results case, the validation-failure case, the terminal "this is archived now" case — end up visually undefined unless you treat them as first-class.
+
+**Pattern-NineStates** names the canonical checklist for a page-level render contract:
+
+| # | State | Typical source |
+|---|---|---|
+| 1 | **Nothing** — user hasn't asked for a fetch yet | Remote-data slice `:status :idle` |
+| 2 | **Loading** — first fetch in flight | `:status :loading` |
+| 3 | **Empty** — loaded, zero results | `:status :loaded` + count `0` |
+| 4 | **One** — loaded, exactly one result | `:status :loaded` + count `1` |
+| 5 | **Some** — loaded, manageable list | `:status :loaded` + bounded count |
+| 6 | **Too Many** — loaded, count above a domain threshold | `:status :loaded` + count > threshold |
+| 7 | **Incorrect** — user input invalid, user can fix it | Form slice errors + touched visibility |
+| 8 | **Correct** — visible success acknowledgement | Form slice `:status :submitted` |
+| 9 | **Done / Frozen** — domain reached terminal / read-only | Terminal machine state, or `:archived?` |
+
+The pattern is a **design checklist** plus a **rendering convention**, not a universal ontology — most pages don't need all nine, but most pages do need *more than three*. The states are derived from the slices you already have (remote-data, form, machine snapshot), not mirrored into a new page-local enum. Each becomes a named sub (`:ui.state/empty?`, `:ui.state/incorrect?`, …) and the root view branches explicitly across them — so each branch is testable, each branch is reviewable, and "we forgot what happens when the result is empty" stops being a class of bug.
+
+Full convention plus a worked example: [`spec/Pattern-NineStates.md`](../../spec/Pattern-NineStates.md) and [`examples/reagent/nine_states/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/nine_states).
+
 ## A small example: split counter
 
 Two counters, side by side, isolated:
