@@ -1,0 +1,103 @@
+(ns boot.schema
+  "Malli schemas for the boot example.
+
+   The example demonstrates Pattern-Boot: a single boot state machine
+   owns the initialisation graph. Three parallel sub-fetches (config,
+   feature flags, initial user) run via `:invoke-all`; the boot
+   machine reaches `:ready` only when every child reports done. The
+   schemas describe the wire shape returned by each mocked endpoint
+   and the boot-machine snapshot itself."
+  (:require [re-frame.core :as rf]
+            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
+            ;; Loading the ns here registers its late-bind hooks so
+            ;; rf/reg-app-schema resolves at the call sites below.
+            [re-frame.schemas]))
+
+;; ============================================================================
+;; WIRE SHAPES — what the mocked endpoints return
+;; ============================================================================
+
+(def Config
+  "Static app configuration. In a real app this would arrive from a
+   build-time /config endpoint; here the demo stub synthesises a
+   plausible payload."
+  [:map
+   [:api-base    :string]
+   [:env         [:enum :dev :staging :prod]]
+   [:build       :string]
+   [:title       :string]])
+
+(def Flags
+  "Feature flags. The map is open — apps add their own keys; the
+   schema only fixes the well-known ones."
+  [:map
+   [:dark-mode?       :boolean]
+   [:beta-channel?    :boolean]
+   [:onboarding-skip? :boolean]])
+
+(def User
+  "Initial user record. In a real app this would arrive from /user
+   after the session token is restored. Here the demo stub returns
+   a static demo user."
+  [:map
+   [:id       :string]
+   [:username :string]
+   [:email    :string]])
+
+(def Routes
+  "Application route table. In a real app this might be hard-coded;
+   here we fetch it so the boot graph has four parallel dependencies
+   to demonstrate `:invoke-all`."
+  [:vector
+   [:map
+    [:id   :keyword]
+    [:path :string]]])
+
+;; ============================================================================
+;; BOOT-MACHINE SNAPSHOT
+;; ============================================================================
+;;
+;; The boot machine lives at [:rf/machines :app/boot]. Its `:state`
+;; cycles `:configuring → :loading-deps → :hydrating → :ready`
+;; (terminal), with `:failed` (terminal) reached if any child errors.
+;; `:data` carries the per-phase progress slot and the loaded payloads.
+
+(def BootSnapshot
+  [:map
+   [:state [:enum :configuring :loading-deps :hydrating :ready :failed]]
+   [:data  [:map
+            [:phase  [:maybe :keyword]]
+            [:config [:maybe Config]]
+            [:flags  [:maybe Flags]]
+            [:user   [:maybe User]]
+            [:routes [:maybe Routes]]
+            [:error  [:maybe :any]]]]])
+
+(def LoaderSnapshot
+  "Snapshot shape for the generic `:boot/loader` child machine.
+   Each child loader holds the parent-id + child-id + URL it was
+   spawned with, fetches once, and dispatches `:boot/asset-loaded`
+   (or `:boot/asset-failed`) back to its parent on transition into
+   `:done` (or `:failed`)."
+  [:map
+   [:state [:enum :idle :loading :done :failed]]
+   [:data  [:map
+            [:parent-id :keyword]
+            [:child-id  :keyword]
+            [:url       :string]
+            [:payload   :any]
+            [:error     [:maybe :any]]]]])
+
+;; ============================================================================
+;; SCHEMA REGISTRATION
+;; ============================================================================
+
+(rf/reg-app-schema [:rf/machines :app/boot] BootSnapshot)
+
+;; The boot machine writes its final payloads into top-level app-db
+;; slices on entering `:hydrating`. These are the slices the main app
+;; reads via subs once the boot reaches `:ready`.
+(rf/reg-app-schema [:config] [:maybe Config])
+(rf/reg-app-schema [:flags]  [:maybe Flags])
+(rf/reg-app-schema [:user]   [:maybe User])
+(rf/reg-app-schema [:routes] [:maybe Routes])

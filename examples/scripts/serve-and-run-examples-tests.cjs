@@ -176,6 +176,16 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'realworld', 'index.html'),
     outDir: path.join(OUT_ROOT, 'realworld'),
   },
+  // Pattern-Boot example (rf2-dsm2). The :app/boot state machine
+  // owns the application's initialisation graph; the example's
+  // four mocked endpoints are served entirely by an in-process
+  // :rf.http/managed canned-success override (no static files
+  // needed).
+  {
+    build: 'examples/boot',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'boot', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'boot'),
+  },
   // Runnable companion to docs/guide/05-state-machines.md.
   {
     build: 'examples/state-machine-walkthrough',

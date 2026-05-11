@@ -65,6 +65,7 @@
                 ;; examples/reagent/.
                 "../examples/reagent"
                 "../examples/reagent/7Guis"
+                "../examples/reagent/boot/test"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
                 "../examples/uix"
@@ -346,6 +347,18 @@
    :output-dir "out/examples/realworld"
    :asset-path "."
    :modules    {:main {:init-fn realworld.core/run}}}
+
+  ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
+  ;; re-frame2 application-boot shape: a single :app/boot state
+  ;; machine owns the initialisation graph (config → parallel
+  ;; dependency loads via :invoke-all → hydrate → :ready); the
+  ;; main view does not mount until the machine reaches :ready.
+  ;; Companion to spec/Pattern-Boot.md.
+  :examples/boot
+  {:target     :browser
+   :output-dir "out/examples/boot"
+   :asset-path "."
+   :modules    {:main {:init-fn boot.core/run}}}
 
   ;; State-machines walkthrough (rf2-vq2s) — companion to docs/guide/05.
   ;; The pure machine + headless tests live in core.cljc; views.cljs is
