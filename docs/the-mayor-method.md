@@ -37,20 +37,6 @@ The mayor does **not** write code in the foreground, run long test suites, do op
 
 Background agents do the heavy lifting. They get a tight, complete prompt. They burn their context window on one task. They report back. They are disposable; the mayor is not.
 
-## Parallel dispatching: map conflict zones first
-
-The temptation, once you've got a queue of independent-looking beads, is to fan them all out at once. Don't. Two background agents editing the same file produce a merge conflict, and rebasing one of them costs more than running them serially would have.
-
-Before dispatching a second (or third, or fourth) agent in parallel, the mayor should audit:
-
-- **What primary surface does each agent touch?** Same file = guaranteed conflict. Same directory subtree = high risk. Adjacent surfaces (e.g., both touching cross-references in the same spec doc) = real risk.
-- **Are any of the agents broad-scope?** Audits, restructures, sweeps reach across many files. A broad-scope agent deserves a quieter neighbourhood — don't dispatch a second broad-scope agent on adjacent surfaces concurrently.
-- **Are any of the agents grep-targeted across the repo?** Cross-link / cross-reference sweeps need careful attention — they reach beyond their primary file.
-
-When two beads would touch the same primary surface, queue them serially. The mayor announces which it's holding and why ("rf2-X is in flight; rf2-Y is queued because both touch `examples/reagent/realworld/`"). If a queue of dependents builds up behind a slow worker, that's a feature, not a bug — it means you're not pretending parallelism exists where it doesn't.
-
-The mayor's job here is to be the merge-conflict adult. Background agents don't know about each other.
-
 ## Specs are the work
 
 For any AI work, the spec/prompt is everything. Quality of output ≈ quality of spec. There's no exception to this.
