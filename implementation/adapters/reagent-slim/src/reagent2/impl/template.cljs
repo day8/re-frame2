@@ -591,3 +591,13 @@
     (named?* x)     (name x)
     (satisfies? IPrintWithWriter x) (pr-str x)
     :else           x))
+
+;; Per rf2-08t0: register `as-element` with `reagent2.impl.component`
+;; so the class's render() method can convert hiccup (returned by
+;; `wrap-render` per IMPL-SPEC §5.1) into React elements before
+;; handing back to React. Statically `:require`ing this ns from
+;; component.cljs would induce a cycle (template already requires
+;; component for `fn-to-class` / `reagent-class?`), so the seam is a
+;; one-shot `set-as-element-fn!` at template's ns-load — same pattern
+;; as `re-frame.late-bind`.
+(component/set-as-element-fn! as-element)

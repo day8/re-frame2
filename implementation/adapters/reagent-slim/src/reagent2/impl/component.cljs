@@ -49,6 +49,50 @@
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
+;; Hiccup → React element seam (rf2-08t0 / rf2-s36l Stage 4-E follow-up)
+;;
+;; Per IMPL-SPEC §5.1 `wrap-render` returns raw hiccup. The class's
+;; React render() method MUST return a React element (or a primitive
+;; React renders directly) — returning a CLJS vector to React triggers
+;; the "Objects are not valid as a React child" error against the
+;; vector's first slot (which, for a `reg-view`-wrapped fn, is a
+;; MetaFn). The conversion lives in `reagent2.impl.template/as-element`
+;; — but that ns already requires this ns (for `fn-to-class`,
+;; `reagent-class?`, etc.), so we can't statically require template
+;; here without inducing a cycle.
+;;
+;; Same pattern as `re-frame.late-bind` (`implementation/core/src/
+;; re_frame/late_bind.cljc`): a defonce-d atom holds the hiccup → React
+;; element fn; `reagent2.impl.template` registers `as-element` at ns-
+;; load time via `set-as-element-fn!`. `make-render-method`'s return
+;; runs the deref through the registered fn; before the fn is
+;; registered (very early load order, or a hand-rolled test bundle
+;; that loads component without template) the raw hiccup falls through
+;; unchanged, matching the pre-fix shape.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private as-element-fn
+  ;; Lazy hook: reagent2.impl.template's ns-load registers its
+  ;; `as-element` here. Nil before that runs.
+  (atom nil))
+
+(defn set-as-element-fn!
+  "Register the hiccup → React-element conversion fn. Called by
+  `reagent2.impl.template` at ns-load time. Idempotent."
+  [f]
+  (reset! as-element-fn f))
+
+(defn- ->react-element
+  "Convert wrap-render's hiccup output to a React element via the
+  registered `as-element` fn. Pass-through when no fn is registered
+  (preserves the pre-rf2-08t0 shape for early-load / test paths that
+  don't require template)."
+  [hiccup]
+  (if-let [f @as-element-fn]
+    (f hiccup)
+    hiccup))
+
+;; ---------------------------------------------------------------------------
 ;; Dynamic var: in-flight component instance
 ;;
 ;; Per IMPL-SPEC §2.8: mirrors stock Reagent's
@@ -457,7 +501,16 @@
                                   (batching/queue-render! this)))]
                         (set! (.-cljsRenderRea this) r)
                         r))]
-          @rea)))))
+          ;; Per rf2-08t0: `wrap-render` (per IMPL-SPEC §5.1) returns
+          ;; raw hiccup; React's render() method MUST return a React
+          ;; element. Run the deref'd hiccup through the registered
+          ;; `as-element` conversion. Stock Reagent does the equivalent
+          ;; in `reagent.impl.component/wrap-render` itself
+          ;; (`(p/as-element compiler res)` at line 93 of the upstream
+          ;; extract); we keep the IMPL-SPEC §5.1 shape (wrap-render
+          ;; returns hiccup) and move the conversion to the render-
+          ;; method boundary instead.
+          (->react-element @rea))))))
 
 (defn- copy-argv-from-props!
   "Read the argv off React's `props` and stash it on `c` as

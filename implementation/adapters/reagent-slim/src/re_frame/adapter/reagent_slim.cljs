@@ -212,3 +212,71 @@
       (if (identical? adapter (substrate-adapter/current-adapter))
         (r/current-component)
         (when previous (previous))))))
+
+;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
+;; `re-frame.interop` through the late-bind hook table. Before rf2-s36l,
+;; `interop.cljs` statically `:require`d stock Reagent and forwarded
+;; every call there — so under the slim adapter the very first
+;; `(interop/add-on-dispose! ...)` (called from the sub-cache's slot
+;; teardown wiring; see Spec 006 §subscription-cache and the rf2-3yij
+;; cross-substrate-cache decision) threw a protocol-dispatch error
+;; because `reagent2.ratom/Reaction` reifies its OWN `IDisposable`
+;; protocol (`reagent2.ratom/IDisposable`), NOT stock Reagent's.
+;; That parked the counter-slim-and-fast Playwright smoke (PR #305,
+;; rf2-5lbx) behind a `skip:` field until this seam landed.
+;;
+;; Per rf2-0d35: route through the installed adapter, mirroring the
+;; `:adapter/current-frame` and `:adapter/current-component` pattern
+;; established for this ns above. The slim adapter's impl runs only
+;; when this adapter is the `(rf/init!)`-installed one; otherwise the
+;; hook chains to the previously-registered reader. This keeps the
+;; stock-Reagent path live in mixed-adapter test bundles even though
+;; both adapter ns's load and call `set-fn!`.
+(let [previous (late-bind/get-fn :adapter/ratom)]
+  (late-bind/set-fn! :adapter/ratom
+    (fn reagent-slim-adapter-ratom-routed [v]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/atom v)
+        (when previous (previous v))))))
+
+(let [previous (late-bind/get-fn :adapter/ratom?)]
+  (late-bind/set-fn! :adapter/ratom?
+    (fn reagent-slim-adapter-ratom?-routed [x]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (satisfies? ratom/IReactiveAtom ^js x)
+        (if previous (previous x) false)))))
+
+(let [previous (late-bind/get-fn :adapter/make-reaction)]
+  (late-bind/set-fn! :adapter/make-reaction
+    (fn reagent-slim-adapter-make-reaction-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/make-reaction f)
+        (when previous (previous f))))))
+
+(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
+  (late-bind/set-fn! :adapter/add-on-dispose!
+    (fn reagent-slim-adapter-add-on-dispose!-routed [a-ratom f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/add-on-dispose! a-ratom f)
+        (when previous (previous a-ratom f))))))
+
+(let [previous (late-bind/get-fn :adapter/dispose!)]
+  (late-bind/set-fn! :adapter/dispose!
+    (fn reagent-slim-adapter-dispose!-routed [a-ratom]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/dispose! a-ratom)
+        (when previous (previous a-ratom))))))
+
+(let [previous (late-bind/get-fn :adapter/reactive?)]
+  (late-bind/set-fn! :adapter/reactive?
+    (fn reagent-slim-adapter-reactive?-routed []
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (ratom/reactive?)
+        (if previous (previous) false)))))
+
+(let [previous (late-bind/get-fn :adapter/after-render)]
+  (late-bind/set-fn! :adapter/after-render
+    (fn reagent-slim-adapter-after-render-routed [f]
+      (if (identical? adapter (substrate-adapter/current-adapter))
+        (r/after-render f)
+        (when previous (previous f))))))

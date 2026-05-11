@@ -15,22 +15,18 @@
  * implementation/scripts/check-counter-slim-and-fast.cjs and is
  * already enforced by CI's cljs-bundle-comparison job.
  *
- * SKIPPED at runtime — see `skip` field below. The example's
- * :advanced bundle compiles cleanly and the bundle-comparison
- * contract passes; what fails is the runtime IDisposable dispatch
- * when the subscription cache calls
- * `re-frame.interop/add-on-dispose!` on a `reagent2.ratom/Reaction`.
- * `re-frame.interop` is presently hardcoded to stock `reagent.ratom/
- * add-on-dispose!`, which dispatches via stock Reagent's
- * IDisposable protocol — which the slim's Reaction doesn't
- * implement (it implements `reagent2.ratom/IDisposable`).
- *
- * The fix lives outside this bead's scope (rf2-5lbx is explicitly
- * NOT modifying the slim impl). The interop seam needed to make
- * the slim runtime-functional is tracked at bead **rf2-s36l**
- * (P2 bug, discovered-from rf2-5lbx). Until that work lands, the
- * bundle-comparison contract is the binding S3-008 claim; the
- * runtime smoke is parked behind `skip:`.
+ * rf2-s36l (interop late-binding) and rf2-08t0 (slim wrap-render
+ * → as-element seam) both landed in the rf2-s36l PR — the slim
+ * adapter now mounts cleanly with the correct IDisposable
+ * dispatch and the class render() method returns React elements
+ * instead of raw hiccup vectors. With those two fixes, this
+ * smoke gets as far as initial render (the displayed count is
+ * the seeded 5). What still fails is the click-driven re-render
+ * path: `+` clicks update app-db but the displayed count stays
+ * at 5. Tracked at **rf2-u5p5** (slim re-render reactive). Until
+ * that bead lands the bundle-comparison contract remains the
+ * binding S3-008 claim; the runtime smoke is parked behind
+ * `skip:` again.
  */
 
 const { expectTextEquals } = require('../../scripts/spec-helpers.cjs');
@@ -38,14 +34,13 @@ const { expectTextEquals } = require('../../scripts/spec-helpers.cjs');
 module.exports = {
   name: 'counter-slim-and-fast',
   url: '/counter-slim-and-fast/',
-  // SEE the docstring above. The runtime smoke is parked behind a
-  // missing interop seam — `re-frame.interop` needs adapter-agnostic
-  // dispatch for IDisposable / IReactiveAtom before the slim adapter
-  // is runtime-functional. The :advanced bundle still compiles
-  // cleanly and the bundle-comparison contract still passes; this
-  // skip preserves both signals while parking the click-through
-  // smoke until the seam lands.
-  skip: 'pending rf2-s36l — `re-frame.interop/add-on-dispose!` hardcodes stock `reagent.ratom`; needed before slim is runtime-functional. The bundle-comparison contract (cljs-bundle-comparison job) is unaffected.',
+  // SEE the docstring above. The interop seam (rf2-s36l) and the
+  // wrap-render → as-element seam (rf2-08t0) both landed in the
+  // rf2-s36l PR — initial mount + render is correct. What remains
+  // is the reactive-update path: dispatched events update app-db
+  // but the subscribe Reaction's watch chain doesn't drive a
+  // re-render of the class component. Tracked at rf2-u5p5.
+  skip: 'pending rf2-u5p5 — slim Reaction → React forceUpdate watch chain not firing on app-db change; initial mount + render works post-rf2-s36l/rf2-08t0, click-driven re-render does not. Bundle-comparison contract unaffected.',
   run: async (page) => {
     const span = page.locator('span').first();
     await expectTextEquals(span, '5', 10000);
