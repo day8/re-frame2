@@ -84,13 +84,22 @@
                A small artificial delay (60 ms) lets the boot-progress
                view render the per-phase loading state before the
                replies land — without it, the boot resolves in one
-               drain and the user only ever sees the `:ready` screen."
+               drain and the user only ever sees the `:ready` screen.
+
+               NOTE on the raw js/setTimeout below. The deferred work
+               is an fx invocation, not a dispatch, so the framework's
+               `:dispatch-later` path is not a 1:1 swap. The timer is
+               purely demo-stub latency; production app code should
+               never use raw `js/setTimeout` (use `:dispatch-later` or
+               drive the fx via a private event whose dispatch is
+               `:dispatch-later`'d, so framework time controls apply)."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
     (let [url     (-> args-map :request :url)
           payload (demo-payload-for-url url)
           stub-fn (registrar/handler :fx :rf.http/managed-canned-success)]
       (when stub-fn
+        ;; Demo-only artificial latency — see the fx doc above.
         (js/setTimeout
           (fn [] (stub-fn frame-ctx (assoc args-map :value payload)))
           60)))))

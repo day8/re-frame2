@@ -47,8 +47,6 @@
             [realworld.http :as rh])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 (defn draft-from-user [user]
   {:image    (or (:image user) "")
    :username (or (:username user) "")
@@ -225,11 +223,12 @@
   {:doc "Seed the form draft from the currently-authenticated user.
          Dispatched by the :route/settings :on-match (see routing.cljs)
          and by tests after :auth/store-session."}
-  (fn handler-settings-load [{:keys [db]} _]
+  [(rf/inject-cofx :realworld/now)]
+  (fn handler-settings-load [{:keys [db realworld/now]} _]
     (let [user (get-in db [:auth :user])]
       {:fx [[:dispatch [:settings/form
                         [:load {:user user
-                                :now  (current-time-ms)}]]]]})))
+                                :now  now}]]]]})))
 
 (rf/reg-event-fx :settings/edit-field
   {:doc  "User edited a form field. Broadcasts :edit into the machine —

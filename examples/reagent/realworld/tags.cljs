@@ -36,8 +36,6 @@
             [realworld.schema :as schema]
             [realworld.http :as rh]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 ;; ============================================================================
 ;; THE MACHINE — :realworld/tags  (one region; Pattern-RemoteData lifecycle)
 ;; ============================================================================
@@ -179,10 +177,11 @@
   {:doc "Successful tags fetch. Folds the list + a load timestamp into
          the machine's `:data` via the `:set-tags` action; the region
          lands in `:loaded`."}
-  (fn handler-tags-loaded [_ [_ {:keys [value]}]]
+  [(rf/inject-cofx :realworld/now)]
+  (fn handler-tags-loaded [{:keys [realworld/now]} [_ {:keys [value]}]]
     {:fx [[:dispatch [:realworld/tags
                       [:fetch-succeeded {:tags (vec (:tags value))
-                                         :now  (current-time-ms)}]]]]}))
+                                         :now  now}]]]]}))
 
 (rf/reg-event-fx :tags/load-failed
   {:doc "Failed tags fetch. Folds a human-readable error message into

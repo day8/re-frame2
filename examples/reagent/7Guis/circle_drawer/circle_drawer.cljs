@@ -155,12 +155,28 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :drawer/circles (fn [db _] (get-in db [:drawer :circles])))
-(rf/reg-sub :drawer/dialog  (fn [db _] (get-in db [:drawer :dialog])))
+;; Layer-2 slice sub. The Layer-3 readers below chain off this one via
+;; `:<-`, so the [:drawer ...] traversal happens once per app-db swap
+;; (in `:drawer`) rather than once per dependent recompute. Matches the
+;; realworld layering pattern (`:articles → :articles/data → ...`).
+
+(rf/reg-sub :drawer (fn [db _] (:drawer db)))
+
+(rf/reg-sub :drawer/circles
+  :<- [:drawer]
+  (fn [drawer _] (:circles drawer)))
+
+(rf/reg-sub :drawer/dialog
+  :<- [:drawer]
+  (fn [drawer _] (:dialog drawer)))
+
 (rf/reg-sub :drawer/can-undo?
-  (fn [db _] (seq (get-in db [:drawer :undo]))))
+  :<- [:drawer]
+  (fn [drawer _] (seq (:undo drawer))))
+
 (rf/reg-sub :drawer/can-redo?
-  (fn [db _] (seq (get-in db [:drawer :redo]))))
+  :<- [:drawer]
+  (fn [drawer _] (seq (:redo drawer))))
 
 ;; ============================================================================
 ;; VIEW

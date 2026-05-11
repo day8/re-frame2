@@ -25,20 +25,22 @@
 ;; ============================================================================
 ;; FX / COFX
 ;; ============================================================================
+;;
+;; One fx for the localStorage seam. Arg shape is `{:token <token-or-nil>}`
+;; — write on truthy, remove on nil. Halving the registrar entries keeps
+;; the localStorage edge a single seam: one fx to mock in tests, one fx
+;; for the machine's `:store-session` and `:clear-session` actions to
+;; call with different args.
 
-(rf/reg-fx :auth.session/store
-  {:doc       "Persist the JWT in localStorage."
+(rf/reg-fx :auth.session/persist
+  {:doc       "Persist (or clear) the JWT in localStorage. Arg `{:token t}`
+               writes the token when truthy; nil removes the key."
    :platforms #{:client}}
-  (fn fx-auth-session-store [_m {:keys [token]}]
+  (fn fx-auth-session-persist [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
-      (.setItem ls "conduit/jwt" token))))
-
-(rf/reg-fx :auth.session/clear
-  {:doc       "Clear the JWT from localStorage."
-   :platforms #{:client}}
-  (fn fx-auth-session-clear [_m _]
-    (when-let [ls (.-localStorage js/globalThis)]
-      (.removeItem ls "conduit/jwt"))))
+      (if token
+        (.setItem    ls "conduit/jwt" token)
+        (.removeItem ls "conduit/jwt")))))
 
 (rf/reg-cofx :auth.session/token
   {:doc "Inject the saved token (or nil) from localStorage into coeffects."}
@@ -129,7 +131,7 @@
         (let [user (:user value)]
           {:data {:error nil}
            :fx [[:dispatch [:auth/store-session user]]
-                [:auth.session/store {:token (:token user)}]
+                [:auth.session/persist {:token (:token user)}]
                 [:dispatch [:rf.route/navigate :route/home]]]}))
 
       :record-error
@@ -140,7 +142,7 @@
       (fn [_ _]
         {:data {:error nil}
          :fx [[:dispatch [:auth/clear-session]]
-              [:auth.session/clear nil]
+              [:auth.session/persist {:token nil}]
               [:dispatch [:rf.route/navigate :route/home]]]})}
      :states
      {:idle
@@ -187,12 +189,13 @@
 (rf/reg-event-db :auth.login-form/initialise
   (fn [db _]
     (assoc-in db [:auth :login-form]
-              {:draft        login-form-defaults
-               :submitted    nil
-               :status       :idle
-               :errors       {}
-               :touched      #{}
-               :submit-error nil})))
+              {:draft             login-form-defaults
+               :submitted         nil
+               :status            :idle
+               :errors            {}
+               :touched           #{}
+               :submit-attempted? false
+               :submit-error      nil})))
 
 (rf/reg-event-db :auth.login-form/edit-field
   {:spec [:cat [:= :auth.login-form/edit-field] :keyword :string]}
@@ -204,18 +207,21 @@
 (rf/reg-event-fx :auth.login-form/submit
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :login-form :draft])]
-      {:db (assoc-in db [:auth :login-form :status] :submitting)
+      {:db (-> db
+               (assoc-in [:auth :login-form :submit-attempted?] true)
+               (assoc-in [:auth :login-form :status] :submitting))
        :fx [[:dispatch [:auth/flow [:auth/login draft]]]]})))
 
 (rf/reg-event-db :auth.register-form/initialise
   (fn [db _]
     (assoc-in db [:auth :register-form]
-              {:draft        register-form-defaults
-               :submitted    nil
-               :status       :idle
-               :errors       {}
-               :touched      #{}
-               :submit-error nil})))
+              {:draft             register-form-defaults
+               :submitted         nil
+               :status            :idle
+               :errors            {}
+               :touched           #{}
+               :submit-attempted? false
+               :submit-error      nil})))
 
 (rf/reg-event-db :auth.register-form/edit-field
   (fn [db [_ field value]]
@@ -226,7 +232,9 @@
 (rf/reg-event-fx :auth.register-form/submit
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :register-form :draft])]
-      {:db (assoc-in db [:auth :register-form :status] :submitting)
+      {:db (-> db
+               (assoc-in [:auth :register-form :submit-attempted?] true)
+               (assoc-in [:auth :register-form :status] :submitting))
        :fx [[:dispatch [:auth/flow [:auth/register draft]]]]})))
 
 ;; ============================================================================
@@ -267,8 +275,34 @@
 (rf/reg-sub :auth.login-form/draft
   (fn [db _] (get-in db [:auth :login-form :draft])))
 
+(rf/reg-sub :auth.login-form
+  (fn [db _] (get-in db [:auth :login-form])))
+
+(rf/reg-sub :auth.login-form/field-error
+  {:doc "Per-field validation error for the login form. Per
+         Pattern-Forms §Error visibility: reveal every error after the
+         first submit click, OR once a field is :touched."}
+  :<- [:auth.login-form]
+  (fn [form [_ field]]
+    (when (or (:submit-attempted? form)
+              (contains? (:touched form) field))
+      (get-in form [:errors field]))))
+
 (rf/reg-sub :auth.register-form/draft
   (fn [db _] (get-in db [:auth :register-form :draft])))
+
+(rf/reg-sub :auth.register-form
+  (fn [db _] (get-in db [:auth :register-form])))
+
+(rf/reg-sub :auth.register-form/field-error
+  {:doc "Per-field validation error for the register form. Per
+         Pattern-Forms §Error visibility: reveal every error after the
+         first submit click, OR once a field is :touched."}
+  :<- [:auth.register-form]
+  (fn [form [_ field]]
+    (when (or (:submit-attempted? form)
+              (contains? (:touched form) field))
+      (get-in form [:errors field]))))
 
 ;; ============================================================================
 ;; VIEWS

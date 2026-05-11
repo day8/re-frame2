@@ -46,8 +46,7 @@
 
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed    :rf.http/managed.canned-settings-save
-                                                :auth.session/store :rf/no-op
-                                                :auth.session/clear :rf/no-op}})]
+                                                :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
     ;; machine sits at :neutral with empty :data.
     (let [snap (snapshot (rf/get-frame-db f))]
@@ -110,8 +109,7 @@
                           {:status 500 :body "server error"})
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed    :rf.http/managed.canned-settings-failure
-                                                :auth.session/store :rf/no-op
-                                                :auth.session/clear :rf/no-op}})]
+                                                :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"
                                             :username "alice"
@@ -141,8 +139,7 @@
   ;; when the draft failed validation, matching Pattern-Forms'
   ;; §Standard events table.
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]
-                                 :fx-overrides {:auth.session/store :rf/no-op
-                                                :auth.session/clear :rf/no-op}})]
+                                 :fx-overrides {:auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
                                             :token "jwt-1"
                                             :username "alice"

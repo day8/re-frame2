@@ -37,8 +37,6 @@
             [realworld.articles :as articles])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
@@ -184,12 +182,13 @@
                           :on-failure [:profile/load-failed]})]]})))
 
 (rf/reg-event-fx :profile/loaded
-  (fn [{:keys [db]} [_ {:keys [value]}]]
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:profile :status] :loaded)
              (assoc-in [:profile :data] (:profile value))
              (assoc-in [:profile :error] nil)
-             (assoc-in [:profile :loaded-at] (current-time-ms)))
+             (assoc-in [:profile :loaded-at] now))
      :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]}))
 
 (rf/reg-event-fx :profile/load-failed
@@ -222,12 +221,13 @@
                           :on-success [:profile.articles/loaded]
                           :on-failure [:profile.articles/load-failed]})]]})))
 
-(rf/reg-event-db :profile.articles/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:profile.articles :status] :loaded)
-        (assoc-in [:profile.articles :data] (vec (:articles value)))
-        (assoc-in [:profile.articles :loaded-at] (current-time-ms)))))
+(rf/reg-event-fx :profile.articles/loaded
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:profile.articles :status] :loaded)
+             (assoc-in [:profile.articles :data] (vec (:articles value)))
+             (assoc-in [:profile.articles :loaded-at] now))}))
 
 (rf/reg-event-db :profile.articles/load-failed
   (fn [db [_ {:keys [failure]}]]
@@ -257,12 +257,13 @@
                           :on-success [:profile.favorites/loaded]
                           :on-failure [:profile.favorites/load-failed]})]]})))
 
-(rf/reg-event-db :profile.favorites/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:profile.favorites :status] :loaded)
-        (assoc-in [:profile.favorites :data] (vec (:articles value)))
-        (assoc-in [:profile.favorites :loaded-at] (current-time-ms)))))
+(rf/reg-event-fx :profile.favorites/loaded
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:profile.favorites :status] :loaded)
+             (assoc-in [:profile.favorites :data] (vec (:articles value)))
+             (assoc-in [:profile.favorites :loaded-at] now))}))
 
 (rf/reg-event-db :profile.favorites/load-failed
   (fn [db [_ {:keys [failure]}]]

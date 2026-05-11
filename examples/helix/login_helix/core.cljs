@@ -54,7 +54,17 @@
 
 (rf/reg-fx :rf.http/managed.login-demo
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
-               to the Reagent and UIx examples' stub."
+               to the Reagent and UIx examples' stub.
+
+               NOTE on the raw js/setTimeout below. The deferred work
+               is an fx invocation (the canned-success / canned-failure
+               stub), not a dispatch, so the framework's
+               `:dispatch-later` path is not a 1:1 swap. The timer is
+               purely demo-stub latency so the `:submitting` UI state
+               is observable. Production app code should never use raw
+               `js/setTimeout` — use `:dispatch-later` so framework
+               time controls (Tool-Pair time-travel,
+               `:dispatch-later` nil-override) still apply."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
@@ -62,6 +72,7 @@
           success?  (and login? (= good-password (:password body)))
           ok-stub   (registrar/handler :fx :rf.http/managed-canned-success)
           fail-stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      ;; Demo-only artificial latency — see the fx doc above.
       (js/setTimeout
         (fn []
           (cond

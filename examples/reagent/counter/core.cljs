@@ -34,12 +34,35 @@
   (fn [_ctx args]
     (swap! counter-log conj args)))
 
-;; reg-event-fx so the handler can return both `:db` and a `:fx` walk.
-;; Mixing :db and :fx in one handler makes the example exercise every
-;; perf bucket (event handler, sub recompute, fx walk, render) on a
-;; single dispatch — which is what the counter-perf browser smoke
-;; observes. Per Spec 002 §`:fx` ordering: :db commits first, then :fx
-;; walks in source order.
+;; ----------------------------------------------------------------------------
+;; DELIBERATE PERF-BUCKET EXCEPTION — NOT THE CANONICAL :initialise SHAPE
+;;
+;; The canonical re-frame2 :initialise shape is `reg-event-db` returning a
+;; plain seeded db — no `:fx`. This handler is INTENTIONALLY widened to
+;; `reg-event-fx` with both `:db` and `:fx` so the counter-perf
+;; instrumented variant (out/examples/counter-perf — see shadow-cljs.edn)
+;; exercises every perf bucket (event handler, sub recompute, fx walk,
+;; render) on a single dispatch. The browser smoke test
+;; (examples/reagent/counter/counter-perf.spec.cjs) asserts a
+;; `rf:fx:counter/log` performance measure entry exists; the only way
+;; to produce that on init without a user click is to attach the `:fx`
+;; walk to the initialise dispatch itself.
+;;
+;; Per Spec 002 §`:fx` ordering: :db commits first, then :fx walks in
+;; source order.
+;;
+;; READER NOTE — do NOT propagate this `:db + :fx` mix to your own
+;; :initialise handlers. The idiomatic shape is:
+;;
+;;     (rf/reg-event-db :app/initialise
+;;       (fn [_ _] {:count 5}))                            ;; just the seed db
+;;
+;; The widening here exists ONLY so the perf-instrumented build has a
+;; non-empty :fx walk to measure on init. Every other example in the
+;; repo (login, realworld, boot, ...) uses plain `reg-event-db` for
+;; its initialiser.
+;; ----------------------------------------------------------------------------
+
 (rf/reg-event-fx :counter/initialise
   (fn [_ctx _event]
     {:db {:count 5}
