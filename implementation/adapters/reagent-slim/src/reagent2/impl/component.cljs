@@ -480,27 +480,62 @@
 
   The Reaction is created lazily on first render and cached on the
   instance as `.-cljsRenderRea`. It returns the rendered React element;
-  on subsequent dep-driven recomputes it queues a forceUpdate without
-  needing the result (React's own commit produces the DOM)."
+  on subsequent dep-driven recomputes it queues a forceUpdate via the
+  auto-run callback, and React's commit re-enters this render method
+  which forces a fresh `._run` of the Reaction (rf2-u5p5).
+
+  The shape mirrors stock Reagent's `reagent.impl.component`: a custom
+  auto-run callback that queues a React re-render (does NOT synchronously
+  recompute), and an explicit `._run rea false` on every render entry
+  past the first so the user's render fn sees the latest state. The
+  built-in `_handle-change → auto-run` path does not mark `dirty?`, so
+  a plain `@rea` after a dep change would return the cached prior state.
+  The explicit `._run` re-captures dependencies AND produces the current
+  hiccup. Per IMPL-SPEC §4.4 path 1 + the same call shape stock Reagent
+  uses (`(._run rat false)` at line 289 of upstream
+  `reagent.impl.component`)."
   [render-fn]
   (fn []
     (this-as ^js this
       (binding [*current-component* this]
         (batching/mark-rendered this)
-        (let [rea (or (.-cljsRenderRea this)
-                      (let [r (ratom/make-reaction
-                                #(wrap-render this render-fn)
-                                :auto-run
-                                ;; Custom auto-run: don't synchronously
-                                ;; recompute on dep change; instead queue
-                                ;; a re-render of this React component.
-                                ;; React drives the next render via its
-                                ;; reconciler; the Reaction recomputes
-                                ;; inside that next render.
-                                (fn [_r]
-                                  (batching/queue-render! this)))]
-                        (set! (.-cljsRenderRea this) r)
-                        r))]
+        (let [^js rea (.-cljsRenderRea this)
+              ;; Per rf2-u5p5: first-render path creates the Reaction
+              ;; with a custom auto-run callback that queues a React
+              ;; re-render on dep change. On subsequent renders the
+              ;; Reaction already exists — call `._run` directly to
+              ;; force a fresh deref-capture of the user's render fn so
+              ;; the watching graph rewires AND the hiccup reflects the
+              ;; current state. Without the explicit `._run`, a plain
+              ;; `@rea` returns the cached prior `state` because
+              ;; `_handle-change` with a fn-valued auto-run doesn't set
+              ;; `dirty?` (matching stock Reagent's kernel, which uses
+              ;; this same shape via `run-in-reaction`).
+              hiccup (if (nil? rea)
+                       (let [^js r (ratom/make-reaction
+                                     #(wrap-render this render-fn)
+                                     :auto-run
+                                     ;; Custom auto-run: don't synchronously
+                                     ;; recompute on dep change; instead queue
+                                     ;; a re-render of this React component.
+                                     ;; React drives the next render via its
+                                     ;; reconciler; the Reaction recomputes
+                                     ;; inside that next render via the
+                                     ;; explicit `._run` call below.
+                                     (fn [_r]
+                                       (batching/queue-render! this)))]
+                         (set! (.-cljsRenderRea this) r)
+                         ;; First render: dirty? is true; -deref will
+                         ;; recompute via `._run this false` and return
+                         ;; the freshly captured state.
+                         @r)
+                       ;; Subsequent render: re-run the Reaction so the
+                       ;; user's render fn executes with the latest
+                       ;; subscribed state. `_run` calls `deref-capture`
+                       ;; which rewires the watching graph and updates
+                       ;; the cached state. Mirrors stock Reagent
+                       ;; `reagent.impl.component`'s render path.
+                       (._run rea false))]
           ;; Per rf2-08t0: `wrap-render` (per IMPL-SPEC §5.1) returns
           ;; raw hiccup; React's render() method MUST return a React
           ;; element. Run the deref'd hiccup through the registered
@@ -510,7 +545,7 @@
           ;; extract); we keep the IMPL-SPEC §5.1 shape (wrap-render
           ;; returns hiccup) and move the conversion to the render-
           ;; method boundary instead.
-          (->react-element @rea))))))
+          (->react-element hiccup))))))
 
 (defn- copy-argv-from-props!
   "Read the argv off React's `props` and stash it on `c` as
