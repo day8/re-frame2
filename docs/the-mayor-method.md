@@ -233,7 +233,7 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
 > *- When writing or refining spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
 >
-> *Step 3 — once setup is complete, set up a recurring reminder so you don't drift over a long session: `/loop 30m re-read the core principles in docs/the-mayor-method.md`. Context is durable but decays; the loop is the heartbeat.*
+> *Once `CLAUDE.md` is updated, immediately set up a recurring self-reminder so you don't drift over a long session: `/loop 30m re-read CLAUDE.md`. Context is durable but decays; the loop is the heartbeat. Run the loop now, not later.*
 >
 > *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
 
