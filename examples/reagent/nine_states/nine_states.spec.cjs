@@ -1,5 +1,5 @@
 /*
- * Nine-states example — smoke test (rf2-lyj0).
+ * Nine-states example — smoke test.
  *
  * The example dispatches :nine-states.app/initialise on startup, putting the app in
  * State 1 (Nothing). The control panel has buttons that drive it through

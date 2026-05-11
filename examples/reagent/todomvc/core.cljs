@@ -34,7 +34,7 @@
   (hash->path (.. js/window -location -hash)))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:todo/initialise])
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])

@@ -1,5 +1,5 @@
 /*
- * 7GUIs #5 — CRUD — smoke test (rf2-w3vn).
+ * 7GUIs #5 — CRUD — smoke test.
  *
  * Drives the master/detail pattern:
  *

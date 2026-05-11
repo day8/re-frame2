@@ -7,7 +7,7 @@
 
 ## Layout — grouped by substrate
 
-Per [rf2-kx74](#) examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx ([rf2-3yij](#) Decision 7) and Helix ([rf2-2qit](#) Decision 7) each ship a curated smoke-test subset (counter + login) rather than a 1:1 mirror.
+Examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx and Helix each ship a curated smoke-test subset (counter + login) rather than a 1:1 mirror.
 
 ```
 examples/
@@ -70,13 +70,13 @@ npm run test:examples
 | 13 | [`reagent/7Guis/circle_drawer/`](reagent/7Guis/circle_drawer/circle_drawer.cljs) | Benchmark | `examples/circle-drawer` | [004 Views](../spec/004-Views.md), [002 Frames](../spec/002-Frames.md) | 7GUIs #6 — Circle drawer. Undo/redo via an interceptor that snapshots `:circles`; modal dialog as state. |
 | 14 | [`reagent/7Guis/cells/`](reagent/7Guis/cells/cells.cljs) | Benchmark | `examples/cells` | [006 ReactiveSubstrate](../spec/006-ReactiveSubstrate.md), [004 Views](../spec/004-Views.md) | 7GUIs #7 — Cells. Formula evaluation; subscription-graph propagation; cycle detection; pure parser+evaluator. |
 | 15 | [`reagent/realworld/`](reagent/realworld/README.md) | Worked scaffold | `examples/realworld` | [014 HTTPRequests](../spec/014-HTTPRequests.md), [012 Routing](../spec/012-Routing.md), [005 StateMachines](../spec/005-StateMachines.md), [011 SSR](../spec/011-SSR.md), [Pattern-RemoteData](../spec/Pattern-RemoteData.md), [Pattern-Forms](../spec/Pattern-Forms.md) | [RealWorld (Conduit)](https://github.com/gothinkster/realworld) — the de-facto cross-framework benchmark. Auth, feeds, routing, comments, editor, profile, favorites, settings, and SSR-hydration glue are all sketched on the current API surface. |
-| 16 | [`reagent/counter_with_stories/`](reagent/counter_with_stories/README.md) | Pedagogical sketch | `examples/counter-with-stories` | [007 Stories](../spec/007-Stories.md), [002 Frames](../spec/002-Frames.md), [008 Testing](../spec/008-Testing.md) | The counter with `tools/story` wired end-to-end — seven `reg-*` macros, four variants, two workspaces, the `force-fx-stub` decorator, three of seven `:rf.assert/*` events. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. The Stage 8 worked example for the Story epic (rf2-u6fb). |
+| 16 | [`reagent/counter_with_stories/`](reagent/counter_with_stories/README.md) | Pedagogical sketch | `examples/counter-with-stories` | [007 Stories](../spec/007-Stories.md), [002 Frames](../spec/002-Frames.md), [008 Testing](../spec/008-Testing.md) | The counter with `tools/story` wired end-to-end — seven `reg-*` macros, four variants, two workspaces, the `force-fx-stub` decorator, three of seven `:rf.assert/*` events. URL-hash-routed: `#/` renders the live counter; `#/stories` mounts the Story playground shell. The Stage 8 worked example for the Story epic. |
 
 For the 7GUIs cluster's own narrative (entries 9–14 above plus the counter from entry 1), see the cluster README at [`reagent/7Guis/README.md`](reagent/7Guis/README.md).
 
 ## UIx
 
-The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
+The UIx adapter ships a curated smoke-test subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the smoke trio (counter + login + realworld) is reduced to **counter + login** for UIx — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
@@ -85,7 +85,7 @@ The UIx adapter ([rf2-3yij](#)) ships a curated smoke-test subset rather than a 
 
 ## Helix
 
-The Helix adapter ([rf2-2qit](#)) ships the same smoke pair as UIx — counter + login. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ.
+The Helix adapter ships the same smoke pair as UIx — counter + login. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ.
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|

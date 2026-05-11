@@ -7,12 +7,9 @@
    NOTE on frame-provider: an earlier shape of this example wrapped
    `:counter-buttons` in `[rf/frame-provider {:frame :counter} ...]`
    so the subtree resolved its current frame to `:counter` rather
-   than `:rf/default`. The kebab-vs-camelCase bug behind rf2-kdwc
-   (Reagent recognises the class-static field as `:contextType`, not
-   `:context-type`) was fixed under rf2-25aq alongside the Reagent v2
-   bump. The example still uses the default frame to keep the smoke
-   test focused; the frame-provider variant is exercised by
-   examples/reagent/login and the cross-spec test suite."
+   than `:rf/default`. The example still uses the default frame to
+   keep the smoke test focused; the frame-provider variant is
+   exercised by examples/reagent/login and the cross-spec test suite."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
             [re-frame.views]
@@ -22,7 +19,7 @@
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
 ;; A user-registered fx so the perf-instrumented variant of this
-;; example (out/examples/counter-perf — see shadow-cljs.edn and rf2-du3i)
+;; example (out/examples/counter-perf — see shadow-cljs.edn)
 ;; exercises the `rf:fx:<id>` perf bucket too. The default counter spec
 ;; doesn't observe any user fx; this fx fires on init and records its
 ;; calls into a process-local atom so the regular counter spec is
@@ -63,7 +60,7 @@
 ;; defn-shape macro auto-injects `dispatch` and `subscribe` as lexical
 ;; bindings; both resolve at render time to the frame in scope (the
 ;; default frame here, see the namespace docstring for the
-;; frame-provider variant parked behind rf2-kdwc).
+;; frame-provider variant).
 ;;
 ;; reg-view auto-defs a Var named after the supplied symbol and
 ;; registers the view under (keyword *ns* sym).
@@ -86,7 +83,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: rf/init! takes the adapter spec map directly. Each adapter
+  ;; rf/init! takes the adapter spec map directly. Each adapter
   ;; ns exports an `adapter` var; consumers require the ns and pass the
   ;; var explicitly. There is no default-adapter registry.
   (rf/init! reagent-adapter/adapter)

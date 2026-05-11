@@ -1,5 +1,5 @@
 /*
- * 7GUIs #2 — Temperature Converter — smoke test (rf2-lyj0).
+ * 7GUIs #2 — Temperature Converter — smoke test.
  *
  * Tests bidirectional conversion driven through one source of truth:
  *
@@ -8,8 +8,8 @@
  * - Type 32 in Fahrenheit: Celsius derives to 0.00.
  *
  * Note: this example previously failed to render because :temp/initialise
- * was registered but never dispatched. The fix (rf2-lyj0) calls
- * dispatch-sync in `run` before mounting.
+ * was registered but never dispatched. The fix calls dispatch-sync in
+ * `run` before mounting.
  */
 
 const { expectInputValue } = require('../../../scripts/spec-helpers.cjs');

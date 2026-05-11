@@ -29,7 +29,7 @@ Routing ships as a separate per-feature artefact (`day8/re-frame2-routing`):
         day8/re-frame2-routing  {...}}}
 ```
 
-Per Strategy B, an app that doesn't use routing doesn't bundle routing code. The bundle-isolation gate ([rf2-51x5](#)) asserts that core's release build carries zero routing namespace markers — re-importing `re-frame.routing` from core is a CI failure.
+Per Strategy B, an app that doesn't use routing doesn't bundle routing code. The bundle-isolation gate asserts that core's release build carries zero routing namespace markers — re-importing `re-frame.routing` from core is a CI failure.
 
 Once the artefact is on the classpath, `(:require [re-frame.routing])` once at app boot wires the late-bind hooks; `reg-route`, `:rf.route/navigate`, the `:rf/route` sub, and the `:rf.route/...` family of fxs are then available through `re-frame.core`.
 
@@ -82,7 +82,7 @@ The runtime maintains a single slice in `app-db`:
    :nav-token    "nav-42"}}                 ;; per-navigation epoch token
 ```
 
-The `:rf/route` key is reserved (per [rf2-ljw6](#) reconciliation). Path params (`:params`) and query params (`:query`) are distinct maps — captured separately, validated against separate schemas, kept separate in the slice. Consumers that prefer a merged map build one in a derived sub.
+The `:rf/route` key is reserved. Path params (`:params`) and query params (`:query`) are distinct maps — captured separately, validated against separate schemas, kept separate in the slice. Consumers that prefer a merged map build one in a derived sub.
 
 `:fragment` carries the URL `#fragment` part. `:nav-token` is the runtime-allocated navigation epoch (see [§Navigation tokens](#navigation-tokens-stale-result-suppression)). Both are runtime-managed; user code reads them through subs.
 

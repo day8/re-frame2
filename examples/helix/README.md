@@ -1,8 +1,8 @@
 # Helix — examples
 
-The Helix adapter ([rf2-2qit](#); see [Spec 006 §CLJS reference: Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Helix is the third canonical browser substrate alongside Reagent and UIx; the eight UIx decisions ([rf2-3yij](#)) transferred unchanged because Helix and UIx share the React + hooks substrate model. The adapter consumes the same `re-frame.adapter.context` React Context object the Reagent and UIx adapters expose ([rf2-3yij](#) Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
+The Helix adapter (see [Spec 006 §CLJS reference: Helix as alternative substrate](../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Helix is the third canonical browser substrate alongside Reagent and UIx; the eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model. The adapter consumes the same `re-frame.adapter.context` React Context object the Reagent and UIx adapters expose (Decision 2), so a single app can in principle mix-and-match — though the canonical pattern is to choose one substrate per app.
 
-This directory holds the **smoke-test subset** for the Helix adapter, not a 1:1 mirror of the Reagent set. Per [rf2-2qit](#) Decision 7 (transferred from [rf2-3yij](#)) and [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative subset; the standard trio is **counter + login + realworld**, and for Helix that is reduced to **counter + login** — realworld is heavy with Reagent-flavoured idioms and is deferred until a Helix user wants it.
+This directory holds the **smoke-test subset** for the Helix adapter, not a 1:1 mirror of the Reagent set. Per [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy): non-canonical adapters ship a representative subset; the standard trio is **counter + login + realworld**, and for Helix that is reduced to **counter + login** — realworld is heavy with Reagent-flavoured idioms and is deferred until a Helix user wants it.
 
 ## Layout
 
@@ -14,9 +14,9 @@ helix/
 
 Each example sits in its own folder with the CLJS source (`core.cljs`), a hand-written `index.html`, and a Playwright smoke spec (`<name>.spec.cjs`). The on-disk folder names carry the `_helix` suffix because the CLJS namespaces (`counter-helix.core`, `login-helix.core`) are deliberately distinct from their Reagent siblings (`counter.core`, `login.core`) and UIx siblings (`counter-uix.core`, `login-uix.core`) — every substrate tree ends up on the same shadow-cljs classpath, so the namespaces have to be unique. The folder name follows the namespace convention (`-` becomes `_` on disk).
 
-The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent and UIx siblings under [`../reagent/`](../reagent/) and [`../uix/`](../uix/); only the view layer differs. Helix components are written as `defnc` and consume subs via the `use-subscribe` hook ([rf2-2qit](#) Decision 1, transferred from rf2-3yij).
+The dataflow — events, subs, schemas, machine, managed-HTTP stub — is **identical** to the Reagent and UIx siblings under [`../reagent/`](../reagent/) and [`../uix/`](../uix/); only the view layer differs. Helix components are written as `defnc` and consume subs via the `use-subscribe` hook (Decision 1).
 
-Per [rf2-2qit](#) Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc` directly and pair it with `(rf/dispatcher)` for click handlers (Decision 3 — components call dispatch / use-subscribe explicitly, no auto-injection).
+Per Decision 4 the `reg-view` macro stays Reagent-only; Helix users write `defnc` directly and pair it with `(rf/dispatcher)` for click handlers (Decision 3 — components call dispatch / use-subscribe explicitly, no auto-injection).
 
 ## What each example demonstrates
 

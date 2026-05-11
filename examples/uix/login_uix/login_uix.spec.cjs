@@ -1,5 +1,5 @@
 /*
- * Login (UIx) — smoke test (rf2-3yij Decision 7).
+ * Login (UIx) — smoke test.
  *
  * Same machine + HTTP stub as examples/reagent/login; views go through the
  * UIx adapter. Asserts the same end-to-end flow:

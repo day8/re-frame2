@@ -1,5 +1,5 @@
 /*
- * Counter (perf-instrumented) — browser smoke for rf2-du3i.
+ * Counter (perf-instrumented) — browser smoke.
  *
  * Spec 009 §Performance instrumentation: when a build sets
  * `re-frame.performance/enabled? true`, the runtime brackets event
@@ -61,8 +61,7 @@ module.exports = {
           other:  out.other.length,
         },
         // Sample one name from each populated bucket so the spec runner
-        // log carries a concrete `rf:` entry per bucket — useful in CI
-        // and as the entries listed in the rf2-du3i PR body.
+        // log carries a concrete `rf:` entry per bucket — useful in CI.
         samples: {
           event:  out.event[0]  || null,
           sub:    out.sub[0]    || null,
@@ -72,7 +71,7 @@ module.exports = {
       };
     });
 
-    console.log('  rf2-du3i perf-on counter — User Timing entries:');
+    console.log('  perf-on counter — User Timing entries:');
     console.log(`    rf:event   count=${buckets.counts.event}   sample=${buckets.samples.event}`);
     console.log(`    rf:sub     count=${buckets.counts.sub}     sample=${buckets.samples.sub}`);
     console.log(`    rf:fx      count=${buckets.counts.fx}      sample=${buckets.samples.fx}`);

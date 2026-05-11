@@ -4,7 +4,7 @@
    This sketch demonstrates:
    - Pattern-NineStates — one parallel state machine `:ui/profile` with
      two orthogonal regions (`:tab` × `:data`) replacing the prior
-     cross-axis sub + priority `cond` shape (per rf2-ljw9).
+     cross-axis sub + priority `cond` shape.
    - Pattern-RemoteData lifecycle folded into the `:data` region; the
      region's state-keyword IS the banner's status. The article-list
      items still live in app-db slices (`:profile.articles`,
@@ -25,7 +25,7 @@
    Follow/unfollow is optimistic and shared across the banner plus any
    article cards rendered from the profile routes."
   (:require [re-frame.core :as rf]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/reg-machine (called
             ;; below at ns-load) and the `:rf/machine` framework subs

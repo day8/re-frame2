@@ -4,7 +4,7 @@
    This sketch demonstrates:
    - Pattern-NineStates — one parallel state machine `:ui/article-editor`
      with two orthogonal regions (`:mode` x `:lifecycle`) replacing the
-     prior mode-flag + lifecycle-status shape (per rf2-vxeg).
+     prior mode-flag + lifecycle-status shape.
    - Pattern-Forms — the draft / errors / touched / submit-error slice
      still lives in app-db (`:editor`); the machine carries only the
      state vocabulary. `:editor/dirty?` is a draft-vs-baseline sub, not
@@ -18,7 +18,7 @@
      machine's tag union (per Pattern-NineStates §4)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/reg-machine (called
             ;; below at ns-load) and the `:rf/machine` framework subs
@@ -424,7 +424,7 @@
 ;; All render-modes delegate to `editor-form` today; the form's own
 ;; tag queries (`:editor/busy`, `:editor/can-delete`) handle the in-form
 ;; differences. Splitting them out as separate reg-views keeps the
-;; pattern shape consistent with rf2-qbau / rf2-ljw9 and gives a single
+;; pattern shape consistent and gives a single
 ;; cheap site to introduce render-mode-specific scaffolding (a
 ;; full-page spinner, a dedicated load-error layout) without rewriting
 ;; the case branch.

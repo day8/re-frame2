@@ -207,13 +207,6 @@ One small detail to recognise when you see it in the inspector: every `reg-view`
 
 You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 11 §Click-to-source](11-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
 
-<!-- TODO(rf2-q2x0 — discovered from rf2-u5sq): the flow and routing sub-sections
-     below are kept inline as forward-pointers. The "What lives in app-db" sibling
-     was folded into ch.03 by rf2-q2x0; the remaining two are pure pointers to
-     ch.08 (flows) / ch.12 (routing) and stay here because the multi-frame
-     context of this chapter is where readers most naturally ask "is this still
-     all one app-db?" — answer: yes, even computed values, even routing. -->
-
 ## Computed values as state — the flow escape hatch
 
 Most derived values are subscriptions — they live in the per-frame sub-cache and are consumed by views. Sometimes, though, the derived value isn't *just* for views: you want it **in `app-db`** so another event handler can read it as plain data, it survives SSR/hydration, it shows up in the inspector, a registered schema can cover it.

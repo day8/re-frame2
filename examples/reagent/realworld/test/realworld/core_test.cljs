@@ -2,10 +2,9 @@
   "Top-level smoke for realworld.core — boots the app and checks that
    the per-feature initialisers populate the expected slices.
 
-   Retrofitted under rf2-o8t6: the legacy `:http.canned-success` fixture
-   has been replaced with a `:rf.http/managed` override that delegates
-   to the framework-shipped `:rf.http/managed-canned-success` stub
-   (Spec 014 §Testing). Every managed-HTTP call resolves with an empty
+   Every managed-HTTP call is routed via a `:rf.http/managed` override
+   that delegates to the framework-shipped `:rf.http/managed-canned-success`
+   stub (Spec 014 §Testing). Each call resolves with an empty
    map success — enough to exercise the on-create initialise fanout
    without any per-feature-shape assumptions."
   (:require [re-frame.core :as rf]
@@ -25,7 +24,7 @@
                                                 :auth.session/clear  :rf/no-op}})]
     ;; After init: auth + articles slices and the :realworld/tags
     ;; machine snapshot are present. The tags machine replaces the
-    ;; slice-form `:tags` resource (rf2-0i4y).
+    ;; slice-form `:tags` resource.
     (let [db (rf/get-frame-db f)]
       (assert (contains? db :auth))
       (assert (contains? db :articles))

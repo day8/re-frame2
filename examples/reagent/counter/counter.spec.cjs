@@ -1,5 +1,5 @@
 /*
- * Counter example — smoke test (rf2-lyj0).
+ * Counter example — smoke test.
  *
  * - Initial render: the counter shows 5 (the value seeded by :counter/initialise).
  * - Click '+': value becomes 6.
@@ -7,8 +7,7 @@
  *
  * This exercises:
  *   - reg-view frame-aware injection: dispatch / subscribe inside the
- *     view body resolve to the surrounding frame (:rf/default here —
- *     a frame-provider shell is parked behind rf2-kdwc),
+ *     view body resolve to the surrounding frame (:rf/default here),
  *   - dispatch-sync seeding via :counter/initialise on mount,
  *   - dispatch round-trips re-rendering through the React substrate.
  */

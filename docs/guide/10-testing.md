@@ -374,7 +374,7 @@ A subtle but load-bearing testing concern: re-frame2's Strategy B layout puts ev
 
 The risk is silent regression: a future change to core that accidentally `(:require [re-frame.machines])` for a default-fallback path would silently re-include the machines artefact in every consumer's bundle. The change wouldn't fail any existing test; it'd just balloon production bundle size by the per-feature payload.
 
-The framework's CI runs a **bundle-isolation gate** ([rf2-51x5](#)) on every PR:
+The framework's CI runs a **bundle-isolation gate** on every PR:
 
 1. `shadow-cljs release` the **counter** example (the canonical no-feature app).
 2. Grep the produced `main.js` for each per-feature artefact's namespace markers.

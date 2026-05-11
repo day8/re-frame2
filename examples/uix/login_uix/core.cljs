@@ -1,5 +1,5 @@
 (ns login-uix.core
-  "UIx variant of the login example (rf2-3yij Decision 7).
+  "UIx variant of the login example.
 
    Same dataflow, schemas, machine, and HTTP stub as examples/reagent/login,
    but views are written as UIx `defui` components and consume subs
@@ -7,8 +7,8 @@
    machine, Spec 010 schemas, and Spec 014 managed-HTTP surfaces are
    substrate-agnostic — only the view layer differs across substrates.
 
-   Per rf2-3yij Decision 4 reg-view stays Reagent-only; UIx components
-   are plain `defui`. Per Decision 3 there is no auto-injection."
+   `reg-view` stays Reagent-only; UIx components are plain `defui`.
+   There is no auto-injection."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
@@ -215,7 +215,7 @@
   (uix-dom/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! uix-adapter/adapter)
   (rf/reg-frame :rf/default
     {:doc          "Login (UIx) demo frame."

@@ -1,6 +1,5 @@
 /*
- * Counter-with-stories example — Playwright smoke test (rf2-c9mm,
- * Story Stage 8).
+ * Counter-with-stories example — Playwright smoke test (Story Stage 8).
  *
  * Two surfaces in one bundle, hash-routed:
  *

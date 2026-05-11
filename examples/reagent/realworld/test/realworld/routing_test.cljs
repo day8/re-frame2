@@ -1,7 +1,6 @@
 (ns realworld.routing-test
   "Headless tests for realworld.routing — route table coverage including
-   path params, query, and not-found fallback. Extracted from
-   realworld/routing.cljs under rf2-4v73."
+   path params, query, and not-found fallback."
   (:require [re-frame.core :as rf]
             [realworld.routing])
   (:require-macros [re-frame.views-macros :refer [with-frame]]))

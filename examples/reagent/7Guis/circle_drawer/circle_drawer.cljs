@@ -23,9 +23,9 @@
    library work, not framework work."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            ;; Per rf2-p7va, re-frame.schemas ships in
-            ;; day8/re-frame2-schemas. Loading the ns here registers
-            ;; its late-bind hooks so rf/reg-app-schema resolves.
+            ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
+            ;; Loading the ns here registers its late-bind hooks so
+            ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
@@ -231,7 +231,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:drawer/initialise])
   (rdc/render react-root [drawer-view]))

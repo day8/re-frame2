@@ -1,5 +1,5 @@
 /*
- * 7GUIs #6 — Circle Drawer — smoke test (rf2-w3vn).
+ * 7GUIs #6 — Circle Drawer — smoke test.
  *
  * Exercises the undo/redo + dialog interaction model:
  *

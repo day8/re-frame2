@@ -26,7 +26,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame2-http.
+            ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
             ;; and family) and publishes the late-bind hooks; without
@@ -197,7 +197,7 @@
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render root [counter-app]))

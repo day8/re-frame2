@@ -1,10 +1,8 @@
 (ns realworld.article-editor-test
   "Headless tests for realworld.article-editor — create flow and
-   navigation guard. Retrofitted under rf2-o8t6 to use Spec 014's
-   `:rf.http/managed` substrate via the framework-shipped canned-stub fxs.
-   Refactored under rf2-vxeg to query the `:ui/article-editor` parallel
-   machine (regions `:mode` x `:lifecycle`) instead of the prior
-   mode-flag + lifecycle-status shape."
+   navigation guard. Uses Spec 014's `:rf.http/managed` substrate via
+   the framework-shipped canned-stub fxs. Queries the
+   `:ui/article-editor` parallel machine (regions `:mode` x `:lifecycle`)."
   (:require [re-frame.core :as rf]
             [realworld.article-editor]
             [realworld.test-helpers :as th])

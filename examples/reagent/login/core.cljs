@@ -34,18 +34,18 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
-            ;; Per rf2-p7va, the Spec 010 schema-attachment ns lives in
+            ;; The Spec 010 schema-attachment ns lives in
             ;; the day8/re-frame2-schemas artefact. The require here
             ;; loads the ns so its late-bind hooks register before
             ;; `(rf/reg-app-schema ...)` runs below.
             [re-frame.schemas]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/create-machine-handler
             ;; (called below at ns-load) and the `:rf/machine` framework
             ;; sub resolve.
             [re-frame.machines]
-            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame2-http.
+            ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot triggers its
             ;; load-time fx registrations (`:rf.http/managed` and
             ;; family); without it, dispatching `:rf.http/managed`
@@ -399,12 +399,12 @@
 ;; ============================================================================
 
 ;; React root named `react-root` (not `root`) so it does NOT collide
-;; with the `root-view` reg-view above (rf2-562e).
+;; with the `root-view` reg-view above.
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process login stub above. The example runs standalone — no

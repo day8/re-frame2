@@ -1,5 +1,5 @@
 /*
- * SSR + hydration — smoke test (rf2-vq2s).
+ * SSR + hydration — smoke test.
  *
  * Strategy: pre-rendered HTML and a serialised :rf/app-db payload are
  * baked into the static index.html (next to ssr/core.cljc) — exactly

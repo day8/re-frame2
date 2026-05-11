@@ -3,14 +3,11 @@
 
    Covers two things:
    - tag filter and feed-kind round-trip via the route slice (the
-     home-page query helpers that predate rf2-0i4y);
+     home-page query helpers);
    - the `:realworld/tags` machine (the :data-region machine variant
-     of Pattern-RemoteData, rf2-0i4y) — load happy path + failure path
+     of Pattern-RemoteData) — load happy path + failure path
      + tag-shaped queries replacing the slice's `:loading?` /
-     `:fetching?` booleans.
-
-   Extracted from realworld/tags.cljs under rf2-4v73; machine coverage
-   added under rf2-0i4y."
+     `:fetching?` booleans."
   (:require [re-frame.core :as rf]
             [realworld.tags]
             [realworld.test-helpers :as th])

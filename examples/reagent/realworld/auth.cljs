@@ -11,7 +11,7 @@
    the machine snapshot itself lives at [:rf/machines :auth/flow]."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; Per rf2-xbtj, the Spec 005 state-machine ns lives in the
+            ;; The Spec 005 state-machine ns lives in the
             ;; day8/re-frame2-machines artefact. Loading the ns here
             ;; registers its late-bind hooks so rf/create-machine-handler
             ;; (called below at ns-load) and the `:rf/machine` framework

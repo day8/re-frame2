@@ -286,7 +286,7 @@ Three substrate adapters are available today:
 - **UIx** — a CLJS adapter targeting React function components and hooks idiomatically. Useful if you're integrating with a JS-side codebase that expects React fn-components, or if you want UIx's compile-time JSX-style ergonomics.
 - **Helix** — same shape as UIx in spirit; pick it if your team already uses Helix.
 
-Each ships as its own Maven artefact alongside core (per Strategy B — see [rf2-5vjj](../../spec/MIGRATION.md)):
+Each ships as its own Maven artefact alongside core (per Strategy B — see [`spec/MIGRATION.md`](../../spec/MIGRATION.md)):
 
 ```clojure
 ;; deps.edn — Reagent (the canonical "first app" stack)

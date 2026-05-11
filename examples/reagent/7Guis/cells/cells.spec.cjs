@@ -1,5 +1,5 @@
 /*
- * 7GUIs #7 — Cells — smoke test (rf2-w3vn).
+ * 7GUIs #7 — Cells — smoke test.
  *
  * Exercises change propagation through the spreadsheet sub-graph:
  *

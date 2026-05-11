@@ -1,5 +1,5 @@
 (ns counter-helix.core
-  "Helix variant of the counter example (rf2-2qit Decision 7).
+  "Helix variant of the counter example.
 
    Exercises the same dataflow as examples/reagent/counter and
    examples/uix/counter_uix but renders it through the Helix adapter —
@@ -7,10 +7,10 @@
 
      - `rf/init!` with the Helix adapter
      - `reg-event-db` / `reg-event-fx` / `reg-sub` (substrate-agnostic)
-     - `use-subscribe` hook (rf2-2qit Decision 1; Helix idiomatic)
-     - `rf/dispatcher` for click handlers (Decision 3 — components call
+     - `use-subscribe` hook (Helix idiomatic)
+     - `rf/dispatcher` for click handlers (components call
        dispatch / use-subscribe directly, no auto-injection)
-     - The shared frame-context (Decision 2) — the same React Context
+     - The shared frame-context — the same React Context
        object the Reagent and UIx adapters consume
 
    Different folder from examples/reagent/counter and
@@ -47,8 +47,8 @@
 
 ;; -- Views -------------------------------------------------------------------
 ;;
-;; Per rf2-2qit Decision 4 reg-view (the macro) stays Reagent-only;
-;; Helix users write `defnc` directly. Per Decision 3 there is no auto
+;; `reg-view` (the macro) stays Reagent-only;
+;; Helix users write `defnc` directly. There is no auto
 ;; injection — the component calls `use-subscribe` and `rf/dispatcher`
 ;; explicitly.
 
@@ -69,7 +69,7 @@
   (react-dom-client/createRoot (js/document.getElementById "app")))
 
 (defn ^:export run []
-  ;; rf2-agql: pass the adapter spec map directly — no registry.
+  ;; Pass the adapter spec map directly — no registry.
   (rf/init! helix-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (.render root ($ counter-app)))

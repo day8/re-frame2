@@ -1,5 +1,5 @@
 /*
- * Routing example — smoke test (rf2-lyj0).
+ * Routing example — smoke test.
  *
  * The example's route table maps :route/home -> "/", :route/articles ->
  * "/articles", :route/article-detail -> "/articles/:id". Because we serve
