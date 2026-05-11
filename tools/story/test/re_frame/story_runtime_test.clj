@@ -68,8 +68,8 @@
 ;; ---- stage marker --------------------------------------------------------
 
 (deftest stage-marker-runtime
-  (testing "Stage 3 advertises :runtime"
-    (is (= :runtime story/stage))))
+  (testing "Stage 4 supersedes Stage 3 — the loaded surface advertises :render-shell"
+    (is (= :render-shell story/stage))))
 
 ;; ===========================================================================
 ;; ARGS PRECEDENCE

@@ -61,8 +61,8 @@
 ;; ---- stage marker -------------------------------------------------------
 
 (deftest cljs-stage-marker
-  (testing "Stage 3 advertises :runtime on the CLJS side"
-    (is (= :runtime story/stage))))
+  (testing "Stage 4 supersedes Stage 3 — the loaded CLJS surface advertises :render-shell"
+    (is (= :render-shell story/stage))))
 
 ;; ---- run-variant returns a Promise --------------------------------------
 

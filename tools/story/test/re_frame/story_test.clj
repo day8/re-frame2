@@ -377,8 +377,8 @@
   (testing "re-frame.story.config/enabled? is true at JVM-test time"
     (is (true? story-config/enabled?))))
 
-;; ---- Stage 3 contract check -----------------------------------------
+;; ---- Stage 4 contract check -----------------------------------------
 
 (deftest stage-marker
-  (testing "the loaded surface advertises Stage 3 (runtime)"
-    (is (= :runtime re-frame.story/stage))))
+  (testing "the loaded surface advertises Stage 4 (render-shell)"
+    (is (= :render-shell re-frame.story/stage))))
