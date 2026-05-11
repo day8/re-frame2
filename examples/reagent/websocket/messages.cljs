@@ -284,24 +284,24 @@
 
      :states
      {:opening
-      ;; The runtime dispatches `[<self-id> [:rf.machine/spawned]]` to
-      ;; every freshly-spawned actor that didn't get an explicit
-      ;; `:start` (per Spec 005 §Spawning / rf2-ijm7). The actor opens
-      ;; the host-side socket on that event and transitions to `:open`.
-      ;; Putting `:open-socket` here (instead of as `:entry`) sidesteps
-      ;; the rule that entries don't fire on initial cascade.
-      {:on {:rf.machine/spawned {:target :open
-                                 :action :open-socket}
-            ;; The actor may receive `:send` from the parent's
-            ;; `:send-auth` entry-action before its own `:open-socket`
-            ;; has run — keep the override here so the action picks up
-            ;; the just-stored host-side socket once it's stored.
-            :send       {:target :open
-                         :action :send-via-socket}
-            :received   {:target :open
-                         :action :forward-received}
-            :closed     {:target :closed
-                         :action :forward-closed}}}
+      ;; Per Spec 005 §Initial-state `:entry` fires on machine bootstrap
+      ;; (rf2-0z73): the initial-state's `:entry` action runs once as
+      ;; part of bringing the actor to life. We open the host-side
+      ;; socket on bootstrap and transition immediately to `:open` via
+      ;; the `:always` slot once the socket is stored.
+      ;;
+      ;; The actor may also receive `:send` from the parent's
+      ;; `:send-auth` entry-action before its own bootstrap entry has
+      ;; settled — the `:send` override here picks up the just-stored
+      ;; host-side socket as soon as it lands.
+      {:entry :open-socket
+       :always [{:target :open}]
+       :on    {:send       {:target :open
+                            :action :send-via-socket}
+               :received   {:target :open
+                            :action :forward-received}
+               :closed     {:target :closed
+                            :action :forward-closed}}}
 
       :open
       {:on {:send     {:action :send-via-socket}

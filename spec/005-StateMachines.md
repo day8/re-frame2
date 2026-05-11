@@ -858,6 +858,28 @@ Targeting `[:authenticated]` lands the snapshot at `[:authenticated :dashboard]`
 
 A compound state without `:initial` is a registration error — emits `:rf.error/machine-compound-state-missing-initial` at registration time and, in the CLJS reference with schema validation enabled, fails the registration.
 
+#### Initial-state `:entry` fires on machine bootstrap (rf2-0z73)
+
+When a machine **first comes into existence** — a singleton on its first dispatched event, or a spawned actor on `:rf.machine/spawn` — the initial-state cascade's `:entry` actions fire **once, shallowest-first**, as part of bringing the machine to life. For a flat machine that means the single initial state's `:entry` runs; for a compound machine with a multi-level `:initial` chain, **every** state along the chain runs its `:entry` in shallowest-first order.
+
+```clojure
+{:initial :outer
+ :states  {:outer {:entry   :enter-outer        ;; fires on bootstrap
+                   :initial :mid
+                   :states  {:mid  {:entry   :enter-mid     ;; fires on bootstrap
+                                    :initial :leaf
+                                    :states  {:leaf {:entry :enter-leaf}}}}}}}
+;; bootstrap log: [:enter-outer :enter-mid :enter-leaf]
+```
+
+The bootstrap cascade composes with **all** the slots the entry cascade carries — `:invoke`, `:invoke-all`, `:after` on any node along the initial chain emit their corresponding fx (`:rf.machine/spawn`, `:rf.machine/invoke-all-init`, `:after-schedule`) at bootstrap time. So a `:requesting` initial state that declares `:entry :fire-request` AND `:invoke {:machine-id :rf.http/managed ...}` has the entry action run AND the child machine spawned, before the actor's first user-routed event arrives.
+
+For singleton machines the bootstrap fx flow out as part of the **first event's** handler return value (the bootstrap cascade and the first event's transition cascade share the same `:fx` accumulator). For spawned actors the bootstrap fires when the runtime dispatches the actor's first event — the synthetic `[:rf.machine/spawned]` per [§Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)](#synthetic-rfmachinespawned-on-spawn-rf2-ijm7), or the user-supplied `:start` per [§Spawn-spec keys](#spawn-spec-keys).
+
+**Error semantics.** A throw inside any initial-`:entry` action halts the bootstrap identically to a throw inside any other entry cascade: the snapshot does NOT commit, no `:fx` flow, and a single `:rf.error/machine-action-exception` trace fires (per [§Errors](#errors)). The pre-bootstrap state — no snapshot at `[:rf/machines <id>]` — is preserved.
+
+**Migration note.** Pre-rf2-0z73, initial-state `:entry` actions did NOT fire on bootstrap. Generic child machines that needed to do work on spawn worked around it by declaring `:on :rf.machine/spawned :action :fire-request` on the initial state (the synthetic event the runtime dispatches per rf2-ijm7). Post-rf2-0z73 the canonical shape is `:entry :fire-request` — the `:rf.machine/spawned` workaround still works (it just resolves as a no-op transition through the standard `:on` lookup), but new code should prefer `:entry`.
+
 ### Target resolution — vector vs keyword
 
 A transition's `:target` admits **two forms**:
@@ -1665,15 +1687,21 @@ Imperative `:rf.machine/spawn` from a user's `:fx` (the rare boot-time form per 
 
 ### Synthetic `[:rf.machine/spawned]` on spawn (rf2-ijm7)
 
-Per [rf2-ijm7](#) — when `[:rf.machine/spawn ...]` does NOT carry an explicit `:start` event, the runtime dispatches a synthetic `[<spawned-id> [:rf.machine/spawned]]` to the new actor as its first event. This gives generic re-usable child machines (e.g. the [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper) for `:rf.http/managed`) a stable hook to declare a leaf-level transition that fires the actor's first work on spawn:
+Per [rf2-ijm7](#) — when `[:rf.machine/spawn ...]` does NOT carry an explicit `:start` event, the runtime dispatches a synthetic `[<spawned-id> [:rf.machine/spawned]]` to the new actor as its first event.
+
+> **Note (rf2-0z73).** This synthetic event was originally introduced (rf2-ijm7) so generic child machines could declare a leaf-level `:on :rf.machine/spawned :action ...` to fire their first work on spawn — covering the gap that initial-state `:entry` actions did not fire on bootstrap. Per [§Initial-state `:entry` fires on machine bootstrap (rf2-0z73)](#initial-state-entry-fires-on-machine-bootstrap-rf2-0z73), `:entry` now does fire on bootstrap, so `:entry :fire-request` is the canonical shape. The synthetic `[:rf.machine/spawned]` event still flows (preserving back-compat for any machine that declares `:on :rf.machine/spawned ...`), but new code should prefer the `:entry` form.
 
 ```clojure
+;; Canonical post-rf2-0z73 shape:
+:requesting {:entry :fire-request}
+
+;; Pre-rf2-0z73 workaround (still supported, but no longer the canonical shape):
 :requesting {:on {:rf.machine/spawned {:action :fire-request}}}
 ```
 
 Machines that don't handle `:rf.machine/spawned` see the event as a benign no-op — it walks the leaf→root resolution chain, finds no match, and the snapshot is unchanged (per [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough)).
 
-When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine/spawned` OR the user's `:start`, never both.
+When the spawn DOES carry `:start`, the runtime dispatches `[<spawned-id> <start>]` instead — the existing behaviour, unchanged. The two paths are mutually exclusive; an actor receives one of `:rf.machine/spawned` OR the user's `:start`, never both. In both cases the initial-state `:entry` cascade runs BEFORE the first event's `:on` lookup, so `:entry` actions on the initial state fire regardless of which kick-off mode the spawn used.
 
 ### Top-level boot-time spawn (rare)
 

@@ -1696,9 +1696,16 @@
    :initial :requesting
    :states
    {:requesting
-    {:on {:rf.machine/spawned {:action :fire-request}
-          :rf.http/succeeded  {:target :succeeded :action :record-value}
-          :rf.http/failed     {:target :failed    :action :record-failure}}}
+    ;; Per rf2-0z73: initial-state `:entry` actions fire on spawn as
+    ;; part of the bootstrap cascade — the canonical re-frame2 shape
+    ;; for "do this when the actor first runs". Pre-rf2-0z73 this
+    ;; entry-on-spawn was emulated via `:on :rf.machine/spawned
+    ;; :action :fire-request` (the synthetic event spawn-fx dispatches
+    ;; when no explicit `:start` was supplied); that workaround is no
+    ;; longer needed.
+    {:entry :fire-request
+     :on    {:rf.http/succeeded  {:target :succeeded :action :record-value}
+             :rf.http/failed     {:target :failed    :action :record-failure}}}
 
     :succeeded
     {:entry :dispatch-done

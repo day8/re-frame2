@@ -1168,6 +1168,121 @@
 
       :else fx)))
 
+;; ---- initial-state entry cascade (rf2-0z73) -------------------------------
+;;
+;; Per Spec 005 §Initial cascading and §Entry/exit cascading along the
+;; LCA, every state's `:entry` action fires when its state is entered.
+;; The "initial state" is no exception — when a machine first comes into
+;; existence (singleton on first dispatch, or spawned actor on
+;; `:rf.machine/spawn`), the initial state's `:entry` actions fire as
+;; part of bringing the machine to life. For a compound initial cascade
+;; (`:initial` chain descending through nested states), EVERY state
+;; along that cascade fires its `:entry` shallowest-first.
+;;
+;; Pre-rf2-0z73, neither bootstrap path ran initial `:entry` actions.
+;; The websocket example (rf2-yf97) and the `:rf.http/managed` machine-
+;; shape wrapper both worked around the gap by declaring an `:on
+;; :rf.machine/spawned` transition on the initial state that targeted
+;; itself with an `:action`. That workaround is no longer needed —
+;; initial `:entry` now fires as part of the bootstrap cascade.
+;;
+;; The cascade re-uses `apply-transition-once` by synthesising a
+;; "transition from the empty path to the initial leaf". With
+;; `src-path = []`, `lca-len = 0`, so nothing exits and every node from
+;; root to the initial leaf has its `:entry` action run (plus
+;; `:rf.machine/spawn` / `:rf.machine/invoke-all-init` / `:after-schedule`
+;; fx emitted for `:invoke` / `:invoke-all` / `:after` declarations on
+;; any node in the cascade).
+
+(defn- apply-initial-entry-cascade-single
+  "Bootstrap entry cascade for a flat / compound (non-parallel) machine.
+  Re-uses `apply-transition-once` by passing a snapshot whose `:state`
+  is the empty path `[]` and a synthetic transition whose `:target` is
+  the initial leaf path. With src-path `[]` the LCA is the empty
+  prefix, so nothing exits, no transition action runs (no `:action`
+  slot), and the entry cascade fires for every state from root to leaf.
+
+  Per Spec 005 §State paths: flat machines carry `:state` as a keyword;
+  compound and parallel machines carry it as a vector path. The
+  `:target` form fed into `apply-transition-once` matches the original
+  `:state` form so the post-bootstrap snapshot's `:state` keeps its
+  declared shape — a flat machine remains keyword-stated even after
+  the bootstrap cascade, which keeps existing tests / fixtures that
+  pattern-match on `(= :idle (:state snap))` working."
+  [machine initial-snapshot]
+  (let [original-state (:state initial-snapshot)
+        target-leaf    (state-path original-state)
+        ghost-snap     (assoc initial-snapshot :state [])
+        ;; The synthetic event a user's :entry / :on-spawn action may
+        ;; observe via the 3-arity ctx during the bootstrap cascade.
+        ;; A dedicated sentinel keeps the event distinguishable from
+        ;; user events for any future introspection use; no machine
+        ;; surface currently dispatches on it.
+        boot-event     [:rf.machine/bootstrap]
+        ;; Pass the target in the same shape the original snapshot
+        ;; carried — keyword for flat machines (so the post-cascade
+        ;; snapshot stays keyword-stated), vector for compound
+        ;; machines. apply-transition-once's `new-state` branch
+        ;; honours both forms.
+        boot-target    (if (keyword? original-state)
+                         original-state
+                         (vec target-leaf))
+        boot-transition {:target    boot-target
+                         :decl-path []}]
+    (apply-transition-once machine ghost-snap boot-event boot-transition)))
+
+(defn- apply-initial-entry-cascade
+  "Synthesise the bootstrap entry cascade for `machine` against the
+  freshly-synthesised `initial-snapshot` (the `{:state <initial-leaf>
+  :data <initial-data>}` map the handler boundary built when the
+  snapshot was first materialised). Returns `[new-snapshot fx-vec]`,
+  or the `[::action-failed info]` sentinel if any `:entry` action
+  in the cascade threw.
+
+  For flat / compound machines, delegates to
+  `apply-initial-entry-cascade-single`.
+
+  For parallel-region machines (`:type :parallel`), iterates regions in
+  declaration order, running each region's bootstrap cascade against a
+  synthetic per-region snapshot ({:state <region-initial> :data
+  <shared>}). The shared `:data` threads sequentially through regions
+  (matching `parallel-machine-transition`'s broadcast semantics — a
+  later region's `:entry` sees earlier regions' `:data` writes). Each
+  region's fx is prefixed with the region name via
+  `prefix-region-invoke-id` so per-region tracking slots stay distinct."
+  [machine initial-snapshot]
+  (if (parallel? machine)
+    (let [state-map     (:state initial-snapshot)
+          region-names  (vec (keys (:regions machine)))
+          ordered       (filterv #(contains? state-map %) region-names)]
+      (loop [pending     ordered
+             cur-data    (:data initial-snapshot)
+             new-states  state-map
+             acc-fx      []]
+        (cond
+          (empty? pending)
+          (let [merged (-> initial-snapshot
+                           (assoc :state new-states)
+                           (assoc :data  cur-data))]
+            [(commit-tags-parallel machine merged) acc-fx])
+
+          :else
+          (let [rn          (first pending)
+                region-spec (region-machine machine rn)
+                region-snap {:state (get state-map rn)
+                             :data  cur-data}
+                step-result (apply-initial-entry-cascade-single region-spec region-snap)]
+            (if (and (vector? step-result)
+                     (= ::action-failed (first step-result)))
+              step-result
+              (let [[reg-snap reg-fx] step-result
+                    prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
+                (recur (rest pending)
+                       (:data reg-snap)
+                       (assoc new-states rn (:state reg-snap))
+                       (vec (concat acc-fx prefixed-fx)))))))))
+    (apply-initial-entry-cascade-single machine initial-snapshot)))
+
 (declare machine-transition machine-transition-single)
 
 (defn- parallel-machine-transition
@@ -1930,7 +2045,32 @@
           ;; configuration. Elision-safe — both forms drop the slot when
           ;; the union is empty.
           initial    (commit-tags-parallel machine initial)
-          snapshot   (or (get-in db path) initial)
+          ;; Per rf2-0z73: detect "first event for this machine" so the
+          ;; initial-state's `:entry` actions fire as part of bringing
+          ;; the machine to life. Two flavours:
+          ;;
+          ;;   - Singleton path: `(get-in db path)` is `nil` — the
+          ;;     snapshot is being lazily synthesised right now. Mark
+          ;;     the freshly-synthesised initial as bootstrap-pending.
+          ;;
+          ;;   - Spawn path: `spawn-fx` pre-seeded the snapshot at
+          ;;     `[:rf/machines <spawned-id>]` and stamped
+          ;;     `:rf/bootstrap-pending? true` so the actor's first
+          ;;     dispatch (the synthetic `[:rf.machine/spawned]` event
+          ;;     OR the user-supplied `:start`) sees the marker and
+          ;;     runs the cascade before processing the event.
+          ;;
+          ;; In both cases the marker is dissoc'd after the cascade
+          ;; runs, so subsequent dispatches see a normal snapshot.
+          existing-snap (get-in db path)
+          needs-bootstrap? (or (nil? existing-snap)
+                               (true? (:rf/bootstrap-pending? existing-snap)))
+          snapshot   (cond
+                       (nil? existing-snap)
+                       (assoc initial :rf/bootstrap-pending? true)
+
+                       :else
+                       existing-snap)
           ;; Sub-event routing per Spec 005 §Registration. The outer
           ;; event is [:machine-id <inner-event> & extra-args]. Extra
           ;; args are conj'd onto the inner event — the convention
@@ -1964,12 +2104,68 @@
           ;; state's :after slot, whose synthetic
           ;; :rf.machine.timer/after-elapsed event flows through the
           ;; standard pick-after-transition path.
-          intercepted (intercept-invoke-all-event machine db path snapshot machine-id inner-event)]
-      (if intercepted
+          intercepted (intercept-invoke-all-event machine db path snapshot machine-id inner-event)
+          ;; Per rf2-0z73: when the snapshot is bootstrap-pending, run
+          ;; the initial-state entry cascade once before processing the
+          ;; user event. The cascade may emit `:rf.machine/spawn` /
+          ;; `:after-schedule` fx for any `:invoke` / `:after` declared
+          ;; on the initial-cascade path. Bootstrap fx flow OUT of the
+          ;; handler ahead of any fx the user event produces — entry
+          ;; happens-before user event handling. Per Spec 005 §Errors,
+          ;; a throw inside an initial-entry action halts the bootstrap
+          ;; identically to a throw inside any other entry cascade: no
+          ;; snapshot commits, no fx flow, and a single
+          ;; `:rf.error/machine-action-exception` trace fires.
+          [boot-snap boot-fx :as boot-result]
+          (cond
+            (and needs-bootstrap? (not intercepted))
+            (apply-initial-entry-cascade machine snapshot)
+
+            :else
+            [snapshot []])
+          boot-failed? (and (vector? boot-result)
+                            (= ::action-failed (first boot-result)))
+          ;; The snapshot the user event sees: post-bootstrap and with
+          ;; the `:rf/bootstrap-pending?` marker dissoc'd. (Marker is on
+          ;; the input snapshot, not on `boot-snap` — `apply-transition-
+          ;; once` threads `:data` writes through but copies the rest
+          ;; of the snapshot unchanged.)
+          post-boot-snap (when-not boot-failed?
+                           (dissoc boot-snap :rf/bootstrap-pending?))]
+      (cond
+        intercepted
         ;; The event was a join-protocol event; the intercept did its
         ;; bookkeeping in app-db and set up the resolution dispatch.
         intercepted
-        (let [step-result (machine-transition machine snapshot inner-event)]
+
+        boot-failed?
+        ;; The initial-entry cascade itself threw. Emit the same
+        ;; `:rf.error/machine-action-exception` trace any other
+        ;; entry-cascade throw produces and halt — no `:db`, no `:fx`.
+        (let [info       (second boot-result)
+              ex         (:exception info)
+              ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
+                            :cljs (when ex (.-message ex)))
+              ex-data    (when ex (ex-data ex))
+              action-ref (:action-ref info)]
+          (trace/emit-error! :rf.error/machine-action-exception
+                             {:machine-id        machine-id
+                              :action-id         action-ref
+                              :state-path        (:state-path info)
+                              :transition        (:transition info)
+                              :event             [:rf.machine/bootstrap]
+                              :failing-id        machine-id
+                              :handler-id        machine-id
+                              :frame             (or frame :rf/default)
+                              :exception         ex
+                              :exception-message ex-msg
+                              :exception-data    ex-data
+                              :reason            "Machine initial-entry action threw."
+                              :recovery          :no-recovery})
+          {})
+
+        :else
+        (let [step-result (machine-transition machine post-boot-snap inner-event)]
       ;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine
       ;; action throws: when the cascade halted on an action exception,
       ;; emit `:rf.error/machine-action-exception` (NOT the generic
@@ -2003,6 +2199,7 @@
           ;; snapshot at [:rf/machines machine-id] is preserved.
           {})
         (let [[next-snapshot fx] step-result
+              merged-fx (vec (concat boot-fx fx))
               new-db (assoc-in db path next-snapshot)]
           (trace/emit! :machine :rf.machine/transition
                        {:machine-id  machine-id
@@ -2021,7 +2218,7 @@
                           :after      next-snapshot
                           :frame      (or frame :rf/default)}))
           {:db new-db
-           :fx fx}))))))) ;; close: inner if, let step-result, outer if, let with snapshot/inner-event, fn, defn
+           :fx merged-fx}))))))) ;; close: inner if, let step-result, cond, let with snapshot/inner-event, fn, defn
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 
@@ -2327,10 +2524,21 @@
                             ;; spawned actor's snapshot. For parallel-
                             ;; region children, commit-tags-parallel
                             ;; unions across every region.
-                            (commit-tags-parallel
-                              spec''
-                              {:state initial-state
-                               :data  (or (:data spec'') {})}))
+                            ;;
+                            ;; Per rf2-0z73: also stamp
+                            ;; `:rf/bootstrap-pending? true` so the
+                            ;; spawned actor's first event (the
+                            ;; synthetic `[:rf.machine/spawned]` OR the
+                            ;; user-supplied `:start`) triggers the
+                            ;; initial-state entry cascade before
+                            ;; processing the event. The handler
+                            ;; boundary dissocs the marker after
+                            ;; running the cascade.
+                            (-> (commit-tags-parallel
+                                  spec''
+                                  {:state initial-state
+                                   :data  (or (:data spec'') {})})
+                                (assoc :rf/bootstrap-pending? true)))
             old-db        (adapter/read-container container)
             ;; Detect collision BEFORE the swap so we can emit the
             ;; error trace with the displaced binding's id.
