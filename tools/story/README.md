@@ -2,7 +2,7 @@
 
 > `day8/re-frame2-story` — a Storybook-class component playground for re-frame2.
 > Implements [`spec/007-Stories.md`](../../spec/007-Stories.md).
-> Implementation contract: [`IMPL-SPEC.md`](./IMPL-SPEC.md).
+> Implementation contract: [`spec/`](./spec/).
 
 re-frame2-story is the component-development surface for re-frame2 apps. It
 takes the same primitives you already use — frames, events, subscriptions,
@@ -74,16 +74,38 @@ grammar `:story.<path>/<variant>` is locked at the spec level.
 
 re-frame2-story DCEs under `:advanced` builds — `reg-story` / `reg-variant`
 macros elide entirely, leaving the production bundle with zero Story bytes.
-See [IMPL-SPEC §6](./IMPL-SPEC.md#section-6).
+See [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) §Production
+elision.
+
+## Where the depth lives
+
+The substantive implementation contract is decomposed into
+[`spec/`](./spec/), per the per-tool spec-folder convention in
+[`tools/README.md`](../README.md).
+
+| File | Covers |
+|---|---|
+| [`spec/000-Vision.md`](./spec/000-Vision.md) | What Story is, what it isn't, how it relates to `spec/007-Stories.md`. |
+| [`spec/001-Authoring.md`](./spec/001-Authoring.md) | The seven `reg-*` macros; EDN-first variant contract; inclusion tags; source-coord stamping. |
+| [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
+| [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / scrubber / trace); the five workspace layouts; multi-substrate side-by-side. |
+| [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; `force-fx-stub`. |
+| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | Layout-debug trio; a11y; QR share; multi-substrate; 10x embed; v1.1 deferrals; production elision. |
+| [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
+| [`spec/Principles.md`](./spec/Principles.md) | Design principles (EDN-first, no fn-slots, production-elision strict, etc.). |
+| [`spec/API.md`](./spec/API.md) | Consolidated public API surface. |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision was made. |
+| [`spec/findings/`](./spec/findings/) | The Phase-1 and Phase-2 research that informed the design (committed audit trail). |
 
 ## Status
 
 - **Spec.** [`spec/007-Stories.md`](../../spec/007-Stories.md) — normative.
-- **Implementation contract.** [`IMPL-SPEC.md`](./IMPL-SPEC.md).
+- **Implementation contract.** [`spec/`](./spec/).
 - **Research lineage.**
-  - Phase 1 — `findings/re-frame-2-story-feature-set.md` (rf2-m6tu).
-  - Phase 2 — `findings/re-frame-2-story-sota-refinement.md` (rf2-94b0).
-  - Architectural decisions resolved 2026-05-11; see IMPL-SPEC §2.
+  - Phase 1 — [`spec/findings/re-frame-2-story-feature-set.md`](./spec/findings/re-frame-2-story-feature-set.md) (rf2-m6tu).
+  - Phase 2 — [`spec/findings/re-frame-2-story-sota-refinement.md`](./spec/findings/re-frame-2-story-sota-refinement.md) (rf2-94b0).
+  - Architectural decisions resolved 2026-05-11; see
+    [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md).
 
 ## See also
 

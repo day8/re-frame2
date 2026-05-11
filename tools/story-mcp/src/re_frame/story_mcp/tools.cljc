@@ -122,7 +122,7 @@
   external resource read needed at boot."
   (str
     "re-frame2-story authoring conventions (agent quick reference).\n"
-    "Full spec: spec/007-Stories.md + tools/story/IMPL-SPEC.md.\n"
+    "Full spec: spec/007-Stories.md + tools/story/spec/.\n"
     "\n"
     "Registration: seven `reg-*` macros under re-frame.story/. Each\n"
     "expansion threads `(when re-frame.story.config/enabled? ...)` so\n"

@@ -2,7 +2,7 @@
 
 `day8/re-frame2-story-mcp` — the **MCP (Model Context Protocol) agent
 surface** for re-frame2-story. Lands as Stage 7 of the Story epic
-(`rf2-tgci`); design contract is [`tools/story/IMPL-SPEC.md` §7](../story/IMPL-SPEC.md).
+(`rf2-tgci`); design contract is [`spec/`](./spec/).
 
 ## What it is
 
@@ -32,7 +32,7 @@ library.
 cd tools/story-mcp
 clojure -M -m re-frame.story-mcp.server
 
-# Open the write surface (defaults to off — IMPL-SPEC §7.3):
+# Open the write surface (defaults to off):
 clojure -M -m re-frame.story-mcp.server --allow-writes
 # or
 RF_STORY_MCP_ALLOW_WRITES=true clojure -M -m re-frame.story-mcp.server
@@ -47,61 +47,29 @@ cd tools/story-mcp
 clojure -M:test
 ```
 
-## Tool registry
+## Where the depth lives
 
-The tool set splits into four categories per IMPL-SPEC §7.2 + §7.3.
+Per the per-tool spec-folder convention in
+[`tools/README.md`](../README.md), the substantive contract for
+this jar is decomposed into [`spec/`](./spec/):
 
-### Dev — for agents helping build new stories
+| File | Covers |
+|---|---|
+| [`spec/000-Vision.md`](./spec/000-Vision.md) | What this jar is, why it's separate from Story. |
+| [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; `initialize`; `tools/list`; `tools/call`; protocol-version pin. |
+| [`spec/002-Tool-Registry.md`](./spec/002-Tool-Registry.md) | The 16 tools across Dev / Docs / Testing / Write categories. |
+| [`spec/003-Write-Surface-Gating.md`](./spec/003-Write-Surface-Gating.md) | The `allow-writes?` config; what's gated; how the gate fails. |
+| [`spec/API.md`](./spec/API.md) | Consolidated tool surface (each tool's input/output schemas). |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | Why Cheshire over data.json; why stage-marker is independent; why protocol-version pinned. |
 
-| Tool                         | Semantics                                                                                       |
-|------------------------------|-------------------------------------------------------------------------------------------------|
-| `get-story-instructions`     | Return Story's authoring conventions (the seven `reg-*` macros, hard rules, lifecycle).         |
-| `preview-variant`            | Given `:variant-id`, run the canvas pipeline and return state + assertions + a sharable URL.    |
-| `list-substrates`            | The substrates registered via `register-substrate!` (Reagent canonical; UIx / Helix opt-in).    |
+The four categories, at a glance:
 
-### Docs — for agents reading the story library
-
-| Tool                | Semantics                                                                |
-|---------------------|--------------------------------------------------------------------------|
-| `list-stories`      | All registered stories (optional `:tags` filter).                        |
-| `get-story`         | One story's full body + its variant ids.                                 |
-| `get-variant`       | One variant's resolved EDN body.                                         |
-| `list-tags`         | Canonical tags + project-custom tags.                                    |
-| `list-modes`        | Registered modes (Chromatic-style saved arg tuples).                     |
-| `list-assertions`   | The seven canonical `:rf.assert/*` vocab + arity docs.                   |
-| `variant->edn`      | Round-trippable EDN of a variant (text-only result for byte stability).  |
-
-### Testing — for agents running stories headlessly
-
-| Tool                | Semantics                                                                              |
-|---------------------|----------------------------------------------------------------------------------------|
-| `run-variant`       | Execute the four-phase lifecycle; return result map (`:frame :app-db :assertions ...`). |
-| `snapshot-identity` | Content-hash of (variant × args × decorators × loaders × substrate × modes).           |
-| `run-a11y`          | Read axe-core violations for a variant (CLJS panel writes; this tool reads).           |
-| `read-failures`     | Recent assertion failures accumulated against the variant frame.                       |
-
-### Write — v1.1, dev-only, gated
-
-| Tool                  | Semantics                                                                              |
-|-----------------------|----------------------------------------------------------------------------------------|
-| `register-variant`    | Programmatically register a variant. **Gated** behind `--allow-writes` (default off).  |
-| `unregister-variant`  | Symmetric to `register-variant`. Same gate.                                            |
-
-The write gate exists because an agent that can register variants on
-demand activates the self-healing loop (write story → run → read
-failures → fix). That power must be opt-in, not default; CI runs
-should always leave it closed.
-
-## Protocol
-
-- Transport: **stdio**, newline-delimited JSON-RPC 2.0 per [MCP
-  2025-06-18 §Transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
-- Capabilities advertised: `tools` (with `listChanged: false`).
-- Methods handled: `initialize`, `tools/list`, `tools/call`, `ping`,
-  `shutdown`, `notifications/initialized` (silent accept).
-- Unknown methods → `-32601 method-not-found`.
-- Malformed JSON → `-32700 parse-error` with `id: null` (the loop
-  survives and continues reading).
+- **Dev** — `get-story-instructions`, `preview-variant`, `list-substrates`.
+- **Docs** — `list-stories`, `get-story`, `get-variant`, `list-tags`,
+  `list-modes`, `list-assertions`, `variant->edn`.
+- **Testing** — `run-variant`, `snapshot-identity`, `run-a11y`,
+  `read-failures`.
+- **Write** (gated) — `register-variant`, `unregister-variant`.
 
 ## File layout
 
@@ -109,6 +77,7 @@ should always leave it closed.
 tools/story-mcp/
 ├── deps.edn                                      ; coord day8/re-frame2-story-mcp
 ├── README.md                                     ; this file
+├── spec/                                         ; the contract; see above
 └── src/re_frame/story_mcp/
     ├── config.cljc                               ; protocol-version + allow-writes? gate
     ├── protocol.cljc                             ; JSON-RPC envelope + frame I/O
@@ -121,8 +90,11 @@ tools/story-mcp/
 
 ## See also
 
-- [`tools/story/IMPL-SPEC.md`](../story/IMPL-SPEC.md) §7 — the contract.
-- [`tools/README.md`](../README.md) — per-tool jar convention + bundle isolation.
+- [`spec/`](./spec/) — this jar's contract.
+- [`tools/story/spec/006-MCP-Surface.md`](../story/spec/006-MCP-Surface.md) —
+  Story's side of the boundary.
+- [`tools/README.md`](../README.md) — per-tool jar convention + bundle
+  isolation.
 - [`spec/007-Stories.md`](../../spec/007-Stories.md) — the spec the
   Story runtime implements (this jar is one of its consumers).
 - [`spec/Tool-Pair.md`](../../spec/Tool-Pair.md) — the runtime contract
