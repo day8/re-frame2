@@ -88,7 +88,18 @@
 (defn- walk-states-tree
   "Recursively walk the literal `:states` map. `path` accumulates the
   spec-path from the spec's root. Adds entries into the mutable `acc`
-  transient for each captured reference site / state-node."
+  transient for each captured reference site / state-node.
+
+  Note on style: this walker is mutation-heavy (transient `acc` threaded
+  through nested `reduce-kv` / `doseq` with `assoc!`) rather than the
+  more functional shape of a visitor that returns collected entries.
+  The imperative shape is deliberate — this code runs at macro-expansion
+  time and gets called on every `reg-machine` form. Transients avoid the
+  per-state allocation cost of building intermediate persistent maps
+  during expansion. The result is materialised once at the edge in
+  `walk-machine-spec`. Refactoring to a fully declarative visitor is
+  feasible but would need to be benchmarked against current
+  compile-time numbers before adoption."
   [states-form path acc ns-sym file]
   (when (map? states-form)
     (reduce-kv
