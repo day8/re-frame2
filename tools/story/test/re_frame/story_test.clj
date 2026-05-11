@@ -380,5 +380,5 @@
 ;; ---- Stage 3 contract check -----------------------------------------
 
 (deftest stage-marker
-  (testing "the loaded surface advertises Stage 2 (authoring)"
-    (is (= :authoring re-frame.story/stage))))
+  (testing "the loaded surface advertises Stage 3 (runtime)"
+    (is (= :runtime re-frame.story/stage))))

@@ -24,6 +24,17 @@
          ;; dep stays.
          reagent/reagent         {:mvn/version "1.2.0"}
 
+         ;; Stage 3 (rf2-von3) — the loader four-phase lifecycle is
+         ;; implemented as a state machine via `re-frame.machines` per
+         ;; IMPL-SPEC §5.4 and the standing 'no new registries' rule
+         ;; (AGENTS.md `downstream-EPs-consume-foundation`). Story's
+         ;; runtime registers `:rf.story.lifecycle/machine` at boot;
+         ;; per-variant snapshots live at `[:rf/machines
+         ;; :rf.story.lifecycle/machine]` inside each variant frame's
+         ;; app-db. Without machines on the classpath the lifecycle
+         ;; cannot run, so the dep is mandatory at Stage 3+.
+         day8/re-frame2-machines {:local/root "../../implementation/machines"}
+
          ;; Malli drives Story's three-level args / argtypes auto-derivation
          ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
          ;; already a transitive dep via implementation/core; the version
