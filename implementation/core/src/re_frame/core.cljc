@@ -1081,6 +1081,22 @@
   [machine-id]
   (subscribe [:rf/machine machine-id]))
 
+(defn has-tag?
+  "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar
+  over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Returns a
+  reaction whose value is `true` iff the machine's current
+  snapshot's `:tags` set contains `tag` — `false` for an unknown or
+  not-yet-initialised machine.
+
+  Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1).
+
+  Composable with the rest of the sub graph (a Layer-3 sub may chain
+  off this one) and elides on production builds the same way every
+  framework sub does — the underlying registration is a standard
+  `reg-sub`, no new registry."
+  [machine-id tag]
+  (subscribe [:rf/machine-has-tag? machine-id tag]))
+
 ;; ---- introspection (per Spec 002 §The public registrar query API) -------
 
 (def handlers     registrar/handlers)

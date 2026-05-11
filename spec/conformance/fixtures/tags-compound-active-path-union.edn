@@ -1,0 +1,69 @@
+;; Conformance fixture: machine/tags-compound-active-path-union
+;;
+;; A compound machine declares `:tags` on BOTH parent and leaf states.
+;; The committed snapshot's `:tags` is the UNION of every state-node's
+;; tag set along the active path from root to leaf — matching XState /
+;; SCXML's "any state in the active configuration carrying the tag is
+;; enough."
+;;
+;; A sibling-leaf transition swaps the leaf's contribution but keeps
+;; the parent's contribution; the union picks up both.
+;;
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
+;; rf2-ee0d (Nine States Stage 1).
+
+{:fixture/id           :machine/tags-compound-active-path-union
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/tags}
+ :fixture/doc          "Compound machine — :tags on parent AND leaf; snapshot's :tags is the union of every active-state-node's :tags along the path. Sibling-leaf transition swaps the leaf's contribution, keeps the parent's."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: Sibling-leaf transition inside the parent.
+  ;; LCA is :authenticated; :dashboard's tags drop, :settings's tags
+  ;; pick up, parent's tags persist across the transition.
+  {:call         :machine-transition
+   :definition   {:initial :authenticated
+                  :data    {}
+                  :states
+                  {:authenticated
+                   {:tags    #{:auth :gated}
+                    :initial :dashboard
+                    :states  {:dashboard {:tags #{:home :read-only}
+                                          :on   {:open-settings :settings}}
+                              :settings  {:tags #{:settings :writable}
+                                          :on   {:close :dashboard}}}}}}
+   :snapshot     {:state [:authenticated :dashboard]
+                  :data  {}
+                  :tags  #{:auth :gated :home :read-only}}
+   :event        [:open-settings]
+   :expect-next-snapshot {:state [:authenticated :settings]
+                          :data  {}
+                          :tags  #{:auth :gated :settings :writable}}
+   :expect-effects       []}
+
+  ;; Step 2: Reverse direction — :settings → :dashboard. Union pivots back.
+  {:call         :machine-transition
+   :definition   {:initial :authenticated
+                  :data    {}
+                  :states
+                  {:authenticated
+                   {:tags    #{:auth :gated}
+                    :initial :dashboard
+                    :states  {:dashboard {:tags #{:home :read-only}
+                                          :on   {:open-settings :settings}}
+                              :settings  {:tags #{:settings :writable}
+                                          :on   {:close :dashboard}}}}}}
+   :snapshot     {:state [:authenticated :settings]
+                  :data  {}
+                  :tags  #{:auth :gated :settings :writable}}
+   :event        [:close]
+   :expect-next-snapshot {:state [:authenticated :dashboard]
+                          :data  {}
+                          :tags  #{:auth :gated :home :read-only}}
+   :expect-effects       []}]}

@@ -35,7 +35,8 @@
   always-{single-microstep,depth-exceeded}, after-{single-delay,
   stale-detection,hierarchy}, invoke-spawn-on-entry-destroy-on-exit,
   invoke-all-{join-all-completes,join-any-fails-cancels,n-of-cancels-extras})."
-  (:require [re-frame.registrar :as registrar]
+  (:require [clojure.set :as set]
+            [re-frame.registrar :as registrar]
             [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
@@ -282,6 +283,63 @@
       (if (and (map? n) (:initial n) (:states n))
         (recur (conj p (:initial n)))
         p))))
+
+;; ---- :fsm/tags — active-configuration tag union ---------------------------
+;;
+;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1). A state node
+;; may declare `:tags <set-of-keywords>`. The runtime maintains a derived
+;; `:tags` slot on the snapshot — the union of every currently-active
+;; state's tag set. For a flat machine the active set is the single named
+;; state; for a compound machine it's every state along the path from
+;; root to leaf (the active configuration). Stage 2 (rf2-l67o) will extend
+;; the union across all active regions for `:type :parallel` machines.
+
+(defn- node-tags
+  "Return the `:tags` set declared on a state-node body, or `nil` if no
+  `:tags` slot is present. Non-set values (e.g. a vector or a single
+  keyword) coerce to a set so the union math doesn't care about the
+  literal form the author wrote — the schema constrains the canonical
+  form (`[:set :keyword]`); coercion here is defensive."
+  [node]
+  (when-let [t (:tags node)]
+    (cond
+      (set? t)        t
+      (sequential? t) (set t)
+      (keyword? t)    #{t}
+      :else           nil)))
+
+(defn- compute-tags
+  "Per Spec 005 §State tags: walk the active configuration for `state`
+  (a keyword for flat machines, a vector path for compound machines)
+  and return the union of every active state-node's `:tags` set.
+
+  Returns a set (possibly empty) — never `nil`. The handler boundary
+  decides whether to elide the slot entirely when the union is empty
+  (snapshot-size optimisation; see `commit-tags`).
+
+  Pure: no side effects, no registry access. Composes with the existing
+  `nodes-along-path` helper used by the entry/exit cascade."
+  [machine state]
+  (let [path  (state-path state)
+        nodes (nodes-along-path machine path)]
+    (transduce (keep (fn [[_ n]] (node-tags n))) set/union #{} nodes)))
+
+(defn- commit-tags
+  "Stamp the active-configuration tag union onto `snapshot` at `:tags`.
+  Per Spec 005 §State tags §Snapshot shape change: the slot is OPTIONAL
+  — when the union is empty, the runtime elides the key entirely to
+  keep snapshots small for the common (no-tags) case. The
+  `:rf/machine-snapshot` schema marks `:tags` as `{:optional true}`,
+  so both presence (with a non-empty set) and absence (no tag
+  declarations) are valid.
+
+  Idempotent: a recompute against an unchanged active configuration
+  yields an `=` snapshot."
+  [machine snapshot]
+  (let [tags (compute-tags machine (:state snapshot))]
+    (if (empty? tags)
+      (dissoc snapshot :tags)
+      (assoc snapshot :tags tags))))
 
 (defn- normalise-on-clause
   "The value at [:on event-id] may be:
@@ -1086,7 +1144,15 @@
             (let [snap-path (state-path (:state snap))
                   always-m  (pick-always-transition machine snap-path snap)]
               (if (nil? always-m)
-                [snap fx]
+                ;; Macrostep fixed-point reached. Per Spec 005 §State tags
+                ;; (rf2-ee0d) — recompute the active-configuration tag union
+                ;; on the committed snapshot AFTER the new state is settled
+                ;; but BEFORE traces fire (so the outer handler's
+                ;; :rf.machine/transition trace carries the new tag set).
+                ;; Tags are a derived projection of `:state`, recomputed
+                ;; here pure-side so JVM tests and CLJS dispatch share the
+                ;; same code path.
+                [(commit-tags machine snap) fx]
                 (let [step-result (apply-transition-once machine snap nil
                                                           (:transition always-m))]
                   (if (and (vector? step-result)
@@ -1522,6 +1588,12 @@
           initial    (cond-> {:state initial-state
                               :data  (or (:data machine) {})}
                        (some? (:meta machine)) (assoc :meta (:meta machine)))
+          ;; Per Spec 005 §State tags (rf2-ee0d): stamp the initial tag
+          ;; union onto the lazily-synthesised snapshot so views that
+          ;; subscribe before the first event see the same `:tags` shape
+          ;; subsequent transitions produce. Elision-safe — `commit-tags`
+          ;; drops the slot when the union is empty.
+          initial    (commit-tags machine initial)
           snapshot   (or (get-in db path) initial)
           ;; Sub-event routing per Spec 005 §Registration. The outer
           ;; event is [:machine-id <inner-event> & extra-args]. Extra
@@ -1697,6 +1769,23 @@
 (subs/reg-sub :rf/machine
   (fn [db [_ machine-id]]
     (get-in db [:rf/machines machine-id])))
+
+;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1): the
+;; `:rf/machine-has-tag?` framework sub returns `true` iff the named
+;; machine's current snapshot's `:tags` set contains the queried tag.
+;; A machine that hasn't been initialised yet (no snapshot at
+;; `[:rf/machines <id>]`) returns `false` — same null-tolerance the
+;; whole machines query surface uses (see `:rf/machine`).
+;;
+;; The sub is **derived** — it reads the snapshot via `get-in` rather
+;; than chaining off `:rf/machine` — so a view that only cares about
+;; whether a specific tag is present re-renders only when the
+;; containment-bit flips, not on every tag-set change. (`reg-sub`'s
+;; built-in equality dedup gates downstream renders against the
+;; boolean return.)
+(subs/reg-sub :rf/machine-has-tag?
+  (fn [db [_ machine-id tag]]
+    (contains? (get-in db [:rf/machines machine-id :tags]) tag)))
 
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;
@@ -1886,8 +1975,15 @@
             initial-state (when spec''
                             (denormalise-state initial-path initial-decl))
             initial-snap  (when spec''
-                            {:state initial-state
-                             :data  (or (:data spec'') {})})
+                            ;; Per Spec 005 §State tags (rf2-ee0d): stamp
+                            ;; the initial tag union onto the spawned
+                            ;; actor's snapshot so subscribers see the
+                            ;; same `:tags` slot the parent's
+                            ;; `:rf.http/managed` (and any other child
+                            ;; machine that declares `:tags`) does.
+                            (commit-tags spec''
+                                         {:state initial-state
+                                          :data  (or (:data spec'') {})}))
             old-db        (adapter/read-container container)
             ;; Detect collision BEFORE the swap so we can emit the
             ;; error trace with the displaced binding's id.

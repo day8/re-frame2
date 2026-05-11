@@ -45,6 +45,7 @@
     :fsm/eventless-always
     :fsm/hierarchical
     :fsm/delayed-after
+    :fsm/tags                                         ;; rf2-ee0d (Nine States Stage 1)
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration

@@ -1,0 +1,65 @@
+;; Conformance fixture: machine/tags-empty-when-no-declaration
+;;
+;; When no active state-node declares `:tags`, the tag union is empty
+;; and the runtime ELIDES the `:tags` slot from the committed snapshot.
+;; This keeps snapshots small for the common (no-tags) case and means
+;; pre-tags machines are byte-identical to post-tags machines that
+;; happen to declare no tags.
+;;
+;; Conformant implementations may either (a) elide the slot entirely,
+;; or (b) carry `:tags #{}`. This fixture asserts the canonical
+;; reference's elision behaviour; implementations that carry `:tags #{}`
+;; instead should declare that as a port-specific divergence.
+;;
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags) §Snapshot
+;; shape change and rf2-ee0d (Nine States Stage 1).
+
+{:fixture/id           :machine/tags-empty-when-no-declaration
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/tags}
+ :fixture/doc          "A machine whose active state declares no :tags produces a snapshot WITHOUT a :tags slot. Pre-tag machines are byte-identical to post-tag machines that declare no tags."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: machine with NO :tags anywhere — snapshot must NOT carry :tags.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle {:on {:go :done}}
+                            :done {}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:go]
+   :expect-next-snapshot {:state :done :data {}}
+   :expect-effects       []}
+
+  ;; Step 2: machine with :tags on SOME states but not the target.
+  ;; Transitioning to the tag-less :done state elides :tags.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle {:tags #{:loading}
+                                   :on   {:resolve :done}}
+                            :done {}}}
+   :snapshot     {:state :idle :data {} :tags #{:loading}}
+   :event        [:resolve]
+   :expect-next-snapshot {:state :done :data {}}
+   :expect-effects       []}
+
+  ;; Step 3: same shape, opposite direction — coming FROM a tag-less
+  ;; state INTO a tagged one. The new :tags slot appears on the snapshot.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle {:on {:start :working}}
+                            :working {:tags #{:busy :active}}}}
+   :snapshot     {:state :idle :data {}}
+   :event        [:start]
+   :expect-next-snapshot {:state :working
+                          :data  {}
+                          :tags  #{:busy :active}}
+   :expect-effects       []}]}
