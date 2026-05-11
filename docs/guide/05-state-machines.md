@@ -300,6 +300,73 @@ For convenience, you can build named reg-subs over `[:rf/machine machine-id]` to
 
 These read the machine's snapshot through normal sub plumbing — Reagent reactions fire on the slice you actually subscribed to.
 
+## Tagging states
+
+Once a machine grows past a handful of states, views start asking the same question over and over: *"is the machine in any of the loading-ish states right now?"* The 1-of-N read is well-served by `sub-machine` and a `=` check; the *any-of-many* read isn't, and most apps end up inventing one boolean sub per shape they care about:
+
+```clojure
+(rf/reg-sub :auth/loading?
+  :<- [:auth.login/state]
+  (fn [state _] (or (= state :submitting)
+                    (= state :validating)
+                    (= state :refreshing))))
+```
+
+That works until you add a fourth loading-ish state. Then the sub needs to know about it. Then every view that wants the loading indicator needs to know which sub. The view is asking a *predicate* question — "are we loading?" — and a `case`-style read keeps making it look like a discriminator question.
+
+`:tags` flips that around. A state can declare a set of keywords describing its intent:
+
+```clojure
+{:initial :neutral
+ :states
+ {:neutral     {:on {:submit :submitting}}
+  :submitting  {:tags #{:loading :transient}  :on {:ok :ready :err :error-shown}}
+  :validating  {:tags #{:loading}             :on {:done :neutral}}
+  :refreshing  {:tags #{:loading :transient}  :on {:done :ready}}
+  :ready       {:tags #{:happy-path}}
+  :error-shown {:tags #{:recoverable}}}}
+```
+
+At every transition, the runtime walks the active configuration (for a flat machine that's just the current state; for a compound machine it's the leaf and every ancestor it sits inside) and stamps the **union** of every active state's tags onto the snapshot at `:tags`. So a snapshot for `:submitting` looks like:
+
+```clojure
+{:state :submitting
+ :data  {<...>}
+ :tags  #{:loading :transient}}
+```
+
+The view asks the predicate question directly:
+
+```clojure
+(when @(rf/has-tag? :auth.login/flow :loading)
+  [view-spinner])
+```
+
+`(rf/has-tag? machine-id tag)` is sugar over a framework-shipped sub, `:rf/machine-has-tag?`. The signal flips only when the containment bit flips — adding a new loading-ish state later is one `:tags #{:loading}` on the new state node, with no view changes anywhere. The view didn't need to know which states carried the tag; it just asked whether the union contains `:loading`.
+
+For sub chains, the framework sub composes the same way any other reg-sub does — feed it into a higher-level sub that combines the predicate with other inputs:
+
+```clojure
+(rf/reg-sub :auth/show-spinner?
+  :<- [:rf/machine-has-tag? :auth.login/flow :loading]
+  :<- [:ui/spinner-enabled?]
+  (fn [[loading? enabled?] _]
+    (and loading? enabled?)))
+```
+
+A few rules worth knowing up front:
+
+- **Tags are owned by the runtime.** They are a projection of `:state`. Actions can't write `:tags` in their effect map; you set the state, the tags follow.
+- **Tags compose along the active path.** In a compound machine, every state along root → leaf contributes its `:tags`. If a parent `:authenticated` carries `#{:logged-in}` and its child `:dashboard` carries `#{:home-view}`, the snapshot's `:tags` is `#{:logged-in :home-view}`.
+- **Empty tag-sets vanish.** A machine that declares no `:tags` produces a snapshot with no `:tags` key at all. Pre-tag and post-tag machines with no tag declarations are byte-identical.
+- **`:rf/*` and `:rf.*/*` keyword namespaces are reserved.** Your tags go in your own namespaces — `:auth/...`, `:ui.state/...`, plain keywords like `:loading`. Don't reach for the framework prefix.
+
+When to reach for tags: when you're already writing two or three boolean subs that each ask "is the state one of these?" — the third one is the signal. When *not* to reach for tags: when the question really is "which exact state is it?" — that's a `case` on `(:state @(sub-machine ...))`, and tags would only add a layer of indirection.
+
+Tags also have a sweet spot in the [Parallel regions](#parallel-regions) pattern below. When a machine has truly orthogonal axes — data lifecycle, form validity, render mode — tags carry the per-axis intent so view-level queries don't have to know about the cross-product.
+
+Full normative reference: [Spec 005 §State tags](../../spec/005-StateMachines.md#state-tags).
+
 ## What the substrate covers
 
 The shape above — flat states, plain `:on` transitions, `:entry` / `:exit` actions, machine-local `:guards` / `:actions` — is enough for many machines. When the flow gets richer, the substrate has more to offer without changing the model. A flavour:
@@ -548,6 +615,144 @@ Because `machine-transition` is pure — and because guards and actions are inli
 These tests run on the JVM. No browser. No network. No mocks. Each one runs in microseconds. You can have hundreds.
 
 This is the testing experience for *flows that are non-trivial* — exactly the case where unit testing usually gets hard. With machines, it stays easy.
+
+## Parallel regions
+
+Some pages don't have one axis of state — they have several, all running at once. A todos page has a *data lifecycle* (nothing / loading / empty / some / error), a *form state* (neutral / invalid / valid), and a *mode* (active / archived). Those three axes are orthogonal: the form can be invalid while the data is loading, the mode can be archived while the form happens to be neutral. None of those combinations is illegal; they're just *true at the same time*.
+
+The naïve modelling — one big flat machine — explodes combinatorially. Three axes of three states each is `3 × 3 × 3 = 27` flat states, and every transition needs to remember which of the other two axes it's leaving alone. The naïve fix — keep the three axes as three separate slices in `app-db` and write derived subs that combine them — leaves you computing cross-axis truths in subscriptions, every page-level UI question becoming a hand-rolled boolean discriminator.
+
+Parallel regions are the substrate answer. A machine can declare `:type :parallel` and a `:regions` map; each region is a full state-tree with its own `:initial` and `:states`, and **every region is active simultaneously**:
+
+```clojure
+(rf/reg-machine :todos/page
+  {:type :parallel
+   :data {:items [] :error nil}            ;; shared across every region
+
+   :guards  {:empty? (fn [d _] (zero? (count (:items d))))}
+   :actions {:set-items (fn [d [_ {:keys [items]}]]
+                          {:data (assoc d :items (vec items))})}
+
+   :regions
+   {:data
+    {:initial :nothing
+     :states  {:nothing  {:tags #{:data/idle}    :on {:fetch :loading}}
+               :loading  {:tags #{:data/loading} :on {:loaded {:target :resolving
+                                                                :action :set-items}}}
+               :resolving {:always [{:guard :empty? :target :empty}
+                                    {:target :some}]}
+               :empty    {:tags #{:data/empty}}
+               :some     {:tags #{:data/some}}}}
+
+    :form
+    {:initial :neutral
+     :states  {:neutral {:tags #{:form/neutral} :on {:submit-invalid :incorrect
+                                                     :submit-valid   :correct}}
+               :incorrect {:tags #{:form/invalid} :on {:edit :neutral}}
+               :correct   {:tags #{:form/success} :on {:edit :neutral}}}}
+
+    :mode
+    {:initial :active
+     :states  {:active {:tags #{:mode/active} :on {:archive :done}}
+               :done   {:tags #{:mode/done :mode/read-only}}}}}})
+```
+
+After the machine boots, the snapshot's `:state` is a **map** of region-name to that region's current state:
+
+```clojure
+@(rf/sub-machine :todos/page)
+;; → {:state {:data :nothing :form :neutral :mode :active}
+;;    :data  {:items [] :error nil}
+;;    :tags  #{:data/idle :form/neutral :mode/active}}
+```
+
+Three regions; three currently-active states; one tag union. Three regions, *not* twenty-seven cross-product states.
+
+### How events flow
+
+When you dispatch an event into a parallel machine, the runtime **broadcasts** it to every region. Each region's currently-active state checks its own `:on` map; the ones that match transition, the ones that don't stay put.
+
+```clojure
+(rf/dispatch [:todos/page [:fetch]])
+;; → :data region transitions :nothing → :loading
+;;   :form region's :neutral doesn't handle :fetch — stays at :neutral
+;;   :mode region's :active doesn't handle :fetch — stays at :active
+
+(rf/dispatch [:todos/page [:archive]])
+;; → :mode region transitions :active → :done
+;;   :data and :form regions stay put
+```
+
+If no region handles the event, the machine emits one `:rf.warning/machine-unhandled-event` — just like a flat machine would. If *any* region handles it, the warning is suppressed.
+
+### Tags compose across regions
+
+The `:tags` slot on a parallel snapshot is the union of every active state's tags **across every region**. Setting the data region to `:loading` while leaving the others alone gives:
+
+```clojure
+{:state {:data :loading :form :neutral :mode :active}
+ :data  {:items [] :error nil}
+ :tags  #{:data/loading :form/neutral :mode/active}}
+```
+
+`(rf/has-tag? :todos/page :data/loading)` returns true. So does `(rf/has-tag? :todos/page :mode/active)`. The view doesn't need to know which region holds which tag — it asks the predicate question and the runtime walks the active configuration across all regions to answer it.
+
+### One `case`, one render-priority table
+
+The pattern that makes parallel regions sing is a **single render selector** that consults the tag union once and returns the keyword the root view dispatches on. The render priorities live in a small table; the root view is one `case`:
+
+```clojure
+(def render-priority
+  [{:tag :mode/done       :render :done}
+   {:tag :form/success    :render :correct}
+   {:tag :form/invalid    :render :incorrect}
+   {:tag :data/loading    :render :loading}
+   {:tag :data/empty      :render :empty}
+   {:tag :data/some       :render :some}])
+
+(rf/reg-sub :todos.page/render
+  :<- [:rf/machine :todos/page]
+  (fn [snap _]
+    (some (fn [{:keys [tag render]}]
+            (when (contains? (:tags snap) tag) render))
+          render-priority)))
+
+(defn root-view []
+  (case @(rf/subscribe [:todos.page/render])
+    :done      [view-done]
+    :correct   [view-correct-banner]
+    :incorrect [view-inline-errors]
+    :loading   [view-spinner]
+    :empty     [view-empty-state]
+    :some      [view-list]))
+```
+
+The priority table is the only place the page declares "if mode is done, that wins over everything; otherwise if the form just succeeded, that wins; otherwise show the data." Each per-state view is small. The root view is one branch site. Adding a tenth state is one row in the table and one view fn.
+
+### One `:data`, shared
+
+Every region in a parallel machine shares the **same** `:data` blob. There is no per-region `:data` slot. Guards and actions in every region see and write the same map.
+
+That's the design constraint to be aware of. If your three regions genuinely share a domain — a todos page where the data, the form, and the mode all read and write the same `:items` — shared `:data` is what you want. If your regions are *separately scoped* features that just happen to be on the same screen, what you actually want is N separate machines, each at its own `[:rf/machines <id>]`, coordinated through dispatch. The next section covers that pattern; the choice is by domain shape, not by code style.
+
+The simplest test is: *do these axes read and write the same data?* If yes, one parallel machine. If no, N machines.
+
+### When to reach for parallel regions
+
+- The axes are *orthogonal* — any cross-product is legal, no axis can rule out a state in another axis.
+- The axes *share a domain* — they read and write one `:data` blob.
+- The flat alternative is a combinatorial explosion of states (more than ~6-8 in the cross-product).
+- You're already inventing boolean discriminator subs to combine three independent slices for page-level rendering decisions.
+
+When *not* to reach for parallel regions:
+
+- Two axes that interact heavily — one transition's `:target` depends on the other axis's current state. That's actually one axis with compound structure; model it as a hierarchical machine.
+- Independent features that don't share data — separate apps' worth of state on one screen. Use N machines.
+- A simple "loading flag + data" pair — that's still a flat machine with a `:loading` and a `:ready` state, no regions needed.
+
+The fully-worked depth example — including all nine of the canonical UI states modelled as one three-region machine — is [Pattern-NineStates](../../spec/Pattern-NineStates.md), with runnable code at `examples/reagent/nine_states/`. The example above is the introduction; the pattern doc is where it expands into a full page-rendering convention.
+
+Full normative reference: [Spec 005 §Parallel regions](../../spec/005-StateMachines.md#parallel-regions).
 
 ## Composing machines
 
