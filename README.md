@@ -16,7 +16,7 @@ Three things:
 
 **2. Views are derivative, not central.** The re-frame2 pattern is NOT what you tend to see in React land. Most existing React-based JS/TS libraries/frameworks are organised around components as the primary architectural unit: state, effects, data fetching, and routing are usually attached to, colocated with, or composed around the view tree. By contrast, re-frame puts the event/data flow at the centre: events update centralised state, subscriptions derive data, and views sit at the end as render functions over reactive inputs. In summary, with re-frame, views are not central, they are derivative.
 
-Your re-frame2 application is a small virtual machine. Registered handlers are the instruction set, events (coming from user actions, FSM transitions, or websockets, etc) are the program. The runtime executes every statement in the program (every event) via a highly predictable six-step pipeline and at the end of the pipeline are views which update derivatively. I repeat for emphasis: views are not central. This results in a simple, highly traceable computational model — easy to understand and perfect for tooling.
+Your re-frame2 application is a small virtual machine. Registered handlers are the instruction set, events (coming from user actions, FSM transitions, or websockets, etc.) are the program. The runtime executes every statement in the program (every event) via a highly predictable six-step pipeline and at the end of the pipeline are views which update derivatively. I repeat for emphasis: views are not central. This results in a simple, highly traceable computational model — easy to understand and perfect for tooling.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 > 
