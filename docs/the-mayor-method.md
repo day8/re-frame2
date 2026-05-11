@@ -37,25 +37,27 @@ The mayor does **not** write code in the foreground, run long test suites, do op
 
 Background agents do the heavy lifting. They get a tight, complete prompt. They burn their context window on one task. They report back. They are disposable; the mayor is not.
 
-## Specs are the work
+## Specs are super prompts
 
-For any AI work, the spec/prompt is everything. Quality of output ≈ quality of spec. There's no exception to this.
+Once you accept that the method works, the next thing to internalise is this: **specs are just prompts taken seriously**.
 
-So the workflow inverts the conventional "write code → debug → maybe document" loop:
+A "spec" in this method isn't a heavyweight engineering deliverable. It's the same thing you'd write as a prompt to the AI — only longer, sharper, less ambiguous, with the gaps and edge cases pre-empted. Quality of output ≈ quality of prompt. A good spec is a good prompt is a good spec.
+
+Once you see them as the same thing, the workflow follows:
 
 1. Iterate the spec until it's right.
 2. Generate the code.
 3. If something's wrong: don't iterate the code — iterate the spec, regenerate.
 
-You will spend most of your time on specs. Code becomes a by-product.
+You spend most of your time on specs. Code becomes a by-product.
 
 ## My rule: if the AI makes a mistake, that's on me
 
-If the agent produces wrong code, the cause is almost always upstream in the spec I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my spec was incomplete, ambiguous, or contradictory. The fix is to go back to the spec and tighten it, not to argue with the agent or hand-patch the output.
+If the agent produces wrong code, the cause is almost always upstream in the prompt I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my spec (the super-prompt) was incomplete, ambiguous, or contradictory. The fix is to go back to the spec and tighten it, not to argue with the agent or hand-patch the output.
 
 This rule does two useful things. It keeps me focused on the leverage point (the spec) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
 
-When you adopt this rule consistently, your specs get sharper fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
+Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
 
 ## /findings: the exploratory workspace
 
@@ -79,21 +81,21 @@ Periodic cleanup of `/findings` matters. Once a finding has propagated into the 
 
 ## How to iterate a spec with the mayor
 
-Tell the mayor: *"I want to write a spec for X. Write the file at `/specs/X.md`. We'll iterate on it together."*
+A spec lives at `/specs/X.md`. Tell the mayor: *"I want to write a spec for X. Write the file at `/specs/X.md`. We'll iterate on it together."*
 
-Then drive the iteration with prompts like these:
+Then drive the iteration. The mayor isn't trying to write the spec by itself — it's stress-testing yours. Useful prompts:
 
-- **Interview me.** *"Don't write the spec yet. Ask me whatever questions you need to write a complete spec. Just ask."*
+- **Interview me.** *"Don't write the spec yet. Ask whatever questions you need to write a complete spec. Just ask."*
 - **Find gaps.** *"Where is this spec incomplete? What scenarios doesn't it cover?"*
 - **Find ambiguity.** *"Where could two readers reasonably interpret this differently? What words am I using that don't mean the same thing to everyone?"*
-- **Propose alternatives.** *"What other approaches could solve this? What are their trade-offs?"*
-- **State the problem and the solution clearly.** *"Restate the problem in two sentences. Restate your solution in two sentences. If either is hard, the spec isn't ready."*
+- **Propose alternatives.** *"What other approaches could solve this? What are the trade-offs?"*
+- **Restate it back.** *"Restate the problem in two sentences. Restate your solution in two sentences. If either is hard, the spec isn't ready."*
 - **Background audit.** *"Dispatch a background agent to look for reasons the spec might be wrong — bad assumptions, missing prior art, contradictions elsewhere in the repo. Append findings to the end of the doc."*
-- **Codebase sweep.** *"Dispatch a background agent to review the codebase looking for anything I might have missed — existing patterns, edge cases, conventions, callers — that the spec should account for. Append findings to the bottom of the spec document."*
+- **Codebase sweep.** *"Dispatch a background agent to review the codebase for anything I might have missed — existing patterns, edge cases, conventions, callers — that the spec should account for. Append to the bottom of the doc."*
 
 Read each response. Push back. Edit the spec. Repeat.
 
-You'll know the spec is ready when:
+The spec is ready when:
 - The mayor stops finding gaps.
 - The background audit returns "no concerns I can find."
 - You can read the spec aloud without stumbling.
@@ -206,14 +208,14 @@ After a few weeks of working this way:
 
 ## Outcome
 
-In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
 
 
 ## TL;DR
 
 1. Install beads.
 2. Run one Claude session as your **mayor**. Keep it open. It orchestrates, never does work directly.
-3. **Specs are the work.** Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
+3. **Specs are super prompts.** A spec is a prompt taken seriously: longer, sharper, less ambiguous. Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
 4. Only when the spec is right: *"Create beads to implement this. Action them with background agents on a branch."*
 5. Maintain a **map document** in `/specs/`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them into the appropriate bead.
 6. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
