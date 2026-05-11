@@ -37,6 +37,20 @@ The mayor does **not** write code in the foreground, run long test suites, do op
 
 Background agents do the heavy lifting. They get a tight, complete prompt. They burn their context window on one task. They report back. They are disposable; the mayor is not.
 
+## Parallel dispatching: map conflict zones first
+
+The temptation, once you've got a queue of independent-looking beads, is to fan them all out at once. Don't. Two background agents editing the same file produce a merge conflict, and rebasing one of them costs more than running them serially would have.
+
+Before dispatching a second (or third, or fourth) agent in parallel, the mayor should audit:
+
+- **What primary surface does each agent touch?** Same file = guaranteed conflict. Same directory subtree = high risk. Adjacent surfaces (e.g., both touching cross-references in the same spec doc) = real risk.
+- **Are any of the agents broad-scope?** Audits, restructures, sweeps reach across many files. A broad-scope agent deserves a quieter neighbourhood — don't dispatch a second broad-scope agent on adjacent surfaces concurrently.
+- **Are any of the agents grep-targeted across the repo?** Cross-link / cross-reference sweeps need careful attention — they reach beyond their primary file.
+
+When two beads would touch the same primary surface, queue them serially. The mayor announces which it's holding and why ("rf2-X is in flight; rf2-Y is queued because both touch `examples/reagent/realworld/`"). If a queue of dependents builds up behind a slow worker, that's a feature, not a bug — it means you're not pretending parallelism exists where it doesn't.
+
+The mayor's job here is to be the merge-conflict adult. Background agents don't know about each other.
+
 ## Specs are the work
 
 For any AI work, the spec/prompt is everything. Quality of output ≈ quality of spec. There's no exception to this.
@@ -56,6 +70,38 @@ If the agent produces wrong code, the cause is almost always upstream in the spe
 This rule does two useful things. It keeps me focused on the leverage point (the spec) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
 
 When you adopt this rule consistently, your specs get sharper fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
+
+## /findings: the exploratory workspace
+
+I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/findings`, a local-only directory (`.gitignored`) that the mayor and I treat as the working substrate for in-flight thought.
+
+The shape:
+
+1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: "research X; write a findings doc at `findings/X.md`; do not change anything else."
+2. **Agent returns**. The findings doc is now sitting in `/findings`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
+3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
+4. **When the design is settled**, the locked outcomes propagate downstream — into the spec, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or moves into committed form under `spec/findings/` or `tools/<tool>/spec/findings/`.
+
+A few things this gives you:
+
+- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/findings` where a future agent can re-read them on demand.
+- **Iteration is cheap.** Until the spec commits, I can reverse decisions, pivot direction, drop whole features. The doc accumulates "Locked" marks for whatever survives; the rest gets edited away. Reversals cascade cleanly because nothing's load-bearing yet.
+- **The exploratory work is auditable**. The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
+- **The mayor stays at the boundary.** It doesn't do the exploration; it dispatches the exploration, holds the working set, and walks me through the conclusions.
+
+Periodic cleanup of `/findings` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
+
+## Standing reminders: /loop the core principles
+
+The mayor's context is durable across a session but drifts. After a few hours of dispatching and merging, I sometimes want to remind it of the core orchestration rules — *don't write code yourself; map conflict zones before fan-out; keep `decision-beads.md` current; the spec is the artefact, not the code*. Rather than retype the principles, I use `/loop`:
+
+```
+/loop 30m re-read the core principles in docs/the-mayor-method.md
+```
+
+The mayor re-grounds itself every 30 minutes. It's a small thing, but for long sessions it prevents context-decay drift. The mayor itself doesn't reliably remember to re-read; the loop is the discipline.
+
+You can do the same trick for any rule the mayor needs to hold across a session — *"reduce merge conflicts"*, *"don't auto-merge without pulling main first"*, etc. Standing rules that matter belong in persistent memory; periodic reminders are the heartbeat.
 
 ## How to iterate a spec with the mayor
 
