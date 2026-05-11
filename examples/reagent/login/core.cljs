@@ -5,7 +5,7 @@
    - Feature scaffold (CP-6)              — the :auth.login/* registry slice
    - Schema attachment (CP-8)              — Malli schema for the machine snapshot
    - Event handlers (CP-1)                 — pure (state, event) → effects
-   - Subscriptions (CP-2)                  — pure derivations, including a :<- chain
+   - Subscriptions (CP-2)                  — pure derivations off the machine snapshot
    - Managed HTTP (Spec 014)                — :rf.http/managed plus a per-app
                                                 demo stub that resolves the
                                                 request locally so the example
@@ -13,6 +13,12 @@
    - Registered view (CP-4)                — Var reference (canonical), Form-1 only
    - State machine (CP-5)                  — login flow as a transition table
                                               read via [:rf/machines :auth.login/flow]
+   - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
+                                              :auth/authenticated on :authed.
+                                              Views query them via
+                                              `(rf/has-tag? :auth.login/flow ...)`
+                                              instead of boolean-discriminator
+                                              subs.
    - Open-map idiom                        — every shape on the wire is an open map
    - Headless test                         — browserless smoke test (no DOM
                                                required; runs in any CLJS host
@@ -214,7 +220,11 @@
                                 :action :clear-error}}}
 
       :submitting
-      {:entry :issue-request
+      ;; :auth/busy tag — views query (rf/has-tag? :auth.login/flow
+      ;; :auth/busy) to disable inputs and re-label the submit button
+      ;; while the request is in flight.
+      {:tags  #{:auth/busy}
+       :entry :issue-request
        :on    {:auth.login/success {:target :authed
                                     :action :store-session}
                :auth.login/failure [{:target :error-shown
@@ -228,7 +238,10 @@
             :auth.login/submit  {:target :submitting}}}
 
       :authed
-      {:meta {:terminal? true}}
+      ;; :auth/authenticated tag — the banner swaps to "Welcome!" once
+      ;; the flow reaches this terminal state.
+      {:tags #{:auth/authenticated}
+       :meta {:terminal? true}}
 
       :locked-out
       {:meta {:terminal? true}}}}))
@@ -250,7 +263,9 @@
 ;; ============================================================================
 
 ;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
-;; Spec 005). These named subs project out the convenient pieces.
+;; Spec 005). These named subs project out the convenient pieces. The
+;; "in :submitting?" and "in :authed?" predicates moved to the
+;; `rf/has-tag?` queries in views below (per Spec 005 §State tags).
 
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
@@ -261,18 +276,6 @@
   {:doc "Current error message, if any."}
   (fn sub-auth-login-error [db _]
     (get-in db [:rf/machines :auth.login/flow :data :error])))
-
-(rf/reg-sub :auth.login/submitting?
-  {:doc "Convenience: true when the flow is in :submitting."}
-  :<- [:auth.login/state]
-  (fn sub-auth-login-submitting? [state _]
-    (= :submitting state)))
-
-(rf/reg-sub :auth.login/authenticated?
-  {:doc "Convenience: true when the flow has reached :authed."}
-  :<- [:auth.login/state]
-  (fn sub-auth-login-authenticated? [state _]
-    (= :authed state)))
 
 ;; ============================================================================
 ;; VIEWS  (CP-4)
@@ -290,27 +293,27 @@
           login-form []
   (let [state (atom {:email "" :password ""})]
     (fn []
-      (let [submitting? @(subscribe [:auth.login/submitting?])
-            err         @(subscribe [:auth.login/error])]
+      (let [busy? @(rf/has-tag? :auth.login/flow :auth/busy)
+            err   @(subscribe [:auth.login/error])]
         [:form.login-form
          {:on-submit (fn [e]
                        (.preventDefault e)
                        (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
          [:input  {:type        "email"
                    :placeholder "Email"
-                   :disabled    submitting?
+                   :disabled    busy?
                    :on-change   #(swap! state assoc :email (.. % -target -value))}]
          [:input  {:type        "password"
                    :placeholder "Password"
-                   :disabled    submitting?
+                   :disabled    busy?
                    :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit" :disabled submitting?}
-          (if submitting? "Signing in…" "Sign in")]
+         [:button {:type "submit" :disabled busy?}
+          (if busy? "Signing in…" "Sign in")]
          (when err [:p.error err])]))))
 
 (reg-view ^{:doc "Shows the user's logged-in state and a sign-out button."}
           login-banner []
-  (let [authed? @(subscribe [:auth.login/authenticated?])]
+  (let [authed? @(rf/has-tag? :auth.login/flow :auth/authenticated)]
     [:div.banner
      (if authed?
        [:span "Welcome!"]
@@ -371,7 +374,10 @@
 
     ;; After drain: machine has transitioned :idle → :submitting → :authed.
     (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))))
-    (assert (rf/compute-sub [:auth.login/authenticated?] (rf/get-frame-db f)))))
+    ;; The :auth/authenticated tag is on the snapshot once :authed is active.
+    (assert (contains? (get-in (rf/get-frame-db f)
+                               [:rf/machines :auth.login/flow :tags])
+                       :auth/authenticated))))
 
 (defn login-feature-retry-then-lockout-test []
   (with-frame [f (rf/make-frame
