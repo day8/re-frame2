@@ -39,12 +39,14 @@
   — it returns empty."
   (:require [re-frame.core            :as rf]
             [re-frame.story.args      :as args]
+            [re-frame.story.assertions :as assertions]
             [re-frame.story.async     :as async]
             [re-frame.story.config    :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames    :as frames]
             [re-frame.story.identity  :as ident]
             [re-frame.story.loaders   :as loaders]
+            [re-frame.story.play      :as play]
             [re-frame.story.registrar :as registrar]
             [re-frame.interop         :as interop]
             [re-frame.trace           :as trace]))
@@ -269,7 +271,8 @@
                (let [decorator-stack (decorators/resolve-decorators variant-id
                                                                     {:active-modes active-modes})
                      effective-args  (args/resolve-args variant-id opts)
-                     snapshot        (ident/snapshot-identity variant-id opts)]
+                     snapshot        (ident/snapshot-identity variant-id opts)
+                     play-events     (or (:play variant-body) [])]
                  ;; Phase 0: allocate frame, run :frame-setup decorators,
                  ;; drive lifecycle to :mounting.
                  (frames/allocate! variant-id decorator-stack)
@@ -280,12 +283,23 @@
                  (loaders/finish-events! variant-id)
                  ;; Phase 3 (render): Stage 4's UI shell does the actual
                  ;; render. Stage 3 leaves :rendered-hiccup nil.
-                 ;; Phase 4 (play + assertions): Stage 5 lands. Stage 3
-                 ;; leaves :assertions empty for now (unless Stage 3
-                 ;; itself recorded error projections during phases 1-2).
-                 (resolve (record-result-map variant-id decorator-stack
-                                             effective-args snapshot
-                                             start-ms)))
+                 ;; Phase 4 (play + assertions): Stage 5 (rf2-h8et).
+                 ;; `execute-play!` runs the play sequence synchronously
+                 ;; on the JVM and via dispatch-sync on CLJS (re-frame's
+                 ;; drain settles before each call returns); the returned
+                 ;; promise resolves immediately to the assertions vector.
+                 (let [play-promise (play/execute-play! variant-id play-events)]
+                   ;; The execute-play! contract guarantees the promise
+                   ;; resolves to the assertions vector once play
+                   ;; completes. We chain `then` so the final result-map
+                   ;; build sees the post-play app-db.
+                   (-> play-promise
+                       (async/then
+                         (fn [_]
+                           (resolve (record-result-map variant-id decorator-stack
+                                                       effective-args snapshot
+                                                       start-ms))
+                           nil)))))
                (catch #?(:clj Throwable :cljs :default) e
                  (record-error! variant-id :phase-0-setup nil e)
                  (loaders/error! variant-id (ex-data e))

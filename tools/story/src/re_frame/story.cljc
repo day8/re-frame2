@@ -53,6 +53,10 @@
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.frames    :as frames]
             [re-frame.story.runtime   :as runtime]
+            ;; Stage 5 (rf2-h8et) — assertions + play + force-fx-stub.
+            [re-frame.story.assertions :as assertions]
+            [re-frame.story.fx-stubs  :as fx-stubs]
+            [re-frame.story.play      :as play]
             ;; Stage 4 (rf2-ekai) — UI shell. CLJS-only require so JVM
             ;; consumers (tests, REPL exploration) don't pull Reagent /
             ;; reagent.dom.client into their classpath.
@@ -339,14 +343,22 @@
 
 (defn install-canonical-vocabulary!
   "Install the seven canonical Story tags + the runtime's internal
-  helper events / lifecycle machine. Call this once at boot before any
-  `reg-story` / `reg-variant` / `run-variant` calls. Idempotent.
+  helper events / lifecycle machine + the seven canonical `:rf.assert/*`
+  assertion handlers + the built-in `:rf.story/force-fx-stub` decorator.
+  Call this once at boot before any `reg-story` / `reg-variant` /
+  `run-variant` calls. Idempotent.
 
   Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 the canonical seven
   tags are registered by the Story library at load time — projects
   don't have to. Per IMPL-SPEC §5.4 the lifecycle machine
   (`:rf.story.lifecycle/machine`) is registered here too — without it
   `run-variant` cannot drive the four-phase lifecycle.
+
+  Stage 5 (rf2-h8et) adds:
+  - The seven canonical `:rf.assert/*` event handlers.
+  - The built-in `:rf.story/force-fx-stub` decorator.
+  - The late-bound stub-event tap so emitted fx-ids reach the
+    assertion accumulator (for `:rf.assert/effect-emitted`).
 
   Project-specific tags must register via `reg-tag` *before* use; an
   unregistered tag on a variant's `:tags` set raises `:rf.error/unknown-tag`."
@@ -355,7 +367,17 @@
   (loaders/install!)
   (loaders/install-mirror-writer!)
   (frames/install-helpers!)
-  (runtime/install-helpers!))
+  (runtime/install-helpers!)
+  ;; Stage 5 — assertions + play + force-fx-stub.
+  (assertions/install-canonical-assertions!)
+  (fx-stubs/install-canonical-fx-stubs!)
+  ;; Wire the late-bound shims so the frames runtime can tap
+  ;; into the assertion module without a circular require.
+  (frames/set-tap-stub-event-fn! fx-stubs/tap-stub-event!)
+  (frames/set-drop-assertion-accumulators-fn!
+    (fn [frame-id]
+      (assertions/drop-trace-accumulators! frame-id)
+      (play/drop-pending-exceptions! frame-id))))
 
 ;; ---- configure! ---------------------------------------------------------
 
@@ -495,6 +517,63 @@
   [variant-id]
   (loaders/current-state variant-id))
 
+;; ---- Stage 5 (rf2-h8et) public assertion + play helpers ------------------
+
+(defn assertions-passing?
+  "Per IMPL-SPEC §3.5 + spec/007 §Story-as-test duality — true iff
+  every entry in the assertions list has `:passed? true`. Accepts
+  either an assertions vector or a `run-variant` result map.
+
+  This is the canonical predicate for the cljs.test / clojure.test
+  adapter pattern from spec/007 §Portable into tests:
+
+      (deftest counter-empty-state
+        (let [result @(rf/run-variant :story.counter/empty {})]
+          (is (rf.story/assertions-passing? result))))"
+  [assertions-or-result]
+  (assertions/passing? assertions-or-result))
+
+(defn read-assertions
+  "Per IMPL-SPEC §3.5 — return the assertions vector accumulated against
+  `variant-id`'s frame. Identical to `(:assertions (rf/run-variant ...))`
+  but doesn't re-run the variant. Useful for live introspection from the
+  UI shell or REPL."
+  [variant-id]
+  (assertions/read-assertions variant-id))
+
+(defn canonical-assertion-ids
+  "Per spec/007 line 304 + IMPL-SPEC §3.5 — return the set of seven
+  canonical `:rf.assert/*` event ids registered at boot."
+  []
+  assertions/canonical-assertion-ids)
+
+(defn execute-play!
+  "Per IMPL-SPEC §5.4 phase 4 — run the play sequence against a variant
+  frame and return a promise of the assertions vector. Use this when
+  you've already allocated a variant frame (via a prior `run-variant`
+  or `allocate!`) and want to re-run play without tearing the frame
+  down + re-running phases 1-3.
+
+  Returns a `js/Promise` (CLJS) / `CompletableFuture` (JVM) of the
+  assertions vector — the same shape `(:assertions result)` gives."
+  ([variant-id]
+   (play/execute-play! variant-id))
+  ([variant-id play-events]
+   (play/execute-play! variant-id play-events))
+  ([variant-id play-events opts]
+   (play/execute-play! variant-id play-events opts)))
+
+(def force-fx-stub-id
+  "Per spec/007 §Effect mocking + IMPL-SPEC §3.5 — the registered
+  decorator id for the built-in `force-fx-stub` decorator. Use this
+  on a variant's `:decorators` slot:
+
+      (story/reg-variant :story.auth/login-pending
+        {:decorators [[story/force-fx-stub-id :http {:status :pending}]]
+         :play       [[:auth/login]
+                      [:rf.assert/effect-emitted :http]]})"
+  fx-stubs/force-fx-stub-id)
+
 ;; ---- public helpers (decorator / args resolution surfacing) -------------
 
 (defn resolve-args
@@ -519,11 +598,15 @@
     composition, args resolution, snapshot-identity, lifecycle).
   - Stage 4 — `:render-shell` (adds `mount-shell!` / `unmount-shell!`,
     the sidebar / canvas / scrubber / trace panes, hot-reload trigger).
-  - Stage 5+ extends — play sequence, assertions, SOTA panels, MCP.
+  - Stage 5 — `:assertions+play` (adds the seven `:rf.assert/*` event
+    handlers, play sequence execution wired into `run-variant`, the
+    built-in `:rf.story/force-fx-stub` decorator, `assertions-passing?`,
+    and the non-default `:loaders-complete-when` forms).
+  - Stage 6+ extends — SOTA panels, MCP, examples + guide.
 
   Tools that adapt to the loaded surface read this; agents can ask
   the runtime which Stage is live."
-  :render-shell)
+  :assertions+play)
 
 ;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
 ;;

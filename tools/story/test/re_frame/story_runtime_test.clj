@@ -68,8 +68,8 @@
 ;; ---- stage marker --------------------------------------------------------
 
 (deftest stage-marker-runtime
-  (testing "Stage 4 supersedes Stage 3 — the loaded surface advertises :render-shell"
-    (is (= :render-shell story/stage))))
+  (testing "Stage 5 supersedes Stage 4 — the loaded surface advertises :assertions+play"
+    (is (= :assertions+play story/stage))))
 
 ;; ===========================================================================
 ;; ARGS PRECEDENCE
@@ -215,7 +215,12 @@
       (is (= 1 (count (:overrides stack)))
           "last-wins: only one entry per fx-id")
       (is (contains? (:overrides stack) :http))
-      (is (= :rf.story.fx-stub/second-stub
+      ;; Stage 5 (rf2-h8et) — the stub-id is now namespaced by fx-id
+      ;; so the ref-args-driven `:rf.story/force-fx-stub` decorator
+      ;; can register distinct stubs for distinct fx-ids referenced
+      ;; from the same decorator id. The decorator-id segment is
+      ;; preserved verbatim; the fx-id is appended with `+` separator.
+      (is (= :rf.story.fx-stub/second-stub+http
              (get-in stack [:overrides :http]))))))
 
 ;; ===========================================================================

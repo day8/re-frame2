@@ -62,16 +62,50 @@
 
 ;; ---- resolution -----------------------------------------------------------
 
+(defn- expand-ref-args-body
+  "Some decorators (e.g. `:rf.story/force-fx-stub`) take their fx-id +
+  response from the *ref-args* rather than the registered body. When
+  the registered body declares `:ref-args? true`, expand the ref-args
+  into a per-reference body so downstream classification + fx-override
+  materialisation see the user-supplied data.
+
+  Currently the only `:ref-args? true` shape we recognise is
+  `:fx-override` — `[<id> <fx-id> <response>]`. Future shapes (e.g. a
+  ref-args-driven `:hiccup` decorator) can plug in here without
+  touching the rest of decorator resolution.
+
+  Returns the merged body."
+  [body decor-args]
+  (cond
+    (not (:ref-args? body))
+    body
+
+    (= :fx-override (:kind body))
+    (let [[fx-id response] decor-args]
+      (-> body
+          (dissoc :ref-args?)
+          (assoc :fx-id    fx-id
+                 :response response)))
+
+    :else
+    (dissoc body :ref-args?)))
+
 (defn- resolve-ref
   "Look up `[decorator-id & args]` against the decorator registry.
   Returns `{:id ... :args [...] :body <body-or-nil> :error nil|<map>}`.
 
   Stage 3 does not throw on an unregistered decorator — the runtime
-  records it as an error so the variant pane can show it inline."
+  records it as an error so the variant pane can show it inline.
+
+  Stage 5 adds the `:ref-args?` expansion path: decorators that take
+  their config from the *ref* (e.g. `:rf.story/force-fx-stub`) get a
+  synthesised per-reference body so downstream classification sees the
+  user-supplied data."
   [ref]
   (let [id          (first ref)
         decor-args  (vec (rest ref))
-        body        (when (keyword? id) (registrar/handler-meta :decorator id))]
+        body-raw    (when (keyword? id) (registrar/handler-meta :decorator id))
+        body        (when body-raw (expand-ref-args-body body-raw decor-args))]
     (cond
       (not (keyword? id))
       {:id    id
@@ -256,8 +290,17 @@
   (let [pairs (mapv (fn [r]
                       (let [fx-id    (-> r :body :fx-id)
                             response (-> r :body :response)
+                            ;; Include fx-id in the stub-event-id so the
+                            ;; ref-args-driven `:rf.story/force-fx-stub`
+                            ;; decorator can synthesise distinct stubs
+                            ;; for distinct fx-ids referenced from the
+                            ;; same decorator id. Stage 5 (rf2-h8et).
                             stub-id  (keyword "rf.story.fx-stub"
-                                              (str (name (:id r))))]
+                                              (str (name (:id r))
+                                                   (when fx-id
+                                                     (str "+"
+                                                          (when-let [ns (namespace fx-id)] (str ns "."))
+                                                          (name fx-id)))))]
                         {:fx-id        fx-id
                          :stub-id      stub-id
                          :response     response

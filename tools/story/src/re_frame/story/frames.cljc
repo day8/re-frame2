@@ -51,35 +51,94 @@
 
 ;; ---- fx-override-stub registration ---------------------------------------
 
+;; Late-bound shim: `re-frame.story.fx-stubs/tap-stub-event!` is the
+;; Stage 5 fan-out that records the fx-id into the assertion module's
+;; per-frame accumulator (for `:rf.assert/effect-emitted`). We avoid
+;; a hard `:require` here to keep frames.cljc free of the assertions
+;; module (which depends on this ns transitively via the decorators
+;; resolution). The runtime initialises the shim from `install-helpers!`
+;; below — by the time a stub event fires, the shim is bound.
+(defonce
+  ^{:doc "Per-process fn slot: called as `(tap-stub-event! frame-id
+         fx-id)` from each stub-event handler. Stage 5 binds this to
+         `re-frame.story.fx-stubs/tap-stub-event!`; Stage 3-only builds
+         leave it nil and the call no-ops."}
+  tap-stub-event-fn
+  (atom nil))
+
+(defn set-tap-stub-event-fn!
+  "Install the late-bound stub-event tap. Stage 5 (rf2-h8et) calls this
+  from `re-frame.story/install-canonical-vocabulary!` with the
+  assertions-module-aware implementation."
+  [f]
+  (reset! tap-stub-event-fn f)
+  nil)
+
+;; Per-frame stub-call log. Per spec/002 the `:fx-overrides` map
+;; redirects fx-id → fx-id, and re-frame's `reg-fx` handlers receive
+;; only their arg payload (no cofx, no `:db`). So the stub fx handler
+;; can't write into the variant frame's app-db atomically. Instead it
+;; appends to a process-level atom keyed by frame-id; the assertion
+;; module reads this for `:rf.assert/effect-emitted` semantics.
+(defonce
+  ^{:doc "frame-id → vector of stub-call entries
+         `{:stub-id ... :fx-id ... :payload ...}`. Populated by the
+         registered stub-fx handler; read by the assertions module and
+         the fx-stubs module's `observed-fx-ids` helper."}
+  stub-call-log
+  (atom {}))
+
+(defn stub-call-log-for
+  "Return the per-frame stub-call log entries, or `[]`."
+  [frame-id]
+  (get @stub-call-log frame-id []))
+
+(defn clear-stub-call-log!
+  "Drop the per-frame stub-call log entry. Called on frame teardown."
+  [frame-id]
+  (swap! stub-call-log dissoc frame-id)
+  nil)
+
 (defn- ensure-stub-event!
-  "Register a `reg-event-fx` handler under `stub-id` that returns a
-  canned response. Idempotent — re-registration replaces the slot
+  "Register a `reg-fx` handler under `stub-id` that handles a
+  redirected fx call. Idempotent — re-registration replaces the slot
   atomically (Spec 001 hot-reload semantics).
 
-  The response shape is the data the user supplied on the decorator's
-  `:response` slot. We wrap it in a no-op handler so the override
-  re-targets the fx call to a synchronous data emission. The default
-  emits the response as a `:db` patch under `[:rf.story.fx-stub/last-call]`
-  for inspection, plus mirrors the fx call into `[:rf.story.fx-stub/log]`
-  for assertion-runtime hooks (Stage 5)."
-  [stub-id response]
-  (rf/reg-event-fx
+  Per spec/002 §Per-frame and per-call overrides the `:fx-overrides`
+  map redirects `fx-id → fx-id`. So the stub MUST be a registered
+  `:fx` handler, not an event handler. The stub:
+
+  1. Taps `tap-stub-event-fn` with `(frame, fx-id)` so the assertion
+     module's emitted-fx accumulator records the call (so
+     `:rf.assert/effect-emitted` can observe it).
+  2. Appends the call to the per-frame `stub-call-log` atom for
+     inspection / dev-tool surfacing.
+
+  The fx handler runs synchronously inside re-frame's `do-fx` walk
+  with signature `(ctx args)` per Spec 002 §Effect handlers; `ctx`
+  carries `:frame` and (optionally) `:event`. All bookkeeping lives
+  in process-level atoms rather than the frame's app-db. Stage 5
+  (rf2-h8et)."
+  [stub-id fx-id response]
+  (rf/reg-fx
     stub-id
-    (fn [{:keys [db]} [_ fx-payload]]
-      {:db (-> db
-               (update :rf.story.fx-stub/log (fnil conj [])
-                       {:stub-id stub-id :payload fx-payload})
-               (assoc-in [:rf.story.fx-stub/last-call stub-id]
-                         {:payload  fx-payload
-                          :response response}))})))
+    (fn [{:keys [frame] :as _ctx} fx-payload]
+      (when-let [tap @tap-stub-event-fn]
+        (try (tap frame fx-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+      (swap! stub-call-log update frame (fnil conj [])
+             {:stub-id  stub-id
+              :fx-id    fx-id
+              :payload  fx-payload
+              :response response})
+      nil)))
 
 (defn- register-fx-overrides!
   "Walk the `:registrations` vector from `decorators/fx-overrides-map`
-  and register each stub event. Returns the `:overrides` map suitable
+  and register each stub fx. Returns the `:overrides` map suitable
   for the variant frame's `:fx-overrides` config slot."
   [{:keys [overrides registrations]}]
-  (doseq [{:keys [stub-id response]} registrations]
-    (ensure-stub-event! stub-id response))
+  (doseq [{:keys [stub-id response fx-id]} registrations]
+    (ensure-stub-event! stub-id fx-id response))
   overrides)
 
 ;; ---- :frame-setup decorator application ---------------------------------
@@ -168,12 +227,32 @@
 
 ;; ---- destruction ----------------------------------------------------------
 
+(defonce
+  ^{:doc "Per-process fn slot: called as `(drop-assertion-accumulators!
+         frame-id)` on frame teardown. Stage 5 (rf2-h8et) binds this to
+         `re-frame.story.assertions/drop-trace-accumulators!`; the
+         accumulator atoms then evict their per-frame entries so
+         destroyed variants don't leak memory."}
+  drop-assertion-accumulators-fn
+  (atom nil))
+
+(defn set-drop-assertion-accumulators-fn!
+  "Install the late-bound teardown hook for assertion accumulators.
+  Stage 5 calls this at boot."
+  [f]
+  (reset! drop-assertion-accumulators-fn f)
+  nil)
+
 (defn destroy!
   "Tear down a variant frame. Clears the lifecycle watcher table for
-  the frame, then calls `rf/destroy-frame`. Returns nil."
+  the frame, drops per-frame assertion + stub accumulators, then
+  calls `rf/destroy-frame`. Returns nil."
   [variant-id]
   (when config/enabled?
     (loaders/clear-watchers! variant-id)
+    (clear-stub-call-log! variant-id)
+    (when-let [drop @drop-assertion-accumulators-fn]
+      (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
     (rf/destroy-frame variant-id)
     nil))
 

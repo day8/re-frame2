@@ -332,12 +332,29 @@
 (def DecoratorFxOverride
   "`:fx-override`-kind decorator — stubs an fx for the lifetime of the
   variant's frame. Per spec/007 §Effect mocking the decorator is a
-  declaration; the actual stub registration happens at frame creation."
-  [:map
-   [:doc      {:optional true} :string]
-   [:kind     [:= :fx-override]]
-   [:fx-id    :keyword]
-   [:response :any]])
+  declaration; the actual stub registration happens at frame creation.
+
+  Two shapes:
+
+  - **Fixed body** — `{:kind :fx-override, :fx-id :http, :response {...}}`.
+    The fx-id + response are baked into the decorator registration; every
+    reference reuses them.
+  - **Ref-args body** — `{:kind :fx-override, :ref-args? true}`. Per
+    IMPL-SPEC §3.5 (Phase-2 §5.1 #6) the `:rf.story/force-fx-stub`
+    built-in uses this shape so authors can pass `(fx-id, response)` at
+    the reference site: `[:rf.story/force-fx-stub :http {...}]`. The
+    Stage 5 decorator-resolution layer expands the ref-args into a
+    per-reference body."
+  [:or
+   [:map
+    [:doc      {:optional true} :string]
+    [:kind     [:= :fx-override]]
+    [:fx-id    :keyword]
+    [:response :any]]
+   [:map
+    [:doc       {:optional true} :string]
+    [:kind      [:= :fx-override]]
+    [:ref-args? [:= true]]]])
 
 (def Decorator
   "Polymorphic decorator schema, dispatched on `:kind`. The three kinds

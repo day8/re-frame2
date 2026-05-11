@@ -278,37 +278,96 @@
   [_frame-id _variant-body]
   true)
 
+(defn- predicate-event?
+  "Per IMPL-SPEC §2.4 — a registered predicate-event handler is a plain
+  re-frame event whose `:db` effect returns a value-form map containing
+  `[:rf.story/loaders-complete? <bool>]`. Stage 5 (rf2-h8et) accepts
+  this shape by dispatching the event then reading the slot from the
+  frame's app-db.
+
+  The event handler signature:
+
+      (rf/reg-event-db :my.fixture/ready?
+        (fn [db _]
+          (assoc db :rf.story/loaders-complete?
+                 (boolean (:loaded? db)))))
+
+  Authors set the slot to `true` when their custom condition is
+  satisfied. The Story runtime polls by dispatching then reading."
+  [pred]
+  (keyword? pred))
+
+(defn- dispatched-events-set
+  "Read the dispatched-events set for `frame-id`. Lazily resolved to
+  avoid a circular require with the assertions module."
+  [frame-id]
+  (try
+    (let [resolve-fn #?(:clj  (requiring-resolve
+                                're-frame.story.assertions/frame-dispatched)
+                       :cljs ((fn []
+                                ;; CLJS: the assertions ns is loaded by
+                                ;; the runtime/install-helpers! path.
+                                (some-> (find-ns 're-frame.story.assertions)
+                                        (ns-resolve 'frame-dispatched)))))]
+      (when resolve-fn
+        (let [evs (resolve-fn frame-id)]
+          (set evs))))
+    (catch #?(:clj Throwable :cljs :default) _ #{})))
+
+(defn- vector-of-events-satisfied?
+  "Per IMPL-SPEC §2.4 — a vector of event vectors form is interpreted
+  as 'loaders complete when ALL listed events have fired against the
+  variant's frame'. We consult the assertions module's per-frame
+  dispatched-events accumulator (populated by the play-runner's trace
+  listener and the runtime's own phase-1/2 trace listener — Stage 5
+  reaches across)."
+  [frame-id events-required]
+  (let [observed (or (dispatched-events-set frame-id) #{})]
+    (every? (fn [needle] (contains? observed needle)) events-required)))
+
 (defn evaluate-complete-when
   "Evaluate the variant's `:loaders-complete-when` predicate against
   `frame-id`'s current app-db. Returns truthy when the loader phase
   should advance to `:ready`.
 
-  Forms accepted (per the Stage 2 schema):
-  - nil — use the default predicate (`loaders-default-complete?`).
-  - a registered event id — dispatch-sync the event; predicates of
-    this shape are implemented as registered assertion-style event-fxs
-    (Stage 5 wires the `:rf.assert/*` suite; Stage 3 only handles the
-    nil case + literal-data form).
-  - a vector of event vectors (the schema allows `[:vector EventVector]`)
-    — Stage 3 interprets these as `[:rf.assert/*]` declarations that
-    *must all pass* for the predicate to be true. Each assertion's
-    handler returns `{:passed? true|false ...}`; the runtime reads the
-    `:assertions` accumulator on the frame's app-db at
-    `[:rf.story/assertions]`.
+  Forms accepted (per the Stage 2 schema; Stage 5 finalises non-default
+  semantics):
 
-  Stage 5 (rf2-h8et) lands the full assertion runtime. For Stage 3
-  the nil-case is the load-bearing implementation; the registered-event
-  and vector forms route through Stage 5's hook. Until Stage 5 ships,
-  any non-nil `:loaders-complete-when` is treated as 'complete on first
-  evaluation' so the lifecycle still progresses — a Stage 4 UI shell
-  can render the variant; Stage 5 makes the predicate semantically
-  correct."
+  - nil — use the default predicate (`loaders-default-complete?`).
+  - a registered event id — `:my.fixture/ready?`. The runtime
+    dispatch-syncs the event into the variant's frame, then reads the
+    slot `[:rf.story/loaders-complete?]` from the post-dispatch app-db.
+    Handlers set this to `true` when their custom condition is met.
+  - a vector of event vectors — `[[:fixture/loaded] [:auth/ready]]`.
+    Interpreted as 'loaders complete when ALL listed events have fired
+    against the variant's frame.' The runtime checks the assertions
+    module's dispatched-events accumulator (which Story populates from
+    the trace bus).
+
+  Stage 5 (rf2-h8et)."
   [frame-id variant-body]
   (let [pred (:loaders-complete-when variant-body)]
     (cond
-      (nil? pred)    (loaders-default-complete? frame-id variant-body)
-      ;; Stage 5 will replace this with full assertion evaluation.
-      ;; Stage 3 treats any non-nil predicate as truthy on first
-      ;; evaluation — the lifecycle progresses; Stage 5 makes it
-      ;; semantically correct.
-      :else          true)))
+      (nil? pred)
+      (loaders-default-complete? frame-id variant-body)
+
+      (fn? pred)
+      ;; A literal function predicate. Authors usually pass a registered
+      ;; event-id (a keyword) but a fn is a legal Clojure value at this
+      ;; layer; the runtime threads the frame's app-db through.
+      (boolean (pred (rf/get-frame-db frame-id)))
+
+      (predicate-event? pred)
+      (do
+        (try
+          (rf/dispatch-sync [pred] {:frame frame-id})
+          (catch #?(:clj Throwable :cljs :default) _ nil))
+        (boolean (:rf.story/loaders-complete? (rf/get-frame-db frame-id))))
+
+      (vector? pred)
+      (vector-of-events-satisfied? frame-id pred)
+
+      :else
+      ;; Unknown shape — be permissive (per IMPL-SPEC §2.3 record-not-throw
+      ;; spirit) and let the variant proceed.
+      true)))
