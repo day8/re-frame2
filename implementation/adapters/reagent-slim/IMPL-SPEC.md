@@ -1,13 +1,13 @@
-# reagent-slim-and-fast — Stage 3 implementation spec
+# reagent-slim — Stage 3 implementation spec
 
 > Stage 3 of rf2-5djt (parent epic). Bead **rf2-60le**.
-> The artefact is `day8/reagent-slim-and-fast`; the bridge is `day8/reagent-classic`.
+> The artefact is `day8/reagent-slim`; the bridge is `day8/reagent-classic`.
 > Stage 1 (rf2-ui6g) closed the surface; Stage 2 (rf2-142b) sized the wins. This
 > document is the engineering spec Stage 4 (rf2-6hyy) implements against.
 >
 > Inputs (binding):
 > - `findings/re-frame2-reagent-stage1-api-surface.md` — bounded surface, eight RESOLVED decisions.
-> - `findings/reagent-slim-and-fast-stage2-efficiency.md` — bundle + runtime estimates, top-3 commitments, R-001..R-007 risk register, S3-001..S3-008 inputs.
+> - `findings/reagent-slim-stage2-efficiency.md` — bundle + runtime estimates, top-3 commitments, R-001..R-007 risk register, S3-001..S3-008 inputs.
 > - `findings/recom-react19-readiness-audit.md` (rf2-cgcv) — re-com + 10x lifecycle inventory.
 > - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle + SSR inventory.
 > - `findings/reagent-rewrite-analysis.md` §2 — friction inventory (kept per DECISION-8); §8 recommendation overruled.
@@ -16,7 +16,7 @@
 >
 > Hard constraints (settled):
 > 1. React 19 floor (DECISION-5; Stage 1 §2.3a) — no `reagent.dom`; throw-on-call for that namespace.
-> 2. Maven coord `day8/reagent-slim-and-fast` (DECISION-1).
+> 2. Maven coord `day8/reagent-slim` (DECISION-1).
 > 3. Namespace tree under `reagent2.*` (DECISION-4); adapter Var unchanged at `re-frame.adapter.reagent`.
 > 4. 7-key Form-3 cap (DECISION-3 + rf2-kfpf §6).
 > 5. Narrowed `convert-prop-value` (DECISION-2; rf2-d4sf root cause structurally removed).
@@ -28,17 +28,17 @@
 
 ## §1 Artefact layout
 
-The new artefact lives at `implementation/adapters/reagent-slim-and-fast/` mirroring the existing `implementation/adapters/{reagent,uix,helix}/` pattern (rf2-zha9 / rf2-0imy). The `re-frame2-` prefix is dropped on the Maven coord (per Stage 1 DECISION-1) but the on-disk path stays inside `implementation/adapters/` because that is the lockstep verifier's "adapter tier" detection axis (`.github/scripts/verify-version-lockstep.sh:67-90`).
+The new artefact lives at `implementation/adapters/reagent-slim/` mirroring the existing `implementation/adapters/{reagent,uix,helix}/` pattern (rf2-zha9 / rf2-0imy). The `re-frame2-` prefix is dropped on the Maven coord (per Stage 1 DECISION-1) but the on-disk path stays inside `implementation/adapters/` because that is the lockstep verifier's "adapter tier" detection axis (`.github/scripts/verify-version-lockstep.sh:67-90`).
 
 ### §1.1 Directory shape
 
 ```
-implementation/adapters/reagent-slim-and-fast/
+implementation/adapters/reagent-slim/
 ├── deps.edn
 ├── src/
 │   ├── re_frame/
 │   │   └── adapter/
-│   │       └── reagent.cljs           ; UNCHANGED Var path; new internals
+│   │       └── reagent_slim.cljs      ; adapter Var at re-frame.adapter.reagent-slim
 │   └── reagent2/
 │       ├── core.cljs                  ; user-facing compat surface
 │       ├── ratom.cljs                 ; reactive primitives
@@ -82,7 +82,7 @@ Modeled on `implementation/adapters/reagent/deps.edn`. The `:clein/build` block 
                                                     :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
   :clein/build
-  {:lib      day8/reagent-slim-and-fast
+  {:lib      day8/reagent-slim
    :main     re-frame.adapter.reagent
    :url      "https://github.com/day8/re-frame2"
    :version  "../../../VERSION"
@@ -90,7 +90,7 @@ Modeled on `implementation/adapters/reagent/deps.edn`. The `:clein/build` block 
    :src-dirs ["src"]}}}
 ```
 
-Note: the `:lib` is `day8/reagent-slim-and-fast` (no `re-frame2-` prefix) per DECISION-1; the `:main` keyword keeps `re-frame.adapter.reagent` for backward compat with any tooling that resolves the adapter ns from clein's emitted pom.
+Note: the `:lib` is `day8/reagent-slim` (no `re-frame2-` prefix) per DECISION-1; the `:main` keyword keeps `re-frame.adapter.reagent` for backward compat with any tooling that resolves the adapter ns from clein's emitted pom.
 
 ### §1.3 Top-level `implementation/deps.edn` updates
 
@@ -100,12 +100,12 @@ Add the new artefact alongside the existing reagent / uix / helix adapter entrie
 {:paths []
  :deps  {day8/re-frame2                  {:local/root "core"}
          day8/re-frame2-reagent          {:local/root "adapters/reagent"}
-         day8/reagent-slim-and-fast       {:local/root "adapters/reagent-slim-and-fast"}
+         day8/reagent-slim       {:local/root "adapters/reagent-slim"}
          day8/re-frame2-uix              {:local/root "adapters/uix"}
          ;; … unchanged …
          }
  :aliases {:test {:extra-paths […
-                                "adapters/reagent-slim-and-fast/test"
+                                "adapters/reagent-slim/test"
                                 …]}}}
 ```
 
@@ -114,41 +114,41 @@ Add the new artefact alongside the existing reagent / uix / helix adapter entrie
 Two-line addition under `:source-paths`:
 
 ```
-"adapters/reagent-slim-and-fast/src"
-"adapters/reagent-slim-and-fast/test"
+"adapters/reagent-slim/src"
+"adapters/reagent-slim/test"
 ```
 
-The `:dependencies` vector adds NO new entries — `reagent-slim-and-fast` is a re-implementation that does not depend on stock `reagent`. (Stock Reagent stays in the dependency vector while the existing thin-bridge adapter ships; once the thin bridge is renamed to `day8/reagent-classic` and split off to its own future Maven coord, the stock-Reagent dep can be made conditional.)
+The `:dependencies` vector adds NO new entries — `reagent-slim` is a re-implementation that does not depend on stock `reagent`. (Stock Reagent stays in the dependency vector while the existing thin-bridge adapter ships; once the thin bridge is renamed to `day8/reagent-classic` and split off to its own future Maven coord, the stock-Reagent dep can be made conditional.)
 
 The build matrix gains one switch: per-example builds that opt into the rewrite use the new adapter ns; per-example builds that stay on the bridge use the existing one. Stage 4 adds a parallel `examples/counter-slim-and-fast` build to exercise the rewrite under bundle-isolation contracts (per S3-008).
 
 ### §1.5 Lockstep verifier
 
-Add `reagent-slim-and-fast` to the `ARTEFACTS`, `NON_CORE`, `ADAPTERS`, and `ARTEFACT_PATHS` arrays in `.github/scripts/verify-version-lockstep.sh`:
+Add `reagent-slim` to the `ARTEFACTS`, `NON_CORE`, `ADAPTERS`, and `ARTEFACT_PATHS` arrays in `.github/scripts/verify-version-lockstep.sh`:
 
 ```bash
-ARTEFACT_PATHS[reagent-slim-and-fast]="adapters/reagent-slim-and-fast"
-ARTEFACTS+=(reagent-slim-and-fast)
-NON_CORE+=(reagent-slim-and-fast)
-ADAPTERS+=(reagent-slim-and-fast)
+ARTEFACT_PATHS[reagent-slim]="adapters/reagent-slim"
+ARTEFACTS+=(reagent-slim)
+NON_CORE+=(reagent-slim)
+ADAPTERS+=(reagent-slim)
 ```
 
 The verifier's adapter-tier check (lines 117-131) already handles three-deep paths via `is_adapter`; adding the artefact to the `ADAPTERS` array picks up that branch automatically. Stage 4 confirms the verifier passes locally before opening the Stage-4 PR.
 
 ### §1.6 CI: `.github/workflows/test.yml`
 
-Add a `jvm-reagent-slim-and-fast` job mirroring the existing `jvm-reagent` shape (lines 66-105). The artefact has no JVM-runnable tests — the classpath probe pattern (`clojure -M:test || echo "no JVM-runnable tests in reagent-slim-and-fast artefact (expected)"`) verifies deps + classpath wiring. This is parity with the other adapter jobs.
+Add a `jvm-reagent-slim` job mirroring the existing `jvm-reagent` shape (lines 66-105). The artefact has no JVM-runnable tests — the classpath probe pattern (`clojure -M:test || echo "no JVM-runnable tests in reagent-slim artefact (expected)"`) verifies deps + classpath wiring. This is parity with the other adapter jobs.
 
 The `cljs` and `cljs-browser` jobs require no changes — they pick up the new `:source-paths` entry via shadow-cljs's compile sweep.
 
 ### §1.7 CI: `.github/workflows/release.yml`
 
-Add a `deploy-reagent-slim-and-fast` job mirroring `deploy-reagent` (release.yml lines 294-357). The job:
+Add a `deploy-reagent-slim` job mirroring `deploy-reagent` (release.yml lines 294-357). The job:
 1. `needs: deploy-core` (parallel with the other adapter-deploy leaves).
-2. Rewrites `:local/root "../../core"` → `:mvn/version "${VERSION}"` in `implementation/adapters/reagent-slim-and-fast/deps.edn`.
-3. Runs `clojure -M:clein deploy` from `implementation/adapters/reagent-slim-and-fast/`.
+2. Rewrites `:local/root "../../core"` → `:mvn/version "${VERSION}"` in `implementation/adapters/reagent-slim/deps.edn`.
+3. Runs `clojure -M:clein deploy` from `implementation/adapters/reagent-slim/`.
 
-The terminal `github-release` job's `needs:` array (release.yml line 899-901) gains `deploy-reagent-slim-and-fast`.
+The terminal `github-release` job's `needs:` array (release.yml line 899-901) gains `deploy-reagent-slim`.
 
 ### §1.8 Bundle-isolation contract
 
@@ -164,9 +164,9 @@ Public namespace surface per Stage 1 §5.5 + DECISION-4. Compat namespace tree i
 
 ### §2.1 `re-frame.adapter.reagent` — adapter Var (UNCHANGED public path)
 
-File: `implementation/adapters/reagent-slim-and-fast/src/re_frame/adapter/reagent.cljs`.
+File: `implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cljs`.
 
-This is a **drop-in replacement** for `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` — the public `re-frame.adapter.reagent/adapter` Var keeps its shape so apps that already wired `(rf/init! reagent/adapter)` continue to work without source changes. The internals swap from `(:require [reagent.core ...] [reagent.ratom ...] [reagent.dom.client ...])` to the rewrite's namespaces.
+Stage 4 chose a distinct adapter ns (`re-frame.adapter.reagent-slim`) rather than overloading `re-frame.adapter.reagent`. The bridge adapter (`day8/re-frame2-reagent`) stays at the existing path; the rewrite ships alongside it as a sibling artefact (`day8/reagent-slim`). Apps select between them at boot via the explicit `(rf/init! <adapter-var>)` call — `reagent-adapter/adapter` (bridge) vs `reagent-slim-adapter/adapter` (rewrite).
 
 Public Vars (signatures unchanged from current bridge):
 - `adapter` — the substrate spec map (per `re-frame.substrate.adapter`'s 9-key contract).
@@ -1045,7 +1045,7 @@ Per §1.8 — `scripts/check-bundle-isolation.cjs` gains:
 
 ### §12.4 Lockstep version-pin verification
 
-Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new artefact and the new `:version "../../../VERSION"` and `:local/root "../../core"` strings appear in `implementation/adapters/reagent-slim-and-fast/deps.edn`.
+Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new artefact and the new `:version "../../../VERSION"` and `:local/root "../../core"` strings appear in `implementation/adapters/reagent-slim/deps.edn`.
 
 ### §12.5 Risk register → test-coverage map (Stage 2 §5)
 
@@ -1065,7 +1065,7 @@ Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new a
 
 ### §13.1 Switching from the bridge to the rewrite
 
-App author currently using `day8/re-frame2-reagent` (the thin bridge) wants to move to `day8/reagent-slim-and-fast`. The required changes:
+App author currently using `day8/re-frame2-reagent` (the thin bridge) wants to move to `day8/reagent-slim`. The required changes:
 
 **`deps.edn`**:
 ```clojure
@@ -1073,7 +1073,7 @@ App author currently using `day8/re-frame2-reagent` (the thin bridge) wants to m
 {:deps {day8/re-frame2-reagent {:mvn/version "..."}}}
 
 ;; after
-{:deps {day8/reagent-slim-and-fast {:mvn/version "..."}}}
+{:deps {day8/reagent-slim {:mvn/version "..."}}}
 ```
 
 **`(:require ...)` lines**: the adapter import path is unchanged.
@@ -1194,4 +1194,4 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 *Word count: ~7 100.*
 
-*This spec is the binding input for Stage 4 (rf2-6hyy). Cross-references to Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`) and Stage 2 (`findings/reagent-slim-and-fast-stage2-efficiency.md`) are inline throughout. The current thin-bridge adapter at `implementation/adapters/reagent/` is the reference for unchanged-public-path elements (the adapter Var, the late-bind hook wiring, the cache-disposal contract).*
+*This spec is the binding input for Stage 4 (rf2-6hyy). Cross-references to Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`) and Stage 2 (`findings/reagent-slim-stage2-efficiency.md`) are inline throughout. The current thin-bridge adapter at `implementation/adapters/reagent/` is the reference for unchanged-public-path elements (the adapter Var, the late-bind hook wiring, the cache-disposal contract).*
