@@ -735,3 +735,64 @@ jobs:
       # once the suite has been stable for a couple of cycles.
       - name: Compile examples, serve, and run Playwright specs
         run: npm run test:examples
+
+  cljs-bundle-comparison:
+    name: CLJS bundle comparison (counter-slim-and-fast, rf2-5lbx)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
+        with:
+          cli: latest
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-bundle-comparison-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-bundle-comparison-
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      # The S3-008 bundle-comparison contract for day8/reagent-slim
+      # (rf2-5lbx). Builds both `examples/counter` (stock-Reagent) and
+      # `examples/counter-slim-and-fast` (slim Reagent rewrite) under
+      # :advanced, then greps the slim bundle for stock-Reagent
+      # impl-namespace fingerprints AND for `react-dom/server` symbols.
+      # Both must be absent from the slim bundle. The same sentinels
+      # are required to be present in the stock bundle as a methodology
+      # sanity check — if a future stock-Reagent upgrade DCEs them out
+      # of the stock build too, the script catches the lost signal and
+      # the sentinel set is re-derived.
+      #
+      # Dual contract: stock-Reagent impl + react-dom/server isolation.
+      # The slim build's run-fn deliberately exercises
+      # reagent2.dom.server/render-to-static-markup so the
+      # react-dom/server-absence assertion is non-vacuous (the SSR path
+      # IS in the slim bundle, just pure-CLJS — per IMPL-SPEC §8 +
+      # S3-005).
+      - name: Verify counter-slim-and-fast bundle isolates stock Reagent + react-dom/server
+        run: npm run test:bundle-comparison
