@@ -237,12 +237,32 @@
                           :phase    :run-end})))))))
 
 (defn- process-event!
-  "Wrap process-event* in a binding of *current-dispatch-id* so child
-  dispatches issued from within an fx handler inherit this event's
-  :dispatch-id as their :parent-dispatch-id. Per Spec 009 §Dispatch
-  correlation."
+  "Wrap process-event* in two dynamic bindings:
+
+   1. `*current-dispatch-id*` — so child dispatches issued from within
+      an fx handler inherit this event's `:dispatch-id` as their
+      `:parent-dispatch-id`. Per Spec 009 §Dispatch correlation.
+
+   2. `frame/*current-frame*` — bound to the envelope's `:frame` for
+      the duration of the handler chain. Per Spec 002 §Dispatch
+      resolution chain — the dynamic-var tier of the resolution chain
+      MUST cover the in-flight handler body so a synchronous
+      `(rf/dispatch ...)` / `(rf/subscribe ...)` from inside the
+      handler routes to the handler's own frame (not `:rf/default`).
+      Without this binding, the handler body would see the same
+      `*current-frame*` value the original dispatcher saw — typically
+      `nil` for app-level dispatches — and child dispatches would
+      slide to `:rf/default`, silently breaking multi-frame isolation.
+
+      The binding does NOT survive async escapes (setTimeout,
+      Promise.then, requestAnimationFrame): the JS callback fires on
+      a fresh stack with no dynamic binding. Use `(rf/bound-dispatcher)`
+      (capture-at-call-time), `:fx [[:dispatch ...]]` (fx-walker
+      threads the frame), or `:dispatch-later` (frame captured in
+      closure) for those paths. Per rf2-l5q3."
   [envelope]
-  (binding [*current-dispatch-id* (:dispatch-id envelope)]
+  (binding [*current-dispatch-id*  (:dispatch-id envelope)
+            frame/*current-frame*  (:frame envelope)]
     (process-event* envelope)))
 
 ;; ---- outer drain ----------------------------------------------------------

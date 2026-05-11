@@ -362,8 +362,25 @@ In priority order, where the frame keyword comes from:
 
 1. **Explicit `:frame` in the dispatch opts map.** `(dispatch [:foo] {:frame :todo})` always wins. The opts map's keys flow straight into the dispatch envelope.
 2. **Lexical `dispatch` injected by `reg-view`.** The closure carries the frame keyword resolved from React context at render. (See View Ergonomics, below.) Internally, the injected `dispatch` is `(fn [event] (dispatch event {:frame <captured>}))`.
-3. **Dynamic binding.** Inside `(with-frame :todo ...)` (test/REPL helper), a Clojure dynamic var carries the frame; the bare `(rf/dispatch [:foo])` in the body picks it up. This makes `(with-frame :todo (rf/dispatch [:foo]))` Just Work without an opts map.
+3. **Dynamic binding.** Inside `(with-frame :todo ...)` (test/REPL helper), a Clojure dynamic var carries the frame; the bare `(rf/dispatch [:foo])` in the body picks it up. This makes `(with-frame :todo (rf/dispatch [:foo]))` Just Work without an opts map. **The router establishes the same binding around every running handler** (per [§Dispatches issued from inside a handler body](#dispatches-issued-from-inside-a-handler-body) below), so a synchronous `(rf/dispatch [:foo])` from inside a handler running on `:todo` also resolves to `:todo` — not `:rf/default`.
 4. **Default.** `:rf/default`.
+
+### Dispatches issued from inside a handler body
+
+The router binds the dynamic-var tier of the resolution chain to the in-flight event's `:frame` for the duration of `process-event!`. The contract is:
+
+- **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event-fx` whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/bound-dispatcher)`, `(rf/dispatcher)`, `(rf/subscriber)`, and `(rf/current-frame)` — all of which read the dynamic-var tier first.
+- **Async callbacks escape the binding.** When a handler defers work via `js/setTimeout`, `js/Promise.then`, `requestAnimationFrame`, or any other host-level async primitive, the deferred callback fires on a fresh stack with no dynamic binding. A bare `(rf/dispatch [:child])` from inside the callback falls through to `:rf/default`. This is a fundamental property of dynamic scope — not a bug.
+
+The three frame-safe affordances for async callbacks are, in canonical-first order:
+
+1. **`:fx [[:dispatch event-vec]]`** — the fx walker (`re-frame.fx/do-fx`) calls `(dispatch! event-vec {:frame frame-id})` with `frame-id` already resolved from the in-flight envelope. The dispatch is synchronous with the enclosing handler's drain, so any timer / promise the user wants to schedule should be modelled as a returned effect, not a manual `js/setTimeout`. This is the canonical multi-frame pattern.
+
+2. **`:fx [[:dispatch-later {:ms <n> :event event-vec}]]`** — the `:dispatch-later` fx captures `frame-id` in its closure before scheduling the timer, so the deferred dispatch carries the correct frame regardless of when the timer fires.
+
+3. **`(rf/bound-dispatcher)`** — captures the active frame at call time and returns a closure `(fn [event] (dispatch event {:frame <captured>}))`. Use when the handler must hand a dispatch fn to a non-fx async library (a websocket subscription, a third-party SDK that takes a callback) where neither `:fx` nor `:dispatch-later` fits.
+
+The contract is regression-tested by `re-frame.dispatch-frame-capture-cljs-test` (rf2-l5q3). Pattern-LongRunningWork and Pattern-WebSocket both rely on it.
 
 ### Dispatch origin tagging
 

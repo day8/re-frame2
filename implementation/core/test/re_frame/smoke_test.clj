@@ -279,6 +279,69 @@
                 @traces)
           "expected :rf.error/dispatch-sync-in-handler trace event"))))
 
+(deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
+  ;; Per rf2-l5q3 — the router binds `frame/*current-frame*` to the
+  ;; envelope's :frame for the duration of process-event!, so a
+  ;; synchronous `(rf/dispatch ...)` from inside a handler body picks
+  ;; up the in-flight event's frame (not :rf/default). The CLJS
+  ;; companion `re-frame.dispatch-frame-capture-cljs-test` covers the
+  ;; full matrix (sync, setTimeout, :fx [[:dispatch ...]],
+  ;; :dispatch-later, bound-dispatcher). This JVM test pins the
+  ;; sync-from-handler contract on the substrate-agnostic foundation.
+  (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
+    (rf/reg-frame :rf-l5q3.jvm/tenant-a {:doc "tenant-a frame"})
+    (rf/reg-frame :rf-l5q3.jvm/tenant-b {:doc "tenant-b frame"})
+    (rf/reg-event-db :rf-l5q3.jvm/seed
+                     (fn [_ _] {:received []}))
+    (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-a})
+    (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-b})
+    (rf/dispatch-sync [:rf-l5q3.jvm/seed]) ;; :rf/default
+    (rf/reg-event-fx :rf-l5q3.jvm/parent
+                     (fn [_ _]
+                       (rf/dispatch [:rf-l5q3.jvm/landed])
+                       {}))
+    (rf/reg-event-db :rf-l5q3.jvm/landed
+                     (fn [db _]
+                       (update db :received (fnil conj []) :landed)))
+    (rf/dispatch-sync [:rf-l5q3.jvm/parent] {:frame :rf-l5q3.jvm/tenant-a})
+    (is (= [:landed] (:received (rf/get-frame-db :rf-l5q3.jvm/tenant-a)))
+        ":landed event must land on :tenant-a, not :rf/default")
+    (is (empty? (:received (rf/get-frame-db :rf-l5q3.jvm/tenant-b)))
+        ":tenant-b sees nothing")
+    (is (empty? (:received (rf/get-frame-db :rf/default)))
+        ":rf/default sees nothing — the dispatch was scoped to :tenant-a")))
+
+(deftest current-frame-inside-handler-reports-handlers-frame
+  ;; Per rf2-l5q3 — `(rf/current-frame)` consults the dynamic-var tier
+  ;; first. With the router's per-handler binding of
+  ;; `frame/*current-frame*` to the envelope's :frame, the call site
+  ;; reports the handler's frame, not :rf/default. This is the contract
+  ;; that lets `(rf/bound-dispatcher)`, `(rf/dispatcher)`,
+  ;; `(rf/subscriber)`, etc. — all of which capture the value of
+  ;; `(rf/current-frame)` at call time — capture the right frame when
+  ;; called from a handler body. Asserts the observable property
+  ;; directly (avoids the async drain-thread timing the captured-fn
+  ;; invocation would introduce).
+  (testing "(rf/current-frame) inside a handler reports the handler's frame"
+    (rf/reg-frame :rf-l5q3.jvm.cf/tenant-a {:doc "tenant-a frame"})
+    (let [observed-current-frame (atom nil)]
+      (rf/reg-event-fx :rf-l5q3.jvm.cf/observe
+                       (fn [_ _]
+                         (reset! observed-current-frame (rf/current-frame))
+                         {}))
+      (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe]
+                        {:frame :rf-l5q3.jvm.cf/tenant-a})
+      (is (= :rf-l5q3.jvm.cf/tenant-a @observed-current-frame)
+          "(rf/current-frame) inside a handler reports the handler's frame, not :rf/default"))
+    (testing "and a handler running on :rf/default sees :rf/default"
+      (let [observed-current-frame (atom nil)]
+        (rf/reg-event-fx :rf-l5q3.jvm.cf/observe-default
+                         (fn [_ _]
+                           (reset! observed-current-frame (rf/current-frame))
+                           {}))
+        (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
+        (is (= :rf/default @observed-current-frame))))))
+
 ;; ---- snapshot-of (rf2-vvsh) ----------------------------------------------
 
 (deftest snapshot-of-reads-default-frame-app-db
