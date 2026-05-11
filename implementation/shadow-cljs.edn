@@ -65,6 +65,7 @@
                 ;; examples/reagent/.
                 "../examples/reagent"
                 "../examples/reagent/7Guis"
+                "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
                 "../examples/uix"
                 "../examples/helix"]
