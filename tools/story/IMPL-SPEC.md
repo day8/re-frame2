@@ -1073,59 +1073,100 @@ process; the story runtime runs in the app.
 
 ### 7.2 Tool surface (Storybook MCP-borrowed shape)
 
-Per Phase 2 §6.9 the toolset splits into three:
+Per Phase 2 §6.9 the toolset splits into three. Stage 7 (rf2-tgci) lands
+the registry below in `re-frame.story-mcp.tools/tool-registry`. Each
+tool's wire shape carries an MCP-compliant `inputSchema` (JSON Schema);
+the tool descriptors are returned verbatim from `tools/list`.
 
 **Dev tools** (instructions + preview):
 - `get-story-instructions` — agent-onboarding text: how stories are
   authored, the EDN-first constraint, the canonical variant body keys.
-- `preview-variant {:variant-id ...}` — returns rendered hiccup for a
-  variant + the assertions list.
+- `preview-variant {:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ... :base-url? ...}`
+  — returns `{:lifecycle :share-url :app-db :assertions :rendered-hiccup :snapshot :elapsed-ms :effective-args}`.
+- `list-substrates` — returns the set registered via
+  `re-frame.story/register-substrate!` (Reagent canonical; UIx / Helix
+  opt-in per host). JVM-standalone hosts return `[]`.
 
 **Docs tools** (introspection):
-- `list-stories` — `(rf/handlers :story)` enumeration.
-- `get-story {:story-id ...}` — full story metadata.
-- `get-variant {:variant-id ...}` — full variant body (as EDN).
-- `list-tags` — `(rf/handlers :tag)`.
+- `list-stories {:tags? [...]}` — `(rf/handlers :story)` enumeration,
+  optionally filtered by tag-set intersection.
+- `get-story {:story-id ...}` — full story metadata + child variant ids.
+- `get-variant {:variant-id ...}` — full variant body (as EDN, plus the
+  structuredContent JSON projection).
+- `list-tags` — canonical + project-custom tags split.
 - `list-modes` — `(rf/handlers :mode)`.
-- `list-assertions` — the registered `:rf.assert/*` vocabulary.
-- `variant->edn {:variant-id ...}` — canonical EDN form.
+- `list-assertions` — the canonical seven `:rf.assert/*` events with
+  arity + semantics docs.
+- `variant->edn {:variant-id ...}` — canonical EDN form, text-only
+  result for byte-stable round-tripping.
 
 **Testing tools** (execution):
-- `run-variant {:variant-id ... :render? ...}` — full lifecycle invocation.
-- `snapshot-identity {:variant-id ... :mode ... :substrate ...}` — content
-  hash.
-- `run-a11y {:variant-id ...}` — axe-core results (delegates to a11y
-  panel data; Stage 6).
-- `read-failures {:variant-id ...}` — diagnostic for the last `run-variant`
-  call.
+- `run-variant {:variant-id ... :substrate? ... :active-modes? ... :cell-overrides? ... :timeout-ms?}`
+  — full lifecycle invocation; returns
+  `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms :snapshot :lifecycle :passing?}`.
+- `snapshot-identity {:variant-id ... :substrate? ... :active-modes?}`
+  — content hash.
+- `run-a11y {:variant-id ...}` — axe-core results (delegates to
+  `re-frame.story.ui.a11y/violations-by-frame`, the panel data from
+  Stage 6). JVM-standalone hosts return an empty list + a documented
+  hint that axe-core requires the in-browser panel.
+- `read-failures {:variant-id ...}` — diagnostic for the variant's
+  accumulated `:rf.story/assertions` accumulator (no re-run).
 
 ### 7.3 Write surface (v1.1, dev-only, gated)
 
-- `register-variant {:variant-id ... :body ...}` — emits a `reg-variant`
-  call into a connected REPL.
-- `unregister-variant {:variant-id ...}` — symmetric.
+- `register-variant {:variant-id ... :body ...}` — invokes
+  `re-frame.story/reg-variant*` (the public programmatic helper).
+  `:body` may be a map (preferred) or an EDN-encoded string.
+- `unregister-variant {:variant-id ...}` — invokes
+  `re-frame.story/unregister! :variant <id>`.
 
-Gated behind `:rf.story.mcp/write-enabled?` config flag (default `false`).
-The agent's "self-healing loop" — write story → run → read failures → fix
-— activates with the write surface; without it the loop is read-only.
+Gated behind `re-frame.story-mcp.config/allow-writes?` (atom; default
+`false`). Three input paths flip the gate at boot:
+
+- CLI flag: `--allow-writes`
+- JVM sysprop: `-Drf.story-mcp.allow-writes=true`
+- Env var: `RF_STORY_MCP_ALLOW_WRITES=true`
+
+When the gate is closed, a write-surface tool returns a tool-execution
+error (`isError: true` with the documented hint) rather than a
+protocol-level error — agents see the failure mode without aborting
+the conversation. CI runs leave the gate closed.
+
+The agent's "self-healing loop" — write story → run → read failures →
+fix — activates with the write surface; without it the loop is
+read-only.
 
 ### 7.4 What Story's core jar exposes (no MCP coupling)
 
 ```clojure
 ;; Public read primitives, in re-frame.story
-(handlers-of-kind kind)                          ; thin wrapper over (rf/handlers kind)
-(story-tree)                                     ; structured by `.`-split dotted path
-(get-variant variant-id)                         ; canonical EDN body
-(get-story story-id)
-(list-tags) (list-modes) (list-assertions)
+(handlers kind)                                  ; spec/001-mirror; per Story kind
+(handler-meta kind id)
+(ids kind) (registered? kind id)
+(variants-of story-id) (variants-with-tags qtags)
+(variant->edn variant-id) (workspace->edn workspace-id)
+(list-tags) (list-modes) canonical-tags
 (run-variant variant-id opts)                    ; per §3.2
+(reset-variant variant-id opts) (watch-variant variant-id callback)
 (snapshot-identity variant-id opts)
-(variant->edn variant-id)
+(read-assertions variant-id) (assertions-passing? result)
+(canonical-assertion-ids)
+(variant-share-url variant-id base-url opts)     ; per §2.8.5
+(registered-substrates)                          ; CLJS-only
+
+;; Public write primitives — used by MCP's gated write surface (Stage 7)
+;; AND by hot-reload tooling / fixture loaders that synthesise registrations.
+(reg-story*       id body)   (reg-variant*     id body)
+(reg-workspace*   id body)   (reg-mode*        id body)
+(reg-story-panel* id body)   (reg-decorator*   id body)
+(reg-tag*         id body)
+(unregister! kind id) (clear-kind! kind) (clear-all!)
 ```
 
 Stage 7's `tools/story-mcp/` is a thin adapter: takes JSON-RPC requests,
-calls these CLJS functions, serialises responses back over stdio. Zero
-agent-specific logic lives in `tools/story/`.
+calls these CLJS / CLJC functions, serialises responses back over stdio.
+Zero agent-specific logic lives in `tools/story/`.
 
 ---
 
@@ -1426,20 +1467,50 @@ list for failure-projection).
 
 **Scope.** The separate-jar agent surface per §7. Stdio + JSON-RPC
 transport; toolset definitions per the Storybook MCP shape (Dev / Docs /
-Testing); read-only at v1 (`register-variant` / `unregister-variant` gated
-v1.1).
+Testing); the write surface (`register-variant` / `unregister-variant`)
+landed but gated behind a config flag — disabled by default, opt-in for
+dev hosts that want the self-healing loop.
 
-**Deliverables.**
-- `tools/story-mcp/deps.edn`: declares `day8/re-frame2-story-mcp`; depends
-  on `:local/root "../story"` for the underlying primitives.
-- `tools/story-mcp/src/re_frame/story/mcp.clj`: the MCP server (JVM-side
-  CLJ; consumes Tool-Pair primitives to drive the live CLJS app).
-- `tools/story-mcp/IMPL-SPEC.md`: its own implementation contract.
+**Deliverables (landed rf2-tgci).**
+- `tools/story-mcp/deps.edn`: declares `day8/re-frame2-story-mcp`;
+  `:local/root "../story"` for the Story read substrate; Cheshire for
+  JSON.
+- `tools/story-mcp/src/re_frame/story_mcp/config.cljc`: the
+  `allow-writes?` gate + the pinned MCP protocol version (`2025-06-18`,
+  per §13.2 #6) + the `stage :mcp` marker.
+- `tools/story-mcp/src/re_frame/story_mcp/protocol.cljc`: JSON-RPC 2.0
+  envelope + frame I/O (newline-delimited JSON over stdio, per the MCP
+  stdio transport spec).
+- `tools/story-mcp/src/re_frame/story_mcp/tools.cljc`: the sixteen tool
+  implementations + the `tool-registry` data structure consumed by
+  `tools/list` and `tools/call`.
+- `tools/story-mcp/src/re_frame/story_mcp/server.cljc`: the `initialize`
+  / `tools/list` / `tools/call` / `ping` / `shutdown` dispatcher + the
+  `run-loop!` over stdin/stdout + `-main` entry point.
+- `tools/story-mcp/README.md`: quick start + the tool registry summary.
+- `tools/story-mcp/test/re_frame/story_mcp/{protocol,tools}_test.clj`:
+  wire-format + per-tool semantics + dispatcher + run-loop coverage.
+
+The Story core jar deliberately carries NO stdio / JSON-RPC dependency
+— this is the §7 separation: Story-the-tool and Story-MCP-the-agent-
+surface ship as distinct artefacts.
 
 **Dependencies.** Stages 2–3 (registry + run-variant must be queryable).
-Tool-Pair surface (`spec/Tool-Pair.md`) for the JVM-to-CLJS bridge.
+Tool-Pair surface (`spec/Tool-Pair.md`) for the JVM-to-CLJS bridge when
+the server is co-hosted with a CLJS runtime (the canonical
+JVM-standalone deploy reads only the JVM-side registrar slice; CLJS-
+only state like substrates / a11y violations is empty + the tool
+returns a documented hint).
 
-**Files touched.** All of `tools/story-mcp/*` (new artefact dir).
+**Stage marker.** Story's own `re-frame.story/stage` stays at
+`:sota-features` (the surface it last extended). The MCP jar carries
+its own `re-frame.story-mcp.config/stage = :mcp` — the two artefacts
+have independent stage progression and ship at independent cadence per
+`tools/README.md`.
+
+**Files touched.** All of `tools/story-mcp/*` (new artefact dir);
+`tools/story/IMPL-SPEC.md` §7 updated with the landed tool registry +
+gating rules.
 
 ### Stage 8 — Examples + guide integration
 
