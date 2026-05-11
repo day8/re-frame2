@@ -252,8 +252,8 @@
     (rf/dispatch-sync [:seed 7]  {:frame :left})
     (rf/dispatch-sync [:seed 99] {:frame :right})
     ;; Capture frame-bound subscribers via with-frame.
-    (let [sl (rf/with-frame :left  (fn [] (rf/subscriber)))
-          sr (rf/with-frame :right (fn [] (rf/subscriber)))]
+    (let [sl (rf/with-frame :left  (rf/subscriber))
+          sr (rf/with-frame :right (rf/subscriber))]
       (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
       (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
       ;; And :rf/default is unaffected.

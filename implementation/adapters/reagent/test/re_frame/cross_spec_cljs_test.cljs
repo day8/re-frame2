@@ -418,9 +418,8 @@
       "no dynamic binding → resolves to :rf/default")
   ;; with-frame binds the dynamic var; resolution lands on the bound id.
   (rf/with-frame :alt
-    (fn []
-      (is (= :alt (rf/current-frame))
-          "dynamic-var tier wins over :rf/default")))
+    (is (= :alt (rf/current-frame))
+        "dynamic-var tier wins over :rf/default"))
   ;; After with-frame returns, dynamic var is unbound again.
   (is (= :rf/default (rf/current-frame))
       "with-frame's binding is scoped — dynamic var reverts on exit"))
@@ -698,9 +697,8 @@
   ;; path). Pin the precedence on the JVM-shared resolution path here —
   ;; the React-rendered case is exercised by the previous deftest.
   (rf/with-frame :rf.d4sf/dynamic-tier
-    (fn []
-      (is (= :rf.d4sf/dynamic-tier (rf/current-frame))
-          "with-frame's dynamic-var binding wins over :rf/default"))))
+    (is (= :rf.d4sf/dynamic-tier (rf/current-frame))
+        "with-frame's dynamic-var binding wins over :rf/default")))
 
 (deftest adapter-context-current-frame-tolerates-prop-stringified-keyword
   "rf2-d4sf — the function-component-shape React-context-aware

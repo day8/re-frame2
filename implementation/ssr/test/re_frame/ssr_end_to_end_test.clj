@@ -75,11 +75,10 @@
   dependent hash that mirrors what a real client recompute would do."
   [frame-id render-tree]
   (rf/with-frame frame-id
-    (fn []
-      (let [head (first render-tree)]
-        (if-let [view-fn (rf/view head)]
-          (apply view-fn (rest render-tree))
-          render-tree)))))
+    (let [head (first render-tree)]
+      (if-let [view-fn (rf/view head)]
+        (apply view-fn (rest render-tree))
+        render-tree))))
 
 ;; ===========================================================================
 ;; ssr-full-request-lifecycle — the canonical happy path
@@ -146,7 +145,7 @@
       ;; ---- (4) render against the registered root view -------------------
       (let [render-tree   [:pages/articles]
             html          (rf/with-frame server-frame
-                            (fn [] (rf/render-to-string render-tree {:emit-hash? true})))
+                            (rf/render-to-string render-tree {:emit-hash? true}))
             ;; The data-rf-render-hash embedded on the wire is the input-
             ;; tree hash (per render-to-string in ssr.cljc) — stable across
             ;; renders of the same view-ref. The hydration payload below

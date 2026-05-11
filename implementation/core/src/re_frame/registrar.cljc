@@ -162,9 +162,26 @@
 
 (defn handlers
   "All ids registered under kind, with their metadata. Tools, agents,
-  storybook resolution, all use this."
-  [kind]
-  (get @kind->id->metadata kind {}))
+  storybook resolution, all use this.
+
+  Two arities:
+    (handlers kind)
+      Return the full `{id metadata}` map for kind, or `{}` if the kind
+      has no registrations.
+    (handlers kind pred-fn)
+      Same shape, filtered: only entries for which `(pred-fn id meta)`
+      returns truthy are included. Returns `{}` when no entry matches.
+      Tools (storybook resolvers, registry browsers, agent introspection)
+      use this to narrow the result to a per-namespace, per-source-file,
+      or per-marker subset without re-walking the registry map themselves.
+
+  Per Spec 001 §The public registrar query API."
+  ([kind]
+   (get @kind->id->metadata kind {}))
+  ([kind pred-fn]
+   (into {}
+         (filter (fn [[id meta]] (pred-fn id meta)))
+         (get @kind->id->metadata kind {}))))
 
 (defn handler-meta
   "Public alias for lookup. Used by tooling."
