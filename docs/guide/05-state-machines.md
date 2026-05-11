@@ -320,16 +320,16 @@ Three recurring shapes from [chapter 03](03-events-state-cycle.md) are state mac
 WebSocket, Server-Sent Events, WebRTC peers — anything with retry, backoff, heartbeat, subscriptions, and server-pushed events — is state-machine-shaped:
 
 ```text
-:disconnected ─open─►   :connecting
-:connecting   ─opened─► :authenticating
-:authenticating ─ok─►   :connected ◄─┐
-:connected    ─close─►  :reconnecting ─after backoff─► :connecting
-:reconnecting ─max retries─► :failed
+:disconnected      ─ws/connect─►   :active / :connecting
+:active /:connecting ─opened─►     :active / :authenticating
+:active /:authenticating ─ok─►     :active / :connected
+:active / *        ─closed─►       :reconnecting ─after backoff─► :active / :connecting
+:reconnecting      ─max retries─►  :failed
 ```
 
-`:connected` typically has sub-states (`:idle / :sending / :receiving`); `:reconnecting` carries the exponential-backoff counter in `:data`; subscribed topics live in `:data :subscriptions` and re-issue automatically on entry to `:connected` (so subscriptions survive reconnects). Messages flowing *over* the open connection are ordinary Pattern-AsyncEffect interactions — request-reply with a correlation id; the connection machine is the long-lived host.
+`:connecting`, `:authenticating`, and `:connected` sit under one compound parent `:active`. The parent owns the `:invoke` of the child socket actor — its lifetime spans every leaf that dispatches through it, so the actor stays alive across the success-path transitions and is destroyed only when control leaves `:active` (to `:reconnecting`, `:failed`, or `:disconnected`). `:reconnecting` carries the exponential-backoff counter in `:data` and uses a fn-form `:after` delay; subscribed topics live in `:data :subscriptions` and re-issue automatically on entry to `:connected` (so subscriptions survive reconnects). Messages flowing *over* the open connection are ordinary Pattern-AsyncEffect interactions — request-reply with a correlation id, tracked in `:data :in-flight`; the connection machine is the long-lived host that performs the correlation step.
 
-The connection machine composes the locked substrate end-to-end: hierarchical states for `:connected`, `:after` for backoff, `:always` for max-retries guards and queue flushing on entry, `:invoke` to spawn a child socket actor that owns the actual `WebSocket` object. No new mechanism — just one machine exercising every primitive at once. Full walkthrough: [`spec/Pattern-WebSocket.md`](../../spec/Pattern-WebSocket.md).
+The connection machine composes the locked substrate end-to-end: a hierarchical parent for the actor's lifetime, `:after` for backoff, `:always` for max-retries guards and queue flushing on entry, `:invoke` to spawn the child socket actor that owns the actual `WebSocket` object, and the connection-epoch idiom (the socket actor's gensym'd id IS the epoch) to suppress messages from a torn-down socket. No new mechanism — just one machine exercising every primitive at once. Full walkthrough: [`spec/Pattern-WebSocket.md`](../../spec/Pattern-WebSocket.md).
 
 ### Pattern-Boot — initialisation as a machine
 
