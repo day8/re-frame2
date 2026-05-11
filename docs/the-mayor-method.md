@@ -20,7 +20,7 @@ The short version is at the bottom; here's the long-form first.
 
 1. **Get a [Claude Max plan][claude-max].** This method dispatches a lot of background agents. On per-token API pricing the costs spiral fast — a subscription is the only sane way to run it. The 5x tier is a reasonable starting point; I run two 20x plans — one for personal projects, one for work.
 
-2. **Open a Claude session and paste it the setup prompt at the bottom of this doc** (in the [TL;DR](#tldr) section). That session becomes your **mayor** — it installs [beads][beads], writes the standing rules into `CLAUDE.md`, and from then on it's the only session you talk to directly.
+2. **Open a Claude session and paste the setup prompt at the bottom of this doc into it** (in the [TL;DR](#tldr) section). That session becomes your **mayor** — it installs [beads][beads], writes the standing rules into `CLAUDE.md`, and from then on it's the only session you talk to directly.
 
 That's the entire setup.
 
@@ -29,7 +29,7 @@ That's the entire setup.
 
 ## Filesystem layout
 
-Three slots under an `/ai/` root that keeps the AI working artefacts out of the way of your code:
+Three slots under an `/ai/` root, keeping AI working artefacts out of the way of your code:
 
 - **`/ai/specs/`** — the specs (super-prompts), committed.
 - **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Local-only by default (`.gitignored`); promoted into `/ai/specs/` when a finding stabilises into something worth committing.
@@ -105,7 +105,9 @@ Adopt this rule consistently and your specs sharpen fast. Within a few cycles yo
 
 ## /ai/findings: the exploratory workspace
 
-I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/ai/findings`, where the mayor and I treat it as the working substrate for in-flight thought.
+**I jealously guard the mayor's context.**
+
+Anything that would burn a lot of tokens — open-ended exploration, surveys of best practice, what-if analysis, audits of the existing code, design drafts, *"research the security implications of X"* questions — gets farmed out to a background agent. I ask for the output to land as a markdown document in `/ai/findings`, and the mayor and I then use it as in-flight thinking material while fine-tuning the spec.
 
 The shape:
 
@@ -218,7 +220,7 @@ After a few weeks of working this way:
 
 ## Outcome
 
-In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. The work is here for you to read and judge. I don't produce at that pace every week — but the method makes weeks like that possible, and they can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. The work is here for you to read and judge. I don't produce at that pace every week — but the method makes weeks like that possible, and they can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine).
 
 
 ## TL;DR
