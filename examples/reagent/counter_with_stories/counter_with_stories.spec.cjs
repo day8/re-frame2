@@ -63,6 +63,89 @@ module.exports = {
       .first()
       .waitFor({ state: 'visible', timeout: 10000 });
 
+    // ---- 2b. Click a variant directly — no workspace first (rf2-zme7) ----
+    //
+    // Regression for rf2-zme7. Mike's repro: open the Story playground,
+    // click a variant row in the sidebar WITHOUT first clicking a
+    // workspace; the page used to blank because the canvas's
+    // `decorated-view` call propagated any `:wrap` exception up the
+    // Reagent tree, unmounting the shell. The fix is
+    // `canvas/safe-decorated-view` — exceptions become an inline error
+    // block alongside the uncoated body.
+    //
+    // We click /clicked-three-times, the variant that registers the
+    // largest decorator stack (story-level + variant-level
+    // log-decorator references), and assert the canvas mounts content
+    // rather than blanking.
+    await page.locator('text=/clicked-three-times').first().click();
+
+    // The canvas titles itself with the variant id (pr-str'd as a
+    // keyword) and follows with the view-id arrow + share button. The
+    // variant id text suffices — it only appears in the canvas frame
+    // header, not the sidebar row (which uses the leading-slash form
+    // `/clicked-three-times`).
+    await page
+      .getByText(':story.counter/clicked-three-times', { exact: false })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 });
+
+    // The variant's render output also reaches the DOM — the
+    // log-decorator from rf2-zme7 (after the fix) wraps the body and
+    // both story-level + variant-level label strings appear.
+    await page
+      .getByText(/decorator: story-level/i)
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByText(/decorator: variant-level/i)
+      .first()
+      .waitFor({ state: 'visible', timeout: 5000 });
+
+    // Switching between variants directly (no workspace) keeps the
+    // shell mounted — pick /loaded next and assert its title surfaces.
+    await page.locator('text=/loaded').first().click();
+    await page
+      .getByText(':story.counter/loaded', { exact: false })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 });
+
+    // ---- 2c. Click a workspace — variant cells render (rf2-zme7) ----
+    //
+    // Second half of rf2-zme7. Mike's screenshot of #/stories with
+    // :Workspace.counter/auto-grid selected showed every variant card
+    // rendering empty: title + "variant frame: <id>" stub, no counter
+    // UI inside. Root cause: workspace.cljc's `variant-cell` was a
+    // Stage-4-era stub that never called `rf/view` — it shipped a
+    // label and a placeholder div instead of invoking the registered
+    // view in the variant's allocated frame. The fix is the new
+    // `variant-cell` Reagent component that mounts the variant's
+    // frame via `run-variant` and renders `(rf/view :counter-with-
+    // stories.views/counter-card)` wrapped in `frame-provider` so each
+    // cell's subscriptions scope to its own per-variant app-db.
+    //
+    // Assertion: after clicking :Workspace.counter/auto-grid, the
+    // workspace renders four variant cards and each card contains
+    // counter-buttons (look for the `[data-test="count"]` span the
+    // counter-buttons view emits). Each cell's count reflects its
+    // variant's `:events` slot — variant-isolated app-db.
+    await page.locator('text=/auto-grid').first().click();
+
+    // The workspace titles itself with the workspace id + layout.
+    await page
+      .getByText(':Workspace.counter/auto-grid', { exact: false })
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 });
+
+    // Each variant cell renders the counter-card view. The view emits
+    // a `[data-test="count"]` span; we expect at least one of those to
+    // appear in the workspace pane. Without the rf2-zme7 fix every
+    // cell rendered the stub div and zero data-test=count elements
+    // existed under the workspace.
+    await page
+      .locator('[data-test="count"]')
+      .first()
+      .waitFor({ state: 'visible', timeout: 10000 });
+
     // ---- 3. Switch back to the live app ----
     //
     // Hash-change back to the live app; counter should reappear.

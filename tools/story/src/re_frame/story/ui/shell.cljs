@@ -159,6 +159,34 @@
   (reset! listened-variants #{})
   (trace/clear-buffer!))
 
+(defn- ensure-variant-frame!
+  "Drive `run-variant` for `variant-id` so its frame is allocated and
+  the `:events` slot dispatched before React renders the canvas.
+
+  Per rf2-zme7: clicking a variant row used to leave the variant's
+  frame unallocated until the canvas's `:component-did-mount` lifecycle
+  fired — which happens AFTER React's first commit. The first render
+  thus tried to deref subscriptions against a non-existent frame, threw
+  `IDeref.-deref defined for type null`, and React unmounted the shell
+  (blank page). Running the variant on the *selection edge* puts the
+  frame in place before any view code runs."
+  [variant-id]
+  (when (and config/enabled? variant-id)
+    (let [shell @state/shell-state-atom
+          opts  {:active-modes   (:active-modes shell)
+                 :cell-overrides (get-in shell [:cell-overrides variant-id])
+                 :substrate      (:substrate shell)
+                 :render?        true}]
+      (try
+        (runtime/run-variant variant-id opts)
+        (catch :default _e
+          ;; Swallow: the canvas re-tries via :component-did-mount /
+          ;; :component-did-update, and the result-map's error path
+          ;; will surface inline. We just need the frame allocated up-
+          ;; front for the first render so the view's subscribe calls
+          ;; resolve against a populated app-db rather than nil.
+          nil)))))
+
 (defn- selection-watcher
   "Reagent reaction that wires listeners against the currently-selected
   variant. Implemented as a watch on the shell state atom so it fires
@@ -178,7 +206,12 @@
                        ;; explicit 'clear' button.
                        nil)
                      (when now
-                       (ensure-listeners-for-variant! now))
+                       (ensure-listeners-for-variant! now)
+                       ;; rf2-zme7: pre-allocate the variant's frame
+                       ;; before React commits a canvas render that
+                       ;; would otherwise deref subscriptions against a
+                       ;; non-existent frame.
+                       (ensure-variant-frame! now))
                      (reset! prev now)))))))
 
 (defn- remove-selection-watcher! []

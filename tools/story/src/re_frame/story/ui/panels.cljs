@@ -51,7 +51,8 @@
             [re-frame.story.config :as config]
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.registrar :as story-registrar]
-            [re-frame.story.ui.a11y :as a11y]))
+            [re-frame.story.ui.a11y :as a11y]
+            [re-frame.story.ui.canvas :as canvas]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -254,6 +255,14 @@
   `placement` and whose visibility flag in the shell state is truthy.
   Stage 6 (rf2-zhwd).
 
+  Per rf2-zme7: a panel's `:render` view often subscribes against the
+  active variant's app-db (e.g. `:counter-with-stories.views/parity-
+  badge` reads `:count-parity` from the variant's frame). The panel
+  view runs OUTSIDE the canvas's React subtree, so it needs its own
+  `frame-provider` scoped to `variant-id` — otherwise `(subscriber)`
+  captures `:rf/default` and the deref returns nil, throwing in the
+  view. We wrap each panel in `frame-provider {:frame variant-id}`.
+
   Returns a hiccup vector wrapping the resolved panels."
   [placement variant-id panel-visibility]
   (let [panels (story-registrar/handlers :story-panel)
@@ -274,7 +283,13 @@
            [:span (:title body)]
            [:span {:style {:color "#666"}} (str pid)]]
           (if view-fn
-            [view-fn variant-id]
+            ;; rf2-zme7: scope the panel view's subscribe / dispatch to
+            ;; the active variant's frame. The namespace-preserving
+            ;; provider (canvas/frame-provider-ns-safe) keeps the
+            ;; `:story.x/y`-shaped variant-id intact across the React
+            ;; context boundary (rf2-c5jz).
+            [canvas/frame-provider-ns-safe {:frame variant-id}
+             [view-fn variant-id]]
             [:div {:style {:padding "8px" :color "#888"
                            :font-style "italic" :font-size "10px"}}
              (str "panel " (pr-str pid)
