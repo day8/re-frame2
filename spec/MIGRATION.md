@@ -1626,6 +1626,36 @@ Pre-release framing: per rf2-ee0d (Nine States Stage 1), state-machine state nod
 
 **Cross-references.** [Spec 005 §State tags](005-StateMachines.md#state-tags) for the full grammar; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema extensions; [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix) for the `:fsm/tags` row.
 
+### M-45. Parallel regions shipped — `:type :parallel` machines with map-shaped `:state` (additive)
+
+Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarations may now declare `:type :parallel` at the root and a `:regions` map of region-name → state-tree. Each region is a full state-node body running independently; all regions are active simultaneously; the snapshot's `:state` becomes a **map** of region-name → that region's keyword-or-vector-path. Transitions broadcast across regions; the macrostep drain settles every region before commit; `:data` is shared across regions; `:tags` union across every active state-node in every region.
+
+**Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's `:state` slot widens from `[:or :keyword [:vector :keyword]]` to a `[:multi {:dispatch ...}]` form that also accepts the new region-keyed map arm; existing flat / compound machines continue to produce keyword / vector `:state` values unchanged. Pre-feature machines have no `:type` slot; the runtime treats absent `:type` as `:single` (the existing flat-or-compound behaviour). The `:rf/state-node` schema gains `:type {:optional true} [:enum :single :parallel]` and `:regions {:optional true} [:map-of :keyword [:ref ::state-node]]`; both are optional, neither affects pre-feature machines.
+
+**When to reach for parallel regions vs N machines.** Parallel regions are the right answer when the regions are **orthogonal axes of one feature** with one shared `:data` blob (one form with three orthogonal axes / one widget with display + interaction state / one page whose render-mode is a function of three independent inputs). The pre-existing N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains valid and is the right answer when the regions are **conceptually independent features** that don't share data (multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event). Both patterns ship together; choose by domain shape. Per rf2-l67o §9.4 (Shared `:data` lock), per-region `:data` is NOT supported in parallel regions — if your axes need encapsulated `:data`, that's the substrate signalling N separate machines.
+
+**Why now.** The Pattern-NineStates rewrite (rf2-c7wl / Stage 3) needs parallel regions to express orthogonal-axis state (data cardinality / form validity / display mode) in one machine declaration rather than three coordinated machines; Stage 1's `:fsm/tags` capability gives the predicate query mechanism the parallel-region pattern needs to feel finished. Per the design lock rf2-8qz1 §9.6, both `:fsm/tags` and `:fsm/parallel-regions` claim v1 in their respective stages.
+
+**Registration-time validation.** `:type :parallel` is mutually exclusive with `:initial` / `:states` at the root; declaring both emits `:rf.error/machine-parallel-bad-shape` at registration time. Nested parallel regions (a region's own state-tree declaring `:type :parallel`) are not supported in v1 — the validator emits `:rf.error/machine-parallel-nested-not-supported`.
+
+**Cross-references.** [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions) for the full grammar; [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema extensions; [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) for the N-machine pattern; [Spec 005 §Capability matrix](005-StateMachines.md#capability-matrix) for the `:fsm/parallel-regions` row.
+
+### M-46. Snapshot `:state` widens to a third arm — map of region-name → state (additive; readers that pattern-match on `:state` may widen)
+
+Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-45](#m-45-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
+
+**Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `(rf/sub-machine id)` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
+
+**What to do — three cases:**
+
+- **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
+- **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf/machine-has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3 / rf2-c7wl) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/has-tag? :ui/foo :data/loading)`).
+
+**Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
+
+**Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-45](#m-45-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state) above for the registration-side change.
+
 ---
 
 ## Opt-in modernisation (only if asked)

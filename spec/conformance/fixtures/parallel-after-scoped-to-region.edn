@@ -1,0 +1,50 @@
+;; Conformance fixture: machine/parallel-after-scoped-to-region
+;;
+;; Per [005 §Per-region `:always` / `:after` / `:invoke` scoping]
+;; (../../005-StateMachines.md#per-region-always--after--invoke-scoping):
+;; an `:after`-bearing state inside a region schedules / cancels timers
+;; scoped to that region. The epoch counter that backstops timer
+;; staleness lives at `[:data :rf/after-epoch-by-region <region-name>]`
+;; — a sibling region's transition does not invalidate this region's
+;; in-flight timers.
+;;
+;; This fixture exercises entry into an :after-bearing state in one
+;; region; the runtime emits :rf.machine/after-schedule with the
+;; in-region-prefixed invoke-id and bumps the region-scoped epoch.
+
+{:fixture/id           :machine/parallel-after-scoped-to-region
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions :fsm/delayed-after}
+ :fixture/doc          "Entry into an :after-bearing state inside a region schedules a region-scoped timer. The :rf.machine/after-schedule fx carries an :rf/invoke-id prefixed with the region name; the per-region :rf/after-epoch-by-region <region> slot increments."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {}
+    :regions {:data {:initial :idle
+                     :states  {:idle    {:on {:start :loading}}
+                               :loading {:after {5000 :timeout}
+                                         :on    {:loaded :ready}}
+                               :ready   {}
+                               :timeout {}}}
+              :ui   {:initial :neutral
+                     :states  {:neutral {}}}}}
+   :snapshot     {:state {:data :idle :ui :neutral} :data {}}
+   :event        [:start]
+   :expect-next-snapshot {:state {:data :loading :ui :neutral}
+                          :data  {:rf/after-epoch-by-region {:data 1}}}
+   :expect-effects
+   [[:rf.machine/after-schedule
+     {:rf/parent-id :rf/transition-pure
+      :rf/invoke-id [:data :loading]
+      :state        :loading
+      :delay-key    5000
+      :epoch        1
+      :server?      false}]]}]}

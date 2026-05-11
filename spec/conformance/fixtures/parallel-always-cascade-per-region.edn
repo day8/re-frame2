@@ -1,0 +1,51 @@
+;; Conformance fixture: machine/parallel-always-cascade-per-region
+;;
+;; Per [005 §Per-region `:always` / `:after` / `:invoke` scoping]
+;; (../../005-StateMachines.md#per-region-always--after--invoke-scoping):
+;; the macrostep's `:always` microstep loop runs PER REGION. After a
+;; region's event-driven transition, that region's new state's `:always`
+;; entries are checked; matching guards fire transitions in that
+;; region. Sibling regions are not re-evaluated for `:always` on the
+;; transitioning region's microstep.
+;;
+;; This fixture exercises a region whose `:initial` state's `:always`
+;; guard already passes after an action sets the data — the macrostep
+;; settles to the post-`:always` state in one dispatch.
+
+{:fixture/id           :machine/parallel-always-cascade-per-region
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions :fsm/eventless-always}
+ :fixture/doc          "After a region's :on transition fires, that region's :always microstep cascade runs scoped to the region; sibling regions are unaffected. The action sets `:left-ready? true`, which makes the :always guard pass and advances :left to :resolved in the same macrostep."
+
+ :fixture/registry
+ {:machine-action
+  {:par/mark-ready {:doc "Sets :left-ready? true on the shared :data."}}
+  :machine-guard
+  {:par/ready? {:doc "True when :left-ready? is true."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:par/mark-ready [[:set [:left-ready?] true]]}
+  :machine-guard
+  {:par/ready? [[:fn := [:get [:left-ready?]] true]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {:left-ready? false}
+    :guards  {:ready? :par/ready?}
+    :actions {:mark-ready :par/mark-ready}
+    :regions {:left  {:initial :idle
+                      :states
+                      {:idle     {:always [{:guard :ready? :target :resolved}]
+                                  :on     {:prep {:target :idle :action :mark-ready}}}
+                       :resolved {}}}
+              :right {:initial :a
+                      :states  {:a {}}}}}
+   :snapshot     {:state {:left :idle :right :a}
+                  :data  {:left-ready? false}}
+   :event        [:prep]
+   :expect-next-snapshot {:state {:left :resolved :right :a}
+                          :data  {:left-ready? true}}
+   :expect-effects       []}]}

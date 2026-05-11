@@ -1,0 +1,44 @@
+;; Conformance fixture: machine/parallel-initial-state-per-region
+;;
+;; Per [005 §Initial state]
+;; (../../005-StateMachines.md#initial-state): the initial snapshot of a
+;; parallel-region machine has `:state` as a map of region-name → that
+;; region's cascaded initial. A compound region cascades through its
+;; own `:initial` chain (LCA semantics inside the region); a flat
+;; region's value is the region's :initial keyword.
+;;
+;; This fixture exercises the initial state — synthesised by feeding
+;; the machine an event the regions don't handle. The :state map covers
+;; every declared region; each region's :initial points to its
+;; cascade entry.
+
+{:fixture/id           :machine/parallel-initial-state-per-region
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/parallel-regions}
+ :fixture/doc          "Initial snapshot of a parallel-region machine is a map of region-name → that region's :initial cascade. A compound region cascades to its leaf inside the region (vector path); flat regions stay keyword."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {}
+    :regions {:flat-region     {:initial :one
+                                :states  {:one {}}}
+              :compound-region {:initial :outer
+                                :states  {:outer
+                                          {:initial :inner
+                                           :states  {:inner {}}}}}}}
+   :snapshot     {:state {:flat-region     :one
+                          :compound-region [:outer :inner]}
+                  :data  {}}
+   :event        [:no-match-event]
+   :expect-next-snapshot {:state {:flat-region     :one
+                                  :compound-region [:outer :inner]}
+                          :data  {}}
+   :expect-effects       []}]}

@@ -35,18 +35,19 @@ The pair `{:state :data}` reads as the natural English idiom and matches a vocab
 ## Snapshot shape
 
 ```clojure
-{:state <fsm-keyword-or-path>   ;; :idle, :editing, ... — OR [:checkout :payment :credit-card]
- :data  <map>                    ;; the machine's private memory
- :tags  #{<keyword>, ...}        ;; OPTIONAL — runtime-projected union of every active state's :tags; see §State tags
- :meta  {<optional> ...}}        ;; reserved for :rf/snapshot-version etc.
+{:state <fsm-keyword-or-path-or-region-map>   ;; :idle | [:checkout :payment :credit-card] | {:data :loading :form :neutral}
+ :data  <map>                                  ;; the machine's private memory
+ :tags  #{<keyword>, ...}                      ;; OPTIONAL — runtime-projected union of every active state's :tags; see §State tags
+ :meta  {<optional> ...}}                      ;; reserved for :rf/snapshot-version etc.
 ```
 
-`:state` is **dual**:
+`:state` has **three arms**, disambiguated by the machine's declared shape:
 
 - **Flat machines** — `:state` is a single FSM-keyword (`:idle`, `:editing`, `:loading`, ...). Equivalent to xstate's `state.value` for a non-compound machine. The flat-machine grammar in [§Transition table grammar](#transition-table-grammar) and the Circle Drawer worked example use this form.
 - **Compound machines** — `:state` is a **vector path** from the root state-node to the active leaf (`[:authenticated :cart :browsing]`). The vector form is required when any state in the machine is a compound state (declares its own nested `:states`); it disambiguates "which `:browsing`?" when the same leaf-keyword could appear under multiple parents. See [§Hierarchical compound states](#hierarchical-compound-states).
+- **Parallel-region machines** — `:state` is a **map of region-name → that region's keyword-or-vector-path** (`{:data :loading :form :neutral :mode :active}`). The map form is required when the machine declares `:type :parallel`; every region is active simultaneously, and each region's value follows the flat-or-compound arms above. See [§Parallel regions](#parallel-regions).
 
-Implementations accept both forms on read (a single keyword `:K` is treated as the path `[:K]` whenever a path is needed); tools may normalise to vector internally for uniform manipulation. Parallel-region forms (`:state` as a nested map of region → keyword) remain post-v1; the substitute is one machine per region per [§Substitutes for skipped features](#substitutes-for-skipped-features).
+Implementations accept all three forms on read. The flat / compound arms normalise to a vector path internally for uniform manipulation; the parallel arm is preserved as a map (each region runs its own state-tree). Per rf2-l67o (Nine States Stage 2), the parallel-region arm became first-class.
 
 Stability invariants — every conformant implementation upholds these so snapshots survive the wire (SSR hydration per [011](011-SSR.md)) and the time-axis (Tool-Pair epoch replay):
 
@@ -939,13 +940,189 @@ Hierarchical compound states are claimed by the v1 CLJS reference per [§Capabil
 - LCA-based entry/exit cascading.
 - Deepest-wins transition resolution with parent fallthrough.
 
-Out of scope (see [§Substitutes for skipped features](#substitutes-for-skipped-features)):
+Out of scope of *this section* — see the cross-reference for each:
 
-- **Parallel regions** — substitute: separate machines per region.
-- **History pseudo-states** — substitute: snapshot-as-value capture.
+- **Parallel regions** — first-class capability per [§Parallel regions](#parallel-regions); the N-machines-per-region substitute in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains the right answer when regions are independent features.
+- **History pseudo-states** — substitute: snapshot-as-value capture per [§Substitutes for skipped features](#substitutes-for-skipped-features).
 - **`onDone` final-state notification** — substitute: explicit `[:raise ...]` from the leaf state's `:entry`.
 
 `:always`, `:after`, and `:invoke` are all specified independently of the hierarchy work above (see [§Eventless `:always` transitions](#eventless-always-transitions), [§Delayed `:after` transitions](#delayed-after-transitions), and [§Declarative `:invoke` (sugar over spawn)](#declarative-invoke-sugar-over-spawn)). All three are state-node keys whose semantics compose with the hierarchical entry/exit cascade described above.
+
+## Parallel regions
+
+A machine may declare `:type :parallel` at the root and a `:regions` map keyed by region name. Each region is a **full state-tree** (its own `:initial`, `:states`, optional `:on` / `:tags` / `:after` / `:invoke` / `:always` on each state node). All regions are active simultaneously when the machine is active; the snapshot's `:state` is a **map** of region-name → that region's keyword-or-vector-path; transitions are **broadcast** across regions (every region's active state-node independently decides whether the event matches one of its `:on` keys); the run-to-completion macrostep drain settles every region before the snapshot commits.
+
+xstate/SCXML term: **parallel state** / `<parallel>`. The motivating use case is **orthogonal axes of one feature** — one form with three independent axes (data cardinality / form validity / display mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Parallel regions avoid the AND-state combinatorial explosion: three axes of three states each shrink from `3^3 = 27` flat states to nine states across three regions.
+
+```clojure
+(rf/reg-machine :ui/nine-states
+  {:type    :parallel
+   :data    {:items [] :error nil}                            ;; shared across all regions
+   :guards  {:empty? (fn [d _] (zero? (count (:items d))))}
+   :actions {:bump   (fn [d _] {:data (update d :count inc)})}
+   :regions
+   {:data
+    {:initial :nothing
+     :states  {:nothing  {:tags #{:data/idle} :on {:fetch :loading}}
+               :loading  {:tags #{:data/loading :data/transient}
+                          :on   {:loaded :resolving :failed :error}}
+               :resolving {:always [{:guard :empty? :target :empty} {:target :some}]}
+               :empty    {:tags #{:data/empty}}
+               :some     {:tags #{:data/some}}
+               :error    {:tags #{:data/error}}}}
+    :form
+    {:initial :neutral
+     :states  {:neutral   {:tags #{:form/neutral}   :on {:submit-invalid :incorrect
+                                                          :submit-valid   :correct}}
+               :incorrect {:tags #{:form/invalid}   :on {:edit :neutral}}
+               :correct   {:tags #{:form/success}   :on {:edit :neutral}}}}
+    :mode
+    {:initial :active
+     :states  {:active {:tags #{:mode/active}   :on {:archive :done}}
+               :done   {:tags #{:mode/done :mode/terminal}}}}}})
+```
+
+After the machine has settled at every region's `:initial`, the snapshot is:
+
+```clojure
+{:state {:data :nothing :form :neutral :mode :active}
+ :data  {:items [] :error nil :count 0}
+ :tags  #{:data/idle :form/neutral :mode/active}}
+```
+
+### When to reach for parallel regions
+
+Parallel regions are for the **multi-axis-of-one-domain** case: one form with three orthogonal axes (data / form / mode), one connection with auth + lifecycle + request-queue, one widget with display + interaction. They share a single `:data` blob because the axes share a domain — the data the regions read and write is the *same data*, just sliced differently by each region's state.
+
+If your axes are conceptually separate features (multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event), you don't want parallel regions — you want **N separate machines** colocated in app-db. See [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) for the N-machine pattern and worked example. Per rf2-l67o §9.4 (Shared `:data` lock), per-region `:data` is **not** supported; if your axes need encapsulated `:data`, that's the substrate telling you to register N machines, not retrofit per-region data into one parallel machine.
+
+### Snapshot shape
+
+The snapshot's `:state` becomes the **third arm** described in [§Snapshot shape](#snapshot-shape) — a map of region-name → that region's keyword-or-vector-path:
+
+```clojure
+;; flat region — the value is a keyword
+{:state {:data :loading :form :neutral :mode :active} ...}
+
+;; compound region — the value is a vector path INSIDE that region
+{:state {:auth [:authenticated :dashboard] :lifecycle :idle} ...}
+```
+
+Nested parallel regions (a region whose own state-tree declares `:type :parallel`) are not supported in v1. The validator rejects them at registration with `:rf.error/machine-parallel-nested-not-supported`. Two-level nesting can be modelled as a flatter cross-product or, more idiomatically, as multiple top-level parallel-region machines.
+
+The `:data` slot is **shared** across every region — there is no `:data` slot on a region body, and there is no per-region `:data` slot inside the snapshot. Region states see and write the same `:data` map; the action-effect contract is unchanged (`(fn [data event] {:data {...}})`).
+
+### Initial state
+
+The initial snapshot's `:state` is the map of region-name → that region's initial cascade. Each region's `:initial` is required (just like a top-level flat machine's `:initial`); a region body whose own root is a compound state cascades through that region's `:initial` chain (per [§Initial-state cascading](#initial-state-cascading)). Each region's `:entry` cascade runs once at machine boot.
+
+```clojure
+;; given the :ui/nine-states example above:
+(@(rf/sub-machine :ui/nine-states))
+;; => {:state {:data :nothing :form :neutral :mode :active}
+;;     :data  {:items [] :error nil}
+;;     :tags  #{:data/idle :form/neutral :mode/active}}
+```
+
+### Transition broadcast
+
+Every event delivered to a parallel-region machine is **broadcast** to every region. Each region resolves the event through its own active state's deepest-wins lookup (per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)) — region A's active state checks its `:on`, region B's active state checks its `:on`, and so on, independently. The runtime collects each region's resolved transition, applies them in region-declaration order against the shared `:data` (so each region's action sees the prior region's `:data` writes), and commits the merged result.
+
+Three outcomes per region:
+
+- **Region's state has a matching `:on` entry whose guard passes.** That region transitions: exit cascade → action → entry cascade. `:fx` accumulated by the region's actions joins the macrostep's `:fx` vector.
+- **Region's state has no matching `:on` entry.** That region's `:state` is unchanged. No `:rf.warning/machine-unhandled-event` fires *unless every region declines the event* (see below).
+- **Region's matching `:on` entry has a guard that returns false.** Same as "no match" — region stays put, no warning fires for that region alone.
+
+If **every region** declines the event (no region matched a transition), the machine as a whole emits `:rf.warning/machine-unhandled-event` exactly once, matching the flat-machine semantics. If **any** region handled the event, the snapshot commits with that region's transition applied and the warning is suppressed.
+
+The post-broadcast snapshot's `:state` is the map of region-name → that region's new state value. Regions that didn't transition keep their prior value in place.
+
+### Per-region `:always` / `:after` / `:invoke` scoping
+
+Each region's state-node keys (`:always`, `:after`, `:invoke`, `:entry`, `:exit`) operate **scoped to that region**:
+
+- **`:always`** — the macrostep's microstep loop runs **per region**. After a region's event-driven transition, that region's new state's `:always` entries are checked; matching guards fire transitions in that region. Other regions are not re-evaluated for `:always` on a sibling region's microstep; their own `:always` checks fire when that region itself transitions. Each region's microstep cascade settles to its own fixed point before commit.
+- **`:after`** — an `:after` timer is scheduled / cancelled when **its region's state** entry / exit fires. One region's timer firing dispatches `[:rf.machine.timer/after-elapsed delay-key epoch]` back into the parent; the broadcast routes the synthetic event to every region; the bearing region picks it up via `pick-after-transition` (per [§Delayed `:after` transitions](#delayed-after-transitions)); sibling regions decline the synthetic event and stay put.
+- **`:invoke`** — a region's `:invoke`-bearing state spawns / destroys actors **bound to that region's state**. The runtime-owned tracking slot at `[:rf/spawned <parent-id> <invoke-id>]` (per [§Declarative `:invoke`](#declarative-invoke-sugar-over-spawn)) uses an `:invoke-id` that prefixes the region name onto the in-region prefix-path. Sibling regions never see the spawn / destroy cascade.
+- **`:entry` / `:exit`** — fire on the region's own transitions, never on a sibling region's transitions.
+
+### Tags compose across regions
+
+A parallel-region machine's `:tags` slot on the snapshot is the **union of every active state's `:tags`** across every active region. Tag union (per [§State tags](#state-tags)) extends naturally:
+
+- For each region, walk the region's active configuration (root → leaf for compound regions; the single state for flat regions); union every active state-node's `:tags`.
+- Across regions, union the per-region results.
+
+```clojure
+;; given the example above, after settling the initial state:
+;; - region :data is at :nothing, which carries #{:data/idle}
+;; - region :form is at :neutral, which carries #{:form/neutral}
+;; - region :mode is at :active, which carries #{:mode/active}
+;; → snapshot's :tags is #{:data/idle :form/neutral :mode/active}
+```
+
+The framework sub `:rf/machine-has-tag?` (per [§Querying tags](#querying-tags--the-rfmachine-has-tag-sub)) works unchanged — it asks "does the union contain this tag?" and the answer is yes iff any active state-node across any region declared the tag.
+
+### Worked example — broadcast, shared `:data`, tags compose
+
+```clojure
+;; Both regions react to :reset; the action lives in the parent's :actions
+;; map and is referenced from each region's :reset transition.
+(rf/reg-machine :ui/example
+  {:type    :parallel
+   :data    {:count 0}
+   :actions {:bump-count (fn [d _] {:data (update d :count inc)})}
+   :regions
+   {:left
+    {:initial :a
+     :states  {:a {:tags #{:left/a} :on {:reset {:target :a :action :bump-count}}}}}
+    :right
+    {:initial :x
+     :states  {:x {:tags #{:right/x} :on {:reset {:target :x :action :bump-count}}}}}}})
+
+;; Initial snapshot:
+;; {:state {:left :a :right :x} :data {:count 0} :tags #{:left/a :right/x}}
+
+(rf/dispatch-sync [:ui/example [:reset]])
+;; Both regions handle :reset (self-transition + :bump-count). The action
+;; runs ONCE PER REGION against the shared :data — :count goes 0 → 1 → 2.
+;; Snapshot after the macrostep:
+;; {:state {:left :a :right :x} :data {:count 2} :tags #{:left/a :right/x}}
+```
+
+The action is run by each region that handles the event; shared `:data` flows through each region's actions sequentially. If you want an event to count once, register a coordinating action at the parent-machine level rather than per-region, or set up the regions so only one handles the event.
+
+### Capability gating
+
+Parallel regions are claimed as `:fsm/parallel-regions` in the v1 CLJS reference per [§Capability matrix](#capability-matrix). Ports that don't claim it raise `:rf.error/machine-grammar-not-in-v1` on `:type :parallel` at registration time. The schema extension (`:rf/state-node` gaining `:type` + `:regions`; `:rf/machine-snapshot`'s `:state` widened to the third arm) is documented in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot).
+
+### Substitutes — when to use N machines instead
+
+As noted in [§When to reach for parallel regions](#when-to-reach-for-parallel-regions), parallel regions are the right answer when the regions are orthogonal axes of one feature with one shared `:data`. The N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — separate `[:rf/machines <id>]` entries coordinated via cross-actor dispatch — is the right answer when the regions are conceptually independent features that don't share data. Both patterns ship together; choose by domain shape.
+
+### Trace events
+
+Parallel-region transitions emit one `:rf.machine/transition` macrostep trace per dispatched event (matching flat / compound machines). The trace's `:before` and `:after` payloads carry the full snapshot (including the `:state` map shape). The internal per-region transitions and their microsteps surface through the per-region `:rf.machine.microstep/transition` events (per [§Eventless `:always` transitions §Trace events](#trace-events-1)); each carries a `:region` tag identifying which region produced the microstep so consumers can subscribe to per-region streams.
+
+### Cross-references
+
+- [§Snapshot shape](#snapshot-shape) — the three-arm `:state` form.
+- [§State tags](#state-tags) — tag union extends across regions.
+- [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — the N-machines-per-region pattern for the independent-features case.
+- [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) — `:type` + `:regions` schema.
+- [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) — `:state` widened.
+- [Pattern-NineStates](Pattern-NineStates.md) — the motivating pattern (rewritten in Stage 3 / rf2-c7wl).
+- [conformance/fixtures/parallel-flat-two-regions.edn](conformance/fixtures/parallel-flat-two-regions.edn),
+  [parallel-compound-region.edn](conformance/fixtures/parallel-compound-region.edn),
+  [parallel-tags-union-across-regions.edn](conformance/fixtures/parallel-tags-union-across-regions.edn),
+  [parallel-broadcast-event-both-regions.edn](conformance/fixtures/parallel-broadcast-event-both-regions.edn),
+  [parallel-invoke-scoped-to-region.edn](conformance/fixtures/parallel-invoke-scoped-to-region.edn),
+  [parallel-after-scoped-to-region.edn](conformance/fixtures/parallel-after-scoped-to-region.edn),
+  [parallel-always-cascade-per-region.edn](conformance/fixtures/parallel-always-cascade-per-region.edn),
+  [parallel-initial-state-per-region.edn](conformance/fixtures/parallel-initial-state-per-region.edn),
+  [parallel-snapshot-round-trip.edn](conformance/fixtures/parallel-snapshot-round-trip.edn),
+  [parallel-ssr-hydration.edn](conformance/fixtures/parallel-ssr-hydration.edn) — conformance fixtures.
 
 ## Eventless `:always` transitions
 
@@ -2510,7 +2687,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Eventless `:always` transitions** — fire as soon as a guard becomes true | Prose: [§Eventless `:always` transitions](#eventless-always-transitions); Schema: `:rf/state-node` extended for `:always` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `always-single-microstep`, `always-depth-exceeded` | ✓ claimed (specified) | Microstep loop inside drain Level 3; bounded depth (default 16); self-loop forbidden at registration; trace events at both per-microstep and macrostep granularity. |
 | **Delayed `:after` transitions** — fire after a time delay | Prose: [§Delayed `:after` transitions](#delayed-after-transitions); Schema: `:rf/state-node` extended for `:after` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `after-single-delay`, `after-stale-detection`, `after-hierarchy` | ✓ claimed (specified) | Epoch-based stale detection — no `:cancel-dispatch-later` fx; clock primitives live in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`); SSR-mode no-ops timer scheduling; trace events at `:scheduled` / `:fired` / `:stale-after` granularity. |
 | **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: `:rf/state-node` extended for `:tags`, `:rf/machine-snapshot` extended for `:tags` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | Strictly additive — the snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar covers the predicate query. Composes with hierarchical compound states (union along the active path) and — per Stage 2 (rf2-l67o) — will compose with parallel regions (union across every active region). Per rf2-ee0d (Nine States Stage 1). |
-| **Parallel regions** — `:type :parallel` with multiple concurrent regions | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: separate machines per region, coordinated via cross-actor dispatch. |
+| **Parallel regions** — `:type :parallel` with multiple concurrent regions | Prose: [§Parallel regions](#parallel-regions); Schema: `:rf/transition-table` extended for `:type` + `:regions`, `:rf/state-node` extended for the parallel-region body, `:rf/machine-snapshot`'s `:state` widened to the third arm (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `parallel-flat-two-regions`, `parallel-compound-region`, `parallel-tags-union-across-regions`, `parallel-broadcast-event-both-regions`, `parallel-invoke-scoped-to-region`, `parallel-after-scoped-to-region`, `parallel-always-cascade-per-region`, `parallel-initial-state-per-region`, `parallel-snapshot-round-trip`, `parallel-ssr-hydration` | ✓ claimed (specified) | The third `:state` arm — a map of region-name → keyword-or-vector-path. Shared `:data` across regions per rf2-l67o §9.4 (per-region encapsulation is a signal to use the N-machine substitute pattern from [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)). Composes with `:fsm/tags` (union across every active state in every region) and with `:fsm/eventless-always` / `:fsm/delayed-after` / `:actor/invoke` (per-region scoping; one region's `:after` timer doesn't fire transitions in sibling regions). Per rf2-l67o (Nine States Stage 2). |
 | **History states** — `:type :history` re-entering a compound's last-active substate | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: snapshot-as-value capture using the existing `[:rf/machines <id>]` snapshot. |
 | **Final states with `onDone` parent notification** | Prose: brief; Schema: extended for `:meta {:terminal? true :on-done <event-vec>}`; Fixtures: final-state-emits-on-done | Post-v1 | User code can dispatch on entry to a terminal state in v1. |
 
@@ -2538,6 +2715,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :fsm/eventless-always
                  :fsm/delayed-after
                  :fsm/tags
+                 :fsm/parallel-regions
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
@@ -2566,9 +2744,9 @@ Cross-references: [000 §Hierarchical FSM substrate](000-Vision.md#hierarchical-
 
 ## Substitutes for skipped features
 
-Two features the matrix names as out of pattern scope — **parallel regions** and **history states** — have well-defined substitutes that exploit re-frame2's existing primitives. The substitutes are not workarounds: they are *better* fits for the substrate, given the snapshot-as-value foundation per [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility).
+Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a first-class capability — see [§Parallel regions](#parallel-regions). The N-machines-per-region substitute documented in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains valid and is the right answer when the regions are conceptually independent features (multiple tabs with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event). Parallel regions are the right answer when the regions are orthogonal axes of *one* feature that share a single `:data` blob (one form with three orthogonal axes, one widget with display + interaction, one page's render-mode predicates).
 
-The substitutes — *parallel regions → separate machines per region (with worked example)*, and *history states → snapshot-as-value capture (with worked example)* — and the rationale for why xstate needs them but re-frame2 doesn't, live in [CP-5-MachineGuide §Substitutes for parallel regions and history states](CP-5-MachineGuide.md#substitutes-for-skipped-features). Out-of-scope features (`:type :parallel`, `:history`) emit `:rf.error/machine-grammar-not-in-v1` against v1; the runtime points users at the substitute patterns rather than promising future support.
+**History states** remain post-v1. The substitute — snapshot-as-value capture exploiting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) — is documented in [CP-5-MachineGuide §History states → snapshot-as-value capture](CP-5-MachineGuide.md#history-states--snapshot-as-value-capture). The runtime emits `:rf.error/machine-grammar-not-in-v1` against `:history`; the substitute pattern is the documented forward path.
 
 ## Open questions
 

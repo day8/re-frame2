@@ -359,6 +359,23 @@
     (map? v)                        [v]
     :else (throw (ex-info ":rf.error/machine-bad-on-clause" {:value v}))))
 
+(defn- after-epoch-path
+  "Return the path inside the snapshot's `:data` map where the
+  `:after`-timer epoch counter lives for `machine`.
+
+  Per Spec 005 §Delayed `:after` transitions, the epoch is `[:data
+  :rf/after-epoch]` for flat / compound machines. Per Spec 005 §Per-
+  region `:always` / `:after` / `:invoke` scoping (rf2-l67o / Stage 2):
+  when `machine` is a region of a parallel-region parent (signalled by
+  `:rf/region` on the synthetic region-machine spec), the epoch is
+  region-scoped — `[:data :rf/after-epoch-by-region <region-name>]` —
+  so a sibling region's transition doesn't invalidate this region's
+  in-flight timers via the shared `:data` slot."
+  [machine]
+  (if-let [rn (:rf/region machine)]
+    [:data :rf/after-epoch-by-region rn]
+    [:data :rf/after-epoch]))
+
 (defn- pick-after-transition
   "Per Spec 005 §Delayed :after transitions. The synthetic event
   [:rf.machine.timer/after-elapsed delay-key carried-epoch] arrives.
@@ -385,7 +402,7 @@
   (return nil); non-matching is surfaced as stale."
   [machine path event snapshot]
   (let [[_ delay-key carried-epoch] event
-        current-epoch (get-in snapshot [:data :rf/after-epoch])]
+        current-epoch (get-in snapshot (after-epoch-path machine))]
     (loop [i (dec (count path))]
       (if (neg? i)
         (when (not= carried-epoch current-epoch)
@@ -628,10 +645,11 @@
                        (assoc snap-after :state new-state)
 
                        epoch-bumps?
-                       (let [new-epoch (inc (or (get-in snap-after [:data :rf/after-epoch]) 0))]
+                       (let [epoch-path (after-epoch-path machine)
+                             new-epoch  (inc (or (get-in snap-after epoch-path) 0))]
                          (-> snap-after
                              (assoc :state new-state)
-                             (assoc-in [:data :rf/after-epoch] new-epoch)))
+                             (assoc-in epoch-path new-epoch)))
 
                        :else
                        (assoc snap-after :state new-state))
@@ -654,7 +672,7 @@
         after-fx
         (when-not internal?
           (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
-                epoch     (get-in snap-final [:data :rf/after-epoch])]
+                epoch     (get-in snap-final (after-epoch-path machine))]
             (vec
               (mapcat
                 (fn [[prefix n]]
@@ -1044,6 +1062,189 @@
                  snap
                  depth))))))
 
+;; ---- :fsm/parallel-regions — broadcast routing (rf2-l67o / Stage 2) ------
+;;
+;; Per Spec 005 §Parallel regions: a machine declaring `:type :parallel`
+;; carries a `:regions` map of region-name → state-tree (full state-node
+;; body, with its own `:initial` + `:states` and optional `:on` / `:tags` /
+;; `:after` / `:invoke` / `:always` on each state node). All regions are
+;; active simultaneously when the machine is active; the snapshot's
+;; `:state` is a map of region-name → that region's keyword-or-vector-path;
+;; transitions are broadcast across regions; the macrostep drain settles
+;; every region before commit.
+;;
+;; Implementation strategy: each region is treated as a "synthetic sub-
+;; machine" whose `:states` / `:initial` come from the region body, sharing
+;; `:guards` / `:actions` / `:on-spawn-actions` / `:rf/parent-id` /
+;; `:rf/platform` / `:rf/frame` with the parent. The standard
+;; `machine-transition` is invoked against each region's slice; results
+;; are merged. Spawn / destroy / after-schedule / after-cancel fxs emitted
+;; by a region are post-processed to prefix the region name onto their
+;; `:rf/invoke-id` (so per-region :invoke / :after slots scope correctly,
+;; one region's timer doesn't fire transitions in sibling regions).
+
+(defn- parallel?
+  "True iff the machine declares `:type :parallel` (root-level only)."
+  [machine]
+  (= :parallel (:type machine)))
+
+(defn- region-machine
+  "Build a synthetic single-machine spec for a region.
+
+  Inherits `:guards` / `:actions` / `:on-spawn-actions` from the parent so
+  region transitions can reference the parent's named guards / actions
+  without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
+  `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
+  fxs the region emits carry the parent's identity (the region name is
+  prepended onto the `:rf/invoke-id` separately).
+
+  The region's body IS the synthetic machine's body — its `:initial`
+  becomes the synthetic machine's `:initial`, its `:states` becomes the
+  synthetic machine's `:states`, etc."
+  [parent-machine region-name]
+  (let [region-body (get-in parent-machine [:regions region-name])]
+    (-> region-body
+        (assoc :guards            (:guards parent-machine))
+        (assoc :actions           (:actions parent-machine))
+        (assoc :on-spawn-actions  (:on-spawn-actions parent-machine))
+        (assoc :rf/parent-id      (:rf/parent-id parent-machine))
+        (assoc :rf/platform       (:rf/platform parent-machine))
+        (assoc :rf/frame          (:rf/frame parent-machine))
+        (assoc :rf/region         region-name))))
+
+(defn- region-initial-state
+  "Compute the initial-state value for one region — applying that region's
+  `:initial` cascade through any compound chain. Returns the region's
+  state value (keyword for flat regions, vector path for compound regions)."
+  [region-body]
+  (let [rm        (assoc region-body :states (:states region-body))
+        decl      (:initial region-body)
+        full-path (initial-cascade rm (state-path decl))]
+    (denormalise-state full-path decl)))
+
+(defn- compute-tags-parallel
+  "Per Spec 005 §Tags compose across regions: a parallel-region machine's
+  snapshot `:tags` is the union of every active state's `:tags` across
+  every active region. Walks each region's active path; unions everything.
+
+  `state-map` is the snapshot's `:state` slot — a map of region-name →
+  that region's keyword-or-vector-path."
+  [machine state-map]
+  (transduce
+    (map (fn [[region-name region-state]]
+           (compute-tags (region-machine machine region-name) region-state)))
+    set/union
+    #{}
+    state-map))
+
+(defn- commit-tags-parallel
+  "Variant of commit-tags that dispatches on `(:type machine)`. For
+  parallel-region machines, recomputes the union across every region.
+  For flat/compound machines, defers to the existing compute-tags path
+  (single state). Elides the slot when the union is empty."
+  [machine snapshot]
+  (let [tags (if (parallel? machine)
+               (compute-tags-parallel machine (:state snapshot))
+               (compute-tags machine (:state snapshot)))]
+    (if (empty? tags)
+      (dissoc snapshot :tags)
+      (assoc snapshot :tags tags))))
+
+(defn- prefix-region-invoke-id
+  "Per Spec 005 §Per-region `:invoke` / `:after` / `:always` scoping:
+  spawn / destroy / after-schedule / after-cancel fxs emitted by a region
+  carry an `:rf/invoke-id` that's the in-region prefix-path. To keep the
+  runtime-owned `[:rf/spawned <parent-id> <invoke-id>]` slot unique
+  per-region (and per-region `:after` epoch tracking distinct from sibling
+  regions), prepend the region name onto the invoke-id.
+
+  Returns the fx with its `:rf/invoke-id` rewritten (no change if the fx
+  doesn't carry one)."
+  [region-name fx]
+  (let [[fx-id args] fx]
+    (cond
+      (and (map? args) (contains? args :rf/invoke-id))
+      [fx-id (update args :rf/invoke-id #(vec (cons region-name %)))]
+
+      :else fx)))
+
+(declare machine-transition machine-transition-single)
+
+(defn- parallel-machine-transition
+  "Pure function. Given a parallel-region machine, current snapshot, and
+  event, broadcast the event to each region and merge the results.
+
+  Per Spec 005 §Transition broadcast: each region resolves the event
+  through its own active state's deepest-wins lookup; resolved regions
+  transition (exit cascade → action → entry cascade), undeclined regions
+  stay put. The :data slot is shared — each region's actions see the
+  prior region's `:data` writes in declaration order.
+
+  For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
+  delivery is region-scoped — the broadcast routes to the bearing region
+  only, identified by the region-name prefix on the in-flight timer's
+  invoke-id (which the after-schedule-fx handler tags onto the synthetic
+  dispatch's args via the region prefix in the timer entry's id).
+
+  After every region has been broadcast, the run-to-completion macrostep
+  has fully drained (each region's microstep loop ran inside its own
+  machine-transition call). The merged snapshot is committed; the merged
+  fx vector flows out.
+
+  Returns [new-snapshot fx-vec]."
+  [machine snapshot event]
+  (let [state-map  (:state snapshot)
+        region-names (vec (keys state-map))
+        ;; Each region runs against a snapshot of {:state region-state
+        ;; :data shared-data}. We thread :data sequentially through the
+        ;; regions in declaration order (per (:regions machine)) so each
+        ;; region's actions see the prior region's writes.
+        ordered-regions
+        (->> (or (keys (:regions machine)) region-names)
+             (filter (fn [rn] (contains? state-map rn)))
+             (vec))]
+    (loop [pending    ordered-regions
+           cur-data   (:data snapshot)
+           new-states state-map
+           acc-fx     []]
+      (cond
+        (empty? pending)
+        (let [final-state-map (into {} (for [rn region-names] [rn (get new-states rn)]))
+              merged          (-> snapshot
+                                  (assoc :state final-state-map)
+                                  (assoc :data  cur-data))
+              merged-tagged   (commit-tags-parallel machine merged)]
+          [merged-tagged acc-fx])
+
+        :else
+        (let [rn          (first pending)
+              region-spec (region-machine machine rn)
+              region-snap {:state (get state-map rn)
+                           :data  cur-data}
+              ;; The region's machine-transition runs the full macrostep
+              ;; for that region (event-driven transition + raise drain +
+              ;; :always microstep loop). Sibling regions are unaffected.
+              ;; For the synthetic [:rf.machine.timer/after-elapsed ...]
+              ;; event, broadcasting is correct: regions whose active
+              ;; path has no matching :after delay-key return [snapshot []]
+              ;; (pick-after-transition's nil path); only the bearing
+              ;; region transitions.
+              step-result (machine-transition region-spec region-snap event)]
+          (if (and (vector? step-result)
+                   (= ::action-failed (first step-result)))
+            ;; A region's action threw — propagate the failure up through
+            ;; the parallel layer. The handler boundary halts the cascade.
+            step-result
+            (let [[reg-snap reg-fx] step-result
+                  ;; Prefix any spawn / destroy / after-schedule /
+                  ;; after-cancel fxs with the region name so per-region
+                  ;; runtime tracking slots are unique across regions.
+                  prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
+              (recur (rest pending)
+                     (:data reg-snap)
+                     (assoc new-states rn (:state reg-snap))
+                     (vec (concat acc-fx prefixed-fx))))))))))
+
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
   return [new-snapshot effects].
@@ -1061,7 +1262,20 @@
 
   Bounded by :raise-depth-limit and :always-depth-limit (both default 16).
   Hierarchical states are supported: :state may be a single keyword
-  (flat machine) or a vector path (compound machine)."
+  (flat machine) or a vector path (compound machine). Parallel-region
+  machines (`:type :parallel`) are dispatched into `parallel-machine-
+  transition`, where the event is broadcast across regions per Spec 005
+  §Parallel regions (rf2-l67o)."
+  [machine snapshot event]
+  (if (parallel? machine)
+    (parallel-machine-transition machine snapshot event)
+    (machine-transition-single machine snapshot event)))
+
+(defn- machine-transition-single
+  "Single-machine (flat or compound) implementation of `machine-transition`.
+  Per Spec 005 §Drain semantics §Level 3 — the macrostep. The public
+  `machine-transition` dispatches into this for non-parallel machines and
+  into `parallel-machine-transition` for `:type :parallel` machines."
   [machine snapshot event]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
@@ -1199,26 +1413,51 @@
 ;;     :invoke-all (caller continues with normal machine-transition)
 ;;   - a {:db ... :fx ...} effect map if the event was intercepted.
 
+(defn- find-active-invoke-all-in-tree
+  "Helper for find-active-invoke-all. Given a machine-like map with
+  `:states` (for a non-parallel machine, the machine itself; for a
+  region of a parallel machine, the region body) and a path inside
+  that tree, walk leaf→root looking for an :invoke-all-bearing state
+  whose :on-child-done or :on-child-error matches inner-event-id."
+  [tree path inner-event-id]
+  (loop [i (dec (count path))]
+    (when (>= i 0)
+      (let [prefix (vec (take (inc i) path))
+            n      (node-at tree prefix)
+            ia     (:invoke-all n)]
+        (cond
+          (and ia (= inner-event-id (:on-child-done ia)))
+          {:invoke-id prefix :spec ia :kind :done}
+          (and ia (= inner-event-id (:on-child-error ia)))
+          {:invoke-id prefix :spec ia :kind :failed}
+          :else
+          (recur (dec i)))))))
+
 (defn- find-active-invoke-all
   "Walk the snapshot's :state path leaf→root looking for an
   :invoke-all-bearing state whose :on-child-done or :on-child-error
   matches the given inner-event-id. Returns
   {:invoke-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}
-  or nil."
+  or nil.
+
+  Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region
+  machines, iterates each region's active state-tree (prefixing the
+  region name onto the resolved :invoke-id, matching the per-region
+  scoping prefix-region-invoke-id applies on the entry-side)."
   [machine snapshot inner-event-id]
-  (let [path (state-path (:state snapshot))]
-    (loop [i (dec (count path))]
-      (when (>= i 0)
-        (let [prefix (vec (take (inc i) path))
-              n      (node-at machine prefix)
-              ia     (:invoke-all n)]
-          (cond
-            (and ia (= inner-event-id (:on-child-done ia)))
-            {:invoke-id prefix :spec ia :kind :done}
-            (and ia (= inner-event-id (:on-child-error ia)))
-            {:invoke-id prefix :spec ia :kind :failed}
-            :else
-            (recur (dec i))))))))
+  (cond
+    (parallel? machine)
+    (some (fn [[region-name region-state]]
+            (let [region-body (region-machine machine region-name)
+                  region-path (state-path region-state)
+                  match       (find-active-invoke-all-in-tree
+                                region-body region-path inner-event-id)]
+              (when match
+                (update match :invoke-id #(vec (cons region-name %))))))
+          (:state snapshot))
+
+    :else
+    (find-active-invoke-all-in-tree machine (state-path (:state snapshot)) inner-event-id)))
 
 (defn- join-condition-met?
   "Evaluate the join condition against the current join state.
@@ -1483,9 +1722,67 @@
                            :reason ":join must be :all, :any, {:n pos-int}, or {:fn fn?}"
                            :join join})))))))
 
+(defn- validate-parallel!
+  "Per Spec 005 §Parallel regions (rf2-l67o / Stage 2) and Spec-Schemas
+  §`:rf/transition-table` §`:type :parallel` constraint: when a root
+  state-node declares `:type :parallel`, validate the shape at
+  registration time.
+
+  Three error categories:
+    - :rf.error/machine-parallel-bad-shape — `:type :parallel` declared
+      without a `:regions` map, OR `:regions` is empty, OR `:regions`
+      coexists with `:initial` / `:states`, OR a region body is missing
+      its own `:initial`.
+    - :rf.error/machine-parallel-nested-not-supported — a region's own
+      state-tree declares `:type :parallel`; nested parallel regions
+      aren't supported in v1.
+
+  Walks each region's state-nodes to ensure no nested parallel."
+  [machine]
+  (when (parallel? machine)
+    (when-not (and (map? (:regions machine)) (seq (:regions machine)))
+      (throw (ex-info ":rf.error/machine-parallel-bad-shape"
+                      {:reason ":type :parallel requires a non-empty :regions map"})))
+    (when (or (contains? machine :initial) (contains? machine :states))
+      (throw (ex-info ":rf.error/machine-parallel-bad-shape"
+                      {:reason ":type :parallel is mutually exclusive with :initial / :states at the root"})))
+    (doseq [[region-name region-body] (:regions machine)]
+      (when-not (keyword? region-name)
+        (throw (ex-info ":rf.error/machine-parallel-bad-shape"
+                        {:reason "region names must be keywords"
+                         :region region-name})))
+      (when-not (and (map? region-body) (seq region-body))
+        (throw (ex-info ":rf.error/machine-parallel-bad-shape"
+                        {:reason "each region body must be a non-empty state-node map"
+                         :region region-name})))
+      (when (= :parallel (:type region-body))
+        (throw (ex-info ":rf.error/machine-parallel-nested-not-supported"
+                        {:reason "nested parallel regions are not supported in v1"
+                         :region region-name})))
+      (when-not (keyword? (:initial region-body))
+        (throw (ex-info ":rf.error/machine-parallel-bad-shape"
+                        {:reason "each region body must declare :initial (the cascade entry-point)"
+                         :region region-name})))
+      ;; Walk the region's nested :states for nested :type :parallel.
+      (letfn [(walk [path nodes]
+                (doseq [[k n] nodes]
+                  (when (= :parallel (:type n))
+                    (throw (ex-info ":rf.error/machine-parallel-nested-not-supported"
+                                    {:reason "nested parallel regions are not supported in v1"
+                                     :region region-name
+                                     :state-path (conj path k)})))
+                  (when (:states n)
+                    (walk (conj path k) (:states n)))))]
+        (walk [] (:states region-body))))))
+
 (defn- walk-state-nodes
   "Yield [state-key state-node] pairs for every node under :states,
-  recursing through :states maps. Used by registration-time validators."
+  recursing through :states maps. Used by registration-time validators.
+
+  Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): for parallel-region
+  machines, walks the state nodes under every region's :states (each
+  region is its own state-tree). Region-name keywords are NOT yielded
+  as state keys (they're region identifiers, not states)."
   [machine]
   (letfn [(walk [path nodes]
             (mapcat
@@ -1494,7 +1791,16 @@
                       (when (:states n)
                         (walk (conj path k) (:states n)))))
               nodes))]
-    (walk [] (:states machine))))
+    (cond
+      ;; Parallel-region machine: iterate every region's state-tree.
+      ;; Region-name keys are NOT yielded as state keys (they're region
+      ;; identifiers, not states).
+      (parallel? machine)
+      (mapcat (fn [[_region region-body]] (walk [] (:states region-body)))
+              (:regions machine))
+
+      :else
+      (walk [] (:states machine)))))
 
 (defn create-machine-handler
   "Returns a function suitable for registration with reg-event-fx.
@@ -1507,6 +1813,10 @@
   reusable across multiple registrations (e.g. (reg-event-fx :a m)
   and (reg-event-fx :b m) produce two independent machines)."
   [machine]
+  ;; Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): validate the
+  ;; `:type :parallel` shape if declared, before any other walk that
+  ;; depends on the regions / states layout.
+  (validate-parallel! machine)
   ;; Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
   ;; full state tree (including nested :states) and reject malformed
   ;; :invoke-all declarations at registration time. Per rf2-3y3y: reject
@@ -1518,22 +1828,29 @@
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
-  (doseq [[s state-node] (:states machine)]
-    (let [transitions (mapcat
-                       (fn [[_ t]]
-                         (if (vector? t) t [t]))
-                       (:on state-node))]
-      (doseq [t transitions]
-        (when-let [g (:guard t)]
-          (when (and (keyword? g)
-                     (not (contains? (:guards machine) g)))
-            (throw (ex-info ":rf.error/machine-unresolved-guard"
-                            {:guard g :state s}))))
-        (when-let [a (:action t)]
-          (when (and (keyword? a)
-                     (not (contains? (:actions machine) a)))
-            (throw (ex-info ":rf.error/machine-unresolved-action"
-                            {:action a :state s})))))))
+  ;; For parallel-region machines, the same `:guards` / `:actions` are
+  ;; shared across regions — we walk every region's top-level :states
+  ;; for the validation, but the guard/action lookup goes through the
+  ;; parent's shared maps.
+  (let [top-level-states (if (parallel? machine)
+                           (mapcat (fn [[_ region]] (:states region)) (:regions machine))
+                           (:states machine))]
+    (doseq [[s state-node] top-level-states]
+      (let [transitions (mapcat
+                         (fn [[_ t]]
+                           (if (vector? t) t [t]))
+                         (:on state-node))]
+        (doseq [t transitions]
+          (when-let [g (:guard t)]
+            (when (and (keyword? g)
+                       (not (contains? (:guards machine) g)))
+              (throw (ex-info ":rf.error/machine-unresolved-guard"
+                              {:guard g :state s}))))
+          (when-let [a (:action t)]
+            (when (and (keyword? a)
+                       (not (contains? (:actions machine) a)))
+              (throw (ex-info ":rf.error/machine-unresolved-action"
+                              {:action a :state s}))))))))
   (fn [{:keys [db frame] :as _cofx} event]
     (let [;; Per Spec 005 §Registration: id comes from event[0] (the
           ;; surrounding reg-event-fx id), NOT from the spec map.
@@ -1567,15 +1884,21 @@
                             ;; <parent-id> <invoke-id>] registry slot).
                             :rf/parent-id machine-id)
           path       (snapshot-path machine-id)
-          ;; Per Spec 005 §Initial-state cascading: when the snapshot is
-          ;; first synthesised, descend the declared :initial through any
-          ;; compound state's :initial chain to a leaf path. Without this,
-          ;; a machine declared {:initial :foo :states {:foo {:initial :bar
-          ;; :states {:bar {} :baz {}}}}} would land at :state :foo and
-          ;; subsequent transitions resolve against the wrong path.
-          initial-decl  (:initial machine)
-          initial-path  (initial-cascade machine (state-path initial-decl))
-          initial-state (denormalise-state initial-path initial-decl)
+          ;; Per Spec 005 §Initial-state cascading and §Parallel regions:
+          ;; for flat / compound machines, descend the root :initial
+          ;; cascade to a leaf path. For parallel-region machines, the
+          ;; `:state` slot becomes a map of region-name → that region's
+          ;; cascaded initial.
+          initial-state (cond
+                          (parallel? machine)
+                          (into {}
+                                (for [[rn region-body] (:regions machine)]
+                                  [rn (region-initial-state region-body)]))
+
+                          :else
+                          (let [decl (:initial machine)]
+                            (denormalise-state (initial-cascade machine (state-path decl))
+                                                decl)))
           ;; Per Spec 005 §Snapshot shape (`{:state :data :meta?}`) and
           ;; §Versioned via :meta: a machine's spec-level :meta (e.g.
           ;; `:rf/snapshot-version`, user introspection tags) propagates
@@ -1588,12 +1911,13 @@
           initial    (cond-> {:state initial-state
                               :data  (or (:data machine) {})}
                        (some? (:meta machine)) (assoc :meta (:meta machine)))
-          ;; Per Spec 005 §State tags (rf2-ee0d): stamp the initial tag
-          ;; union onto the lazily-synthesised snapshot so views that
-          ;; subscribe before the first event see the same `:tags` shape
-          ;; subsequent transitions produce. Elision-safe — `commit-tags`
-          ;; drops the slot when the union is empty.
-          initial    (commit-tags machine initial)
+          ;; Per Spec 005 §State tags (rf2-ee0d) and §Tags compose across
+          ;; regions (rf2-l67o): stamp the initial tag union onto the
+          ;; lazily-synthesised snapshot. For parallel machines the
+          ;; commit-tags-parallel variant unions every region's active
+          ;; configuration. Elision-safe — both forms drop the slot when
+          ;; the union is empty.
+          initial    (commit-tags-parallel machine initial)
           snapshot   (or (get-in db path) initial)
           ;; Sub-event routing per Spec 005 §Registration. The outer
           ;; event is [:machine-id <inner-event> & extra-args]. Extra
@@ -1969,21 +2293,32 @@
     ;; runtime-owned spawn registry (atomically under one app-db swap so
     ;; observers see consistent state).
     (when-let [container (frame/get-frame-db frame-id)]
-      (let [initial-decl  (:initial spec'')
-            initial-path  (when spec''
-                            (initial-cascade spec'' (state-path initial-decl)))
+      (let [;; Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): a
+            ;; spawned child machine MAY itself be `:type :parallel`,
+            ;; in which case the initial-state is a map of region-name
+            ;; → that region's cascade. Branch on the spawned spec.
+            parallel-child? (and spec'' (parallel? spec''))
+            initial-decl  (:initial spec'')
             initial-state (when spec''
-                            (denormalise-state initial-path initial-decl))
+                            (cond
+                              parallel-child?
+                              (into {} (for [[rn region-body] (:regions spec'')]
+                                         [rn (region-initial-state region-body)]))
+
+                              :else
+                              (denormalise-state (initial-cascade spec'' (state-path initial-decl))
+                                                  initial-decl)))
             initial-snap  (when spec''
-                            ;; Per Spec 005 §State tags (rf2-ee0d): stamp
-                            ;; the initial tag union onto the spawned
-                            ;; actor's snapshot so subscribers see the
-                            ;; same `:tags` slot the parent's
-                            ;; `:rf.http/managed` (and any other child
-                            ;; machine that declares `:tags`) does.
-                            (commit-tags spec''
-                                         {:state initial-state
-                                          :data  (or (:data spec'') {})}))
+                            ;; Per Spec 005 §State tags (rf2-ee0d) and
+                            ;; §Tags compose across regions (rf2-l67o):
+                            ;; stamp the initial tag union onto the
+                            ;; spawned actor's snapshot. For parallel-
+                            ;; region children, commit-tags-parallel
+                            ;; unions across every region.
+                            (commit-tags-parallel
+                              spec''
+                              {:state initial-state
+                               :data  (or (:data spec'') {})}))
             old-db        (adapter/read-container container)
             ;; Detect collision BEFORE the swap so we can emit the
             ;; error trace with the displaced binding's id.
@@ -2369,14 +2704,29 @@
       (when-let [container (frame/get-frame-db frame-id)]
         (let [db   (adapter/read-container container)
               snap (get-in db [:rf/machines parent-id])
+              ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
+              ;; parallel-region machines the snapshot's :state is a map
+              ;; of region-name → that region's state, and the invoke-id
+              ;; is `[<region-name> <state...>]` (prefix-region-invoke-id).
+              ;; Resolve the active path inside the bearing region; the
+              ;; epoch lives at the per-region epoch slot.
+              parallel-snap? (and snap (map? (:state snap)))
+              [in-region-invoke-id active epoch-slot]
+              (if parallel-snap?
+                (let [rn (first invoke-id)
+                      iid-tail (vec (rest invoke-id))]
+                  [iid-tail
+                   (when-let [rs (get (:state snap) rn)] (state-path rs))
+                   [:data :rf/after-epoch-by-region rn]])
+                [invoke-id (when snap (state-path (:state snap)))
+                 [:data :rf/after-epoch]])
               ;; Only reschedule if the active state path still includes
               ;; the :after-bearing prefix.
-              active (when snap (state-path (:state snap)))
               still-here? (and active
-                                (= (vec invoke-id)
-                                   (vec (take (count invoke-id) active))))]
+                                (= (vec in-region-invoke-id)
+                                   (vec (take (count in-region-invoke-id) active))))]
           (when still-here?
-            (let [epoch (or (get-in snap [:data :rf/after-epoch]) 0)]
+            (let [epoch (or (get-in snap epoch-slot) 0)]
               ;; Sub-driven re-resolution emits a fresh :scheduled trace
               ;; (paired with the :cancelled-on-resolution above).
               (schedule-after-timer! frame-id parent-id invoke-id state
