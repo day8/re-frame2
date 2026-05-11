@@ -313,7 +313,7 @@ Each of these is opt-in — implementations declare which capabilities they supp
 
 ## Patterns that bottom out in machines
 
-Two recurring shapes from [chapter 03](03-events-state-cycle.md) are state machines underneath. Both are pattern docs (convention), not Specs (contract). The shape is worth knowing in outline even if you don't write one today — the moment you reach for `setTimeout`-driven reconnect logic or an `:app/init` event that does six things, you'll recognise it.
+Three recurring shapes from [chapter 03](03-events-state-cycle.md) are state machines underneath. All three are pattern docs (convention), not Specs (contract). The shape is worth knowing in outline even if you don't write one today — the moment you reach for `setTimeout`-driven reconnect logic, an `:app/init` event that does six things, or a `for` loop that locks the UI for two seconds, you'll recognise it.
 
 ### Pattern-WebSocket — a connection as a machine
 
@@ -371,6 +371,137 @@ Once the boot graph has more than a few steps — auth restoration, profile load
 Each phase `:invoke`s the async work; transitions on success / failure; entry actions update the visible-progress slice in `:data`. The boot UI subscribes to the snapshot and renders "Loading config…" / "Signing in…" / "Almost ready…" by state. The whole sequence is one inspectable, testable, traceable machine.
 
 The boot machine is also the canonical seam between **host-supplied static config** (a `/config` endpoint, build-time env vars) and the **running app's dynamic state** — `:configuring` lands the config into `:data`; subsequent states read from `:data :config` and thread values into the next phase's spawn-spec rather than reaching into globals. Full walkthrough including the auth-machine's transport-vs-semantic retry boundary: [`spec/Pattern-Boot.md`](../../spec/Pattern-Boot.md).
+
+### Pattern-LongRunningWork — CPU-bound work as a chunked machine
+
+A handler with significant CPU-bound work — iterating over a large dataset, encoding / decoding, indexing, parsing, running a simulation step — blocks the dispatch loop and freezes the UI. The browser repaints once per ~16 ms; if a single handler holds the thread longer, animations stutter, clicks queue up, and the app appears hung. The naïve fix — "just do it all in one event handler" — is exactly the shape that earns a *"page unresponsive"* warning.
+
+There are two real answers, and the choice is the first decision you make:
+
+1. **Offload to a Web Worker.** The main thread stays responsive; the work runs at full speed on another thread; progress reports flow back as events. This is the preferred answer whenever the work is serialisable across the worker boundary — see [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md).
+2. **Chunk and yield on the main thread.** When the work has to run on the main thread — DOM access, framework state, awkward-to-serialise data — split it into small batches and yield between batches. That's a state machine.
+
+The chunked machine has a tiny, canonical shape:
+
+| state | meaning |
+|---|---|
+| `:idle` | Not running. Initial state. |
+| `:processing` | Entry action processes one chunk; updates `:data`. |
+| `:checking-done` | Eventless `:always` decides: complete, yield, or cancel. |
+| `:yielding` | `:after 0` schedules the next chunk so the browser gets a render tick. |
+| `:complete` | Terminal — work finished. |
+| `:cancelled` | Terminal — user requested cancel. |
+
+The cycle is `:processing → :checking-done → :yielding → :processing → …` until `:checking-done` decides the job is done. The `:after 0` in `:yielding` is the load-bearing line — it hands the thread back to the browser between chunks so the progress bar repaints, the cancel button stays clickable, and the rest of the app keeps running.
+
+#### A worked example — count matches across a huge vector
+
+Stretching the counter throughline one last notch: imagine the counter is no longer "increment on click" but "scan a million-record vector and count how many records match a predicate." The result is still a single number; the work to compute it is heavy. We can't compute it inside a sub (subs are read-only and have to stay cheap), and we can't compute it inline in one event handler (the UI would freeze for a second or two). It's a chunked machine.
+
+```clojure
+(rf/reg-machine :counter/scan
+  {:initial :idle
+   :data    {:input      nil
+             :total      0
+             :processed  0
+             :matches    0
+             :chunk-size 5000}
+
+   :guards
+   {:done?      (fn [d _] (>= (:processed d) (:total d)))
+    :more-work? (fn [d _] (<  (:processed d) (:total d)))}
+
+   :actions
+   {:start-scan
+    (fn [_ [_ input opts]]
+      {:data {:input      input
+              :total      (count input)
+              :processed  0
+              :matches    0
+              :chunk-size (:chunk-size opts 5000)}})
+
+    :process-chunk
+    (fn [{:keys [input chunk-size processed matches] :as d} _]
+      (let [end   (min (+ processed chunk-size) (count input))
+            chunk (subvec input processed end)
+            hits  (count (filter big-enough? chunk))]
+        {:data {:processed end
+                :matches   (+ matches hits)}}))}
+
+   :states
+   {:idle
+    {:on {:start {:target :processing :action :start-scan}}}
+
+    :processing
+    {:entry  :process-chunk
+     :always [{:target :checking-done}]}
+
+    :checking-done
+    {:always [{:guard :done?      :target :complete}
+              {:guard :more-work? :target :yielding}]}
+
+    :yielding
+    {:after {0 :processing}
+     :on    {:cancel :cancelled}}
+
+    :complete  {:on {:reset :idle}}
+    :cancelled {:on {:reset :idle}}}})
+```
+
+A million records with `:chunk-size 5000` is 200 chunks. The view dispatches `[:counter/scan [:start big-vector]]`, the machine cycles through `:processing / :checking-done / :yielding` 200 times, and at the end `:complete` holds the final count in `:data :matches`. Between each chunk the browser gets one render tick — the progress bar moves, the cancel button responds.
+
+The progress UI reads from the machine snapshot via `sub-machine`:
+
+```clojure
+(rf/reg-sub :counter.scan/progress
+  :<- [:rf/machine :counter/scan]
+  (fn [{:keys [data]} _]
+    (let [{:keys [processed total]} data]
+      (when (pos? total) (/ processed total)))))   ;; 0.0 .. 1.0
+
+(rf/reg-sub :counter.scan/matches
+  :<- [:rf/machine :counter/scan]
+  (fn [snapshot _] (get-in snapshot [:data :matches])))
+
+(rf/reg-sub :counter.scan/state
+  :<- [:rf/machine :counter/scan]
+  (fn [snapshot _] (:state snapshot)))
+```
+
+The view renders a progress bar from `:counter.scan/progress`, a live running count from `:counter.scan/matches`, and switches its layout on `:counter.scan/state` — a "Cancel" button while `:yielding`, a "Done" affordance while `:complete`. Each `:processing` tick advances both the progress bar and the running count; the user sees the machine *thinking*, not a frozen page followed by a sudden answer.
+
+#### Cancellation is a transition, not a flag
+
+The naïve approach to cancel — set a flag in `app-db` and check it on every chunk — is replaced by the machine. A `:cancel` event handled in the `:yielding` state transitions to `:cancelled`; the next chunk simply doesn't run, because the machine is no longer in `:processing`:
+
+```clojure
+(rf/dispatch [:counter/scan [:cancel]])
+```
+
+The partial result is preserved in `:data` — the view can show "Cancelled at 437,000 of 1,000,000" by reading the snapshot. For the more sophisticated case of a still-pending `:after` timer firing after cancel, [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) composes cleanly: the machine's epoch advances on entering `:cancelled` and any in-flight timer carrying the previous epoch is suppressed on receipt.
+
+#### When to choose a worker instead
+
+The chunked-main-thread pattern works, but it isn't free — every browser tick is overhead, and the work runs slower than it would on a dedicated thread. For genuinely heavy CPU work (image processing, large simulations, search indexing, complex analyses), **offload to a Web Worker** via [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md):
+
+- The main thread stays fully responsive — no chunking required.
+- Progress reporting still works — the worker dispatches progress events back.
+- Cancellation is the same epoch-based pattern.
+- The work runs at full thread speed (no ~16 ms overhead between chunks).
+
+The chunked pattern is the right answer when worker offload isn't feasible — DOM access, framework state, awkward-to-serialise data, or work that's *medium-heavy* enough that worker setup costs outweigh the gain. Roughly: if a chunk fits comfortably in 16 ms and you only need a handful of seconds total, chunked-main-thread is simpler; if you're looking at tens of seconds or genuinely thread-bound compute, hand it to a worker.
+
+#### Pitfalls
+
+A few traps the pattern doc calls out explicitly:
+
+- **Computing in subscriptions.** Subs should be cheap and pure; long compute belongs in event handlers. A sub that takes seconds to settle slows every render that touches it. Compute in events, project the result via subs.
+- **Multiple `assoc`s in one handler expecting interleaved renders.** re-frame2 batches per drain — only one render per drain regardless of how many `:db` updates the handler made. The chunked machine is the only way to get intermediate renders, because each chunk is its own dispatch and its own drain.
+- **`:always` cycles without `:after 0` between batches.** A pure `:always` chain hits the `:rf.error/machine-always-depth-exceeded` cap (default 16). The `:yielding` state's `:after 0` resets the depth *and* yields to the browser — that's what's earning its keep.
+- **Input changing mid-process.** The machine's `:data` holds the input vector that `:start-scan` snapshotted. If the source data changes while the scan runs, the machine keeps processing the original snapshot — which is usually what you want. If it isn't, `:reset` and re-start.
+- **Forgetting cancel.** Long jobs need a cancel path. The state-machine shape makes this trivial; ad-hoc self-redispatch loops make it painful.
+
+The v1 idiom for this — `^:flush-dom` event metadata, or self-redispatching `{:dispatch [...]}` "tail call" loops — is gone. The replacement is this machine: explicit states, named transitions, encapsulated `:data`, cancellation as a transition, progress as a snapshot field. Full walkthrough including the `:dispatch-later {:ms 0}` "yield once before one big block" variant: [`spec/Pattern-LongRunningWork.md`](../../spec/Pattern-LongRunningWork.md).
 
 ## When to reach for a machine, and when not to
 
