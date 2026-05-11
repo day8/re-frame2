@@ -186,7 +186,7 @@ After a few weeks of working this way:
 
 ## Outcome
 
-In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of [this state machine](https://github.com/day8/re-frame2/blob/main/spec/Pattern-WebSocket.md#worked-example--connection-machine):  
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years.  I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
 
 
 ## TL;DR
