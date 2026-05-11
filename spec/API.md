@@ -344,6 +344,7 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 |---|---|---|---|---|
 | `register-trace-cb!` | Fn | `(register-trace-cb! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
 | `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` → nil | v1 (dev-only) | 009 |
+| `clear-trace-cbs!` | Fn | `(clear-trace-cbs!)` → nil — drops all registered listeners; test-time helper consumed by `re-frame.test-support/reset-runtime-fixture` | v1 (dev-only) | 009 |
 | `emit-trace!` | Fn | `(emit-trace! op-type operation tags)` → nil | v1 (dev-only) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
 | `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | 009 |

@@ -229,7 +229,7 @@ This is the family-asymmetry rule applied to views: **render trees use Vars; run
 [counter "Hello"]
 
 ;; runtime lookup — id
-(rf/view :my.ns/counter)             ;; → the registered render fn
+(rf/view :my.ns/counter)             ;; → the wrapped (frame-aware) render fn — see §`view` below
 
 ;; bare [:my.ns/counter "Hello"] in a render tree is NOT a view call —
 ;; it renders as a custom HTML element <my.ns:counter>...</my.ns:counter>
@@ -257,10 +257,10 @@ v1 ships three forms for invoking a registered view. To honour the principle of 
 
 ### `view` — the canonical post-registration lookup
 
-Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the wrapped (frame-aware) Var-equivalent, re-resolved on every call so hot-reload re-registration is picked up immediately. The other call-site forms are sugar over `view`.
+Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the **wrapped (frame-aware) fn that `reg-view` produced** — *not* the raw user fn the caller wrote. Specifically the wrapper carries the frame-injection, source-coord annotation (per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1)), and the lexical `dispatch` / `subscribe` bindings described in [§Shape](#shape). The lookup is re-resolved on every call so hot-reload re-registration is picked up immediately — calling `(rf/view :counter)` twice after a swap returns the new wrapped fn the second time. The other call-site forms are sugar over `view`.
 
 ```clojure
-(rf/view :counter)               ;; → wrapped fn
+(rf/view :counter)               ;; → wrapped (frame-aware) fn — observably equivalent to the Var bound by reg-view
 ((rf/view :counter) "label")     ;; identical observably to: [counter "label"]
 ```
 

@@ -140,7 +140,7 @@ Flows form a static dependency graph derivable from their `:path` and `:inputs` 
 - A's path is a prefix of B's input: `A.path = [:foo]`, `B.inputs = [[:foo :bar]]` — B reads inside A's value.
 - B's input is a prefix of A's path: `A.path = [:foo :bar]`, `B.inputs = [[:foo]]` — A's write is part of B's input map.
 
-The runtime topologically sorts the registry by this dependency relation. The sort is **memoised** and invalidated only when a flow is registered, cleared, or re-registered (rare relative to event volume).
+The runtime topologically sorts the registry by this dependency relation. The sort is **not memoised** in v1 — the per-frame flow map is tiny (a handful of nodes) and Kahn's algorithm over it is cheaper than the bookkeeping a memo would need. An earlier sketch carried a memoised topsort with explicit invalidation on every `reg-flow` / `clear-flow`; the memo was removed (per rf2-cd00) once measurement confirmed the unmemoised call is the cheapest correct option at the per-frame node counts v1 targets. Implementations that observe a real bottleneck in topsort cost MAY add a `core.memoize`-style cache keyed on the flow-registry identity, but the contract is just: deterministic order over the dependency graph each drain.
 
 **Cycle detection.** If A depends on B and B depends on A (any indirection), `reg-flow` throws `:rf.error/flow-cycle` at registration time with the cycle path in the error's `:tags`. The error fires before any snapshot is created — caught at registration, not at runtime.
 
@@ -193,8 +193,8 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 | Fx-id | Args | Effect |
 |---|---|---|
-| `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow against the dispatching frame. Topsort cache invalidated. |
-| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:path` in that frame's `app-db`. Topsort cache invalidated. |
+| `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow against the dispatching frame. Next drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). |
+| `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:path` in that frame's `app-db`. Next drain's topsort observes the removal. |
 
 ```clojure
 (rf/reg-event-fx :wizard/enter-step-2
@@ -217,7 +217,7 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 ## Re-registration
 
-`reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the topsort cache invalidates. In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
+`reg-flow` with an already-registered `:id` (against the same frame) performs a **surgical update** — same semantics as every other `reg-*` per [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics). The new flow's definition replaces the old in `(get @flows frame-id)`; `last-inputs` for `[frame-id flow-id]` is reset (the new flow re-evaluates on the next event regardless of input change); the next drain's topsort observes the new dependency edges automatically (per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); v1 does not memoise the sort). In-flight events finish against the resolved handler at the time they entered the drain. Re-registering the same flow id against a *different* frame is not a replacement — it adds an independent definition to the second frame's slot.
 
 ## What flows are NOT
 

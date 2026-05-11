@@ -682,6 +682,18 @@ For test suites that exercise many requests, a higher-level helper ships:
 
 The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply.
 
+### In-flight registry test helpers
+
+For test suites that need to inspect or reset the in-flight request registry directly (e.g. fixtures that share state across `dispatch-sync` calls, or property-based tests that need a clean slate between iterations), three test-time helpers ship in `re-frame.http-managed`:
+
+| Helper | Signature | Purpose |
+|---|---|---|
+| `clear-all-in-flight!` | `(clear-all-in-flight!)` → nil | Drops both the request-id-keyed and actor-id-keyed in-flight maps. Consumed by `re-frame.test-support/reset-runtime-fixture` to restore a clean registry between tests; the `:http/clear-all-in-flight!` hook is published via the late-bind table so `test-support` can call it without statically requiring the http artefact. |
+| `in-flight-snapshot` | `(in-flight-snapshot)` → map | Reads the current value of the request-id-keyed in-flight map. For tests that need to assert "this request-id is in flight" without poking the atom directly. |
+| `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and rf2-wvkn). For tests that need to assert the actor → request-id reverse index. |
+
+These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe and reset registry state without reaching into the namespace's atoms.
+
 ## Machine-shape wrapper
 
 Per [rf2-ijm7](#) — `:rf.http/managed` is **also** registered as a child-invokable state machine, so a parent machine can `:invoke` it without writing any glue. The wrapper is **additive** on top of the fx surface: `:fx [[:rf.http/managed args]]` continues to work unchanged ([§The shape](#the-shape) is the canonical user-facing surface); the machine wrapper is a second affordance for callers who are already inside a state-machine envelope and want a child machine they can compose with `:invoke`, `:after`, and the cancellation cascade.

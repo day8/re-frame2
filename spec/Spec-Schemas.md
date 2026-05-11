@@ -267,6 +267,8 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 
 The error category schemas in [009 §Error contract](009-Instrumentation.md#error-contract) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
+**Non-error refinements.** A small set of TraceEvent refinements describe `:op-type :event` lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-aborted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainAbortedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-aborted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-aborted` to filter; the `:op-type :event` discriminator places it alongside ordinary event traces rather than the error/warning channel. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+
 ### `:rf/error-event`
 
 > **Layer:** Runtime

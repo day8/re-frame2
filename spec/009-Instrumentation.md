@@ -167,6 +167,13 @@ The canonical listener API has one shape:
 
 (rf/remove-trace-cb! key)
 ;; Unsubscribes the listener registered under key. Returns nil.
+
+(rf/clear-trace-cbs!)
+;; Test-time helper: drops all registered raw-trace listeners atomically.
+;; Returns nil. Used by `re-frame.test-support/reset-runtime-fixture` to
+;; restore a clean listener registry between tests; ordinary application
+;; code SHOULD use `remove-trace-cb!` per key. The same dev-only elision
+;; rules apply (production builds drop the registry entirely).
 ```
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
@@ -299,6 +306,7 @@ The framework emits trace events from these call sites:
 - `epoch.cljc` — `:rf.epoch/snapshotted` per drain-settle, `:rf.epoch/restored` on restore success, `:rf.epoch/db-replaced` on `reset-frame-db!` success (rf2-zq55), plus the six restore-failure categories and the two reset-frame-db! failure categories (`:rf.epoch/reset-frame-db-during-drain`, `:rf.epoch/reset-frame-db-schema-mismatch`), plus `:rf.epoch.cb/silenced-on-frame-destroy` emitted once per `(frame-id, cb-id)` pair on the destroy-cascade boundary (rf2-d656).
 - `views.cljs` — `:view/render` per registered-view render (per [Spec 004 §Render-tree primitives](004-Views.md)).
 - `adapter/context.cljs` — `:rf.error/frame-context-corrupted` (function-component `_currentValue` read observed a non-coercible shape; per rf2-8q66).
+- `substrate/adapter.cljc` — `:warning :rf.warning/write-after-destroy` emitted by the `replace-container!` wrapper when called with a nil container (the frame was destroyed mid-drain or before a scheduled write fired; the underlying adapter's `replace-container!` is NOT invoked). Per [006 §`replace-container!`](006-ReactiveSubstrate.md#read-container-container--value-and-replace-container-container-new-value) and rf2-ft2b.
 - `std_interceptors.cljc` — `:rf.error/unwrap-bad-event-shape`.
 - `http_managed.cljc` — `:warning :rf.http/cljs-only-key-ignored-on-jvm`, `:warning :rf.warning/decode-defaulted`, `:info :rf.http/retry-attempt`, `:info :rf.http/aborted-on-actor-destroy` (per [014 §Abort on actor destroy](014-HTTPRequests.md#abort-on-actor-destroy), rf2-wvkn), `:info :rf.http.interceptor/registered`, `:info :rf.http.interceptor/cleared`, `:error :rf.error/http-interceptor-failed` (request-side interceptor `:before` threw, per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q), plus the Spec 014 failure categories.
 

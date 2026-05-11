@@ -132,6 +132,8 @@ The two basic operations on a container. `read-container` is pure; `replace-cont
 (replace-container! container new-value)                ;; → nil; container now holds new-value
 ```
 
+**Nil-container guard (defense-in-depth).** The core's `replace-container!` wrapper guards against the destroy-race case where a write (router `:db` commit, drain rollback, flows recompute, epoch restore, SSR write) arrives after the owning frame has been destroyed and `frame/get-frame-db` has started returning nil. When `container` is nil, the wrapper SKIPS the underlying adapter's `replace-container!` call and emits a `:warning :rf.warning/write-after-destroy` trace (per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives)) with `:recovery :no-recovery` — the write is dropped, no exception is thrown. The earlier behaviour (rf2-ft2b reproducer) was an NPE on a background thread; the guard centralises destroy-race handling on the one mutation primitive that every frame app-db write flows through. Adapter implementations may assume `container` is non-nil; the guard is in the core's wrapper, not in the adapter contract.
+
 ### `(subscribe-container container on-change) → unsubscribe-fn`
 
 Optional. Registers a callback that fires *after* `replace-container!` runs. The callback receives `(prev-value, new-value)`.
