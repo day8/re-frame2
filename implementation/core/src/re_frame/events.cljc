@@ -179,11 +179,11 @@
         (cond
           (map? middle)        [middle [] handler]
           (vector? middle)     [{} middle handler]
-          :else                (throw (ex-info "re-frame-2: bad reg-event-* args"
+          :else                (throw (ex-info "re-frame2: bad reg-event-* args"
                                                {:args args}))))
     3 (let [[meta interceptors handler] args]
         [meta (or interceptors []) handler])
-    (throw (ex-info "re-frame-2: reg-event-* arity error" {:args args}))))
+    (throw (ex-info "re-frame2: reg-event-* arity error" {:args args}))))
 
 (defn reg-event-db
   [id & args]

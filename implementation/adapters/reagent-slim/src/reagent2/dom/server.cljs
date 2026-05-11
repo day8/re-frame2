@@ -401,7 +401,7 @@
   `react-dom/server` dependency. Per IMPL-SPEC §8.
 
   The output is suitable for HTML email, static-export, or as the
-  initial seed for the SSR seam (`day8/re-frame-2-ssr`'s
+  initial seed for the SSR seam (`day8/re-frame2-ssr`'s
   `re-frame.ssr/render-to-string` is the richer path that includes
   hydration support per Spec 011)."
   [hiccup]

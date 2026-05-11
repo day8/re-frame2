@@ -27,7 +27,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind]
-            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
             [re-frame.routing]

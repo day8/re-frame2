@@ -3,7 +3,7 @@
 > **Type:** Reference
 > Demonstrates the spec's primitives composed into real UI work. Read after the guide; refer to alongside the specification.
 
-> **Status reminder.** These examples target the current `re-frame-2` API. Their maturity varies: some are aligned closely enough to run against the reference implementation, some are pedagogical sketches, and the RealWorld scaffold is now a broad worked sketch rather than a partially empty placeholder set. Treat the per-example README or docstring as the source of truth for how complete each one is.
+> **Status reminder.** These examples target the current `re-frame2` API. Their maturity varies: some are aligned closely enough to run against the reference implementation, some are pedagogical sketches, and the RealWorld scaffold is now a broad worked sketch rather than a partially empty placeholder set. Treat the per-example README or docstring as the source of truth for how complete each one is.
 
 ## Layout — grouped by substrate
 

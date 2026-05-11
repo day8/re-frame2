@@ -822,7 +822,7 @@
 ;; registry keeps router.cljc / trace.cljc free of a require on this ns.
 ;;
 ;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-;; Strategy B), this namespace ships in `day8/re-frame-2-epoch`; the
+;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
 ;; core artefact MUST NOT statically `:require` it. Core's public
 ;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
 ;; `rf/register-epoch-cb`, `rf/remove-epoch-cb`) and the

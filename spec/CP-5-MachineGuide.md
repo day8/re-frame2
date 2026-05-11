@@ -27,7 +27,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 | `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes — call-site coords on the registry slot AND per-element coord index walked from the literal spec form (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping-rf2-8bp3)) | The default. Use whenever the spec is a literal map at the call site. |
 | `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the spec is opaque data at the call site | Code-gen pipelines, REPL exploration, conformance harnesses that synthesise specs from EDN fixtures. |
 
-Both forms live in `re-frame.machines` (the `day8/re-frame-2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
+Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
 The older `reg-event-fx + create-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
 

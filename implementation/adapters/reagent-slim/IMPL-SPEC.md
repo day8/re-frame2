@@ -6,7 +6,7 @@
 > document is the engineering spec Stage 4 (rf2-6hyy) implements against.
 >
 > Inputs (binding):
-> - `findings/re-frame-2-reagent-stage1-api-surface.md` — bounded surface, eight RESOLVED decisions.
+> - `findings/re-frame2-reagent-stage1-api-surface.md` — bounded surface, eight RESOLVED decisions.
 > - `findings/reagent-slim-and-fast-stage2-efficiency.md` — bundle + runtime estimates, top-3 commitments, R-001..R-007 risk register, S3-001..S3-008 inputs.
 > - `findings/recom-react19-readiness-audit.md` (rf2-cgcv) — re-com + 10x lifecycle inventory.
 > - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle + SSR inventory.
@@ -28,7 +28,7 @@
 
 ## §1 Artefact layout
 
-The new artefact lives at `implementation/adapters/reagent-slim-and-fast/` mirroring the existing `implementation/adapters/{reagent,uix,helix}/` pattern (rf2-zha9 / rf2-0imy). The `re-frame-2-` prefix is dropped on the Maven coord (per Stage 1 DECISION-1) but the on-disk path stays inside `implementation/adapters/` because that is the lockstep verifier's "adapter tier" detection axis (`.github/scripts/verify-version-lockstep.sh:67-90`).
+The new artefact lives at `implementation/adapters/reagent-slim-and-fast/` mirroring the existing `implementation/adapters/{reagent,uix,helix}/` pattern (rf2-zha9 / rf2-0imy). The `re-frame2-` prefix is dropped on the Maven coord (per Stage 1 DECISION-1) but the on-disk path stays inside `implementation/adapters/` because that is the lockstep verifier's "adapter tier" detection axis (`.github/scripts/verify-version-lockstep.sh:67-90`).
 
 ### §1.1 Directory shape
 
@@ -69,11 +69,11 @@ implementation/adapters/reagent-slim-and-fast/
 
 ### §1.2 `deps.edn` shape
 
-Modeled on `implementation/adapters/reagent/deps.edn`. The `:clein/build` block references the repo-root VERSION via the adapter-tier path (`../../../VERSION`); the `day8/re-frame-2` coordinate uses `:local/root "../../core"` per the lockstep contract:
+Modeled on `implementation/adapters/reagent/deps.edn`. The `:clein/build` block references the repo-root VERSION via the adapter-tier path (`../../../VERSION`); the `day8/re-frame2` coordinate uses `:local/root "../../core"` per the lockstep contract:
 
 ```clojure
 {:paths ["src"]
- :deps  {day8/re-frame-2 {:local/root "../../core"}}
+ :deps  {day8/re-frame2 {:local/root "../../core"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
@@ -90,7 +90,7 @@ Modeled on `implementation/adapters/reagent/deps.edn`. The `:clein/build` block 
    :src-dirs ["src"]}}}
 ```
 
-Note: the `:lib` is `day8/reagent-slim-and-fast` (no `re-frame-2-` prefix) per DECISION-1; the `:main` keyword keeps `re-frame.adapter.reagent` for backward compat with any tooling that resolves the adapter ns from clein's emitted pom.
+Note: the `:lib` is `day8/reagent-slim-and-fast` (no `re-frame2-` prefix) per DECISION-1; the `:main` keyword keeps `re-frame.adapter.reagent` for backward compat with any tooling that resolves the adapter ns from clein's emitted pom.
 
 ### §1.3 Top-level `implementation/deps.edn` updates
 
@@ -98,10 +98,10 @@ Add the new artefact alongside the existing reagent / uix / helix adapter entrie
 
 ```clojure
 {:paths []
- :deps  {day8/re-frame-2                  {:local/root "core"}
-         day8/re-frame-2-reagent          {:local/root "adapters/reagent"}
+ :deps  {day8/re-frame2                  {:local/root "core"}
+         day8/re-frame2-reagent          {:local/root "adapters/reagent"}
          day8/reagent-slim-and-fast       {:local/root "adapters/reagent-slim-and-fast"}
-         day8/re-frame-2-uix              {:local/root "adapters/uix"}
+         day8/re-frame2-uix              {:local/root "adapters/uix"}
          ;; … unchanged …
          }
  :aliases {:test {:extra-paths […
@@ -274,7 +274,7 @@ File: `src/reagent2/dom/server.cljs`.
 Public Vars:
 - `render-to-static-markup` `[hiccup]` — pure-CLJS recursive walker; emits HTML5 static markup. **No `react-dom/server` dependency** (Stage 2 §2.5; the biggest single bundle win for SSR-using apps). See §8 for serializer detail.
 
-`render-to-string` is **not shipped** (DECISION-6). Apps that need hydrate-able SSR use `day8/re-frame-2-ssr` via `re-frame.ssr/render-to-string`.
+`render-to-string` is **not shipped** (DECISION-6). Apps that need hydrate-able SSR use `day8/re-frame2-ssr` via `re-frame.ssr/render-to-string`.
 
 ### §2.6 `reagent2.dom` — throw-on-call shims (Class B)
 
@@ -1065,12 +1065,12 @@ Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new a
 
 ### §13.1 Switching from the bridge to the rewrite
 
-App author currently using `day8/re-frame-2-reagent` (the thin bridge) wants to move to `day8/reagent-slim-and-fast`. The required changes:
+App author currently using `day8/re-frame2-reagent` (the thin bridge) wants to move to `day8/reagent-slim-and-fast`. The required changes:
 
 **`deps.edn`**:
 ```clojure
 ;; before
-{:deps {day8/re-frame-2-reagent {:mvn/version "..."}}}
+{:deps {day8/re-frame2-reagent {:mvn/version "..."}}}
 
 ;; after
 {:deps {day8/reagent-slim-and-fast {:mvn/version "..."}}}
@@ -1138,7 +1138,7 @@ The dropped surfaces (§2.2 list) were audit-confirmed zero-usage across re-com 
 
 ### §13.4 SSR migration
 
-App that used `reagent.dom.server/render-to-string`: migrate to `re-frame.ssr/render-to-string` (the seam in `day8/re-frame-2-ssr`). The re-frame2 SSR path produces a richer artefact (per Spec 011) — render-tree-hash, response accumulator, per-frame `:platform` predicate, error projector. Apps that just want HTML reproduction of a hiccup tree use `reagent2.dom.server/render-to-static-markup` (no React-id attributes; no SSR machinery).
+App that used `reagent.dom.server/render-to-string`: migrate to `re-frame.ssr/render-to-string` (the seam in `day8/re-frame2-ssr`). The re-frame2 SSR path produces a richer artefact (per Spec 011) — render-tree-hash, response accumulator, per-frame `:platform` predicate, error projector. Apps that just want HTML reproduction of a hiccup tree use `reagent2.dom.server/render-to-static-markup` (no React-id attributes; no SSR machinery).
 
 ---
 
@@ -1162,7 +1162,7 @@ The rewrite ships `reagent2.core/reaction` (function) AND `reagent2.ratom/reacti
 
 ### §14.3 Boolean-attribute set + void-tag set duplication
 
-The rewrite's `reagent2.dom.server` and `re-frame.ssr` both need the `boolean-attrs` and `void-tags` sets. Per §8.4 — Stage 4 lifts both from `re-frame.ssr`. **But** this creates a load-order ordering: `reagent2.dom.server` would need to require `re-frame.ssr`. The SSR seam is in a different artefact (`day8/re-frame-2-ssr`), and the rewrite **must not** statically require it (per the bundle-isolation contract; cf. `re-frame.adapter.reagent`'s comment on lines 12-20 about not requiring the SSR ns).
+The rewrite's `reagent2.dom.server` and `re-frame.ssr` both need the `boolean-attrs` and `void-tags` sets. Per §8.4 — Stage 4 lifts both from `re-frame.ssr`. **But** this creates a load-order ordering: `reagent2.dom.server` would need to require `re-frame.ssr`. The SSR seam is in a different artefact (`day8/re-frame2-ssr`), and the rewrite **must not** statically require it (per the bundle-isolation contract; cf. `re-frame.adapter.reagent`'s comment on lines 12-20 about not requiring the SSR ns).
 
 **Resolution**: duplicate the static sets in `reagent2.dom.server`. The sets are <30 lines total; the duplication has no maintenance cost (HTML5's void-tag list is fixed). Stage 4 lifts the values via copy-paste, not require.
 
@@ -1194,4 +1194,4 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 *Word count: ~7 100.*
 
-*This spec is the binding input for Stage 4 (rf2-6hyy). Cross-references to Stage 1 (`findings/re-frame-2-reagent-stage1-api-surface.md`) and Stage 2 (`findings/reagent-slim-and-fast-stage2-efficiency.md`) are inline throughout. The current thin-bridge adapter at `implementation/adapters/reagent/` is the reference for unchanged-public-path elements (the adapter Var, the late-bind hook wiring, the cache-disposal contract).*
+*This spec is the binding input for Stage 4 (rf2-6hyy). Cross-references to Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`) and Stage 2 (`findings/reagent-slim-and-fast-stage2-efficiency.md`) are inline throughout. The current thin-bridge adapter at `implementation/adapters/reagent/` is the reference for unchanged-public-path elements (the adapter Var, the late-bind hook wiring, the cache-disposal contract).*

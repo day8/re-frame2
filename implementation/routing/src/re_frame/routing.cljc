@@ -892,7 +892,7 @@ unknown strategies as :preserve (no-op)."}
 ;; :rf/route slice) and the layer-2 derivations `:rf.route/{id,params,query,
 ;; transition,error}`. Per rf2-k682 these subs ship in this artefact
 ;; (rather than `re-frame.core`) so apps that don't pull
-;; `day8/re-frame-2-routing` carry neither the registration metadata nor
+;; `day8/re-frame2-routing` carry neither the registration metadata nor
 ;; the `:rf.route/*` keyword strings on their production-elision bundle.
 ;;
 ;; Lives in this namespace (rather than core.cljc) so the smoke-test
@@ -916,7 +916,7 @@ unknown strategies as :preserve (no-op)."}
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; Per rf2-k682 the routing surface ships in `day8/re-frame-2-routing`.
+;; Per rf2-k682 the routing surface ships in `day8/re-frame2-routing`.
 ;; `re-frame.core` MUST NOT `:require [re-frame.routing]` — the artefact
 ;; is optional, and a static require would force every consumer of the
 ;; core artefact to drag the namespace, the route-rank / pattern-compile

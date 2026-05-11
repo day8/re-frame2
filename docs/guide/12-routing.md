@@ -22,11 +22,11 @@ You'll know how to:
 
 ## The artefact
 
-Routing ships as a separate per-feature artefact (`day8/re-frame-2-routing`):
+Routing ships as a separate per-feature artefact (`day8/re-frame2-routing`):
 
 ```clojure
-{:deps {day8/re-frame-2          {...}
-        day8/re-frame-2-routing  {...}}}
+{:deps {day8/re-frame2          {...}
+        day8/re-frame2-routing  {...}}}
 ```
 
 Per Strategy B, an app that doesn't use routing doesn't bundle routing code. The bundle-isolation gate ([rf2-51x5](#)) asserts that core's release build carries zero routing namespace markers — re-importing `re-frame.routing` from core is a CI failure.

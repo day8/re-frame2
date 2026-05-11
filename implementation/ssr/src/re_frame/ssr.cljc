@@ -334,7 +334,7 @@
 ;; Wire our render-to-string into the plain-atom adapter so callers
 ;; using rf/render-to-string (which delegates through the substrate
 ;; adapter) get this implementation. Per rf2-uo7v the Reagent adapter
-;; (day8/re-frame-2-reagent) wires its own set-hiccup-emitter! through
+;; (day8/re-frame2-reagent) wires its own set-hiccup-emitter! through
 ;; the late-bind hook table (`:reagent/set-hiccup-emitter!`); we
 ;; consume that hook below so ssr does not statically :require the
 ;; Reagent adapter ns. Core deliberately does *not* :require the
@@ -1045,7 +1045,7 @@ response with no body."
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Per rf2-uo7v (the sixth per-feature artefact split per rf2-5vjj
-;; Strategy B) re-frame.ssr ships in `day8/re-frame-2-ssr`. The core
+;; Strategy B) re-frame.ssr ships in `day8/re-frame2-ssr`. The core
 ;; artefact's `re-frame.core/render-to-string`, `render-tree-hash`,
 ;; `reg-error-projector`, and `project-error` re-exports look the
 ;; producing fns up through this hook table — core never statically

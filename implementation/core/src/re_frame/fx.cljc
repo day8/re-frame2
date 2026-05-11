@@ -16,7 +16,7 @@
 
   Per rf2-xbtj the machine fx-ids `:rf.machine/spawn` and
   `:rf.machine/destroy` are registered by `re-frame.machines` (which now
-  ships in `day8/re-frame-2-machines`) at its ns-load time, via the
+  ships in `day8/re-frame2-machines`) at its ns-load time, via the
   regular `reg-fx` path. They are NOT reserved in core's case-block —
   apps that don't pull in the machines artefact don't carry the trace
   strings or the handler for them."
@@ -162,7 +162,7 @@
 
     ;; Per rf2-xbtj the `:rf.machine/spawn` and `:rf.machine/destroy`
     ;; machine fx-ids are no longer reserved here — they are registered
-    ;; by re-frame.machines (day8/re-frame-2-machines) via the regular
+    ;; by re-frame.machines (day8/re-frame2-machines) via the regular
     ;; reg-fx path and arrive here through the registrar default below.
 
     ;; Default: user-registered fx.

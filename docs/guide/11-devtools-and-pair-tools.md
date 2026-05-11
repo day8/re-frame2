@@ -9,7 +9,7 @@ This chapter is the human-facing version of that pitch. What you actually get, w
 You'll come away knowing:
 
 - What re-frame2 commits to as a *tooling substrate*, in narrative form.
-- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame-2-story`, `re-frame-10x` v2, machine visualisers).
+- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, `re-frame-10x` v2, machine visualisers).
 - Why the **trace bus** and **per-cascade epoch records** are the architectural punchline — one observation surface, every tool consumes it.
 - How **source-coord stamping** wires click-to-source from any panel.
 - How to attach your own listener and build a working debug panel in twenty lines.
@@ -37,7 +37,7 @@ Four tools, at different stages of life. They all share one substrate.
 
 You'd use `re-frame-pair2` when you want an AI agent that can do experimentally what a human REPL session would: try a thing, see the trace, decide what's next. The skill's transcripts are kept structured precisely so [`re-frame-pair-improver2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2) — a sibling retrospective skill — can review them and propose improvements to the pair tool itself.
 
-### `re-frame-2-story` — Storybook for frames *(in design)*
+### `re-frame2-story` — Storybook for frames *(in design)*
 
 A Storybook-flavoured component playground built around re-frame2's frame primitive. Each story is a frame, with controls that dispatch events and surfaces that watch subscriptions. Machine-state visualisation, per-story time-travel, frame-aware fixture data — the same machinery the runtime uses for the live app, scoped to a single component.
 
@@ -162,7 +162,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
 
 That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-10x` v2's timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
 
-The time-travel surface ships in `day8/re-frame-2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
+The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
 ## Performance: the prod-friendly channel
 

@@ -40,7 +40,7 @@ There is no `workflow_dispatch` trigger by design: a release commit always carri
 
 ## Topological deploy DAG
 
-Per rf2-w05l's lockstep-versioning decision, all artefacts ship at the same version each release. The DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame-2` (core); cross-feature references at runtime are wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule).
+Per rf2-w05l's lockstep-versioning decision, all artefacts ship at the same version each release. The DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame2` (core); cross-feature references at runtime are wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 ```mermaid
 graph TD
@@ -85,7 +85,7 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame-2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
+**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
 
 ## Pre-flight checklist
 
@@ -119,7 +119,7 @@ If a deploy job fails part-way through (e.g. `deploy-core` shipped, but `deploy-
 
 Per [Spec 009 §Performance instrumentation](../spec/009-Instrumentation.md#performance-instrumentation), re-frame2 ships a default-off Performance API channel gated on the `re-frame.performance/enabled?` `goog-define`. Releases land both shapes:
 
-- The published **artefact** (the `day8/re-frame-2-*` Maven jars driven through this release pipeline) carries the bracket sites in source. Apps consuming the artefact decide at *their* `:advanced` build time whether to flip the flag.
+- The published **artefact** (the `day8/re-frame2-*` Maven jars driven through this release pipeline) carries the bracket sites in source. Apps consuming the artefact decide at *their* `:advanced` build time whether to flip the flag.
 - The **release verification** in CI runs `npm run test:perf-bundle`, which builds two `:examples/counter` variants under `:advanced` (one with the flag off, the default; one with it on via `:closure-defines {re-frame.performance/enabled? true}`) and asserts:
   - the off bundle carries zero `performance.mark` / `performance.measure` / `re-frame.performance` strings (bundle-isolation: shipped binaries that don't ask for timing have no User-Timing cost);
   - the on bundle carries those strings (bundle-presence: the toggle actually produces the measure entries).
@@ -149,8 +149,8 @@ The contract:
 
 - Repo root has a non-empty `VERSION` file.
 - Every artefact's `:clein/build` declares `:version "../../VERSION"` (i.e. defers to the single source).
-- Every non-core artefact references core via `day8/re-frame-2 {:local/root "../core"}` (the release workflow rewrites this to `:mvn/version` at deploy time).
-- No artefact's committed `deps.edn` carries a literal `:mvn/version` for any `day8/re-frame-2-*` artefact in a non-comment line.
+- Every non-core artefact references core via `day8/re-frame2 {:local/root "../core"}` (the release workflow rewrites this to `:mvn/version` at deploy time).
+- No artefact's committed `deps.edn` carries a literal `:mvn/version` for any `day8/re-frame2-*` artefact in a non-comment line.
 
 Run locally any time:
 

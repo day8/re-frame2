@@ -8,11 +8,11 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 
 | Directory | Adapter | Maven artefact | Target |
 |---|---|---|---|
-| [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame-2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
-| [`uix/`](uix/) | UIx adapter | `day8/re-frame-2-uix` | UIx 2.x — modern hooks-based React layer |
-| [`helix/`](helix/) | Helix adapter | `day8/re-frame-2-helix` | Helix 0.2.x — minimal React wrapper |
+| [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
+| [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
+| [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
 
-A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame-2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
+A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
 
 ## What an adapter implements
 
@@ -31,7 +31,7 @@ Each adapter is its own Maven artefact with its own `deps.edn`:
 ```
 adapters/
 ├── reagent/
-│   ├── deps.edn              ; declares day8/re-frame-2-reagent
+│   ├── deps.edn              ; declares day8/re-frame2-reagent
 │   ├── src/re_frame/adapter/reagent.cljs
 │   └── test/...
 ├── uix/
@@ -44,7 +44,7 @@ adapters/
     └── test/...
 ```
 
-All three depend on `day8/re-frame-2 {:local/root "../../core"}`. None depend on each other.
+All three depend on `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
 
 ## Per-feature artefacts vs adapters
 

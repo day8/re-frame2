@@ -32,11 +32,11 @@
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Per rf2-p7va, re-frame.schemas ships in
-            ;; day8/re-frame-2-schemas. Loading the ns here registers
+            ;; day8/re-frame2-schemas. Loading the ns here registers
             ;; its late-bind hooks so rf/reg-app-schema resolves at
             ;; the call sites below.
             [re-frame.schemas]
-            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame-2-http.
+            ;; Per rf2-5kpd, managed-HTTP ships in day8/re-frame2-http.
             ;; Loading the ns here registers the `:rf.http/managed` fx
             ;; family — the SSR worked example dispatches
             ;; `:rf.http/managed` for the article-list fetch and uses
@@ -44,7 +44,7 @@
             ;; stub during render. Without the require, the override
             ;; would target an unregistered fx-id.
             [re-frame.http-managed]
-            ;; Per rf2-uo7v, SSR ships in day8/re-frame-2-ssr. Loading
+            ;; Per rf2-uo7v, SSR ships in day8/re-frame2-ssr. Loading
             ;; the ns here registers the six `:rf.server/*` server-only
             ;; fxs, the `:rf/hydrate` event, and the
             ;; `:rf.ssr/default-error-projector`, and publishes the

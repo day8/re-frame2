@@ -9,7 +9,7 @@
 
   Per rf2-p7va the same mechanism carries cross-artefact references:
   `re-frame.schemas` ships in a separate Maven artefact
-  (day8/re-frame-2-schemas), so re-frame.core / re-frame.test-support
+  (day8/re-frame2-schemas), so re-frame.core / re-frame.test-support
   MUST NOT statically `:require` it — they look the schemas API up
   through the hook table at call time. When the schemas artefact is
   not on the classpath, the lookup returns nil and the consumer

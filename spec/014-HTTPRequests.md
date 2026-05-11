@@ -25,7 +25,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame-2-http` — `re-frame.http-managed` namespace, the four `:rf.http/*` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `with-managed-request-stubs` test helper. The core artefact (`day8/re-frame-2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](MIGRATION.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame-2-http) for the deps swap.
+**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http-managed` namespace, the four `:rf.http/*` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `with-managed-request-stubs` test helper. The core artefact (`day8/re-frame2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](MIGRATION.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -570,7 +570,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 | `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` |
 | `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
 
-Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame-2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
+Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 
 ## Examples
 

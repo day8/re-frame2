@@ -26,7 +26,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame-2-http.
+            ;; rf2-5kpd: managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
             ;; triggers its load-time fx registrations (`:rf.http/managed`
             ;; and family) and publishes the late-bind hooks; without

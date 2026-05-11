@@ -7,18 +7,18 @@
 ;;
 ;; Per the IMPL-SPEC §1: this artefact is the "slim" rewrite of stock
 ;; Reagent for React 19. It replaces (does not depend on) stock Reagent.
-;; The bridge `day8/re-frame-2-reagent` continues to ship in parallel so
+;; The bridge `day8/re-frame2-reagent` continues to ship in parallel so
 ;; consumers that need the dropped surfaces (`track`, `cursor`, `wrap`,
 ;; `with-let`, etc.) keep a path to the React-19-stable React API.
 ;;
 ;; The :clein/build :version pulls from the repo-root VERSION via the
 ;; adapter-tier path "../../../VERSION" (the lockstep-version contract;
 ;; see .github/scripts/verify-version-lockstep.sh — adapters are one
-;; directory deeper than per-feature artefacts). The day8/re-frame-2
+;; directory deeper than per-feature artefacts). The day8/re-frame2
 ;; coordinate uses :local/root "../../core" — the release workflow
 ;; rewrites this to :mvn/version "${VERSION}" at deploy time.
 {:paths ["src"]
- :deps  {day8/re-frame-2 {:local/root "../../core"}}
+ :deps  {day8/re-frame2 {:local/root "../../core"}}
 
  :aliases
  {:test {:extra-paths ["test"]

@@ -41,11 +41,11 @@ The rules are listed in order of likelihood. Apply them in order; later rules ma
 
 These are the changes that **must** be applied if the codebase trips them.
 
-### M-0. Bump the dependency coordinate to `day8/re-frame-2`
+### M-0. Bump the dependency coordinate to `day8/re-frame2`
 
 **Type A** (mechanical). The target coord is unambiguous (per rf2-5sqd[^rf2-5sqd]); apply without asking.
 
-Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with the latest released version of `day8/re-frame-2`. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
+Before applying any other migration rule, inspect the target project's dependency files and replace the re-frame coordinate with the latest released version of `day8/re-frame2`. Every other rule below assumes the project is already pointing at the v2 artefact — without this step the agent has nothing to verify against.
 
 **Files to inspect** (whichever exist at the project root):
 
@@ -66,25 +66,25 @@ re-frame          {:mvn/version "1.x.x"}     ;; deps.edn / shadow-cljs.edn — o
 
 ```clojure
 ;; deps.edn / shadow-cljs.edn / bb.edn
-day8/re-frame-2         {:mvn/version "<latest>"}
-day8/re-frame-2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
+day8/re-frame2         {:mvn/version "<latest>"}
+day8/re-frame2-reagent {:mvn/version "<latest>"}    ;; ← new in v2
 
 ;; project.clj
-[day8/re-frame-2         "<latest>"]
-[day8/re-frame-2-reagent "<latest>"]
+[day8/re-frame2         "<latest>"]
+[day8/re-frame2-reagent "<latest>"]
 ```
 
-`<latest>` is the latest released version of `day8/re-frame-2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
+`<latest>` is the latest released version of `day8/re-frame2` (look it up — Clojars / Maven Central). Adapter artefacts are versioned in lock-step with core. The `re-frame.core` and `re-frame.adapter.reagent` namespaces and `:require` lines are unchanged; only the dep coord moves.
 
-**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame-2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame-2-uix` or `day8/re-frame-2-helix` instead. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention).
+**Pick the adapter artefact by current substrate.** v1 codebases use Reagent universally, so the migration adds `day8/re-frame2-reagent`. Codebases that have already switched to UIx or Helix (rare; usually post-migration) get `day8/re-frame2-uix` or `day8/re-frame2-helix` instead. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention).
 
 **If no released v2 version is available yet** (pre-publication): leave the dep alone, do not apply any other migration rules, and flag the situation in the migration report — the user must update the coord manually once a release lands, then re-run the migration.
 
-**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame-2 2.0.0`).
+**Report.** Include the before/after coord pair in the migration report's preamble (e.g. `re-frame/re-frame 1.4.5 → day8/re-frame2 2.0.0`).
 
-**Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame-2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. See rf2-5sqd for the full rationale.
+**Why:** v1 (`re-frame/re-frame`) and v2 (`day8/re-frame2`) share the `re-frame.core` namespace and cannot coexist on the same classpath; migration is necessarily atomic per project. Shipping v2 under a new artefact label (rather than as `re-frame/re-frame 2.x`) makes the redesign visible to ops and deps tooling and lets the v1 line continue under its own coord for maintenance releases. See rf2-5sqd for the full rationale.
 
-[^rf2-5sqd]: Decision recorded in bead **rf2-5sqd** ("Decide artefact name for re-frame2 publication") — option 2 (new artefact `day8/re-frame-2`, public namespace `re-frame.core` unchanged).
+[^rf2-5sqd]: Decision recorded in bead **rf2-5sqd** ("Decide artefact name for re-frame2 publication") — option 2 (new artefact `day8/re-frame2`, public namespace `re-frame.core` unchanged).
 
 ---
 
@@ -1041,11 +1041,11 @@ For `make-restore-fn`, `init-platform`, and the SSR-head trio (`reg-head` / `ren
 
 ---
 
-### M-27. Schemas (Spec 010) ship in a separate artefact — `day8/re-frame-2-schemas`
+### M-27. Schemas (Spec 010) ship in a separate artefact — `day8/re-frame2-schemas`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame-2-schemas`. The core artefact (`day8/re-frame-2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
+Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 010's schema-attachment surface — `reg-app-schema`, `app-schema-at`, `app-schemas`, the validation hot-path entry points, and the `re-frame.schemas` namespace — ships as a separate Maven artefact `day8/re-frame2-schemas`. The core artefact (`day8/re-frame2`) no longer carries the namespace or its Malli dep; an app that doesn't register any schemas builds an `:advanced` bundle clean of schema strings, Malli code, and the `re-frame.schemas` ns symbols.
 
 **What to look for** in the codebase:
 
@@ -1057,9 +1057,9 @@ Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strate
 
 ```clojure
 ;; deps.edn for an app that uses Spec 010 schemas
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 CLJS apps additionally require `malli.core` somewhere in their boot path — `re-frame.schemas`'s validate fn is found via `(resolve 'malli.core/validate)` and only resolves a var that has already been loaded into the runtime. The schemas artefact carries Malli as a `:deps` entry so the namespace is available; the app's `:require [malli.core]` is what loads it.
@@ -1070,11 +1070,11 @@ CLJS apps additionally require `malli.core` somewhere in their boot path — `re
 
 ---
 
-### M-28. State machines (Spec 005) ship in a separate artefact — `day8/re-frame-2-machines`
+### M-28. State machines (Spec 005) ship in a separate artefact — `day8/re-frame2-machines`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the per-process spawn-counter, and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame-2-machines`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 005's state-machine surface — `reg-machine`, `create-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the per-process spawn-counter, and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1086,9 +1086,9 @@ Per [rf2-xbtj](#) (the second per-feature artefact split per [rf2-5vjj](#) Strat
 
 ```clojure
 ;; deps.edn for an app that uses Spec 005 state machines
-{:deps {day8/re-frame-2          {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent  {:mvn/version "<latest>"}
-        day8/re-frame-2-machines {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2          {:mvn/version "<latest>"}
+        day8/re-frame2-reagent  {:mvn/version "<latest>"}
+        day8/re-frame2-machines {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
@@ -1099,11 +1099,11 @@ Every namespace that calls `rf/reg-machine` / `rf/create-machine-handler` / `rf/
 
 ---
 
-### M-29. Routing (Spec 012) ships in a separate artefact — `day8/re-frame-2-routing`
+### M-29. Routing (Spec 012) ships in a separate artefact — `day8/re-frame2-routing`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf/url-changed` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame-2-routing`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf/url-changed` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1116,9 +1116,9 @@ Per [rf2-k682](#) (the third per-feature artefact split per [rf2-5vjj](#) Strate
 
 ```clojure
 ;; deps.edn for an app that uses Spec 012 routing
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-routing {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-routing {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` events / subscribes to the `:rf/route` family) MUST `(:require [re-frame.routing])` so the namespace's load-time hook registrations and `:rf.route/*` reg-event-fx + reg-sub installations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-route` resolves and the wrapper raises `:rf.error/routing-artefact-missing` with a clear "add the routing artefact" message; without the framework events the dispatches resolve to `:rf.error/no-such-handler`.
@@ -1129,11 +1129,11 @@ Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` event
 
 ---
 
-### M-30. Flows (Spec 013) ships in a separate artefact — `day8/re-frame-2-flows`
+### M-30. Flows (Spec 013) ships in a separate artefact — `day8/re-frame2-flows`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-tfw3](#) (the fourth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame-2-flows`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
+Per [rf2-tfw3](#) (the fourth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 013's flows surface — `reg-flow`, `clear-flow`, the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs, the per-frame flow registry, the topological-sort engine, the dirty-check `last-inputs` map, the post-drain `run-flows!` walker, and the `re-frame.flows` namespace — ships as a separate Maven artefact `day8/re-frame2-flows`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the topo-sort engine, or any of the flow-evaluation machinery; an app that doesn't register any flows builds an `:advanced` bundle clean of every flows-related symbol.
 
 **What to look for** in the codebase:
 
@@ -1145,9 +1145,9 @@ Per [rf2-tfw3](#) (the fourth per-feature artefact split per [rf2-5vjj](#) Strat
 
 ```clojure
 ;; deps.edn for an app that uses Spec 013 flows
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-flows   {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-flows   {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.fx/clear-flow` runtime fxs) MUST `(:require [re-frame.flows])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-flow` resolves and the wrapper raises `:rf.error/flows-artefact-missing` with a clear "add the flows artefact" message; without the load-time hooks the `:rf.fx/reg-flow` runtime fx silently no-ops.
@@ -1158,11 +1158,11 @@ Every namespace that calls `rf/reg-flow` (or uses the `:rf.fx/reg-flow` / `:rf.f
 
 ---
 
-### M-31. Managed HTTP (Spec 014) ships in a separate artefact — `day8/re-frame-2-http`
+### M-31. Managed HTTP (Spec 014) ships in a separate artefact — `day8/re-frame2-http`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http-managed` namespace — ships as a separate Maven artefact `day8/re-frame-2-http`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
+Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 014's managed-HTTP surface — the `:rf.http/managed`, `:rf.http/managed-abort`, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure` fxs, the `with-managed-request-stubs` / `install-managed-request-stubs!` / `uninstall-managed-request-stubs!` test helpers, the in-flight request registry, the Fetch / `java.net.http.HttpClient` transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, and the `re-frame.http-managed` namespace — ships as a separate Maven artefact `day8/re-frame2-http`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the transport adapters, or any of the managed-HTTP machinery; an app that doesn't issue any managed-HTTP requests builds an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
@@ -1176,9 +1176,9 @@ Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strate
 
 ```clojure
 ;; deps.edn for an app that uses Spec 014 managed HTTP
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-http    {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-http    {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs / `with-managed-request-stubs` helper / `:rf.http/decode-schemas` registration metadata) MUST `(:require [re-frame.http-managed])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four `:rf.http/*` fxs are not registered at the moment a `[:rf.http/managed ...]` entry hits the drain and the `:fx` runner raises `:rf.error/no-such-fx`; the test-helper wrappers in `re-frame.core` raise `:rf.error/http-artefact-missing` with a clear "add the http artefact" message.
@@ -1189,11 +1189,11 @@ Every namespace that dispatches `:rf.http/managed` (or uses the canned-stub fxs 
 
 ---
 
-### M-32. SSR & hydration (Spec 011) ships in a separate artefact — `day8/re-frame-2-ssr`
+### M-32. SSR & hydration (Spec 011) ships in a separate artefact — `day8/re-frame2-ssr`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-uo7v](#) (the sixth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame-2-ssr`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
+Per [rf2-uo7v](#) (the sixth per-feature artefact split per [rf2-5vjj](#) Strategy B), Spec 011's server-side rendering and hydration surface — the pure hiccup → HTML emitter (`render-to-string`), the FNV-1a structural render-tree hash (`render-tree-hash`), the `:rf/hydrate` event with `:replace-app-db` semantics, the six `:rf.server/*` server-only fxs (`set-status`, `set-header`, `append-header`, `set-cookie`, `delete-cookie`, `redirect`), the per-request HTTP response accumulator at `[:rf/response]`, the `reg-error-projector` registry kind plus the built-in `:rf.ssr/default-error-projector`, the SSR error-projection trace listener, the `data-rf2-source-coord` annotation on registered-view roots, and the `re-frame.ssr` namespace — ships as a separate Maven artefact `day8/re-frame2-ssr`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the HTML emitter, the FNV-1a hash machinery, the response-accumulator bookkeeping, the projector registry kind, or any of the `:rf.ssr/*` / `:rf.server/*` trace strings; an app that doesn't render server-side builds an `:advanced` bundle clean of every `re-frame.ssr` / `:rf.ssr/*` / `:rf.server/*` symbol and trace string.
 
 **What to look for** in the codebase:
 
@@ -1207,9 +1207,9 @@ Per [rf2-uo7v](#) (the sixth per-feature artefact split per [rf2-5vjj](#) Strate
 
 ```clojure
 ;; deps.edn for an app that uses Spec 011 SSR
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-ssr     {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-ssr     {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/reg-error-projector` / `rf/project-error`, dispatches `:rf/hydrate`, or registers a `:rf.server/*` fx call site MUST `(:require [re-frame.ssr])` so the namespace's load-time fx registrations and late-bind hook publications fire before the call site runs. Without the require, the four core re-exports raise `:rf.error/ssr-artefact-missing` with a clear "add the ssr artefact" message; the `:rf/hydrate` event resolves to no handler.
@@ -1220,11 +1220,11 @@ Every namespace that calls `rf/render-to-string` / `rf/render-tree-hash` / `rf/r
 
 ---
 
-### M-33. Epoch / time-travel (Tool-Pair §Time-travel) ships in a separate artefact — `day8/re-frame-2-epoch`
+### M-33. Epoch / time-travel (Tool-Pair §Time-travel) ships in a separate artefact — `day8/re-frame2-epoch`
 
 **Type A** (mechanical, dep-only).
 
-Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vjj](#) Strategy B), the [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-cb` / `remove-epoch-cb` listener API, the `restore-epoch` rewind with its six documented failure modes (`:rf.epoch/restore-unknown-epoch`, `:rf.epoch/restore-schema-mismatch`, `:rf.epoch/restore-missing-handler`, `:rf.epoch/restore-version-mismatch`, `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler` for the unknown-frame case), the per-cascade trace-capture buffer the router and the trace surface feed via the `:epoch/capture-event` / `:epoch/settle!` / `:epoch/discard-buffer!` / `:epoch/in-flight-buffer` late-bind hooks, the `:rf.epoch/snapshotted` and `:rf.epoch/restored` trace events, the `:sub-runs` / `:renders` / `:effects` per-cascade projections, and the `re-frame.epoch` namespace itself — ships as a separate Maven artefact `day8/re-frame-2-epoch`. The core artefact (`day8/re-frame-2`) no longer carries the namespace, the per-frame ring buffer, the trace-capture path, the projection walker, the schema-validate / machine-version / missing-reference predicates, or any of the `:rf.epoch/*` trace strings; an app that doesn't consume the pair-tool / time-travel surface builds an `:advanced` bundle clean of every `re-frame.epoch` / `:rf.epoch/*` symbol and trace string. The whole surface is still gated on `interop/debug-enabled?` (per [Tool-Pair §Time-travel §Production elision](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so a release build elides regardless of classpath presence — the split is a development-time bundle-shape improvement, not a production-elision change.
+Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vjj](#) Strategy B), the [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure :epoch-history {:depth N})` knob, the `register-epoch-cb` / `remove-epoch-cb` listener API, the `restore-epoch` rewind with its six documented failure modes (`:rf.epoch/restore-unknown-epoch`, `:rf.epoch/restore-schema-mismatch`, `:rf.epoch/restore-missing-handler`, `:rf.epoch/restore-version-mismatch`, `:rf.epoch/restore-during-drain`, plus `:rf.error/no-such-handler` for the unknown-frame case), the per-cascade trace-capture buffer the router and the trace surface feed via the `:epoch/capture-event` / `:epoch/settle!` / `:epoch/discard-buffer!` / `:epoch/in-flight-buffer` late-bind hooks, the `:rf.epoch/snapshotted` and `:rf.epoch/restored` trace events, the `:sub-runs` / `:renders` / `:effects` per-cascade projections, and the `re-frame.epoch` namespace itself — ships as a separate Maven artefact `day8/re-frame2-epoch`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the per-frame ring buffer, the trace-capture path, the projection walker, the schema-validate / machine-version / missing-reference predicates, or any of the `:rf.epoch/*` trace strings; an app that doesn't consume the pair-tool / time-travel surface builds an `:advanced` bundle clean of every `re-frame.epoch` / `:rf.epoch/*` symbol and trace string. The whole surface is still gated on `interop/debug-enabled?` (per [Tool-Pair §Time-travel §Production elision](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) so a release build elides regardless of classpath presence — the split is a development-time bundle-shape improvement, not a production-elision change.
 
 **What to look for** in the codebase:
 
@@ -1237,9 +1237,9 @@ Per [rf2-lt4e](#) (the seventh and final per-feature artefact split per [rf2-5vj
 
 ```clojure
 ;; deps.edn for an app that uses Tool-Pair time-travel / pair-tool surfaces
-{:deps {day8/re-frame-2         {:mvn/version "<latest>"}
-        day8/re-frame-2-reagent {:mvn/version "<latest>"}
-        day8/re-frame-2-epoch   {:mvn/version "<latest>"}}}  ;; ← new in v2
+{:deps {day8/re-frame2         {:mvn/version "<latest>"}
+        day8/re-frame2-reagent {:mvn/version "<latest>"}
+        day8/re-frame2-epoch   {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
 Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/register-epoch-cb` / `rf/remove-epoch-cb` or `(rf/configure :epoch-history ...)` SHOULD `(:require [re-frame.epoch])` at boot so the namespace's load-time hook publications fire before the call sites run. Without the artefact on the classpath the four core re-exports degrade silently — `epoch-history` returns `[]`, `restore-epoch` returns `false`, the listener register / remove return `nil`, the configure call is a no-op — because the surface is dev-tier and a release build that omits the artefact must not raise from a leftover dev-time call site. (Compare M-32: SSR raises `:rf.error/ssr-artefact-missing` because rendering server-side is a production behaviour; epoch is dev-only and degrades silently.)
@@ -1322,7 +1322,7 @@ Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the r
 
 Per [rf2-zha9](#) the three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` under rf2-zha9 and renamed to `adapters/` under [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §reactive-substrate adapter contract](006-ReactiveSubstrate.md#the-reactive-substrate-adapter-contract); per-feature artefacts plug in via [`re-frame.late-bind`](Conventions.md#independence-rule).
 
-**No user-side migration.** Maven artefact names (`day8/re-frame-2-reagent`, `day8/re-frame-2-uix`, `day8/re-frame-2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame-2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstratename--re-frameadaptername).
+**No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstratename--re-frameadaptername).
 
 ---
 
@@ -1353,7 +1353,7 @@ Apps update each `:require` line in their ns declarations:
 
 **No back-compat alias.** Pre-1.0 supports a clean rename; the old `re-frame.substrate.<name>` symbols do not resolve in re-frame2. The substrate-contract namespaces under `re-frame.substrate.*` (notably `re-frame.substrate.adapter` and `re-frame.substrate.plain-atom`) are unaffected by this rename and stay as-is — they are slated for separate redesign under [rf2-agql](#) (explicit `(rf/init! adapter-map)` form).
 
-**Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame-2-reagent` / `day8/re-frame-2-uix` / `day8/re-frame-2-helix` exactly as before. Only the `:require` lines move.
+**Maven artefact names are unchanged.** A consumer's `deps.edn` continues to declare `day8/re-frame2-reagent` / `day8/re-frame2-uix` / `day8/re-frame2-helix` exactly as before. Only the `:require` lines move.
 
 ---
 
@@ -1378,7 +1378,7 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 **What to do.** Nothing on the migration path — the surface is additive. Apps that had a per-call-site request builder threading common headers can collapse the threading into a single `reg-http-interceptor` registration; the migration agent does not rewrite this automatically (the rewrite depends on whether the helper still has per-call concerns the interceptor wouldn't cover).
 
-**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame-2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame-2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
+**Public API** (in `re-frame.core`): `(rf/reg-http-interceptor {:frame ... :id ... :before ...})` and `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)`. Both ship in the `day8/re-frame2-http` artefact (per [M-31](#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)) and are late-bound through the standard `:rf.error/http-artefact-missing` pattern.
 
 ---
 
@@ -1468,7 +1468,7 @@ Per [rf2-6hyy](#) Stage 4-F (implementation per IMPL-SPEC §10.1 / DECISION-7 / 
 
 The migration message string carries the migration target inline so a stack-trace at the call site surfaces the replacement without consulting this document.
 
-**Apps on the bridge are unaffected.** The classic bridge (`day8/re-frame-2-reagent`, depending on stock Reagent) continues to ship `reagent.dom/render`, `reagent.core/dom-node`, etc. unchanged — stock Reagent has not removed those Vars. Only the slim rewrite removes them. Consumers pick: the bridge keeps every legacy surface working today; the slim artefact requires the migrations above. Migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for this rule.
+**Apps on the bridge are unaffected.** The classic bridge (`day8/re-frame2-reagent`, depending on stock Reagent) continues to ship `reagent.dom/render`, `reagent.core/dom-node`, etc. unchanged — stock Reagent has not removed those Vars. Only the slim rewrite removes them. Consumers pick: the bridge keeps every legacy surface working today; the slim artefact requires the migrations above. Migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for this rule.
 
 **Static-analysis friendliness.** Each shim's body is a single throw, so `:advanced` Closure compilation can DCE the symbol when no call site reaches it. An app that has `(:require [reagent2.dom :as rdom])` for unrelated reasons but never calls `rdom/render` pays zero runtime cost — the import resolves; the throw is unreachable.
 
@@ -1487,7 +1487,7 @@ The migration message string carries the migration target inline so a stack-trac
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame-2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame-2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame-2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame-2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame-2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame-2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame-2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame-2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous per rf2-5sqd), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading per rf2-6y3q), **M-41** (subscribe + dispatch consult the React-context tier; runtime gap closed per rf2-d4sf — additive, no rewrite).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:invoke` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
 
 Per [000-Vision §C1](000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -1764,7 +1764,7 @@ re-frame v1 had no machine substrate, so v1 codebases threading actor ids throug
 
 - `:system-id` is an additive key on `[:rf.machine/spawn ...]` and on `:invoke` slots; existing spawns / invokes continue to work unchanged.
 - `[:rf/system-ids]` is a runtime-managed reserved app-db slot (allocated lazily); user code that doesn't bind any `:system-id`s never sees the slot appear.
-- The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame-2-machines`.
+- The `(rf/machine-by-system-id sid)` and `(rf/dispatch-to-system sid event)` surfaces resolve through the late-bind hook table, so the surface is silent on builds that don't ship `day8/re-frame2-machines`.
 
 If a codebase has any pattern of "spawn an actor and thread its id through a sibling's `:data` so the sibling can dispatch back," consider replacing the threading with a `:system-id` binding plus `(rf/machine-by-system-id ...)` at the call site. The change is mechanical:
 
@@ -1830,13 +1830,13 @@ Adoption is opt-in:
 
 No application-code rewrite is required. The surface is additive; existing `reg-sub` registrations populate the topology automatically.
 
-### O-13. Switch a Reagent app to UIx via the `day8/re-frame-2-uix` adapter (rf2-3yij)
+### O-13. Switch a Reagent app to UIx via the `day8/re-frame2-uix` adapter (rf2-3yij)
 
 re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagent (per [Spec 006 §UIx as alternative substrate](006-ReactiveSubstrate.md#cljs-reference-uix-as-alternative-substrate-rf2-3yij)). Migrating a Reagent app to UIx is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to UIx.
 
 **What changes.**
 
-- **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-uix` (lockstep version with core).
+- **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-uix` (lockstep version with core).
 - **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-3yij Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
@@ -1849,13 +1849,13 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 
 The agent does NOT auto-apply this rule even if the dep coords match — substrate migration is an architectural choice for the codebase owner, not something an AI agent infers from `:require` lines.
 
-### O-14. Switch a Reagent app to Helix via the `day8/re-frame-2-helix` adapter (rf2-2qit)
+### O-14. Switch a Reagent app to Helix via the `day8/re-frame2-helix` adapter (rf2-2qit)
 
 re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Reagent and UIx (per [Spec 006 §Helix as alternative substrate](006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate-rf2-2qit)). Migrating a Reagent app to Helix is **opt-in** and out of scope for the v1.x → v2.x mechanical migration — it is a substrate change, not a re-frame upgrade. Apply this only when the user has explicitly asked to move to Helix.
 
 **What changes.**
 
-- **Dependencies.** Drop `day8/re-frame-2-reagent` and add `day8/re-frame-2-helix` (lockstep version with core).
+- **Dependencies.** Drop `day8/re-frame2-reagent` and add `day8/re-frame2-helix` (lockstep version with core).
 - **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default (per rf2-84po), so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the pre-rf2-84po form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per rf2-2qit Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-value [:foo])` still work; only the view-layer reactive read shape changes.
@@ -1947,7 +1947,7 @@ Sections below are written in second person to an AI agent performing the migrat
 
 You are migrating a ClojureScript codebase from re-frame v1.x to **re-frame2**. The headline expectation is that **most codebases require no changes at all** — re-frame2 is designed for maximum backwards compatibility. Your job is to:
 
-1. **Apply [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame-2) — bump the dep coord to `day8/re-frame-2`. Then verify the codebase compiles and runs with nothing else changed.** This is the success path for the majority of projects.
+1. **Apply [M-0](#m-0-bump-the-dependency-coordinate-to-day8re-frame2) — bump the dep coord to `day8/re-frame2`. Then verify the codebase compiles and runs with nothing else changed.** This is the success path for the majority of projects.
 2. **If compilation or runtime failures occur, identify which migration rule (`M-N` in Part 1) applies, apply it, and re-verify.**
 3. **Optionally, if the user has asked you to also modernise the codebase, apply the opt-in upgrades (the `O-N` rules in Part 1).** Do not do this unless asked.
 4. **Report back** — succinctly summarise what changed, why, and what still needs attention.

@@ -2,18 +2,18 @@
 ;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit).
 ;;
 ;; The published artefacts are
-;;   - core/          (day8/re-frame-2)
-;;   - reagent/       (day8/re-frame-2-reagent)
+;;   - core/          (day8/re-frame2)
+;;   - reagent/       (day8/re-frame2-reagent)
 ;;   - reagent-slim/  (day8/reagent-slim,        rf2-5djt Stage 4)
-;;   - uix/           (day8/re-frame-2-uix,      rf2-3yij)
-;;   - helix/         (day8/re-frame-2-helix,    rf2-2qit)
-;;   - schemas/       (day8/re-frame-2-schemas,  rf2-p7va)
-;;   - machines/ (day8/re-frame-2-machines, rf2-xbtj)
-;;   - routing/  (day8/re-frame-2-routing,  rf2-k682)
-;;   - flows/    (day8/re-frame-2-flows,    rf2-tfw3)
-;;   - http/     (day8/re-frame-2-http,     rf2-5kpd)
-;;   - ssr/      (day8/re-frame-2-ssr,      rf2-uo7v)
-;;   - epoch/    (day8/re-frame-2-epoch,    rf2-lt4e)
+;;   - uix/           (day8/re-frame2-uix,      rf2-3yij)
+;;   - helix/         (day8/re-frame2-helix,    rf2-2qit)
+;;   - schemas/       (day8/re-frame2-schemas,  rf2-p7va)
+;;   - machines/ (day8/re-frame2-machines, rf2-xbtj)
+;;   - routing/  (day8/re-frame2-routing,  rf2-k682)
+;;   - flows/    (day8/re-frame2-flows,    rf2-tfw3)
+;;   - http/     (day8/re-frame2-http,     rf2-5kpd)
+;;   - ssr/      (day8/re-frame2-ssr,      rf2-uo7v)
+;;   - epoch/    (day8/re-frame2-epoch,    rf2-lt4e)
 ;; see implementation/core/deps.edn,
 ;; implementation/adapters/reagent/deps.edn,
 ;; implementation/adapters/uix/deps.edn,
@@ -32,18 +32,18 @@
 ;; + Flows + HTTP + SSR + Epoch together. Per-artefact JVM tests run
 ;; via the per-artefact deps.edn directly.
 {:paths []
- :deps  {day8/re-frame-2          {:local/root "core"}
-         day8/re-frame-2-reagent  {:local/root "adapters/reagent"}
+ :deps  {day8/re-frame2          {:local/root "core"}
+         day8/re-frame2-reagent  {:local/root "adapters/reagent"}
          day8/reagent-slim        {:local/root "adapters/reagent-slim"}
-         day8/re-frame-2-uix      {:local/root "adapters/uix"}
-         day8/re-frame-2-helix    {:local/root "adapters/helix"}
-         day8/re-frame-2-schemas  {:local/root "schemas"}
-         day8/re-frame-2-machines {:local/root "machines"}
-         day8/re-frame-2-routing  {:local/root "routing"}
-         day8/re-frame-2-flows    {:local/root "flows"}
-         day8/re-frame-2-http     {:local/root "http"}
-         day8/re-frame-2-ssr      {:local/root "ssr"}
-         day8/re-frame-2-epoch    {:local/root "epoch"}}
+         day8/re-frame2-uix      {:local/root "adapters/uix"}
+         day8/re-frame2-helix    {:local/root "adapters/helix"}
+         day8/re-frame2-schemas  {:local/root "schemas"}
+         day8/re-frame2-machines {:local/root "machines"}
+         day8/re-frame2-routing  {:local/root "routing"}
+         day8/re-frame2-flows    {:local/root "flows"}
+         day8/re-frame2-http     {:local/root "http"}
+         day8/re-frame2-ssr      {:local/root "ssr"}
+         day8/re-frame2-epoch    {:local/root "epoch"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants

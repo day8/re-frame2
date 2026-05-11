@@ -49,7 +49,7 @@ under `implementation/adapters/`:
 ```
 tools/
 ├── <tool>/
-│   ├── deps.edn              ; declares day8/re-frame-2-<tool>
+│   ├── deps.edn              ; declares day8/re-frame2-<tool>
 │   ├── src/...               ; tool source
 │   └── test/...              ; tool tests
 └── ...
@@ -57,7 +57,7 @@ tools/
 
 Each `deps.edn` carries a `:local/root` dep on `../../implementation/core`
 (plus whichever per-feature artefacts the tool legitimately consumes).
-Each tool publishes to Clojars under `day8/re-frame-2-<tool>`.
+Each tool publishes to Clojars under `day8/re-frame2-<tool>`.
 
 A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` may appear later
 as build coordinators (matching the pattern in `implementation/`) once
@@ -68,24 +68,24 @@ there's more than one tool to coordinate. Not needed yet.
 Each entry below is **in design** — none implemented yet. They land here as
 implementation work begins; empty scaffolding is not created up-front.
 
-- **`tools/story/`** — `day8/re-frame-2-story`. Storybook-flavoured component
+- **`tools/story/`** — `day8/re-frame2-story`. Storybook-flavoured component
   playground with frame-aware controls, machine-state visualisation, and
   time-travel scrubbing. Spec surface: [`spec/007-Stories.md`](../spec/007-Stories.md).
 
-- **`tools/story-mcp/`** — `day8/re-frame-2-story-mcp`. A separate MCP agent
+- **`tools/story-mcp/`** — `day8/re-frame2-story-mcp`. A separate MCP agent
   surface for story (per the rf2-m6tu §6.1 separation: human-facing tool and
   agent-facing surface ship as distinct jars so the MCP server can be loaded
   without dragging the entire story UI into the classpath).
 
-- **`tools/machines-viz/`** — `day8/re-frame-2-machines-viz`. XState-style
+- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. XState-style
   state-chart visualisation for machines registered via `reg-machine`.
   Consumes the trace bus and per-frame machine snapshots.
 
-- **`tools/machines-viz-mcp/`** — `day8/re-frame-2-machines-viz-mcp`. Likely
+- **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`. Likely
   a separate MCP surface for machine viz, mirroring the story / story-mcp
   split. Confirmed separation pending the first cut.
 
-- **`tools/10x/`** — `day8/re-frame-2-10x`. re-frame-10x v2 — the interactive
+- **`tools/10x/`** — `day8/re-frame2-10x`. re-frame-10x v2 — the interactive
   devtools panel for the runtime. This entry partially answers
   [`rf2-tijr`](../.beads/) (the repo-placement question): 10x v2 lives here.
   The vendoring-replaced-by-multi-frame-isolation work tracked by that bead

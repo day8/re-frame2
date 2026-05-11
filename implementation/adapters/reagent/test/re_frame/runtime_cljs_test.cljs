@@ -7,16 +7,16 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
-            ;; rf2-k682: routing ships in day8/re-frame-2-routing.
+            ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
             [re-frame.routing]
-            ;; rf2-tfw3: flows ships in day8/re-frame-2-flows.
+            ;; rf2-tfw3: flows ships in day8/re-frame2-flows.
             ;; Required here so its load-time hook registrations
             ;; fire before this ns's reg-flow call.
             [re-frame.flows]
             [re-frame.ssr :as ssr]
-            ;; rf2-lt4e: epoch ships in day8/re-frame-2-epoch.
+            ;; rf2-lt4e: epoch ships in day8/re-frame2-epoch.
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
             ;; `:epoch/epoch-history`, `:epoch/restore-epoch`,

@@ -10,7 +10,7 @@ re-frame2 separates the dataflow core from the reactivity / rendering **substrat
 
 > **Substrate scope: React + VDOM.** re-frame2 commits to **React + VDOM** as the rendering substrate. The adapter contract has *two* parts. The **reactive-container** half (entries 1-5 + 9 of [§The adapter API contract](#the-adapter-api-contract): `make-state-container`, `read-container`, `replace-container!`, `subscribe-container`, `make-derived-value`, `dispose-adapter!`) is *substrate-agnostic in shape* — its description does not mention React; it would generalise to any reactive primitive. The **render-side** half (entries 6-8: `render`, `render-to-string`, `register-context-provider`) is **React-shaped**: `render` mounts via `react-dom/client.createRoot`, `render-to-string` walks a hiccup-or-equivalent virtual-DOM tree to HTML (the contract for SSR ([Spec 011](011-SSR.md))), and `register-context-provider` returns a `React.createContext`-style provider. Ports are scoped to the eight JS-cross-compile-to-React-binding languages enumerated in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) are out of scope; substrate-agnostic shape on the reactive-container side reflects "the contract generalises if we ever wanted it to," not "we ship adapters for them."
 
-> **Terminology.** Throughout this spec, "**substrate**" names the abstract contract — the closed set of functions an adapter must implement. "**Adapter**" names each implementation: the Reagent adapter, the UIx adapter, the Helix adapter, the plain-atom adapter. Per [rf2-0imy](#) the implementation directory is `implementation/adapters/`, the CLJS namespaces are `re-frame.adapter.<name>`, and the Maven artefacts are `day8/re-frame-2-<name>` (unchanged from the earlier `substrates/` directory naming).
+> **Terminology.** Throughout this spec, "**substrate**" names the abstract contract — the closed set of functions an adapter must implement. "**Adapter**" names each implementation: the Reagent adapter, the UIx adapter, the Helix adapter, the plain-atom adapter. Per [rf2-0imy](#) the implementation directory is `implementation/adapters/`, the CLJS namespaces are `re-frame.adapter.<name>`, and the Maven artefacts are `day8/re-frame2-<name>` (unchanged from the earlier `substrates/` directory naming).
 
 This Spec defines:
 
@@ -547,7 +547,7 @@ A related case is `subscribe` itself naming an unregistered sub-id — most ofte
 
 ## CLJS reference: Reagent as default adapter
 
-The CLJS reference ships **two** adapters across **two Maven artefacts**: the plain-atom (JVM/headless) adapter ships in the core artefact (`day8/re-frame-2`); the Reagent adapter ships in its own sibling artefact (`day8/re-frame-2-reagent`). Both implement the closed nine-fn contract above; the runtime picks per platform. UIx and Helix adapters ship as further sibling artefacts as they land. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) and rf2-0hxm.
+The CLJS reference ships **two** adapters across **two Maven artefacts**: the plain-atom (JVM/headless) adapter ships in the core artefact (`day8/re-frame2`); the Reagent adapter ships in its own sibling artefact (`day8/re-frame2-reagent`). Both implement the closed nine-fn contract above; the runtime picks per platform. UIx and Helix adapters ship as further sibling artefacts as they land. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) and rf2-0hxm.
 
 This section is the **bridging pseudocode** for both. For each contract function, the pseudocode shows which Reagent (or, on the JVM, plain-Clojure) primitive realises it. An AI implementing the CLJS reference can lift this directly; non-CLJS implementors read it as one worked example of the contract.
 
@@ -714,7 +714,7 @@ The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → Re
 
 #### Frame propagation across React-binding ports
 
-**The CLJS-reference shape.** The shared `re-frame.adapter.context/frame-context` primitive lives in the **core artefact** (`day8/re-frame-2`) — a CLJS-only file that the JVM build does not load (per [000 §C2 Cross-platform](000-Vision.md#c2-cross-platform-jvm-interop-preserved)). Every React-shaped CLJS adapter (Reagent, UIx, Helix) consumes it; mixed-substrate apps therefore compose providers across substrates rather than silos.
+**The CLJS-reference shape.** The shared `re-frame.adapter.context/frame-context` primitive lives in the **core artefact** (`day8/re-frame2`) — a CLJS-only file that the JVM build does not load (per [000 §C2 Cross-platform](000-Vision.md#c2-cross-platform-jvm-interop-preserved)). Every React-shaped CLJS adapter (Reagent, UIx, Helix) consumes it; mixed-substrate apps therefore compose providers across substrates rather than silos.
 
 **Per-language ports realise the same contract via the host React binding's own context primitive.** The mechanism varies by binding; the contract — *a context value carrying the current frame-id keyword; views read it via the host React binding's hooks-equivalent* — does not. Per-port realisations:
 
@@ -802,22 +802,22 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
 
 ```clojure
-;; Reagent (CLJS, day8/re-frame-2-reagent):
+;; Reagent (CLJS, day8/re-frame2-reagent):
 (require '[re-frame.core :as rf]
          '[re-frame.adapter.reagent :as reagent])
 (rf/init! reagent/adapter)
 
-;; UIx (CLJS, day8/re-frame-2-uix):
+;; UIx (CLJS, day8/re-frame2-uix):
 (require '[re-frame.core :as rf]
          '[re-frame.adapter.uix :as uix])
 (rf/init! uix/adapter)
 
-;; Helix (CLJS, day8/re-frame-2-helix):
+;; Helix (CLJS, day8/re-frame2-helix):
 (require '[re-frame.core :as rf]
          '[re-frame.adapter.helix :as helix])
 (rf/init! helix/adapter)
 
-;; SSR / JVM (day8/re-frame-2-ssr):
+;; SSR / JVM (day8/re-frame2-ssr):
 (require '[re-frame.core :as rf]
          '[re-frame.ssr :as ssr])
 (rf/init! ssr/adapter)
@@ -847,7 +847,7 @@ The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each exp
 
 ## CLJS reference: UIx as alternative substrate (rf2-3yij)
 
-The UIx adapter ships in `day8/re-frame-2-uix` and implements the same nine-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
+The UIx adapter ships in `day8/re-frame2-uix` and implements the same nine-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
 Per [rf2-3yij](#) the locked decisions (2026-05-09) are:
 
@@ -871,7 +871,7 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 
 ## CLJS reference: Helix as alternative substrate (rf2-2qit)
 
-The Helix adapter ships in `day8/re-frame-2-helix` and implements the same nine-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
+The Helix adapter ships in `day8/re-frame2-helix` and implements the same nine-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
 
 Per [rf2-2qit](#) the locked decisions (2026-05-10) transfer one-for-one from [rf2-3yij](#) — the React + hooks substrate model is the same:
 
@@ -924,10 +924,10 @@ The adapter that the core uses on the server is the **plain-atom adapter** (or "
 
 The CLJS reference ships across multiple Maven artefacts (rf2-0hxm; per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention)):
 
-- **`day8/re-frame-2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per [rf2-3yij](#) Decision 2) the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.
-- **`day8/re-frame-2-reagent`** — the **Reagent adapter** (browser default).
-- **`day8/re-frame-2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
-- **`day8/re-frame-2-helix`** — the **Helix adapter** (rf2-2qit). Targets Helix 0.2.x; ships the same `use-subscribe` hook, `flush-views!` test-flush helper, source-coord wrapping component, and shared-context `frame-provider` as the UIx adapter. Apps written for Helix call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model.
+- **`day8/re-frame2`** — the substrate-agnostic core (the registrar, the drain, the dispatch envelope, the trace stream, sub topology, sub computation, effect-map interpretation) plus the adapter API contract, the **plain-atom (headless) adapter** used by SSR and headless tests, and (per [rf2-3yij](#) Decision 2) the shared React frame Context object at `re-frame.adapter.context` that every React-shaped adapter consumes.
+- **`day8/re-frame2-reagent`** — the **Reagent adapter** (browser default).
+- **`day8/re-frame2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
+- **`day8/re-frame2-helix`** — the **Helix adapter** (rf2-2qit). Targets Helix 0.2.x; ships the same `use-subscribe` hook, `flush-views!` test-flush helper, source-coord wrapping component, and shared-context `frame-provider` as the UIx adapter. Apps written for Helix call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model.
 
 In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§reactive-substrate adapter contract](#the-reactive-substrate-adapter-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move per [rf2-zha9](#); per [rf2-0imy](#) the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
 

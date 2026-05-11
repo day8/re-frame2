@@ -65,7 +65,7 @@
   Hooks run AFTER the swap so listeners observe the new state."
   [kind id metadata]
   (when-not (valid-kind? kind)
-    (throw (ex-info (str "re-frame-2: unknown registry kind: " kind)
+    (throw (ex-info (str "re-frame2: unknown registry kind: " kind)
                     {:kind kind :id id})))
   (let [previous (get-in @kind->id->metadata [kind id])]
     (swap! kind->id->metadata assoc-in [kind id] metadata)

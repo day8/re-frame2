@@ -81,7 +81,7 @@ declare -A ARTEFACT_PATHS=(
 
 ARTEFACTS=(core schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
 
-# core is the lockstep root: it does not depend on any other re-frame-2
+# core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
 NON_CORE=(schemas reagent reagent-slim uix helix machines routing flows http ssr epoch)
 
@@ -132,16 +132,16 @@ for artefact in "${ARTEFACTS[@]}"; do
   fi
 
   # No artefact may carry a literal :mvn/version coordinate for any of
-  # the day8/re-frame-2-* artefacts in its committed deps.edn. The
+  # the day8/re-frame2-* artefacts in its committed deps.edn. The
   # release workflow rewrites :local/root → :mvn/version at deploy
   # time on a throwaway checkout; a literal in the committed file means
   # someone hand-edited it and the lockstep is broken.
   #
   # Strip comments first (deps.edn line comments start with `;;`) — the
   # consumer-facing usage examples in artefact deps.edn headers
-  # legitimately show `day8/re-frame-2 {:mvn/version "..."}` snippets.
-  if sed 's/;;.*$//' "${deps_file}" | grep -qE 'day8/re-frame-2[^[:space:]]*[[:space:]]+\{:mvn/version'; then
-    echo "::error file=${rel_label}::found literal :mvn/version for a day8/re-frame-2-* artefact in non-comment line (lockstep expects :local/root in committed deps.edn)"
+  # legitimately show `day8/re-frame2 {:mvn/version "..."}` snippets.
+  if sed 's/;;.*$//' "${deps_file}" | grep -qE 'day8/re-frame2[^[:space:]]*[[:space:]]+\{:mvn/version'; then
+    echo "::error file=${rel_label}::found literal :mvn/version for a day8/re-frame2-* artefact in non-comment line (lockstep expects :local/root in committed deps.edn)"
     errors=$((errors + 1))
   fi
 done
@@ -156,9 +156,9 @@ for artefact in "${NON_CORE[@]}"; do
   rel_label="implementation/${subpath}/deps.edn"
   [[ -f "${deps_file}" ]] || continue
   if is_adapter "${artefact}"; then
-    expected_local_root='day8/re-frame-2 {:local/root "../../core"}'
+    expected_local_root='day8/re-frame2 {:local/root "../../core"}'
   else
-    expected_local_root='day8/re-frame-2 {:local/root "../core"}'
+    expected_local_root='day8/re-frame2 {:local/root "../core"}'
   fi
   if ! grep -qF "${expected_local_root}" "${deps_file}"; then
     echo "::error file=${rel_label}::expected '${expected_local_root}' (lockstep contract; the release workflow rewrites this to :mvn/version at deploy time)"

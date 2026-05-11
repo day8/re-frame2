@@ -1,8 +1,8 @@
 {
-  "name": "re-frame-2-tests",
+  "name": "re-frame2-tests",
   "version": "0.0.0-SNAPSHOT",
   "private": true,
-  "description": "CLJS test target for re-frame-2 (node-runtime).",
+  "description": "CLJS test target for re-frame2 (node-runtime).",
   "devDependencies": {
     "shadow-cljs": "2.28.20",
     "react": "18.3.1",

@@ -14,7 +14,7 @@
   namespaces with the same name would clash. At artefact-publication
   time (per the deps.edn :main and IMPL-SPEC §13.1) the slim artefact
   ships its own `re-frame.adapter.reagent` — consumers depend on
-  exactly one of {day8/re-frame-2-reagent, day8/reagent-slim} so the
+  exactly one of {day8/re-frame2-reagent, day8/reagent-slim} so the
   ns is single-source per app. Until the artefact split is
   consummated, this `-slim` suffix lets both coexist in the monorepo.
 
@@ -54,7 +54,7 @@
       adapter-shape can be tested + so 4-E's seam work has a concrete
       consumer.
 
-  Per rf2-uo7v the SSR surface ships in `day8/re-frame-2-ssr` —
+  Per rf2-uo7v the SSR surface ships in `day8/re-frame2-ssr` —
   this adapter MUST NOT statically `:require [re-frame.ssr]`. Instead
   it publishes its `set-hiccup-emitter!` callback through the
   late-bind hook table; if the SSR artefact is on the classpath, its
@@ -160,7 +160,7 @@
 
 ;; Per rf2-uo7v + IMPL-SPEC §9.2: publish the hiccup-emitter installer
 ;; through the late-bind hook table so re-frame.ssr (in
-;; day8/re-frame-2-ssr) resolves it at its ns-load. Without this, an
+;; day8/re-frame2-ssr) resolves it at its ns-load. Without this, an
 ;; app pulling in the SSR seam would have to manually call
 ;; `(reagent-slim/set-hiccup-emitter! ssr/render-to-string)` —
 ;; the late-bind table makes that wiring automatic when both

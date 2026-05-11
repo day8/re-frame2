@@ -2,11 +2,11 @@
   "The Helix adapter — the third canonical browser substrate (rf2-2qit).
   Per Spec 006 §CLJS reference: Helix as alternative substrate.
 
-  Ships in its own Maven artefact (day8/re-frame-2-helix) per
+  Ships in its own Maven artefact (day8/re-frame2-helix) per
   Spec 006 §Adapter shipping convention (rf2-0hxm). Apps that use Helix
-  depend on both day8/re-frame-2 (core) and this artefact; apps
-  targeting Reagent depend on day8/re-frame-2-reagent instead; apps
-  targeting UIx depend on day8/re-frame-2-uix instead. Core does
+  depend on both day8/re-frame2 (core) and this artefact; apps
+  targeting Reagent depend on day8/re-frame2-reagent instead; apps
+  targeting UIx depend on day8/re-frame2-uix instead. Core does
   *not* :require this ns — the dependency direction is adapter → core.
 
   Per rf2-2qit Decision 2 the React frame-context lives in

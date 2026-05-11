@@ -140,7 +140,7 @@
      :no-such-frame                — frame not registered
      :reset-frame-db-during-drain  — drain in flight
      :schema-mismatch              — v fails the frame's app-schema
-     :epoch-artefact-missing       — re-frame-2-epoch artefact not loaded"
+     :epoch-artefact-missing       — re-frame2-epoch artefact not loaded"
   ([v] (app-db-reset! v (current-frame)))
   ([v frame-id]
    (tap> {:re-frame-pair2/op :app-db/reset

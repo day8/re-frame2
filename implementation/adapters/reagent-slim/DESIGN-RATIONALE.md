@@ -4,7 +4,7 @@
 >
 > Sister docs:
 > - `IMPL-SPEC.md` (this directory) — Stage 3 engineering spec, written for implementers.
-> - `findings/re-frame-2-reagent-stage1-api-surface.md` — Stage 1 surface analysis, eight RESOLVED decisions.
+> - `findings/re-frame2-reagent-stage1-api-surface.md` — Stage 1 surface analysis, eight RESOLVED decisions.
 > - `findings/reagent-slim-stage2-efficiency.md` — Stage 2 bundle and runtime estimates.
 > - `findings/recom-react19-readiness-audit.md` (rf2-cgcv) — re-com + 10x lifecycle inventory.
 > - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle and SSR inventory.
@@ -182,7 +182,7 @@ The four audited codebases trigger zero such warnings. Most apps will trigger ze
 
 ### Decision
 
-`render-to-string` is **not** shipped by reagent-slim. It is owned by `day8/re-frame-2-ssr`, the canonical re-frame2 SSR seam.
+`render-to-string` is **not** shipped by reagent-slim. It is owned by `day8/re-frame2-ssr`, the canonical re-frame2 SSR seam.
 
 `render-to-static-markup` **is** shipped, under `reagent2.dom.server`. It is implemented as a pure-CLJS hiccup-to-HTML serializer, ~150-200 LoC, with no `react-dom/server` dependency.
 
@@ -190,7 +190,7 @@ The four audited codebases trigger zero such warnings. Most apps will trigger ze
 
 The two surfaces serve different purposes and the rewrite separates them.
 
-`render-to-string` is hydrate-able SSR — it emits React-id attributes so a client-side `hydrate-root` can adopt the markup. re-frame2 already has `day8/re-frame-2-ssr` for this; the seam is wired through the adapter's late-bind hook (`:reagent/set-hiccup-emitter!`). Shipping a duplicate `render-to-string` in reagent-slim would compete with the seam, force users to choose, and pull in `react-dom/server` (a ~50 KB module) for a path the seam already handles.
+`render-to-string` is hydrate-able SSR — it emits React-id attributes so a client-side `hydrate-root` can adopt the markup. re-frame2 already has `day8/re-frame2-ssr` for this; the seam is wired through the adapter's late-bind hook (`:reagent/set-hiccup-emitter!`). Shipping a duplicate `render-to-string` in reagent-slim would compete with the seam, force users to choose, and pull in `react-dom/server` (a ~50 KB module) for a path the seam already handles.
 
 `render-to-static-markup` is offline HTML export — pure markup, no React-id attributes, no hydration intent. The audit (rf2-kfpf) found this in production use at Dash8 and rf8: clipboard exports, HTML report exports, both call `render-to-static-markup` to turn a hiccup tree into a static HTML string for distribution outside the React lifecycle. There is no seam for this in re-frame2 because there does not need to be — the operation is a tree walk, not a React feature.
 
@@ -204,11 +204,11 @@ For the small audience that does import it — Dash8, rf8, anyone with similar H
 
 ### Re-frame2-fit impact
 
-The split aligns with re-frame2's separation of concerns. SSR-with-hydration is a substrate operation owned by `day8/re-frame-2-ssr`, which knows how to coordinate the server's frame state with the client's mount. Static HTML export is a hiccup operation that does not need the substrate at all. Both responsibilities land in the right artefact.
+The split aligns with re-frame2's separation of concerns. SSR-with-hydration is a substrate operation owned by `day8/re-frame2-ssr`, which knows how to coordinate the server's frame state with the client's mount. Static HTML export is a hiccup operation that does not need the substrate at all. Both responsibilities land in the right artefact.
 
 ### Migration note
 
-If your app imports `reagent.dom.server/render-to-string` for hydrate-able SSR: migrate to the `day8/re-frame-2-ssr` seam. The seam's API is documented in the SSR adapter's spec.
+If your app imports `reagent.dom.server/render-to-string` for hydrate-able SSR: migrate to the `day8/re-frame2-ssr` seam. The seam's API is documented in the SSR adapter's spec.
 
 If your app imports `reagent.dom.server/render-to-static-markup` for HTML export: change the require to `reagent2.dom.server` and the rest works. Behavioural parity with React's `renderToStaticMarkup` is covered by a parity test suite (R-004 in Stage 2's risk register) — any intentional differences (attribute ordering, void-tag handling) are documented in `MIGRATION.md`.
 
@@ -393,7 +393,7 @@ This honesty matters because the doc you are reading is for adopters making a re
 | Trace integration | requires 10x v1 monkey-patches | native to renderer |
 | Source-coord stamping | post-render tree walk | native to renderer |
 | `r/flush` | brittle under React 18+ concurrent | `flush-views!` deterministic |
-| `render-to-string` | shipped (pulls `react-dom/server`) | not shipped (use `day8/re-frame-2-ssr`) |
+| `render-to-string` | shipped (pulls `react-dom/server`) | not shipped (use `day8/re-frame2-ssr`) |
 | `render-to-static-markup` | shipped (pulls `react-dom/server`) | shipped (pure-CLJS, no `react-dom/server`) |
 | `with-let`, `cursor`, `track`, `wrap`, ... | shipped | not shipped (compile-time error) |
 | Adapter Var path | `re-frame.adapter.reagent` | `re-frame.adapter.reagent` (unchanged) |
@@ -415,4 +415,4 @@ Read the audits if you want the empirical underpinning. Read Stage 1 if you want
 
 ---
 
-*Cross-references: Stage 1 (`findings/re-frame-2-reagent-stage1-api-surface.md`), Stage 2 (`findings/reagent-slim-stage2-efficiency.md`), rf2-cgcv audit, rf2-kfpf audit, IMPL-SPEC.md (this directory), FORM-3.md (rf2-pe4u, future).*
+*Cross-references: Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`), Stage 2 (`findings/reagent-slim-stage2-efficiency.md`), rf2-cgcv audit, rf2-kfpf audit, IMPL-SPEC.md (this directory), FORM-3.md (rf2-pe4u, future).*

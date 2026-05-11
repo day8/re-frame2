@@ -30,8 +30,8 @@
 
   ## Artefact (rf2-5kpd, fifth per-feature split per rf2-5vjj Strategy B)
 
-  This namespace ships in `day8/re-frame-2-http`, separate from the core
-  artefact (`day8/re-frame-2`). The core artefact's `re-frame.core`
+  This namespace ships in `day8/re-frame2-http`, separate from the core
+  artefact (`day8/re-frame2`). The core artefact's `re-frame.core`
   re-exports of `install-managed-request-stubs!` /
   `uninstall-managed-request-stubs!` / `with-managed-request-stubs*` /
   `with-managed-request-stubs` look this namespace's entry points up via
