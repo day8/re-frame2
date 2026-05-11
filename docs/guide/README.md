@@ -40,6 +40,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 10 | [Testing](10-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
 | 11 | [Tooling](11-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-10x` v2). |
 | 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
+| 14 | [Stories](14-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
 
 ### Close-out
 

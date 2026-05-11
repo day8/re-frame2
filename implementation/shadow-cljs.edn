@@ -308,4 +308,23 @@
   {:target     :browser
    :output-dir "out/examples/ssr"
    :asset-path "."
-   :modules    {:main {:init-fn ssr.core/run}}}}}
+   :modules    {:main {:init-fn ssr.core/run}}}
+
+  ;; Story Stage 8 (rf2-c9mm) — the canonical counter with the seven
+  ;; `reg-*` Story macros wired up. URL-hash-routed: `#/` renders
+  ;; the live counter; `#/stories` mounts the Story shell via
+  ;; `re-frame.story/mount-shell!`. Sources live under
+  ;; examples/reagent/counter_with_stories/; tools/story/src is
+  ;; already on shadow's :source-paths so the namespace resolves
+  ;; without per-build deps fiddling.
+  ;;
+  ;; This build deliberately leaves Story ENABLED (no :closure-defines
+  ;; override of re-frame.story.config/enabled?). The :advanced +
+  ;; enabled?=false elision path is exercised by the plain
+  ;; examples/counter build (via the Story-sentinel addition to
+  ;; scripts/check-bundle-isolation.cjs).
+  :examples/counter-with-stories
+  {:target     :browser
+   :output-dir "out/examples/counter-with-stories"
+   :asset-path "."
+   :modules    {:main {:init-fn counter-with-stories.core/run}}}}}
