@@ -8,6 +8,8 @@ There is no separate routing runtime. There are no route-aware components. There
 
 This chapter walks through the routing surface: registering routes, navigating, reading the route in views, the navigation token that suppresses stale loads, the `:can-leave` protocol for unsaved-changes prompts, and how multi-frame apps handle routes that don't push to the URL.
 
+The chapter has two halves. The **basics** (everything up to the "Reference and advanced topics" divider) get you to a working URL ↔ state ↔ view loop: registering routes, navigating, reading the route, loading data, the not-found route. Read that part top-to-bottom. The **reference half** that follows is per-topic: `:on-error`, `:can-leave`, nav-tokens, query-string knobs, multi-frame routing, the pure helpers, the RealWorld worked example, tooling hooks. Read those sections when the topic comes up, not as the next-link in the linear sequence.
+
 You'll know how to:
 
 - Register a route with path params, query params, defaults, and retain keys.
@@ -216,28 +218,6 @@ Semantics:
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?"
 
-## Per-route error handling: `:on-error`
-
-If any event in `:on-match` errors, the runtime:
-
-1. Sets `:rf.route/transition` to `:error`.
-2. Populates `:rf.route/error` with the structured error map.
-3. If the route declares an `:on-error` event, dispatches it. The error map is available via `(:error (:rf/route db))`.
-
-```clojure
-(rf/reg-route :route/cart
-  {:path     "/cart"
-   :on-match [[:cart/load-items]]
-   :on-error [:route/cart-load-failed]})
-
-(rf/reg-event-fx :route/cart-load-failed
-  (fn [{:keys [db]} _]
-    (let [error (get-in db [:rf/route :error])]
-      {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
-```
-
-`:on-error` is **route-scoped** error handling, layered over [Spec 009](../../spec/009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it.
-
 ## The `:rf.route/not-found` route
 
 Apps **must** register a `:rf.route/not-found` route. The id is special-cased in one direction: when a URL fails to match any registered route, the runtime sets `:rf/route` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
@@ -262,6 +242,34 @@ It's an ordinary `reg-route` — `:on-match`, `:on-error`, `:scroll`, `:tags` al
 If no `:rf.route/not-found` is registered, the runtime emits a `:rf.warning/no-not-found-route` trace and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 
 URL-validation failures (a route's path matches but its `:params` schema rejects the captured values) also route here, with `:reason :validation` in the `:params` slice.
+
+---
+
+## Reference and advanced topics
+
+The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when you have unsaved work. Nav-tokens are the framework's stale-result suppression mechanism (mostly transparent — you'll meet them when you write an async `:on-match` continuation). Query strings, multi-frame routing, the pure `match-url` / `route-url` helpers, and the RealWorld worked example round out the surface. Tooling and AI-amenability close the chapter.
+
+## Per-route error handling: `:on-error`
+
+If any event in `:on-match` errors, the runtime:
+
+1. Sets `:rf.route/transition` to `:error`.
+2. Populates `:rf.route/error` with the structured error map.
+3. If the route declares an `:on-error` event, dispatches it. The error map is available via `(:error (:rf/route db))`.
+
+```clojure
+(rf/reg-route :route/cart
+  {:path     "/cart"
+   :on-match [[:cart/load-items]]
+   :on-error [:route/cart-load-failed]})
+
+(rf/reg-event-fx :route/cart-load-failed
+  (fn [{:keys [db]} _]
+    (let [error (get-in db [:rf/route :error])]
+      {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
+```
+
+`:on-error` is **route-scoped** error handling, layered over [Spec 009](../../spec/009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it.
 
 ## Navigation tokens — stale-result suppression
 
