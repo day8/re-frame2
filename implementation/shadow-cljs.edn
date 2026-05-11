@@ -73,6 +73,7 @@
                 ;; keep the production source test-free (same layout
                 ;; convention as realworld/ and nine_states/).
                 "../examples/reagent/long_running_work/test"
+                "../examples/reagent/websocket/test"
                 "../examples/uix"
                 "../examples/helix"]
  :dependencies [[reagent           "2.0.1"]
@@ -414,4 +415,17 @@
   {:target     :browser
    :output-dir "out/examples/counter-with-stories"
    :asset-path "."
-   :modules    {:main {:init-fn counter-with-stories.core/run}}}}}
+   :modules    {:main {:init-fn counter-with-stories.core/run}}}
+
+  ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked
+  ;; example for spec/Pattern-WebSocket.md — connection machine with
+  ;; hierarchical :active parent, :invoke'd socket actor, :after
+  ;; backoff, :always queue-flush, :fsm/tags, request-reply
+  ;; correlation, and connection-epoch staleness via :current-socket?.
+  ;; The transport is a tiny in-process mock WebSocket server so the
+  ;; example runs standalone — no network required.
+  :examples/websocket
+  {:target     :browser
+   :output-dir "out/examples/websocket"
+   :asset-path "."
+   :modules    {:main {:init-fn websocket.core/run}}}}}
