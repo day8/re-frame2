@@ -471,7 +471,7 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 - [Spec 005 §Cancellation cascade — in-flight `:rf.http/managed` aborts](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts) — the machine side of the contract.
 - [Spec 009 §Error categories](009-Instrumentation.md#error-categories-initial-set) — `:rf.http/aborted-on-actor-destroy` taxonomy entry.
 - [`:request-id` (internal)](#request-id-internal) — the orthogonal app-level abort surface.
-- [findings/boot-as-statemachine-dash8-rf8.md §M2](findings/boot-as-statemachine-dash8-rf8.md) — the original gap analysis motivating this contract.
+- Boot-as-state-machine §M2 (rf2-wvkn) — the original gap analysis motivating this contract.
 
 ## Frame awareness
 
