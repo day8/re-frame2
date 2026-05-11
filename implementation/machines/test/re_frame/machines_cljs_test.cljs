@@ -117,15 +117,21 @@
       ;; The runtime cascades the declared :initial through compound
       ;; :initial chains on first-snapshot synthesis (rf2-m1tv), so the
       ;; first event dispatches against the deepest leaf without us
-      ;; having to seed the snapshot manually.
+      ;; having to seed the snapshot manually. Per rf2-0z73, the
+      ;; initial-state cascade ALSO fires every state's :entry action
+      ;; on first-event bootstrap (shallowest-first along the initial
+      ;; chain) — so the log accumulates :enter-auth + :enter-dash
+      ;; BEFORE the sibling-leaf transition kicks in.
       (reset! log [])
       ;; Sibling-leaf transition. LCA is :authenticated; only the leaf
-      ;; exit/entry hooks fire — the parent's :enter-auth must NOT re-fire.
+      ;; exit/entry hooks fire for the transition itself — the parent's
+      ;; :enter-auth runs ONCE during the bootstrap cascade and does
+      ;; NOT re-fire on the sibling transition (LCA is :authenticated).
       (rf/dispatch-sync [:auth/flow [:open-settings]])
       (is (= [:authenticated :settings] (:state (snapshot :auth/flow)))
           "snapshot moved to the sibling leaf")
-      (is (= [:exit-dash :enter-set] @log)
-          "only leaf-level exit/entry fired — LCA parent did NOT re-enter")))
+      (is (= [:enter-auth :enter-dash :exit-dash :enter-set] @log)
+          "initial-cascade :entry actions fired on bootstrap (:enter-auth + :enter-dash) followed by the sibling-leaf exit/entry (:exit-dash + :enter-set). The LCA parent's :enter-auth fires ONCE on bootstrap, not on the LCA-bounded sibling transition.")))
 
   (testing "deepest-wins — leaf overrides parent for same event id"
     (let [log (atom [])
