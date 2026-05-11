@@ -366,6 +366,13 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:fx-args  :any]
    [:frame    {:optional true} :keyword]])
 
+(def NoSuchCofxTags
+  [:map
+   [:category   :keyword]            ;; [:= :rf.error/no-such-cofx] in a closed schema
+   [:cofx-id    :keyword]
+   [:cofx-value {:optional true} :any]   ;; only present when the 2-arity inject-cofx was used
+   [:event-id   {:optional true} :keyword]])
+
 (def OverrideFallthroughTags
   [:map
    [:category      :keyword]

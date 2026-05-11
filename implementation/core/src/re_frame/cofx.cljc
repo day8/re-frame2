@@ -12,7 +12,8 @@
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
-            [re-frame.source-coords :as source-coords]))
+            [re-frame.source-coords :as source-coords]
+            [re-frame.trace :as trace]))
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
@@ -75,8 +76,12 @@
        (if-let [meta (registrar/lookup :cofx cofx-id)]
          (-> ((:handler-fn meta) ctx)
              (maybe-validate-cofx! cofx-id meta))
-         (do (println "re-frame2: no cofx registered for" cofx-id)
-             ctx)))))
+         (let [event (interceptor/get-coeffect ctx :event)]
+           (trace/emit-error! :rf.error/no-such-cofx
+                              {:cofx-id  cofx-id
+                               :event-id (when (vector? event) (first event))
+                               :recovery :no-recovery})
+           ctx)))))
   ([cofx-id value]
    (interceptor/->interceptor
      :id (keyword (str "cofx-" (name cofx-id)))
@@ -85,8 +90,13 @@
        (if-let [meta (registrar/lookup :cofx cofx-id)]
          (-> ((:handler-fn meta) ctx value)
              (maybe-validate-cofx! cofx-id meta))
-         (do (println "re-frame2: no cofx registered for" cofx-id)
-             ctx))))))
+         (let [event (interceptor/get-coeffect ctx :event)]
+           (trace/emit-error! :rf.error/no-such-cofx
+                              {:cofx-id    cofx-id
+                               :cofx-value value
+                               :event-id   (when (vector? event) (first event))
+                               :recovery   :no-recovery})
+           ctx))))))
 
 ;; ---- standard cofx --------------------------------------------------------
 
