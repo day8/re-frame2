@@ -63,6 +63,21 @@ A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` may appear later
 as build coordinators (matching the pattern in `implementation/`) once
 there's more than one tool to coordinate. Not needed yet.
 
+## Shipped
+
+- **`tools/template/`** — `day8/clj-template.re-frame2`. The front-door
+  scaffolding tool for new re-frame2 apps (rf2-lrtc). A
+  [clj-new](https://github.com/seancorfield/clj-new) template; users
+  invoke it via `clojure -X:project/new :template re-frame2 :name
+  acme/my-app` and receive a working CLJS app wired against the alpha
+  `day8/re-frame2-*` coords. Three substrate variants (Reagent / UIx /
+  Helix) selectable via `:edn-args '[:substrate ...]'`.
+
+  Note: `tools/template/` is **build-time only**; the template jar is
+  never on a consumer's runtime classpath, so the bundle-isolation
+  contract holds trivially. It is the one tool in this directory whose
+  job is generation rather than runtime observation.
+
 ## Future homes
 
 Each entry below is **in design** — none implemented yet. They land here as

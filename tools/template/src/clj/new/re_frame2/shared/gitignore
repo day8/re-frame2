@@ -1,0 +1,22 @@
+# Generated build outputs
+/.shadow-cljs/
+/resources/public/js/
+/out/
+/target/
+
+# Node
+/node_modules/
+npm-debug.log
+yarn-error.log
+
+# Editors
+/.idea/
+/.vscode/
+/.lsp/
+/.clj-kondo/
+/.cpcache/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
