@@ -2,9 +2,9 @@
 
 This is the **human-facing** track. It tells the *why*, in narrative voice, with examples and opinions. It's marketing for the pattern.
 
-If you're an AI agent or implementor, you want the [specification](../../spec/) instead — drier, more precise, built for one-shot scaffolding.
+If you're an AI agent or implementor, you want the [specification](../../spec/README.md) instead — drier, more precise, built for one-shot scaffolding.
 
-> Coming straight to this folder? The [root README](../../README.md) is the front door — it covers what re-frame2 is, what exists today, and the two AI-first perspectives. This guide picks up from there.
+> Coming straight to this folder? The site [front page](../index.md) has the three-pillar pitch (spec-first, views-derivative, tooling-first-class). This guide picks up from there and walks the pattern in narrative form, with ClojureScript code, end to end.
 
 ## Chapters
 
@@ -55,11 +55,11 @@ These two are the natural next stop after the chapters and the examples. They're
 
 This guide is opinionated. It will tell you, with confidence, that a single source of truth is a good idea, that constrained execution models are easier to reason about than Turing-complete ones, and that putting state in 47 different React `useState` calls is a slow-motion accident. Where re-frame2 has made a choice, the chapter explains the choice and the alternatives we considered. Where the consensus in the broader SPA world is different from re-frame2's stance, we say so plainly.
 
-If you want neutral coverage of every framework's tradeoffs, this isn't that. The [specification](../../spec/) describes re-frame2 dispassionately; this guide is here to argue for it.
+If you want neutral coverage of every framework's tradeoffs, this isn't that. The [specification](../../spec/README.md) describes re-frame2 dispassionately; this guide is here to argue for it.
 
 ## What's not here
 
-- **API reference.** Look in the [specification](../../spec/) — `API.md` for signatures, the per-Spec docs for context.
+- **API reference.** Look in the [specification](../../spec/README.md) — `API.md` for signatures, the per-Spec docs for context.
 - **Construction prompts.** The AI-facing scaffolding templates live in [`spec/Construction-Prompts.md`](../../spec/Construction-Prompts.md). They generate code that conforms to the same patterns this guide explains.
 - **Migration prompts.** Likewise — [`spec/MIGRATION.md`](../../spec/MIGRATION.md). If you're an AI doing a re-frame v1 → re-frame2 migration, that's the prompt.
 

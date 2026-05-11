@@ -125,4 +125,4 @@ If the argument lands, the next chapter ([02 — Your first app](02-your-first-a
 
 If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [09 — The dynamic-model story](09-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
-If you want the precise contracts before the prose, the [specification](../../spec/) is one click away.
+If you want the precise contracts before the prose, the [specification](../../spec/README.md) is one click away.
