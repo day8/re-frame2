@@ -77,18 +77,6 @@ A few things this gives you:
 
 Periodic cleanup of `/findings` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
 
-## Standing reminders: /loop the core principles
-
-The mayor's context is durable across a session but drifts. After a few hours of dispatching and merging, I sometimes want to remind it of the core orchestration rules — *don't write code yourself; map conflict zones before fan-out; keep `decision-beads.md` current; the spec is the artefact, not the code*. Rather than retype the principles, I use `/loop`:
-
-```
-/loop 30m re-read the core principles in docs/the-mayor-method.md
-```
-
-The mayor re-grounds itself every 30 minutes. It's a small thing, but for long sessions it prevents context-decay drift. The mayor itself doesn't reliably remember to re-read; the loop is the discipline.
-
-You can do the same trick for any rule the mayor needs to hold across a session — *"reduce merge conflicts"*, *"don't auto-merge without pulling main first"*, etc. Standing rules that matter belong in persistent memory; periodic reminders are the heartbeat.
-
 ## How to iterate a spec with the mayor
 
 Tell the mayor: *"I want to write a spec for X. Write the file at `/specs/X.md`. We'll iterate on it together."*
@@ -244,6 +232,8 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 > *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
 > *- When writing or refining spec documents, human understanding comes first — but where appropriate, use [IETF RFC](https://www.rfc-editor.org/rfc/rfc7322) structure and [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) keywords (`MUST`, `SHOULD`, `MAY`, `MUST NOT`, `SHOULD NOT`) for normative passages that need to be unambiguous.*
+>
+> *Step 3 — once setup is complete, set up a recurring reminder so you don't drift over a long session: `/loop 30m re-read the core principles in docs/the-mayor-method.md`. Context is durable but decays; the loop is the heartbeat.*
 >
 > *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
 
