@@ -69,3 +69,31 @@
      [expansion]
      `(when re-frame.story.config/enabled?
         ~expansion)))
+
+;; ---- *global-args* (Stage 3, rf2-von3) ----------------------------------
+;;
+;; Per IMPL-SPEC §5.2 the args-precedence chain starts with `global-args`:
+;; defaults the story-tool's host application sets at boot (theme, locale).
+;; Stage 3's args-resolution layer reads this atom; `configure!` writes it.
+;;
+;; The atom is a plain Clojure data store — surviving `:advanced` builds
+;; is harmless because it's empty by default. The mutation surface
+;; (`configure!`) lives behind the `enabled?` gate at its call site.
+
+(defonce
+  ^{:doc "Atom holding the global args map. Per IMPL-SPEC §5.2 — Layer
+         1 of the args-precedence chain. Defaults to `{}`; the host
+         calls `re-frame.story/configure!` at boot to seed."}
+  global-args
+  (atom {}))
+
+(defn set-global-args!
+  "Replace the global args map. Story's `configure!` calls this."
+  [m]
+  (reset! global-args (or m {}))
+  nil)
+
+(defn get-global-args
+  "Return the current global args map."
+  []
+  @global-args)

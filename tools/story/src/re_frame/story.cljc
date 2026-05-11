@@ -46,6 +46,13 @@
   (:require [re-frame.story.config    :as config]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.schemas   :as schemas]
+            ;; Stage 3 (rf2-von3) — runtime modules.
+            [re-frame.story.args      :as args]
+            [re-frame.story.decorators :as decorators]
+            [re-frame.story.identity  :as identity]
+            [re-frame.story.loaders   :as loaders]
+            [re-frame.story.frames    :as frames]
+            [re-frame.story.runtime   :as runtime]
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
@@ -327,15 +334,40 @@
 ;; ---- canonical vocabulary boot ------------------------------------------
 
 (defn install-canonical-vocabulary!
-  "Install the seven canonical Story tags into the registry. Call this
-  once at boot before any `reg-story` / `reg-variant` calls. Idempotent.
+  "Install the seven canonical Story tags + the runtime's internal
+  helper events / lifecycle machine. Call this once at boot before any
+  `reg-story` / `reg-variant` / `run-variant` calls. Idempotent.
 
-  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 the canonical seven are
-  registered by the Story library at load time — projects don't have to.
+  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 the canonical seven
+  tags are registered by the Story library at load time — projects
+  don't have to. Per IMPL-SPEC §5.4 the lifecycle machine
+  (`:rf.story.lifecycle/machine`) is registered here too — without it
+  `run-variant` cannot drive the four-phase lifecycle.
+
   Project-specific tags must register via `reg-tag` *before* use; an
   unregistered tag on a variant's `:tags` set raises `:rf.error/unknown-tag`."
   []
-  (registrar/install-canonical-tags!))
+  (registrar/install-canonical-tags!)
+  (loaders/install!)
+  (loaders/install-mirror-writer!)
+  (frames/install-helpers!)
+  (runtime/install-helpers!))
+
+;; ---- configure! ---------------------------------------------------------
+
+(defn configure!
+  "Configure Story's global defaults. Per IMPL-SPEC §5.2 the global
+  args map is the first layer of the args-precedence chain (theme,
+  locale, ...). The host application calls this once at boot.
+
+  `{:global-args {...}}` — replace the global args map.
+
+  Other keys are accepted for forward compatibility but ignored at
+  Stage 3."
+  [{:keys [global-args] :as _opts}]
+  (when (some? global-args)
+    (config/set-global-args! global-args))
+  nil)
 
 ;; ---- registry reset (test fixtures) -------------------------------------
 
@@ -379,16 +411,110 @@
 
 ;; ---- run-variant / reset-variant / snapshot-identity --------------------
 ;;
-;; STAGE 3 (rf2-von3): the four-phase lifecycle owns these. Stage 2
-;; intentionally does NOT implement them. Authors expecting these from
-;; Stage 2 should consult the bead chain.
-;;
-;; A no-op stub here would mask Stage 3's contract; instead the
-;; functions are intentionally absent. Stage 3 lands them at IMPL-SPEC
-;; §3.2's locked signatures.
+;; STAGE 3 (rf2-von3): the four-phase lifecycle. These call into
+;; `re-frame.story.runtime`. Each returns a promise (CLJS) or
+;; CompletableFuture (JVM); see `re-frame.story.async` for the shape.
+
+(defn run-variant
+  "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
+  phase lifecycle (loaders → events → render → play), and return a
+  promise/future of the result map.
+
+  `opts`:
+    :active-modes    coll of registered mode ids; deep-merged into args
+    :cell-overrides  runtime arg overrides (controls panel)
+    :substrate       active substrate (`:reagent`, `:uix`, ...)
+    :render?         when truthy, Stage 4's UI shell renders into
+                     `:rendered-hiccup`. Stage 3 leaves the slot nil.
+    :assertions      Stage 5's hook. Stage 3 accepts the slot but
+                     leaves the runtime semantics to Stage 5.
+
+  Result map:
+
+      {:frame           <variant-id>
+       :app-db          {...}
+       :assertions      [...]
+       :rendered-hiccup nil           ; Stage 4
+       :elapsed-ms      <ms>
+       :snapshot        {:variant-id ... :content-hash \"...\"}
+       :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]
+                         :errors [...]}
+       :effective-args  {...}
+       :lifecycle       :ready | :error}"
+  ([variant-id]       (runtime/run-variant variant-id nil))
+  ([variant-id opts]  (runtime/run-variant variant-id opts)))
+
+(defn reset-variant
+  "Tear down + re-run `variant-id`. Per IMPL-SPEC §3.2."
+  ([variant-id]       (runtime/reset-variant variant-id nil))
+  ([variant-id opts]  (runtime/reset-variant variant-id opts)))
+
+(defn watch-variant
+  "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
+  IMPL-SPEC §3.2. `callback` receives
+  `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
+  on every transition. Returns a 0-arity unsubscribe fn."
+  [variant-id callback]
+  (runtime/watch-variant variant-id callback))
+
+(defn snapshot-identity
+  "Per IMPL-SPEC §3.2 + §5.6. Content-hash over the canonicalised
+  `(variant × resolved-args × decorators × loaders × substrate × modes)`
+  tuple. Stable across hosts.
+
+  Returns `{:variant-id ... :active-modes [...] :substrate ...
+  :content-hash \"<8-char hex>\"}`."
+  ([variant-id]       (runtime/snapshot-identity variant-id))
+  ([variant-id opts]  (runtime/snapshot-identity variant-id opts)))
+
+(defn destroy-variant!
+  "Tear down a variant frame allocated via `run-variant`. Per IMPL-
+  SPEC §5.1 — the caller (UI shell / test fixture) owns teardown."
+  [variant-id]
+  (frames/destroy! variant-id))
+
+(defn variant-frames
+  "Return every registered variant frame id. Stage 4's UI shell uses
+  this to lay out the active variant pane."
+  []
+  (frames/variant-frames))
+
+(defn variant-frame?
+  "True iff `frame-id` is a variant frame."
+  [frame-id]
+  (frames/variant-frame? frame-id))
+
+(defn lifecycle-state
+  "Return the lifecycle's current discrete state for the variant's
+  frame (`:pre-mount`, `:mounting`, `:loading`, `:ready`, `:error`).
+  Returns `:pre-mount` if the variant hasn't been run yet."
+  [variant-id]
+  (loaders/current-state variant-id))
+
+;; ---- public helpers (decorator / args resolution surfacing) -------------
+
+(defn resolve-args
+  "Per IMPL-SPEC §5.2 — materialise the effective args map for a
+  variant render given the active modes + cell overrides. See
+  `re-frame.story.args/resolve-args`."
+  ([variant-id]       (args/resolve-args variant-id))
+  ([variant-id opts]  (args/resolve-args variant-id opts)))
+
+(defn resolve-decorators
+  "Per IMPL-SPEC §5.3 — return the variant's resolved decorator stack
+  classified by kind (`{:hiccup [...] :frame-setup [...] :fx-override [...]
+  :errors [...]}`). See `re-frame.story.decorators/resolve-decorators`."
+  ([variant-id]       (decorators/resolve-decorators variant-id))
+  ([variant-id opts]  (decorators/resolve-decorators variant-id opts)))
 
 (def stage
-  "Sentinel that names which Stage's authoring surface is loaded.
-  Stage 2: authoring. Stage 3+: runtime additions. Useful for tools
-  that conditionally adapt to the loaded surface."
-  :authoring)
+  "Sentinel that names which Stage's surface is loaded.
+
+  - Stage 2 — `:authoring` (registration macros only).
+  - Stage 3 — `:runtime` (adds `run-variant` family, decorator
+    composition, args resolution, snapshot-identity, lifecycle).
+  - Stage 4+ extends — UI shell, play sequence, assertions, MCP.
+
+  Tools that adapt to the loaded surface read this; agents can ask
+  the runtime which Stage is live."
+  :runtime)
