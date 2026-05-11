@@ -32,13 +32,15 @@
 
 ;; ---- Form-2: local state ------------------------------------------------
 ;;
-;; A button group with a small piece of local state (whether the
-;; "hold to repeat" hint is visible). Form-2 components return a
-;; render-fn that closes over a Reagent ratom; the surrounding frame
-;; is still resolved at the render-fn site. Story handles this shape
-;; transparently — local component state lives outside `app-db`, so
-;; assertion vocab against the app-db doesn't see it, which is the
-;; right separation.
+;; A button group with a small piece of local state — whether the
+;; hover-hint is visible. Form-2 components return a render-fn that
+;; closes over a Reagent ratom; the surrounding frame is still resolved
+;; at the render-fn site. Story handles this shape transparently —
+;; local component state lives outside `app-db`, so assertion vocab
+;; against the app-db doesn't see it, which is the right separation.
+;;
+;; The hint text deliberately announces what it's demonstrating so
+;; readers inspecting the playground see the pedagogy.
 
 (reg-view counter-buttons []
   (let [hint? (r/atom false)]
@@ -55,9 +57,11 @@
        [:button {:on-click  #(dispatch [:counter/inc])
                  :data-test "inc"}
         "+"]
-       (when @hint?
-         [:span {:style {:margin-left "1em" :font-size "11px" :color "#888"}}
-          "hold to repeat (not implemented — UI hint only)"])])))
+       ;; Hint span always renders; toggling visibility (not unmount) reserves
+       ;; layout space so the card width stays stable on hover (rf2-bnn7).
+       [:span {:style {:margin-left "1em" :font-size "11px" :color "#888"
+                       :visibility (if @hint? "visible" "hidden")}}
+        "(demo: hint state is component-local, not in app-db)"]])))
 
 ;; ---- Form-3: with-let parity badge --------------------------------------
 ;;
