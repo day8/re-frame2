@@ -85,6 +85,84 @@
       (is (map? @seen-event)
           "the unwrapped event arg is a map, not a vector"))))
 
+;; Per rf2-rav3 / Spec 009 §Error contract — the negative path:
+;; when the event does NOT match the canonical [event-id payload-map]
+;; shape, `unwrap` emits `:rf.error/unwrap-bad-event-shape` and returns
+;; ctx unchanged (no recovery — the handler still runs, but it sees the
+;; original event vector). The trace's diagnostic tags carry
+;; `:expected` / `:recovery` so tooling can surface the misuse.
+;;
+;; Source: implementation/core/src/re_frame/std_interceptors.cljc lines 75-79.
+
+(deftest unwrap-bad-event-shape-traces-and-keeps-event-unchanged
+  (testing "[unwrap] with a non-[id payload-map] event emits
+            :rf.error/unwrap-bad-event-shape and leaves the :event
+            coeffect unchanged"
+    (let [traces     (atom [])
+          seen-event (atom ::not-set)]
+      (rf/register-trace-cb! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-fx :unwrap-bad-test/consume
+                       [rf/unwrap]
+                       (fn [_cofx event-arg]
+                         (reset! seen-event event-arg)
+                         {}))
+      ;; A malformed event: second slot is :not-a-map (a keyword, not a map).
+      (rf/dispatch-sync [:unwrap-bad-test/consume :not-a-map])
+      (rf/remove-trace-cb! ::unwrap-bad)
+
+      ;; The handler still ran — unwrap's bad path is a trace-and-continue,
+      ;; not a throw — but it saw the ORIGINAL event vector (ctx unchanged),
+      ;; not the payload.
+      (is (= [:unwrap-bad-test/consume :not-a-map] @seen-event)
+          "handler runs with the original event vector when unwrap's shape check fails")
+
+      ;; The structured trace fired.
+      (let [bad-shape (filterv #(= :rf.error/unwrap-bad-event-shape (:operation %))
+                               @traces)]
+        (is (= 1 (count bad-shape))
+            "exactly one :rf.error/unwrap-bad-event-shape trace was emitted")
+        (let [ev (first bad-shape)]
+          (is (= :error (:op-type ev)))
+          (is (= [:unwrap-bad-test/consume :not-a-map]
+                 (get-in ev [:tags :event]))
+              ":event tag carries the offending event vector")
+          (is (= "[event-id payload-map]"
+                 (get-in ev [:tags :expected]))
+              ":expected describes the canonical envelope shape")
+          (is (= :no-recovery (:recovery ev))
+              ":recovery is :no-recovery — unwrap's bad path is documented as not-recoverable")))))
+
+  (testing "[unwrap] with a 3-element vector (correct id, wrong arity) traces"
+    (let [traces     (atom [])
+          seen-event (atom ::not-set)]
+      (rf/register-trace-cb! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-fx :unwrap-bad-test/arity
+                       [rf/unwrap]
+                       (fn [_cofx event-arg]
+                         (reset! seen-event event-arg)
+                         {}))
+      ;; Wrong arity — three elements instead of two.
+      (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
+      (rf/remove-trace-cb! ::unwrap-arity)
+      (is (some #(= :rf.error/unwrap-bad-event-shape (:operation %)) @traces)
+          ":rf.error/unwrap-bad-event-shape fires for arity mismatch too")
+      (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
+          "handler sees the original (still-wrongly-shaped) event")))
+
+  (testing "[unwrap] on the happy [id payload-map] path does NOT emit the bad-shape trace"
+    ;; Sanity: confirm the trace is silent on a well-shaped event so the
+    ;; coverage above is genuinely catching the negative branch.
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event-fx :unwrap-bad-test/ok
+                       [rf/unwrap]
+                       (fn [_ _] {}))
+      (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
+      (rf/remove-trace-cb! ::unwrap-ok)
+      (is (empty? (filter #(= :rf.error/unwrap-bad-event-shape (:operation %))
+                          @traces))
+          "no bad-shape trace on the canonical [id payload-map] event"))))
+
 ;; ---- inject-cofx ----------------------------------------------------------
 
 (deftest inject-cofx-interceptor

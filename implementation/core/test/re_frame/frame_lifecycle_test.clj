@@ -470,6 +470,89 @@
                      (catch Throwable e e)))
           "the drain ran without throwing"))))
 
+;; ---- rf2-dpny: pin race semantics rather than the workaround --------------
+;;
+;; Per rf2-dpny: the PR #327 fix is correct but fragile. If someone
+;; later removes the `with-redefs [interop/next-tick ...]` thinking it's
+;; redundant, the flake returns. This test pins the CONTRACT —
+;; "draining onto a destroyed frame is a no-op + trace per event" — by
+;; capturing next-tick, dispatching events, destroying the frame, and
+;; THEN running the captured tick. The drain must not throw, must not
+;; mutate state, and must emit `:rf.error/frame-destroyed` per pending
+;; event.
+
+(deftest destroy-frame-pending-drain-pins-no-op-contract
+  (testing "queued events that drain AFTER destroy do not mutate state,
+            do not throw, and trace :rf.error/frame-destroyed per event"
+    (rf/reg-frame :rf2-dpny/worker {:doc "rf2-dpny race-pin frame"})
+    (let [side-effects (atom 0)
+          traces       (atom [])
+          captured     (atom [])]
+      (rf/reg-event-db :rf2-dpny/tick
+                       (fn [db _] (swap! side-effects inc) db))
+      (rf/register-trace-cb! ::rf2-dpny (fn [ev] (swap! traces conj ev)))
+
+      ;; Capture next-tick: dispatches schedule a drain, the drain
+      ;; thunk goes into the atom instead of executing.
+      (with-redefs [interop/next-tick (fn [f] (swap! captured conj f) nil)]
+        (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+        (rf/dispatch [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+        ;; Two events are queued; neither has drained yet.
+        (let [router (:router (frame/frame :rf2-dpny/worker))
+              queue  (:queue @router)]
+          (is (= 2 (count queue))
+              "two events queued, deterministically un-drained")))
+
+      ;; Destroy the frame BEFORE the captured ticks run.
+      (rf/destroy-frame :rf2-dpny/worker)
+      (is (nil? (frame/frame :rf2-dpny/worker))
+          "the frame is gone from the registry")
+
+      ;; NOW run the captured ticks. Pre-fix: this would have raced
+      ;; the destroy; post-fix the drain at drain! line ~261 sees a
+      ;; nil frame and emits the trace. The contract is "no-op + trace".
+      (doseq [tick @captured]
+        (is (nil? (try (tick) nil
+                       (catch Throwable e e)))
+            "the captured drain ran without throwing"))
+
+      (rf/remove-trace-cb! ::rf2-dpny)
+
+      ;; (a) State did NOT mutate — the handler never ran.
+      (is (= 0 @side-effects)
+          "the :rf2-dpny/tick handler did NOT increment the counter")
+
+      ;; (b) The drain-onto-destroyed-frame path is a SILENT no-op:
+      ;;     `drain!` short-circuits via `(when frame-record ...)`
+      ;;     without emitting any trace (router.cljc:300). The
+      ;;     :rf.error/frame-destroyed trace is emitted by dispatch! /
+      ;;     dispatch-sync!, NOT by the drain itself — events queued
+      ;;     before destroy already passed the dispatch check.
+      ;;     Pre-destroy queued events become quiet drops. Pin that.
+      (let [destroyed-traces (filter #(= :rf.error/frame-destroyed (:operation %))
+                                     @traces)]
+        (is (zero? (count destroyed-traces))
+            "the drain itself does NOT emit :rf.error/frame-destroyed —
+             that trace fires at dispatch time, not at drain time"))
+
+      ;; (c) Defence-in-depth: a subsequent dispatch AFTER destroy DOES
+      ;;     trace :rf.error/frame-destroyed (the public contract for
+      ;;     dispatching to a destroyed frame).
+      (let [after-traces (atom [])]
+        (rf/register-trace-cb! ::rf2-dpny-after (fn [ev] (swap! after-traces conj ev)))
+        (rf/dispatch-sync [:rf2-dpny/tick] {:frame :rf2-dpny/worker})
+        (rf/remove-trace-cb! ::rf2-dpny-after)
+        (is (some #(= :rf.error/frame-destroyed (:operation %)) @after-traces)
+            "post-destroy dispatch (not the drain) traces :rf.error/frame-destroyed"))
+
+      ;; (d) The handler still never ran.
+      (is (= 0 @side-effects)
+          "no handler ran across the entire lifecycle")
+
+      ;; (e) Frame stays gone.
+      (is (nil? (frame/frame :rf2-dpny/worker))
+          "the frame did not somehow re-materialise from the post-destroy drain"))))
+
 (deftest replace-container-on-destroyed-frame-does-not-npe
   ;; Tighter reproducer that hits the adapter guard directly via the
   ;; live runtime. The router's per-event :db commit reads the frame's

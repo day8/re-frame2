@@ -206,3 +206,139 @@
           thrown (registration-throws? :rf.nested-validation/nested-exit-action m)]
       (is (some? thrown)
           "nested-state :exit action misuse SHOULD throw at registration"))))
+
+;; ---- gap probe: parallel-region keyword refs (rf2-rp0y / PR #307 gap) ----
+;;
+;; Per Spec 005 §Parallel regions and machines.cljc:1903-1990:
+;; `walk-state-nodes` iterates parallel regions via the `(parallel?
+;; machine)` branch, so the registration-time validator at lines
+;; 1977-1990 SHOULD catch keyword-ref typos inside any region.
+;; nested_validation_test covers flat + compound only; rf2-rp0y adds
+;; the parallel-region coverage.
+
+(deftest parallel-region-on-guard-keyword-unresolved
+  (testing "Parallel region :on with unregistered :guard keyword fails registration"
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a {:initial :a
+                         :states  {:a {:on {:go [{:target :b
+                                                  :guard  :no-such-guard}]}}
+                                   :b {}}}
+              :region-b {:initial :x
+                         :states  {:x {} :y {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-on-guard m)]
+      (is (some? thrown)
+          "parallel-region :on :guard misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+          "error category names the unresolved-guard contract"))))
+
+(deftest parallel-region-on-action-keyword-unresolved
+  (testing "Parallel region :on with unregistered :action keyword fails registration"
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a {:initial :a
+                         :states  {:a {:on {:go [{:target :b
+                                                  :action :no-such-action}]}}
+                                   :b {}}}
+              :region-b {:initial :x
+                         :states  {:x {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-on-action m)]
+      (is (some? thrown)
+          "parallel-region :on :action misuse SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))))))
+
+(deftest parallel-region-entry-action-keyword-unresolved
+  (testing "Parallel region :entry referencing an unregistered action fails registration"
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a {:initial :a
+                         :states  {:a {:entry :no-such-action}}}
+              :region-b {:initial :x
+                         :states  {:x {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-entry m)]
+      (is (some? thrown)
+          "region root :entry action misuse SHOULD throw at registration"))))
+
+(deftest parallel-region-exit-action-keyword-unresolved
+  (testing "Parallel region :exit referencing an unregistered action fails registration"
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a {:initial :a
+                         :states  {:a {:exit :no-such-action
+                                       :on   {:go :b}}
+                                   :b {}}}
+              :region-b {:initial :x
+                         :states  {:x {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-exit m)]
+      (is (some? thrown)
+          "region state :exit action misuse SHOULD throw at registration"))))
+
+(deftest parallel-region-deeply-nested-action-unresolved
+  (testing "Parallel region with a DEEPLY-NESTED state referencing an
+            unregistered action keyword fails registration"
+    ;; The bead's case (2): inside a region, descend through a compound
+    ;; state's :states to a nested leaf. The validator must walk down
+    ;; into the region's compound states, not stop at the region root.
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a
+              {:initial :outer
+               :states
+               {:outer {:initial :inner
+                        :states  {:inner {:on {:go [{:target :sibling
+                                                     :action :no-such-action}]}}
+                                  :sibling {}}}}}
+              :region-b
+              {:initial :x
+               :states  {:x {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-deep m)]
+      (is (some? thrown)
+          "deeply-nested action misuse in a region SHOULD throw at registration"))))
+
+(deftest parallel-region-always-guard-unresolved
+  (testing "Parallel region :always with unregistered :guard keyword fails registration"
+    (let [m {:type    :parallel
+             :guards  {}
+             :actions {}
+             :regions
+             {:region-a
+              {:initial :a
+               :states
+               {:a {:always [{:target :b :guard :no-such-guard}]}
+                :b {}}}
+              :region-b
+              {:initial :x
+               :states  {:x {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-always m)]
+      (is (some? thrown)
+          ":always misuse inside a region SHOULD throw at registration"))))
+
+(deftest parallel-region-good-shape-registers
+  (testing "Sanity: a parallel machine whose region-internal keyword refs ARE
+            resolvable registers cleanly (control case for the negative tests)"
+    (let [m {:type    :parallel
+             :guards  {:always-true (fn [_ _] true)}
+             :actions {:noop-action (fn [data _] {:data data})}
+             :regions
+             {:region-a
+              {:initial :a
+               :states
+               {:a {:entry :noop-action
+                    :on    {:go [{:target :b :guard :always-true :action :noop-action}]}}
+                :b {}}}
+              :region-b
+              {:initial :x
+               :states  {:x {} :y {}}}}}
+          thrown (registration-throws? :rf.nested-validation/par-good m)]
+      (is (nil? thrown)
+          "a well-shaped parallel machine should register without throwing"))))

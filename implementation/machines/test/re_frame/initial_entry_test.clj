@@ -33,11 +33,13 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.machines :as machines]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.trace :as trace]))
 
 (defn- reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
+  (trace/clear-trace-cbs!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.machines :reload)
   (machines/reset-counters!)
@@ -140,3 +142,143 @@
       (rf/dispatch-sync [:rf2-0z73/compound [:go]])
       (is (= [:outer :mid :leaf] @calls)
           "every state in the initial cascade fired :entry shallowest-first, exactly once"))))
+
+;; ---- (4) initial :entry cascade error path (rf2-dd3b / PR #330 gap) -------
+;;
+;; Per Spec 005 §Errors and machines.cljc:2161/2174 — if an action in
+;; the bootstrap cascade throws, the runtime:
+;;   - emits `:rf.error/machine-action-exception` with `:recovery
+;;     :no-recovery`
+;;   - DOES NOT commit the snapshot (no `:db` effect)
+;;   - DOES NOT flow any fx the cascade accumulated
+;;
+;; PR #330 added the cascade itself; the happy paths above cover it.
+;; rf2-dd3b adds the throw-path coverage so a regression that silently
+;; committed a partial cascade or swallowed the trace would be caught.
+
+(deftest initial-entry-throw-halts-bootstrap-atomically
+  (testing "a throw in initial :entry leaves the snapshot uncommitted and
+            fires :rf.error/machine-action-exception"
+    (let [calls  (atom [])
+          traces (atom [])
+          spec   {:initial :a
+                  :data    {}
+                  :actions
+                  {:throws (fn [_data _ev]
+                             (swap! calls conj :throws-entered)
+                             (throw (ex-info "boom in :entry" {:why :test})))}
+                  :states
+                  {:a {:entry :throws
+                       :on    {:go :b}}
+                   :b {}}}]
+      (rf/reg-machine :rf2-dd3b/throws spec)
+      (rf/register-trace-cb! ::dd3b-1 (fn [ev] (swap! traces conj ev)))
+      ;; Drive the first dispatch — this is where bootstrap runs.
+      (rf/dispatch-sync [:rf2-dd3b/throws [:noop]])
+      (rf/remove-trace-cb! ::dd3b-1)
+
+      ;; The action body executed (so we know the cascade reached :a).
+      (is (= [:throws-entered] @calls)
+          "the throwing action ran (cascade reached the state) — necessary precondition")
+
+      ;; (a) Snapshot NOT committed: no entry at [:rf/machines ...].
+      (is (nil? (get-in (rf/get-frame-db :rf/default)
+                        [:rf/machines :rf2-dd3b/throws]))
+          "the bootstrap snapshot was NOT committed — cascade halt is atomic")
+
+      ;; (b) :rf.error/machine-action-exception trace fired with diagnostic detail.
+      (let [errs (filterv #(= :rf.error/machine-action-exception (:operation %))
+                          @traces)]
+        (is (= 1 (count errs))
+            "exactly one :rf.error/machine-action-exception fired")
+        (let [t (first errs)]
+          (is (= :error (:op-type t)))
+          (is (= :no-recovery (:recovery t)))
+          (is (= :rf2-dd3b/throws (-> t :tags :machine-id))
+              ":machine-id identifies the bootstrapping machine")
+          (is (= [:rf.machine/bootstrap] (-> t :tags :event))
+              ":event tag identifies the synthetic bootstrap event")
+          (is (some? (-> t :tags :exception))
+              ":exception slot is populated"))))))
+
+(deftest initial-entry-throw-skips-invoke-and-after-on-failing-state
+  (testing "when :entry throws on the initial state, its sibling :invoke and
+            :after declarations do NOT fire — the cascade halt is total"
+    (let [spawn-fired? (atom false)
+          calls        (atom [])
+          ;; Spawn fx — would fire if :invoke ran. We register our own
+          ;; observer to detect it without depending on a real child.
+          child-spec   {:initial :idle
+                        :states  {:idle {}}}]
+      (rf/reg-machine :rf2-dd3b/spy-child child-spec)
+      ;; Hook the :rf.machine/spawn fx so we can observe if it fires.
+      ;; Per Spec 005 §spawn-fx the runtime emits this when an :invoke
+      ;; slot is declared on the entering state.
+      (let [orig (registrar/lookup :fx :rf.machine/spawn)]
+        (rf/reg-fx :rf.machine/spawn
+                   {:platforms #{:client :server}}
+                   (fn [_ _]
+                     (reset! spawn-fired? true)))
+        (let [spec {:initial :a
+                    :data    {}
+                    :actions {:throws (fn [_ _]
+                                        (swap! calls conj :throws-entered)
+                                        (throw (ex-info "boom" {})))}
+                    :states
+                    {:a {:entry  :throws
+                         :invoke {:machine-id :rf2-dd3b/spy-child}
+                         :after  {1000 :b}}
+                     :b {}}}]
+          (rf/reg-machine :rf2-dd3b/skip spec)
+          (rf/dispatch-sync [:rf2-dd3b/skip [:noop]])
+          ;; The action ran (cascade reached :a).
+          (is (= [:throws-entered] @calls))
+          ;; The spawn fx was NOT fired — the cascade halted before fx flowed.
+          (is (false? @spawn-fired?)
+              ":invoke's spawn fx did not fire when :entry threw on the same state")
+          ;; And the snapshot was not committed — there is no machine record.
+          (is (nil? (get-in (rf/get-frame-db :rf/default)
+                            [:rf/machines :rf2-dd3b/skip]))
+              "the snapshot was not committed; no machine record exists"))
+        ;; Restore.
+        (when orig
+          (rf/reg-fx :rf.machine/spawn orig (fn [_ _] nil)))))))
+
+(deftest initial-entry-throw-in-compound-cascade
+  (testing "with a compound :initial cascade, a throw at the inner :entry
+            still halts atomically — neither inner nor outer snapshot commits"
+    ;; Per the bead's Variant 1: a throw on the second cascade level.
+    ;; The contract is the same as a flat throw: the entire bootstrap is
+    ;; atomic; nothing commits when any node in the cascade throws.
+    (let [calls  (atom [])
+          traces (atom [])
+          spec   {:initial :outer
+                  :data    {}
+                  :actions
+                  {:outer-ok  (fn [data _]
+                                (swap! calls conj :outer)
+                                {:data (assoc data :outer-ran? true)})
+                   :inner-bad (fn [_ _]
+                                (swap! calls conj :inner-throws)
+                                (throw (ex-info "inner boom" {})))}
+                  :states
+                  {:outer {:entry   :outer-ok
+                           :initial :inner
+                           :states
+                           {:inner {:entry :inner-bad}}}}}]
+      (rf/reg-machine :rf2-dd3b/compound spec)
+      (rf/register-trace-cb! ::dd3b-3 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf2-dd3b/compound [:noop]])
+      (rf/remove-trace-cb! ::dd3b-3)
+      ;; Both actions executed (we want to verify outer ran before inner threw,
+      ;; even though nothing committed). The cascade reached both nodes.
+      (is (= [:outer :inner-throws] @calls)
+          "the cascade ran outer's :entry, then inner's :entry where it threw")
+      ;; But the snapshot is NOT committed — the whole bootstrap is atomic.
+      (is (nil? (get-in (rf/get-frame-db :rf/default)
+                        [:rf/machines :rf2-dd3b/compound]))
+          "neither outer nor inner :entry's :data writes committed — bootstrap halted atomically")
+      ;; The exception trace fired.
+      (is (some #(= :rf.error/machine-action-exception (:operation %))
+                @traces)
+          ":rf.error/machine-action-exception was emitted"))))

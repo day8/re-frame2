@@ -985,3 +985,91 @@
             (is (= :api/no-spec (-> w :tags :event-id)))
             (is (string? (-> w :tags :reason)))
             (is (str/includes? (-> w :tags :reason) "no `:spec`"))))))))
+
+;; ---- snapshot / restore / clear schemas-by-frame (rf2-6lka) --------------
+;;
+;; Per Spec 010 / rf2-h96i and schemas.cljc:748: the per-frame schema
+;; registry is fixture-friendly via three test-support hooks:
+;;
+;;   (schemas/snapshot-schemas-by-frame)  ;; capture current state
+;;   (schemas/clear-schemas-by-frame!)    ;; drop everything
+;;   (schemas/restore-schemas-by-frame! s) ;; rehydrate from snapshot
+;;
+;; These are the fixture-style affordance the test-support reset-runtime
+;; fixture relies on; a wire-up regression would surface only in user
+;; tooling.
+
+(deftest snapshot-restore-clear-round-trip
+  (testing "snapshot → clear → restore round-trips the schemas-by-frame
+            atom byte-for-byte and validation still works after restore"
+    ;; Set up two frames and register a schema under each. Per-frame
+    ;; isolation is the load-bearing contract.
+    (rf/reg-frame :test.6lka/other {:doc "second frame for round-trip test"})
+    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-app-schema [:label] [:string]
+                       {:frame :test.6lka/other})
+
+    ;; 1. Snapshot.
+    (let [snap (schemas/snapshot-schemas-by-frame)]
+      (is (map? snap) "snapshot is a map")
+      (is (contains? snap :rf/default)
+          "snapshot covers :rf/default")
+      (is (contains? snap :test.6lka/other)
+          "snapshot covers :test.6lka/other")
+      ;; Schemas are keyed by their full path (a vector) inside the
+      ;; per-frame map; the storage shape is {frame-id {path meta}}.
+      (is (some? (get-in snap [:rf/default [:n]]))
+          "snapshot retains the schema under [:rf/default [:n]]")
+      (is (some? (get-in snap [:test.6lka/other [:label]]))
+          "snapshot retains the schema under [:test.6lka/other [:label]]")
+
+      ;; 2. Clear.
+      (schemas/clear-schemas-by-frame!)
+      (is (= {} @schemas/schemas-by-frame)
+          "clear-schemas-by-frame! emptied the atom")
+
+      ;; 3. Restore.
+      (schemas/restore-schemas-by-frame! snap)
+      (is (= snap @schemas/schemas-by-frame)
+          "restore-schemas-by-frame! reproduces the atom byte-for-byte")
+
+      ;; 4. Semantic faithfulness: validation against a restored
+      ;;    schema fires exactly like it did before the round-trip.
+      (let [traces (atom [])]
+        (rf/register-trace-cb! ::rt (fn [ev] (swap! traces conj ev)))
+        ;; A malformed value under [:n] on :rf/default — should fire.
+        (schemas/validate-app-db! {:n "not-an-int"} :test.6lka/handler)
+        (rf/remove-trace-cb! ::rt)
+        (let [violations (filter #(= :rf.error/schema-validation-failure
+                                     (:operation %))
+                                 @traces)]
+          (is (= 1 (count violations))
+              "post-restore validation fires for malformed value — round-trip is semantically faithful")
+          (is (= [:n] (-> violations first :tags :path))
+              ":path tag identifies the registered schema"))))))
+
+(deftest clear-empties-and-leaves-schemas-by-frame-empty
+  (testing "clear-schemas-by-frame! drops all per-frame entries"
+    (rf/reg-app-schema [:a] [:int])
+    (rf/reg-app-schema [:b] [:string])
+    (is (seq @schemas/schemas-by-frame)
+        "pre-clear: registry is populated")
+    (schemas/clear-schemas-by-frame!)
+    (is (empty? @schemas/schemas-by-frame)
+        "post-clear: registry is empty")))
+
+(deftest restore-replaces-not-merges
+  (testing "restore-schemas-by-frame! REPLACES the atom (does not merge);
+            schemas registered after the snapshot disappear on restore"
+    ;; Capture an empty snapshot.
+    (let [empty-snap (schemas/snapshot-schemas-by-frame)]
+      (is (= {} empty-snap)
+          "fresh atom is empty (reset-runtime-fixture cleared it)")
+      ;; Now register some schemas.
+      (rf/reg-app-schema [:transient] [:int])
+      (is (seq @schemas/schemas-by-frame)
+          "post-reg: schemas present")
+      ;; Restore to the empty snapshot.
+      (schemas/restore-schemas-by-frame! empty-snap)
+      (is (= {} @schemas/schemas-by-frame)
+          "restore replaced the atom — the transient schemas are gone, not merged"))))
