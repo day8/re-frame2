@@ -30,7 +30,16 @@ const net = require('net');
 const path = require('path');
 
 const DEFAULT_PORT = 8021;
-const ROOT = path.resolve(__dirname, '..', 'out', 'browser-test');
+// $BROWSER_TEST_ROOT lets a caller point the orchestrator at a different
+// shadow-cljs :browser-test output directory — used by the prod-mode
+// schemas boundary build (Spec 010 §Production builds, rf2-r2uh /
+// rf2-84e9), whose `:advanced + goog.DEBUG=false` bundle lands in
+// `out/browser-test-schemas-boundary-prod/` rather than the default
+// `out/browser-test/`.
+const ROOT_OVERRIDE = process.env.BROWSER_TEST_ROOT;
+const ROOT = ROOT_OVERRIDE
+  ? path.resolve(ROOT_OVERRIDE)
+  : path.resolve(__dirname, '..', 'out', 'browser-test');
 const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
 const READY_TIMEOUT_MS = 30000;
