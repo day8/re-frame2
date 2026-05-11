@@ -54,16 +54,17 @@
    - **Inspectability bias** — non-trivial guards / actions are named
      entries in the machine's `:guards` / `:actions` maps; only trivial
      transitions use inline fns.
-   - **Headless tests** at the bottom — every state has a fixture that
-     drives `app-db` into that state and asserts against tags +
-     `:ui/render`. Browserless via `compute-sub` / `dispatch-sync`.
+   - **Headless tests** — every state has a fixture that drives `app-db`
+     into that state and asserts against tags + `:ui/render`. Browserless
+     via `compute-sub` / `dispatch-sync`. The fixtures live in a sibling
+     `test/nine_states/core_test.cljs` (ns `nine-states.core-test`) so
+     this source file stays test-free.
 
    Layout follows the single-file style of `examples/reagent/login/core.cljs`
    and `examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`. In a real
    codebase this would split per CP-6 conventions across schema / events /
    subs / views / machines / tests files."
-  (:require [cljs.test :refer-macros [is]]
-            [reagent.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; The Spec 010 schema-attachment ns lives in
@@ -86,7 +87,7 @@
             [re-frame.http-managed]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; ============================================================================
 ;; CONSTANTS
@@ -657,123 +658,14 @@
    [new-todo-form]])
 
 ;; ============================================================================
-;; HEADLESS TESTS
-;; ============================================================================
-;;
-;; One fixture per state. Each: drive `app-db` to the state via dispatch-sync,
-;; then assert against the machine's tag union and the resolved
-;; :ui/render keyword. Browserless via `compute-sub` (no DOM required).
-
-(defn- has-tag?
-  "Read the machine's tag union against a frame's app-db."
-  [frame tag]
-  (contains? (get-in (rf/get-frame-db frame)
-                     [:rf/machines :ui/nine-states :tags])
-             tag))
-
-(defn- render-model [frame]
-  (rf/compute-sub [:ui/render] (rf/get-frame-db frame)))
-
-(def ^:private demo-overrides
-  "Per-test :fx-overrides map that routes `:rf.http/managed` to the in-process
-   demo stub so tests run without a backend."
-  {:rf.http/managed :nine-states.http/managed-demo})
-
-(defn- new-frame []
-  (rf/make-frame
-    {:on-create    [:nine-states.app/initialise]
-     :fx-overrides demo-overrides}))
-
-(defn test-state-1-nothing []
-  (with-frame [f (new-frame)]
-    (is       (has-tag?    f :data/nothing))
-    (is (not  (has-tag?    f :data/loading)))
-    (is (=    :nothing     (render-model f)))))
-
-(defn test-state-2-loading []
-  ;; The demo stub resolves synchronously, so we observe :loading by
-  ;; dispatching :fetch-started directly (without a follow-up reply).
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:ui/nine-states [:fetch-started]] {:frame f})
-    (is       (has-tag?    f :data/loading))
-    (is       (has-tag?    f :data/transient))
-    (is (=    :loading     (render-model f)))))
-
-(defn test-state-3-empty []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 0}] {:frame f})
-    (is       (has-tag?    f :data/empty))
-    (is (not  (has-tag?    f :data/one)))
-    (is (=    :empty       (render-model f)))))
-
-(defn test-state-4-one []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 1}] {:frame f})
-    (is       (has-tag?    f :data/one))
-    (is (=    :one         (render-model f)))))
-
-(defn test-state-5-some []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
-    (is       (has-tag?    f :data/some))
-    (is (=    :some        (render-model f)))))
-
-(defn test-state-6-too-many []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 25}] {:frame f})
-    (is       (has-tag?    f :data/too-many))
-    (is (=    :too-many    (render-model f)))))
-
-(defn test-state-7-incorrect []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:new-todo/edit-field :title "ab"] {:frame f})
-    (rf/dispatch-sync [:new-todo/submit] {:frame f})
-    (is       (has-tag?    f :form/invalid))
-    (is (=    :incorrect   (render-model f)))))
-
-(defn test-state-8-correct []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 0}] {:frame f})
-    (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
-    (rf/dispatch-sync [:new-todo/submit] {:frame f})
-    ;; Tags reflect the overlap honestly: :form/success AND :data/one
-    ;; are both true simultaneously. The render-priority table
-    ;; resolves it: :correct wins.
-    (is       (has-tag?    f :form/success))
-    (is       (has-tag?    f :data/one))
-    (is (=    :correct     (render-model f)))))
-
-(defn test-state-9-done []
-  (with-frame [f (new-frame)]
-    (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
-    (rf/dispatch-sync [:ui/nine-states [:archive {:now 1}]] {:frame f})
-    (let [snap (get-in (rf/get-frame-db f) [:rf/machines :ui/nine-states])]
-      (is (= :done (get-in snap [:state :mode])))
-      (is (= 1    (get-in snap [:data :archived-at]))))
-    (is       (has-tag?    f :mode/done))
-    (is       (has-tag?    f :mode/read-only))
-    (is (=    :done        (render-model f)))))
-
-(defn run-all-tests []
-  (test-state-1-nothing)
-  (test-state-2-loading)
-  (test-state-3-empty)
-  (test-state-4-one)
-  (test-state-5-some)
-  (test-state-6-too-many)
-  (test-state-7-incorrect)
-  (test-state-8-correct)
-  (test-state-9-done)
-  :ok)
-
-;; ============================================================================
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 ;;
 ;; The DOM mount is gated on (exists? js/document) so the namespace can
 ;; load in non-DOM CLJS hosts (shadow-cljs :node-test, headless test
-;; harnesses, JVM). The pure run-all-tests fn above runs in any CLJS
-;; host without touching React.
+;; harnesses, JVM). The headless fixtures live in
+;; `test/nine_states/core_test.cljs` and run in any CLJS host without
+;; touching React.
 
 (defonce react-root
   (when (exists? js/document)

@@ -111,11 +111,14 @@ shadow-cljs watch examples/nine-states
 
 (Run `npm run test:examples` at least once first so `out/examples/nine-states/index.html` is staged; subsequent watch builds reuse it.)
 
-The headless tests run from a CLJS REPL:
+The headless tests live in [`test/nine_states/core_test.cljs`](test/nine_states/core_test.cljs) and run as part of the framework's CLJS test suite. To run them ad-hoc from a CLJS REPL:
 
 ```clojure
-(nine-states.core/run-all-tests)
-;; => :ok
+(require '[nine-states.core])          ;; loads the example registrations
+(require '[nine-states.core-test :as t])
+(t/test-state-1-nothing)
+(t/test-state-2-loading)
+;; ...one per state.
 ```
 
 ## Cross-references
