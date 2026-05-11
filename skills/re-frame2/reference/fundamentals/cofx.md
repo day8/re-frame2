@@ -69,7 +69,7 @@ Pure handlers are testable, replayable (for re-frame-pair2 epoch restore), and s
 - **The injected key convention is the cofx-id itself.** Stash under `[:coeffects :my/cofx-id]` so destructuring with `{:my/keys [...]}` works cleanly. If `:spec` validation is declared on the cofx metadata, the validator looks up under the cofx-id key (`cofx.cljc:33-36`).
 - **Order matters.** Interceptors run in vector order; a cofx that depends on another cofx's value must come after it.
 - **Two-arg form is for parameterised injection.** Use `(inject-cofx :random-int max-value)` when the same cofx-id needs a different value per attachment.
-- **Missing registration is a runtime warning, not a throw.** `inject-cofx` of an unregistered id prints `re-frame2: no cofx registered for ...` and continues (`cofx.cljc:78`). Easy to miss — grep for the cofx-id in your registrations on `:rf.error/no-such-fx`-style surprises.
+- **Missing registration is a structured error trace, not a throw.** `inject-cofx` of an unregistered id emits `:rf.error/no-such-cofx` (carrying `:cofx-id`, `:event-id`, and the optional 2-arity `:cofx-value`) and lets the ctx flow through unchanged (`cofx.cljc:~78,88`). Subscribe via `register-trace-cb!` (or watch through 10x / re-frame-pair) to surface these.
 
 ## Deeper material
 
