@@ -11,6 +11,14 @@ travel together.
 
 ## Current skills
 
+- **[`re-frame2/`](./re-frame2/)** — author re-frame2 ClojureScript
+  application code. Events, subscriptions, effects, frames, state machines,
+  schemas, stories, routing, and the canonical patterns (RemoteData, Forms,
+  Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork,
+  StaleDetection). Currently scaffolding-only — leaves under
+  `reference/`, `patterns/`, and `decision-trees/` are populated by
+  follow-on beads off rf2-qumf.
+
 - **[`re-frame-pair2/`](./re-frame-pair2/)** — pair-program with a live
   re-frame2 application. Attach to a running shadow-cljs build via nREPL,
   inspect `app-db`, dispatch events, hot-swap handlers, trace the six
