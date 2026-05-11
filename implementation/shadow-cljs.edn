@@ -45,6 +45,16 @@
                 "ssr/test"
                 "epoch/src"
                 "epoch/test"
+                ;; tools/story (re-frame2-story Stage 2, rf2-32dk).
+                ;; Source paths added so the `:node-test` build picks up
+                ;; `tools/story/test/re_frame/story_cljs_test.cljs`. The
+                ;; bundle-isolation contract (tools/README.md) forbids
+                ;; reverse :require — nothing under implementation/ may
+                ;; require anything under tools/. Listing the source
+                ;; path here only makes the files available to shadow's
+                ;; classpath; it does NOT introduce a require dependency.
+                "../tools/story/src"
+                "../tools/story/test"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
