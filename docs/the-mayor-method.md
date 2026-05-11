@@ -59,29 +59,39 @@ This rule does two useful things. It keeps me focused on the leverage point (the
 
 Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
 
-## /findings: the exploratory workspace
+## Filesystem layout
 
-I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/findings`, a local-only directory (`.gitignored`) that the mayor and I treat as the working substrate for in-flight thought.
+Three slots under an `/ai/` root that keeps the AI working artefacts out of the way of your code:
+
+- **`/ai/specs/`** — the specs (super-prompts), committed.
+- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Local-only by default (`.gitignored`); promoted into `/ai/specs/` when a finding stabilises into something worth committing.
+- **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
+
+That's the entire layout. Everything else in the method assumes this shape.
+
+## /ai/findings: the exploratory workspace
+
+I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/ai/findings`, where the mayor and I treat it as the working substrate for in-flight thought.
 
 The shape:
 
-1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: "research X; write a findings doc at `findings/X.md`; do not change anything else."
-2. **Agent returns**. The findings doc is now sitting in `/findings`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
+1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: *"research X; write a findings doc at `/ai/findings/X.md`; do not change anything else."*
+2. **Agent returns**. The findings doc is now sitting in `/ai/findings/`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
 3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
-4. **When the design is settled**, the locked outcomes propagate downstream — into the spec, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or moves into committed form under `spec/findings/` or `tools/<tool>/spec/findings/`.
+4. **When the design is settled**, the locked outcomes propagate downstream — into the spec under `/ai/specs/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/specs/` as a committed design rationale.
 
 A few things this gives you:
 
-- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/findings` where a future agent can re-read them on demand.
+- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/ai/findings/` where a future agent can re-read them on demand.
 - **Iteration is cheap.** Until the spec commits, I can reverse decisions, pivot direction, drop whole features. The doc accumulates "Locked" marks for whatever survives; the rest gets edited away. Reversals cascade cleanly because nothing's load-bearing yet.
-- **The exploratory work is auditable**. The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
+- **The exploratory work is auditable.** The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
 - **The mayor stays at the boundary.** It doesn't do the exploration; it dispatches the exploration, holds the working set, and walks me through the conclusions.
 
-Periodic cleanup of `/findings` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
+Periodic cleanup of `/ai/findings/` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /ai/findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
 
 ## How to iterate a spec with the mayor
 
-A spec lives at `/specs/X.md`. Tell the mayor: *"I want to write a spec for X. Write the file at `/specs/X.md`. We'll iterate on it together."*
+A spec lives at `/ai/specs/X.md`. Tell the mayor: *"I want to write a spec for X. Write the file at `/ai/specs/X.md`. We'll iterate on it together."*
 
 Then drive the iteration. The mayor isn't trying to write the spec by itself — it's stress-testing yours. Useful prompts:
 
@@ -127,7 +137,7 @@ Background agents will often find new things that need work — ambiguities, con
 
 Ask the mayor:
 
-> *"Maintain a document — `/specs/<project>-map.md` or similar — that summarises and categorises every open bead. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. I'll keep this file open in my editor at all times."*
+> *"Maintain a document at `/ai/map.md` that summarises and categorises every open bead. Update it on every signal: bead filed, bead dispatched, PR merged, decision made. I'll keep this file open in my editor at all times."*
 
 This is your **map**. It's not a status report. It's a navigation tool.
 
@@ -208,16 +218,16 @@ After a few weeks of working this way:
 
 ## Outcome
 
-In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. I challenge you to find slop. I don't do that every week, obviously, but that's what's possible. And it can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
+In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. The work is here for you to read and judge. I don't produce at that pace every week — but the method makes weeks like that possible, and they can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine):  
 
 
 ## TL;DR
 
 1. Install beads.
 2. Run one Claude session as your **mayor**. Keep it open. It orchestrates, never does work directly.
-3. **Specs are super prompts.** A spec is a prompt taken seriously: longer, sharper, less ambiguous. Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
+3. **Specs are super prompts.** A spec is a prompt taken seriously: longer, sharper, less ambiguous. Iterate the spec hard. Get the mayor to interview you, find gaps, name ambiguities, propose alternatives, dispatch a background audit. Live in `/ai/specs/`. **When the AI makes a mistake, that's on me for not getting the spec right.**
 4. Only when the spec is right: *"Create beads to implement this. Action them with background agents on a branch."*
-5. Maintain a **map document** in `/specs/`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them into the appropriate bead.
+5. Maintain a **map document** at `/ai/map.md`. Keep it open. It's your navigation tool. Decisions surface there; you make them; the mayor records them into the appropriate bead.
 6. Talk to the mayor in pull style: *"Tell me about bead X. What are my options?"*
 7. Use a second model (Codex, etc.) for cross-review. Have it file beads as **suggestions**, not commands.
 
@@ -229,7 +239,7 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 >
 > *Step 2 — update `CLAUDE.md` (create it if absent) to add the following standing rules. These must apply to every future session — both the mayor and any background agent — not just this conversation:*
 >
-> *- Maintain a `project-map.md` at the repo root that summarises and categorises every open bead. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
+> *- Maintain `/ai/map.md` (create the `/ai/` directory if needed) that summarises and categorises every open bead. Update it on every signal — bead filed, bead dispatched, PR merged, decision made.*
 > *- Action any open bead where the direction is already set and no operator input is required: dispatch it to a background agent on its own branch.*
 > *- After every PR merge, run `git pull --ff-only` so the local main stays current.*
 > *- When dispatching multiple beads at once, sequence them to minimise merge conflicts: beads touching the same hot-zone files run sequentially, not in parallel; beads on isolated surfaces (single-artefact dirs, new files, test-only dirs) can run in parallel.*
