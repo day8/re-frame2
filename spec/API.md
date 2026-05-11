@@ -36,7 +36,7 @@
 | `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
+| `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 (deferred — see rf2-gr0n) | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` | v1 | 011 | New registry kind `:error-projector`; named via `(rf/configure :ssr {:public-error-id ...})`. |
 
 ### Clearing registrations
@@ -60,6 +60,8 @@
 | `dispatch` | Fn | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended) | 002 |
 | `dispatch-sync` | Fn | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended) | 002 |
 | `subscribe` | Fn | `(subscribe query-v)` / `(subscribe query-v opts)` | v1 (preserved + extended) | 002 |
+| `subscribe-value` | Fn | `(subscribe-value query-v)` / `(subscribe-value frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 002 |
+| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period) | v1 | 002 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
@@ -177,9 +179,9 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` — head-fn signature `(fn [db route] head-model)` | v1 | 011 |
-| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 | 011 |
-| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 | 011 |
+| `reg-head` | M | `(reg-head id ?metadata head-fn)` — head-fn signature `(fn [db route] head-model)` | v1 (deferred — see rf2-gr0n) | 011 |
+| `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
+| `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 | `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` — projector-fn signature `(fn [trace-event] :rf/public-error)` | v1 | 011 |
 
 Standard SSR-related events:
@@ -302,7 +304,9 @@ For tooling, agents, story tools, 10x.
 | API | M/Fn | Signature | Status | JVM-runnable? | Spec |
 |---|---|---|---|---|---|
 | `handlers` | Fn | `(handlers kind)` / `(handlers kind pred-fn)` | v1 | ✓ | 002 |
+| `handler-ids` | Fn | `(handler-ids kind)` → id set (canonical alias for `(-> (handlers kind) keys set)`) | v1 | ✓ | 002 |
 | `handler-meta` | Fn | `(handler-meta kind id)` → registration-metadata map. View registrations include source-coord keys (`:ns` / `:line` / `:column` / `:file`) per `:rf/source-coord-meta` ([Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); pair tools resolve `data-rf2-source-coord` DOM annotations to `:file` via this lookup. | v1 | ✓ | 002 |
+| `registry-summary` | Fn | `(registry-summary)` → `{kind count}` (count of registered ids per kind; useful in dev-tooling overlays) | v1 | ✓ | 002 |
 | `machines` | Fn | `(machines)` → seq of machine-ids. Derived view over `(handlers :event)` filtered by `:rf/machine? true`. | v1 | ✓ | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration-metadata map (transition table, doc, schemas). Equivalent to `(handler-meta :event machine-id)`. | v1 | ✓ | 005 |
 | `frame-ids` | Fn | `(frame-ids)` / `(frame-ids ns-prefix)` | v1 | ✓ | 002 |
