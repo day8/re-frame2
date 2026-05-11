@@ -181,6 +181,14 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'ssr', 'index.html'),
     outDir: path.join(OUT_ROOT, 'ssr'),
   },
+  // Story Stage 8 (rf2-c9mm) — the canonical counter app with the
+  // seven `reg-*` Story macros wired up. URL-hash-routed: `#/`
+  // renders the live counter; `#/stories` mounts the Story shell.
+  {
+    build: 'examples/counter-with-stories',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'counter_with_stories', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'counter-with-stories'),
+  },
 ];
 
 function compileAll() {

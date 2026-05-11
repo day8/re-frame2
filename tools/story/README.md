@@ -98,3 +98,8 @@ See [IMPL-SPEC §6](./IMPL-SPEC.md#section-6).
   snapshot identities; dual-pane SSR support.
 - [`tools/README.md`](../README.md) — the per-tool layout and bundle-isolation
   contract.
+- [Guide chapter 14 — Stories](../../docs/guide/14-stories.md) — the narrative
+  walkthrough; the friendly entry-point for human readers.
+- [`examples/reagent/counter_with_stories/`](../../examples/reagent/counter_with_stories/) —
+  the worked example wiring the seven `reg-*` macros against the canonical
+  counter app.

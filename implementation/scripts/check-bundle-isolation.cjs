@@ -178,6 +178,40 @@ const ARTEFACTS = [
     consumerAllowList: null,
     expectedAllowListHits: 0,
   },
+
+  // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
+  // examples/counter bundle imports zero Story symbols — the
+  // tools/story/ jar must DCE entirely when the consuming app
+  // doesn't `:require` any re-frame.story.* namespace. The sentinels
+  // below are ex-info reason strings emitted from
+  // tools/story/src/re_frame/story/registrar.cljc and
+  // tools/story/src/re_frame/story/decorators.cljc — they live in
+  // function bodies (not gated by the `enabled?` flag, which only
+  // gates registration callsites). A non-zero count means a
+  // re-frame.story.* namespace got dragged into the counter
+  // bundle's classpath — the bundle-isolation contract for
+  // tools/ ↛ implementation/ is broken.
+  {
+    name: 'story',
+    internalSentinels: [
+      // registrar.cljc — unknown-tag rejection on a project tag
+      // that hasn't been registered. Only emitted when the
+      // registrar's body is in the bundle.
+      { source: 're-frame.story.registrar (rf.error/unknown-tag)',
+        sentinel: 'rf.error/unknown-tag' },
+      // decorators.cljc — decorator-ref taxonomy. Three closely-
+      // related sentinels; any one in the bundle indicates Story
+      // internals were pulled in.
+      { source: 're-frame.story.decorators (rf.error/decorator-bad-ref)',
+        sentinel: 'rf.error/decorator-bad-ref' },
+      { source: 're-frame.story.decorators (rf.error/decorator-unknown)',
+        sentinel: 'rf.error/decorator-unknown' },
+      { source: 're-frame.story.decorators (rf.error/decorator-unknown-kind)',
+        sentinel: 'rf.error/decorator-unknown-kind' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
 ];
 
 // ----- helpers ---------------------------------------------------------------
@@ -285,14 +319,17 @@ function main() {
   } else {
     console.error('=== FAIL ===');
     console.error('');
-    console.error('At least one per-feature artefact leaked into the counter');
-    console.error('bundle. Per the bundle-isolation contract (rf2-51x5):');
+    console.error('At least one per-feature artefact (or tools/story) leaked');
+    console.error('into the counter bundle. Per the bundle-isolation contracts');
+    console.error('(rf2-51x5 per-feature, rf2-c9mm story tools):');
     console.error('  - Counter imports zero per-feature artefacts.');
     console.error('  - Each artefact ships as its own Maven jar (rf2-p7va,');
     console.error('    rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).');
     console.error('  - core/* MUST NOT `:require` any per-feature ns; the');
     console.error('    re-export wrappers look the API up through the');
     console.error('    late-bind hook table at call time.');
+    console.error('  - implementation/ MUST NOT `:require` anything under');
+    console.error('    tools/ (tools/README.md bundle-isolation contract).');
     console.error('');
     console.error('A non-zero internal-sentinel hit means a per-feature ns');
     console.error('got pulled into the bundle (most likely a `:require` was');

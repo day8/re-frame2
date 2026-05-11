@@ -6,11 +6,13 @@ You've now seen the shape of re-frame2 from twelve angles — the argument, the 
 
 The fastest way to make the pattern stick is to write code in it. The [worked examples](../../examples/README.md) are a graded sequence — start at the pedagogical end and move toward the benchmarks:
 
-- **Pedagogical sketches** — `counter`, `login`, `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`. Each one isolates a single piece of the surface and shows it composed end-to-end. Read them in order if you're new; cherry-pick if you're not.
+- **Pedagogical sketches** — `counter`, `login`, `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `counter_with_stories`. Each one isolates a single piece of the surface and shows it composed end-to-end. Read them in order if you're new; cherry-pick if you're not.
 - **Benchmarks** — `todomvc`, the `7Guis` cluster, `nine_states`. These are the size-and-stress tests; they exercise the same primitives the sketches introduce, but in fuller compositions.
 - **RealWorld scaffold** — `realworld/`. A broader worked sketch covering routing, auth, forms, paginated lists, and SSR boot in one app.
 
 Every example ships with a Playwright smoke spec (`<name>.spec.cjs`) — the spec is the executable acceptance test for "this example still works." Use them as templates when you write your own.
+
+If you'd like a **frame-aware component playground** alongside the live app — Storybook-flavoured but built on re-frame2's primitives — chapter [14 — Stories](14-stories.md) walks the surface, and [`examples/reagent/counter_with_stories/`](../../examples/reagent/counter_with_stories/) is the worked example.
 
 ## Look up a pattern by name
 

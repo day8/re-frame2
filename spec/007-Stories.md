@@ -509,3 +509,11 @@ The story library ships a `run-variant`-flavoured runner. Test-framework adapter
 ### Screenshot / visual-regression integration
 
 The framework hook is: variants have a stable snapshot identity (`:variant-id` + content hash) per [§Variant snapshot identity](#variant-snapshot-identity). Specific visual-regression service integrations consume the variant registry, `run-variant`'s rendered hiccup, and the snapshot identity.
+
+## See also
+
+- [`tools/story/`](https://github.com/day8/re-frame2/tree/main/tools/story) — the reference implementation of this spec (`day8/re-frame2-story`).
+- [`tools/story/IMPL-SPEC.md`](https://github.com/day8/re-frame2/blob/main/tools/story/IMPL-SPEC.md) — the implementation contract (decisions, runtime shape, elision, MCP boundary).
+- [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the agent-facing MCP server (`day8/re-frame2-story-mcp`).
+- [Guide chapter 14 — Stories](../docs/guide/14-stories.md) — the narrative walkthrough of this spec.
+- [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories) — the worked example pivoting on the counter from guide chapters 02–06.
