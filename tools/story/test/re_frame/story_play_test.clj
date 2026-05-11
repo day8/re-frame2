@@ -204,22 +204,56 @@
       {:loaders                [[:test/load-a] [:test/load-b]]
        :loaders-complete-when  [[:test/load-a] [:test/load-b]]
        :events                 []})
-    ;; Dispatched-events accumulator is populated by the trace bus; we
-    ;; need the play-runner's listener to feed it before the predicate
-    ;; runs. Stage 5's loaders-complete-when evaluation is invoked from
-    ;; run-loaders! AFTER the loader dispatches, so the dispatched
-    ;; accumulator must already contain the loader events. We seed
-    ;; manually here because the trace listener is play-scoped — Stage 5
-    ;; treats the vector form as a permissive 'progress when seen';
-    ;; lifecycle still progresses regardless via the runtime layer.
+    ;; Per rf2-v2g9, the play-runner's trace listener now installs
+    ;; before the loader phase, so the dispatched-events accumulator
+    ;; observes loader-phase events and the vector predicate can match.
     (let [r (async/deref-blocking (story/run-variant :story.loaders/vector) 5000)]
-      ;; The runtime always proceeds past loaders into events, regardless
-      ;; of the predicate's result — the predicate gates only the
-      ;; loaders-complete *transition*. The result here verifies the
-      ;; full flow ran without an exception.
       (is (true? (-> r :app-db :a?)))
-      (is (true? (-> r :app-db :b?))))
+      (is (true? (-> r :app-db :b?)))
+      (is (= :ready (:lifecycle r))
+          "vector form's loaders-complete-when fires once both loaders run, transitioning the lifecycle to :ready"))
     (story/destroy-variant! :story.loaders/vector)))
+
+(deftest loaders-complete-when-vector-trace-listener-installed-pre-loaders
+  ;; rf2-v2g9 — the play-runner's per-frame trace listener installs
+  ;; BEFORE the loader phase so `:loaders-complete-when`'s vector form
+  ;; can match against the dispatched-events accumulator. Before the
+  ;; fix the listener installed at play start (after loaders ran) and
+  ;; the predicate never matched — the loader phase stayed in
+  ;; `:loading`. This test pins that lifecycle to `:ready` and
+  ;; verifies the accumulator was populated with the loader event.
+  (testing "the loaders-complete-when vector form matches loader-phase dispatches"
+    (rf/reg-event-db :fixture/loaded
+      (fn [db _] (assoc db :fixture-loaded? true)))
+    (story/reg-variant :story.v2g9/loader-vector
+      {:loaders               [[:fixture/loaded]]
+       :loaders-complete-when [[:fixture/loaded]]
+       :events                []})
+    (let [r (async/deref-blocking
+              (story/run-variant :story.v2g9/loader-vector) 5000)]
+      (is (true? (-> r :app-db :fixture-loaded?))
+          "the loader event ran")
+      (is (= :ready (:lifecycle r))
+          "the loader phase advanced to :ready — the predicate saw the loader event"))
+    (story/destroy-variant! :story.v2g9/loader-vector)))
+
+(deftest loaders-complete-when-vector-without-listener-stalls
+  ;; rf2-v2g9 — negative companion to the fix. We simulate the pre-fix
+  ;; behaviour by clearing the listener-fed accumulator between the
+  ;; loader dispatch and the predicate evaluation, then re-running the
+  ;; predicate directly. With an empty accumulator the vector form is
+  ;; false — which is the bug the fix prevents in the live pipeline.
+  (testing "vector form with an empty accumulator (pre-fix simulation) returns false"
+    (let [frame-id :story.v2g9/stalled
+          body {:loaders-complete-when [[:fixture/loaded]]}]
+      (reset! assertions/dispatched-events-accumulator {})
+      (is (false? (loaders/evaluate-complete-when frame-id body))
+          "predicate is false when the accumulator has no record of the required event")
+      ;; And once the listener-fed accumulator carries the event, the
+      ;; predicate flips to true (the post-fix observable).
+      (assertions/record-dispatched! frame-id [:fixture/loaded])
+      (is (true? (loaders/evaluate-complete-when frame-id body))
+          "predicate is true once the trace listener has fed the accumulator"))))
 
 (deftest loaders-complete-when-evaluate-vector-form
   (testing "vector-of-events evaluation reads the assertions dispatched-events accumulator"

@@ -276,6 +276,20 @@
                  ;; Phase 0: allocate frame, run :frame-setup decorators,
                  ;; drive lifecycle to :mounting.
                  (frames/allocate! variant-id decorator-stack)
+                 ;; Install the play-runner's per-frame trace listener
+                 ;; BEFORE the loader phase begins (rf2-v2g9). The
+                 ;; listener feeds the assertions module's dispatched-
+                 ;; events accumulator, which `:loaders-complete-when`'s
+                 ;; vector form consults to gate the loaders-complete
+                 ;; transition. Installing it post-loaders (the original
+                 ;; Stage 5 placement) means the vector form sees an
+                 ;; empty accumulator during the loader phase and never
+                 ;; matches. We seed the accumulators here so the
+                 ;; listener has a clean slot to write into; `execute-
+                 ;; play!` resets them again at play start so play-time
+                 ;; assertion semantics ("during play") are preserved.
+                 (assertions/reset-trace-accumulators! variant-id)
+                 (play/install-trace-listener! variant-id)
                  ;; Phase 1: loaders.
                  (run-loaders! variant-id)
                  ;; Phase 2: events.
