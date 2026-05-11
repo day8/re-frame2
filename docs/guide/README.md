@@ -38,6 +38,12 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 11 | [Devtools and pair tools](11-devtools-and-pair-tools.md) | You're debugging or reaching for tooling — trace stream, epoch history, time-travel, source-coords, `reset-frame-db!`. |
 | 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 
+### Close-out
+
+| # | Chapter | What it covers |
+|---|---|---|
+| 13 | [Where to go next](13-where-next.md) | A one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. Read this when you finish the chapters and want to know "now what?" |
+
 ### Worked examples
 
 Once you've finished the core path, read the [worked examples](../../examples/README.md) — pedagogical sketches first (counter, login, routing, ssr, managed-http-counter, state-machine-walkthrough), then benchmarks (todomvc, 7GUIs, nine-states), then the RealWorld scaffold. Fifteen examples total, each with a Playwright smoke spec; the catalogue maps each one to the Specs it exercises.
