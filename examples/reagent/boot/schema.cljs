@@ -88,11 +88,30 @@
             [:payload   :any]
             [:error     [:maybe :any]]]]])
 
+(def BootStagingSlice
+  "Shape of `[:boot/staging]` — the per-child hand-off slot the
+   `:invoke-all` children write into and the parent's
+   `:enter-hydrating` action reads from. Each key is optional because
+   the slot is filled incrementally as children complete; once the
+   join resolves all four keys carry their per-child payloads."
+  [:map
+   [:config {:optional true} [:maybe Config]]
+   [:flags  {:optional true} [:maybe Flags]]
+   [:user   {:optional true} [:maybe User]]
+   [:routes {:optional true} [:maybe Routes]]])
+
 ;; ============================================================================
 ;; SCHEMA REGISTRATION
 ;; ============================================================================
 
 (rf/reg-app-schema [:rf/machines :app/boot] BootSnapshot)
+
+;; The :invoke-all children stage their payloads into [:boot/staging]
+;; before signalling completion to the parent. The :enter-hydrating
+;; action reads the staging slot and promotes each payload into the
+;; canonical top-level slot below. Registered here so the staging
+;; writes are schema-validated like every other slice.
+(rf/reg-app-schema [:boot/staging] BootStagingSlice)
 
 ;; The boot machine writes its final payloads into top-level app-db
 ;; slices on entering `:hydrating`. These are the slices the main app

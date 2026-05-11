@@ -28,8 +28,6 @@
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 (defn request-slice [data]
   {:status :idle :data data :error nil :loaded-at nil :attempt 0})
 
@@ -241,13 +239,14 @@
          Spec 014's reply-addressing. Folds the new count into the home
          machine via `:fetch-succeeded`; the `:data` region's
          `:resolving` `:always`-cascade picks `:empty` or `:some`."}
-  (fn [{:keys [db]} [_ {:keys [value]}]]
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))]
       {:db (-> db
                (assoc-in [:articles :status] :loaded)
                (assoc-in [:articles :data] items)
                (assoc-in [:articles :error] nil)
-               (assoc-in [:articles :loaded-at] (current-time-ms)))
+               (assoc-in [:articles :loaded-at] now))
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 

@@ -45,17 +45,18 @@
 
 (defn editor-slice
   "The form's app-db slice. Holds Pattern-Forms shape (draft, baseline,
-   errors, touched, submit-error). The machine carries the state
-   vocabulary; this slice carries the data."
+   errors, touched, submit-attempted?, submit-error). The machine
+   carries the state vocabulary; this slice carries the data."
   ([] (editor-slice nil blank-draft))
   ([slug baseline]
-   {:slug         slug
-    :draft        baseline
-    :baseline     baseline
-    :submitted    nil
-    :errors       {}
-    :touched      #{}
-    :submit-error nil}))
+   {:slug              slug
+    :draft             baseline
+    :baseline          baseline
+    :submitted         nil
+    :errors            {}
+    :touched           #{}
+    :submit-attempted? false
+    :submit-error      nil}))
 
 (defn validate-draft [{:keys [title description body]}]
   (cond-> {}
@@ -224,10 +225,18 @@
           mode   (get-in db [:rf/machines :ui/article-editor :state :mode])
           errors (validate-draft draft)]
       (if (seq errors)
+        ;; Client-side validation failure. Flip :submit-attempted? so
+        ;; per-field error subs (Pattern-Forms §Error visibility)
+        ;; reveal every error even on untouched fields, without the
+        ;; prior workaround of re-touching every error field.
+        ;; Whole-form prompt lives in `:errors :_form`; transport-shape
+        ;; failures still land in `:submit-error` (the HTTP path).
         {:db (-> db
-                 (assoc-in [:editor :errors] errors)
-                 (assoc-in [:editor :submit-error] "Please fix the highlighted fields."))}
+                 (assoc-in [:editor :submit-attempted?] true)
+                 (assoc-in [:editor :errors] (assoc errors :_form "Please fix the highlighted fields."))
+                 (assoc-in [:editor :submit-error] nil))}
         {:db (-> db
+                 (assoc-in [:editor :submit-attempted?] true)
                  (assoc-in [:editor :submitted] draft)
                  (assoc-in [:editor :errors] {})
                  (assoc-in [:editor :submit-error] nil))
@@ -294,6 +303,24 @@
 (rf/reg-sub :editor/errors :<- [:editor] (fn [editor _] (:errors editor)))
 (rf/reg-sub :editor/submit-error :<- [:editor]
   (fn [editor _] (:submit-error editor)))
+
+(rf/reg-sub :editor/field-error
+  {:doc "Per-field validation error. Per Pattern-Forms §Error
+         visibility: reveal every error after the first submit click,
+         OR once the field is :touched."}
+  :<- [:editor]
+  (fn [editor [_ field]]
+    (when (or (:submit-attempted? editor)
+              (contains? (:touched editor) field))
+      (get-in editor [:errors field]))))
+
+(rf/reg-sub :editor/form-error
+  {:doc "Whole-form prompt (the :_form key under :errors) — populated
+         when a submit attempt failed client-side validation."}
+  :<- [:editor]
+  (fn [editor _]
+    (when (:submit-attempted? editor)
+      (get-in editor [:errors :_form]))))
 (rf/reg-sub :editor/dirty?
   :<- [:editor]
   (fn [editor _]
@@ -357,7 +384,10 @@
                    shows the Delete button."}
           editor-form []
   (let [draft        @(subscribe [:editor/draft])
-        errors       @(subscribe [:editor/errors])
+        title-err    @(subscribe [:editor/field-error :title])
+        desc-err     @(subscribe [:editor/field-error :description])
+        body-err     @(subscribe [:editor/field-error :body])
+        form-err     @(subscribe [:editor/form-error])
         submit-error @(subscribe [:editor/submit-error])
         busy?        @(rf/has-tag? :ui/article-editor :editor/busy)
         can-delete?  @(rf/has-tag? :ui/article-editor :editor/can-delete)]
@@ -365,6 +395,8 @@
      [:div.container.page
       [:div.row
        [:div.col-md-10.offset-md-1.col-xs-12
+        (when form-err
+          [:ul.error-messages [:li form-err]])
         (when submit-error
           [:ul.error-messages [:li submit-error]])
         [:form
@@ -380,8 +412,8 @@
              :disabled    busy?
              :on-blur     #(dispatch [:editor/blur-field :title])
              :on-change   #(dispatch [:editor/edit-field :title (.. % -target -value)])}]
-           (when-let [err (:title errors)]
-             [:div.error-messages err])]
+           (when title-err
+             [:div.error-messages title-err])]
           [:fieldset.form-group
            [:input.form-control
             {:type        "text"
@@ -390,8 +422,8 @@
              :disabled    busy?
              :on-blur     #(dispatch [:editor/blur-field :description])
              :on-change   #(dispatch [:editor/edit-field :description (.. % -target -value)])}]
-           (when-let [err (:description errors)]
-             [:div.error-messages err])]
+           (when desc-err
+             [:div.error-messages desc-err])]
           [:fieldset.form-group
            [:textarea.form-control
             {:rows        8
@@ -400,8 +432,8 @@
              :disabled    busy?
              :on-blur     #(dispatch [:editor/blur-field :body])
              :on-change   #(dispatch [:editor/edit-field :body (.. % -target -value)])}]
-           (when-let [err (:body errors)]
-             [:div.error-messages err])]
+           (when body-err
+             [:div.error-messages body-err])]
           [:fieldset.form-group
            [:input.form-control
             {:type        "text"

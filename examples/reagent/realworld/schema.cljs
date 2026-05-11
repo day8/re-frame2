@@ -177,6 +177,7 @@
    [:status :keyword]
    [:errors :map]
    [:touched [:set :keyword]]
+   [:submit-attempted? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
 (def EditorSlice
@@ -197,6 +198,7 @@
    [:status :keyword]
    [:errors :map]
    [:touched [:set :keyword]]
+   [:submit-attempted? {:optional true} :boolean]
    [:submit-error [:maybe :string]]])
 
 ;; ============================================================================
@@ -228,6 +230,8 @@
 (rf/reg-app-schema [:feed]                     RequestSlice)
 (rf/reg-app-schema [:feed :data]               [:vector Article])
 (rf/reg-app-schema [:comment-form]             FormSlice)
+(rf/reg-app-schema [:auth :login-form]         FormSlice)
+(rf/reg-app-schema [:auth :register-form]      FormSlice)
 (rf/reg-app-schema [:editor]                   EditorSlice)
 ;; The `:settings` slice from the slice-form era is gone; the settings
 ;; form lifecycle is now the `:settings/form` machine (the :form-region

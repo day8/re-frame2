@@ -13,15 +13,14 @@
             [realworld.routing :as routing])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 (defn comment-form-defaults []
-  {:draft        {:body ""}
-   :submitted    nil
-   :status       :idle
-   :errors       {}
-   :touched      #{}
-   :submit-error nil})
+  {:draft             {:body ""}
+   :submitted         nil
+   :status            :idle
+   :errors            {}
+   :touched           #{}
+   :submit-attempted? false
+   :submit-error      nil})
 
 (defn article-path [slug]
   (str "/articles/" slug))
@@ -63,7 +62,8 @@
          `:rf/reply` merged into the original message map. The handler
          body branches on `(:rf/reply msg)` — one event id, two roles."
    :rf.http/decode-schemas [schema/ArticleResponse]}
-  (fn [{:keys [db]} [_ msg]]
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply branch — handle success or failure.
       (case (:kind reply)
@@ -72,7 +72,7 @@
                  (assoc-in [:article :status] :loaded)
                  (assoc-in [:article :data] (:article (:value reply)))
                  (assoc-in [:article :error] nil)
-                 (assoc-in [:article :loaded-at] (current-time-ms)))}
+                 (assoc-in [:article :loaded-at] now))}
 
         :failure
         {:db (-> db
@@ -122,13 +122,14 @@
                           :on-success [:comments/loaded]
                           :on-failure [:comments/load-failed]})]]})))
 
-(rf/reg-event-db :comments/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:comments :status] :loaded)
-        (assoc-in [:comments :data] (vec (:comments value)))
-        (assoc-in [:comments :error] nil)
-        (assoc-in [:comments :loaded-at] (current-time-ms)))))
+(rf/reg-event-fx :comments/loaded
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:comments :status] :loaded)
+             (assoc-in [:comments :data] (vec (:comments value)))
+             (assoc-in [:comments :error] nil)
+             (assoc-in [:comments :loaded-at] now))}))
 
 (rf/reg-event-db :comments/load-failed
   (fn [db [_ {:keys [failure]}]]
@@ -167,10 +168,19 @@
                                  :image     (:image user)
                                  :following false}}]
       (if (str/blank? body)
+        ;; Client-side validation failure. Per Pattern-Forms
+        ;; §:submit-error vs :errors: validation messages live in
+        ;; `:errors` (`:_form` for whole-form, otherwise per-field);
+        ;; `:submit-error` is reserved for transport / non-field
+        ;; HTTP failures. Flip :submit-attempted? so the view's
+        ;; per-field-error sub reveals the :body error even on a
+        ;; fresh, never-:touched textarea.
         {:db (-> db
+                 (assoc-in [:comment-form :submit-attempted?] true)
                  (assoc-in [:comment-form :errors] {:body "Comment body is required."})
-                 (assoc-in [:comment-form :submit-error] "Comment body is required."))}
+                 (assoc-in [:comment-form :submit-error] nil))}
         {:db (-> db
+                 (assoc-in [:comment-form :submit-attempted?] true)
                  (assoc-in [:comment-form :status] :submitting)
                  (assoc-in [:comment-form :submitted] {:body body})
                  (assoc-in [:comment-form :errors] {})
@@ -262,6 +272,19 @@
 (rf/reg-sub :comment-form/submit-error
   (fn [db _] (get-in db [:comment-form :submit-error])))
 
+(rf/reg-sub :comment-form
+  (fn [db _] (:comment-form db)))
+
+(rf/reg-sub :comment-form/field-error
+  {:doc "Per-field validation error for the comment form. Per
+         Pattern-Forms §Error visibility: reveal every error after the
+         first submit click, OR once the field is :touched."}
+  :<- [:comment-form]
+  (fn [form [_ field]]
+    (when (or (:submit-attempted? form)
+              (contains? (:touched form) field))
+      (get-in form [:errors field]))))
+
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
@@ -295,6 +318,7 @@
         comments       @(subscribe [:comments/data])
         comments-error @(subscribe [:comments/error])
         comment-draft  @(subscribe [:comment-form/draft])
+        body-error     @(subscribe [:comment-form/field-error :body])
         submit-error   @(subscribe [:comment-form/submit-error])
         submitting?    @(subscribe [:comment-form/submitting?])
         current-user   @(subscribe [:auth/user])]
@@ -348,6 +372,8 @@
                 {:type "submit"
                  :disabled submitting?}
                 (if submitting? "Posting…" "Post Comment")]]
+              (when body-error
+                [:div.error-messages body-error])
               (when submit-error
                 [:div.error-messages submit-error])]
              [:p

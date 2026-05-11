@@ -243,7 +243,20 @@
   {:doc       "Demo override for :rf.http/managed: routes by URL to canned
                Conduit-shaped responses so the example runs standalone
                without a backend. Delegates to :rf.http/managed-canned-success
-               with a synthesised :value per Spec 014 §Testing."
+               with a synthesised :value per Spec 014 §Testing.
+
+               NOTE on the raw js/setTimeout below. The deferred work
+               is an fx invocation (`:rf.http/managed-canned-success`),
+               not a dispatch, so the framework's `:dispatch-later`
+               path is not a 1:1 swap. The timer is here ONLY to delay
+               the canned reply long enough for the `:loading` UI state
+               to be observable in the demo; production app code should
+               never use raw `js/setTimeout` — use `:dispatch-later` or
+               (for an fx invocation) drive it through a tiny
+               framework dispatch (e.g. dispatch-later to a private
+               event whose handler issues the fx) so framework time
+               controls (Tool-Pair time-travel, the documented
+               `:dispatch-later` nil-override seam) still apply."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [url     (-> args-map :request :url)
@@ -253,6 +266,7 @@
       ;; correct reply shape (default reply addressing or explicit
       ;; :on-success — Spec 014 §Reply addressing).
       (when stub-fn
+        ;; Demo-only artificial latency — see the fx doc above.
         (js/setTimeout
           (fn [] (stub-fn frame-ctx (assoc args-map :value payload)))
           20)))))

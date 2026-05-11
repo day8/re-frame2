@@ -9,8 +9,6 @@
             [realworld.schema :as schema]
             [realworld.http :as rh]))
 
-(defn current-time-ms [] (.getTime (js/Date.)))
-
 (defn request-slice []
   {:status :idle :data [] :error nil :loaded-at nil :attempt 0})
 
@@ -89,12 +87,13 @@
   {:doc "Successful user-feed fetch. Folds the new count into the home
          machine via `:fetch-succeeded`; the `:data` region's
          `:resolving` `:always`-cascade picks `:empty` or `:some`."}
-  (fn [{:keys [db]} [_ {:keys [value]}]]
+  [(rf/inject-cofx :realworld/now)]
+  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))]
       {:db (-> db
                (assoc-in [:feed :status] :loaded)
                (assoc-in [:feed :data] items)
-               (assoc-in [:feed :loaded-at] (current-time-ms)))
+               (assoc-in [:feed :loaded-at] now))
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 

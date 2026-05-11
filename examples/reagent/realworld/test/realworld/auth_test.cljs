@@ -22,9 +22,8 @@
                                   :image    nil}})
 
   (with-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:rf.http/managed     :rf.http/managed.login-success
-                                                :auth.session/store  :rf/no-op
-                                                :auth.session/clear  :rf/no-op}})]
+                                 :fx-overrides {:rf.http/managed      :rf.http/managed.login-success
+                                                :auth.session/persist :rf/no-op}})]
     (assert (= :idle (rf/compute-sub [:auth/state] (rf/get-frame-db f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"

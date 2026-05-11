@@ -116,6 +116,26 @@
     out))
 
 ;; ============================================================================
+;; CLOCK COEFFECT — :realworld/now
+;; ============================================================================
+;;
+;; Reading wall-clock time inside a handler makes the handler impure;
+;; the same event applied to the same db at two moments produces two
+;; different `:loaded-at` stamps. Per Spec 002 §Cofx, side-effecting
+;; inputs belong in coeffects so handlers stay pure functions of
+;; `(coeffects, event) → effects`. Pulling the clock into a registered
+;; cofx (rather than calling `(.getTime (js/Date.))` directly) gives
+;; the example a single injection point that tests can override and
+;; SSR can hydrate.
+
+(rf/reg-cofx :realworld/now
+  {:doc "Inject the current wall-clock time (ms since epoch) into
+         coeffects under `:realworld/now`. Use `(rf/inject-cofx
+         :realworld/now)` on any handler that stamps `:loaded-at`."}
+  (fn cofx-realworld-now [coeffects]
+    (assoc coeffects :realworld/now (.getTime (js/Date.)))))
+
+;; ============================================================================
 ;; FAILURE PROJECTION
 ;; ============================================================================
 

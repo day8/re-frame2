@@ -19,9 +19,8 @@
 
 (defn app-smoke-test []
   (with-frame [f (rf/make-frame {:on-create    [:app/initialise]
-                                 :fx-overrides {:rf.http/managed     :rf.http/managed.canned-success-empty
-                                                :auth.session/store  :rf/no-op
-                                                :auth.session/clear  :rf/no-op}})]
+                                 :fx-overrides {:rf.http/managed      :rf.http/managed.canned-success-empty
+                                                :auth.session/persist :rf/no-op}})]
     ;; After init: auth + articles slices and the :realworld/tags
     ;; and :settings/form machine snapshots are present. The tags
     ;; machine replaces the slice-form `:tags` resource; the
