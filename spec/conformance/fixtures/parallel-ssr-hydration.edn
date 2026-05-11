@@ -1,0 +1,53 @@
+;; Conformance fixture: machine/parallel-ssr-hydration
+;;
+;; Per [005 §Cross-references](../../005-StateMachines.md#cross-references)
+;; (Spec 011 SSR): a parallel-region machine's snapshot lives in
+;; `app-db` at `[:rf/machines <id>]` exactly like flat / compound
+;; machines. The SSR hydration channel (`:rf/hydrate`) replaces app-db
+;; with the server's payload — machine snapshots ride along.
+;;
+;; For a parallel-region snapshot the `:state` map of region-name →
+;; keyword-or-vector is EDN-clean; the hydration round-trip preserves
+;; the shape because the snapshot is opaque to the SSR machinery.
+;;
+;; This fixture documents the pure-call invariant: a parallel snapshot
+;; can be the input to machine-transition without re-initialisation —
+;; treating the snapshot as an `=`-equal value reproducible from any
+;; EDN-clean carrier (the wire, localStorage, the Tool-Pair epoch
+;; buffer).
+
+{:fixture/id           :machine/parallel-ssr-hydration
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions}
+ :fixture/doc          "A parallel-region snapshot is EDN-clean and behaves as a value: machine-transition accepts it directly, no re-initialisation. The SSR hydration path is the same — the snapshot rides through `:rf/hydrate` as opaque data."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; A snapshot synthesised pre-call (as if hydrated from the wire) is
+  ;; the direct input to machine-transition. The transition behaves
+  ;; identically to a snapshot synthesised from registration's initial
+  ;; cascade.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {:session-id "abc"}
+    :regions {:auth      {:initial :authenticated
+                          :states  {:authenticated {:on {:logout :anonymous}}
+                                    :anonymous     {}}}
+              :lifecycle {:initial :idle
+                          :states  {:idle    {:on {:work :busy}}
+                                    :busy    {}}}}}
+   ;; This snapshot is exactly the kind of value SSR / persistence would
+   ;; hydrate. Both regions carry non-initial states (a logged-in user
+   ;; who's mid-task) — the hydration must preserve the region map shape.
+   :snapshot     {:state {:auth :authenticated :lifecycle :idle}
+                  :data  {:session-id "abc"}}
+   :event        [:work]
+   :expect-next-snapshot {:state {:auth :authenticated :lifecycle :busy}
+                          :data  {:session-id "abc"}}
+   :expect-effects       []}]}

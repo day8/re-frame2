@@ -1,0 +1,51 @@
+;; Conformance fixture: machine/parallel-invoke-scoped-to-region
+;;
+;; Per [005 §Per-region `:always` / `:after` / `:invoke` scoping]
+;; (../../005-StateMachines.md#per-region-always--after--invoke-scoping):
+;; an `:invoke`-bearing state inside a region spawns / destroys actors
+;; bound to that region's state, not to the parent machine's overall
+;; state. The runtime-owned tracking slot at `[:rf/spawned <parent-id>
+;; <invoke-id>]` uses an invoke-id that PREFIXES the region name onto
+;; the in-region state path, so per-region actors are uniquely
+;; addressed even when sibling regions declare their own :invoke.
+;;
+;; Pure-call machine-transition has no parent registration, so the
+;; spawn-fx's `:rf/parent-id` is the sentinel `:rf/transition-pure`.
+
+{:fixture/id           :machine/parallel-invoke-scoped-to-region
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions :actor/invoke}
+ :fixture/doc          "An :invoke-bearing state inside a region emits :rf.machine/spawn fx whose :rf/invoke-id is prefixed with the region name. The sibling region's transition does not affect the spawned actor."
+
+ :fixture/registry
+ {:machine
+  {:fetcher {:doc "Stub child — :rf.machine/spawn target"}}}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Entering :loading in the :data region — region-scoped :invoke spawn.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {}
+    :regions {:data {:initial :idle
+                     :states  {:idle    {:on {:fetch :loading}}
+                               :loading {:invoke {:machine-id :fetcher}}}}
+              :ui   {:initial :neutral
+                     :states  {:neutral {}}}}}
+   :snapshot     {:state {:data :idle :ui :neutral} :data {}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state {:data :loading :ui :neutral}
+                          :data  {}}
+   :expect-effects
+   [[:rf.machine/spawn
+     {:machine-id    :fetcher
+      :id-prefix     :fetcher
+      :rf/spawned-id :fetcher#1
+      :rf/parent-id  :rf/transition-pure
+      ;; The invoke-id is prefixed with the region name :data so the
+      ;; runtime-owned [:rf/spawned <parent> <invoke-id>] slot is
+      ;; uniquely keyed per region.
+      :rf/invoke-id  [:data :loading]}]]}]}

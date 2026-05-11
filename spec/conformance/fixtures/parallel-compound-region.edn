@@ -1,0 +1,48 @@
+;; Conformance fixture: machine/parallel-compound-region
+;;
+;; A `:type :parallel` machine where one region's state-tree is itself a
+;; compound state (declares `:initial` + nested `:states`). The region's
+;; value inside the snapshot's `:state` map is a vector path INSIDE that
+;; region; sibling regions are unaffected by the compound region's
+;; transitions.
+;;
+;; Per [005 §Parallel regions](../../005-StateMachines.md#parallel-regions),
+;; [§Snapshot shape](../../005-StateMachines.md#snapshot-shape), and
+;; rf2-l67o (Nine States Stage 2).
+
+{:fixture/id           :machine/parallel-compound-region
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/hierarchical :fsm/parallel-regions}
+ :fixture/doc          "Parallel machine with one compound region (its own :initial + nested :states). The region's snapshot value is a vector path INSIDE that region; the sibling flat region is unaffected."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Sibling-leaf transition inside the compound :auth region.
+  ;; The :lifecycle region (flat) is unaffected.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {}
+    :regions {:auth
+              {:initial :authenticated
+               :states
+               {:authenticated
+                {:initial :dashboard
+                 :states  {:dashboard {:on {:open-settings :settings}}
+                           :settings  {:on {:close :dashboard}}}}}}
+              :lifecycle
+              {:initial :idle
+               :states  {:idle {}}}}}
+   :snapshot     {:state {:auth      [:authenticated :dashboard]
+                          :lifecycle :idle}
+                  :data  {}}
+   :event        [:open-settings]
+   :expect-next-snapshot {:state {:auth      [:authenticated :settings]
+                                  :lifecycle :idle}
+                          :data  {}}
+   :expect-effects       []}]}

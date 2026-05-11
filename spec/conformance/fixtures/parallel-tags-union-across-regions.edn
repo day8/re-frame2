@@ -1,0 +1,45 @@
+;; Conformance fixture: machine/parallel-tags-union-across-regions
+;;
+;; The snapshot's `:tags` slot on a parallel-region machine is the UNION
+;; of every active state-node's `:tags` across every active region.
+;; Composes with Stage 1's `:fsm/tags` capability: tags from active
+;; states in every region all appear in the union.
+;;
+;; Per [005 §Tags compose across regions]
+;; (../../005-StateMachines.md#tags-compose-across-regions), Stage 1
+;; (rf2-ee0d) and Stage 2 (rf2-l67o).
+
+{:fixture/id           :machine/parallel-tags-union-across-regions
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/tags :fsm/parallel-regions}
+ :fixture/doc          "Parallel machine — snapshot's :tags is the union of every active state-node's :tags across every region. A transition in one region pivots its contribution; sibling regions' contributions persist unchanged."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Initial state: tag union covers all three regions.
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {}
+    :regions {:data {:initial :nothing
+                     :states  {:nothing {:tags #{:data/idle}
+                                         :on   {:fetch :loading}}
+                               :loading {:tags #{:data/loading :data/transient}}}}
+              :form {:initial :neutral
+                     :states  {:neutral   {:tags #{:form/neutral}}
+                               :incorrect {:tags #{:form/invalid}}}}
+              :mode {:initial :active
+                     :states  {:active {:tags #{:mode/active}}}}}}
+   :snapshot     {:state {:data :nothing :form :neutral :mode :active}
+                  :data  {}
+                  :tags  #{:data/idle :form/neutral :mode/active}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state {:data :loading :form :neutral :mode :active}
+                          :data  {}
+                          :tags  #{:data/loading :data/transient :form/neutral :mode/active}}
+   :expect-effects       []}]}

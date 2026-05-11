@@ -1018,9 +1018,13 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 (def StateNode
   [:schema {:registry {::state-node
                        [:map
+                        [:type    {:optional true}
+                         [:enum :single :parallel]]                         ;; root-only — controls how the runtime interprets the spec; absent / :single is the default (flat-or-compound shape disambiguated by whether `:states` declares nested `:states`). `:parallel` switches the spec to parallel-region mode — `:regions` (below) is required and `:states` / `:initial` MUST be absent. Per rf2-l67o (Nine States Stage 2) and [005 §Parallel regions](005-StateMachines.md#parallel-regions).
+                        [:regions {:optional true}
+                         [:map-of :keyword [:ref ::state-node]]]            ;; root-only — required iff `:type :parallel`. Each entry's value is a full state-node body (its own `:initial` + `:states`, optionally `:tags`, `:on`, etc.). Region names are keywords; region-name → state-tree. All regions are active simultaneously; the snapshot's `:state` is a map of region-name → keyword-or-vector-path. Per rf2-l67o.
                         [:initial {:optional true} :keyword]                ;; required iff :states is present (compound state); points to the cascade entry-point
                         [:states  {:optional true} [:map-of :keyword [:ref ::state-node]]]
-                        [:data    {:optional true} :map]                    ;; root-only — initial extended-state data map; ignored on non-root nodes
+                        [:data    {:optional true} :map]                    ;; root-only — initial extended-state data map; ignored on non-root nodes. Per rf2-l67o §9.4 (Shared `:data`): parallel-region machines share one `:data` blob across every region. There is no per-region `:data` slot — apps that need per-region encapsulation register N independent machines (see [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)).
                         [:guards  {:optional true} [:map-of :keyword fn?]]  ;; root-only — machine-local guard implementations; keys are referenced from :guard slots
                         [:actions {:optional true} [:map-of :keyword fn?]]  ;; root-only — machine-local action implementations; keys are referenced from :action / :entry / :exit slots
                         [:on-spawn-actions {:optional true} [:map-of :keyword fn?]] ;; root-only — optional map of named spawn-callbacks; consulted before :actions when an :on-spawn slot uses a keyword reference. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
@@ -1168,6 +1172,8 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 **`:invoke` constraint.** The `:invoke` slot's `InvokeSpec` declares both `:machine-id` and `:definition` as optional, but **exactly one** must be supplied for any actual `:invoke` slot — Malli alone cannot express the xor without a richer combinator, so `create-machine-handler` enforces it at registration time and rejects malformed slots as a transition-table error. `:invoke` is registration-time sugar — see [005 §Declarative `:invoke` (sugar over spawn)](005-StateMachines.md#declarative-invoke-sugar-over-spawn) for the desugaring rules; the runtime never sees an `:invoke` key at transition time.
 
+**`:type :parallel` constraint.** A root state-node declaring `:type :parallel` MUST declare a non-empty `:regions` map and MUST NOT declare `:initial` or `:states` — those slots are mutually exclusive with `:regions`. Each region's value is itself a full `::state-node` body (its own `:initial` + `:states` for the compound case, or no `:states` for a flat region). `create-machine-handler` validates the shape at registration time and rejects malformed declarations with `:rf.error/machine-parallel-bad-shape`. Nested parallel regions (a region whose own state-tree contains another `:type :parallel`) are not supported in v1; the validator rejects them with `:rf.error/machine-parallel-nested-not-supported`. Per rf2-l67o (Nine States Stage 2) and [005 §Parallel regions](005-StateMachines.md#parallel-regions).
+
 **`:timeout-ms` removed.** Per rf2-3y3y, the pre-release `:timeout-ms` / `:on-timeout` slots on `:invoke` / `:invoke-all` are DROPPED. State-level `:after` on the parent state subsumes the wall-clock guard, with the standard exit-cascade destroying spawned children. `create-machine-handler` rejects any `:timeout-ms` or `:on-timeout` key on either slot at registration time with `:rf.error/invoke-timeout-ms-removed`. The retired error categories `:rf.error/machine-invoke-timeout-without-on-timeout`, `:rf.error/machine-invoke-on-timeout-without-timeout`, and `:rf.error/machine-invoke-timeout-not-positive` are no longer emitted. See [005 §Wall-clock timeouts on `:invoke` — use parent state's `:after`](005-StateMachines.md#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).
 
 **`:always` constraints.** The `:always` slot is checked at registration time for two registration-error categories:
@@ -1187,14 +1193,22 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
 ```clojure
 (def MachineSnapshot
   [:map
-   ;; :state is dual:
-   ;;   - keyword for flat machines (e.g. :idle)
-   ;;   - vector path from root to the active leaf for compound machines (e.g. [:authenticated :cart :browsing])
-   ;; Implementations accept both forms on read and may normalise to vector internally.
-   ;; Per [005 §Snapshot shape](005-StateMachines.md#snapshot-shape).
-   ;; Parallel-region forms (state as a nested map of region → keyword) remain post-v1; the
-   ;; substitute is one machine per region per [005 §Substitutes for skipped features].
-   [:state    [:or :keyword [:vector :keyword]]]
+   ;; :state has THREE arms — disambiguated by the machine's declared shape:
+   ;;   - keyword                       for flat machines (e.g. :idle)
+   ;;   - [:vector :keyword]            for compound machines — root → active leaf path (e.g. [:authenticated :cart :browsing])
+   ;;   - [:map-of :keyword <region-state>]
+   ;;                                   for parallel-region machines (`:type :parallel`) — region-name → that region's keyword-or-vector-path. Per rf2-l67o (Nine States Stage 2).
+   ;; Implementations accept all three forms on read and may normalise the compound
+   ;; arm to vector internally. Per [005 §Snapshot shape](005-StateMachines.md#snapshot-shape).
+   [:state    [:multi {:dispatch (fn [v] (cond (keyword? v) :flat
+                                                (vector? v)  :compound
+                                                (map? v)     :parallel))}
+               [:flat     :keyword]
+               [:compound [:vector :keyword]]
+               ;; Region values are themselves a flat keyword or a compound path —
+               ;; each region runs an independent state-tree. Nested parallel regions
+               ;; are not supported in v1; a region's state value cannot itself be a map.
+               [:parallel [:map-of :keyword [:or :keyword [:vector :keyword]]]]]]
    [:data     {:optional true} :map]                                       ;; the machine's extended state; closed under print/read
    ;; :tags is the runtime-projected union of every active state-node's
    ;; `:tags` set; recomputed on every transition commit. Optional —

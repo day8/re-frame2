@@ -96,13 +96,20 @@ Hierarchical compound states, eventless `:always`, delayed `:after`, and declara
 
 ## Substitutes for skipped features
 
-Two features the matrix names as out of pattern scope — **parallel regions** and **history states** — have well-defined substitutes that exploit re-frame2's existing primitives. The substitutes are not workarounds: they are *better* fits for the substrate, given the snapshot-as-value foundation per [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility).
+Per rf2-l67o (Nine States Stage 2), **parallel regions** are now a **first-class capability** (`:fsm/parallel-regions`; see [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions)). The N-machines-per-region pattern documented in this section remains valid and is the right answer when the regions are **conceptually independent features** that don't share data — multiple tabs each with their own state, boot phases plus diagnostics, an audio/video player whose two regions share nothing but the play/pause event. Parallel regions inside one machine (`:type :parallel`) are the right answer when the regions are **orthogonal axes of one feature** that share a single `:data` blob — one form with three independent axes (data / form / mode), one widget with display + interaction state, one page whose render-mode is a function of three independent inputs. Both patterns ship together; choose by domain shape.
 
-### Parallel regions → separate machines per region
+The **history-state** substitute (snapshot-as-value capture exploiting [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility)) below remains the documented forward path for history-state needs — history states are still post-v1.
+
+### Parallel regions → separate machines per region (independent-features case)
 
 xstate's parallel-region machines model two-or-more independent regions advancing concurrently inside one machine (e.g., a media player with `audio.{playing,paused}` and `video.{visible,hidden}` running side by side). The substrate concern is "atomic, inspectable, composable concurrency."
 
-In re-frame2, the substitute is **one machine per region**, coordinated via cross-actor dispatch. Each region is a separate machine — separate `[:rf/machines <id>]` snapshot, separate transition table, independent inspection. Synchronising events fan out through `:fx [[:dispatch ...]]`.
+re-frame2 ships **two** answers; pick by domain shape:
+
+- **Orthogonal axes of one feature, shared `:data`.** Use `:type :parallel` with `:regions` in a single machine. The axes coordinate through one shared `:data` map and the snapshot's `:state` is a map of region → keyword-or-path. See [Spec 005 §Parallel regions](005-StateMachines.md#parallel-regions).
+- **Independent features, no shared `:data`.** Use **one machine per region**, coordinated via cross-actor dispatch. Each region is a separate machine — separate `[:rf/machines <id>]` snapshot, separate transition table, independent inspection. Synchronising events fan out through `:fx [[:dispatch ...]]`. This is the pattern below.
+
+The media-player example uses two genuinely independent regions (audio and video have no shared data, only the play/pause/stop event coordinates them) — the N-machine pattern is the right fit:
 
 #### Worked example — media player with audio/video regions
 

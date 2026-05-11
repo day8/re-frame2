@@ -1,0 +1,45 @@
+;; Conformance fixture: machine/parallel-snapshot-round-trip
+;;
+;; Per [005 §Snapshot shape](../../005-StateMachines.md#snapshot-shape)
+;; stability invariants: every conformant snapshot is print/read
+;; round-trippable. For parallel-region machines, `:state` is a map of
+;; region-name → keyword-or-vector — both keys and values are EDN-clean.
+;;
+;; This fixture documents the canonical snapshot shape for a parallel-
+;; region machine that's transitioned at least once. The harness reads
+;; the post-transition snapshot and asserts it survives round-trip.
+
+{:fixture/id           :machine/parallel-snapshot-round-trip
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions :fsm/tags}
+ :fixture/doc          "Parallel snapshot survives pr-str ↔ read-string with shape intact. The :state map, the :tags set, and the shared :data round-trip as plain data."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: the post-transition snapshot value. The harness asserts
+  ;; (= snap (read-string (pr-str snap))).
+  {:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {:items [:apple :banana]}
+    :regions {:data {:initial :loaded
+                     :states  {:loaded {:tags #{:data/loaded :data/has-items}}}}
+              :form {:initial :neutral
+                     :states  {:neutral {:tags #{:form/neutral}}}}
+              :mode {:initial :active
+                     :states  {:active {:tags #{:mode/active}
+                                        :on   {:archive :done}}
+                               :done   {:tags #{:mode/done :mode/terminal}}}}}}
+   :snapshot     {:state {:data :loaded :form :neutral :mode :active}
+                  :data  {:items [:apple :banana]}
+                  :tags  #{:data/loaded :data/has-items :form/neutral :mode/active}}
+   :event        [:archive]
+   :expect-next-snapshot {:state {:data :loaded :form :neutral :mode :done}
+                          :data  {:items [:apple :banana]}
+                          :tags  #{:data/loaded :data/has-items :form/neutral :mode/done :mode/terminal}}
+   :expect-effects       []}]}

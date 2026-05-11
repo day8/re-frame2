@@ -1,0 +1,50 @@
+;; Conformance fixture: machine/parallel-flat-two-regions
+;;
+;; A `:type :parallel` machine declares two flat regions. The initial
+;; snapshot's `:state` is a MAP of region-name → that region's :initial.
+;; A broadcast event reaches both regions; both transition independently.
+;;
+;; Per [005 §Parallel regions](../../005-StateMachines.md#parallel-regions)
+;; and rf2-l67o (Nine States Stage 2).
+
+{:fixture/id           :machine/parallel-flat-two-regions
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Flat two-region parallel machine — broadcast event flips both regions; the snapshot's :state is a region-keyed map of region → that region's keyword."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: broadcast `:flip` advances BOTH regions concurrently.
+  {:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :regions {:left  {:initial :a
+                                    :states  {:a {:on {:flip :b}}
+                                              :b {:on {:flip :a}}}}
+                            :right {:initial :x
+                                    :states  {:x {:on {:flip :y}}
+                                              :y {:on {:flip :x}}}}}}
+   :snapshot     {:state {:left :a :right :x} :data {}}
+   :event        [:flip]
+   :expect-next-snapshot {:state {:left :b :right :y} :data {}}
+   :expect-effects       []}
+
+  ;; Step 2: broadcast `:flip` again — both regions flip back.
+  {:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :regions {:left  {:initial :a
+                                    :states  {:a {:on {:flip :b}}
+                                              :b {:on {:flip :a}}}}
+                            :right {:initial :x
+                                    :states  {:x {:on {:flip :y}}
+                                              :y {:on {:flip :x}}}}}}
+   :snapshot     {:state {:left :b :right :y} :data {}}
+   :event        [:flip]
+   :expect-next-snapshot {:state {:left :a :right :x} :data {}}
+   :expect-effects       []}]}

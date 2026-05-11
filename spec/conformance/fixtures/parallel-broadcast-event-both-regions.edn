@@ -1,0 +1,42 @@
+;; Conformance fixture: machine/parallel-broadcast-event-both-regions
+;;
+;; Per [005 §Transition broadcast]
+;; (../../005-StateMachines.md#transition-broadcast), an event dispatched
+;; into a parallel-region machine is BROADCAST across every region.
+;; Each region's active state independently resolves through the
+;; deepest-wins lookup; the resolved transitions apply in declaration
+;; order against the shared :data.
+;;
+;; This fixture verifies the "both regions handle the same event"
+;; sub-case — both regions' active states declare `:on {:reset ...}`
+;; and the action `:bump-count` runs once per region against the
+;; shared :data, advancing :count from 0 to 2.
+
+{:fixture/id           :machine/parallel-broadcast-event-both-regions
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions}
+ :fixture/doc          "Event broadcasts across regions — both regions handle `:reset` with the same `:bump-count` action; :count goes 0 → 1 → 2 because the shared :data flows through each region's action sequentially."
+
+ :fixture/registry
+ {:machine-action
+  {:par/bump-count {:doc "Increments :count by 1 against the shared :data."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:par/bump-count [[:set [:count] [:fn :+ [:get [:count]] 1]]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:type    :parallel
+    :data    {:count 0}
+    :actions {:bump-count :par/bump-count}
+    :regions {:left  {:initial :a
+                      :states  {:a {:on {:reset {:target :a :action :bump-count}}}}}
+              :right {:initial :x
+                      :states  {:x {:on {:reset {:target :x :action :bump-count}}}}}}}
+   :snapshot     {:state {:left :a :right :x} :data {:count 0}}
+   :event        [:reset]
+   :expect-next-snapshot {:state {:left :a :right :x}
+                          :data  {:count 2}}
+   :expect-effects       []}]}

@@ -46,6 +46,7 @@
     :fsm/hierarchical
     :fsm/delayed-after
     :fsm/tags                                         ;; rf2-ee0d (Nine States Stage 1)
+    :fsm/parallel-regions                             ;; rf2-l67o (Nine States Stage 2)
     :routing/match-url
     :ssr/render-to-string
     :ssr/hydration
