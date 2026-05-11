@@ -57,7 +57,11 @@
 (rf/reg-event-fx :feed/load
   {:doc "Fetch the authenticated user's feed. Tagged with
          `:request-id :feed/load` so :feed/cancel can abort an in-flight
-         load when the user navigates away (Spec 014 §Aborts)."
+         load when the user navigates away (Spec 014 §Aborts).
+
+         Also broadcasts `:fetch-started` into the home machine so the
+         `:data` region advances to `:loading` (or `:refreshing` from
+         `:some`)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db]} _]
     {:db (-> db
@@ -65,7 +69,8 @@
                        (if (seq (get-in db [:feed :data])) :fetching :loading))
              (assoc-in [:feed :error] nil)
              (update-in [:feed :attempt] (fnil inc 0)))
-     :fx [[:rf.http/managed
+     :fx [[:dispatch [:realworld/articles-home [:fetch-started]]]
+          [:rf.http/managed
            (rh/request {:method     :get
                         :path       "/articles/feed"
                         :decode     schema/ArticlesResponse
@@ -80,18 +85,29 @@
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :feed/load]]}))
 
-(rf/reg-event-db :feed/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:feed :status] :loaded)
-        (assoc-in [:feed :data] (vec (:articles value)))
-        (assoc-in [:feed :loaded-at] (current-time-ms)))))
+(rf/reg-event-fx :feed/loaded
+  {:doc "Successful user-feed fetch. Folds the new count into the home
+         machine via `:fetch-succeeded`; the `:data` region's
+         `:resolving` `:always`-cascade picks `:empty` or `:some`."}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [items (vec (:articles value))]
+      {:db (-> db
+               (assoc-in [:feed :status] :loaded)
+               (assoc-in [:feed :data] items)
+               (assoc-in [:feed :loaded-at] (current-time-ms)))
+       :fx [[:dispatch [:realworld/articles-home
+                        [:fetch-succeeded {:items items}]]]]})))
 
-(rf/reg-event-db :feed/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:feed :status] :error)
-        (assoc-in [:feed :error] (rh/failure->message failure)))))
+(rf/reg-event-fx :feed/load-failed
+  {:doc "Failed user-feed fetch. Folds the failure into the home machine
+         via `:fetch-failed`; the `:data` region advances to `:error`."}
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    (let [message (rh/failure->message failure)]
+      {:db (-> db
+               (assoc-in [:feed :status] :error)
+               (assoc-in [:feed :error] message))
+       :fx [[:dispatch [:realworld/articles-home
+                        [:fetch-failed {:failure message}]]]]})))
 
 ;; ============================================================================
 ;; FAVORITES

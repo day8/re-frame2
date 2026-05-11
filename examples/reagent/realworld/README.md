@@ -24,7 +24,8 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 ## Other patterns this example exercises
 
 - **Auth state machine** — login, register, session-restore, logout as one machine (Spec 005); each transition issues a managed-HTTP request and routes the reply through machine actions.
-- **Pattern-RemoteData** — global feed, your feed, article detail, comments, profile banner, authored articles, favorited articles, and tags all use the same lifecycle slice (Pattern-RemoteData).
+- **Pattern-NineStates** — the home page (`articles.cljs`) uses a parallel-region state machine (`:realworld/articles-home`) with three orthogonal axes (`:feed` × `:filter` × `:data`); a render-priority table + a selector sub (`:articles.home/render`) collapse the tag union to a single render keyword so the root view is a `case`, not a priority `cond`. The canonical worked example is in `examples/reagent/nine_states/`; this is the production-shaped variant. See [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md).
+- **Pattern-RemoteData** — your feed, article detail, comments, profile banner, authored articles, favorited articles, and tags all use the same lifecycle slice (Pattern-RemoteData). The home page's `:articles` slice keeps its slice shape for the optimistic-update paths (`favorites.cljs/find-article` scans across `[:articles :feed :profile.articles :profile.favorites]`) while the home-page render decision is driven by the parallel machine's tags.
 - **Pattern-Forms** — login, register, comment post, article editor, and settings reuse the same draft/submission shape.
 - **Routing** — route table, path params, query params, auth gating, route-driven loads, and navigation blocking for the editor.
 - **Optimistic updates** — favorite toggle, comment delete, and follow/unfollow all show rollback-friendly event shapes against the managed-HTTP failure path.
@@ -40,7 +41,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 | `http.cljs` | implemented | `request` builder + `data-fetch-retry` policy + `failure->message` projector for `:rf.http/managed`. |
 | `routing.cljs` | implemented | Route table, auth guard, route-link helper, browser wiring. |
 | `auth.cljs` | implemented | Auth machine plus login/register forms (managed-HTTP). |
-| `articles.cljs` | implemented | Home page, global feed, popular tags, tag filter UI; managed-HTTP with retry + abort. |
+| `articles.cljs` | implemented | Home page, global feed, popular tags, tag filter UI; managed-HTTP with retry + abort. Home page uses Pattern-NineStates — a `:realworld/articles-home` parallel machine with three regions (`:feed` × `:filter` × `:data`) + a render-priority table; the root view is a `case` over `:articles.home/render`. |
 | `favorites.cljs` | implemented | Favorite toggle and followed-authors feed; optimistic updates with managed-HTTP rollback. |
 | `comments.cljs` | implemented | Article detail page, comments list, comment form, optimistic delete. **`:article/load` uses default reply addressing.** |
 | `article_editor.cljs` | implemented | New/edit/delete article plus unsaved-change guard. |
@@ -52,6 +53,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
 ## Architecture references
 
 - [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) — **`:rf.http/managed`** (this is the canonical demo).
+- [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
 - [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md)
 - [`spec/Pattern-Forms.md`](../../../spec/Pattern-Forms.md)
 - [`spec/012-Routing.md`](../../../spec/012-Routing.md)
