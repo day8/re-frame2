@@ -1419,3 +1419,116 @@
                              @recorded)]
         (is (= 1 (count silenced))
             "silencing fires for the observed frame")))))
+
+;; ---- rf2-jvrd: clear-frame-history! seam pin ------------------------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-19. Public seam at
+;; `epoch.cljc:111`; covered transitively by `clear-history!` but no test
+;; pins the single-frame variant directly.
+
+(deftest clear-frame-history-isolates-to-the-named-frame
+  (testing "clear-frame-history! drops one frame's ring; other frames'
+            rings are untouched; calling against an unknown frame is a
+            silent no-op"
+    (rf/reg-frame :test/main  {})
+    (rf/reg-frame :test/other {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    ;; Drain several epochs on each frame.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (rf/dispatch-sync [:seed] {:frame :test/other})
+    (rf/dispatch-sync [:inc]  {:frame :test/other})
+
+    ;; Sanity: both rings carry records.
+    (is (= 3 (count (rf/epoch-history :test/main))))
+    (is (= 2 (count (rf/epoch-history :test/other))))
+
+    ;; Clear only :test/other.
+    (is (nil? (epoch/clear-frame-history! :test/other))
+        "clear-frame-history! returns nil")
+
+    ;; :test/other is empty; :test/main untouched.
+    (is (= [] (rf/epoch-history :test/other))
+        ":test/other's ring is empty after clear")
+    (is (= 3 (count (rf/epoch-history :test/main)))
+        ":test/main's ring is unchanged — clear-frame-history! is scoped")
+
+    ;; Negative: clear-frame-history! against an unknown frame is a no-op
+    ;; (does not throw, does not affect other rings).
+    (is (nil? (epoch/clear-frame-history! :test/no-such-frame))
+        "clear-frame-history! on an unknown frame is a silent no-op")
+    (is (= 3 (count (rf/epoch-history :test/main)))
+        ":test/main's ring is still untouched after a no-op clear")
+    (is (= [] (rf/epoch-history :test/other))
+        ":test/other's ring stays empty (no re-population)")))
+
+;; ---- rf2-ronz: on-frame-destroyed! direct unit pin ------------------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-20. Currently reached only
+;; via destroyed-frame-epoch-history-returns-empty and
+;; destroyed-frame-get-frame-db-returns-nil; no direct unit pins the
+;; contract. on-frame-destroyed! is the late-bind hook
+;; (`re-frame.frame/destroy-frame!` calls it via `:epoch/on-frame-destroyed`).
+;; Tools and alternate-destroy paths invoke it directly; pin the
+;; seam.
+
+(deftest on-frame-destroyed-clears-frame-buffer-directly
+  (testing "calling epoch/on-frame-destroyed! on a frame drops its
+            ring buffer regardless of whether the frame itself was
+            destroyed via the usual frame/destroy-frame! path"
+    (rf/reg-frame :test/other {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    ;; Populate :test/other's ring buffer.
+    (rf/dispatch-sync [:seed] {:frame :test/other})
+    (rf/dispatch-sync [:inc]  {:frame :test/other})
+    (rf/dispatch-sync [:inc]  {:frame :test/other})
+    (is (= 3 (count (rf/epoch-history :test/other)))
+        ":test/other's ring is populated before the seam call")
+
+    ;; Call on-frame-destroyed! DIRECTLY — without going through
+    ;; frame/destroy-frame!. The frame record still exists in
+    ;; frames-atom; only the epoch ring is dropped.
+    (epoch/on-frame-destroyed! :test/other)
+
+    ;; The frame's ring is gone.
+    (is (= [] (rf/epoch-history :test/other))
+        "epoch-history returns the empty vector after on-frame-destroyed!")
+
+    ;; The frame record itself is still queryable — on-frame-destroyed! is
+    ;; scoped to epoch-internal state.
+    (is (some? (frame/frame :test/other))
+        "the frame is still registered (we did NOT call destroy-frame!)")))
+
+(deftest on-frame-destroyed-idempotent-on-repeat
+  (testing "on-frame-destroyed! is idempotent — repeated calls on the
+            same frame are no-ops (no throw, no side-effect cascade)"
+    (rf/reg-frame :test/repeat {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/repeat})
+    (is (= 1 (count (rf/epoch-history :test/repeat))))
+
+    ;; First call — clears the buffer.
+    (epoch/on-frame-destroyed! :test/repeat)
+    (is (= [] (rf/epoch-history :test/repeat)))
+
+    ;; Second call — no-op.
+    (epoch/on-frame-destroyed! :test/repeat)
+    (is (= [] (rf/epoch-history :test/repeat))
+        "ring stays empty across repeated calls")))
+
+(deftest on-frame-destroyed-on-unknown-frame-is-noop
+  (testing "on-frame-destroyed! on a frame that was never registered does
+            not throw — it's a clean no-op"
+    ;; on-frame-destroyed! is a side-effect fn over the internal
+    ;; epoch-state atoms; its return value is whatever swap! produces.
+    ;; The observable contract is "no throw, no side effects on
+    ;; unrelated state".
+    (let [traces (record-trace!)]
+      (epoch/on-frame-destroyed! :test/no-such-frame)
+      (is (empty? @traces)
+          "no traces emitted — nothing observed to silence"))))

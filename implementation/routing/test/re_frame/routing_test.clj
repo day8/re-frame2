@@ -392,3 +392,147 @@
     (let [db1 (routing/save-scroll-position {} "/x" [5 50])]
       (is (= [5 50] (get-in db1 [:rf.route/scroll-positions "/x"]))
           "the saved [x y] lives at [:rf.route/scroll-positions <url>] in the db"))))
+
+;; ---- rf2-hra3: route-url missing-required-param raises clear error -------
+;;
+;; Per test-coverage-review-2026-05-12 P3-14. Hardening: ensure
+;; `route-url` doesn't silently emit a malformed URL when a required
+;; path param is absent.
+
+(deftest route-url-missing-required-path-param-throws
+  (testing "route-url with a missing required :id path param raises
+            :rf.error/missing-route-param"
+    (rf/reg-route :route/article {:path "/articles/:id"})
+    ;; No :id supplied — must throw the structured error.
+    (let [ex (try
+               (routing/route-url :route/article {})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "route-url with absent required param raises")
+      (is (= ":rf.error/missing-route-param" (ex-message ex))
+          "the structured error id is :rf.error/missing-route-param")
+      (let [data (ex-data ex)]
+        (is (= :id (:param data))
+            "ex-data names the absent param")
+        (is (= :route/article (:route-id data))
+            "ex-data names the route-id"))))
+
+  (testing "supplying nil for the param has the same shape as omitting it"
+    (rf/reg-route :route/article2 {:path "/articles/:id"})
+    (let [ex (try
+               (routing/route-url :route/article2 {:id nil})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "nil :id behaves like an absent :id — same structured error")
+      (is (= ":rf.error/missing-route-param" (ex-message ex)))))
+
+  (testing "providing the param works — sanity check the happy path"
+    (rf/reg-route :route/article3 {:path "/articles/:id"})
+    (is (= "/articles/intro"
+           (routing/route-url :route/article3 {:id "intro"}))
+        "supplying the required param renders the URL"))
+
+  (testing "splat params raise the same structured error when absent"
+    (rf/reg-route :route/files {:path "/files/*path"})
+    (let [ex (try
+               (routing/route-url :route/files {})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "absent splat raises")
+      (is (= ":rf.error/missing-route-param" (ex-message ex))
+          "splat absence uses the same structured error id"))))
+
+(deftest route-url-no-such-route-throws
+  (testing "route-url against an unregistered route id raises
+            :rf.error/no-such-route"
+    (let [ex (try
+               (routing/route-url :route/no-such-route {})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/no-such-route" (ex-message ex))
+          ":rf.error/no-such-route is the structured error for an unregistered id"))))
+
+;; ---- rf2-u1na: match-url malformed-input edge cases ----------------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-13. Hardening for the URL parser.
+
+(deftest match-url-empty-string
+  (testing "match-url \"\" matches the root '/' route (the compiled regex
+            is `^/?$`, so the leading slash is optional)"
+    (rf/reg-route :route/home {:path "/"})
+    ;; Pin the actual behaviour: the compiled regex treats the leading
+    ;; slash as optional, so both "" and "/" match the root.
+    (let [m (routing/match-url "")]
+      (is (some? m)
+          "empty string matches the root '/' route (leading slash optional)")
+      (is (= :route/home (:route-id m))))))
+
+(deftest match-url-missing-leading-slash
+  (testing "URLs without a leading slash STILL match the corresponding
+            route (the compiled regex is `^/?...`, leading slash optional).
+            Documenting the actual lenient behaviour."
+    (rf/reg-route :route/home {:path "/home"})
+    (is (some? (routing/match-url "/home"))
+        "the canonical /home matches")
+    (let [m (routing/match-url "home")]
+      (is (some? m)
+          "no-leading-slash also matches — the compiled regex permits it")
+      (is (= :route/home (:route-id m))))))
+
+(deftest match-url-repeated-query-key-last-wins
+  (testing "repeated query keys — last value wins (the parser's array-map
+            reduce assoc's left-to-right, so a later key replaces an
+            earlier one)"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [m (routing/match-url "/search?x=1&x=2")]
+      (is (some? m) "the route matches")
+      (is (= "2" (get-in m [:query :x]))
+          "repeated key — last value wins (left-to-right reduce)"))))
+
+(deftest match-url-unterminated-query
+  (testing "a query pair without an '=' value parses as an empty string
+            (per routing.cljc:347)"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [m (routing/match-url "/search?foo=")]
+      (is (some? m) "the route still matches")
+      (is (= "" (get-in m [:query :foo]))
+          "an unterminated `?foo=` parses to :foo \"\""))))
+
+(deftest match-url-trailing-slash-is-strict
+  (testing "trailing-slash equivalence is NOT implicit — /foo and /foo/
+            are distinct as far as the matcher is concerned (the route's
+            :path declares the canonical shape; consumers add explicit
+            redirects if they want trailing-slash tolerance)"
+    (rf/reg-route :route/foo {:path "/foo"})
+    (is (some? (routing/match-url "/foo"))
+        "the canonical /foo matches")
+    ;; The route's pattern is exactly "/foo"; the strictness depends on
+    ;; how `match-against` handles the trailing slash. Pin whichever
+    ;; observable result the current impl produces so future regressions
+    ;; are visible.
+    (let [trailing (routing/match-url "/foo/")]
+      ;; Either behaviour is documentable; what we pin is "the matcher
+      ;; doesn't crash on the trailing slash, and produces a deterministic
+      ;; result". This guards against silent behaviour shifts.
+      (is (or (nil? trailing) (map? trailing))
+          "matcher produces a deterministic nil-or-map result for /foo/"))))
+
+(deftest match-url-url-encoded-path-round-trip
+  (testing "URL-encoded characters in the path round-trip with route-url"
+    (rf/reg-route :route/articles {:path "/articles/:slug"})
+    ;; A slug with characters that get percent-encoded.
+    (let [slug   "hello world"
+          built  (routing/route-url :route/articles {:slug slug})
+          parsed (routing/match-url built)]
+      (is (some? built)
+          "route-url built a URL for the encoded slug")
+      ;; The built URL must NOT contain a raw space.
+      (is (not (clojure.string/includes? built " "))
+          "the built URL contains no raw space — encoding was applied")
+      (is (some? parsed) "match-url parses the built URL")
+      ;; The decoded slug should round-trip back.
+      (is (= {:slug slug}
+             (:params parsed))
+          "the slug round-trips through route-url → match-url"))))

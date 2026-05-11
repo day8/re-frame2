@@ -692,3 +692,86 @@
         (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %))
                       @no-mismatch-traces)
             "no head-mismatch trace when client and server hashes agree")))))
+
+;; ---- rf2-37pr: install-render-to-string! install contract -----------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-15. The bundled Reagent adapter
+;; wires itself via the `:reagent/set-hiccup-emitter!` late-bind hook;
+;; `ssr/install-render-to-string!` is the public surface for
+;; non-bundled adapters that ship in their own artefact.
+
+(deftest install-render-to-string-installs-ssr-impl
+  (testing "calling install-render-to-string! with a mock setter fn invokes
+            it with the ssr render-to-string fn"
+    ;; A mock adapter's setter: captures the fn it's handed.
+    (let [captured (atom nil)
+          mock-setter (fn [f] (reset! captured f))]
+      (ssr/install-render-to-string! mock-setter)
+      (is (some? @captured)
+          "the mock setter was called — install-render-to-string! delivered
+           the renderer fn")
+      (is (fn? @captured)
+          "the captured value is a function (the ssr/render-to-string)")
+      ;; Per the install contract: the captured fn is the SAME var that
+      ;; ssr/render-to-string resolves to. Calling it with a hiccup tree
+      ;; produces an HTML string.
+      (let [html (@captured [:div "from-mock"] {})]
+        (is (string? html)
+            "the installed fn renders hiccup → HTML string")
+        (is (clojure.string/includes? html "from-mock")
+            "the rendered HTML carries the hiccup body")
+        (is (clojure.string/starts-with? html "<div")
+            "rendered HTML starts with the expected root tag")))))
+
+(deftest install-render-to-string-returns-nil
+  (testing "install-render-to-string! returns nil; calls it just for side effect"
+    (is (nil? (ssr/install-render-to-string! (fn [_f] nil)))
+        "install-render-to-string! is a side-effect fn; returns nil")))
+
+;; ---- rf2-9v0f: default-response initial shape contract --------------------
+;;
+;; Per test-coverage-review-2026-05-12 P3-16. Pin the documented keys of
+;; the SSR per-request response accumulator initial value.
+
+(deftest default-response-canonical-shape
+  (testing "(ssr/default-response) returns the canonical initial response map"
+    (let [r (ssr/default-response)]
+      (is (map? r) "default-response returns a map")
+      ;; Per Spec 011 §HTTP response contract / §Status defaults:
+      (is (= 200 (:status r))
+          ":status defaults to 200")
+      (is (vector? (:headers r))
+          ":headers is a vector (header pairs, ordered)")
+      ;; The default content-type header for HTML responses lives in
+      ;; the initial map.
+      (is (some (fn [[name value]]
+                  (and (= "content-type" name)
+                       (clojure.string/includes? (str value) "text/html")))
+                (:headers r))
+          "default :headers carries a text/html content-type entry")
+      (is (vector? (:cookies r))
+          ":cookies is a vector")
+      (is (empty? (:cookies r))
+          ":cookies starts empty")
+      (is (nil? (:redirect r))
+          ":redirect starts nil"))))
+
+(deftest default-response-returns-fresh-map
+  (testing "each call to default-response returns a fresh map (not shared state)"
+    (let [r1 (ssr/default-response)
+          r2 (ssr/default-response)]
+      (is (= r1 r2) "the value shape is consistent across calls")
+      ;; If they share state, mutating one (e.g. updating :status) would
+      ;; affect the other. Persistent maps in Clojure are immutable, so
+      ;; really what we're asserting is that callers can use the result
+      ;; freely without aliasing concerns. Value-equality is the
+      ;; observable contract; identity is the safety guarantee Spec 011
+      ;; relies on for the per-request accumulator pattern.
+      ;; (Persistent collections — assoc'ing one returns a new value;
+      ;;  the other is untouched.)
+      (let [r1' (assoc r1 :status 500)]
+        (is (= 500 (:status r1'))
+            "mutating one return value yields a new map with the change")
+        (is (= 200 (:status r2))
+            "the other return value is untouched — no shared mutable state")))))
+
