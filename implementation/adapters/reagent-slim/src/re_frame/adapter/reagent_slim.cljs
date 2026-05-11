@@ -1,6 +1,6 @@
 (ns re-frame.adapter.reagent-slim
   "The day8/reagent-slim adapter — drop-in replacement for the bridge
-  adapter `re-frame.adapter.reagent` (rf2-6hyy Stage 4-D).
+  adapter `re-frame.adapter.reagent` (rf2-6hyy).
 
   Per IMPL-SPEC §2.1 + §9 + §13.1: this adapter Var emits the same
   9-key map shape `re-frame.substrate.adapter` consumes; signatures
@@ -23,36 +23,58 @@
     adapter           — the substrate spec map (9-key contract)
     set-hiccup-emitter! — wires SSR's render-to-string into :render-to-string
 
-  Late-bind hooks installed at ns-load time:
-    :reagent/set-hiccup-emitter!  — set to set-hiccup-emitter!
-    :adapter/current-frame        — set to re-frame.views/current-frame
+  Late-bind hooks installed at ns-load time (all routed through
+  `(substrate-adapter/current-adapter)` per rf2-0d35 so the active
+  adapter's impl wins in test bundles that load multiple adapter ns's):
 
-  The current-frame hook is the same one the bridge installs. The
-  Reagent-slim adapter targets the same React-context Provider /
+    :reagent/set-hiccup-emitter!  — set-hiccup-emitter! (SSR seam, rf2-uo7v)
+    :adapter/current-frame        — re-frame.views/current-frame (rf2-d4sf)
+    :adapter/current-component    — reagent2.core/current-component (rf2-wbnl)
+    :adapter/ratom                — reagent2.core/atom            (rf2-s36l)
+    :adapter/ratom?               — reagent2.ratom/IReactiveAtom?  (rf2-s36l)
+    :adapter/make-reaction        — reagent2.ratom/make-reaction   (rf2-s36l)
+    :adapter/add-on-dispose!      — reagent2.ratom/add-on-dispose! (rf2-s36l)
+    :adapter/dispose!             — reagent2.ratom/dispose!        (rf2-s36l)
+    :adapter/reactive?            — reagent2.ratom/reactive?       (rf2-s36l)
+    :adapter/after-render         — reagent2.core/after-render     (rf2-s36l)
+
+  Interop is fully late-bound: this ns does NOT statically `:require`
+  stock Reagent anywhere. `re-frame.interop` reads ratom / reaction /
+  disposable surfaces through the hook table (per rf2-s36l), so the
+  slim Maven artefact (`day8/reagent-slim`) can be published without
+  a stock-Reagent dep — downstream consumers depending on
+  `reagent-slim` alone gain the ~25 KB gz saving. The in-tree
+  shadow-cljs build still pulls all adapter trees; that's the
+  monorepo configuration, not a shape requirement.
+
+  The Reagent-slim adapter targets the same React-context Provider /
   `(.-context cmp)` shape the bridge uses (per IMPL-SPEC §9.6),
   so the views.cljs wiring works unchanged.
 
+  Render path (rf2-08t0 / rf2-s36l / rf2-u5p5):
+    - `wrap-render` returns hiccup per IMPL-SPEC §5.1; the React
+      `render` method converts that hiccup to a React element via
+      `reagent2.impl.template/as-element`, registered into
+      `reagent2.impl.component/set-as-element-fn!` at template's
+      ns-load time. Without that conversion React would reject the
+      CLJS vector with 'Objects are not valid as a React child'.
+    - `make-render-method` mirrors stock Reagent's
+      `reagent.impl.component` render path: the first render creates
+      the per-component render Reaction with a custom auto-run that
+      queues a React re-render (no synchronous recompute); each
+      subsequent render calls `(._run rea false)` directly so
+      deref-capture rewires the watching graph AND the user's render
+      fn executes with the latest state. A plain `@rea` would return
+      the cached prior state because `_handle-change` with a
+      fn-valued auto-run doesn't set `dirty?`.
+
+  Status: drop-in functional swap for the bridge. The
+  counter-slim-and-fast Playwright smoke (rf2-5lbx) runs as part of
+  the default suite — was `skip:`-parked behind rf2-s36l / rf2-u5p5
+  and is GREEN as of those merges.
+
   Pre-release status: until the bridge is retired (post-1.0), apps
   that want the rewrite explicitly opt in by requiring this ns.
-
-  Stage 4-D scope-of-completion (rf2-6hyy):
-    - The substrate-shape Vars (containers, derived values, render,
-      hydrate, dispose) are wired against `reagent2.*`.
-    - `register-context-provider` returns `views/build-frame-provider`,
-      same as the bridge — but the upstream `re-frame.views/current-frame`
-      reads `(reagent.core/current-component)` (stock), NOT
-      `(reagent2.core/current-component)` (slim). For mixed-mode
-      environments the slim's Provider components would not be visible
-      to that reader. This is a known Stage 4-E follow-up: views.cljs
-      needs adapter-agnostic dispatch through a late-bind hook
-      (`:adapter/current-component`) before the slim adapter is fully
-      functional in production. Today it is structurally complete and
-      callable from tests, but mounting through `(rf/init! adapter)`
-      is not yet a drop-in replacement for the bridge.
-    - The `(rf/init! ...)` apps still pin the bridge until 4-E lands;
-      the slim adapter is shipped as the integration target so the
-      adapter-shape can be tested + so 4-E's seam work has a concrete
-      consumer.
 
   Per rf2-uo7v the SSR surface ships in `day8/re-frame2-ssr` —
   this adapter MUST NOT statically `:require [re-frame.ssr]`. Instead
