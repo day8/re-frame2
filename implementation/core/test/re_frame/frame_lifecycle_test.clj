@@ -86,18 +86,29 @@
   (testing "events queued via async dispatch are not processed once the frame is destroyed"
     (rf/reg-frame :worker {:doc "worker frame"})
     (let [side-effects (atom 0)
-          traces       (atom [])]
+          traces       (atom [])
+          ;; rf2-iosc: async dispatch schedules a drain via interop/next-tick
+          ;; on a single-thread executor. On the JVM that drain can race the
+          ;; main thread — the executor sometimes fires between the two
+          ;; dispatches (or between dispatch and the queue read), draining
+          ;; one or both events before the assertion runs. That made this
+          ;; test flake under load (~1/200 runs in isolation, reliably
+          ;; 1-in-N on CI). We deterministically suppress the drain by
+          ;; intercepting next-tick for the lifetime of the enqueue +
+          ;; queue-read, matching the same with-redefs pattern used by
+          ;; `drain-after-destroy-does-not-npe` below.
+          captured-ticks (atom [])]
       (rf/reg-event-db :tick (fn [db _] (swap! side-effects inc) db))
-      ;; Async dispatch enqueues without draining synchronously — the
-      ;; drain runs on the next tick. Destroy before that tick fires.
       (rf/register-trace-cb! ::pending (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch [:tick] {:frame :worker})
-      (rf/dispatch [:tick] {:frame :worker})
-      ;; Without draining, the queue holds the pending events.
-      (let [router (:router (frame/frame :worker))
-            queue  (:queue @router)]
-        (is (= 2 (count queue))
-            "two events are queued and have NOT yet been processed"))
+      (with-redefs [interop/next-tick (fn [f] (swap! captured-ticks conj f) nil)]
+        (rf/dispatch [:tick] {:frame :worker})
+        (rf/dispatch [:tick] {:frame :worker})
+        ;; With the drain captured (never run), the queue deterministically
+        ;; holds both pending events.
+        (let [router (:router (frame/frame :worker))
+              queue  (:queue @router)]
+          (is (= 2 (count queue))
+              "two events are queued and have NOT yet been processed")))
       ;; Destroy the frame. Per Spec 002 §Destroy: pending events drain
       ;; or get discarded; either way they MUST NOT corrupt state on a
       ;; gone frame, and any later attempt to dispatch traces
