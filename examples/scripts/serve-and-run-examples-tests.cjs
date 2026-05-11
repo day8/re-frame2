@@ -214,6 +214,16 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'long_running_work', 'index.html'),
     outDir: path.join(OUT_ROOT, 'long-running-work'),
   },
+  // Pattern-WebSocket worked example (rf2-yf97). Connection machine
+  // with hierarchical :active, :invoke'd socket actor, :after backoff,
+  // :always queue-flush, :fsm/tags, request-reply correlation, and
+  // connection-epoch staleness. The transport is an in-process mock
+  // WebSocket so the example is standalone — no network needed.
+  {
+    build: 'examples/websocket',
+    htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'websocket', 'index.html'),
+    outDir: path.join(OUT_ROOT, 'websocket'),
+  },
 ];
 
 function compileAll() {
