@@ -39,9 +39,9 @@ Background agents do the heavy lifting. They get a tight, complete prompt. They 
 
 ## Specs are super prompts
 
-Once you accept that the method works, the next thing to internalise is this: **specs are just prompts taken seriously**.
+For any AI work, **the prompt is everything**. Quality of output ≈ quality of prompt. The model can only execute what you ask for — if your ask is incomplete, ambiguous, or contradictory, the output will be too. There's no exception to this rule, and no model upgrade fixes it.
 
-A "spec" in this method isn't a heavyweight engineering deliverable. It's the same thing you'd write as a prompt to the AI — only longer, sharper, less ambiguous, with the gaps and edge cases pre-empted. Quality of output ≈ quality of prompt. A good spec is a good prompt is a good spec.
+The discipline that follows is to take prompts seriously. That's what a "spec" is in this method — not a heavyweight engineering deliverable, but a prompt that's been worked on. Longer, sharper, less ambiguous, with the gaps and edge cases pre-empted. A good spec is a good prompt; a good prompt is a good spec.
 
 Once you see them as the same thing, the workflow follows:
 
