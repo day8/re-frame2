@@ -1,0 +1,75 @@
+;; Conformance fixture: machine/tags-round-trip-pr-str
+;;
+;; Per Spec 005 §Snapshot shape §Stability invariants — every conformant
+;; snapshot is print/read round-trippable so it survives the wire (SSR
+;; hydration, Spec 011) and the time-axis (Tool-Pair epoch replay).
+;; `:tags` is a set of keywords; both halves of that — sets and keywords
+;; — are EDN-printable and EDN-readable, so the round-trip is mechanical.
+;;
+;; This fixture exercises a machine whose `:tags` declarations span
+;; unqualified, qualified, and dotted-namespace keywords. After a
+;; transition, the snapshot prints to EDN and reads back =.
+;;
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
+;; rf2-ee0d (Nine States Stage 1).
+
+{:fixture/id           :machine/tags-round-trip-pr-str
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/tags}
+ :fixture/doc          "Snapshot's :tags slot round-trips through pr-str / read-string. Asserts the canonical-form invariant Spec 005 §Snapshot shape requires: every conformant snapshot survives the wire and the time-axis."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: simple unqualified-keyword set.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle {:tags #{:active}
+                                   :on   {:fetch :loading}}
+                            :loading {:tags #{:active :transient}}}}
+   :snapshot     {:state :idle :data {} :tags #{:active}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state :loading
+                          :data  {}
+                          :tags  #{:active :transient}}
+   :expect-effects       []}
+
+  ;; Step 2: qualified-namespace keywords. The reader must reconstruct
+  ;; the same fully-qualified keywords from the printed form.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle    {:tags #{:data/empty :form/neutral :mode/active}
+                                      :on   {:submit :submitting}}
+                            :submitting {:tags #{:data/loading :form/in-flight :mode/active}}}}
+   :snapshot     {:state :idle
+                  :data  {}
+                  :tags  #{:data/empty :form/neutral :mode/active}}
+   :event        [:submit]
+   :expect-next-snapshot {:state :submitting
+                          :data  {}
+                          :tags  #{:data/loading :form/in-flight :mode/active}}
+   :expect-effects       []}
+
+  ;; Step 3: dotted-namespace keywords. Spec 005 §State tags reserves
+  ;; the `:rf/*` and `:rf.*/*` namespaces for framework use — user
+  ;; tags may freely use any other namespace, including dotted.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle  {:tags #{:ui.state/loading :feature.cart/visible}
+                                    :on   {:done :resolved}}
+                            :resolved {:tags #{:ui.state/done}}}}
+   :snapshot     {:state :idle
+                  :data  {}
+                  :tags  #{:ui.state/loading :feature.cart/visible}}
+   :event        [:done]
+   :expect-next-snapshot {:state :resolved
+                          :data  {}
+                          :tags  #{:ui.state/done}}
+   :expect-effects       []}]}

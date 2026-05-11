@@ -1,0 +1,86 @@
+;; Conformance fixture: machine/tags-flat-machine
+;;
+;; A flat (non-hierarchical) machine declares `:tags <set-of-keywords>` on
+;; each of its states. After every transition, the runtime stamps the
+;; active state's tag set onto the snapshot at `:tags`. The framework
+;; sub `:rf/machine-has-tag?` returns true iff the snapshot's `:tags`
+;; contains the queried keyword.
+;;
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
+;; rf2-ee0d (Nine States Stage 1).
+
+{:fixture/id           :machine/tags-flat-machine
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/tags}
+ :fixture/doc          "Flat machine with :tags on every state. Each transition updates the snapshot's :tags to the active state's tag set; cross-transitions yield disjoint tag sets."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; Step 1: :idle → :loading. The committed snapshot's :tags reflects
+  ;; :loading's tag set (not :idle's).
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle    {:tags #{:idle :active}
+                                      :on   {:fetch :loading}}
+                            :loading {:tags #{:loading :transient :active}
+                                      :on   {:done   :complete
+                                             :failed :error}}
+                            :complete {:tags #{:done :read-only :terminal}}
+                            :error    {:tags #{:error :terminal}
+                                       :on   {:fetch :loading}}}}
+   :snapshot     {:state :idle :data {} :tags #{:idle :active}}
+   :event        [:fetch]
+   :expect-next-snapshot {:state :loading
+                          :data  {}
+                          :tags  #{:loading :transient :active}}
+   :expect-effects       []}
+
+  ;; Step 2: :loading → :complete. Tag set is :complete's; :loading's
+  ;; tags are gone.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle    {:tags #{:idle :active}
+                                      :on   {:fetch :loading}}
+                            :loading {:tags #{:loading :transient :active}
+                                      :on   {:done   :complete
+                                             :failed :error}}
+                            :complete {:tags #{:done :read-only :terminal}}
+                            :error    {:tags #{:error :terminal}
+                                       :on   {:fetch :loading}}}}
+   :snapshot     {:state :loading
+                  :data  {}
+                  :tags  #{:loading :transient :active}}
+   :event        [:done]
+   :expect-next-snapshot {:state :complete
+                          :data  {}
+                          :tags  #{:done :read-only :terminal}}
+   :expect-effects       []}
+
+  ;; Step 3: :loading → :error. Same shape — failure path also rewrites
+  ;; the snapshot's :tags to the new state's declaration.
+  {:call         :machine-transition
+   :definition   {:initial :idle
+                  :data    {}
+                  :states  {:idle    {:tags #{:idle :active}
+                                      :on   {:fetch :loading}}
+                            :loading {:tags #{:loading :transient :active}
+                                      :on   {:done   :complete
+                                             :failed :error}}
+                            :complete {:tags #{:done :read-only :terminal}}
+                            :error    {:tags #{:error :terminal}
+                                       :on   {:fetch :loading}}}}
+   :snapshot     {:state :loading
+                  :data  {}
+                  :tags  #{:loading :transient :active}}
+   :event        [:failed]
+   :expect-next-snapshot {:state :error
+                          :data  {}
+                          :tags  #{:error :terminal}}
+   :expect-effects       []}]}

@@ -1047,6 +1047,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                                 [:action {:optional true} ActionRef]
                                 [:meta   {:optional true} :map]]]]]
                         [:on      {:optional true} EventMap]                ;; event → transition
+                        [:tags    {:optional true} [:set :keyword]]         ;; runtime-projected onto snapshot's :tags — see [005 §State tags](005-StateMachines.md#state-tags); union of active-configuration tag sets is stamped at [:rf/machines <id> :tags] on every transition commit. Reserved framework namespace (`:rf/*`, `:rf.*/*`) per Conventions.md §Reserved namespaces. Per rf2-ee0d.
                         [:meta    {:optional true} :map]]}}
    [:ref ::state-node]])
 
@@ -1195,6 +1196,12 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; substitute is one machine per region per [005 §Substitutes for skipped features].
    [:state    [:or :keyword [:vector :keyword]]]
    [:data     {:optional true} :map]                                       ;; the machine's extended state; closed under print/read
+   ;; :tags is the runtime-projected union of every active state-node's
+   ;; `:tags` set; recomputed on every transition commit. Optional —
+   ;; implementations MAY elide the key when the union is empty (per
+   ;; [005 §State tags §Snapshot shape change]
+   ;; (005-StateMachines.md#snapshot-shape-change)). Per rf2-ee0d.
+   [:tags     {:optional true} [:set :keyword]]
    [:meta     {:optional true}
     [:map
      [:rf/snapshot-version {:optional true} :int]                          ;; bumped when definition shape changes incompatibly
@@ -1203,10 +1210,11 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
 
 Stability invariants the implementation upholds (see [005 §Snapshot shape](005-StateMachines.md#snapshot-shape)):
 
-1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data`.
+1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean).
 2. Snapshots represent committed state only; no in-flight microstate is captured.
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member.
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.warning/machine-snapshot-version-mismatch`.
+5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
 
 **Effect-map note.** A machine handler returns a standard `:rf/effect-map` (`:db` + `:fx`). The action-internal `{:data :fx}` shape is *internal* to the machine handler; the handler lowers `:data` to a single `:db` write at `[:rf/machines <id> :data]` before returning. The closed `:rf/effect-map` contract (`:db` + `:fx` only) is preserved at the handler boundary.
 

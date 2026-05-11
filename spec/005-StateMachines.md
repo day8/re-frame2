@@ -37,6 +37,7 @@ The pair `{:state :data}` reads as the natural English idiom and matches a vocab
 ```clojure
 {:state <fsm-keyword-or-path>   ;; :idle, :editing, ... — OR [:checkout :payment :credit-card]
  :data  <map>                    ;; the machine's private memory
+ :tags  #{<keyword>, ...}        ;; OPTIONAL — runtime-projected union of every active state's :tags; see §State tags
  :meta  {<optional> ...}}        ;; reserved for :rf/snapshot-version etc.
 ```
 
@@ -152,6 +153,7 @@ Every state in `:states` is a map. The complete state-node grammar — every key
 {:on      {<event-id> <transition>, ...}    ;; event-driven transitions
  :always  [<guarded-transition>, ...]        ;; eventless transitions (see §Eventless `:always`)
  :after   {<delay> <transition>, ...}        ;; delayed transitions (see §Delayed `:after`)
+ :tags    #{<keyword>, ...}                  ;; runtime-projected onto snapshot's :tags (see §State tags)
  :entry   <fn-or-keyword>                    ;; ran on entering this state; keyword resolves into :actions map
  :exit    <fn-or-keyword>                    ;; ran on exiting this state; keyword resolves into :actions map
  :invoke  <invoke-spec>                      ;; spawn child on entry; destroy on exit (see §Declarative :invoke)
@@ -161,7 +163,7 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :meta    {<user-keys> ...}}                 ;; e.g. {:terminal? true}
 ```
 
-All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:invoke`, `:invoke-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
+All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:invoke`, `:invoke-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
 
 A state node MUST NOT declare both `:invoke` and `:invoke-all` — they are mutually exclusive at the same node (a node spawning a single child uses `:invoke`; a node spawning N parallel children uses `:invoke-all`). `create-machine-handler` rejects the combination at registration time as a malformed transition table.
 
@@ -1049,6 +1051,148 @@ External observers see `:asking` → `:winner`. The "answer counted, still askin
 - **Not on the root machine.** `:always` is a state-node key; the root has `:initial` as its cascade entry-point. (A root-level "fire as soon as the machine starts" need is met by `:initial` cascading into a leaf whose `:always` fires.)
 - **Not allowed as a same-state same-guard self-loop** (see above) — registration error.
 - **Not a substitute for `:after`.** `:after` is for **time-delayed** transitions; `:always` fires immediately on guard truth. They are independent capabilities; see [§Delayed `:after` transitions](#delayed-after-transitions) for the full delayed-transition semantics. Both can co-exist on the same state node — they are independent slots.
+
+## State tags
+
+A state node may declare `:tags <set-of-keywords>`. At every transition, the runtime walks the active configuration, unions every active state-node's tag set, and stamps the result onto the snapshot at `:tags`. A framework sub asks the predicate question — "does this machine's snapshot carry this tag?" — without enumerating every nested path that contributes to the answer.
+
+The motivating use case is the **Nine States pattern** ([Pattern-NineStates.md](Pattern-NineStates.md)): a page-level convention whose render decisions slice across three orthogonal axes (data cardinality, form validity, mode). Tags carry the per-axis intent (`:data/loading`, `:form/invalid`, `:mode/done`) so view-level subs can ask query-shaped questions without inventing N boolean discriminator subs per state.
+
+```clojure
+{:initial :editing
+ :states
+ {:editing  {:tags #{:active :editable}
+             :on   {:archive :archived}}
+  :archived {:tags #{:done :read-only :terminal}}}}
+```
+
+After entering `:archived`, the snapshot looks like:
+
+```clojure
+{:state :archived
+ :data  {<...>}
+ :tags  #{:done :read-only :terminal}}
+```
+
+### Semantic contract
+
+- `:tags` is a **set of keywords** on a state node. Order doesn't matter; duplicates collapse. The implementation tolerates the obvious alternative shapes (a vector or single keyword) by coercing to a set; the canonical form is `[:set :keyword]` per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node).
+- The runtime computes `(apply set/union (map :tags active-state-nodes))` at every transition commit (after `:always` microsteps reach fixed point, before the macrostep's `:rf.machine/transition` trace fires — so traces carry the new tag set) and stores the result at `[:rf/machines <id> :tags]` on the snapshot.
+  - For a **flat** machine the active set is the single named state.
+  - For a **compound** machine it's every state along the active path (root → every compound ancestor → leaf). This matches XState/SCXML's "any state in the active configuration carrying the tag is enough."
+- `:tags` is **read-only** for users. Actions cannot return `:tags` in their effect map; the runtime owns the slot. It is a pure projection of `:state` — set the state, the tags follow.
+- The framework reserves the `:rf/*` and `:rf.*/*` keyword namespaces (per [Conventions.md §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)); user-declared `:tags` must not use those prefixes. Any unreserved namespace is fair game, including dotted forms like `:ui.state/loading`.
+
+### Snapshot shape change
+
+Strictly additive — the `:rf/machine-snapshot` schema (see [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)) gains one **optional** key:
+
+```clojure
+{:state <fsm-keyword-or-path>
+ :data  <map>
+ :tags  #{<keyword>, ...}            ;; NEW — derived at commit; optional
+ :meta  {<...>}}
+```
+
+When the active configuration's tag union is **empty** (no active state declares `:tags`), the runtime **elides** the `:tags` key entirely. Pre-tag machines are byte-identical to post-tag machines that declare no tags — no snapshot grew, no print/read round-trip changed shape, no downstream reader has to special-case anything.
+
+Implementations may also legally carry `:tags #{}` instead of eliding; both shapes are conformant. The CLJS reference elides — that's the optimisation [conformance fixture `tags-empty-when-no-declaration`](conformance/fixtures/tags-empty-when-no-declaration.edn) asserts.
+
+### Querying tags — the `:rf/machine-has-tag?` sub
+
+The framework ships one sub:
+
+```clojure
+;; framework-shipped — registered alongside :rf/machine in the machines ns
+(reg-sub :rf/machine-has-tag?
+  (fn [db [_ machine-id tag]]
+    (contains? (get-in db [:rf/machines machine-id :tags]) tag)))
+```
+
+User call sites:
+
+```clojure
+;; predicate
+@(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :data/loading])
+;; => true | false
+
+;; sugar matching sub-machine's pattern
+(rf/has-tag? :ui/nine-states :data/loading)
+;; => reaction wrapping the registered sub
+```
+
+Reading the whole tag set is the normal snapshot read:
+
+```clojure
+@(rf/sub-machine :ui/nine-states)
+;; => {:state ... :data ... :tags #{:data/loading :form/neutral :mode/active}}
+```
+
+The sub is **derived** — it reads the snapshot via `get-in` rather than chaining off `:rf/machine` — so a view that only cares about whether a specific tag is present re-renders only when the containment-bit flips, not on every tag-set change. Reagent's built-in equality dedup gates the boolean return.
+
+### Compatibility
+
+Strictly additive. Machines that declare no `:tags` keys produce snapshots without a `:tags` slot; existing views, subs, and traces don't care. The `:rf/machine-snapshot` schema's `{:optional true}` covers the migration. No existing public name collides — `:tags` was previously unused in the state-node grammar (the `:meta` slot was the only carrier of state-level tooling-visible metadata, and per-state `:meta` is still independently allowed and not synonymous with `:tags`).
+
+Print/read survives: `:tags` is `#{<keyword>}` — a set of keywords; both halves are EDN-printable and EDN-readable. The Tool-Pair epoch buffer and SSR hydration paths handle `:tags` automatically because they round-trip the snapshot as opaque data.
+
+### Tags on states only — not transitions
+
+Per the locked design decision (rf2-ee0d §9.3): `:tags` is a state-node slot, not a transition-spec slot. Transitions don't carry tags — the question "is this transition tagged" is already answered by the existing trace-event vocabulary (`:source`, `:op-type`). Adding transition tags later is non-breaking; today's design says no.
+
+### What tags are *not*
+
+- **Not a transition-driver.** Guards' inputs are `:data` + the event, not the tag set. A transition can't react to a tag flipping on; if you need that, the right answer is to change the state directly (an `:always` transition guarded on `:data` is the canonical mechanism).
+- **Not a `:meta` synonym.** Per-state `:meta` (the long-standing tooling-visible slot, e.g. `{:terminal? true}`) lives alongside `:tags` and is independently queryable via `(machine-meta id)`. Tags are about **runtime active-configuration projection**; `:meta` is about **static state-node metadata**.
+- **Not user-writable on the snapshot.** Actions can't return `:tags` in their `{:data :fx}` effect map; the slot is runtime-owned.
+- **Not a substitute for `:rf/machine`.** Views that need the whole snapshot still subscribe to `:rf/machine`; `:rf/machine-has-tag?` is for the predicate-shaped query. Both are first-class.
+
+### Worked example — read the page's render state in one tag-query
+
+A view that wants "render the loading spinner whenever any data-loading state is active" today writes:
+
+```clojure
+(rf/reg-sub :ui.state/loading?
+  :<- [:todos/status]
+  (fn [status _] (= status :loading)))
+
+(when @(rf/subscribe [:ui.state/loading?])
+  [view-loading])
+```
+
+That works for the flat-status case; it doesn't scale to "loading, OR validating, OR retrying" without adding three more subs. With tags:
+
+```clojure
+{:loading     {:tags #{:data/loading} :on {...}}
+ :validating  {:tags #{:data/loading} :on {...}}
+ :retrying    {:tags #{:data/loading :data/retry} :on {...}}}
+
+(when @(rf/has-tag? :todos/editor :data/loading)
+  [view-loading])
+```
+
+The view doesn't enumerate the three states. New `:loading`-flavoured states added later carry the tag automatically; the view picks them up at no cost.
+
+### Trace events
+
+`:tags` is recomputed on every `:rf.machine/transition` and fires under the same trace event — there's no separate `:rf.machine.tag/changed` trace. The committed snapshot's `:tags` slot is visible in the existing trace's `:after` payload; observers that care about tag changes compare `(:tags (:before tr))` against `(:tags (:after tr))`.
+
+If a future use case wants per-tag granular tracing, a `:rf.machine.tag/changed` trace event can be added additively without breaking the read pattern above.
+
+### Capability gating
+
+`:tags` is **`:fsm/tags`** in the capability matrix (per [§Capability matrix](#capability-matrix)) — claimed by the v1 CLJS reference. Ports that don't claim it raise `:rf.error/machine-grammar-not-in-v1` on `:tags` at registration time.
+
+### Cross-references
+
+- [Pattern-NineStates.md](Pattern-NineStates.md) — the motivating pattern.
+- [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) — snapshot-schema extension.
+- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) — state-node-schema extension.
+- [§Capability matrix](#capability-matrix) — `:fsm/tags` row.
+- [conformance/fixtures/tags-flat-machine.edn](conformance/fixtures/tags-flat-machine.edn),
+  [tags-compound-active-path-union.edn](conformance/fixtures/tags-compound-active-path-union.edn),
+  [tags-empty-when-no-declaration.edn](conformance/fixtures/tags-empty-when-no-declaration.edn),
+  [tags-round-trip-pr-str.edn](conformance/fixtures/tags-round-trip-pr-str.edn) — conformance fixtures.
 
 ## Delayed `:after` transitions
 
@@ -2365,6 +2509,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Hierarchical compound states** — nested `:states` in a state node; entry/exit cascading along the LCA path; vector / keyword target resolution; deepest-wins transition resolution with parent fallthrough | Prose: [§Hierarchical compound states](#hierarchical-compound-states); Schema: `:rf/state-node` (recursive) + `:rf/transition-target`; Fixtures: `hierarchical-compound-transition`, `hierarchical-cross-level-transition`, `hierarchical-parent-fallthrough` | ✓ claimed (specified) | Snapshot dual-form, LCA-based cascading, and deepest-wins resolution are locked. |
 | **Eventless `:always` transitions** — fire as soon as a guard becomes true | Prose: [§Eventless `:always` transitions](#eventless-always-transitions); Schema: `:rf/state-node` extended for `:always` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `always-single-microstep`, `always-depth-exceeded` | ✓ claimed (specified) | Microstep loop inside drain Level 3; bounded depth (default 16); self-loop forbidden at registration; trace events at both per-microstep and macrostep granularity. |
 | **Delayed `:after` transitions** — fire after a time delay | Prose: [§Delayed `:after` transitions](#delayed-after-transitions); Schema: `:rf/state-node` extended for `:after` (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `after-single-delay`, `after-stale-detection`, `after-hierarchy` | ✓ claimed (specified) | Epoch-based stale detection — no `:cancel-dispatch-later` fx; clock primitives live in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`); SSR-mode no-ops timer scheduling; trace events at `:scheduled` / `:fired` / `:stale-after` granularity. |
+| **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: `:rf/state-node` extended for `:tags`, `:rf/machine-snapshot` extended for `:tags` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | Strictly additive — the snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar covers the predicate query. Composes with hierarchical compound states (union along the active path) and — per Stage 2 (rf2-l67o) — will compose with parallel regions (union across every active region). Per rf2-ee0d (Nine States Stage 1). |
 | **Parallel regions** — `:type :parallel` with multiple concurrent regions | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: separate machines per region, coordinated via cross-actor dispatch. |
 | **History states** — `:type :history` re-entering a compound's last-active substate | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: snapshot-as-value capture using the existing `[:rf/machines <id>]` snapshot. |
 | **Final states with `onDone` parent notification** | Prose: brief; Schema: extended for `:meta {:terminal? true :on-done <event-vec>}`; Fixtures: final-state-emits-on-done | Post-v1 | User code can dispatch on entry to a terminal state in v1. |
@@ -2392,6 +2537,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :fsm/hierarchical
                  :fsm/eventless-always
                  :fsm/delayed-after
+                 :fsm/tags
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
@@ -2546,6 +2692,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `:rf.warning/no-clock-configured` warning category (advisory; emitted when `:after` is exercised on a host whose `re-frame.interop` clock layer hasn't been wired).
 - The eventless `:always` capability per [§Eventless `:always` transitions](#eventless-always-transitions): state-node `:always` slot, microstep loop within Level 3 drain, default depth-16 limit, self-loop guard at registration time, dual-granularity trace events.
 - The delayed `:after` capability per [§Delayed `:after` transitions](#delayed-after-transitions): state-node `:after` slot accepting `{<delay> → <transition-spec>}` where `<delay>` is `pos-int?`, a subscription vector (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [§Dynamic delay re-resolution](#dynamic-delay-re-resolution)), or `(fn [snapshot] ms)`. Epoch-based stale detection (no `:cancel-dispatch-later` fx), SSR no-op rule, clock primitives in `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`), and the `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled-on-resolution` / `:rf.machine.timer/skipped-on-server` trace events. The whichever-fires-first cancellation cascade (per [§Whichever fires first wins](#whichever-fires-first-wins)) composes with the in-flight `:rf.http/managed` abort contract per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts) (rf2-wvkn). Per rf2-3y3y.
+- The state-tags capability per [§State tags](#state-tags): state-node `:tags <set-of-keywords>` slot; runtime maintains the active-configuration tag union at `[:rf/machines <id> :tags]` recomputed on every transition (including `:always` microsteps); framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar; empty-union elision per snapshot-size optimisation; reserved framework namespace (`:rf/*` / `:rf.*/*`). Per rf2-ee0d (Nine States Stage 1).
 - The spawn-and-join `:invoke-all` capability per [§Spawn-and-join via `:invoke-all`](#spawn-and-join-via-invoke-all): state-node `:invoke-all` slot accepting a vector of child invoke-specs plus `:join` / `:on-child-done` / `:on-child-error` / `:on-all-complete` / `:on-some-complete` / `:on-any-failed` / `:cancel-on-decision?` keys, runtime join state at `[:rf/spawned <parent> <invoke-id> :join]`, cancel-on-decision = `true` by default, and the `:rf.machine.invoke-all/started` / `:rf.machine.invoke-all/all-completed` / `:rf.machine.invoke-all/some-completed` / `:rf.machine.invoke-all/any-failed` / `:rf.machine.invoke/cancelled-on-join-resolution` trace events. New error categories `:rf.error/machine-invoke-all-bad-shape`, `:rf.error/machine-invoke-all-duplicate-id`, `:rf.error/machine-invoke-all-with-invoke`.
 - ~~The wall-clock `:timeout-ms` capability~~ — DROPPED per rf2-3y3y. State-level `:after` is the canonical wall-clock-timeout primitive on `:invoke` / `:invoke-all`-bearing states. See [§Wall-clock timeouts on `:invoke` — use parent state's `:after`](#wall-clock-timeouts-on-invoke--use-parent-states-after) and [MIGRATION §M-41](MIGRATION.md#m-41-timeout-ms-removed-from-invoke--invoke-all-on-invoke--use-parent-states-after).
 - The cancellation cascade for in-flight `:rf.http/managed` requests per [§Cancellation cascade — in-flight `:rf.http/managed` aborts](#cancellation-cascade--in-flight-rfhttpmanaged-aborts): the `:rf.machine/destroy` path aborts every in-flight `:rf.http/managed` request the destroyed actor had issued, via the `:http/abort-on-actor-destroy` late-bind hook. Triggers include parent state exit, parent's `:after` firing, `:invoke-all` cancel-on-decision, frame destroy, and imperative `[:rf.machine/destroy <actor-id>]`. Each abort emits `:rf.http/aborted-on-actor-destroy` per [Spec 009 §Trace events](009-Instrumentation.md). Direct dispatches from event handlers (no spawned-actor envelope) are NOT subject to the cascade — apps that want HTTP-tied-to-state-occupancy lifetimes spawn child machines. Per rf2-wvkn.
