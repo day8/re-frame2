@@ -1610,7 +1610,7 @@
 ;; The pre-release :timeout-ms / :on-timeout slot on :invoke / :invoke-all
 ;; was DROPPED per rf2-3y3y. State-level :after on the parent state
 ;; subsumes the wall-clock guard, with the standard exit-cascade
-;; destroying spawned children. See MIGRATION §M-41 for the rewrite
+;; destroying spawned children. See MIGRATION §M-44 for the rewrite
 ;; recipe.
 ;;
 ;; Registration-time validation rejects any :timeout-ms / :on-timeout key
@@ -1627,7 +1627,7 @@
   Registration-time error: :rf.error/invoke-timeout-ms-removed — emitted
   if either :timeout-ms or :on-timeout is set on an :invoke or
   :invoke-all spec. The error carries a migration message pointing at
-  MIGRATION §M-41."
+  MIGRATION §M-44."
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:invoke     (:invoke state-node)]
@@ -1645,9 +1645,9 @@
                            (str ":timeout-ms / :on-timeout on " slot-key
                                 " were dropped per rf2-3y3y. Use the parent "
                                 "state's :after slot for wall-clock guards. "
-                                "See MIGRATION.md §M-41 for the rewrite "
+                                "See MIGRATION.md §M-44 for the rewrite "
                                 "recipe.")
-                           :migration "MIGRATION.md §M-41"})))))))
+                           :migration "MIGRATION.md §M-44"})))))))
 
 (defn- validate-invoke-all!
   "Per Spec 005 §Spawn-and-join via :invoke-all (rf2-6vmw): walk the
@@ -1821,7 +1821,7 @@
   ;; full state tree (including nested :states) and reject malformed
   ;; :invoke-all declarations at registration time. Per rf2-3y3y: reject
   ;; the dropped :timeout-ms / :on-timeout slots on :invoke / :invoke-all
-  ;; (use parent state's :after instead — see MIGRATION §M-41).
+  ;; (use parent state's :after instead — see MIGRATION §M-44).
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-invoke-all! s n)
     (validate-no-invoke-timeout-ms! s n))
