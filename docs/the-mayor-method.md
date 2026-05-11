@@ -27,6 +27,16 @@ That's the entire setup.
 [claude-max]: https://www.anthropic.com/pricing
 [beads]: https://github.com/gastownhall/beads
 
+## Filesystem layout
+
+Three slots under an `/ai/` root that keeps the AI working artefacts out of the way of your code:
+
+- **`/ai/specs/`** — the specs (super-prompts), committed.
+- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Local-only by default (`.gitignored`); promoted into `/ai/specs/` when a finding stabilises into something worth committing.
+- **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
+
+That's the entire layout. Everything else in the method assumes this shape.
+
 ## What the mayor does
 
 The mayor has one job: stay oriented across the whole project. It does this by **not** doing the work itself.
@@ -50,44 +60,6 @@ Once you see them as the same thing, the workflow follows:
 3. If something's wrong: don't iterate the code — iterate the spec, regenerate.
 
 You spend most of your time on specs. Code becomes a by-product.
-
-## My rule: if the AI makes a mistake, that's on me
-
-If the agent produces wrong code, the cause is almost always upstream in the prompt I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my spec (the super-prompt) was incomplete, ambiguous, or contradictory. The fix is to go back to the spec and tighten it, not to argue with the agent or hand-patch the output.
-
-This rule does two useful things. It keeps me focused on the leverage point (the spec) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
-
-Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
-
-## Filesystem layout
-
-Three slots under an `/ai/` root that keeps the AI working artefacts out of the way of your code:
-
-- **`/ai/specs/`** — the specs (super-prompts), committed.
-- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Local-only by default (`.gitignored`); promoted into `/ai/specs/` when a finding stabilises into something worth committing.
-- **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
-
-That's the entire layout. Everything else in the method assumes this shape.
-
-## /ai/findings: the exploratory workspace
-
-I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/ai/findings`, where the mayor and I treat it as the working substrate for in-flight thought.
-
-The shape:
-
-1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: *"research X; write a findings doc at `/ai/findings/X.md`; do not change anything else."*
-2. **Agent returns**. The findings doc is now sitting in `/ai/findings/`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
-3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
-4. **When the design is settled**, the locked outcomes propagate downstream — into the spec under `/ai/specs/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/specs/` as a committed design rationale.
-
-A few things this gives you:
-
-- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/ai/findings/` where a future agent can re-read them on demand.
-- **Iteration is cheap.** Until the spec commits, I can reverse decisions, pivot direction, drop whole features. The doc accumulates "Locked" marks for whatever survives; the rest gets edited away. Reversals cascade cleanly because nothing's load-bearing yet.
-- **The exploratory work is auditable.** The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
-- **The mayor stays at the boundary.** It doesn't do the exploration; it dispatches the exploration, holds the working set, and walks me through the conclusions.
-
-Periodic cleanup of `/ai/findings/` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /ai/findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
 
 ## How to iterate a spec with the mayor
 
@@ -122,6 +94,34 @@ Right now, spec discipline is harder for me than code discipline. I'm learning.
 
 [rfc]: https://www.rfc-editor.org/rfc/rfc7322
 [rfc-2119]: https://www.rfc-editor.org/rfc/rfc2119
+
+## My rule: if the AI makes a mistake, that's on me
+
+If the agent produces wrong code, the cause is almost always upstream in the prompt I wrote — not a flaw in the model's execution. So I treat every AI mistake as evidence that my spec (the super-prompt) was incomplete, ambiguous, or contradictory. The fix is to go back to the spec and tighten it, not to argue with the agent or hand-patch the output.
+
+This rule does two useful things. It keeps me focused on the leverage point (the spec) instead of the visible-but-ineffective lever (the code). And it forces honesty about what I actually asked for — which is almost never as clear as it felt at the time.
+
+Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
+
+## /ai/findings: the exploratory workspace
+
+I jealously guard the mayor's context. Anything that would burn a lot of tokens — open-ended exploration, surveys of prior art, multi-thousand-word design drafts, audits, "what do other tools do here?" research — gets farmed out to a background agent. The output lands in `/ai/findings`, where the mayor and I treat it as the working substrate for in-flight thought.
+
+The shape:
+
+1. **Mayor dispatches an agent** to do the exploratory work, with a clear brief: *"research X; write a findings doc at `/ai/findings/X.md`; do not change anything else."*
+2. **Agent returns**. The findings doc is now sitting in `/ai/findings/`, structured with an executive summary, the substance, and (crucially) a numbered list of **open questions for me** at the end.
+3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
+4. **When the design is settled**, the locked outcomes propagate downstream — into the spec under `/ai/specs/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/specs/` as a committed design rationale.
+
+A few things this gives you:
+
+- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/ai/findings/` where a future agent can re-read them on demand.
+- **Iteration is cheap.** Until the spec commits, I can reverse decisions, pivot direction, drop whole features. The doc accumulates "Locked" marks for whatever survives; the rest gets edited away. Reversals cascade cleanly because nothing's load-bearing yet.
+- **The exploratory work is auditable.** The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
+- **The mayor stays at the boundary.** It doesn't do the exploration; it dispatches the exploration, holds the working set, and walks me through the conclusions.
+
+Periodic cleanup of `/ai/findings/` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /ai/findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
 
 ## Only then: implement
 
