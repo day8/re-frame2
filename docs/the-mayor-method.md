@@ -27,16 +27,6 @@ That's the entire setup.
 [claude-max]: https://www.anthropic.com/pricing
 [beads]: https://github.com/gastownhall/beads
 
-## Filesystem layout
-
-Three slots under an `/ai/` root, keeping AI working artefacts out of the way of your code:
-
-- **`/ai/specs/`** — the specs (super-prompts), committed.
-- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Local-only by default (`.gitignored`); promoted into `/ai/specs/` when a finding stabilises into something worth committing.
-- **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
-
-That's the entire layout. Everything else in the method assumes this shape.
-
 ## What the mayor does
 
 The mayor has one job: stay oriented across the whole project. It does this by **not** doing the work itself.
@@ -103,6 +93,16 @@ This rule does two useful things. It keeps me focused on the leverage point (the
 
 Adopt this rule consistently and your specs sharpen fast. Within a few cycles you start writing specs that *predict* the kinds of mistakes a vague spec would have caused, and pre-empt them.
 
+## Filesystem layout
+
+Three slots under an `/ai/` root, keeping AI working artefacts out of the way of your code (`.gitignored`):
+
+- **`/ai/specs/`** — the specs (super-prompts).
+- **`/ai/findings/`** — exploratory work, audits, design drafts, research notes. Promoted into `/ai/specs/` when a finding stabilises into something worthwhile.
+- **`/ai/map.md`** — the map. A single file at the `/ai/` root that summarises and categorises every open bead. The mayor maintains it; you keep it open in your editor.
+
+That's the entire layout. Everything else in the method assumes this shape.
+
 ## /ai/findings: the exploratory workspace
 
 **I jealously guard the mayor's context.**
@@ -116,14 +116,7 @@ The shape:
 3. **The mayor and I walk the open questions together**. One at a time. I answer; the mayor records the lock back into the doc with a `Locked YYYY-MM-DD: <decision> + brief rationale` line. Each answered question closes; the mayor accumulates decisions, and the doc evolves from "proposal" into "decision trail."
 4. **When the design is settled**, the locked outcomes propagate downstream — into the spec under `/ai/specs/`, into beads for implementation, into the actual code. The findings doc itself either gets deleted (if its substance is now in the spec and the rationale is recoverable from `bd` notes + git history) or gets promoted to `/ai/specs/` as a committed design rationale.
 
-A few things this gives you:
-
-- **The mayor doesn't read 30,000 words to brief me on a design space.** It reads the executive summary, surfaces the open questions, walks me through them. The 30,000 words live in `/ai/findings/` where a future agent can re-read them on demand.
-- **Iteration is cheap.** Until the spec commits, I can reverse decisions, pivot direction, drop whole features. The doc accumulates "Locked" marks for whatever survives; the rest gets edited away. Reversals cascade cleanly because nothing's load-bearing yet.
-- **The exploratory work is auditable.** The findings doc, the open-question walk, the locked decisions — they're a trail. Future-me can see why we landed where we landed.
-- **The mayor stays at the boundary.** It doesn't do the exploration; it dispatches the exploration, holds the working set, and walks me through the conclusions.
-
-Periodic cleanup of `/ai/findings/` matters. Once a finding has propagated into the spec / commits / implementation, the doc usually doesn't need to live forever. I ask the mayor *"what in /ai/findings can be removed?"* every so often. The mayor knows which docs are still load-bearing and which are historical.
+Periodically, you'll need to clean up `/ai/findings/`. Ask the mayor *"what in /ai/findings can be removed?"* It knows.
 
 ## Only then: implement
 
@@ -184,7 +177,7 @@ That gives me a second opinion without letting the second opinion overwrite the 
 
 The point isn't that the other model is wrong. The point is: the model you trust most for decisions is the one whose decisions land. Other models contribute findings, not decisions.
 
-## Review Points 
+## Review Points
 
 Every now and again, at certain checkpoints, I put this to the mayor:
 
@@ -196,16 +189,16 @@ Regarding the recent commits (the body of work recently undertaken), spawn agent
   Review for clarity and simplicity
   Review for Best Practice
   Review with an eye to test coverage and rigour
-  Review comments and explanation. 
-  Review for documentation updates, including READMEs and changelogs. 
-  Review for backwards compatibility 
+  Review comments and explanation.
+  Review for documentation updates, including READMEs and changelogs.
+  Review for backwards compatibility
 
 Create beads for each actionable observation. Action beads using background workers.
 ```
 
-Using multiple lenses is a nice way to flush out problems. And the beads database is invaluable to the mayor AND the background worker agents doing the review. 
+Using multiple lenses is a nice way to flush out problems. And the beads database is invaluable to the mayor AND the background worker agents doing the review.
 
-Sometimes I put a modified version of this prompt into Codex (but make it suggestions, and no actioning). 
+Sometimes I put a modified version of this prompt into Codex (but make it suggestions, and no actioning).
 
 ## What this gives you
 
@@ -217,11 +210,9 @@ After a few weeks of working this way:
 - Specs accumulate as the project's structural memory. When you onboard someone — human or AI — they read the specs.
 - You write less code by hand than you'd expect. You write a lot more specs.
 
-
 ## Outcome
 
 In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — see this repo. The work is here for you to read and judge. I don't produce at that pace every week — but the method makes weeks like that possible, and they can be utterly exhilarating. I've wanted to do this project for 10 years. I almost wept with joy at the beauty of [this state machine](https://day8.github.io/re-frame2/spec/Pattern-WebSocket/#worked-example-connection-machine).
-
 
 ## TL;DR
 
@@ -251,7 +242,7 @@ In the last 5 days, I wrote 60K lines of code/specs/tests/examples/adapters — 
 >
 > *When setup is complete, confirm by saying 'I am the mayor' and report what you did."*
 
-That's the method. 
+That's the method.
 
 ## Warnings
 
