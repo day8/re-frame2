@@ -53,6 +53,10 @@
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.frames    :as frames]
             [re-frame.story.runtime   :as runtime]
+            ;; Stage 4 (rf2-ekai) — UI shell. CLJS-only require so JVM
+            ;; consumers (tests, REPL exploration) don't pull Reagent /
+            ;; reagent.dom.client into their classpath.
+            #?(:cljs [re-frame.story.ui.shell :as ui-shell])
             #?(:clj [re-frame.story.macros :as macros]))
   ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
@@ -513,8 +517,53 @@
   - Stage 2 — `:authoring` (registration macros only).
   - Stage 3 — `:runtime` (adds `run-variant` family, decorator
     composition, args resolution, snapshot-identity, lifecycle).
-  - Stage 4+ extends — UI shell, play sequence, assertions, MCP.
+  - Stage 4 — `:render-shell` (adds `mount-shell!` / `unmount-shell!`,
+    the sidebar / canvas / scrubber / trace panes, hot-reload trigger).
+  - Stage 5+ extends — play sequence, assertions, SOTA panels, MCP.
 
   Tools that adapt to the loaded surface read this; agents can ask
   the runtime which Stage is live."
-  :runtime)
+  :render-shell)
+
+;; ---- Stage 4 (rf2-ekai) UI shell mount / unmount surface ----------------
+;;
+;; Per IMPL-SPEC §4 + §8.4 the shell entry points are CLJS-only —
+;; mounting a Reagent shell at a DOM node has no JVM equivalent. The
+;; functions are conditionalised on the reader so JVM consumers can
+;; require `re-frame.story` without pulling Reagent / DOM symbols.
+
+#?(:cljs
+   (defn mount-shell!
+     "Mount the Story shell at `dom-node`. Returns a shell-handle map
+     `{:root <react-root> :node <dom-node>}` or nil under elision.
+
+     The shell is a Reagent component tree composed of:
+     - a sidebar (story tree + tag filter + workspace list)
+     - the main pane (selected variant's canvas or selected workspace)
+     - a right panel (controls, time-travel scrubber, six-domino trace)
+
+     Per IMPL-SPEC §4 v1 supports one mounted shell at a time; calling
+     `mount-shell!` while a shell is already mounted tears down the
+     previous one first.
+
+     Production CLJS builds (`re-frame.story.config/enabled?` false)
+     short-circuit before any DOM call and return nil. See IMPL-SPEC
+     §6.3 for the elision contract.
+
+     Stage 4 (rf2-ekai)."
+     [dom-node]
+     (ui-shell/mount-shell! dom-node)))
+
+#?(:cljs
+   (defn unmount-shell!
+     "Tear down a mounted shell. Accepts the handle from `mount-shell!`
+     or no arg (defaults to the active shell singleton)."
+     ([]       (ui-shell/unmount-shell!))
+     ([handle] (ui-shell/unmount-shell! handle))))
+
+#?(:cljs
+   (defn active-shell
+     "Return the currently-mounted shell handle, or nil. v1 singleton;
+     v2 may return a collection when multi-shell mounts ship."
+     []
+     (ui-shell/active-shell)))
