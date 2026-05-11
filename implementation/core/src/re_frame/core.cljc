@@ -177,10 +177,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (events/reg-event-db ~id ~@args)))))
 
 #?(:clj
@@ -197,10 +194,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (events/reg-event-fx ~id ~@args)))))
 
 #?(:clj
@@ -217,10 +211,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (events/reg-event-ctx ~id ~@args)))))
 
 #?(:clj
@@ -237,10 +228,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (subs/reg-sub ~id ~@args)))))
 
 #?(:clj
@@ -257,10 +245,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (fx/reg-fx ~id ~@args)))))
 
 #?(:clj
@@ -277,10 +262,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (cofx/reg-cofx ~id ~@args)))))
 
 #?(:clj
@@ -297,10 +279,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (frame/reg-frame ~id ~metadata)))))
 
 ;; CLJS side keeps the fn-aliases. Source-coord capture on CLJS will
@@ -478,10 +457,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (if-let [f# (late-bind/get-fn :flows/reg-flow)]
             (apply f# (list ~@args))
             (throw (ex-info ":rf.error/flows-artefact-missing"
@@ -511,10 +487,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (if-let [f# (late-bind/get-fn :routing/reg-route)]
             (f# ~id ~metadata)
             (throw (ex-info ":rf.error/routing-artefact-missing"
@@ -552,10 +525,7 @@
            file    *file*
            opts'   (or opts {})]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (if-let [f# (late-bind/get-fn :schemas/reg-app-schema)]
             (f# ~path ~schema ~opts')
             (throw (ex-info ":rf.error/schemas-artefact-missing"
@@ -692,10 +662,7 @@
        ;; that user code might compare against.
        (if (empty? per-el-coords)
          `(binding [source-coords/*pending-coords*
-                    (cond-> {:ns '~ns-sym}
-                      ~file        (assoc :file ~file)
-                      ~(:line m)   (assoc :line ~(:line m))
-                      ~(:column m) (assoc :column ~(:column m)))]
+                    ~(source-coords/coords-form m file ns-sym)]
             (if-let [f# (late-bind/get-fn :machines/reg-machine)]
               (f# ~machine-id ~machine)
               (throw (ex-info ":rf.error/machines-artefact-missing"
@@ -704,10 +671,7 @@
                                :recovery   :no-recovery
                                :reason     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
          `(binding [source-coords/*pending-coords*
-                    (cond-> {:ns '~ns-sym}
-                      ~file        (assoc :file ~file)
-                      ~(:line m)   (assoc :line ~(:line m))
-                      ~(:column m) (assoc :column ~(:column m)))]
+                    ~(source-coords/coords-form m file ns-sym)]
             (let [~machine-sym ~machine
                   ;; Per-element source-coord stamping (rf2-8bp3). The literal
                   ;; index is reachable only inside this `interop/debug-enabled?`
@@ -840,10 +804,7 @@
            ns-sym  (symbol (str (ns-name *ns*)))
            file    *file*]
        `(binding [source-coords/*pending-coords*
-                  (cond-> {:ns '~ns-sym}
-                    ~file        (assoc :file ~file)
-                    ~(:line m)   (assoc :line ~(:line m))
-                    ~(:column m) (assoc :column ~(:column m)))]
+                  ~(source-coords/coords-form m file ns-sym)]
           (-reg-error-projector ~@args)))))
 
 #?(:cljs

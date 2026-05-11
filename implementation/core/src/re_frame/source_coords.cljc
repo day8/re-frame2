@@ -49,6 +49,65 @@
       (merge coords (or user-meta {}))
       (or user-meta {}))))
 
+;; ---- :file resolution at macro-expansion time (rf2-mdjp) ------------------
+;;
+;; The reg-* macros in `re-frame.core` capture `(meta &form)` and `*file*`
+;; from their compile-time environment and emit a `*pending-coords*`
+;; binding map. The naive `*file*`-only path is wrong under CLJS: the
+;; CLJS analyzer's macro-expansion entry point (`cljs.analyzer/
+;; macroexpand-1*`, cljs/analyzer.cljc ~L4284) binds `*cljs-file*` rather
+;; than Clojure's `*file*` during expansion — so `*file*` retains the
+;; JVM compiler's default `"NO_SOURCE_PATH"` sentinel under CLJS. That
+;; sentinel would then get baked into the `:file` slot of every
+;; registration's source-coord, defeating jump-to-source and tooling
+;; that reads `(rf/handler-meta kind id)`.
+;;
+;; The fix mirrors rf2-ulxi (PR #340, Story's `coords-form`):
+;; prefer `(:file (meta &form))` — tools.reader's indexing-push-back-reader
+;; stamps `:file` on every collection-form's metadata, which survives the
+;; macro-expansion handoff to cljs.analyzer. Fall back to `*file*` (the
+;; JVM-only correct path). Reject the `"NO_SOURCE_PATH"` sentinel from
+;; either source — if both resolve to it, omit `:file` entirely (better
+;; no `:file` than a poison value).
+
+(defn ^:private no-source-path? [s]
+  (or (nil? s) (= "NO_SOURCE_PATH" s)))
+
+(defn resolve-file
+  "Pick the right `:file` value for a reg-* macro's emitted source-coord
+  map. `form-meta` is `(meta &form)`; `file` is `*file*` at expansion
+  time. Returns the form-meta `:file` when non-sentinel, else the
+  `*file*` arg when non-sentinel, else `nil` (caller `cond->`s it in,
+  so nil means omit the slot).
+
+  Per rf2-mdjp: the CLJS analyzer never binds Clojure's `*file*` during
+  macro expansion, so reading `*file*` alone returns the JVM
+  `\"NO_SOURCE_PATH\"` sentinel under CLJS. Form-meta `:file` is the
+  portable answer."
+  [form-meta file]
+  (let [meta-file (:file form-meta)]
+    (cond
+      (not (no-source-path? meta-file)) meta-file
+      (not (no-source-path? file))      file
+      :else                              nil)))
+
+(defn coords-form
+  "Construct the compile-time `(cond-> {:ns 'sym} ...)` form that every
+  reg-* macro emits as the value of its `*pending-coords*` binding.
+
+  `form-meta` is `(meta &form)`; `file` is `*file*`; `ns-sym` is the
+  consumer's namespace symbol. The returned form is syntax-quote-safe
+  data the caller splices into its expansion.
+
+  :file picks the form-meta value over `*file*` and rejects the
+  `\"NO_SOURCE_PATH\"` sentinel per `resolve-file` (rf2-mdjp)."
+  [form-meta file ns-sym]
+  (let [chosen-file (resolve-file form-meta file)]
+    `(cond-> {:ns '~ns-sym}
+       ~chosen-file         (assoc :file ~chosen-file)
+       ~(:line form-meta)   (assoc :line ~(:line form-meta))
+       ~(:column form-meta) (assoc :column ~(:column form-meta)))))
+
 ;; ---- per-element spec stamping (rf2-8bp3) --------------------------------
 ;;
 ;; Per Spec 005 §Source-coord stamping (rf2-8bp3): the `reg-machine` macro
@@ -76,12 +135,17 @@
 (defn ^:private form-coords
   "Read source coords off a Clojure form's metadata. Forms the reader has
   decorated (lists, vectors, maps, symbols) carry `:line` / `:column` from
-  the source position. Returns nil when the form has no positional meta."
+  the source position. Returns nil when the form has no positional meta.
+
+  Per rf2-mdjp the same `:file` resolution as the call-site path applies:
+  prefer the reader-attached `:file` on the form's metadata over the
+  macro's `*file*` arg, and reject the `\"NO_SOURCE_PATH\"` sentinel."
   [form ns-sym file]
-  (let [m (meta form)]
+  (let [m            (meta form)
+        chosen-file  (resolve-file m file)]
     (when (and m (or (:line m) (:column m)))
       (cond-> {:ns ns-sym}
-        file        (assoc :file file)
+        chosen-file (assoc :file chosen-file)
         (:line m)   (assoc :line (:line m))
         (:column m) (assoc :column (:column m))))))
 
