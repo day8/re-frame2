@@ -1131,7 +1131,7 @@ As noted in [§When to reach for parallel regions](#when-to-reach-for-parallel-r
 
 ### Trace events
 
-Parallel-region transitions emit one `:rf.machine/transition` macrostep trace per dispatched event (matching flat / compound machines). The trace's `:before` and `:after` payloads carry the full snapshot (including the `:state` map shape). The internal per-region transitions and their microsteps surface through the per-region `:rf.machine.microstep/transition` events (per [§Eventless `:always` transitions §Trace events](#trace-events-1)); each carries a `:region` tag identifying which region produced the microstep so consumers can subscribe to per-region streams.
+Parallel-region transitions emit one `:rf.machine/transition` macrostep trace per dispatched event (matching flat / compound machines). The trace's `:before` and `:after` payloads carry the full snapshot (including the `:state` map shape). The internal per-region transitions and their microsteps surface through the per-region `:rf.machine.microstep/transition` events (per [§Eventless `:always` transitions §Trace events](#trace-events_1)); each carries a `:region` tag identifying which region produced the microstep so consumers can subscribe to per-region streams.
 
 ### Cross-references
 
@@ -2165,7 +2165,7 @@ When the runtime destroys a spawned actor — by **any** trigger — every in-fl
 3. **`:invoke-all` cancel-on-decision.** When the join resolves and `:cancel-on-decision?` is `true` (the default), the runtime emits `:rf.machine/destroy` per surviving sibling (per [§Cancel-on-decision](#cancel-on-decision-default-true)). Each siblings' in-flight HTTP aborts.
 4. **`:invoke-all` parent state exit.** Symmetric to (1), but the per-child teardown loop (per [§Spawn-id tracking](#spawn-id-tracking)) cascades the abort to every child the `:children` map tracks.
 5. **Imperative `[:rf.machine/destroy <actor-id>]`.** A user-authored destroy action emitting the legacy keyword form (per the spawn-fx 5-arity destroy) ALSO aborts that actor's in-flight HTTP. The contract is uniform across triggers — **wherever an actor is destroyed, its HTTP cascades to abort.**
-6. **Frame destroy.** `frame.cljc`'s frame-exit walk over surviving machine instances destroys each in turn (per [Spec 002 §Lifecycle](002-Frames.md#lifecycle)); each destroy fires the same abort-on-actor-destroy hook.
+6. **Frame destroy.** `frame.cljc`'s frame-exit walk over surviving machine instances destroys each in turn (per [Spec 002 §Lifecycle](002-Frames.md#frame-lifecycle)); each destroy fires the same abort-on-actor-destroy hook.
 
 The abort surfaces as a normal `:rf.http/aborted` failure on the request's reply path — the `:on-failure` callback (or the merged-reply default) sees `{:kind :rf.http/aborted :reason :actor-destroyed}` per [Spec 014 §Aborts](014-HTTPRequests.md#abort-on-actor-destroy). For most calling code there is no observable difference from a manual `:rf.http/managed-abort`; the `:reason :actor-destroyed` discriminates for callers that care.
 

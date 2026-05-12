@@ -98,6 +98,16 @@ _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
 # any {#id} suffix on H1-H3 headings.
 _EXPLICIT_ID_RE = re.compile(r"\{#([A-Za-z0-9_\-:.]+)\}\s*$")
 
+# Inline HTML anchor — authors use `<a name="foo"></a>` / `<a id="foo"></a>`
+# to mint a stable target slug that is independent of (and often shorter than)
+# the heading's auto-derived slug.  Browsers and the rendered MkDocs site
+# resolve both forms; the script must too.  Examples in this corpus:
+# Tool-Pair.md `<a name="time-travel">`, Spec-Schemas.md `<a id="rfstate-node">`.
+_HTML_ANCHOR_RE = re.compile(
+    r"""<a\s+(?:name|id)\s*=\s*["']([A-Za-z0-9_\-:.]+)["']\s*(?:/\s*)?>""",
+    re.IGNORECASE,
+)
+
 # Markdown inline link.  Captures destination only.  Reference-style links
 # ([text][ref]) are ignored — none in this corpus per spot-check, and a full
 # parser is out of scope for a CI guard.
@@ -175,11 +185,26 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
 
 
 def _slug_index(path: Path) -> set[str]:
-    """Compute the slug set for every H1/H2/H3 heading in path."""
+    """Compute the slug set for every heading and inline HTML anchor in path.
+
+    Two anchor mechanisms contribute to the slug set:
+
+    1. ATX headings (`# Title`, `## Title`, ...) — slugified with the same
+       pymdownx slugifier MkDocs uses, with duplicate-suffix disambiguation
+       (`slug`, `slug_1`, `slug_2`, ...) matching pymdownx.toc.
+    2. Inline HTML anchors — `<a name="...">` / `<a id="...">` — added by
+       authors to mint stable cross-link targets that survive heading renames.
+       Both attribute names are recognised (`name` is the legacy HTML form;
+       `id` is the modern form; browsers resolve both as fragment targets).
+    """
     text = path.read_text(encoding="utf-8", errors="replace")
     slugs: set[str] = set()
     seen_counts: dict[str, int] = {}
     for _, line in _strip_fences(text.splitlines()):
+        # HTML anchor elements can appear on any line (heading or not).
+        for am in _HTML_ANCHOR_RE.finditer(line):
+            slugs.add(am.group(1))
+
         m = _HEADING_RE.match(line)
         if not m:
             continue
