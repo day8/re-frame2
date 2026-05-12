@@ -904,8 +904,8 @@
 
 (def epoch-history     rf-epoch/epoch-history)
 (def restore-epoch     rf-epoch/restore-epoch)
-(def register-epoch-cb rf-epoch/register-epoch-cb)
-(def remove-epoch-cb   rf-epoch/remove-epoch-cb)
+(def register-epoch-cb! rf-epoch/register-epoch-cb!)
+(def remove-epoch-cb!   rf-epoch/remove-epoch-cb!)
 (def reset-frame-db!   rf-epoch/reset-frame-db!)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------

@@ -25,7 +25,7 @@
     `:rf.warning/decode-defaulted`) — emitted only inside
     `(when interop/debug-enabled? ...)` branches.
   - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch`,
-    `register-epoch-cb`, `remove-epoch-cb`, `configure :epoch-history`,
+    `register-epoch-cb!`, `remove-epoch-cb!`, `configure :epoch-history`,
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
     `restore-epoch` (rf2-gox8 follow-up to rf2-shjf).
   - `re-frame.views` reg-view* wrapper — `:view/render` trace op
@@ -129,7 +129,7 @@
 ;; ---- Tool-Pair §Time-travel epoch surface (rf2-gox8) ----------------------
 
 (defn ^:export touch-epoch! []
-  ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb`, the
+  ;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb!`, the
   ;; epoch ns ships gated trace ops:
   ;;
   ;;   :rf.epoch/snapshotted                       (settle! after drain-empty)
@@ -161,10 +161,10 @@
   ;;      `:rf.epoch/snapshotted` through trace/emit!, sourcing the
   ;;      snapshotted sentinel.
   (rf/configure :epoch-history {:depth 10})
-  (rf/register-epoch-cb ::probe-epoch (fn [_record] nil))
+  (rf/register-epoch-cb! ::probe-epoch (fn [_record] nil))
   (let [_history (rf/epoch-history :rf/default)]
     nil)
-  (rf/remove-epoch-cb ::probe-epoch)
+  (rf/remove-epoch-cb! ::probe-epoch)
   ;; Drive a restore failure-mode emit site so the unknown-epoch
   ;; sentinel has a path through a documented entry point. The
   ;; remaining failure ops survive via their literal occurrence in
@@ -189,7 +189,7 @@
     nil)
   ;; rf2-d656 — on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
   ;; per (frame-id, cb-id) pair when a frame previously observed by a
-  ;; register-epoch-cb callback is destroyed. The whole body sits inside
+  ;; register-epoch-cb! callback is destroyed. The whole body sits inside
   ;; `(when interop/debug-enabled? ...)`; the string fragment must elide
   ;; under :advanced + goog.DEBUG=false. Touch the entry point through
   ;; the public surface (frame destroy walks call into it via the

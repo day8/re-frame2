@@ -25,7 +25,7 @@ Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
 2. **The trace stream** — `(rf/register-trace-cb id cb)` for live events; `(rf/trace-buffer opts)` for the retain-N ring.
-3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-cb id cb)`, and `(rf/restore-epoch ...)`.
+3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-cb! id cb)`, and `(rf/restore-epoch ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame-pair2.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
 
@@ -130,7 +130,7 @@ SKILL.md (~130) + 6 references (~1,000) + spec (~300) ≈ ~1,430 LoC. Typical se
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists every surface the live-app workflow exposes: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-trace-cb`, `register-epoch-cb`, `restore-epoch`, plus the toolchain (`re-com`, `shadow-cljs`). The framing is *"pair-program with a live re-frame2 application"* — discriminates against the authoring-only `re-frame2` skill (which triggers on the same surfaces but in code-writing prose).
+The `description` is "pushy" and lists every surface the live-app workflow exposes: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-trace-cb`, `register-epoch-cb!`, `restore-epoch`, plus the toolchain (`re-com`, `shadow-cljs`). The framing is *"pair-program with a live re-frame2 application"* — discriminates against the authoring-only `re-frame2` skill (which triggers on the same surfaces but in code-writing prose).
 
 ## 7. Anti-patterns the skill explicitly resists
 
