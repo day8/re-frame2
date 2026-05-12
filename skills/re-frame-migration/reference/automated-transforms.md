@@ -197,7 +197,7 @@ New form:
 Closed mechanical rename table. Apply across all source files.
 
 ```
-:re-frame/<x>                → :rf/<x>                  ; alias-survivors
+:re-frame/<x>                → :rf/<x>                  ; v1-survivors (mechanical rename only; no runtime alias)
 :registry/<x>                → :rf.registry/<x>
 :machine/<x>                 → :rf.machine/<x>
 :machine.lifecycle/<x>       → :rf.machine.lifecycle/<x>
