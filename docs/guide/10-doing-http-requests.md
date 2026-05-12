@@ -160,7 +160,7 @@ The `:decode` key takes:
 
 `:max-attempts` is the total including the first; `1` means no retry. `:on` names which failure categories trigger a retry — `:rf.http/aborted` is never retried regardless. Backoff is exponential with optional ±25% jitter, capped at `:max-ms`.
 
-**Only the final exhausted-retries failure dispatches `:on-failure`.** Intermediate attempts that match `:retry :on` do NOT dispatch the failure handler — the user sees the success reply if any attempt succeeds, and exactly one failure reply (with `:max-attempts` reached) if every attempt fails. For debugging visibility, each intermediate attempt emits a `:rf.http/retry-attempt` trace event. Pair tools and 10x panels surface the per-attempt trace; user code only sees the final outcome.
+**Only the final exhausted-retries failure dispatches `:on-failure`.** Intermediate attempts that match `:retry :on` do NOT dispatch the failure handler — the user sees the success reply if any attempt succeeds, and exactly one failure reply (with `:max-attempts` reached) if every attempt fails. For debugging visibility, each intermediate attempt emits a `:rf.http/retry-attempt` trace event. Pair tools and causa panels surface the per-attempt trace; user code only sees the final outcome.
 
 A common shape in real apps: declare a shared retry policy for read-only data fetches, and *don't* retry user-initiated actions (login, submit, delete — single user-initiated action per click).
 
@@ -268,7 +268,7 @@ For callers coming from a v1 codebase with their own `:http` fx (or `re-frame-ht
 
 ## Reference and tooling
 
-The pieces below are opt-in. A first-pass reader can skip this section; come back when wiring 10x panels, pair tools, or AI scaffolds against the managed-HTTP surface.
+The pieces below are opt-in. A first-pass reader can skip this section; come back when wiring causa panels, pair tools, or AI scaffolds against the managed-HTTP surface.
 
 ### Schema reflection — `:rf.http/decode-schemas`
 

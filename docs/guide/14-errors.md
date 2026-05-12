@@ -49,7 +49,7 @@ Three fields do the load-bearing work:
 - **`:operation`** is the category — namespaced (`:rf.error/...`, `:rf.warning/...`, `:rf.fx/...`, `:rf.ssr/...`, `:rf.epoch/...`). A consumer that wants "show me only handler exceptions" filters on `:operation :rf.error/handler-exception`.
 - **`:recovery`** is what re-frame2 did *after* the error — `:no-recovery`, `:replaced-with-default`, `:logged-and-skipped`, `:warned-and-replaced`, `:skipped`, `:retried`, `:ignored`. (See [§Recovery semantics](#recovery-semantics) below.)
 
-The optional **`:rf.trace/trigger-handler`** slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (10x, pair, IDE jump-to-source) consume the coord to render click-to-jump links straight to the offending handler. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent on outermost-dispatch errors with no handler resolved (e.g. `:rf.error/no-such-handler`).
+The optional **`:rf.trace/trigger-handler`** slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (causa, pair, IDE jump-to-source) consume the coord to render click-to-jump links straight to the offending handler. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent on outermost-dispatch errors with no handler resolved (e.g. `:rf.error/no-such-handler`).
 
 Everything else rides under `:tags`, with category-specific keys. The full schema lives in [Spec-Schemas](../../spec/Spec-Schemas.md) under `:rf/trace-event`; the per-category `:tags` shapes are pinned in [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas).
 
@@ -148,7 +148,7 @@ Two patterns that show up often:
 ;; @errors is a vector of every error/warning since boot.
 ```
 
-This is exactly how re-frame-10x v2 and re-frame-pair2 build their "errors" panel — same listener shape, same filter, richer rendering. The library writes nothing the framework doesn't surface; the trace event *is* the contract.
+This is exactly how re-frame-causa and re-frame-pair2 build their "errors" panel — same listener shape, same filter, richer rendering. The library writes nothing the framework doesn't surface; the trace event *is* the contract.
 
 ## Frame-scoped error policy: `:on-error`
 
@@ -242,7 +242,7 @@ Client-side UX mapping doesn't go through the projector. For client-side error U
 
 ## Reference and advanced topics
 
-The sections that follow are per-topic reference material. Reach for them when the topic comes up. §Common scenarios walks six failure modes end-to-end — read each when you meet it, skim on a first pass. §Testing error paths shows how to assert errors fire in tests. The 10x / pair tooling and "what structured errors buy you" close the chapter.
+The sections that follow are per-topic reference material. Reach for them when the topic comes up. §Common scenarios walks six failure modes end-to-end — read each when you meet it, skim on a first pass. §Testing error paths shows how to assert errors fire in tests. The causa / pair tooling and "what structured errors buy you" close the chapter.
 
 ## Common scenarios
 
@@ -464,11 +464,11 @@ The same shape applies to every `:rf.error/*` category: register a listener, do 
 
 For a test fixture that resets per-frame error listeners across tests, see the `reset-runtime` fixture in [`implementation/core/test/re_frame/cofx_test.clj`](../../implementation/core/test/re_frame/cofx_test.clj) — that's the canonical test harness shape the framework's own suite uses.
 
-## What you'll see in re-frame-10x and re-frame-pair2
+## What you'll see in re-frame-causa and re-frame-pair2
 
-The dev tools — re-frame-10x v2 (per [15 — Tooling](15-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — re-frame-causa (per [15 — Tooling](15-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
-re-frame-10x's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
+re-frame-causa's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 
 ## What structured errors buy you
 
@@ -476,7 +476,7 @@ Stand back from the schema and the tables and look at what's actually changed.
 
 A `try`/`catch` gives you an exception object and the stack that produced it. A `console.error` gives you a string in a log. Both of those are *terminal* — once the error has happened, you've lost the context that produced it, and recovering that context is a manual exercise the next time it happens.
 
-A structured trace event is *substrate*. The same map your dev panel renders is the map your monitoring bridge ships to Sentry, is the map your test asserts on, is the map your SSR projector sanitises for the wire, is the map re-frame-10x's epoch buffer groups by dispatch cascade so you can see "this event produced this error" with the full causal tree around it. Nothing has to be reconstructed; everything has already been recorded in the shape downstream consumers need.
+A structured trace event is *substrate*. The same map your dev panel renders is the map your monitoring bridge ships to Sentry, is the map your test asserts on, is the map your SSR projector sanitises for the wire, is the map re-frame-causa's epoch buffer groups by dispatch cascade so you can see "this event produced this error" with the full causal tree around it. Nothing has to be reconstructed; everything has already been recorded in the shape downstream consumers need.
 
 That's the part `try`/`catch` could never give you. Not because exceptions are wrong — they aren't — but because exceptions are *narrow*: they carry what threw, not what the system was doing when it threw. The trace event carries both. And because the trace event is data — namespaced keywords, plain maps, additive-only schema — every tool that touches it speaks the same language: the dev panel, the monitoring bridge, the test, the projector, the AI in your editor when you paste it in and ask "what does this mean?"
 
@@ -488,7 +488,7 @@ Errors stop being incidents to recover from and start being signals you can rout
 - **[Spec 011 — SSR §Server error projection](../../spec/011-SSR.md#server-error-projection)** — the full story on `reg-error-projector`, the `:rf/public-error` shape, and the server-vs-client error boundary.
 - **[Spec-Schemas](../../spec/Spec-Schemas.md)** — the Malli schema for every trace event (`:rf/trace-event`), including the per-category `:tags` schemas.
 - **[13 — Testing](13-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
-- **[15 — Tooling](15-devtools-and-pair-tools.md)** — what re-frame-10x v2 and re-frame-pair2 do with the trace stream, including the errors panel.
+- **[15 — Tooling](15-devtools-and-pair-tools.md)** — what re-frame-causa and re-frame-pair2 do with the trace stream, including the errors panel.
 
 ## Next
 
