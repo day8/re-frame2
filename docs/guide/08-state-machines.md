@@ -1,12 +1,14 @@
 # 08 — State machines
 
-Some flows are naturally a sequence of states.
+You've been writing these all along. You just haven't been calling them that.
 
-A login form moves from `:idle` to `:submitting` to `:authed` (success) or `:error-shown` (try again) or `:locked-out` (too many tries). A video player goes from `:loading` to `:playing` to `:paused` to `:buffering` to `:ended`. A checkout wizard moves through `:cart` → `:shipping` → `:payment` → `:confirmation` → `:processed`. A websocket connection cycles through `:connecting`, `:connected`, `:disconnected`, `:reconnecting`.
+The `cond` at the top of your login handler that branches on `(:auth/state db)`. The `case` in your video-player event that decides what `:pause` means depending on whether we're `:loading` or `:playing` or `:buffering`. The `if-let` that checks "are we already submitting? then ignore this click." The keyword you stuffed into `app-db` and have been growing ever since — `:idle`, `:submitting`, `:authed`, `:error-shown`, `:locked-out` — together with the unwritten rules in your head about which of those can follow which.
 
-When a flow has this shape, the load-bearing question isn't "what's in `app-db`" — it's "what state are we in, and what events take us to which state?" That question has a name in computer science: **finite state machine**.
+Every one of those is the same shape: a flow whose load-bearing question isn't *what's in the frame's app-db* but *what state are we in, and what events take us to which state*. That shape has a name in computer science — **finite state machine** — and the moment you notice you're writing one, the `cond` clauses scattered across five event handlers stop being the natural way to express the flow and start being a way of hiding it.
 
-re-frame2 supports state machines as a first-class pattern. Not because every event handler should be a machine — most shouldn't — but because when the answer to "what's the next state?" is the central question, expressing the flow as a machine is dramatically clearer than expressing it as a tree of `if`/`when`/`case`.
+A login form moves from `:idle` to `:submitting` to `:authed` or `:error-shown` or `:locked-out`. A video player cycles through `:loading` / `:playing` / `:paused` / `:buffering` / `:ended`. A checkout wizard walks `:cart` → `:shipping` → `:payment` → `:confirmation` → `:processed`. A websocket connection lives in `:connecting`, `:connected`, `:disconnected`, `:reconnecting`. These aren't unusual — they're the bones of most non-trivial features.
+
+re-frame2 makes machines a first-class pattern. You register them with `reg-machine`, they live in each frame under `[:rf/machines <id>]`, and they dispatch through the same six-domino loop as every other event. Not because every handler should be a machine — most shouldn't — but because when "what's the next state?" is the central question, naming the answer is dramatically clearer than scattering it across `if`/`when`/`case`.
 
 ## A familiar example
 
