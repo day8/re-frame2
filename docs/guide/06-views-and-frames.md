@@ -89,7 +89,9 @@ The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-c
 
 ### Views compute hiccup only
 
-A view that reads from a subscription can also *do things* with what it reads — sort it, filter it, format a number, derive a percentage, join two values. Resist. There's a rule that pays for itself almost immediately:
+Ask any view what its job is and the answer should be a single sentence: *all I want this view to do is render the product list*. *All I want this view to do is display the time.* That's it. Take some already-shaped data; lay it out as hiccup. Anything else — sorting, filtering, formatting a number, deriving a percentage, joining two values — is the view forgetting what it's for.
+
+The temptation is constant. A view reads from a subscription, and the data it gets back is *almost* what the screen needs; one little `sort-by` here, one `.toFixed` there, and we're done. Resist. There's a rule that pays for itself almost immediately:
 
 > **Views compute hiccup only.** Anything else — sorting, formatting, filtering, deriving — happens in a subscription. Views should ask `@(subscribe [:something/already-shaped])` and return hiccup. The boundary keeps views cheap to re-render and reactivity precise.
 
@@ -105,7 +107,7 @@ The before/after is small enough to read at a glance.
      ^{:key (:id p)} [:li (:name p) " — $" (.toFixed (:price p) 2)])])
 ```
 
-The view holds the `sort-by`, holds the price-formatting. Two responsibilities; both re-run on every re-render of any ancestor.
+The view holds the `sort-by`, holds the price-formatting. Two responsibilities the view shouldn't have; both re-run on every re-render of any ancestor.
 
 ```clojure
 ;; After — the sub computes; the view renders.
@@ -122,15 +124,19 @@ The view holds the `sort-by`, holds the price-formatting. Two responsibilities; 
      ^{:key (:id p)} [:li (:name p) " — $" (:price p)])])
 ```
 
-The view is now a thin shaping function over already-shaped data. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
+And we're back where we started: *all this view does is render the product list*. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
 
-The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](16-performance.md).
+Keep views as simple as possible. Don't give them knowledge or tasks outside their remit. If it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](16-performance.md).
 
 ### The Signal Graph
 
-A view that derefs `@(subscribe [:products/sorted])` is the leaf of a small dataflow. Walk back from the view: `:products/sorted` derefs `:products`; `:products` derefs the frame's `app-db`. That walk is a graph — the **Signal Graph** — and every re-frame2 app has one per frame. The graph is a DAG rooted at the frame's `app-db`, with view functions at the leaves, and chained `reg-sub`s as the interior nodes. Data flows root-to-leaves; the graph itself is built leaves-first (a view that derefs a sub causes that sub's sub-graph to be instantiated, all the way back to `app-db`).
+A UI is just derived data. The screen is a function of `app-db`; the question worth asking is the one that makes the rest of this chapter snap into focus:
 
-It's instructive to name four conceptual layers.
+> When this frame's `app-db` changes, who finds out, in what order?
+
+That question is what the Signal Graph answers. A view that derefs `@(subscribe [:products/sorted])` is the leaf of a small dataflow. Walk back from the view: `:products/sorted` derefs `:products`; `:products` derefs the frame's `app-db`. That walk is a graph — the **Signal Graph** — and every re-frame2 app has one per frame. The graph is a DAG rooted at the frame's `app-db`, with view functions at the leaves, and chained `reg-sub`s as the interior nodes. Data flows root-to-leaves; the graph itself is built leaves-first (a view that derefs a sub causes that sub's sub-graph to be instantiated, all the way back to `app-db`).
+
+So: when `app-db` changes, every layer-2 extractor *in this frame* re-runs, and the news propagates outward through layer 3 to the views — pruning at each step where the value didn't actually move. To see that propagation cleanly, it's instructive to name four conceptual layers.
 
 | Layer | Role | What it does |
 |---|---|---|
