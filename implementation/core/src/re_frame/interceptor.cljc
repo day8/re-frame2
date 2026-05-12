@@ -76,7 +76,7 @@
   the chain ends and emits :rf.error/handler-exception (or similar)."
   [interceptors initial-context]
   (let [;; Apply :before stages in order.
-        after-before (reduce invoke-before initial-context interceptors)
+        ctx-after-befores (reduce invoke-before initial-context interceptors)
         ;; Apply :after stages in reverse order.
-        after-after  (reduce invoke-after after-before (reverse interceptors))]
-    after-after))
+        ctx-after-afters  (reduce invoke-after ctx-after-befores (reverse interceptors))]
+    ctx-after-afters))
