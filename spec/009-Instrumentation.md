@@ -463,6 +463,61 @@ When a future surface is added (e.g. epoch history per [Tool-Pair §How AI tools
 - Touch the surface from `re-frame.elision-probe` so the DCE graph reaches it.
 - Add a sentinel to `DEV_ONLY_SENTINELS` in `check-elision.cjs` (a string literal or keyword name that only the gated branch contains).
 
+## Production debugging: what remains
+
+The elision contract above is uncompromising — in a `:advanced` build with `goog.DEBUG=false`, the entire trace surface disappears. That decision is correct for binary-size and hot-path cost, but it has consequences for post-mortem debugging that this section makes explicit so users aren't surprised when a production incident leaves them with thin tooling.
+
+### What is NOT available in a default production CLJS build
+
+A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machinery. Concretely, the following surfaces have been DCEd and the runtime cannot reach them at all:
+
+- `register-trace-cb!` / `remove-trace-cb!` — listener registration is a no-op because the gate around `trace/emit!` is constant-folded out. Even if user code registered a listener at boot (which it shouldn't, per [§User-side listener registration](#user-side-listener-registration)), nothing would ever invoke it.
+- The retain-N trace ring buffer (`trace-buffer`, `clear-trace-buffer!`, `(configure :trace-buffer …)`) — pulling "the last N events from a prod session" is not supported. The buffer's `swap!` site is inside the same elision gate.
+- `register-epoch-cb` and the per-drain `:rf/epoch-record` assembly — epoch projection runs inside the trace surface and elides with it.
+- Every `:rf.error/*`, `:rf.warning/*`, `:rf.info/*`, `:rf.fx/*`, `:rf.ssr/*`, and `:rf.epoch/*` trace event documented in [§Error categories](#error-categories-initial-set). They are not emitted, not buffered, and not deliverable to any listener. The `:on-error` per-frame slot (per [002-Frames §`:on-error`](002-Frames.md)) is fed by the trace surface; with trace elided, registered `:on-error` callbacks do not fire in CLJS prod.
+- Source-coord enrichment (`:rf.trace/trigger-handler`), `:dispatch-id` / `:parent-dispatch-id` correlation, `:origin` tagging — all ride the trace event and elide with it.
+- Schema validation (`:rf.error/schema-validation-failure`) and registrar hot-reload notifications (`:rf.registry/handler-registered` and siblings) — same gate, same elision.
+- The Causa-MCP server and the pair2 server (per [Tool-Pair.md](Tool-Pair.md)). These are dev-only tools that attach to the trace surface; they are not designed for, and not shippable to, production. The Causa preload artefact must not be on a production build's classpath; the pair2 server lives in its own dev-only artefact for the same reason.
+
+### What IS available in production
+
+Three surfaces survive elision and are the canonical production-debugging fallbacks:
+
+1. **The Performance API channel** (per [§Performance instrumentation](#performance-instrumentation)) — gated on the independent `re-frame.performance/enabled?` `goog-define`, default off. A production build that wants timing observability flips `{:closure-defines {re-frame.performance/enabled? true}}`; the bracket sites at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries that any `PerformanceObserver` — including the host APM's — reads via `performance.getEntriesByType('measure')`. This is the production observability surface re-frame2 ships and supports.
+2. **The SSR error-projector boundary** (per [011 §Server error projection](011-SSR.md#server-error-projection)) — on the server (JVM/SSR), `re-frame.interop/debug-enabled?` is hardcoded `true` (per [§JVM builds](#jvm-builds)), so the trace surface is live. The runtime emits structured `:rf.error/*` traces, the registered error projector consumes them, and the locked `:rf/public-error` shape is written to the HTTP response. Apps with an SSR tier get the full trace + projection pipeline server-side independent of the client-side bundle's elision.
+3. **Native browser machinery** — uncaught exceptions still reach `window.onerror` / `window.onunhandledrejection`. A re-frame2 event handler that throws in production still surfaces there; what's missing is the structured `:rf.error/handler-exception` shape, the `:dispatch-id` correlation, and the `:rf.trace/trigger-handler` coord — those rode the trace surface.
+
+### Wiring an external error monitor (Sentry, Rollbar, Honeybadger, etc.)
+
+The dev-side integration documented at [§Composition with libraries](#composition-with-libraries-sentry-honeybadger-etc) routes structured trace events into the monitor:
+
+```clojure
+;; Dev: full structured trace, captured before the runtime's default recovery.
+(rf/register-trace-cb!
+ :sentry/forward
+ (fn [trace-event]
+   (when (= :error (:op-type trace-event))
+     (sentry/capture-event
+      {:level      "error"
+       :message    (-> trace-event :tags :reason)
+       :tags       {:rf-operation  (name (:operation trace-event))
+                    :rf-frame      (some-> trace-event :tags :frame name)
+                    :rf-dispatch   (some-> trace-event :tags :dispatch-id str)
+                    :rf-failing-id (some-> trace-event :tags :failing-id str)}
+       :extra      (:tags trace-event)
+       :fingerprint [(name (:operation trace-event))
+                     (str (-> trace-event :tags :failing-id))]}))))
+```
+
+In a production CLJS build with `goog.DEBUG=false`, the `register-trace-cb!` call and its body sit under the `(when ^boolean re-frame.interop/debug-enabled? …)` user-side guard (per [§User-side listener registration](#user-side-listener-registration)) and elide entirely. To keep production-side error reporting, an app has two options:
+
+- **Recommended**: install the monitor's native browser SDK at the top of the bundle (`Sentry.init({...})`). It captures `window.onerror`, `window.onunhandledrejection`, and any explicit `Sentry.captureException` call wherever the app already has error-boundary plumbing. The trade-off is loss of re-frame2's structured fields (`:operation`, `:dispatch-id`, `:rf.trace/trigger-handler`, the category-specific `:tags`) — the monitor sees the bare exception, not the cascade context. This matches industry practice for non-instrumented production bundles.
+- **Opt-in to keep the trace surface**: ship `:advanced` with `:closure-defines {goog.DEBUG true}`. The trace surface is preserved, the `register-trace-cb!` sample above runs, and the monitor receives full structured events. The cost is the trace machinery's bundle size (see [§Production-elision verification](#production-elision-verification) for the size delta — the control bundle is the reference measurement). This is the explicit escape hatch for apps where post-mortem fidelity outweighs bundle weight.
+
+### Future direction (non-normative)
+
+The asymmetry above — `:on-error` is the framework's documented runtime-error recovery slot but it rides the trace surface and elides with it — is on the open-questions list for v2. A future spec edit may carve a small always-on error-emit substrate that survives `goog.DEBUG=false` so monitor integrations get structured fields without an `:advanced`-with-`goog.DEBUG=true` build. Until then, production apps that need structured fields keep the trace surface; production apps on the elision default rely on the monitor's native capture.
+
 ## Hot path in dev builds
 
 Dev iteration matters; you don't want trace machinery to slow ordinary feedback loops. Two hot-path costs are present in dev:
