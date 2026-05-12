@@ -3,9 +3,11 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all six tools)
+//   - tools/list (expects all seven tools, including the snapshot mega-op)
 //   - tools/call eval-cljs against an absent nREPL (expects graceful
 //     :nrepl-port-not-found degraded mode)
+//   - tools/call snapshot against an absent nREPL (same degraded mode —
+//     proves the new tool is wired into the dispatch table)
 //
 // A separate live-nrepl test (spec/INTEGRATION.md) covers the
 // connected-to-shadow-cljs case.
@@ -78,14 +80,16 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all six tools (rf2-7dvg cut inject-runtime
-      // in favour of a shadow-cljs :preloads entry; see SKILL.md §Setup).
+      // 2. tools/list — expect all seven tools (six per-op + snapshot
+      // mega-op shipped in rf2-x70e). rf2-7dvg cut inject-runtime in
+      // favour of a shadow-cljs :preloads entry; see SKILL.md §Setup.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       const expected = [
         'discover-app',
         'dispatch',
         'eval-cljs',
+        'snapshot',
         'tail-build',
         'trace-window',
         'watch-epochs',
@@ -94,6 +98,19 @@ function run() {
         throw new Error('tools/list mismatch:\n  expected ' + expected + '\n  got ' + names);
       }
       console.log('OK   tools/list ->', names.join(', '));
+
+      // 2b. Verify the snapshot descriptor carries the documented input
+      // schema (frames + include + build), so accidental future renames
+      // break the test instead of silently shipping a broken contract.
+      const snapDesc = (list.result?.tools || []).find((t) => t.name === 'snapshot');
+      if (!snapDesc) throw new Error('snapshot descriptor missing from tools/list');
+      const props = snapDesc.inputSchema?.properties || {};
+      for (const k of ['frames', 'include', 'build']) {
+        if (!(k in props)) {
+          throw new Error('snapshot inputSchema missing property: ' + k);
+        }
+      }
+      console.log('OK   snapshot descriptor -> frames/include/build');
 
       // 3. tools/call eval-cljs without nREPL — expect graceful degraded result
       const evalResp = await call('tools/call', {
@@ -105,6 +122,19 @@ function run() {
         throw new Error('eval-cljs degraded mode expected, got: ' + JSON.stringify(evalResp));
       }
       console.log('OK   tools/call eval-cljs (no nREPL) -> degraded isError');
+
+      // 3b. tools/call snapshot — same degraded path. Proves the new
+      // tool is wired into the dispatch table (would surface
+      // :unknown-tool otherwise).
+      const snapResp = await call('tools/call', {
+        name: 'snapshot',
+        arguments: { frames: 'all' },
+      });
+      const snapText = snapResp.result?.content?.[0]?.text || '';
+      if (!snapResp.result?.isError || !snapText.includes('nrepl-port-not-found')) {
+        throw new Error('snapshot degraded mode expected, got: ' + JSON.stringify(snapResp));
+      }
+      console.log('OK   tools/call snapshot (no nREPL) -> degraded isError');
 
       // 4. tools/call unknown — expect isError with :unknown-tool
       const unk = await call('tools/call', { name: 'no-such-tool', arguments: {} });

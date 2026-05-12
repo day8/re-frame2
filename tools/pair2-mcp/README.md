@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the six pair2
+via shadow-cljs to a single `.js` file) that exposes the seven pair2
 ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.
@@ -33,6 +33,7 @@ cljs-eval compile.
 | `trace-window` | `trace-window.sh`         | Return the epochs that landed in the last N ms. |
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`. |
 | `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form until its value changes. |
+| `snapshot`     | _(new — no bash equivalent)_ | Coarse-grained per-frame state read in one round-trip. Returns a map keyed by frame-id with `:app-db`, `:sub-cache`, `:machines`, `:epochs`, `:traces` slices. Prefer for investigate-X workflows over chaining 5-10 individual reads. |
 
 ## Quick start
 
@@ -79,6 +80,34 @@ Or, with the pair2 skill loaded, just describe the task — the skill's
 SKILL.md teaches the agent which tool to call. See
 [`../../skills/re-frame-pair2/SKILL.md`](../../skills/re-frame-pair2/SKILL.md).
 
+### Snapshot — one call instead of five
+
+For investigate-X workflows (post-mortems, "what state is the app in
+right now?", "what changed between these two epochs?"):
+
+```text
+Agent: tools/call snapshot {frames: "all"}
+Server: {:ok? true
+         :frames :all
+         :include [:app-db :sub-cache :machines :epochs :traces]
+         :snapshot {:rf/default {:app-db {...}
+                                 :sub-cache {[:cart/total] {:value 42 ...}}
+                                 :machines {:ids [:auth] :state {:auth {...}}}
+                                 :epochs [{:epoch-id "..." ...} ...]
+                                 :traces [{:operation :event/dispatched ...}]}}}
+```
+
+Subset what you need with `include`:
+
+```text
+Agent: tools/call snapshot {frames: ["rf/default"], include: ["app-db", "epochs"]}
+```
+
+Per-op reads (`eval-cljs` against `runtime/app-db-at`, etc.) remain
+available — they're still the right call when you genuinely need one
+slice for one frame. `snapshot` is the right surface when you don't
+yet know which slice carries the answer.
+
 ## How preload probing works (rf2-7dvg)
 
 A full page reload in the browser destroys the CLJS runtime but
@@ -103,7 +132,7 @@ The contract lives in [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What this server is, why it replaces the bash-shim chain. |
 | [`spec/001-Wire-Protocol.md`](./spec/001-Wire-Protocol.md) | JSON-RPC 2.0 over stdio; lifecycle; tool dispatch. |
 | [`spec/002-nREPL-Transport.md`](./spec/002-nREPL-Transport.md) | Persistent socket, bencode framing, sentinel-based reconnect. |
-| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The seven tools, their argument schemas, EDN result shape. |
+| [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) | The seven tools (six per-op + the `snapshot` mega-op), their argument schemas, EDN result shape. |
 
 ## Development
 
@@ -149,7 +178,7 @@ tools/pair2-mcp/
 ├── pilot/                                    ; pre-port toolchain pilot
 └── src/re_frame_pair2_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools.cljs                            ; the 7 MCP tools
+    ├── tools.cljs                            ; the 7 MCP tools (6 per-op + snapshot mega-op)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame_pair2_mcp/nrepl_test.cljs    ; bencode framing unit tests

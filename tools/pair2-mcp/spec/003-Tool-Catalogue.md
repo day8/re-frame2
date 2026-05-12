@@ -1,6 +1,6 @@
 # 003-Tool-Catalogue
 
-The six MCP tools.
+The seven MCP tools.
 
 ## discover-app
 
@@ -84,3 +84,49 @@ after the reload), `wait-ms` (integer, default 5000), `build` (string).
 **Returns**: `{:ok? true :t <ms> :soft? false}` on a real change, or
 `{:ok? false :reason :timed-out}` on timeout. If `probe` is omitted,
 falls back to a 300ms soft delay (matches the bash version).
+
+## snapshot
+
+Coarse-grained per-frame state read in **one round-trip**. The mega-op
+for investigate-X workflows that would otherwise chain 5-10 individual
+reads. Server-side composition over the existing per-slice runtime
+readers (`get-frame-db`, `sub-cache`, `machines` + frame-local
+`[:rf/machines]`, `epoch-history`, `trace-buffer`); no parallel
+implementation.
+
+**Args**: `frames` (string `"all"` or array of frame-id strings like
+`":rf/default"`, default `"all"`), `include` (array of slice names —
+subset of `["app-db" "sub-cache" "machines" "epochs" "traces"]`,
+default all five), `build` (string).
+
+**Returns**:
+
+```clojure
+{:ok? true
+ :frames :all|[<frame-id>...]
+ :include [:app-db :sub-cache :machines :epochs :traces]
+ :snapshot {<frame-id> {:app-db    {...}
+                        :sub-cache {<query-v> {:value v :ref-count n}}
+                        :machines  {:ids [<machine-id>...]
+                                    :state {<machine-id> <snapshot>}}
+                        :epochs    [<:rf/epoch-record> ...]
+                        :traces    [<trace-event> ...]}
+            ...}}
+```
+
+The `:machines` slice combines the global registrar's machine-id list
+(`rf/machines`) with the per-frame state stash at `[:rf/machines]` in
+the frame's `app-db` (per Spec 005). The `:traces` slice filters the
+retain-N trace ring buffer by `:frame`. Other slices delegate
+verbatim to the public per-slice surface.
+
+Pass a smaller `include` to subset (e.g.
+`{:frames "all" :include ["app-db" "epochs"]}` for a quick
+"state + recent history" probe). Per-op fine-grain reads (`eval-cljs`
+against `runtime/app-db-at`, `runtime/sub-cache`, etc.) stay
+available — they're the right surface when you genuinely need one
+slice for one frame. `snapshot` is the right surface when you don't
+know yet which slice carries the answer.
+
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :snapshot-failed` (with `:message`) on any other failure.
