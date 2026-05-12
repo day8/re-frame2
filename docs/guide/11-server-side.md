@@ -72,6 +72,14 @@ If you do need client-only transient state to survive hydration — a `:browser/
 
 After this, the client renders. Because it's running with the server-supplied state, its first render produces the same hiccup tree the server rendered, which produces the same HTML — and the existing DOM (from the server-shipped HTML) is matched, not replaced. The transition from server-rendered to interactive is invisible to the user.
 
+## The seam vanishes
+
+Step back from the mechanics for a moment and notice what *isn't* there.
+
+There's no second codebase. No "server views" file. No `if (typeof window === 'undefined')` branches scattered through handlers. No parallel data-loading pipeline that exists only because SSR demanded one. The server-render is your app, run with the same handlers and the same subs and the same views against a frame whose `app-db` was populated by the same setup events you'd dispatch in development. The output happens to be a string rather than a DOM tree. That's the only difference.
+
+This is the claim re-frame2 is making: **SSR is the same code as client render, in another runtime**. Not "with carve-outs." Not "modulo a thin server-only layer." The seam between server and client — the place where, in most SPA stacks, subtle bugs live and where divergence accumulates over time — has been engineered out of the architecture. The reason it could be engineered out is that the architecture committed to pure handlers, pure subs, and a serialisable render-tree before it ever asked the SSR question. The constraints from [chapter 12](12-the-dynamic-model.md) — the ones that made the dynamic story testable and AI-amenable — turn out to be the same constraints that make the app JVM-runnable. SSR isn't a feature bolted on top; it's a corollary of the pattern. If you're coming from v1, where server-side rendering was always something you had to think about separately (see [chapter 18](18-from-re-frame-v1.md)), this is the structural shift: it's not separate any more.
+
 ## Hydration mismatches
 
 Sometimes the first client render doesn't match the server's HTML. This is *the* SSR bug. The causes are usually mundane:
