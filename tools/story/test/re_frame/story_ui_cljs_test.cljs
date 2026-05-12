@@ -232,19 +232,25 @@
 ;; ---- trace six-domino projection ----------------------------------------
 
 (deftest trace-group-cascades-classifies
-  (testing "group-cascades splits trace events into six-domino slots"
+  (testing "group-cascades splits trace events into six-domino slots.
+            Per rf2-wvzgd the projection now lives in
+            `re-frame.trace.projection`; Story exposes the same fn
+            under `re-frame.story.ui.trace/group-cascades` for callers
+            wired to that namespace. Event shapes here track the
+            framework's actual emit pattern per Spec 009 §`:op-type`
+            vocabulary."
     (let [evs       [{:op-type :event :operation :event/dispatched
                       :id 1 :tags {:dispatch-id 100 :event [:foo]}}
-                     {:op-type :event :operation :event/run
-                      :id 2 :tags {:dispatch-id 100 :duration-ms 3}}
-                     {:op-type :event/do-fx
-                      :id 3 :tags {:dispatch-id 100 :fx {:db {}}}}
-                     {:op-type :fx
+                     {:op-type :event :operation :event
+                      :id 2 :tags {:dispatch-id 100 :phase :run-end}}
+                     {:op-type :event :operation :event/do-fx
+                      :id 3 :tags {:dispatch-id 100}}
+                     {:op-type :fx :operation :rf.fx/handled
                       :id 4 :tags {:dispatch-id 100 :fx-id :db}}
-                     {:op-type :sub/run
-                      :id 5 :tags {:dispatch-id 100 :id :sub/foo}}
-                     {:op-type :view/render
-                      :id 6 :tags {:dispatch-id 100 :view :app/root}}]
+                     {:op-type :sub/run :operation :sub/run
+                      :id 5 :tags {:dispatch-id 100 :sub-id :sub/foo}}
+                     {:op-type :view :operation :view/render
+                      :id 6 :tags {:dispatch-id 100 :render-key [:app/root nil]}}]
           cascades  (trace/group-cascades evs)]
       (is (= 1 (count cascades)))
       (let [c (first cascades)]
