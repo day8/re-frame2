@@ -113,6 +113,7 @@ nav:
       - Nine states: spec/Pattern-NineStates.md
       - Remote data: spec/Pattern-RemoteData.md
       - Stale detection: spec/Pattern-StaleDetection.md
+      - Stateful components: spec/Pattern-StatefulComponents.md
       - WebSocket: spec/Pattern-WebSocket.md
 
   - Skills:
