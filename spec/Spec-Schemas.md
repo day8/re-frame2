@@ -316,7 +316,8 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 | `:rf.epoch/*` | `:error` | Epoch-history restore failures (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) |
 | `:rf.http/*` | `:warning` / `:info` | Managed-HTTP advisories (key-ignored-on-jvm, retry-attempt) per [014](014-HTTPRequests.md) |
 | `:route.nav-token/*` | `:error` | Stale-result-suppression on async navigation (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)) |
-| `:rf.frame/*` | `:event` | Frame-lifecycle events (e.g. `:rf.frame/drain-aborted` per [002](002-Frames.md)) |
+| `:rf.frame/<operation>` | `:event` | Frame-lifecycle trace operations emitted by the router and frame lifecycle (e.g. `:rf.frame/drain-aborted`, `:rf.frame/destroyed`) per [002](002-Frames.md). |
+| `:rf.frame/<gensym>` | n/a | Identifier namespace, NOT a trace-operation prefix — anonymous frame ids minted by `make-frame` (e.g. `:rf.frame/123`). Carried as the value of the `:frame` key on trace events, never as the `:operation`. Listed here so consumers parsing operation namespaces don't mis-route a gensym'd frame id as an operation. |
 
 ### Per-category `:tags` schemas
 

@@ -14,7 +14,8 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | Sub-namespace | Used for | Spec |
 |---|---|---|
 | `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); reserved app-db keys (`:rf/machines`, `:rf/route`); pattern-level effect-map keys; the universal default frame id (`:rf/default`) | 002 / 011 / 012 |
-| `:rf.frame/*` | Frame lifecycle traces and anonymous gensym'd frame ids (e.g. `:rf.frame/123`) | 002 |
+| `:rf.frame/<gensym>` | Anonymous frame-identifier namespace, owned by `make-frame` (e.g. `:rf.frame/123` for a gensym'd frame id). | 002 |
+| `:rf.frame/<operation>` | Frame-lifecycle trace-operation namespace, owned by the router and frame lifecycle (e.g. `:rf.frame/drain-aborted`, `:rf.frame/destroyed`). | 002 / 009 |
 | `:rf.registry/*` | Registrar mutation trace operations (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`) | 001 / 009 |
 | `:rf.fx/*` | Effect-resolution advisories (`:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`); reserved fx-ids in machine `:fx` (`:rf.fx/spawn-args`) | 002 / 009 |
 | `:rf.error/*` | Error trace operations (handler exception, sub exception, fx exception, etc.) | 009 |
@@ -69,7 +70,7 @@ Library-owned prefixes do **not** violate the single-root invariant on framework
 
 ### Discipline
 
-- **User-registered ids must not collide.** A user may not `(reg-event-fx :rf/hydrate ...)` to override a framework event without going through the documented `:on-create` / re-registration extension points. The linter rule is: `:rf/*` and any `:rf.X/*` sub-namespace is reserved.
+- **User-registered ids must not collide.** A user may not `(reg-event-fx :rf/hydrate ...)` to override a framework event without going through the documented `:on-create` / re-registration extension points. The linter rule is: `:rf/*` and any `:rf.X/*` sub-namespace is reserved. The rule applies regardless of the segment shape under the sub-namespace — a user registration of either `:rf.frame/<gensym>` (the identifier form) or `:rf.frame/<operation>` (the trace-operation form) is a collision; both rows above sit inside the same closed reserved set.
 - **Library authors choose their own prefixes.** Third-party libraries SHOULD use their library name as a top-level segment (`:reagent/*`, `:re-pressed/*`). Avoid re-using `:rf/*`.
 - **Trace-event `:operation` vocabulary is open by default.** A library may add its own `:my-lib.error/*` / `:my-lib.fx/*` prefix for advisories it emits — but the framework's reserved set is closed (additive only by Spec change).
 

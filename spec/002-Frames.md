@@ -225,8 +225,12 @@ Use case: production single-frame app; multi-instance widgets.
 
 | Expansion key | Value | Why |
 |---|---|---|
-| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing (clock-controlled timers, navigation no-ops) supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. |
+| `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing (navigation no-ops, etc.) supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. |
 | `:drain-depth` | `100` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, drain bounded at 100" from `(frame-meta <id>)` without inspecting the global default. |
+
+**Port-omission carve-out.** The `:fx-overrides` entry above redirects a Spec 014 fx-id. Implementations that omit Spec 014 do not register `:rf.http/managed` and therefore cannot redirect it — on such ports the `:test` preset's `:fx-overrides` expansion is `{}` (empty map). The `:drain-depth` entry is unaffected. Conformance: a port that ships Spec 014 MUST expand `:test`'s `:fx-overrides` to the exact pair above; a port that omits Spec 014 MUST expand it to `{}`. Either way, user-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
+
+**Clock stubbing is host-interop, not preset-level.** Tests that need deterministic time replace the interop layer's `now-ms` provider (per [§Interop layer — clock primitives](#interop-layer--clock-primitives--see-spec-005)) — they do not override an fx-id. Machine `:after` timer wake-ups are not registered as a redirectable fx-id, so `:fx-overrides` cannot reach them; the preset deliberately stays silent on time control.
 
 Use case: per-test fixture frames (per [008-Testing](008-Testing.md)).
 
@@ -843,6 +847,16 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 (defn drain! [frame]
   (try
     (loop [depth 0]
+      ;; Destroyed-frame check fires BEFORE dequeue (per Edge cases #4 below):
+      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-aborted`
+      ;; with the dropped count, and stop. In-flight events finish
+      ;; (run-to-completion); only events not yet dequeued are dropped.
+      (when (:destroyed? (:lifecycle frame))
+        (let [dropped (count @(:queue (:router frame)))]
+          (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
+          (trace! :rf.frame/drain-aborted
+                  {:frame (:id frame) :dropped dropped}))
+        (throw ::halt))
       (when (> depth (:drain-depth (:config frame)))
         (raise! :rf.error/drain-depth-exceeded
                 {:frame (:id frame) :depth depth})
