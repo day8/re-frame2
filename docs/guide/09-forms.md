@@ -6,7 +6,9 @@ The shape recurs everywhere: a login form, a signup form, a profile-edit form, a
 
 re-frame2 doesn't ship a forms library. There's no `<rf-form>` component, no `defform` macro. What it ships instead is a **convention** — a standard slice shape, a standard seven-event lifecycle, a standard error-visibility rule — that you implement with the same primitives every other feature uses: events, subs, schemas. The convention is **Pattern-Forms**. This chapter teaches it.
 
-The reason to converge on a convention rather than a library: forms are the kind of feature where *every project's needs are slightly different*, and a one-size component grows tentacles. The convention gives you a recipe that AI scaffolds (and other humans on your team) can produce on autopilot, while leaving the actual code yours to shape.
+Every team that's tried to build a reusable `<Form>` component has watched it grow tentacles. It starts as eighty lines and a clear story; six months later it's a maze of props for "show errors on blur unless this is a wizard step, in which case…", "validate on change unless `:async-username?` is set", "use the slot API for the submit button unless you're rendering inside a modal". The component absorbs every project's *almost-the-same* requirement until nobody can change it without breaking something they've never heard of. Forms are the kind of feature where every project's needs are *slightly* different — and "slightly different, a hundred times" is what kills a one-size component.
+
+A convention pushes the opposite way. The slice shape is fixed; the event names are fixed; the visibility rule is fixed; the *code* is yours. When the next form needs something the last one didn't, you write the difference into the view or the handler, not into a shared abstraction that has to handle both. AI scaffolds (and other humans on your team) produce the boilerplate on autopilot because the recipe is uniform — but nothing you wrote yesterday gets in the way of what you need to write today.
 
 We'll use the **login form** as the running example — same login flow from [chapter 08](08-state-machines.md), now zoomed in on the *form-slice* underneath the state machine. By the end of the chapter the slice shape, the seven events, the standard subs, and the standard view structure will be in front of you, end to end.
 
@@ -92,11 +94,11 @@ Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a s
 
 ## Error visibility — touched OR submit-attempted
 
-This is the load-bearing UX rule, and it's the one place a forms convention has to be opinionated to avoid the two failure modes everyone has seen:
+This is the load-bearing UX rule, and it's the one place a forms convention has to be opinionated. You've filled in both of the forms it exists to prevent. They're worth re-living for a second, because the convention's rule is shaped exactly around what made them painful.
 
-1. **Showing all errors on initial render.** The user lands on a blank signup form and immediately sees "email is required" and "password too short" plastered everywhere. Demoralising, and technically *correct* — both fields are empty — but obviously wrong as UX.
+1. **All errors visible on first paint.** You click the "Sign up" link, the page loads, and before you've typed a single character every field is already shouting at you. "Email is required." "Password is required." "Username is required." The form is technically *correct* — those fields *are* empty — but it's accusing you of mistakes you haven't had a chance to make yet. You haven't even started.
 
-2. **Hiding all errors after submit.** The user fills in three of five required fields, clicks submit, and… nothing happens. The two empty fields are required, but because the user never *touched* them, the form silently refuses to submit and shows no error.
+2. **No errors after submit.** You fill in three of the five required fields — you genuinely thought that was all of them — and click "Sign up". The button presses. Nothing happens. No spinner, no error, no movement. You click it again, harder. Still nothing. Two of the required fields are empty, but because you never *touched* them, the form has decided their errors are none of your business — and it's also decided not to submit. It's silently refusing, and it's not telling you why.
 
 The convention threads the needle with a single rule:
 
