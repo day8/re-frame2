@@ -68,21 +68,24 @@ Inside a `reg-view` body, two names are available that you didn't import: `dispa
 
 What that buys you: the view's body never says "this frame" out loud. The injected `dispatch`/`subscribe` capture the surrounding frame from the React tree (when wrapped by `frame-provider`) or fall back to the dynamic-var tier or `:rf/default`. The view fn doesn't know which frame it's been instantiated under; the framework routes correctly.
 
-Form-1 views — render fns whose body is a literal hiccup expression — get the auto-inject via the macro's expansion. Form-2 views — render fns that return another fn (the "outer fn closes over args, inner fn does the work" Reagent idiom) — also work, and are the canonical shape when the view needs to capture per-instance state in the closure or maintain a Reagent-local atom for transient UI state. Both shapes are documented in [Spec 004](../../spec/004-Views.md).
-
-```clojure
-;; Form-1 — direct render
-(rf/reg-view counter []
-  [:div @(subscribe [:count])])
-
-;; Form-2 — captures args; useful for setup-once-then-render
-(rf/reg-view labelled-counter [label]
-  (let [mounted-at (js/Date.now)]
-    (fn render [label]
-      [:div label ": " @(subscribe [:count]) " (mounted " mounted-at ")"])))
-```
-
 The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-class`) or a non-literal-fn body — the message points you at the underlying fn `reg-view*` for those rare cases. The compile-time check is the load-bearing piece: it stops the auto-inject from silently doing the wrong thing when the body shape isn't what the macro can rewrite.
+
+??? note "Advanced: which Reagent forms `reg-view` supports (skip on first read)"
+    If you're already familiar with Reagent's Form-1 / Form-2 / Form-3 distinction, this is how the macro handles each. If not, you don't need this yet — come back when the compile-time error above sends you here.
+
+    Form-1 views — render fns whose body is a literal hiccup expression — get the auto-inject via the macro's expansion. Form-2 views — render fns that return another fn (the "outer fn closes over args, inner fn does the work" Reagent idiom) — also work, and are the canonical shape when the view needs to capture per-instance state in the closure or maintain a Reagent-local atom for transient UI state. Form-3 (`reagent.core/create-class`) is not supported by the macro; use the underlying `reg-view*` fn for those rare cases. Both supported shapes are documented in [Spec 004](../../spec/004-Views.md).
+
+    ```clojure
+    ;; Form-1 — direct render
+    (rf/reg-view counter []
+      [:div @(subscribe [:count])])
+
+    ;; Form-2 — captures args; useful for setup-once-then-render
+    (rf/reg-view labelled-counter [label]
+      (let [mounted-at (js/Date.now)]
+        (fn render [label]
+          [:div label ": " @(subscribe [:count]) " (mounted " mounted-at ")"])))
+    ```
 
 ### Views compute hiccup only
 
