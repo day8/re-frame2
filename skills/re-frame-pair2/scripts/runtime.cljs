@@ -8,7 +8,7 @@
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
 ;;;;     surfaces (`re-frame.core/register-trace-cb`, `trace-buffer`,
-;;;;     `register-epoch-cb`, `epoch-history`, `restore-epoch`). No
+;;;;     `register-epoch-cb!`, `epoch-history`, `restore-epoch`). No
 ;;;;     reaching into private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame-pair2`) and one epoch
 ;;;;     listener (`:re-frame-pair2-epoch`) are registered. Multi-tool
@@ -307,9 +307,9 @@
 
 (defn- ensure-epoch-listener!
   "Register the assembled-epoch listener if it isn't already. Idempotent —
-   passing the same id twice replaces (per `register-epoch-cb` contract)."
+   passing the same id twice replaces (per `register-epoch-cb!` contract)."
   []
-  (rf/register-epoch-cb :re-frame-pair2-epoch on-epoch))
+  (rf/register-epoch-cb! :re-frame-pair2-epoch on-epoch))
 
 (defn epoch-history
   "Pass-through to (rf/epoch-history frame-id) — the framework's

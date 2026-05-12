@@ -9,7 +9,7 @@
 ;;;;
 ;;;;   `scripts/runtime.cljs` is a CLJS-only file injected into the
 ;;;;   browser app over nREPL. It depends on the live re-frame2 frame
-;;;;   registry (`re-frame.core/frame-ids`, `register-epoch-cb`, ...)
+;;;;   registry (`re-frame.core/frame-ids`, `register-epoch-cb!`, ...)
 ;;;;   so it can't run under bb directly. The real shadow-cljs test
 ;;;;   build (planned per `docs/TESTING.md` §1) will exercise the
 ;;;;   `.cljs` source in place under Node — that's the canonical home

@@ -29,7 +29,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 |---|---|---|---|
 | 0 | `eval-cljs.sh` round-trips a form | **Coded, not yet run** | `scripts/eval-cljs.sh` + `ops.clj` implement it; needs a live nREPL to verify. |
 | 1 | Read surface (§4.1) | **Coded** | `app-db/snapshot`, `app-db/get`, `app-db/schemas`, `registrar/list`, `registrar/describe`, `subs/cache`, `subs/sample`, `machines/*` — all over `rf/get-frame-db`, `rf/snapshot-of`, `rf/handlers`, `rf/handler-meta`, `rf/sub-cache`, `rf/machines`, `rf/machine-meta`, `rf/app-schemas`. |
-| 2 | Dispatch + trace (§4.2–§4.3) | **Coded** | `pair-dispatch!` / `pair-dispatch-sync!` / `dispatch-and-collect`; trace consumed via `rf/register-trace-cb`, `rf/trace-buffer`, `rf/register-epoch-cb`, `rf/epoch-history`. No 10x dependency. |
+| 2 | Dispatch + trace (§4.2–§4.3) | **Coded** | `pair-dispatch!` / `pair-dispatch-sync!` / `dispatch-and-collect`; trace consumed via `rf/register-trace-cb`, `rf/trace-buffer`, `rf/register-epoch-cb!`, `rf/epoch-history`. No 10x dependency. |
 | 3 | Live watch (§4.4) | **Coded, pull-mode only** | `scripts/watch-epochs.sh` runs repeated short evals at 100ms cadence against `epochs-since`; assembled-stream listener feeds an internal stash. Streaming-via-`:out` deferred. |
 | 4 | Hot-swap (REPL) | **Coded** | Delivered by `reg-event-fx`/`reg-sub`/`reg-fx`/`reg-machine` via `eval-cljs.sh`. Re-registration emits `:rf.registry/handler-replaced` per Spec 001 §Hot-reload semantics. |
 | 5 | Hot-reload coordination (§4.5) | **Coded** | `tail-build.sh` implements the probe-based protocol — preferred probes target `(rf/handler-meta ...)` since the meta map's `:line` / `:column` / `:handler-fn` change after re-registration. |
@@ -73,7 +73,7 @@ Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the r
 
 ## What's genuinely verified
 
-- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-trace-cb`, `trace-buffer`, `register-epoch-cb`, `epoch-history`, `restore-epoch`, `configure`, `handlers`, `handler-meta`, `frame-ids`, `frame-meta`, `get-frame-db`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `re-frame2/implementation/src/re_frame/core.cljc`.
+- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `configure`, `handlers`, `handler-meta`, `frame-ids`, `frame-meta`, `get-frame-db`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `re-frame2/implementation/src/re_frame/core.cljc`.
 - Epoch records carry the documented `:rf/epoch-record` shape — confirmed in `re-frame2/implementation/src/re_frame/epoch.cljc` (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, `:trace-events`, `:sub-runs`, `:renders`, `:effects`).
 - `restore-epoch` implements the six documented failure modes per Tool-Pair §Time-travel.
 - shadow-cljs nREPL accepts JVM `(shadow.cljs.devtools.api/cljs-eval ...)` calls (well-known).

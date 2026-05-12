@@ -184,7 +184,7 @@ git add .claude/skills/re-frame-pair2
 On first use in a session:
 
 1. The skill locates your shadow-cljs nREPL port.
-2. It sends a handful of ClojureScript forms over nREPL to create a `re-frame-pair2.runtime` namespace in your app, populated with helpers and convenience wrappers around re-frame2's public Tool-Pair surfaces. The runtime also calls `(rf/register-trace-cb :re-frame-pair2 ...)` and `(rf/register-epoch-cb :re-frame-pair2-epoch ...)` so live-watch ops have a push-style stream.
+2. It sends a handful of ClojureScript forms over nREPL to create a `re-frame-pair2.runtime` namespace in your app, populated with helpers and convenience wrappers around re-frame2's public Tool-Pair surfaces. The runtime also calls `(rf/register-trace-cb :re-frame-pair2 ...)` and `(rf/register-epoch-cb! :re-frame-pair2-epoch ...)` so live-watch ops have a push-style stream.
 3. Live-watch ops (`watch/*`) consume the assembled-epoch stream by tracking the last seen `:epoch-id` per frame and asking for everything since (see [`docs/initial-spec.md`](docs/initial-spec.md) §4.4). Hot-reload confirmation is probe-based: after an edit, the skill polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The script is named `tail-build.sh` for historical reasons — it does not actually tail the shadow-cljs server log.
 
 On full page refresh, the skill detects that its session sentinel is gone and re-injects automatically.
@@ -236,7 +236,7 @@ The pieces (design; see *Status* above):
 2. `eval-cljs.sh` sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `inject-runtime.sh` creates the `re-frame-pair2.runtime` namespace in the app on connect, populating it with helpers over re-frame2's public Tool-Pair surfaces. The session sentinel (a UUID) is interned here so full-page-refresh detection is a simple lookup. The injection also registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`).
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
 
 See [`docs/initial-spec.md`](docs/initial-spec.md) for the full operation catalogue, architecture, error surfaces, versioning, and phased delivery plan.
 

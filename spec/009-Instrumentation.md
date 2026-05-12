@@ -115,7 +115,7 @@ Additional values for re-frame2 concerns:
     Future-direction note: the `:rf.machine/destroyed` event emitted by `fx.cljc` (the fx-substrate observation) carries a `:reason` tag enumerating the cause (`:rf.machine/finished` / `:explicit` / `:parent-unmount-cascade`). A future refactor may unify the dual-emit above into a single `:reason`-tagged emit (with `:reason :parent-frame-destroyed` or similar) so frame-exit becomes one more reason in the same shape. This spec pins the current dual-emit shape; the unification is not in scope here.
 - `:rf.frame/drain-aborted` — lifecycle event emitted by `router.cljc` when the drain loop detects `(:destroyed? (:lifecycle frame))` mid-cycle and drops remaining queued events. `:op-type :event`. `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning).
 - `:rf.epoch/snapshotted` / `:rf.epoch/restored` / `:rf.epoch/db-replaced` — epoch-history operations under `:op-type :rf.epoch`. `-snapshotted` fires after each drain-settle when the runtime has appended a fresh `:rf/epoch-record`; `-restored` fires after a successful `restore-epoch`; `-db-replaced` fires after a successful `reset-frame-db!` (the rf2-zq55 pair-tool write surface — see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel). `:tags {:frame <id> :epoch-id <id> :event-id <id>?}`.
-- `:rf.epoch.cb/silenced-on-frame-destroy` — listener-silencing notification emitted **once per `(frame-id, cb-id)` pair** when a frame previously observed by a `register-epoch-cb` callback is destroyed (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656). `:op-type :rf.epoch.cb`. `:tags {:frame-id <id> :cb-id <id>}`. The callback registration remains in place; the trace exists so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Repeat destroys of the same frame do not re-emit; a re-registration of a same-keyed frame followed by a fresh delivery re-arms the cb's observation set so a subsequent destroy re-emits.
+- `:rf.epoch.cb/silenced-on-frame-destroy` — listener-silencing notification emitted **once per `(frame-id, cb-id)` pair** when a frame previously observed by a `register-epoch-cb!` callback is destroyed (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656). `:op-type :rf.epoch.cb`. `:tags {:frame-id <id> :cb-id <id>}`. The callback registration remains in place; the trace exists so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Repeat destroys of the same frame do not re-emit; a re-registration of a same-keyed frame followed by a fresh delivery re-arms the cb's observation set so a subsequent destroy re-emits.
 
 Consumers filter by `:op-type` (or `:source`, or `(get-in ev [:tags :frame])`) to get the slice they care about. Adding new `:op-type` values is non-breaking — tools ignore what they don't understand.
 
@@ -185,7 +185,7 @@ The canonical listener API has one shape:
 
 Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
 
-**Re-registration semantics.** `register-trace-cb!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-cb` re-registration under an existing key.
+**Re-registration semantics.** `register-trace-cb!` called with a key already in the registry replaces the previous callback atomically — the swap from old to new happens between two emits, never mid-emit. No trace event is emitted for the replacement (the listener registry is itself dev-only metadata; mutating it does not feed the trace stream); no events delivered to the previous callback are re-delivered to the new one, and no events emitted after the swap are dropped. Hot-reload tools that re-register their listener on every code reload see exactly one stream of events with the swap point invisible to the runtime. The same semantics apply to `register-epoch-cb!` re-registration under an existing key.
 
 **Worked example.** A minimal recorder that prints every error trace to the console:
 
@@ -198,10 +198,10 @@ Conventional keys: `:my-app/recorder`, `:my-app/timing-monitor`, etc.
                (-> trace-event :tags :reason)))))
 ```
 
-The same pattern with `register-epoch-cb` to log one assembled cascade per drain-settle:
+The same pattern with `register-epoch-cb!` to log one assembled cascade per drain-settle:
 
 ```clojure
-(rf/register-epoch-cb
+(rf/register-epoch-cb!
   :my-app/cascade-logger
   (fn [epoch-record]
     (println (:event-id epoch-record)
@@ -209,12 +209,12 @@ The same pattern with `register-epoch-cb` to log one assembled cascade per drain
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-#### `register-epoch-cb` — assembled-epoch listener
+#### `register-epoch-cb!` — assembled-epoch listener
 
-Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-trace-cb!` delivers each raw event as it is emitted, `register-epoch-cb` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
+Alongside the raw trace stream, the framework exposes a parallel **assembled-epoch listener** API. Where `register-trace-cb!` delivers each raw event as it is emitted, `register-epoch-cb!` delivers one fully-assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) per drain-settle:
 
 ```clojure
-(rf/register-epoch-cb key callback-fn)
+(rf/register-epoch-cb! key callback-fn)
 ;; Subscribes callback-fn to receive assembled epoch records.
 ;;
 ;; Arguments:
@@ -227,7 +227,7 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 ;; assembled :event-id / :trigger-event / :db-before / :db-after, plus the structured
 ;; :sub-runs / :renders / :effects projections derived from the cascade's traces.
 
-(rf/remove-epoch-cb key)
+(rf/remove-epoch-cb! key)
 ;; Unsubscribes the listener registered under key.
 ```
 
@@ -239,7 +239,7 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 - **Listener ordering** is not contract.
 - **Production elision.** The epoch listener machinery is gated on the same `re-frame.interop/debug-enabled?` flag (alias of `goog.DEBUG`) as the raw-trace surface — see [§Production builds](#production-builds-zero-overhead-zero-code). Production builds elide registration, dispatch, and the epoch ring-buffer all together.
 
-**When to use which.** `register-trace-cb!` is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-cb` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
+**When to use which.** `register-trace-cb!` is the right shape for tools that need fine-grained per-event activity (custom recorders, error-monitor forwarders, timing aggregators). `register-epoch-cb!` is the right shape for tools that route diagnostics off "what just happened in this cascade" — pair-shaped tools, post-mortem dashboards, anything that wants the structured `:sub-runs` / `:renders` / `:effects` projection without re-folding the raw trace stream.
 
 The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
@@ -247,8 +247,8 @@ The two listener APIs are independent: tools may register either, both, or neith
 
 - **Synchronous, event-at-a-time.** Every registered listener is invoked once per emitted trace event, on the runtime's emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD return quickly; expensive work belongs on a tool-owned timer or rAF.
 - **Events arrive in emission order.** Each listener sees trace events in the order the runtime fired them. (This is about per-listener *event* order, not order *across* listeners — see the next rule.)
-- **Listener-invocation order is not contract.** When multiple listeners are registered, the order in which sibling listeners receive a given event is unspecified. Tools must not depend on order; each listener receives the same event independently. The same rule applies to `register-epoch-cb` callbacks.
-- **Exception isolation.** An exception thrown by a listener is caught and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools. The caught exception is logged via `re-frame.interop/log-error` (or the host equivalent) and otherwise discarded; the runtime does NOT emit a self-referential trace event for the failed listener (which would risk a re-entrant trace-emit storm). The same handling applies to exceptions thrown by an `register-epoch-cb` callback.
+- **Listener-invocation order is not contract.** When multiple listeners are registered, the order in which sibling listeners receive a given event is unspecified. Tools must not depend on order; each listener receives the same event independently. The same rule applies to `register-epoch-cb!` callbacks.
+- **Exception isolation.** An exception thrown by a listener is caught and does *not* propagate to the framework or other listeners. One broken tool can't break the app or block other tools. The caught exception is logged via `re-frame.interop/log-error` (or the host equivalent) and otherwise discarded; the runtime does NOT emit a self-referential trace event for the failed listener (which would risk a re-entrant trace-emit storm). The same handling applies to exceptions thrown by an `register-epoch-cb!` callback.
 - **No buffering between listeners and the runtime.** The framework does not retain a delivery buffer; the retain-N ring buffer described next is independent and exists for late-attaching tools.
 
 ### Retain-N trace ring buffer (dev-only)
@@ -375,7 +375,7 @@ User-side `(rf/register-trace-cb! ...)` calls should also elide in production. W
 
 In production (`goog.DEBUG=false`), `re-frame.interop/debug-enabled?` is the constant `false`, the `when` is dead, and the entire registration is elided.
 
-The same pattern applies to `register-epoch-cb`, `trace-buffer`, `clear-trace-buffer!`, and `(rf/configure :trace-buffer …)` — every dev-only call site in user code should sit under the `when ^boolean re-frame.interop/debug-enabled?` guard.
+The same pattern applies to `register-epoch-cb!`, `trace-buffer`, `clear-trace-buffer!`, and `(rf/configure :trace-buffer …)` — every dev-only call site in user code should sit under the `when ^boolean re-frame.interop/debug-enabled?` guard.
 
 ### JVM builds
 
@@ -397,7 +397,7 @@ Apps that ship a production JVM artefact (a Pedestal/ring service that uses re-f
 
 The contract above is enforced by an automated test in CI:
 
-1. `implementation/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-cb!`, `emit-trace!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-cb` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
+1. `implementation/test/re_frame/elision_probe.cljs` is a probe namespace that exercises every gated surface — `register-trace-cb!`, `emit-trace!`, the trace ring buffer (`trace-buffer` / `clear-trace-buffer!` / `(configure :trace-buffer …)`), `validate-{app-db,event,sub-return,cofx}!`, `register!` / `unregister!` / `clear-kind!`, the epoch surface (`register-epoch-cb!` / `epoch-history` / `restore-epoch` / `(configure :epoch-history …)`), plus a representative `dispatch-sync` flow. The probe roots the dead-code-elimination graph at every surface so a leak surfaces in the bundle.
 2. `implementation/shadow-cljs.edn` declares two `:advanced` builds with `re-frame.elision-probe/run` as the entry point:
    - `:elision-probe` — `:closure-defines {goog.DEBUG false}` (production)
    - `:elision-probe-control` — `:closure-defines {goog.DEBUG true}` (control)
@@ -439,7 +439,7 @@ This is **distinct from** the trace surface above:
 |---|---|---|
 | Compile-time gate | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | `re-frame.performance/enabled?` |
 | Default | on in dev (`goog.DEBUG=true`), off in prod | **off** in both (`enabled?=false`) |
-| Consumer | `register-trace-cb!` listeners, the retain-N ring buffer, `register-epoch-cb` | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
+| Consumer | `register-trace-cb!` listeners, the retain-N ring buffer, `register-epoch-cb!` | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
 | Shape | structured trace events (open maps with `:operation` / `:op-type` / `:tags`) | `User Timing` measure entries (`name`, `startTime`, `duration`) |
 | Where it runs | both platforms (dev) | CLJS only — JVM is a no-op |
 
@@ -586,7 +586,7 @@ All trace functionality is **dev-build only** — production builds elide the en
 |---|---|---|
 | Trace event emission | ✓ | ✓ |
 | `register-trace-cb!` / `remove-trace-cb!` | ✓ | ✓ |
-| `register-epoch-cb` / `remove-epoch-cb` | ✓ | ✓ |
+| `register-epoch-cb!` / `remove-epoch-cb!` | ✓ | ✓ |
 | Trace ring buffer (`trace-buffer`) | ✓ | ✓ |
 | Hot-reload trace events | ✓ | ✓ |
 | Performance API instrumentation (`rf:event:*` / `rf:sub:*` / `rf:fx:*` / `rf:render:*` measures) | ✗ | ✓ (default-off; see [§Performance instrumentation](#performance-instrumentation)) |
@@ -1007,7 +1007,7 @@ Trace events contain dispatched event vectors, which may include user input (pas
 
 ### Listener ordering
 
-Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-trace-cb!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-cb` (per [`register-epoch-cb` §Invocation rules](#register-epoch-cb--assembled-epoch-listener)).
+Multiple listeners may register concurrently. **Listener-invocation order is not contract** — tools must not depend on the order in which sibling listeners receive a given event. Each listener receives the same event independently; nothing about the order in which the runtime walks the listener registry is guaranteed across builds, hosts, or registry implementations. The same rule applies to `register-trace-cb!` (per [§Subscription / consumption](#subscription--consumption) and [§Listener invocation rules](#listener-invocation-rules)) and `register-epoch-cb!` (per [`register-epoch-cb!` §Invocation rules](#register-epoch-cb--assembled-epoch-listener)).
 
 ### Trace correlation across the cascade
 
