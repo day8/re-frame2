@@ -874,6 +874,14 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 
     ;; 1. Run the interceptor chain — :before steps in order, then handler,
     ;;    then :after steps in reverse. The chain produces an effects map.
+    ;;    Throws inside :before / :after / handler are recorded into the
+    ;;    chain context under two paired keys — `:rf/interceptor-error`
+    ;;    (singleton, the FIRST throw) and `:rf/interceptor-errors` (vector,
+    ;;    ALL throws in order). The :after pass always runs in full so
+    ;;    cleanup-on-:after interceptors fire even after a :before failure.
+    ;;    Trace stream emits one `:rf.error/handler-exception` per chain
+    ;;    execution, keyed off the singleton. See
+    ;;    [Spec-Schemas §InterceptorContextErrorKeys](Spec-Schemas.md#interceptorcontexterrorkeys--post-chain-interceptor-context-error-contract).
     (let [effects (run-interceptor-chain
                     frame envelope handler-meta)]
 

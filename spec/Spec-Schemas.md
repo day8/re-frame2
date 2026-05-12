@@ -336,7 +336,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:failing-id        :keyword]
    [:reason            :string]
    [:event             [:vector :any]]
+   [:event-id          {:optional true} :keyword]
+   [:frame             {:optional true} :keyword]
    [:handler-id        :keyword]
+   [:phase             {:optional true} [:enum :before :after :handler]]
+   [:exception         {:optional true} :any]
    [:exception-message :string]
    [:exception-data    {:optional true} :any]])
 
@@ -444,6 +448,16 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:offending-key :keyword]
    [:value         :any]
    [:reason        :string]])
+
+(def EffectHandlerBadReturnTags
+  [:map
+   [:category      [:= :rf.error/effect-handler-bad-return]]
+   [:event-id      {:optional true} :keyword]
+   [:event         [:vector :any]]
+   [:returned      :any]
+   [:returned-type :any]
+   [:reason        :string]
+   [:recovery      [:= :no-recovery]]])
 
 (def FlowEvalExceptionTags
   [:map
@@ -855,6 +869,16 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:feature  :keyword]
    [:fallback {:optional true} :any]])
 
+(def DispatchFromAsyncCallbackFellThroughTags
+  [:map
+   [:category     [:= :rf.warning/dispatch-from-async-callback-fell-through-to-default]]
+   [:event        [:vector :any]]
+   [:event-id     :keyword]
+   [:routed-to    [:= :rf/default]]
+   [:detected-at  :int]                              ;; wall-clock ms
+   [:reason       :string]
+   [:source-coord {:optional true} :any]])           ;; optional — `dispatch` is not macro-stamped, so the call-site coord may be absent
+
 (def DecodeDefaultedTags
   [:map
    [:category         :keyword]
@@ -955,6 +979,37 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is fixed-and-additive per [Spec-ulation](Principles.md#spec-ulation): existing categories cannot be renamed or removed; new categories appear additively.
 
 The schemas above are *open* (Malli's default `[:map ...]`) — consumers receive payloads that conform to the listed keys plus any additive keys the implementation adds. Validation against these schemas is non-fatal in dev: a `validate` failure is logged via the same trace stream (per [009](009-Instrumentation.md)) but does not abort the consumer. In production, both validation and the trace stream are compile-time elided (per [009](009-Instrumentation.md) lead claim and [Spec 000 C-000.35](000-Vision.md)) — there is no runtime validation cost and no trace emission.
+
+### `InterceptorContextErrorKeys` — post-chain interceptor-context error contract
+
+> **Layer:** Runtime
+
+When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting:
+
+```clojure
+(def InterceptorContextErrorKeys
+  [:map
+   ;; The FIRST error captured during chain execution — the original cause.
+   ;; Trace code reads this to fire `:rf.error/handler-exception`. Singleton:
+   ;; once set, subsequent failures do NOT overwrite it (preserves the root
+   ;; cause).
+   [:rf/interceptor-error  {:optional true} :any]
+   ;; ALL errors captured during chain execution, in occurrence order.
+   ;; Vector: every `:before` and `:after` throw appends here, even after
+   ;; the singleton above has been set. A later `:after`-phase failure that
+   ;; would otherwise be hidden by an earlier `:before` failure is preserved
+   ;; for post-hoc inspection (pair-tools, 10x v2).
+   [:rf/interceptor-errors {:optional true} [:vector :any]]])
+```
+
+Semantics (the contract ports must uphold):
+
+1. **Singleton-FIRST / vector-ALL.** `:rf/interceptor-error` is set *once* — to the first throw observed. `:rf/interceptor-errors` collects *every* throw in order; subsequent entries append.
+2. **`:before` failures short-circuit subsequent `:before` stages.** Remaining `:before` interceptors are skipped; the handler is also skipped.
+3. **`:after` pass runs in full** regardless of `:before` failures — interceptors that allocate cleanup-on-`:after` resources must always get their `:after` call. An `:after` throw appends to `:rf/interceptor-errors` but does not abort the remaining `:after` stages.
+4. **Trace emission tracks the singleton.** The trace stream emits one `:rf.error/handler-exception` per chain execution — keyed off `:rf/interceptor-error`. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
+
+Both keys are namespaced under `:rf/`, so user-installed interceptors that read or write context entries don't collide with the runtime-owned slots. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), user code MUST NOT write to either key.
 
 ### `:rf/handler-body-dsl`
 
