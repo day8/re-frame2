@@ -19,9 +19,9 @@ Story's own UI shell (sidebar, control panel, trace ribbon, embedded
   exercises the same re-frame primitives Story stories exercise; using
   a substrate the rest of the codebase already validates avoids a
   self-hosting bias.
-- **reagent-slim is still landing.** rf2-5djt (the slim rewrite) is in
-  active implementation. Story should not block on it; once
-  reagent-slim is GA Story can migrate (Stage 8 may revisit).
+- **reagent-slim is still landing.** The slim rewrite is in active
+  implementation. Story should not block on it; once reagent-slim is
+  GA Story can migrate (Stage 8 may revisit).
 - **The UI shell is itself one app's worth of views; substrate
   switches are cheap if done early.** Reagent's API surface is the
   most well-trodden; reducing risk during the initial Stage 4
@@ -150,9 +150,9 @@ no parallel mounting protocol. Five rules govern panel hosting:
    from its own boot.
 
 5. **The 10x embed.** The built-in `:rf.story.panel/epoch` panel
-   registers against a STUB view. The Causa library (`tools/10x/`,
-   rf2-buor) registers the live view under the same
-   `:rf.story.panel/epoch-view` id when present; the shell's
+   registers against a STUB view. The Causa library
+   ([`tools/10x/`](../../10x/)) registers the live view under the
+   same `:rf.story.panel/epoch-view` id when present; the shell's
    late-bind `rf/view` lookup picks Causa's view automatically. If
    Causa is absent the stub renders documenting the contract.
 

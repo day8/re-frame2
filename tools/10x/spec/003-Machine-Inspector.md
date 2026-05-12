@@ -73,7 +73,7 @@ Per Spec 005 and Spec 009:
 | `:rf.machine/spawned` / `-destroyed` | Render spawn/destroy lifecycle in the parent's chart. |
 | `:rf.machine/done` | Mark `:final?`-state entry, before the auto-destroy. |
 | `:rf.machine/system-id-bound` / `-released` | Surface `:system-id` reverse-index activity in a sidebar. |
-| Source-coord stamping (rf2-8bp3) | Every clickable element jumps to source. |
+| Source-coord stamping | Every clickable element jumps to source. |
 
 ## Selection and switching
 

@@ -44,7 +44,7 @@ This is the same shape the developer reads about in [Guide chapter
 03 — Your first app](../../../docs/guide/03-your-first-app.md) and
 in the [`examples/<substrate>/counter*/`](../../../examples/)
 trees. The template's generated counter and the guide's worked
-example align (rf2-2kzw throughline).
+example align.
 
 ## Resource tree (template-side)
 

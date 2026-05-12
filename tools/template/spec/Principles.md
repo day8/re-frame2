@@ -43,7 +43,7 @@ Every variant emits a working counter. The counter:
   the full cycle: an init event, an action event, a sub, a view
   that dispatches.
 
-This is rf2-2kzw's "counter throughline" principle applied to the
+This is the "counter throughline" principle applied to the
 scaffolding tool. A developer who runs
 `clojure -X:project/new :template re-frame2 :name acme/my-app` and
 then opens the guide sees the same code in both places. No

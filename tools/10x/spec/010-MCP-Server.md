@@ -13,10 +13,10 @@ Different tool catalogue.
 
 ## Why a separate jar
 
-Causa-the-panel is human-facing; Causa-MCP is agent-facing. Per the
-rf2-m6tu §6.1 separation lesson (humans and agents ship as distinct
-jars so the MCP server can be loaded without dragging the entire
-Causa UI into the classpath), the two surfaces split:
+Causa-the-panel is human-facing; Causa-MCP is agent-facing. Humans
+and agents ship as distinct jars so the MCP server can be loaded
+without dragging the entire Causa UI into the classpath; the two
+surfaces split:
 
 - **`tools/10x/`** — `day8/re-frame2-causa`. The DOM-injected panel.
   Pulled by `:preloads`. Browser-side artefact.

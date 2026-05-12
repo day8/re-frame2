@@ -148,7 +148,7 @@ relationships among the tools.
 
 ## Status
 
-In design. Spec corpus landed via rf2-1lls (2026-05-12). All 13
-direction-setting decisions are locked — see
+In design. Spec corpus landed 2026-05-12. All 13 direction-setting
+decisions are locked — see
 [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md). Implementation work
 begins after spec ratification.
