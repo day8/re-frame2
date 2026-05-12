@@ -101,6 +101,18 @@ What you gain:
 
 The last one is the load-bearing reward. Everything else flows from it.
 
+### A few useful angles on the same shape
+
+Programmers, by habit, focus on **parts** — the dominoes, the handlers, the views. Systems theorists insist that what makes a system a system is the **lines between the boxes**. re-frame2's contribution is mostly the lines. If parts are functions, then "interconnections between functions" means *composition* — and re-frame2 supplies the composition: queue, interceptor pipeline, signal graph. The boxes are yours. The lines are the architecture.
+
+**Events as assembly language.** Look at the stream of events your app dispatches over a session — `[:user/clicked-save]`, `[:nav/route-changed ...]`, `[:tx/applied ...]`. That collection is a program. It is data. It is executed by a virtual machine you wrote, namely your registered event handlers. Each `reg-event` adds an instruction to the machine's instruction set. Assembly running on an x86, events running on your handler-machine — same idea, same shape. It happens to be a particularly debuggable VM: the program is loggable, the machine is queryable, the execution is run-to-completion.
+
+**Event sourcing.** Once you accept that events are the program, the consequence falls out: events are the source of truth, and `app-db` is a projection. To reproduce any bug you need only the last checkpoint plus the events since. Pure, loggable data — no heap dump, no timing capture. re-frame2's epoch system (chapter 11) makes this concrete: a frame's whole state at any past event is reachable by a pointer swap.
+
+**App-db as the result of a perpetual reduce.** Event handlers have the signature `(state, event) → state`. That is exactly the signature of `reduce`'s combining function. So `app-db` is the running accumulator of `(reduce step initial-db events-so-far)` — where `step` is dispatch over the registered handler set. `app-db` isn't *primary*; it's *temporary storage for the fold*. Events are primary. Elm called this `foldp` — fold-from-the-past — and it is one of the most useful mental models in the framework.
+
+**The whole app as one finite state machine.** Chapter 05 talks about *registered* FSMs — small, explicit, named state machines for pieces of your app. There is a higher-level reading: the whole application is itself an FSM. Events are the triggers, handlers are the transition rules, `app-db`'s value is the current state. The dynamic story collapses to: in state `S`, event `E` arrives, the rules take you to state `S'`. The simplest computational model we have, applied to the whole app.
+
 ## IV. The shape of the bet
 
 There's an asymmetry here that's worth saying out loud.
