@@ -244,6 +244,49 @@ When adding a public surface, ask in order:
 
 The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-trace-cb!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
 
+## Configuration surfaces: `configure` vs `set-!` vs per-frame metadata
+
+re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel.
+
+### 1. `(rf/configure key opts)` — process-level runtime knobs
+
+For knobs that apply globally to the framework runtime, are addressed by a **keyword** (no impl-reference required), and whose values are plain data (numbers, booleans, small maps). The full key vocabulary is enumerated at [API.md §Configure keys](API.md#configure-keys) and is fixed-and-additive.
+
+- `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
+- `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
+- `(rf/configure :sub-cache {:grace-period-ms 50})` — deferred ref-counting grace period
+- `(rf/configure :strict-subs true)` — reject unschema'd sub-registrations
+- `(rf/configure :ssr {:public-error-id ...})` — SSR error-projection policy
+
+### 2. `set-!` / `install-!` fns — adapter-pluggable hooks
+
+For substitution points where the consumer hands the framework a **specific implementation** (a function or component) that the framework will hold a strong reference to and call from arbitrary sites. The bang earns its keep because the surface mutates an implementation-defined process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 3).
+
+- `(rf/install-adapter! reagent/adapter)` — install the reactive-substrate adapter
+- `(rf/set-schema-validator! malli.core/validate)` — swap the schema validator
+- `(rf/set-schema-explainer! malli.core/explain)` — swap the schema explainer
+
+These are NOT folded under `configure` because keyword-keyed addressing loses the type information that the consumer needs to pass an actual fn/component reference: `configure` is for *data*, `set-!` is for *impls*.
+
+### 3. Per-frame metadata — frame-scoped overrides
+
+For configuration whose lifetime is a single frame's existence — expressed at frame creation via `reg-frame`'s metadata map or per-dispatch via the `dispatch` opts argument (per [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides)). These keys flow through the dispatch envelope; per-call merges over per-frame on key conflict.
+
+- `:fx-overrides` — replace registered fx handlers by id, for the lifetime of one frame (or one dispatch)
+- `:interceptor-overrides` — replace interceptors in the chain by `:id`
+- `:interceptors` — *add* (prepend) interceptors to the chain
+- `:on-create` / `:on-destroy` — lifecycle events fired at frame create / destroy
+
+### How to slot a new config option
+
+When adding a new configuration surface, ask in order:
+
+1. Does it hand the framework a fn or component the framework must hold by reference? → bucket 2 (`set-!` / `install-!`).
+2. Is it a global runtime knob with a plain-data value? → bucket 1 (`configure`).
+3. Does it apply only to a specific frame's lifetime (or a single dispatch)? → bucket 3 (per-frame metadata via `reg-frame` or dispatch opts).
+
+If the option seems to want two buckets, the option is doing two things and should be split. If it fits none, file a bead against this section rather than coining a fourth surface.
+
 ## `*`-suffix naming for fn-versions of macros
 
 When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
