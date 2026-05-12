@@ -56,7 +56,7 @@ Common ops (per the corpus's existing fixtures):
 
 The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/test_support.cljc`; copy the dispatch-style and adapt the literal-op handlers.
 
-**Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap. File a `bd create` bead asking for the DSL to be documented in `spec/conformance/README.md`.
+**Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap. File a `bd create` bead asking for the DSL to be documented in [`spec/conformance/README.md`](../../../spec/conformance/README.md).
 
 ## Capability tagging
 

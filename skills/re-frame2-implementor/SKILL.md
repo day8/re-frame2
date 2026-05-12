@@ -23,7 +23,7 @@ description: >
 
 You are helping an engineer **build a new implementation of the re-frame2 pattern** — not a re-frame2 application, but a runtime that other people will then write applications against. The CLJS reference implementation in this repo is a working example of one realisation; this skill walks the engineer through realising another.
 
-The skill is **guidance + workflow** layered on top of the spec corpus at `spec/`. The spec is the contract. The reference impl is one worked example, not normative.
+The skill is **guidance + workflow** layered on top of the spec corpus at [`spec/`](../../spec/). The spec is the contract. The reference impl is one worked example, not normative.
 
 ---
 
@@ -31,10 +31,10 @@ The skill is **guidance + workflow** layered on top of the spec corpus at `spec/
 
 Use this skill when **any** of these are true:
 
-- The engineer is starting a port of re-frame2 to a new host language (TypeScript, Fable F#, Kotlin/JS, Squint, Scala.js, PureScript, Reason / ReScript / Melange, or any of the other hosts named in `spec/000-Vision.md` — or a host outside that list).
+- The engineer is starting a port of re-frame2 to a new host language (TypeScript, Fable F#, Kotlin/JS, Squint, Scala.js, PureScript, Reason / ReScript / Melange, or any of the other hosts named in [`spec/000-Vision.md`](../../spec/000-Vision.md) — or a host outside that list).
 - The engineer is implementing re-frame2 against a non-React substrate, a native UI toolkit, a terminal UI, or any rendering surface that isn't React-on-the-browser.
 - The engineer wants to claim "this is a re-frame2 implementation" and needs to know what the claim requires.
-- The engineer is consuming `spec/Implementor-Checklist.md` and the [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance) corpus to verify their work.
+- The engineer is consuming [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md) and the [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance) corpus to verify their work.
 
 ## When NOT to use this skill
 
@@ -56,7 +56,7 @@ If the engineer is building **applications** on the reference, hand off to `re-f
 
 These hold across every phase of the implementation.
 
-1. **The spec is the contract.** `spec/` is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; file a `bd create` bead against the spec or the reference impl as appropriate.
+1. **The spec is the contract.** [`spec/`](../../spec/) is the source of truth. The CLJS implementation under `implementation/` is one worked example of how to realise the contract — not the contract itself. When the reference impl and the spec disagree, the spec wins; file a `bd create` bead against the spec or the reference impl as appropriate.
 2. **Phase 1 before Phase 2.** Decisions made under Phase 1 (host language, substrate, scope, identity primitive, concurrency model) are load-bearing for every line of code written in Phase 2. Lock them in writing before opening an editor. If a Phase 2 step forces a Phase 1 decision to change, *stop*, revise the decision record, and restart that Phase 2 step.
 3. **Implement in dependency order.** EP 001 (Registration) → 002 (Frames + events + effects + subs) → 006 (Reactive substrate) → 004 (Views) are the foundation. The optional EPs (005, 007–014) sit downstream and can be deferred or skipped per Phase 1 scope.
 4. **Substrate-agnostic phrasing in code and docs.** The reference impl is a CLJS+Reagent realisation — keywords as ids, hiccup as render-tree, Reagent ratoms as the reactive container. These are *choices the reference made*. Your port chooses differently and re-frame2 is still re-frame2. Do not write code that assumes "hiccup" or "Reagent" or "keyword" universally; write code that assumes "the identity primitive", "the render-tree", "the reactive container".
@@ -73,7 +73,7 @@ These hold across every phase of the implementation.
 
 Before any code is written, the engineer walks the **decision walkthrough** at `reference/phase-1-decisions.md` and produces a **decision record** (template: `reference/decision-record.md`). The decisions are:
 
-1. **Target host language** — which language and runtime. The spec scope under `spec/000-Vision.md` names eight first-class JS-cross-compile hosts; the [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) covers more (Python, Rust, Kotlin/native, Swift) — but only the in-scope eight target React+VDOM substrates by default. Any other host language picks its own substrate (Q2).
+1. **Target host language** — which language and runtime. The spec scope under [`spec/000-Vision.md`](../../spec/000-Vision.md) names eight first-class JS-cross-compile hosts; the [Implementor-Checklist](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) covers more (Python, Rust, Kotlin/native, Swift) — but only the in-scope eight target React+VDOM substrates by default. Any other host language picks its own substrate (Q2).
 2. **Substrate / view layer** — React+VDOM (the spec's default), a native UI toolkit, raw DOM, terminal UI, server-render only, no UI at all.
 3. **Scope — which EPs ship now** — the core EPs (001 / 002 / 006 / 004) are mandatory for any conformance claim. The optional EPs (005 state machines, 007 stories, 008 testing, 009 instrumentation, 010 schemas, 011 SSR, 012 routing, 013 flows, 014 HTTP) are declared yes/no individually per [Implementor-Checklist Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete).
 4. **Foundation choices** — identity primitive, persistent data structures, reactive substrate, effect-handling primitive, concurrency model, hot-reload primitive ([Implementor-Checklist Part 2 §Foundation](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#foundation-always-required)).
@@ -105,17 +105,17 @@ The leaf `reference/phase-2-impl-order.md` walks each EP with: what to read firs
 
 Three tiers of input, in this priority:
 
-1. **`spec/`** — the contract. Read in numeric order. Every implementation decision must trace to a normative claim here.
-2. **[`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/)** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus).
+1. **[`spec/`](../../spec/)** — the contract. Read in numeric order. Every implementation decision must trace to a normative claim here.
+2. **[`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md)** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus). Site-published version: <https://day8.github.io/re-frame2/spec/Implementor-Checklist/>.
 3. **`implementation/`** (the CLJS reference) — a worked example. Useful for "how did *someone* solve X?" Never useful as a contract claim. The reference's specific bindings (keywords, hiccup, Reagent ratoms, Closure dead-code elimination for production elision) are **choices**, not requirements.
 
-If `implementation/` and `spec/` disagree, the spec wins. File a `bd create` bead so the inconsistency is tracked.
+If `implementation/` and [`spec/`](../../spec/) disagree, the spec wins. File a `bd create` bead so the inconsistency is tracked.
 
 ---
 
 ## Conformance — the acceptance test
 
-The conformance corpus at `spec/conformance/` is host-agnostic data. The harness is ~300 lines per host (per [`spec/conformance/README.md` §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus)):
+The conformance corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic data. The harness is ~300 lines per host (per [`spec/conformance/README.md` §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus)):
 
 1. Read all `.edn` fixtures in `fixtures/`.
 2. For each fixture, check whether `:fixture/capabilities` is a subset of the port's claimed list.
@@ -143,7 +143,7 @@ Tell the engineer the implementation is "v1-complete" against the claimed scope 
 
 - [ ] Phase 1 decision record is written down, dated, and committed to the port's own repo (as a `DECISIONS.md` or equivalent).
 - [ ] All EPs in scope (per Phase 1) have a working implementation in the port's source tree.
-- [ ] The port's runtime exposes the API contract at [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/), adapted to the host's idiom.
+- [ ] The port's runtime exposes the API contract at [`spec/API.md`](../../spec/API.md), adapted to the host's idiom.
 - [ ] The conformance corpus has been run against the port; the score is `(claimed-applicable) / (claimed-applicable)` — all fixtures whose capabilities are a subset of the port's claim pass.
 - [ ] Any conformance failures that were *not* spec gaps have been fixed in the port.
 - [ ] Any conformance failures that *were* spec gaps have been filed as beads against the spec corpus (`bd create` against the re-frame2 repo).
@@ -158,7 +158,7 @@ When the checklist passes, the port can claim "re-frame2 implementation, v1-comp
 For depth on each step, read the matching leaf — every leaf is one level deep from this SKILL.md:
 
 - **`reference/kickoff-prompt.md`** — A paste-ready prompt to drop into a fresh Claude Code session in the root of the engineer's port repo. ~80 lines.
-- **`reference/phase-1-decisions.md`** — The Phase 1 walkthrough: seven decision blocks, options per host, trade-offs, links into [`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/) for the canonical option matrices. ~200 lines.
+- **`reference/phase-1-decisions.md`** — The Phase 1 walkthrough: seven decision blocks, options per host, trade-offs, links into [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md) for the canonical option matrices. ~200 lines.
 - **`reference/decision-record.md`** — The fill-in template for the locked-decision record. Reproducible across ports — the engineer copies the template into their own repo, fills in each block. ~120 lines.
 - **`reference/phase-2-impl-order.md`** — EP-by-EP implementation order. For each EP: what to read, the contract to expose, what the CLJS reference did (as an example), what the conformance fixtures check, common spec-gap traps. ~250 lines.
 - **`reference/reference-impl-tour.md`** — A guided tour of the CLJS reference under `implementation/` — what's where, what was a substrate-specific choice, what's pattern-required. Read this when you want to see how *someone* solved a problem, not to find out what re-frame2 requires. ~150 lines.
@@ -182,4 +182,4 @@ If you hit anything else surprising, surface it to the engineer rather than gues
 
 ---
 
-*Authoritative contract: `spec/` corpus (in this repo). Decision-ordered companion: [`spec/Implementor-Checklist.md`](https://day8.github.io/re-frame2/spec/Implementor-Checklist/). Conformance corpus: [`spec/conformance/`](https://github.com/day8/re-frame2/tree/main/spec/conformance). CLJS reference (worked example): `implementation/`. For application authoring on the reference: `skills/re-frame2/`. For greenfield bootstrap: `skills/re-frame2-setup/`. For v1→v2 migration: `skills/re-frame-migration/`. For live-app inspection: `skills/re-frame-pair2/`.*
+*Authoritative contract: [`spec/`](../../spec/) corpus (in this repo). Decision-ordered companion: [`spec/Implementor-Checklist.md`](../../spec/Implementor-Checklist.md). Conformance corpus: [`spec/conformance/`](../../spec/conformance/). CLJS reference (worked example): `implementation/`. For application authoring on the reference: `skills/re-frame2/`. For greenfield bootstrap: `skills/re-frame2-setup/`. For v1→v2 migration: `skills/re-frame-migration/`. For live-app inspection: `skills/re-frame-pair2/`.*

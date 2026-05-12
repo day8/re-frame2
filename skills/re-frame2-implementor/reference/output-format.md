@@ -43,7 +43,7 @@ Produced at the end of the Phase 1 walkthrough. The decision record is committed
 
 ## Next step
 
-Begin Phase 2 at EP 001 (Registration). Read `spec/001-Registration.md`; expose the registrar API per the decision record's D4 choices.
+Begin Phase 2 at EP 001 (Registration). Read [`spec/001-Registration.md`](../../../spec/001-Registration.md); expose the registrar API per the decision record's D4 choices.
 ```
 
 ---

@@ -1,6 +1,6 @@
 # sequencing
 
-The recommended order to walk the migration rules. Restated so a partial migration can resume cleanly without re-reading the full `spec/MIGRATION.md` ordering.
+The recommended order to walk the migration rules. Restated so a partial migration can resume cleanly without re-reading the full [`MIGRATION.md`](../../../spec/MIGRATION.md) ordering.
 
 ## Top-level shape
 
@@ -14,11 +14,11 @@ Phase 2 — Bump (M-0)
             └── failures ────> Phase 3 (sweep) ───> compile + tests ───> Phase 6
 ```
 
-`spec/MIGRATION.md` Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. Verify that against this project before doing anything else.
+[`MIGRATION.md`](../../../spec/MIGRATION.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. Verify that against this project before doing anything else.
 
 ## When failures land — the sweep order
 
-The M-rule numbering in `spec/MIGRATION.md` *is* the sweep order. Walk them low-to-high. Later rules sometimes depend on earlier ones being resolved (M-1 surfaces private-namespace requires; M-15's seeding rewrite assumes the M-1 fix has run; M-21's `on-changes` rewrite assumes the flows artefact M-30 has been added).
+The M-rule numbering in [`MIGRATION.md`](../../../spec/MIGRATION.md) *is* the sweep order. Walk them low-to-high. Later rules sometimes depend on earlier ones being resolved (M-1 surfaces private-namespace requires; M-15's seeding rewrite assumes the M-1 fix has run; M-21's `on-changes` rewrite assumes the flows artefact M-30 has been added).
 
 ### Group 1 — Coord and private namespaces (foundation)
 
