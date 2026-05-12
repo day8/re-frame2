@@ -51,6 +51,18 @@ These are the broad categories of breakage. The skill identifies and resolves th
 
 If a failure doesn't match any of the above, the skill surfaces it for human review rather than guessing. The cardinal rule is *don't invent migration rules*.
 
+### Migrating an HTTP layer
+
+A concrete instance of "problems you might run into": v1 codebases that registered their own `:http` fx — or used `re-frame-http-fx`, `re-frame-fetch-fx`, or one of their cousins — migrate onto `:rf.http/managed` (see [10 — Doing HTTP requests](10-doing-http-requests.md)). The skill recognises the shape; the rewrite is mechanical (Type A):
+
+1. Add the `day8/re-frame2-http` artefact and `(:require [re-frame.http-managed])` from the namespaces that issue requests (per [`MIGRATION.md` §M-31](../../spec/MIGRATION.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http)).
+2. Replace `[:http {:url ... :on-success ... :on-error ...}]` fx vectors with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move inside `:request`.
+3. Rename `:on-error` → `:on-failure`. The reply payload appends as the last argument; destructure `{:keys [value]}` for success, `{:keys [failure]}` for failure.
+4. Adopt the closed `:rf.http/*` failure category set in error-handling branches — code that branched on `(:status err)` becomes branching on `(:kind failure)`.
+5. (Optional modernisation, not required for migration.) Convert per-call success handlers to default reply addressing if the pre-request and post-reply logic naturally co-locate at one event id.
+
+The skill applies steps 1–4 unprompted and stops at step 5 for review.
+
 ## A note on the tooling
 
 `re-frame-10x` — the v1 devtools panel — has been renamed and reimplemented as **`re-frame-causa`** for v2. It is **not** the v1 10x ported to v2; it's a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces (see [15 — Tooling](15-devtools-and-pair-tools.md)). If your v1 project depended on the 10x panel during development, the v2 equivalent is causa, not 10x. The mental model — events, subs, app-db diff, time-travel — carries over; the wiring underneath does not.
