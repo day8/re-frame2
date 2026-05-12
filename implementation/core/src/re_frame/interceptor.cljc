@@ -12,9 +12,42 @@
   reverse order (the standard interceptor pattern from Pedestal / re-frame v1).")
 
 (defn ->interceptor
-  "Build an interceptor map from kwargs. The primitive — users compose
-  custom before/after work via this rather than via stdlib helpers
-  (which v2 has trimmed)."
+  "Build an interceptor map from kwargs. The primitive for custom
+  interceptors — v2 trims the v1 stdlib helpers in favour of this one
+  entry point.
+
+  Kwargs:
+    :id      keyword name (default `:unnamed`); appears in error traces.
+    :before  `(fn [context] new-context)` — runs before the handler.
+             Read inputs via `get-coeffect`; write outputs via
+             `assoc-coeffect` / `assoc-effect`.
+    :after   `(fn [context] new-context)` — runs after the handler,
+             in reverse declaration order.
+
+  The `context` map carries:
+    `:coeffects` — input data: `:db` (current app-db value), `:event`
+                   (the dispatched event vector), and any cofx injected
+                   via `inject-cofx`.
+    `:effects`   — output data the chain accumulates: `:db` (next
+                   app-db value), `:fx` (the vector of `[fx-id args]`
+                   pairs the runtime walks after the chain).
+
+  Example:
+
+      (def log-event
+        (rf/->interceptor
+          :id     :log-event
+          :before (fn [ctx]
+                    (println \"event:\" (rf/get-coeffect ctx :event))
+                    ctx)))
+
+      (rf/reg-event-db :foo
+        [log-event]
+        (fn [db _] db))
+
+  See also: `get-coeffect`, `assoc-coeffect`, `get-effect`,
+  `assoc-effect`, `inject-cofx`, `path` / `unwrap` (the std interceptors
+  v2 ships), `reg-event-ctx` (full-context handler)."
   [& {:keys [id before after]}]
   (cond-> {:id (or id :unnamed)}
     before (assoc :before before)
@@ -23,22 +56,50 @@
 ;; ---- context plumbing -----------------------------------------------------
 
 (defn get-coeffect
+  "Read from the context's `:coeffects` map.
+
+  Arities: `(get-coeffect ctx)` returns the whole coeffects map;
+  `(get-coeffect ctx k)` returns the value at key `k` (nil if absent);
+  `(get-coeffect ctx k not-found)` returns `not-found` when absent.
+
+  See also: `assoc-coeffect`, `update-coeffect`."
   ([context] (:coeffects context))
   ([context k] (get (:coeffects context) k))
   ([context k not-found] (get (:coeffects context) k not-found)))
 
-(defn assoc-coeffect [context k v]
+(defn assoc-coeffect
+  "Set the value at `k` in the context's `:coeffects` map. Returns the
+  updated context. Use from a `:before` interceptor when injecting a
+  coeffect into the chain. See also: `get-coeffect`, `update-coeffect`."
+  [context k v]
   (assoc-in context [:coeffects k] v))
 
-(defn update-coeffect [context k f & args]
+(defn update-coeffect
+  "Apply `f` (with optional trailing `args`) to the value at `k` in the
+  context's `:coeffects` map. Returns the updated context. See also:
+  `assoc-coeffect`, `get-coeffect`."
+  [context k f & args]
   (apply update-in context [:coeffects k] f args))
 
 (defn get-effect
+  "Read from the context's `:effects` map.
+
+  Arities: `(get-effect ctx)` returns the whole effects map;
+  `(get-effect ctx k)` returns the value at key `k`;
+  `(get-effect ctx k not-found)` returns `not-found` when absent.
+
+  See also: `assoc-effect`."
   ([context] (:effects context))
   ([context k] (get (:effects context) k))
   ([context k not-found] (get (:effects context) k not-found)))
 
-(defn assoc-effect [context k v]
+(defn assoc-effect
+  "Set the value at `k` in the context's `:effects` map. Returns the
+  updated context. Use from a handler-wrapper interceptor (or an
+  `:after`) to publish an effect the runtime will walk. The top-level
+  effect-map is closed: only `:db` and `:fx` are honoured per migration
+  M-8. See also: `get-effect`, `assoc-coeffect`."
+  [context k v]
   (assoc-in context [:effects k] v))
 
 ;; ---- chain execution ------------------------------------------------------

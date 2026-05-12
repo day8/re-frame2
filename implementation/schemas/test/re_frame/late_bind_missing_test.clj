@@ -58,11 +58,12 @@
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in
             ;; `re-frame.core-schemas/reg-app-schema` — the sibling-
-            ;; namespace fn-form delegate the macro routes through — so
-            ;; `:where` is the bare unqualified symbol of the user-facing
-            ;; surface (`rf/reg-app-schema`).
-            (is (= 'reg-app-schema (:where data))
-                "ex-data carries :where = 'reg-app-schema")
+            ;; namespace fn-form delegate the macro routes through. Per
+            ;; rf2-j8icl the `:where` symbol is namespace-qualified to
+            ;; the user-facing surface (`rf/reg-app-schema`) so callers
+            ;; greping for the symbol find call sites in their codebase.
+            (is (= 'rf/reg-app-schema (:where data))
+                "ex-data carries :where = 'rf/reg-app-schema")
             (is (= [:probe] (:path data))
                 "ex-data carries :path from the call site")
             (is (= :no-recovery (:recovery data))

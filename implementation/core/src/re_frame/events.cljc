@@ -197,13 +197,48 @@
         (cond
           (map? middle)        [middle [] handler]
           (vector? middle)     [{} middle handler]
-          :else                (throw (ex-info "re-frame2: bad reg-event-* args"
-                                               {:args args}))))
+          :else                (throw (ex-info
+                                        "reg-event-*: middle slot must be a metadata-map or an interceptor-vector"
+                                        {:args     args
+                                         :got      middle
+                                         :expected "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
     3 (let [[meta interceptors handler] args]
         [meta (or interceptors []) handler])
-    (throw (ex-info "re-frame2: reg-event-* arity error" {:args args}))))
+    (throw (ex-info
+             "reg-event-* arity error — expected (id handler), (id metadata handler), (id interceptors handler), or (id metadata interceptors handler)"
+             {:args args :count (count args)}))))
 
 (defn reg-event-db
+  "Register a `(fn [db event-vec] new-db)` event handler under `id`.
+
+  The handler is **pure** — it receives the current `app-db` value and
+  the event vector that triggered the dispatch, and returns the next
+  `app-db` value. The runtime atomically swaps the frame's `app-db` to
+  the returned value before any `:fx` are walked. For side-effecting
+  handlers reach for `reg-event-fx`; for full-context manipulation reach
+  for `reg-event-ctx`.
+
+  Shapes (the middle slot is optional and may be metadata OR
+  interceptor-vector, NOT both — per Conventions §`:interceptors` is
+  positional, not metadata):
+
+      (reg-event-db :id                          (fn [db ev] new-db))
+      (reg-event-db :id {:doc \"...\" :spec ...}   (fn [db ev] new-db))
+      (reg-event-db :id [(path :counter)]        (fn [slice ev] new-slice))
+      (reg-event-db :id {:doc \"...\"} [icpt]      (fn [db ev] new-db))
+
+  Returns `id`.
+
+  Example:
+
+      (rf/reg-event-db :counter/inc
+        (fn [db _]
+          (update db :n inc)))
+
+      (rf/dispatch [:counter/inc])
+
+  See also: `reg-event-fx` (effect-map handlers), `reg-event-ctx`
+  (advanced — context manipulation), `dispatch`, `dispatch-sync`."
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
         _           (warn-interceptors-in-meta! "reg-event-db" id meta)
@@ -217,6 +252,48 @@
     id))
 
 (defn reg-event-fx
+  "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
+
+  The handler is **pure** — it receives a coeffect map (carrying `:db`,
+  `:event`, plus any cofx injected via `inject-cofx`) and the event
+  vector, and returns an effect-map. The runtime walks the effects in
+  order:
+
+  1. `:db`  — atomic swap to the frame's `app-db` (Spec 002 §`:fx`
+     ordering, rule 1).
+  2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
+     by the registered fx handlers (see `reg-fx`).
+
+  The effect-map is a **closed shape**: only `:db` and `:fx` are
+  permitted at the top level (per migration M-8). Legacy v1 top-level
+  keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
+  entries — `{:fx [[:dispatch event] ...]}`.
+
+  Shapes (the middle slot is optional and may be metadata OR
+  interceptor-vector, NOT both):
+
+      (reg-event-fx :id                       (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\"}          (fn [cofx ev] {...}))
+      (reg-event-fx :id [(inject-cofx :now)]  (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\"} [icpt]   (fn [cofx ev] {...}))
+
+  Returns `id`. Returning `nil` from the handler is a documented no-op.
+
+  Example:
+
+      (rf/reg-event-fx :user/save
+        (fn [{:keys [db]} [_ user]]
+          {:db (assoc db :user/pending? true)
+           :fx [[:dispatch [:analytics/track :user-save]]
+                [:rf.http/managed {:method :post
+                                   :url    \"/api/users\"
+                                   :body   user
+                                   :on-success [:user/saved]
+                                   :on-failure [:user/save-failed]}]]}))
+
+  See also: `reg-event-db` (pure db-only handlers), `reg-event-ctx`
+  (advanced — context manipulation), `reg-fx` (register a custom fx),
+  `inject-cofx` (consume a registered cofx)."
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
         _           (warn-interceptors-in-meta! "reg-event-fx" id meta)
@@ -230,6 +307,28 @@
     id))
 
 (defn reg-event-ctx
+  "Register a `(fn [context] context)` full-context event handler under
+  `id`. **Advanced** — most handlers want `reg-event-db` or
+  `reg-event-fx` instead.
+
+  Use this when the handler needs to manipulate the interceptor context
+  directly: read or assoc multiple coeffects, build effects keyed off
+  pre-existing context state, short-circuit downstream interceptors, or
+  perform context-level work that the `{:db ... :fx [...]}` shape can't
+  express.
+
+  Returns `id`. Returning `nil` from the handler leaves the inbound
+  context unchanged (documented no-op).
+
+  Shapes (the middle slot is optional and may be metadata OR
+  interceptor-vector, NOT both):
+
+      (reg-event-ctx :id                  (fn [ctx] new-ctx))
+      (reg-event-ctx :id {:doc \"...\"}     (fn [ctx] new-ctx))
+      (reg-event-ctx :id [icpt1 icpt2]    (fn [ctx] new-ctx))
+
+  See also: `reg-event-db`, `reg-event-fx`, `->interceptor`,
+  `assoc-coeffect`, `assoc-effect`."
   [id & args]
   (let [[meta interceptors handler-fn] (normalise-args args)
         _           (warn-interceptors-in-meta! "reg-event-ctx" id meta)
@@ -243,5 +342,12 @@
     id))
 
 (defn clear-event
+  "Unregister an event handler. Zero-arity clears every registered
+  event handler in the registrar; one-arity clears the named one.
+
+  Hot-reload tools and test fixtures call this between rebuilds to
+  drop stale handlers; production code rarely needs it. Returns nil.
+
+  See also: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`."
   ([] (registrar/clear-kind! :event))
   ([id] (registrar/unregister! :event id)))

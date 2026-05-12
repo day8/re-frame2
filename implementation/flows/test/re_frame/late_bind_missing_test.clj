@@ -50,8 +50,8 @@
           (is (= ":rf.error/flows-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'clear-flow (:where data))
-                "ex-data carries :where = 'clear-flow")
+            (is (= 'rf/clear-flow (:where data))
+                "ex-data carries :where = 'rf/clear-flow")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))
@@ -77,9 +77,9 @@
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in `re-frame.core-flows/reg-flow`
             ;; — the sibling-namespace fn-form delegate the macro routes
-            ;; through — so `:where` is the bare unqualified symbol of the
-            ;; user-facing surface (`rf/reg-flow`).
-            (is (= 'reg-flow (:where data))
-                "ex-data carries :where = 'reg-flow")
+            ;; through. Per rf2-j8icl the `:where` symbol is namespace-
+            ;; qualified to the user-facing surface (`rf/reg-flow`).
+            (is (= 'rf/reg-flow (:where data))
+                "ex-data carries :where = 'rf/reg-flow")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))

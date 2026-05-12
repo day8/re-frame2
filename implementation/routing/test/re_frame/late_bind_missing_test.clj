@@ -50,8 +50,8 @@
           (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'match-url (:where data))
-                "ex-data carries :where = 'match-url")
+            (is (= 'rf/match-url (:where data))
+                "ex-data carries :where = 'rf/match-url")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))
@@ -69,8 +69,8 @@
           (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'route-url (:where data))
-                "ex-data carries :where = 'route-url")
+            (is (= 'rf/route-url (:where data))
+                "ex-data carries :where = 'rf/route-url")
             (is (= :route/probe (:route-id data))
                 "ex-data carries :route-id from the call site")
             (is (= :no-recovery (:recovery data))
@@ -90,10 +90,11 @@
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in `re-frame.core-routing/reg-route`
             ;; — the sibling-namespace fn-form delegate the macro routes
-            ;; through — so `:where` is the bare unqualified symbol of the
-            ;; user-facing surface (`rf/reg-route`).
-            (is (= 'reg-route (:where data))
-                "ex-data carries :where = 'reg-route")
+            ;; through. Per rf2-j8icl the `:where` symbol is namespace-
+            ;; qualified to the user-facing surface so users greping for
+            ;; the symbol find `rf/reg-route` call sites.
+            (is (= 'rf/reg-route (:where data))
+                "ex-data carries :where = 'rf/reg-route")
             (is (= :route/probe (:route-id data))
                 "ex-data carries :route-id from the call site")
             (is (= :no-recovery (:recovery data))
@@ -116,7 +117,7 @@
           (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'route-link (:where data))
-                "ex-data carries :where = 'route-link")
+            (is (= 'rf/route-link (:where data))
+                "ex-data carries :where = 'rf/route-link")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))

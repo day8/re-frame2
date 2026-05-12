@@ -1220,8 +1220,8 @@
           (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'reset-frame-db! (:where data))
-                "ex-data carries :where = 'reset-frame-db!")
+            (is (= 'rf/reset-frame-db! (:where data))
+                "ex-data carries :where = 'rf/reset-frame-db!")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))

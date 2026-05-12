@@ -1,20 +1,16 @@
 (ns re-frame.core-schemas
   "Public-API wrappers for the optional schemas artefact (Spec 010).
+  Implementation ships in `day8/re-frame2-schemas`
+  (`re-frame.schemas` ns) per rf2-p7va.
 
-  Per rf2-p7va the schemas implementation ships in the
-  `day8/re-frame2-schemas` Maven artefact. The core artefact MUST NOT
-  statically `:require [re-frame.schemas]` — that would pull schemas
-  (and its Malli dep) onto every consumer's classpath even when no
-  schema is registered.
+  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
+  look the producing fns up via the late-bind hook table at call time;
+  consumers reach the surfaces through `re-frame.core` re-exports.
 
-  The fns in this namespace look the schemas API up through the
-  late-bind hook table at call time, which the schemas artefact
-  populates from its own ns-load.
-
-  Per rf2-hoiu these wrappers live here (and `re-frame.core` re-exports
-  them) so `core.cljc` is not cluttered with optional-artefact glue.
-  The single-import contract is preserved: users continue to write
-  `rf/reg-app-schema` after `(:require [re-frame.core :as rf])`."
+  Per-feature carve-out: the schemas artefact pulls Malli (the default
+  validator) onto the classpath — apps that want to drop the ~24 KB
+  gzipped Malli surface omit the artefact and either use a substitute
+  validator (per rf2-froe) or skip schema validation entirely."
   (:require [re-frame.late-bind :as late-bind]))
 
 (defn app-schema-at
@@ -89,7 +85,7 @@
    (if-let [f (late-bind/get-fn :schemas/reg-app-schema)]
      (f path schema opts)
      (throw (ex-info ":rf.error/schemas-artefact-missing"
-                     {:where    'reg-app-schema
+                     {:where    'rf/reg-app-schema
                       :path     path
                       :recovery :no-recovery
                       :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
@@ -115,6 +111,6 @@
    (if-let [f (late-bind/get-fn :schemas/reg-app-schemas)]
      (f path->schema opts)
      (throw (ex-info ":rf.error/schemas-artefact-missing"
-                     {:where    'reg-app-schemas
+                     {:where    'rf/reg-app-schemas
                       :recovery :no-recovery
                       :reason   "rf/reg-app-schemas requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))

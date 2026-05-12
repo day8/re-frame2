@@ -1,20 +1,16 @@
 (ns re-frame.core-machines
   "Public-API wrappers for the optional machines artefact (Spec 005).
+  Implementation ships in `day8/re-frame2-machines`
+  (`re-frame.machines` ns) per rf2-xbtj.
 
-  Per rf2-xbtj the machines implementation ships in the
-  `day8/re-frame2-machines` Maven artefact. The core artefact MUST NOT
-  statically `:require [re-frame.machines]` — that would pull the
-  machines namespace and its `:rf/machine` sub registration onto every
-  consumer's classpath even when no machine is registered.
+  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
+  look the producing fns up via the late-bind hook table at call time;
+  consumers reach the surfaces through `re-frame.core` re-exports.
 
-  The fns in this namespace look the machines API up through the
-  late-bind hook table at call time, which the machines artefact
-  populates from its own ns-load.
-
-  Per rf2-hoiu these wrappers live here (and `re-frame.core` re-exports
-  them) so `core.cljc` is not cluttered with optional-artefact glue.
-  The single-import contract is preserved: users continue to write
-  `rf/reg-machine` after `(:require [re-frame.core :as rf])`."
+  Per-feature carve-out: the machines artefact pulls the machine
+  registry, the entry/exit cascade engine, and the `:rf/machine` /
+  `:rf/machine-has-tag?` framework subs — none of which appear on a
+  consumer's classpath when this wrapper's hooks are unregistered."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
             [re-frame.subs :as subs]))
@@ -26,7 +22,7 @@
   (if-let [f (late-bind/get-fn :machines/create-machine-handler)]
     (f machine)
     (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'create-machine-handler
+                    {:where    'rf/create-machine-handler
                      :recovery :no-recovery
                      :reason   "rf/create-machine-handler requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
 
@@ -37,7 +33,7 @@
   (if-let [f (late-bind/get-fn :machines/machine-transition)]
     (f machine snapshot event)
     (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'machine-transition
+                    {:where    'rf/machine-transition
                      :recovery :no-recovery
                      :reason   "rf/machine-transition requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
 
@@ -98,7 +94,7 @@
   spec at expansion time). Late-bound via :machines/reg-machine."
   [machine-id machine]
   (reg-machine-impl
-    'reg-machine*
+    'rf/reg-machine*
     "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."
     machine-id machine))
 
@@ -107,14 +103,14 @@
   when the spec form is not stamped (no per-element source-coords). The
   separation from `reg-machine*` keeps `:where` symbols faithful to the
   user-facing surface — `rf/reg-machine` raises with `:where
-  'reg-machine`, `rf/reg-machine*` raises with `:where 'reg-machine*`.
+  'rf/reg-machine`, `rf/reg-machine*` raises with `:where 'rf/reg-machine*`.
 
   Callers should NOT invoke this directly — use `rf/reg-machine`
   (macro) or `rf/reg-machine*` (plain fn). It is public only because
   the macro emits a reference to it."
   [machine-id machine]
   (reg-machine-impl
-    'reg-machine
+    'rf/reg-machine
     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."
     machine-id machine))
 

@@ -1,28 +1,23 @@
 (ns re-frame.core-epoch
   "Public-API wrappers for the optional epoch artefact (Tool-Pair
-  §Time-travel).
+  §Time-travel). Implementation ships in `day8/re-frame2-epoch`
+  (`re-frame.epoch` ns) per rf2-lt4e.
 
-  Per rf2-lt4e the epoch implementation ships in the
-  `day8/re-frame2-epoch` Maven artefact. The core artefact MUST NOT
-  statically `:require [re-frame.epoch]` — that would pull the per-frame
+  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
+  look the producing fns up via the late-bind hook table at call time;
+  consumers reach the surfaces through `re-frame.core` re-exports.
+
+  Per-feature carve-out: the epoch artefact pulls the per-frame
   `:rf/epoch-record` ring buffer, the per-cascade trace-capture path,
-  the `:sub-runs` / `:renders` / `:effects` projection walker, the
-  schema-validate / machine-version / missing-reference predicates, and
-  every `:rf.epoch/*` keyword string onto every consumer's classpath
-  even when the pair-tool surface is unused.
+  the `:sub-runs` / `:renders` / `:effects` projection walker, and
+  every `:rf.epoch/*` keyword string. The entire epoch surface is also
+  gated on `interop/debug-enabled?` (Tool-Pair §Time-travel §Production
+  elision).
 
-  Per Tool-Pair §Time-travel §Production elision the entire epoch
-  surface is gated on `interop/debug-enabled?` whether or not the
-  artefact is on the classpath; the wrappers degrade silently (empty
-  vector / false / no-op) when it's absent so a release build that
-  omits the artefact does not raise. `reset-frame-db!` is the
-  exception — it records an epoch as part of its contract, so it
-  raises `:rf.error/epoch-artefact-missing` rather than degrading.
-
-  Per rf2-hoiu these wrappers live here (and `re-frame.core` re-exports
-  them) so `core.cljc` is not cluttered with optional-artefact glue.
-  The single-import contract is preserved: users continue to write
-  `rf/epoch-history` after `(:require [re-frame.core :as rf])`."
+  Absent-artefact behaviour: wrappers degrade silently (empty vector /
+  `false` / no-op) so a release build that omits the artefact does not
+  raise. `reset-frame-db!` is the exception — it records an epoch as
+  part of its contract and raises `:rf.error/epoch-artefact-missing`."
   (:require [re-frame.late-bind :as late-bind]))
 
 (defn epoch-history
@@ -97,6 +92,6 @@
   (if-let [f (late-bind/get-fn :epoch/reset-frame-db!)]
     (f frame-id new-db)
     (throw (ex-info ":rf.error/epoch-artefact-missing"
-                    {:where    'reset-frame-db!
+                    {:where    'rf/reset-frame-db!
                      :recovery :no-recovery
                      :reason   "rf/reset-frame-db! requires day8/re-frame2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))

@@ -31,12 +31,59 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defn reg-fx
-  "Register an fx handler.
+  "Register an effect handler under `id`. The handler runs when a
+  `reg-event-fx` returns an effect-map carrying `[id args]` inside its
+  `:fx` vector — `{:fx [[:my-fx args] ...]}`.
 
-  metadata may contain:
-    :doc        one-sentence what-and-why
-    :spec       Malli schema for the args (per Spec 010)
-    :platforms  set of #{:client :server}; default #{:client :server}"
+  Handler signature: `(fn [ctx args] ...)` — **v2 changed from v1**.
+
+    `ctx`  is a small map carrying:
+             `:frame` — the active frame id (Spec 002 §`:fx` ordering)
+             `:event` — the originating event vector (Spec 014 §Reply
+                        addressing). The fx may capture the originating
+                        `event-id` to address replies back without a
+                        separate cofx-injection step.
+    `args` is the second element of the `[id args]` pair as emitted by
+           the event handler (any value — map, vector, scalar).
+
+  Shapes:
+
+      (reg-fx :id                                  (fn [ctx args] ...))
+      (reg-fx :id {:doc \"...\" :platforms #{:client}} (fn [ctx args] ...))
+
+  Optional metadata keys:
+
+      :doc        one-sentence what-and-why; surfaces via
+                  `(rf/handler-meta :fx id)`.
+      :spec       Malli schema for `args` (per Spec 010 §:spec on fx
+                  registrations).
+      :platforms  set of `#{:client :server}`; default
+                  `#{:client :server}`. The fx is skipped on platforms
+                  not in the set (`:rf.fx/skipped-on-platform` warning
+                  trace).
+
+  Returns `id`.
+
+  Example:
+
+      (rf/reg-fx :my/notify
+        {:doc       \"Show a toast notification.\"
+         :platforms #{:client}}
+        (fn [_ctx {:keys [message level]}]
+          (js/window.toast level message)))
+
+      ;; Consumed from an event handler:
+      (rf/reg-event-fx :user/login-failed
+        (fn [_ [_ reason]]
+          {:fx [[:my/notify {:level :error :message (str \"Login failed: \" reason)}]]}))
+
+  Framework-shipped fx (`:dispatch`, `:dispatch-later`, `:rf.http/managed`,
+  `:rf.nav/push-url`, ...) are documented in `spec/API.md §Effect-map
+  shape` and their per-feature Spec; introspect via
+  `(rf/handler-meta :fx <id>)`.
+
+  See also: `reg-cofx` (the input-side counterpart), `clear-fx`,
+  `reg-event-fx` (the consumer)."
   [id metadata-or-handler & maybe-handler]
   (let [[meta handler-fn]
         (if (map? metadata-or-handler)
@@ -46,8 +93,20 @@
                                        :handler-fn handler-fn))
     id))
 
-(defn unregister-fx [id]
-  (registrar/unregister! :fx id))
+(defn clear-fx
+  "Unregister an fx handler. Zero-arity clears every registered fx;
+  one-arity clears the named one. Hot-reload tools and test fixtures
+  call this between rebuilds.
+
+  Returns nil. See also: `reg-fx`, the user-facing surface `rf/clear-fx`
+  (this is the underlying fn — they point at the same value)."
+  ([] (registrar/clear-kind! :fx))
+  ([id] (registrar/unregister! :fx id)))
+
+;; Back-compat alias retained transiently — internal callers may still
+;; reach for `unregister-fx`. Pre-alpha: prefer `clear-fx`; the alias
+;; can be cut once internal references are migrated.
+(def unregister-fx clear-fx)
 
 ;; ---- the platform predicate -----------------------------------------------
 

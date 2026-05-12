@@ -64,7 +64,7 @@
   [{:keys [frame id before] :as interceptor}]
   (when-not (valid-interceptor? interceptor)
     (throw (ex-info ":rf.error/http-bad-interceptor"
-                    {:where    'reg-http-interceptor
+                    {:where    'rf/reg-http-interceptor
                      :recovery :no-recovery
                      :received interceptor
                      :reason   "interceptor must be a map with :id (keyword) and :before (fn)"})))
