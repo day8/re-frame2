@@ -1,6 +1,6 @@
 # 21 — Stories
 
-> **Optional deep-dive.** This chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](13-testing.md), and [devtools](15-devtools-and-pair-tools.md) chapters. If you haven't yet, come back later — Stories is a layered surface on top of those, not the next link in the linear sequence.
+> **If you're skipping this chapter, the upshot:** [`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a frame-aware Storybook-flavoured playground built on re-frame2's own primitives — each variant runs in its own dedicated frame, variant bodies are plain EDN data (not functions), and assertions ride the same `dispatch` pipeline as production events (recording results, not throwing). Pick this up when you want a catalogue of every state of a component on one page, or when you want an agent-facing MCP surface to drive component scaffolding. The chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](13-testing.md), and [devtools](15-devtools-and-pair-tools.md) chapters first.
 
 You've seen the runtime in the [events chapter](04-events-state-cycle.md), the views in the [views chapter](06-views-and-frames.md), the test machinery in the [testing chapter](13-testing.md), and the tooling pitch in the [devtools chapter](15-devtools-and-pair-tools.md). This chapter is where they converge.
 
