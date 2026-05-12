@@ -153,6 +153,7 @@
         invalid-style    {:background "#fdd"}]
     [:div.flight-booker
      [:select {:value     (name trip-type)
+               :data-testid "flight-trip-type"
                :on-change #(dispatch [:flight/set-trip-type
                                       (keyword (.. % -target -value))])}
       [:option {:value "one-way"} "one-way flight"]
@@ -160,16 +161,19 @@
 
      [:input {:type      "text"
               :value     start-text
+              :data-testid "flight-start"
               :style     (when-not start-valid? invalid-style)
               :on-change #(dispatch [:flight/set-start (.. % -target -value)])}]
 
      [:input {:type      "text"
               :value     return-text
               :disabled  (not return-enabled?)
+              :data-testid "flight-return"
               :style     (when (and return-enabled? (not return-valid?)) invalid-style)
               :on-change #(dispatch [:flight/set-return (.. % -target -value)])}]
 
      [:button {:disabled (not book-enabled?)
+               :data-testid "flight-book"
                :on-click #(dispatch [:flight/book])}
       "Book"]]))
 

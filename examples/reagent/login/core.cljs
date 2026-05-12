@@ -307,25 +307,29 @@
       (let [busy? @(rf/has-tag? :auth.login/flow :auth/busy)
             err   @(subscribe [:auth.login/error])]
         [:form.login-form
-         {:on-submit (fn [e]
+         {:data-testid "login-form"
+          :on-submit (fn [e]
                        (.preventDefault e)
                        (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
          [:input  {:type        "email"
                    :placeholder "Email"
                    :disabled    busy?
+                   :data-testid "login-email"
                    :on-change   #(swap! state assoc :email (.. % -target -value))}]
          [:input  {:type        "password"
                    :placeholder "Password"
                    :disabled    busy?
+                   :data-testid "login-password"
                    :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit" :disabled busy?}
+         [:button {:type "submit" :disabled busy?
+                   :data-testid "login-submit"}
           (if busy? "Signing in…" "Sign in")]
-         (when err [:p.error err])]))))
+         (when err [:p.error {:data-testid "login-error"} err])]))))
 
 (reg-view ^{:doc "Shows the user's logged-in state and a sign-out button."}
           login-banner []
   (let [authed? @(rf/has-tag? :auth.login/flow :auth/authenticated)]
-    [:div.banner
+    [:div.banner {:data-testid "login-banner"}
      (if authed?
        [:span "Welcome!"]
        [login-form])]))

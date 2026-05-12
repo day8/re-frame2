@@ -27,7 +27,7 @@
  * machine ↔ React ↔ browser-clock wiring.
  */
 
-const { expectTextEquals, expectTextContains, expectVisible } =
+const { expectTextEquals, expectTextContains, expectVisible, waitForStableValue } =
   require('../../scripts/spec-helpers.cjs');
 
 async function readProgressDone(page) {
@@ -96,14 +96,18 @@ module.exports = {
       throw new Error('cancel should fire before the work completes');
     }
 
-    // Wait a beat and re-read — if the cascade is broken, in-flight
-    // :after timers would keep firing and the bar would continue
-    // to advance. With the cascade live, it stays put.
-    await new Promise((r) => setTimeout(r, 500));
-    const afterPause = await readProgressDone(page);
-    if (afterPause.done !== cancelledAt.done) {
+    // Poll until the done-count stops changing — if the cascade is
+    // broken, in-flight :after timers would keep firing and the bar
+    // would continue to advance, so waitForStableValue would time out.
+    // With the cascade live, the counter settles immediately
+    // (rf2-u3amn).
+    const stableDone = await waitForStableValue(
+      async () => (await readProgressDone(page)).done,
+      { intervalMs: 100, samples: 3, timeoutMs: 3000 },
+    );
+    if (stableDone !== cancelledAt.done) {
       throw new Error(
-        `progress should stay frozen after cancel; was ${cancelledAt.done}, now ${afterPause.done}`,
+        `progress should stay frozen after cancel; was ${cancelledAt.done}, now ${stableDone}`,
       );
     }
 

@@ -834,12 +834,31 @@ module.exports = {
     // a new epoch at the tail.
     await main.locator('[data-test="inc"]').first().click();
 
-    // Brief pause so the inc settles in the framework's epoch ring
-    // buffer (the listener wires synchronous emission but the epoch
-    // record commits on drain-settle, which is async).
-    await new Promise((r) => setTimeout(r, 250));
-
-    const sliderMax = parseInt((await slider.getAttribute('max')) || '0', 10);
+    // Wait for the slider's max to advance once the inc settles in the
+    // framework's epoch ring buffer (the listener wires synchronous
+    // emission but the epoch record commits on drain-settle, which is
+    // async). Poll until the value stops moving rather than budgeting a
+    // fixed sleep (rf2-u3amn).
+    let sliderMax = 0;
+    {
+      const start = Date.now();
+      let prev = -1;
+      let stableCount = 0;
+      while (Date.now() - start < 5000) {
+        const current = parseInt((await slider.getAttribute('max')) || '0', 10);
+        if (current >= 1 && current === prev) {
+          stableCount += 1;
+          if (stableCount >= 2) {
+            sliderMax = current;
+            break;
+          }
+        } else {
+          prev = current;
+          stableCount = 1;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
     if (sliderMax < 1) {
       throw new Error(
         `expected scrubber slider max >= 1 after an inc, got ${sliderMax}`,

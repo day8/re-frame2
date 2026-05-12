@@ -58,10 +58,52 @@ async function expectAttribute(locator, attr, expected, timeoutMs = 5000) {
   );
 }
 
+/*
+ * Poll `readFn` until `samples` consecutive reads agree, then return the
+ * stable value. This replaces fixed-duration sleeps in specs that need to
+ * wait for a value to *settle* (e.g. animated progress counters that have
+ * already advanced past zero and now must stop).
+ *
+ * readFn is an async function returning the current value (anything that
+ * survives a strict `===` check between two reads — strings, numbers, or
+ * primitive-equal objects via JSON-stringify if you need it).
+ *
+ * Options:
+ *   intervalMs (default 100) — gap between reads.
+ *   samples    (default 2)   — number of consecutive reads that must agree.
+ *   timeoutMs  (default 5000) — bail with throw if no stable read is reached.
+ *
+ * Throws on timeout. Use `waitForStableValue` over `waitForTimeout(N)` whenever
+ * the observable is "value X stops changing" rather than "wait N ms" — the
+ * poll-until-settled pattern is robust to slow CI hardware and to fast
+ * developer laptops alike.
+ */
+async function waitForStableValue(readFn, options = {}) {
+  const { intervalMs = 100, samples = 2, timeoutMs = 5000 } = options;
+  const start = Date.now();
+  let previous = await readFn();
+  let stableCount = 1;
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    const next = await readFn();
+    if (next === previous) {
+      stableCount += 1;
+      if (stableCount >= samples) return next;
+    } else {
+      previous = next;
+      stableCount = 1;
+    }
+  }
+  throw new Error(
+    `waitForStableValue: value did not settle within ${timeoutMs}ms (last="${previous}")`,
+  );
+}
+
 module.exports = {
   expectTextEquals,
   expectTextContains,
   expectInputValue,
   expectVisible,
   expectAttribute,
+  waitForStableValue,
 };

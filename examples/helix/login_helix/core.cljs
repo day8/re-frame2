@@ -193,6 +193,7 @@
         [password set-password!] (helix-hooks/use-state "")]
     (d/form
        {:class "login-form"
+        :data-testid "login-form"
         :on-submit (fn [e]
                      (.preventDefault e)
                      (dispatch [:auth.login/flow
@@ -201,19 +202,23 @@
        (d/input  {:type        "email"
                   :placeholder "Email"
                   :disabled    submitting?
+                  :data-testid "login-email"
                   :on-change   #(set-email! (.. % -target -value))})
        (d/input  {:type        "password"
                   :placeholder "Password"
                   :disabled    submitting?
+                  :data-testid "login-password"
                   :on-change   #(set-password! (.. % -target -value))})
-       (d/button {:type "submit" :disabled submitting?}
+       (d/button {:type "submit" :disabled submitting?
+                  :data-testid "login-submit"}
           (if submitting? "Signing in…" "Sign in"))
-       (when err (d/p {:class "error"} err)))))
+       (when err (d/p {:class "error" :data-testid "login-error"} err)))))
 
 (defnc login-banner []
   (let [authed? (helix-adapter/use-subscribe [:auth.login/authenticated?])]
     (d/div
-       {:class "banner"}
+       {:class "banner"
+        :data-testid "login-banner"}
        (if authed?
          (d/span "Welcome!")
          ($ login-form)))))

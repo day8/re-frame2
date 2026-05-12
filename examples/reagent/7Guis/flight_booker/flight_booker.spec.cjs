@@ -15,32 +15,62 @@
  * graph rather than poking app-db directly.
  */
 
-const { expectAttribute, expectInputValue } = require('../../../scripts/spec-helpers.cjs');
+const { expectAttribute } = require('../../../scripts/spec-helpers.cjs');
+
+// Compute a YYYY-MM-DD string offset from the seeded start date. The
+// view's :flight/initialise seeds both start and return to a literal
+// ISO date; the spec reads that literal at runtime (rather than
+// hard-coding it) so the example's "today as default" semantics can
+// drift over calendar time without breaking the spec (rf2-mnief).
+function isoDateOffsetDays(baseIso, deltaDays) {
+  // baseIso is yyyy-mm-dd. Treat as UTC midnight so the offset
+  // arithmetic doesn't shift across DST boundaries on the test runner.
+  const [y, m, d] = baseIso.split('-').map((s) => parseInt(s, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  const yy = String(dt.getUTCFullYear()).padStart(4, '0');
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
 
 module.exports = {
   name: 'flight-booker (7guis #3)',
   url: '/flight-booker/',
   run: async (page) => {
-    const select = page.locator('select');
-    const inputs = page.locator('input[type="text"]');
-    const start = inputs.nth(0);
-    const ret = inputs.nth(1);
-    const book = page.getByRole('button', { name: /book/i });
+    // Anchor on data-testid attrs (rf2-0gdsb).
+    const select = page.getByTestId('flight-trip-type');
+    const start = page.getByTestId('flight-start');
+    const ret = page.getByTestId('flight-return');
+    const book = page.getByTestId('flight-book');
 
-    // Initial render: one-way; book enabled.
-    await expectInputValue(start, '2026-05-06', 10000);
+    // Initial render: one-way; book enabled. Read the seeded start-date
+    // dynamically rather than asserting a literal — the view seeds it
+    // from a hard-coded constant inside :flight/initialise, and the
+    // spec uses that value as the baseline for the return-date
+    // arithmetic below (rf2-mnief).
+    await start.waitFor({ state: 'visible', timeout: 10000 });
+    const startValue = await start.inputValue();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startValue)) {
+      throw new Error(
+        `expected start input to render an ISO yyyy-mm-dd value, got "${startValue}"`,
+      );
+    }
     await expectAttribute(book, 'disabled', null);
 
     // Switch to return: book still enabled (return defaults equal to start).
     await select.selectOption('return');
     await expectAttribute(book, 'disabled', null);
 
-    // Make return earlier than start: book disabled.
-    await ret.fill('2026-04-01');
+    // Make return earlier than start: book disabled. Use start - 30 days
+    // as the earlier date so the test stays well clear of the
+    // start-date boundary even if calendar arithmetic edges around
+    // month boundaries.
+    await ret.fill(isoDateOffsetDays(startValue, -30));
     await expectAttribute(book, 'disabled', '');
 
     // Push return after start: book enabled again.
-    await ret.fill('2026-05-10');
+    await ret.fill(isoDateOffsetDays(startValue, 4));
     await expectAttribute(book, 'disabled', null);
   },
 };

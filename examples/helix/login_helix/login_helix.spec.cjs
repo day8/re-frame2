@@ -14,23 +14,24 @@ module.exports = {
   name: 'login-helix (state-machine demo)',
   url: '/login-helix/',
   run: async (page) => {
-    const form = page.locator('form.login-form');
+    // Anchor on data-testid attrs (rf2-0gdsb).
+    const form = page.getByTestId('login-form');
     await expectVisible(form, 10000);
 
-    const emailInput = page.locator('input[type="email"]');
-    const passwordInput = page.locator('input[type="password"]');
-    const submitBtn = page.locator('form.login-form button[type="submit"]');
+    const emailInput = page.getByTestId('login-email');
+    const passwordInput = page.getByTestId('login-password');
+    const submitBtn = page.getByTestId('login-submit');
 
     await expectVisible(submitBtn, 5000);
 
     await emailInput.fill('user@example.com');
     await passwordInput.fill('wrongpass');
     await submitBtn.click();
-    await expectVisible(page.locator('p.error'), 5000);
+    await expectVisible(page.getByTestId('login-error'), 5000);
 
     await passwordInput.fill('correct-horse');
     await submitBtn.click();
 
-    await expectTextContains(page.locator('.banner'), 'Welcome!', 10000);
+    await expectTextContains(page.getByTestId('login-banner'), 'Welcome!', 10000);
   },
 };

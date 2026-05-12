@@ -23,15 +23,18 @@ module.exports = {
       10000,
     );
 
-    // Drive into State 5 (Some).
-    await page.getByRole('button', { name: '5. Some' }).click();
+    // Drive into State 5 (Some). Anchor on data-testid (rf2-0gdsb) —
+    // the role+name selector was over-broad against the "5. Some"
+    // label and matched siblings if any sibling button shared the
+    // word "Some" or "5".
+    await page.getByTestId('ns-button-some').click();
     await expectTextContains(page.locator('.state-some'), 'todos');
 
     // Archive (State 9 — Done). The archive button disables itself.
-    await page.getByRole('button', { name: /Archive/ }).click();
+    await page.getByTestId('ns-button-archive').click();
     await expectTextContains(page.locator('.state-done'), 'archived');
 
     // After archive, the "5. Some" button is now disabled.
-    await expectAttribute(page.getByRole('button', { name: '5. Some' }), 'disabled', '');
+    await expectAttribute(page.getByTestId('ns-button-some'), 'disabled', '');
   },
 };

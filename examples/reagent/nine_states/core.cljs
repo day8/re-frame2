@@ -620,18 +620,25 @@
     [:div.control-panel
      [:h3 "Drive the demo"]
      [:button {:on-click #(dispatch [:nine-states.app/initialise])
+               :data-testid "ns-button-nothing"
                :disabled read-only?} "1. Nothing"]
      [:button {:on-click #(dispatch [:nine-states.demo/load-with-failure])
+               :data-testid "ns-button-trigger-error"
                :disabled read-only?} "Trigger error"]
      [:button {:on-click #(dispatch [:nine-states.demo/load {:n 0}])
+               :data-testid "ns-button-empty"
                :disabled read-only?} "3. Empty"]
      [:button {:on-click #(dispatch [:nine-states.demo/load {:n 1}])
+               :data-testid "ns-button-one"
                :disabled read-only?} "4. One"]
      [:button {:on-click #(dispatch [:nine-states.demo/load {:n 4}])
+               :data-testid "ns-button-some"
                :disabled read-only?} "5. Some"]
      [:button {:on-click #(dispatch [:nine-states.demo/load {:n 25}])
+               :data-testid "ns-button-too-many"
                :disabled read-only?} "6. Too Many"]
      [:button {:on-click #(dispatch [:ui/nine-states [:archive {}]])
+               :data-testid "ns-button-archive"
                :disabled read-only?} "9. Archive (Done)"]]))
 
 (reg-view ^{:doc "Root view: one `case` over :ui/render picks exactly one

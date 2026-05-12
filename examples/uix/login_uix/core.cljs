@@ -189,7 +189,8 @@
         [email    set-email!]    (uix/use-state "")
         [password set-password!] (uix/use-state "")]
     ($ :form.login-form
-       {:on-submit (fn [e]
+       {:data-testid "login-form"
+        :on-submit (fn [e]
                      (.preventDefault e)
                      (dispatch [:auth.login/flow
                                 [:auth.login/submit {:email email
@@ -197,18 +198,21 @@
        ($ :input  {:type        "email"
                    :placeholder "Email"
                    :disabled    submitting?
+                   :data-testid "login-email"
                    :on-change   #(set-email! (.. % -target -value))})
        ($ :input  {:type        "password"
                    :placeholder "Password"
                    :disabled    submitting?
+                   :data-testid "login-password"
                    :on-change   #(set-password! (.. % -target -value))})
-       ($ :button {:type "submit" :disabled submitting?}
+       ($ :button {:type "submit" :disabled submitting?
+                   :data-testid "login-submit"}
           (if submitting? "Signing in…" "Sign in"))
-       (when err ($ :p.error err)))))
+       (when err ($ :p.error {:data-testid "login-error"} err)))))
 
 (defui login-banner []
   (let [authed? (uix-adapter/use-subscribe [:auth.login/authenticated?])]
-    ($ :div.banner
+    ($ :div.banner {:data-testid "login-banner"}
        (if authed?
          ($ :span "Welcome!")
          ($ login-form)))))
