@@ -38,6 +38,7 @@
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
+            [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
@@ -64,10 +65,11 @@
 
 (def ^:private sidebar-items
   "The sidebar's panel list. Per spec/007-UX-IA.md §Sidebar groups —
-  three groups, divider-separated. Phase 2 (rf2-op3bz) lights up
-  `:event-detail`; remaining items still render the Phase 1 stub when
-  selected (see `panel-view-for`)."
+  three groups, divider-separated. Phase 2 (rf2-op3bz) lit up
+  `:event-detail`; Phase 3 (rf2-t53ze) adds `:time-travel`. Remaining
+  items still render the Phase 1 stub when selected."
   [{:id :event-detail :label "Event detail" :bead "rf2-op3bz" :live? true}
+   {:id :time-travel  :label "Time travel"  :bead "rf2-t53ze" :live? true}
    {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
    {:id :causality    :label "Causality"     :bead "rf2-xxx"}
    {:id :subs         :label "Subscriptions" :bead "rf2-xxx"}
@@ -109,7 +111,7 @@
     [:span {:style {:color       (:text-tertiary tokens)
                     :font-size   "12px"
                     :font-weight 400}}
-     "Phase 2 (rf2-op3bz)"]]
+     "Phase 3 (rf2-t53ze)"]]
    [:div {:style {:display "flex" :align-items "center" :gap "12px"
                   :color    (:text-secondary tokens)
                   :font-size "12px"
@@ -208,6 +210,7 @@
         item     (some #(when (= (:id %) selected) %) sidebar-items)]
     (case selected
       :event-detail [event-detail/event-detail-view]
+      :time-travel  [time-travel/time-travel-view]
       [stub-panel (or item {:label "Unknown panel"
                             :bead  "rf2-xxx"})])))
 
