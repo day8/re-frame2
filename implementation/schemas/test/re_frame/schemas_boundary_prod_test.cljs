@@ -33,14 +33,14 @@
   prod-mode assertions would fail under `goog.DEBUG=true` because the
   boundary is a no-op in dev (per Spec 010 L145)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ;; Pull malli into the bundle. The boundary interceptor
-            ;; routes through the registered validator via the
-            ;; :schemas/validate-with-registered-fn late-bind hook;
-            ;; without malli on the classpath the default validator is
-            ;; nil and the boundary no-ops. The conformance fixtures
-            ;; for app-db slice validation rely on user code requiring
-            ;; malli at app boot; this test does the same.
-            [malli.core]
+            ;; Per rf2-t0hq the CLJS default validator routes through
+            ;; the late-bind hook `:schemas/malli-validate`, which the
+            ;; `re-frame.schemas.malli` adapter ns publishes at load
+            ;; time. Without it the default validator soft-passes and
+            ;; the boundary interceptor never sees a failure. The
+            ;; canonical opt-in for CLJS apps that want Malli validation
+            ;; at the boundary is to require the adapter ns at boot.
+            [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]

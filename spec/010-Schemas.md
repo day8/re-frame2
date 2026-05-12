@@ -332,6 +332,23 @@ This recommendation is normative-soft: ports that ship a different default-absen
 
 What the extension point does NOT cover: a *mix* of validators within one frame. The runtime resolves one validator and uses it for every `:spec` in the frame; a hybrid setup (one schema language for app schemas, a different one for boundary handlers) requires the user to register a *composite* validator that dispatches internally on schema shape.
 
+### Opting in to Malli validation on CLJS (rf2-t0hq)
+
+CLJS apps that want the default Malli validator to run **must** require the `re-frame.schemas.malli` adapter namespace at app boot:
+
+```clojure
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.schemas]         ;; load the schemas artefact (rf2-p7va)
+            [re-frame.schemas.malli])) ;; publish Malli into the late-bind hook table (rf2-t0hq)
+```
+
+The adapter namespace's only job is to publish `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load (`:schemas/malli-validate` / `:schemas/malli-explain`). The schemas artefact's default validator consults these hooks on every call; absent the hook (i.e. the adapter ns was not required) the validator soft-passes per [§Recommended soft-pass](#recommended-soft-pass-when-the-default-validators-library-is-absent).
+
+The motivation is the bug rf2-t0hq fixed: CLJS has no runtime `resolve`, so the previous implementation's `(resolve 'malli.core/validate)` always returned nil on CLJS and the default validator silently soft-passed even when Malli was on the classpath. The late-bind adapter pattern (matching the rf2-froe / rf2-p7va substitute-validator precedent) preserves Malli's optional-dep status while making the opt-in explicit and runtime-correct.
+
+On the **JVM** loading the adapter namespace is optional but harmless — the schemas artefact's `default-malli-validate` falls back to `requiring-resolve` so JVM apps that have Malli on the classpath get Malli validation without an explicit require. Apps that want their bundle to be runtime-identical on JVM and CLJS require `re-frame.schemas.malli` on both sides.
+
 ### Worked example — installing a no-op validator at boot (CLJS reference)
 
 The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cost-audit.md` §3.7 / §4): an app that doesn't need runtime schema validation can install a no-op at boot and avoid pulling the default validator's schema-language library (Malli on the CLJS reference) into its production bundle.
@@ -340,10 +357,14 @@ The motivating use-case is bundle-cost reduction (per `findings/malli-bundle-cos
 (ns my-app.core
   (:require [re-frame.core :as rf]
             [re-frame.schemas]   ;; load the schemas artefact (rf2-p7va)
-            ;; NOTE: we do NOT (:require [malli.core]) here — the
-            ;; CLJS reference's default validator does
-            ;; (resolve 'malli.core/validate); that returns nil when
-            ;; Malli is absent and the no-op below replaces it entirely.
+            ;; NOTE: we do NOT require [re-frame.schemas.malli] here —
+            ;; the late-bind adapter pattern (rf2-t0hq) gates Malli
+            ;; on an explicit require. Skipping the require means
+            ;; Malli is never pulled into the bundle, and the
+            ;; default validator soft-passes per §Recommended
+            ;; soft-pass. The (rf/set-schema-validator! nil) below
+            ;; tightens the soft-pass arm to an active no-op so the
+            ;; intent is explicit.
             ))
 
 ;; Install the no-op BEFORE the first reg-app-schema / :spec metadata.

@@ -15,16 +15,16 @@
   fixtures (schema-app-db-slice-validates.edn et al.) cover the broader
   contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            ;; Pull malli into the bundle. re-frame.schemas/malli-validate*
-            ;; uses (resolve 'malli.core/validate) — which on CLJS only
-            ;; finds vars already loaded into the runtime. Without this
-            ;; require, the resolve returns nil and validation silently
-            ;; passes (the JVM's requiring-resolve has no CLJS analogue).
-            ;; The conformance fixtures for app-db slice validation rely
-            ;; on user code requiring malli at app boot; this test does
-            ;; the same.
-            [malli.core]
+            ;; Per rf2-t0hq the CLJS default validator routes through
+            ;; the late-bind hook `:schemas/malli-validate`, which the
+            ;; `re-frame.schemas.malli` adapter ns publishes at load
+            ;; time. The require is the canonical opt-in pattern for
+            ;; CLJS apps that want Malli validation; without it, the
+            ;; default validator soft-passes (per Spec 010
+            ;; §Recommended soft-pass) and no failure trace fires.
+            [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
@@ -90,6 +90,76 @@
                               (:operation %))
                           @traces))
           "no validation-failure traces — every commit conforms"))))
+
+;; ---- rf2-t0hq — Malli adapter late-bind seam ------------------------------
+;;
+;; Two contract tests pin the rf2-t0hq fix. The first asserts that with
+;; the canonical opt-in (`(:require [re-frame.schemas.malli])` — done at
+;; the top of this file) the default validator DOES consult Malli on
+;; CLJS, so a malformed commit fires :rf.error/schema-validation-failure.
+;; This is the contract the historical bug silently violated — the
+;; `:cljs (resolve 'malli.core/validate)` runtime resolve returned nil
+;; and every value was treated as conforming.
+;;
+;; The second test pins the soft-pass arm: with the late-bind hook
+;; cleared (simulating an app that doesn't require `re-frame.schemas.
+;; malli`), the default validator returns true for every value per
+;; Spec 010 §Recommended soft-pass and no failure trace fires. We
+;; restore the hook on the way out so downstream tests see the canonical
+;; opt-in's behaviour.
+
+(deftest rf2-t0hq-cljs-malli-adapter-enables-validation
+  (testing "Per rf2-t0hq: with `re-frame.schemas.malli` required at
+            app boot, the default validator consults Malli on CLJS and
+            a malformed commit fires :rf.error/schema-validation-failure.
+            The fix's load-bearing contract — historically the CLJS
+            runtime `resolve` returned nil and Malli was never consulted,
+            so this trace silently never fired."
+    (rf/reg-app-schema [:user :age] :int)
+    (rf/reg-event-db :user/set-age-bad
+      (fn [db _] (assoc-in db [:user :age] "twenty-three")))
+    (let [traces (atom [])]
+      (rf/register-trace-cb! ::t0hq (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:user/set-age-bad])
+      (rf/remove-trace-cb! ::t0hq)
+      (let [violations (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               @traces)]
+        (is (= 1 (count violations))
+            "the default Malli validator fired on CLJS via the late-bind
+             hook — this is the contract rf2-t0hq restored")
+        (let [v (first violations)]
+          (is (= :app-db (-> v :tags :where)))
+          (is (= [:user :age] (-> v :tags :path)))
+          (is (= "twenty-three" (-> v :tags :value))))))))
+
+(deftest rf2-t0hq-cljs-no-adapter-soft-passes
+  (testing "Per Spec 010 §Recommended soft-pass: when an app does NOT
+            require `re-frame.schemas.malli`, the late-bind hook
+            `:schemas/malli-validate` is absent, the default validator
+            returns true for every value, and no failure trace fires.
+            We simulate the no-adapter case by temporarily clearing the
+            hook — the implementation must take its soft-pass arm."
+    (let [prior-v (late-bind/get-fn :schemas/malli-validate)
+          prior-e (late-bind/get-fn :schemas/malli-explain)]
+      (late-bind/set-fn! :schemas/malli-validate nil)
+      (late-bind/set-fn! :schemas/malli-explain  nil)
+      (try
+        (rf/reg-app-schema [:n] :int)
+        (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
+        (let [traces (atom [])]
+          (rf/register-trace-cb! ::no-adapter (fn [ev] (swap! traces conj ev)))
+          (rf/dispatch-sync [:n/break])
+          (rf/remove-trace-cb! ::no-adapter)
+          (is (empty? (filter #(= :rf.error/schema-validation-failure
+                                  (:operation %))
+                              @traces))
+              "soft-pass arm — no validator hook, no failure trace, the
+               malformed commit silently 'conforms' to the spec's
+               new-user-friendly default"))
+        (finally
+          (late-bind/set-fn! :schemas/malli-validate prior-v)
+          (late-bind/set-fn! :schemas/malli-explain  prior-e))))))
 
 ;; ---- rf2-jwm4 — event-payload validation under Reagent -------------------
 ;;

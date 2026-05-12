@@ -1062,7 +1062,7 @@ Per [rf2-p7va](#) (the first per-feature artefact split per [rf2-5vjj](#) Strate
         day8/re-frame2-schemas {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-CLJS apps additionally require `malli.core` somewhere in their boot path — `re-frame.schemas`'s validate fn is found via `(resolve 'malli.core/validate)` and only resolves a var that has already been loaded into the runtime. The schemas artefact carries Malli as a `:deps` entry so the namespace is available; the app's `:require [malli.core]` is what loads it.
+CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot path so the default validator delegates to Malli (rf2-t0hq). The adapter namespace publishes `malli.core/validate` and `malli.core/explain` into the framework's late-bind hook table on ns-load; the schemas artefact's default validator consults the hook on every call. Absent the require, the default validator soft-passes per Spec 010 §Recommended soft-pass (CLJS has no runtime `resolve`, so a previous-generation `(resolve 'malli.core/validate)` approach silently no-op'd even when Malli was on the classpath). The schemas artefact carries Malli as a `:deps` entry so the namespace is available without an explicit `:require`; the app's `:require [re-frame.schemas.malli]` is what wires the runtime fns into the framework.
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-app-schema ...)`, `(rf/app-schema-at ...)`, `(rf/app-schemas ...)` still work, the wrappers in core late-bind through the hook table to the schemas artefact's implementations. An app that calls `rf/reg-app-schema` *without* the schemas artefact on the classpath gets a clear `:rf.error/schemas-artefact-missing` error at the call site.
 
