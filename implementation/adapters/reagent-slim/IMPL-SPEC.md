@@ -329,7 +329,7 @@ Internal Vars:
 - `reagent-class?`, `react-class?` — type predicates (kept; re-com / 10x type-check).
 
 Compile-time macros (`component.clj`):
-- `(defview name [args] body)` — optional Form-detection-at-compile-time macro per S3-003. Stage 4 implements the runtime detection first; the macro is an additive optimisation. The current re-frame2 `reg-view` macro (`re-frame.views-macros/reg-view`) is NOT replaced — `defview` is a Reagent-flavoured user surface for apps that don't use re-frame2's reg-view.
+- `(defview name [args] body)` — optional Form-detection-at-compile-time macro per S3-003. Stage 4 implements the runtime detection first; the macro is an additive optimisation. The current re-frame2 `reg-view` macro (`re-frame.core/reg-view`) is NOT replaced — `defview` is a Reagent-flavoured user surface for apps that don't use re-frame2's reg-view.
 
 ### §2.9 `reagent2.impl.batching` — render scheduler
 
@@ -537,7 +537,7 @@ Shape (sketch — Stage 4 finalises):
 
 The macro is **purely additive**: existing `(defn my-view [args] [:div ...])` users do nothing. The macro's value is for users who want compile-time dispatch; the runtime detection covers correctness for everyone else.
 
-**Note on re-frame2's `reg-view`**: `reg-view` (`re-frame.views-macros/reg-view` / `re-frame.core/reg-view`) is the canonical re-frame2 view-registration macro and is NOT replaced by `defview`. `reg-view` registers an id in the `:view` registrar and attaches `:contextType frame-context`; `defview` is a Reagent-flavoured user surface for code that doesn't go through re-frame2's registrar. They coexist.
+**Note on re-frame2's `reg-view`**: `reg-view` (`re-frame.core/reg-view`) is the canonical re-frame2 view-registration macro and is NOT replaced by `defview`. `reg-view` registers an id in the `:view` registrar and attaches `:contextType frame-context`; `defview` is a Reagent-flavoured user surface for code that doesn't go through re-frame2's registrar. They coexist.
 
 ### §5.3 Form-3 detection
 
@@ -1159,7 +1159,7 @@ The following surfaced during drafting. Stage 4 may need Mike's call on each.
 
 ### §14.1 The `defview` macro vs `reg-view` — namespace collision
 
-Stage 4 ships `reagent2.impl.component/defview` as an optional Form-detection macro (per S3-003). re-frame2 already ships `re-frame.views-macros/reg-view` (and `re-frame.core/reg-view`) as the canonical view-registration macro. They serve different purposes (`reg-view` registers in the view registrar; `defview` just emits a Form-typed component) but the names are close and may confuse.
+Stage 4 ships `reagent2.impl.component/defview` as an optional Form-detection macro (per S3-003). re-frame2 already ships `re-frame.core/reg-view` as the canonical view-registration macro. They serve different purposes (`reg-view` registers in the view registrar; `defview` just emits a Form-typed component) but the names are close and may confuse.
 
 **Open question for Mike**: does `defview` ship as a Reagent-flavoured user surface, or is it simply absorbed into `reg-view` as an internal optimisation (Form detection moves into the macro that already exists)? If the latter, S3-003's "optional macro" framing changes — the runtime detection path stays load-bearing for `reg-view*` and direct `defn`-and-register paths, and `reg-view` quietly classifies at compile time.
 

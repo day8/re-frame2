@@ -3,16 +3,16 @@
   reagent2.impl.component (Stage 4-C, rf2-6hyy).
 
   The helper is a pure CLJ fn (`classify-form-body`) consumed by
-  `re-frame.views-macros/expand-reg-view` via `requiring-resolve`. Per
-  the rf2-yfbx decision, the fold sits in the canonical `reg-view`
-  macro — there is no separate `defview` macro.
+  `re-frame.core/expand-reg-view` via `requiring-resolve`. Per the
+  rf2-yfbx decision, the fold sits in the canonical `reg-view` macro —
+  there is no separate `defview` macro.
 
   These tests run on the JVM. The CLJS-side runtime tests for
   wrap-render / create-class* / fn-to-class live in
   reagent2/impl/component_cljs_test.cljs."
   (:require [clojure.test :refer [deftest is testing]]
             [reagent2.impl.component :as component]
-            [re-frame.views-macros :as vm]))
+            [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
 ;; classify-form-body — Form-1 / Form-2 detection at compile time
@@ -71,7 +71,7 @@
 ;; End-to-end fold integration: reg-view's expansion stamps the tag
 ;;
 ;; When reagent-slim is on the classpath (as it is here),
-;; `re-frame.views-macros/expand-reg-view` consults
+;; `re-frame.core/expand-reg-view` consults
 ;; `reagent2.impl.component/classify-form-body` via requiring-resolve
 ;; and threads the form-tag through:
 ;;
@@ -101,7 +101,7 @@
 (deftest fold-reg-view-form-1-expansion-tags-form-1
   (testing "reg-view with a Form-1 body emits an expansion carrying :reagent2/form-1"
     (require 'clojure.walk)
-    (let [exp (vm/expand-reg-view {:line 1 :column 1}
+    (let [exp (rf/expand-reg-view {:line 1 :column 1}
                                   'my.ns "my_ns.cljc"
                                   'widget-1 '([n] [:p n]))]
       (is (= :reagent2/form-1 (find-form-tag-in-expansion exp))
@@ -110,7 +110,7 @@
 (deftest fold-reg-view-form-2-expansion-tags-form-2
   (testing "reg-view with a Form-2 body (last form is a literal fn) emits :reagent2/form-2"
     (require 'clojure.walk)
-    (let [exp (vm/expand-reg-view {:line 1 :column 1}
+    (let [exp (rf/expand-reg-view {:line 1 :column 1}
                                   'my.ns "my_ns.cljc"
                                   'widget-2 '([_n0]
                                               (fn [n] [:p n])))]
@@ -120,6 +120,6 @@
 (deftest fold-reg-view-docstring-still-tags
   (testing "a docstring slot doesn't disturb the form-tag stamping"
     (require 'clojure.walk)
-    (let [exp (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+    (let [exp (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
                                   'docced '("doc" [n] [:p n]))]
       (is (= :reagent2/form-1 (find-form-tag-in-expansion exp))))))

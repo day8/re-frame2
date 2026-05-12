@@ -32,7 +32,7 @@
   (:require [cljs.test :refer-macros [is]]
             [re-frame.core :as rf]
             [long-running-work.worker])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; HELPERS

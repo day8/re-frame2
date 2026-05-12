@@ -3,7 +3,7 @@
    path params, query, and not-found fallback."
   (:require [re-frame.core :as rf]
             [realworld.routing])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn routing-tests []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]
