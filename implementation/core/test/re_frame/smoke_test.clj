@@ -296,7 +296,7 @@
   ;; up the in-flight event's frame (not :rf/default). The CLJS
   ;; companion `re-frame.dispatch-frame-capture-cljs-test` covers the
   ;; full matrix (sync, setTimeout, :fx [[:dispatch ...]],
-  ;; :dispatch-later, bound-dispatcher). This JVM test pins the
+  ;; :dispatch-later, dispatcher). This JVM test pins the
   ;; sync-from-handler contract on the substrate-agnostic foundation.
   (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
     (rf/reg-frame :rf-l5q3.jvm/tenant-a {:doc "tenant-a frame"})
@@ -326,8 +326,8 @@
   ;; first. With the router's per-handler binding of
   ;; `frame/*current-frame*` to the envelope's :frame, the call site
   ;; reports the handler's frame, not :rf/default. This is the contract
-  ;; that lets `(rf/bound-dispatcher)`, `(rf/dispatcher)`,
-  ;; `(rf/subscriber)`, etc. — all of which capture the value of
+  ;; that lets `(rf/dispatcher)`, `(rf/subscriber)`, etc. — all of
+  ;; which capture the value of
   ;; `(rf/current-frame)` at call time — capture the right frame when
   ;; called from a handler body. Asserts the observable property
   ;; directly (avoids the async drain-thread timing the captured-fn

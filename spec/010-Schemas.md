@@ -61,6 +61,23 @@ This fits re-frame's grain — code already accesses `app-db` via paths; schemas
 
 `reg-app-schema` returns its `path` argument — the primary id under which the schema registers in the `:app-schema` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
+#### `reg-app-schemas` — bulk plural form
+
+Per [rf2-jzs9](#) the plural `reg-app-schemas` takes a `{path -> schema}` map and registers every entry in one call. The shape suits feature-modular apps (per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention)) where a feature module declares 5–20 schemas under a shared path prefix:
+
+```clojure
+(rf/reg-app-schemas {[:auth]                  AuthSlice
+                     [:auth :login-form]      FormSlice
+                     [:auth :register-form]   FormSlice
+                     [:cart]                  CartSlice
+                     [:cart :items]           [:vector CartItem]
+                     [:cart :coupon]          [:maybe CouponSchema]})
+```
+
+The optional `opts` map is identical to the singular form's — `:frame` names the frame to register against (the default is `(frame/current-frame)`); the opt applies to every entry in the map (you cannot mix frames in a single call). Each entry routes through the singular `reg-app-schema`, so source-coords captured at the call site stamp every registrar slot. Returns the vector of paths registered, in iteration order; last-write-wins on duplicate paths.
+
+The singular `reg-app-schema` remains available — use it when a feature spans only one or two paths, when `:frame` differs per entry, or when deterministic ordering matters (the plural form relies on map iteration order, which for hash maps is undefined; small map literals preserve source order).
+
 ### A schema for the whole `app-db`
 
 The empty path `[]` means "the whole `app-db`" — same convention as `get-in`/`assoc-in`. Use it to register a root schema:

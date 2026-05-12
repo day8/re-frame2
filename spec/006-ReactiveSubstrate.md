@@ -837,7 +837,7 @@ Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! ad
 
 - `(rf/init! adapter-map)` — install the literal adapter spec.
 
-Calling `(rf/init!)` with no args raises `:rf.error/no-adapter-specified`. Calling `(rf/init! :reagent)` (or any non-map value) raises the same error — there is no default-adapter registry and no keyword-to-adapter lookup table. The error message points the consumer at the adapter-ns + adapter-Var pattern.
+Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (per rf2-3ubmv — the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
 
 **No registry, no implicit defaults.** The previous design (rf2-84po) shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. rf2-agql drops the registry entirely. Two reasons:
 

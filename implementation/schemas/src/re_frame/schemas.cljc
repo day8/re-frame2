@@ -279,6 +279,40 @@
      (swap! schemas-by-frame assoc-in [frame-id path] meta)
      path)))
 
+(defn reg-app-schemas
+  "Bulk-register a map of `{path -> schema}` against the active frame
+  (or the frame named in `opts`). Per rf2-jzs9 — the plural form of
+  `reg-app-schema`, designed for feature-modular apps (per Conventions
+  §Feature-modularity prefix convention) where a single feature module
+  registers 5–20 schemas under a common path prefix like `[:cart …]` or
+  `[:auth …]`.
+
+  Shape:
+
+    (rf/reg-app-schemas {[:auth]                AuthSlice
+                         [:auth :login-form]    FormSlice
+                         [:cart]                CartSlice
+                         [:cart :items]         [:vector CartItem]})
+
+    (rf/reg-app-schemas {[:foo] FooSchema} {:frame :tenant/a})
+
+  Per Spec 010 §Per-frame schemas registration is frame-scoped; the
+  `:frame` opt overrides the default `(frame/current-frame)` resolution
+  for every entry in the map (you cannot mix frames in a single call).
+  The singular form `reg-app-schema` remains available and is used
+  internally for each entry — every entry stamps its own registrar slot
+  with source-coords captured from this call site.
+
+  Returns the vector of paths registered, in iteration order. Last-
+  write-wins on duplicate paths inside the same map (map iteration
+  order in Clojure is small-map literal-order, large-map hash order;
+  callers that rely on deterministic order should use a singular
+  `reg-app-schema` chain instead)."
+  ([path->schema] (reg-app-schemas path->schema {}))
+  ([path->schema opts]
+   (mapv (fn [[path schema]] (reg-app-schema path schema opts))
+         path->schema)))
+
 (defn app-schema-at
   "Look up the registered schema for a path in a frame, or nil.
 
@@ -753,6 +787,7 @@
 
 ;; Public-API re-export hooks (consumed by re-frame.core).
 (late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)
+(late-bind/set-fn! :schemas/reg-app-schemas       reg-app-schemas)
 (late-bind/set-fn! :schemas/app-schema-at         app-schema-at)
 (late-bind/set-fn! :schemas/app-schemas           app-schemas)
 (late-bind/set-fn! :schemas/app-schemas-digest    app-schemas-digest)

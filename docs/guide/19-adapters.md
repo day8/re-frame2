@@ -48,7 +48,7 @@ The call shape is fixed:
 
 Each adapter namespace exports an `adapter` Var (the nine-fn spec map Spec 006 documents). You require the namespace and pass the Var. **Explicit at the call site, every time.** Reading any app's `run` function tells you exactly which adapter the runtime is wired to, with no ns-load side-effects to chase.
 
-Calling `(rf/init!)` with no args (or with a keyword like `:reagent`, or with `nil`) raises `:rf.error/no-adapter-specified` — the only legal call shape is `(rf/init! adapter-map)`. The error message points back at the adapter-ns + adapter-Var pattern so the recovery path is obvious.
+Calling `(rf/init!)` with no args raises an `ArityException` at compile / load time (the no-arg arity is not defined). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — the only legal call shape is `(rf/init! adapter-map)`. The runtime error message points back at the adapter-ns + adapter-Var pattern so the recovery path is obvious.
 
 The same call shape applies to every adapter — pick the right `adapter` Var and pass it:
 
