@@ -4,7 +4,7 @@ The smallest interesting program is a counter: a number, two buttons, the number
 
 The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
 
-This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; the [Same pattern on other adapters](#same-pattern-on-other-adapters) section at the end covers how this same code looks under those substrates, plus the Maven artefact details. You can skip that section on a first read.)
+This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; for adapter comparisons and the `init!` call shape across substrates, see [chapter 19 — Adapters](19-where-next.md#adapters-the-pattern-across-substrates).)
 
 ## What we're building
 
@@ -197,24 +197,7 @@ Four things happen here.
 
 `(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
 
-Why is `init!` essential? Without it, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. The next section unpacks why the call shape is the way it is.
-
-### `init!` and how the adapter gets wired
-
-The line `(rf/init! reagent-adapter/adapter)` deserves a closer look — it's where the adapter is bound to the runtime.
-
-The call shape is fixed:
-
-```clojure
-;; Pass the adapter you want — explicit, always.
-(rf/init! reagent-adapter/adapter)
-```
-
-Each adapter namespace exports an `adapter` Var (the nine-fn spec map Spec 006 documents). You require the namespace and pass the Var. **Explicit at the call site, every time.** Reading any app's `run` function tells you exactly which adapter the runtime is wired to, with no ns-load side-effects to chase.
-
-Calling `(rf/init!)` with no args (or with a keyword like `:reagent`, or with `nil`) raises `:rf.error/no-adapter-specified` — the only legal call shape is `(rf/init! adapter-map)`. The error message points back at the adapter-ns + adapter-Var pattern so the recovery path is obvious.
-
-(The same call shape applies to the other adapters — UIx, Helix, SSR. The [Same pattern on other adapters](#same-pattern-on-other-adapters) section at the end of this chapter shows what that looks like.)
+Without `init!`, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. For the call shape across UIx, Helix, and SSR — and why the call is explicit at every call site — see [chapter 19 — Adapters](19-where-next.md#adapters-the-pattern-across-substrates).
 
 ## What just happened
 
@@ -277,57 +260,7 @@ That's it. The shape doesn't change. There's no new primitive to learn. Every ch
 
 This is the real claim of re-frame2: **the cost of new features is bounded by the size of the feature, not by the size of the app**. In a poorly-shaped app, adding a feature requires reading a substantial fraction of the existing code to know where to wire it in. In a re-frame2 app, you read the events, the subs, and the view that touches the area you're changing, and that's enough.
 
-## Same pattern on other adapters
-
-Now that you've seen the counter end-to-end on Reagent, here's the wider picture: re-frame2's runtime — the registry, the dispatch loop, events, fx, subs, machines — is **substrate-agnostic**. The primitives you've used in `app-db`, in event handlers, and in subs are identical regardless of which substrate is rendering. What differs is how the view layer is wired into React.
-
-Three substrate adapters are available today:
-
-- **Reagent** — the canonical CLJS reference. Hiccup-shaped views, deref-tracking subscriptions (`@(subscribe ...)`), the substrate this chapter and the rest of the guide uses. Pick this if you have no other constraint.
-- **UIx** — a CLJS adapter targeting React function components and hooks idiomatically. Useful if you're integrating with a JS-side codebase that expects React fn-components, or if you want UIx's compile-time JSX-style ergonomics.
-- **Helix** — same shape as UIx in spirit; pick it if your team already uses Helix.
-
-Each ships as its own Maven artefact alongside core (per Strategy B — see [`spec/MIGRATION.md`](../../spec/MIGRATION.md)):
-
-```clojure
-;; deps.edn — Reagent (the canonical "first app" stack)
-{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
-        day8/re-frame2-reagent  {:mvn/version "2.0.0"}
-        reagent                   {:mvn/version "2.0.0"}}}
-
-;; deps.edn — UIx
-{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
-        day8/re-frame2-uix      {:mvn/version "2.0.0"}
-        com.pitch/uix.core       {:mvn/version "..."}}}
-
-;; deps.edn — Helix
-{:deps {day8/re-frame2          {:mvn/version "2.0.0"}
-        day8/re-frame2-helix    {:mvn/version "2.0.0"}
-        lilactown/helix          {:mvn/version "..."}}}
-```
-
-Per the [feature-opt-in story](../../spec/MIGRATION.md), core ships with **none** of the substrate adapters baked in — you add the artefact for the substrate you've picked. The same pattern applies to optional capabilities (state machines, routing, HTTP, schemas, SSR, time-travel) — each ships as its own artefact, and an app that doesn't use a feature doesn't bundle its code.
-
-The `dispatch`, `subscribe`, and `reg-view` primitives are identical across substrates; the difference shows up in the mount call (`reagent.dom.client/render` vs `uix.dom/render-root` vs Helix's mount fn) and in how the view body composes — Reagent uses hiccup, UIx and Helix use their own component DSLs. The pattern survives.
-
-The `init!` call follows the same shape on every adapter — pick the right `adapter` Var and pass it:
-
-```clojure
-(require '[re-frame.adapter.uix :as uix])
-(rf/init! uix/adapter)
-
-(require '[re-frame.adapter.helix :as helix])
-(rf/init! helix/adapter)
-
-(require '[re-frame.ssr :as ssr])   ;; JVM-side server bootstrap
-(rf/init! ssr/adapter)
-```
-
-For a mixed-substrate app — say a build that imports both Reagent and UIx — pick the active adapter by passing the right Var. There is no multi-adapter ambiguity to resolve at boot: only one adapter is ever installed, and the call site names it.
-
-### A slim Reagent for ship-size
-
-For apps where bundle size matters, `re-frame.adapter.reagent-slim` wires re-frame2 to a Reagent rewrite that omits server-rendering and large-runtime parts (no `reagent.impl.*`, no `react-dom/server`). The same counter mounted on it lives at [`examples/reagent/counter_slim_and_fast/`](../../examples/reagent/counter_slim_and_fast/) — the event handlers, subs, and views are byte-for-byte identical to the canonical example; only the requires (`reagent2.dom.client` instead of `reagent.dom.client`) and the adapter Var passed to `init!` change. Reach for it when you've measured a ship-size problem and confirmed the missing capabilities aren't on your hot path.
+For how this same counter looks under UIx and Helix, what `init!` is doing under the hood, and the slim-Reagent option for ship-size builds, see [chapter 19 — Adapters](19-where-next.md#adapters-the-pattern-across-substrates).
 
 ## Next
 
