@@ -30,9 +30,9 @@ When `spec/Tool-Pair.md` and `implementation/**` disagree, the implementation wi
 
 ## 3. Tertiary input — `re-frame-pair2.runtime` namespace
 
-Path: `skills/re-frame-pair2/scripts/runtime.cljs` (or wherever it lives at authoring time).
+Path: `skills/re-frame-pair2/preload/re_frame_pair2/runtime.cljs` (the namespace `re-frame-pair2.runtime`, ships into the consumer app via shadow-cljs `:devtools :preloads` — see `SKILL.md` §Setup).
 
-The skill injects this namespace on connect. It carries helper functions the structured ops compose against (`epoch-diff`, `find-where`, `find-all-where`, etc.). The skill's `references/ops.md` and `references/recipes.md` cite these helpers by name.
+The namespace carries helper functions the structured ops compose against (`epoch-diff`, `find-where`, `find-all-where`, etc.). The skill's `references/ops.md` and `references/recipes.md` cite these helpers by name.
 
 ## 4. Transport inputs
 
@@ -64,6 +64,6 @@ When the Tool-Pair contract changes:
 2. **`:rf/epoch-record`'s projection set changes** (`:sub-runs` / `:renders` / `:effects` field additions) → update the recipes that walk those projections; L8 may need re-statement.
 3. **`restore-epoch`'s failure modes expand** → update `references/errors.md` and the time-travel recipe in `references/recipes.md`.
 4. **A new structured op ships in the MCP server** → add to `allowed-tools` in SKILL.md frontmatter; add a row to `references/ops.md`; add the 1:1 bash-shim mapping to `references/mcp-transport.md`.
-5. **A bash shim is removed** → update `references/mcp-transport.md`'s mapping table.
+5. **A bash shim is removed** → update `references/mcp-transport.md`'s mapping table. (rf2-7dvg removed `inject-runtime.sh` along with the MCP `inject-runtime` tool — the runtime ships via shadow-cljs `:preloads` now.)
 6. **A new failure mode appears in `discover-app`** → add to `references/errors.md`.
 7. **`re-frame2` adds a new `reg-*` kind** (e.g. a future `reg-X`) → check whether the new kind needs a structured op (probably yes if it's user-facing); update `references/ops.md`.

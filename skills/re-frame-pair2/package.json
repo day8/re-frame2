@@ -30,6 +30,7 @@
     "README.md",
     "LICENSE",
     "scripts/",
+    "preload/",
     ".claude-plugin/",
     "docs/",
     "references/"

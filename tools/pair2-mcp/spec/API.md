@@ -117,13 +117,16 @@ schemas and result shapes are specified in
 
 | Tool | Purpose |
 |---|---|
-| `discover-app` | Health-check the runtime; inject if needed. Run first every session. |
+| `discover-app` | Health-check the runtime; verify the shadow-cljs `:preloads` entry landed. Run first every session. |
 | `eval-cljs` | Evaluate a CLJS form; returns the EDN value. |
-| `inject-runtime` | Force re-ship of `runtime.cljs` (after editing the runtime source). |
 | `dispatch` | Fire a re-frame event with `:origin :pair`. Modes: queued, sync, trace. |
 | `trace-window` | Return epoch records from the last N ms. |
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
 | `tail-build` | Wait for a hot-reload to land by polling a probe form. |
+
+(Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
+the runtime ships into consumer apps via shadow-cljs `:devtools
+:preloads` now. See the skill's SKILL.md §Setup.)
 
 Each tool's JSONSchema is surfaced via `tools/list` per the MCP
 spec.
@@ -194,11 +197,12 @@ analogues. Listed here for reference:
 
 | Surface | Source | What pair2-mcp reads / writes |
 |---|---|---|
-| `re-frame-pair2.runtime/session-id` | runtime.cljs | Sentinel for re-inject detection. |
-| `re-frame-pair2.runtime/dispatch!` | runtime.cljs | Queued / sync / trace dispatch. |
-| `re-frame-pair2.runtime/trace-window` | runtime.cljs | Last-N-ms epoch lookback. |
-| `re-frame-pair2.runtime/watch-epochs` | runtime.cljs | Poll for epochs after id. |
-| `re-frame-pair2.runtime/probe` | runtime.cljs | Hot-reload landed signal. |
+| `js/globalThis.__re_frame_pair2_runtime` | preload/re_frame_pair2/runtime.cljs | Load-time marker probed by `ensure-runtime!`. |
+| `re-frame-pair2.runtime/session-id` | preload/re_frame_pair2/runtime.cljs | Per-session UUID; mirrored on the global marker. |
+| `re-frame-pair2.runtime/dispatch!` | preload/re_frame_pair2/runtime.cljs | Queued / sync / trace dispatch. |
+| `re-frame-pair2.runtime/trace-window` | preload/re_frame_pair2/runtime.cljs | Last-N-ms epoch lookback. |
+| `re-frame-pair2.runtime/watch-epochs` | preload/re_frame_pair2/runtime.cljs | Poll for epochs after id. |
+| `re-frame-pair2.runtime/probe` | preload/re_frame_pair2/runtime.cljs | Hot-reload landed signal. |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
 | `:origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
@@ -213,7 +217,6 @@ identical between the two surfaces.
 |---|---|
 | `discover-app.sh` | `discover-app` |
 | `eval-cljs.sh` | `eval-cljs` |
-| `inject-runtime.sh` | `inject-runtime` |
 | `dispatch.sh` | `dispatch` |
 | `trace-window.sh` | `trace-window` |
 | `watch-epochs.sh` | `watch-epochs` |

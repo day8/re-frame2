@@ -6,6 +6,7 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 
 - `:nrepl-port-not-found` → tell the user to start their dev build with `shadow-cljs watch <build>`.
 - `:browser-runtime-not-attached` → tell the user to open the app in a browser tab.
+- `:runtime-not-preloaded` → the `re-frame-pair2.runtime` namespace isn't loaded into the app. Quote the `:hint` verbatim; the fix is two lines in `shadow-cljs.edn` (see `SKILL.md` §Setup). Common after a fresh clone or when the consumer added pair2 without the preload entry.
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
 - `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. Tell the user to call `(rf/init!)` (or wait for app boot).

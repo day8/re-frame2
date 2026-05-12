@@ -80,12 +80,13 @@ Concretely:
   every op (and via the `SHADOW_CLJS_BUILD_ID` env var).
 - Port discovery walks `$SHADOW_CLJS_NREPL_PORT` → standard shadow
   paths → `.nrepl-port`. Any of them satisfy the contract.
-- Runtime presence is sentinel-detected (`re-frame-pair2.runtime/session-id`),
-  not version-pinned. A reload re-injects from
-  `skills/re-frame-pair2/scripts/runtime.cljs` (or
-  `$PAIR2_RUNTIME_PATH`).
-- The runtime contract is the shape of the seven ops, not a
-  specific framework version.
+- Runtime presence is marker-detected (`js/globalThis.__re_frame_pair2_runtime`),
+  not version-pinned. The runtime ships into the consumer app via
+  shadow-cljs `:devtools :preloads`; a missing marker resolves to a
+  structured `:reason :runtime-not-preloaded` error with the setup
+  hint, no cljs-eval inject fallback (rf2-7dvg).
+- The runtime contract is the shape of the six ops, not a specific
+  framework version.
 
 A project that adopts a non-default build id, a custom nREPL port,
 or a slightly different shadow layout still gets a working
