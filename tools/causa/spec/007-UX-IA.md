@@ -435,15 +435,99 @@ Three layers, no onboarding tour:
    (then never again).
 
 2. **Empty-state hints.** Each empty state shows a contextual
-   keyboard hint ("No events yet. Press `Ctrl+Shift+C` again to
-   close..."). On first event selection, a 4-second auto-dismiss
-   popover suggests "Press `c` for the causality graph."
+   keyboard hint and, where appropriate, a sibling co-pilot
+   slash-command nudge. The keyboard hint is the canonical surface
+   ("No events yet. Press `Ctrl+Shift+C` again to close…"); the
+   co-pilot hint is the auxiliary, opt-in surface — see
+   §Empty-state hints below for the per-panel table. On first event
+   selection, a 4-second auto-dismiss popover suggests "Press `c`
+   for the causality graph."
 
 3. **The command palette itself.** Typing `?` in the palette filters
    to commands and shows their shortcuts. The palette is the
    documentation.
 
 We do **not** ship a tour. Causa is a tool, not an experience.
+
+## Empty-state hints
+
+Each panel's empty state — when no data has landed yet, or when the
+relevant runtime feature isn't wired up — pairs the canonical
+keyboard hint with an optional sibling co-pilot slash-command hint.
+This is the discoverability nudge for the co-pilot: Lock 8 keeps the
+rail collapsed by default, so the empty-state is the first place a
+new user sees what the co-pilot can do.
+
+Inspired by Chrome DevTools' command-palette discovery surface and
+Gemini's auto-suggested prompts in empty states. The keyboard hint
+is the canonical answer for power users; the slash-command hint is
+the bridge for users who prefer natural-language interrogation.
+
+### Per-panel hints
+
+The empty-state copy lives in each panel's own spec — see the
+"Empty state" section in [`001-Causality-Graph.md`](./001-Causality-Graph.md),
+[`003-Machine-Inspector.md`](./003-Machine-Inspector.md),
+[`004-App-DB-Diff.md`](./004-App-DB-Diff.md),
+[`005-Schema-Timeline.md`](./005-Schema-Timeline.md), and
+[`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md). This
+table is the canonical mapping from each empty state to its
+co-pilot sibling hint:
+
+| Panel / state | Keyboard hint | Co-pilot hint (sibling) |
+|---|---|---|
+| Events — no events yet | "Press `[c]` for the causality graph." | "…or ask the co-pilot: `/why <epoch>`." |
+| Causality — no cascades yet | "Press `[` / `]` to walk history." | "…or ask: `/explain <epoch>`." |
+| App-db — no diffs yet | "Every dispatch lands here." | "…or ask: `/diff <epoch-a> <epoch-b>`." |
+| Machines — no machines registered | "→ Read about machine integration." | "…or ask: `/state <machine-id>` once one is registered." |
+| Schemas — no schemas registered | "→ Read about schema integration." | (none — no schemas means no data to query; co-pilot would have nothing to cite) |
+| Hydration — no SSR detected | "→ See Spec 011." | (none — Lock 4 / privacy posture: don't nudge into a feature the app may not opt into) |
+| Trace — empty buffer | "Click around your app." | "…or ask: `/find <pattern>` once events land." |
+| Co-pilot — first open | (already lists example questions inline) | (this *is* the co-pilot empty state — see [`009-AI-CoPilot.md`](./009-AI-CoPilot.md) §Empty state) |
+
+The keyboard hint is always primary; the co-pilot hint is appended
+as a sibling line beneath the keyboard hint. Where the co-pilot
+column is **(none)**, no sibling renders — the keyboard hint stands
+alone. A panel may also omit the co-pilot hint when the empty state
+exists because *the underlying feature isn't wired up* (no schemas
+registered, no SSR detected) — in those cases the co-pilot has no
+data to cite and the hint would be a hollow gesture.
+
+### Visual treatment
+
+The sibling hint renders below the keyboard hint in the same
+caption type (12px, `text-tertiary`) with a leading `◇` glyph in
+co-pilot magenta so the eye reads it as a co-pilot affordance:
+
+```
+   No events yet.
+   Click around your app — every dispatch will land here.
+
+   Press [c] for the causality graph.
+   ◇ …or ask the co-pilot: /why <epoch>
+```
+
+The `◇` glyph is the same one used in the sidebar's co-pilot row
+and the top-strip's collapsed cue (see §The AI co-pilot collapsed
+cue above) — visual continuity reinforces "this is how you reach
+the co-pilot."
+
+### Discoverability budget
+
+The sibling co-pilot hint **does not** open the co-pilot rail. The
+user must press `Ctrl+Shift+/` (or click the rail entry) to invoke
+the suggested command — same Lock 8 posture. The hint is a
+discoverability nudge, not a CTA.
+
+After the user has used the co-pilot once, the sibling hint
+continues to render (it's a slash-command teach, not a once-only
+onboarding). The cue glyph in the top strip stops pulsing (per §The
+AI co-pilot collapsed cue) but the in-panel hints persist as
+contextual prompts.
+
+### `prefers-reduced-motion`
+
+No animation on these hints; they render in place at panel mount.
 
 ## Bundle splitting
 
