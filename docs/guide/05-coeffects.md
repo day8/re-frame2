@@ -94,7 +94,7 @@ A cofx handler is a function from context to context. It receives the full conte
 
 The convention is to inject under the same keyword you registered with — the cofx id and the coeffect key are the same keyword. The handler is free to inject under a different key, but tooling and validation assume the symmetric case, so deviate only with reason.
 
-`reg-cofx` takes an optional metadata map between the id and the handler — the same shape every other `reg-*` accepts (per [Spec 001](../../spec/001-Registration.md)). `:doc` is the most common metadata key. `:spec` attaches a Malli schema that the runtime validates the injected value against ([Spec 010](../../spec/010-Schemas.md)) — a `:now` cofx with `{:spec [:fn inst?]}` will fail fast if some test stub forgets to return a date.
+`reg-cofx` takes an optional metadata map between the id and the handler — the same shape every other `reg-*` accepts. `:doc` is the most common metadata key. `:spec` attaches a Malli schema that the runtime validates the injected value against — a `:now` cofx with `{:spec [:fn inst?]}` will fail fast if some test stub forgets to return a date.
 
 Two arities exist for the handler fn:
 
@@ -246,7 +246,7 @@ This is the payoff. A handler that uses `(inject-cofx :now)` is testable without
 
 Three things to notice:
 
-**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. Per-frame and per-call overrides go further still — [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) covers `:interceptor-overrides` for stubbing the *interceptor itself* (e.g. swapping `:rf/inject-cofx-now` for one frame's events), useful when you want the stub scoped to one frame rather than to the whole test registry.
+**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. A frame's `:interceptor-overrides` slot can go further still — swapping the *interceptor itself* (e.g. `:rf/inject-cofx-now`) for one frame's events when you want the stub scoped to one frame rather than to the whole test registry.
 
 **`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 13 §Registrar isolation](13-testing.md#registrar-isolation-with-fresh-registrar).
 
@@ -279,4 +279,3 @@ The forward link from [chapter 07's table](07-interceptors.md#the-context-map) p
 - [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
 - [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
 - [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
-- [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the normative surface for `:interceptor-overrides`, including the `:rf/inject-cofx-now` override pattern.

@@ -164,7 +164,7 @@ The standard server fxs all carry `:platforms #{:server}` and write to a structu
 | `:rf.server/set-cookie` | Set a cookie via a structured map. | `#{:server}` | Cookies are structured maps, not raw strings — the adapter does the wire serialisation, so you never write `Set-Cookie:` by hand and you never trip on per-attribute quoting bugs. |
 | `:rf.server/redirect` | Short-circuit the render with a redirect response. | `#{:server}` | A `302` skips body rendering and the hydration-payload serialisation; the host adapter sees `{:redirect {:status 302 :location ...}}` and emits the right wire response. |
 
-The full contract — every fx, every default, the full request-handler return shape — lives in [Spec 011 §HTTP response contract](../../spec/011-SSR.md#http-response-contract).
+Each fx writes through the request-handler's return map, which the host adapter ultimately serialises to the wire.
 
 ## Head and meta — `<title>`, `<meta>`, JSON-LD
 
@@ -187,7 +187,7 @@ A registered head function plus per-route `:head` metadata is what produces the 
        :link  [{:rel "canonical" :href (canonical-url article)}]})))
 ```
 
-The runtime renders the head model to HTML, ships it in the document, and on the client side the same head function runs and the runtime hashes both server and client head models for mismatch detection. Same idiom as the body: data → render-tree → HTML, with structural-equivalence hashing as the lock. See [Spec 011 §Head/meta contract](../../spec/011-SSR.md#headmeta-contract).
+The runtime renders the head model to HTML, ships it in the document, and on the client side the same head function runs and the runtime hashes both server and client head models for mismatch detection. Same idiom as the body: data → render-tree → HTML, with structural-equivalence hashing as the lock.
 
 ## Server errors are sanitised
 
@@ -206,7 +206,7 @@ The trace stream carries the **internal** error — full structured detail, stac
       {:status 500 :code :internal-error :message "Something went wrong." :retryable? true})))
 ```
 
-In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. See [Spec 011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
+In dev, the projector's output also carries `:details` so the developer can see the trace. In prod, `:details` is absent — the public shape is exactly the four locked keys, and the security boundary is unconditional. The framework ships a default projector (`:rf.ssr/default-error-projector`) with the canonical mapping, so you only register your own when you want different status codes or messages. [Chapter 14 §Server-side error handling](14-errors.md) walks the projection idiom in more detail.
 
 ## The server's per-request frame
 
@@ -253,7 +253,7 @@ This is why run-to-completion drain matters for SSR: the server can't render hal
 
 ## Routing and SSR
 
-Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 06](06-views-and-frames.md) and [Spec 012](../../spec/012-Routing.md)). The same handler runs server-side, fed the request URL.
+Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 06](06-views-and-frames.md)). The same handler runs server-side, fed the request URL.
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
@@ -267,7 +267,7 @@ Routing on the server is the same as routing on the client. The route slice in `
 
 The view dispatches on the route id (case-on-`:rf.route/id` at the root, per the [routing example](../../examples/reagent/routing/core.cljs)) — and because the server-rendered route is the same data shape as the client route, the view code is identical.
 
-The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. The full contract is in [Spec 012](../../spec/012-Routing.md). The server-side relevance of all this: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
+The routing substrate has more to it than fits in this chapter — deterministic route ranking, navigation tokens (an epoch carried through async work so stale fetch-results from the previous route get suppressed cleanly), fragment as a first-class slice, `:can-leave` guards that pause navigation through `:rf/pending-navigation` for "unsaved changes?" prompts. [Chapter 17](17-routing.md) covers all of it. The server-side relevance: it's the same code on both sides; whichever affordance you reach for client-side has the same shape on the server.
 
 ## What you give up
 

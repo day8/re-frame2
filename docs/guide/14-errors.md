@@ -51,13 +51,13 @@ Three fields do the load-bearing work:
 
 The optional **`:rf.trace/trigger-handler`** slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (causa, pair, IDE jump-to-source) consume the coord to render click-to-jump links straight to the offending handler. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent on outermost-dispatch errors with no handler resolved (e.g. `:rf.error/no-such-handler`).
 
-Everything else rides under `:tags`, with category-specific keys. The full schema lives in [Spec-Schemas](../../spec/Spec-Schemas.md) under `:rf/trace-event`; the per-category `:tags` shapes are pinned in [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas).
+Everything else rides under `:tags`, with category-specific keys. Each category names exactly the slots the listener should expect — the schema for a `:rf.error/handler-exception` carries `:handler-id`, `:event-id`, and `:exception`; a `:rf.error/schema-validation-failure` carries `:schema-id`, `:value`, and `:errors`; and so on, one fixed shape per category.
 
 **Production builds eliminate the trace surface entirely.** No exceptions. The error path described here is dev-only — your release bundles contain zero trace code. Errors that need to reach a monitoring service in production do so through your own `:on-error` policy (below), or through SSR's [error projector](#error-projectors--mapping-errors-to-ux) on the server side.
 
 ## The error taxonomy
 
-The framework emits errors from a fixed-and-additive set of categories. The full table — every category, every payload — is the authoritative reference in [Spec 009 §Error categories](../../spec/009-Instrumentation.md#error-categories-initial-set). A condensed view, grouped by where they come from:
+The framework emits errors from a fixed-and-additive set of categories. The condensed view, grouped by where they come from:
 
 | Source | Category | When it fires |
 |---|---|---|
@@ -180,7 +180,7 @@ The policy is a function that receives the error event and returns either `nil` 
 
 One `:on-error` per frame; re-registering the frame replaces it. The default policy (when none is registered) is "trust the per-category recovery from the table below."
 
-`:on-error` is the surface re-frame2 exposes instead of v1's process-wide `reg-event-error-handler` (which is dropped — see [MIGRATION.md](../../spec/MIGRATION.md) §M-26). Per-frame scoping matters because different frames legitimately want different policies: production app frames log to monitoring; story-tool frames assert in-test; SSR frames substitute a sanitised public-error shape (per [Spec 011](../../spec/011-SSR.md)).
+`:on-error` is the surface re-frame2 exposes instead of v1's process-wide `reg-event-error-handler`, which is dropped — the migration agent flags it and points at per-frame `:on-error` as the replacement. Per-frame scoping matters because different frames legitimately want different policies: production app frames log to monitoring; story-tool frames assert in-test; SSR frames substitute a sanitised public-error shape on the server side.
 
 ## Recovery semantics
 
@@ -196,13 +196,13 @@ The framework's `:recovery` value tells you what happened *after* the error. Six
 | `:retried` | The runtime retried (e.g. managed HTTP backoff). |
 | `:ignored` | The runtime emitted the advisory and did nothing else (e.g. `:rf.warning/decode-defaulted`). |
 
-The per-category default-recovery table is the authoritative reference: [Spec 009 §Default behaviour by category](../../spec/009-Instrumentation.md#default-behaviour-by-category). A few load-bearing rows:
+A few load-bearing rows from the per-category default-recovery table:
 
 - **`:rf.error/handler-exception`** → `:no-recovery`. The exception propagates; the cascade halts. The handler did not run to completion; the snapshot is not committed.
 - **`:rf.error/no-such-handler`** → `:replaced-with-default`. The dispatch is a no-op; the runtime emits the trace and moves on. Useful: a feature module's load order is wrong and an early event has no handler, so the app boots into a degraded state instead of crashing.
 - **`:rf.error/no-such-fx`** → `:no-recovery`. The fx is dropped; sibling fx entries in the same effect map still fire. This is **important**: in re-frame2, an unknown fx-id doesn't halt the whole cascade — it just gets skipped, and the trace flags it. The handler's `:db` change still applies; the other `:fx` entries still fire.
 - **`:rf.error/no-such-cofx`** → `:no-recovery`. The cofx injection is a no-op; the ctx flows through unchanged; subsequent interceptors and the handler still run. A typo'd cofx-id manifests as "the value isn't in the cofx map" inside your handler, plus the trace.
-- **`:rf.error/schema-validation-failure`** → `:no-recovery`. Hard-fail to surface bugs early. (Production builds elide the validation entirely per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds), so this is dev-only behaviour by design.)
+- **`:rf.error/schema-validation-failure`** → `:no-recovery`. Hard-fail to surface bugs early. (Production builds elide the validation entirely, so this is dev-only behaviour by design.)
 
 The shape that matters: **the runtime makes a decision per category, you can override per frame.** You don't write try/catch in handler code; you write policy in `:on-error` (or accept the default).
 
@@ -234,7 +234,7 @@ For server-side rendering, raw error events should never leak to the browser —
 
 The projector is the **canonical surface** for mapping raw errors to user-facing UX. The runtime calls it on the server side before render; the result is what reaches the browser. If the projector itself throws (or returns a non-`:rf/public-error` shape), the runtime falls back to a locked generic-500 shape and emits `:rf.error/sanitised-on-projection` — your monitoring dashboard sees when the public boundary fell back.
 
-Full details — when the projector runs, what `:rf/public-error` requires, server-side error events, sanitisation guarantees — live in [Spec 011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
+[Chapter 11 §Server errors are sanitised](11-server-side.md) walks the chapter-side story end-to-end.
 
 Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-trace-cb!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
 
@@ -348,7 +348,7 @@ A missing **cofx** behaves similarly. If `inject-cofx` references an unregistere
 
 *A view layer that should have produced a uuid produced a string. The handler downstream "worked" — until two screens later, when an `=` comparison against the database row silently returned `false` and the user's edit appeared to vanish. A schema at the event boundary catches the type confusion at the point of dispatch, not three steps downstream.*
 
-If you've attached schemas to events (per [Spec 010](../../spec/010-Schemas.md)) and a malformed event arrives:
+If you've attached schemas to events and a malformed event arrives:
 
 ```clojure
 (rf/reg-event-db
@@ -376,13 +376,13 @@ The `:spec/validate-at-boundary` interceptor (when attached) emits:
              :reason      "Event vector for `:cart/set-quantity` failed schema at path [1]: expected :uuid, got \"not-a-uuid\"."}}
 ```
 
-The handler doesn't run; the cascade halts. In dev this surfaces the bug fast; in production the validation is elided (per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)) and the handler runs against the malformed event — which is why schemas are a *dev-time correctness tool*, not a runtime guard.
+The handler doesn't run; the cascade halts. In dev this surfaces the bug fast; in production the validation is elided and the handler runs against the malformed event — which is why schemas are a *dev-time correctness tool*, not a runtime guard.
 
 ### Scenario 5 — unhandled exception in an interceptor
 
 *Your logging interceptor calls into a tracing library you upgraded last week. The library's API changed in a minor version. Now every dispatch in the app throws — not in the handler you'd suspect, but in the `:after` you forgot you'd written. Without the interceptor-id pinned in the trace, this is the bug that takes an afternoon to find.*
 
-Interceptors run before and after the handler. A `:before` fn that throws halts the chain in the same shape as a handler exception — the runtime catches and emits `:rf.error/handler-exception` with `:failing-id` set to the interceptor's id, not the event's. (HTTP middleware has its own narrower category — `:rf.error/http-interceptor-failed` — per [014](../../spec/014-HTTPRequests.md).)
+Interceptors run before and after the handler. A `:before` fn that throws halts the chain in the same shape as a handler exception — the runtime catches and emits `:rf.error/handler-exception` with `:failing-id` set to the interceptor's id, not the event's. HTTP middleware has its own narrower category — `:rf.error/http-interceptor-failed` — for failures in the managed-HTTP decode / accept / retry pipeline.
 
 A `:after` fn that throws is the trickier case: by then the handler has produced effects, and the runtime needs to decide whether to let those effects fire. The framework's choice is "halt the cascade" — the snapshot is not committed, the `:fx` queue for this dispatch is not processed. The error event carries enough information (the event vector, the interceptor's id, the partial ctx) for the dev to reconstruct.
 
@@ -407,7 +407,7 @@ The runtime rejects the dispatch and emits:
              :reason "Dispatch to destroyed frame `:test/auth-flow`."}}
 ```
 
-`subscribe` against a destroyed frame returns `nil` (with the same trace fired); `dispatch` is rejected entirely. Per-frame teardown semantics are owned by [Spec 002 §Frame lifecycle](../../spec/002-Frames.md#frame-lifecycle).
+`subscribe` against a destroyed frame returns `nil` (with the same trace fired); `dispatch` is rejected entirely. The frame's teardown clears subscriptions, drops the event queue, and the registry stops resolving the frame id.
 
 ## Testing error paths
 
@@ -466,9 +466,9 @@ For a test fixture that resets per-frame error listeners across tests, see the `
 
 ## What you'll see in re-frame-causa and re-frame-pair2
 
-The dev tools — re-frame-causa (per [15 — Tooling](15-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — re-frame-causa and re-frame-pair2 (both covered in [15 — Tooling](15-devtools-and-pair-tools.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
-re-frame-causa's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
+re-frame-causa's epoch buffer groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 
 ## What structured errors buy you
 
@@ -486,7 +486,6 @@ Errors stop being incidents to recover from and start being signals you can rout
 
 - **[Spec 009 — Instrumentation](../../spec/009-Instrumentation.md)** — the authoritative reference for the trace surface, the error categories, the per-category recovery defaults, and the `:on-error` policy contract.
 - **[Spec 011 — SSR §Server error projection](../../spec/011-SSR.md#server-error-projection)** — the full story on `reg-error-projector`, the `:rf/public-error` shape, and the server-vs-client error boundary.
-- **[Spec-Schemas](../../spec/Spec-Schemas.md)** — the Malli schema for every trace event (`:rf/trace-event`), including the per-category `:tags` schemas.
 - **[13 — Testing](13-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
 - **[15 — Tooling](15-devtools-and-pair-tools.md)** — what re-frame-causa and re-frame-pair2 do with the trace stream, including the errors panel.
 
