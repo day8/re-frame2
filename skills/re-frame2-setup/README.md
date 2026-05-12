@@ -1,13 +1,33 @@
 # re-frame2-setup
 
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
 A `Skill` that helps `Claude Code` **scaffold a fresh [re-frame2](https://github.com/day8/re-frame2) ClojureScript project** — from an empty directory to a working, mounted counter.
 
-This is the **greenfield bootstrap** companion to the main [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) skill. The two are deliberately separate because:
+This is the **greenfield bootstrap** companion to the main [`re-frame2`](../re-frame2/) skill. The two are deliberately separate because:
 
 - The main `re-frame2` skill teaches the re-frame2 **API** — events, subs, machines, schemas, frames, fx, flows, routing, SSR. The content there is stable across re-frame2 releases.
 - Setup, by contrast, moves: artefact versions change, shadow-cljs versions change, React versions change. Pinning that content in the main skill would stale it. `re-frame2-setup` is the home for the moving target, so the main skill can stay clean.
 
-Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) (for live-runtime pair-programming).
+Once the counter mounts, the author switches to the main `re-frame2` skill (for writing application code) or [`re-frame-pair2`](../re-frame-pair2/) (for live-runtime pair-programming).
+
+## Relationship to the generator template
+
+re-frame2 also ships a one-command project generator under
+[`tools/template/`](../../tools/template/) (`clojure -X:project/new
+:template re-frame2 :name acme/my-app`). The two routes are complementary,
+not redundant:
+
+| Use the **template** when… | Use this **skill** when… |
+|---|---|
+| You're starting from an empty directory and want a working app in one command. | You're adding re-frame2 to an existing CLJS project that already has its own `deps.edn` / `shadow-cljs.edn`. |
+| You want canonical defaults baked in (Reagent + shadow-cljs + counter sample). | You want to understand each step the template performs, or deviate from it. |
+| You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
+
+Either way you end up at the same canonical shape — the skill walks the
+seven-step path manually; the template performs it for you. After the
+counter mounts, the same handoff to `re-frame2` / `re-frame-pair2`
+applies.
 
 ## What it covers
 

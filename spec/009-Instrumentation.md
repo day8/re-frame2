@@ -463,6 +463,61 @@ When a future surface is added (e.g. epoch history per [Tool-Pair §How AI tools
 - Touch the surface from `re-frame.elision-probe` so the DCE graph reaches it.
 - Add a sentinel to `DEV_ONLY_SENTINELS` in `check-elision.cjs` (a string literal or keyword name that only the gated branch contains).
 
+## Production debugging: what remains
+
+The elision contract above is uncompromising — in a `:advanced` build with `goog.DEBUG=false`, the entire trace surface disappears. That decision is correct for binary-size and hot-path cost, but it has consequences for post-mortem debugging that this section makes explicit so users aren't surprised when a production incident leaves them with thin tooling.
+
+### What is NOT available in a default production CLJS build
+
+A `:closure-defines {goog.DEBUG false}` `:advanced` build carries no trace machinery. Concretely, the following surfaces have been DCEd and the runtime cannot reach them at all:
+
+- `register-trace-cb!` / `remove-trace-cb!` — listener registration is a no-op because the gate around `trace/emit!` is constant-folded out. Even if user code registered a listener at boot (which it shouldn't, per [§User-side listener registration](#user-side-listener-registration)), nothing would ever invoke it.
+- The retain-N trace ring buffer (`trace-buffer`, `clear-trace-buffer!`, `(configure :trace-buffer …)`) — pulling "the last N events from a prod session" is not supported. The buffer's `swap!` site is inside the same elision gate.
+- `register-epoch-cb` and the per-drain `:rf/epoch-record` assembly — epoch projection runs inside the trace surface and elides with it.
+- Every `:rf.error/*`, `:rf.warning/*`, `:rf.info/*`, `:rf.fx/*`, `:rf.ssr/*`, and `:rf.epoch/*` trace event documented in [§Error categories](#error-categories-initial-set). They are not emitted, not buffered, and not deliverable to any listener. The `:on-error` per-frame slot (per [002-Frames §`:on-error`](002-Frames.md)) is fed by the trace surface; with trace elided, registered `:on-error` callbacks do not fire in CLJS prod.
+- Source-coord enrichment (`:rf.trace/trigger-handler`), `:dispatch-id` / `:parent-dispatch-id` correlation, `:origin` tagging — all ride the trace event and elide with it.
+- Schema validation (`:rf.error/schema-validation-failure`) and registrar hot-reload notifications (`:rf.registry/handler-registered` and siblings) — same gate, same elision.
+- The Causa-MCP server and the pair2 server (per [Tool-Pair.md](Tool-Pair.md)). These are dev-only tools that attach to the trace surface; they are not designed for, and not shippable to, production. The Causa preload artefact must not be on a production build's classpath; the pair2 server lives in its own dev-only artefact for the same reason.
+
+### What IS available in production
+
+Three surfaces survive elision and are the canonical production-debugging fallbacks:
+
+1. **The Performance API channel** (per [§Performance instrumentation](#performance-instrumentation)) — gated on the independent `re-frame.performance/enabled?` `goog-define`, default off. A production build that wants timing observability flips `{:closure-defines {re-frame.performance/enabled? true}}`; the bracket sites at the four hot paths (`:event`, `:sub`, `:fx`, `:render`) emit User-Timing measure entries that any `PerformanceObserver` — including the host APM's — reads via `performance.getEntriesByType('measure')`. This is the production observability surface re-frame2 ships and supports.
+2. **The SSR error-projector boundary** (per [011 §Server error projection](011-SSR.md#server-error-projection)) — on the server (JVM/SSR), `re-frame.interop/debug-enabled?` is hardcoded `true` (per [§JVM builds](#jvm-builds)), so the trace surface is live. The runtime emits structured `:rf.error/*` traces, the registered error projector consumes them, and the locked `:rf/public-error` shape is written to the HTTP response. Apps with an SSR tier get the full trace + projection pipeline server-side independent of the client-side bundle's elision.
+3. **Native browser machinery** — uncaught exceptions still reach `window.onerror` / `window.onunhandledrejection`. A re-frame2 event handler that throws in production still surfaces there; what's missing is the structured `:rf.error/handler-exception` shape, the `:dispatch-id` correlation, and the `:rf.trace/trigger-handler` coord — those rode the trace surface.
+
+### Wiring an external error monitor (Sentry, Rollbar, Honeybadger, etc.)
+
+The dev-side integration documented at [§Composition with libraries](#composition-with-libraries-sentry-honeybadger-etc) routes structured trace events into the monitor:
+
+```clojure
+;; Dev: full structured trace, captured before the runtime's default recovery.
+(rf/register-trace-cb!
+ :sentry/forward
+ (fn [trace-event]
+   (when (= :error (:op-type trace-event))
+     (sentry/capture-event
+      {:level      "error"
+       :message    (-> trace-event :tags :reason)
+       :tags       {:rf-operation  (name (:operation trace-event))
+                    :rf-frame      (some-> trace-event :tags :frame name)
+                    :rf-dispatch   (some-> trace-event :tags :dispatch-id str)
+                    :rf-failing-id (some-> trace-event :tags :failing-id str)}
+       :extra      (:tags trace-event)
+       :fingerprint [(name (:operation trace-event))
+                     (str (-> trace-event :tags :failing-id))]}))))
+```
+
+In a production CLJS build with `goog.DEBUG=false`, the `register-trace-cb!` call and its body sit under the `(when ^boolean re-frame.interop/debug-enabled? …)` user-side guard (per [§User-side listener registration](#user-side-listener-registration)) and elide entirely. To keep production-side error reporting, an app has two options:
+
+- **Recommended**: install the monitor's native browser SDK at the top of the bundle (`Sentry.init({...})`). It captures `window.onerror`, `window.onunhandledrejection`, and any explicit `Sentry.captureException` call wherever the app already has error-boundary plumbing. The trade-off is loss of re-frame2's structured fields (`:operation`, `:dispatch-id`, `:rf.trace/trigger-handler`, the category-specific `:tags`) — the monitor sees the bare exception, not the cascade context. This matches industry practice for non-instrumented production bundles.
+- **Opt-in to keep the trace surface**: ship `:advanced` with `:closure-defines {goog.DEBUG true}`. The trace surface is preserved, the `register-trace-cb!` sample above runs, and the monitor receives full structured events. The cost is the trace machinery's bundle size (see [§Production-elision verification](#production-elision-verification) for the size delta — the control bundle is the reference measurement). This is the explicit escape hatch for apps where post-mortem fidelity outweighs bundle weight.
+
+### Future direction (non-normative)
+
+The asymmetry above — `:on-error` is the framework's documented runtime-error recovery slot but it rides the trace surface and elides with it — is on the open-questions list for v2. A future spec edit may carve a small always-on error-emit substrate that survives `goog.DEBUG=false` so monitor integrations get structured fields without an `:advanced`-with-`goog.DEBUG=true` build. Until then, production apps that need structured fields keep the trace surface; production apps on the elision default rely on the monitor's native capture.
+
 ## Hot path in dev builds
 
 Dev iteration matters; you don't want trace machinery to slow ordinary feedback loops. Two hot-path costs are present in dev:
@@ -679,7 +734,9 @@ All error trace events are open maps with these required keys:
 
 #### `:rf.trace/trigger-handler` — naming the in-scope handler
 
-The optional top-level `:rf.trace/trigger-handler` slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (10x, pair, IDE jump-to-source) render click-to-jump links from this field — given an error event, the user lands on the line of code that defined the offending handler.
+The optional top-level `:rf.trace/trigger-handler` slot names the handler whose execution produced the trace event and carries its registration-site source-coord. Tools (10x, pair, IDE jump-to-source) render click-to-jump links from this field — given a trace event, the user lands on the line of code that defined the responsible handler.
+
+The slot rides on **every** trace event emitted while a handler is in scope, not just errors. Success-path traces — `:rf.fx/handled`, `:rf.machine/transition`, `:event/db-changed`, `:event/do-fx`, ... — carry the in-scope handler's registration coord too. Originally introduced (rf2-3nn8) for `:rf.error/*` only; widened (rf2-lf84g) so consumer tools can render jump-to-source links from any trace event in a cascade, not just errors. The error-path emit shape is unchanged — same field name, same nested map, same top-level placement.
 
 Coverage is keyed off "is a handler currently in scope at emit time?":
 
@@ -690,15 +747,18 @@ Coverage is keyed off "is a handler currently in scope at emit time?":
 | Inside an fx handler body | Yes | The fx handler's coord |
 | Inside a sub recompute (body fn) | Yes | The sub's coord |
 | Inside a view render | Yes | The view's coord |
+| Inside a machine transition (machines register as event handlers) | Yes | The machine's coord |
 | At outermost dispatch with no handler resolved (`:rf.error/no-such-handler`) | No | — |
 | At depth-exceeded drain rollback (`:rf.error/drain-depth-exceeded`) | No | — |
-| At registration-time failures emitted outside any handler | No | — |
+| At registration-time emits outside any handler (`:rf.registry/handler-registered`, `:frame/created`) | No | — |
+
+For `:rf.fx/handled` specifically: the slot carries the **fx handler's** own registration coord (not the enclosing event handler that produced the `:fx` vector). The runtime rebinds `*current-trigger-handler*` to the fx handler's meta around the fx body's invocation and the success-path emit that follows, so consumer tools jump to the `reg-fx` site — where the fx's logic actually lives — not the event handler upstream. Reserved fx-ids (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`) have no registration site of their own; their `:rf.fx/handled` traces carry the enclosing event handler's coord (the outer binding).
 
 The `:source-coord` payload is whatever the registrar slot's metadata holds. Macro-driven registration (`reg-event-*`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-error-projector`) stamps `:ns` / `:file` / `:line` / `:column` flat onto the meta map at compile time; the trigger-handler builder picks those keys off and re-nests them under `:source-coord`. Programmatic / REPL registrations bypass the macro path and carry no coord — in that case the entire `:rf.trace/trigger-handler` slot is omitted rather than populated with placeholder data (better no field than poison-data).
 
-Production elision: the slot is **NOT separately elided**. The trace surface as a whole is gated by `re-frame.interop/debug-enabled?` per [§Production builds](#production-builds-zero-overhead-zero-code) — when an error trace is emitted at all, the trigger-handler field rides along on it. There is no second gate that selectively drops the field while keeping the rest of the event. Apps that keep the trace surface in production (rare; opt in by setting `goog.DEBUG=true` on the `:advanced` build) get the trigger-handler coord along with every error event. Apps using the default `goog.DEBUG=false` `:advanced` build get neither the field nor the surrounding trace surface — the entire `(when interop/debug-enabled? ...)` branch DCEs.
+Production elision: the slot is **NOT separately elided**. The trace surface as a whole is gated by `re-frame.interop/debug-enabled?` per [§Production builds](#production-builds-zero-overhead-zero-code) — when a trace event is emitted at all, the trigger-handler field rides along on it when bound. There is no second gate that selectively drops the field while keeping the rest of the event. Apps that keep the trace surface in production (rare; opt in by setting `goog.DEBUG=true` on the `:advanced` build) get the trigger-handler coord along with every emitted event. Apps using the default `goog.DEBUG=false` `:advanced` build get neither the field nor the surrounding trace surface — the entire `(when interop/debug-enabled? ...)` branch DCEs.
 
-Consumer access: read `(:rf.trace/trigger-handler error-event)` for the map, `(get-in error-event [:rf.trace/trigger-handler :source-coord])` for the coord, `(get-in error-event [:rf.trace/trigger-handler :id])` for the handler's id. No new namespace is required to read the slot.
+Consumer access: read `(:rf.trace/trigger-handler event)` for the map, `(get-in event [:rf.trace/trigger-handler :source-coord])` for the coord, `(get-in event [:rf.trace/trigger-handler :id])` for the handler's id. No new namespace is required to read the slot.
 
 ### Error namespace convention — five prefix shapes
 
@@ -739,6 +799,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.ssr/hydration-mismatch` | First client render diverges from server-supplied render-tree, OR the client-computed head model differs from the server-supplied head. The `:failing-id` discriminator routes the two cases (`:rf/hydrate` for the body, `:rf.ssr/head-mismatch` for the head). Per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection) and [011 §Mismatch detection — head](011-SSR.md#mismatch-detection--head) | `:server-hash`, `:client-hash`, `:failing-id`, `:first-diff-path?` (body), `:head-id` (head) |
 | `:rf.warning/plain-fn-under-non-default-frame-once` | A plain (non-`reg-view`) Reagent fn rendered under a non-default frame; routed to `:rf/default`. Emitted at most once per `(component-id, non-default-frame-id)` pair — see [004 §Plain Reagent fns](004-Views.md) | `:fn-name`, `:rendered-under`, `:routed-to` |
 | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | A `dispatch` resolved to `:rf/default` purely because the resolution chain fell through (no `:frame` opt supplied, dynamic `*current-frame*` unbound, adapter React-context value unresolvable) AND no handler for that event-id exists on `:rf/default`. The canonical trigger is a `dispatch` from an async callback (`setTimeout`, `addEventListener`, `requestAnimationFrame`, `Promise.then`) attached inside a view body — the surrounding frame-context binding does not survive the async escape (per [002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body)). Suppressed in single-frame apps (only `:rf/default` registered) — the footgun requires at least one non-default sibling frame. Emitted alongside the existing `:rf.error/no-such-handler` error; the warning carries the specific diagnostic with the recommended fixes. No suppression cache — the warning fires every time the conditions match. Per rf2-o8m0 | `:event` (the dispatched event vector), `:event-id` (first of the vector), `:routed-to` (`:rf/default`), `:detected-at` (wall-clock ms), `:reason` |
+| `:rf.warning/cross-frame-dispatch-sync-during-drain` | A `dispatch-sync!` was issued against a target frame while a *different* frame is mid-drain (same-frame reentry is already rejected as `:rf.error/dispatch-sync-in-handler`). The cross-frame case is not rejected — frames are independent state machines per [002 §Run-to-completion §Rules rule 1](002-Frames.md#rules) — but the cascades interleave (the target frame drains to settled while the caller's frame is still in flight, then the caller continues), which is rarely the caller's intent. Surfaced for observability tools; the dispatch proceeds. Per [002 §Cross-frame `dispatch-sync`](002-Frames.md#cross-frame-dispatch-sync-during-a-sibling-drain-warns-but-proceeds) and rf2-fp97 | `:caller-frame` (the frame read from `*current-frame*`, or `:rf/none` when unbound), `:target-frame` (the `dispatch-sync!`'s target), `:other-frame` (an arbitrary mid-drain sibling — typically the caller's frame), `:event` (the dispatched event vector), `:reason` |
 | `:rf.warning/no-clock-configured` | A timing-sensitive substrate feature (e.g. state-machine `:after` per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) was exercised on a host whose `re-frame.interop` clock primitives (`now-ms` / `schedule-after!` / `cancel-scheduled!`) weren't wired up. The runtime falls back to the host-native clock if available; this advisory surfaces so tests / agents can spot the missing wiring | `:feature` (e.g. `:rf.machine/after`), `:fallback` (the host-native clock used) |
 | `:rf.error/duplicate-url-binding` | A second frame attempted `:url-bound? true` while another already owns the URL. Per [012 §Multi-frame routing](012-Routing.md#multi-frame-routing) | `:existing-frame`, `:offending-frame` |
 | `:rf.error/system-id-collision` | A spawn whose `:system-id` was already bound in the per-frame `[:rf/system-ids]` reverse index displaced the previous binding. Last-write-wins, matching `reg-event-fx` re-registration semantics. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and rf2-suue | `:frame`, `:system-id`, `:existing-machine` (the displaced gensym'd id), `:rebound-to` (the new gensym'd id) |
@@ -974,6 +1035,7 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.warning/decode-defaulted` | `:ignored` | Informational; auto-decode proceeds normally. |
 | `:rf.warning/write-after-destroy` | `:no-recovery` | The write is dropped; the substrate's `replace-container!` is not invoked. |
 | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | `:no-recovery` | The warning is purely diagnostic; the existing `:rf.error/no-such-handler` error fires alongside and carries the canonical `:replaced-with-default` recovery for the dispatch itself. Per rf2-o8m0. |
+| `:rf.warning/cross-frame-dispatch-sync-during-drain` | `:no-recovery` | The dispatch proceeds; the warning is purely diagnostic. Frames are independent state machines so the cross-frame cascade is not a contract violation, but the interleaved ordering is rarely intentional — the warning surfaces the pattern for observability tools. Per rf2-fp97. |
 | `:rf.http/cljs-only-key-ignored-on-jvm` | `:ignored` | The unsupported key is dropped; the request proceeds with the remaining keys. |
 | `:rf.http/retry-attempt` | `:retried` | A new attempt is scheduled; the consumer sees the trace and the eventual final outcome via `:on-failure` / `:on-success`. |
 | `:route.nav-token/stale-suppressed` | `:logged-and-skipped` | The async reply is suppressed; the active navigation cascade continues unchanged. |
@@ -1060,7 +1122,13 @@ Multiple listeners may register concurrently. **Listener-invocation order is not
 
 ### Trace correlation across the cascade
 
-Use the `:dispatch-id` field under `:tags` on **every** trace event emitted inside a cascade (per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id)). Grouping raw trace events by cascade is a single-key filter — `(filter #(= cascade-id (get-in % [:tags :dispatch-id])) events)`. Tools that need cascade *trees* walk `:parent-dispatch-id` upward across `:event/dispatched` events (the inter-cascade lineage channel). Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) — the raw `:dispatch-id` channel is the lower-level primitive.
+Two cascade-wide channels ride on **every** trace event emitted inside a cascade — neither is scoped to errors:
+
+1. **`:dispatch-id`** under `:tags` (per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id)). Grouping raw trace events by cascade is a single-key filter — `(filter #(= cascade-id (get-in % [:tags :dispatch-id])) events)`. Tools that need cascade *trees* walk `:parent-dispatch-id` upward across `:event/dispatched` events (the inter-cascade lineage channel).
+
+2. **`:rf.trace/trigger-handler`** at the top level (per [§`:rf.trace/trigger-handler` — naming the in-scope handler](#rftracetrigger-handler--naming-the-in-scope-handler)). Names the handler whose code produced the event and carries its registration coord — so jump-to-source links work from every trace event in a cascade, not just errors. Rides on `:rf.fx/handled`, `:rf.machine/transition`, `:event/db-changed`, `:event/do-fx`, `:sub/run`, `:view/render`, and all `:rf.error/*` events whenever a handler is in scope at emit time. Omitted outside any handler scope (registration-time emits, outermost-dispatch lookup failures).
+
+Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) — the raw `:dispatch-id` / `:rf.trace/trigger-handler` channels are the lower-level primitives.
 
 ### Trace event for app-db changes
 

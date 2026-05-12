@@ -28,7 +28,7 @@
 | `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | |
 | `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
 | `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | 002 | Unary or binary handler. |
-| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | |
+| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | Reading a sub's value from a handler is by cofx-wrapping — see [Guide ch.05 §Reading a sub from a handler](../docs/guide/05-coeffects.md#reading-a-sub-from-a-handler). |
 | `reg-frame` | M | `(reg-frame id metadata)` | v1 | 002 | Atomic create + register. |
 | `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | 002 | Anonymous frame; gensym'd id. |
 | `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |

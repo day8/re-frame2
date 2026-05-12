@@ -1,12 +1,14 @@
 # re-frame2-implementor
 
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
 A `Skill` that helps `Claude Code` (or any Anthropic-skill-compatible agent) guide an engineer **building a new re-frame2 implementation** — a port to a different host language or substrate, not an application built on the existing CLJS reference.
 
 This is the **implementor's companion** to the three application-side skills in this repo:
 
-- [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — for writing application code on the CLJS reference.
-- [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) — for bootstrapping a fresh greenfield project on the CLJS reference.
-- [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) — for porting an existing re-frame v1 codebase to the CLJS reference.
+- [`re-frame2`](../re-frame2/) — for writing application code on the CLJS reference.
+- [`re-frame2-setup`](../re-frame2-setup/) — for bootstrapping a fresh greenfield project on the CLJS reference.
+- [`re-frame-migration`](../re-frame-migration/) — for porting an existing re-frame v1 codebase to the CLJS reference.
 
 Where the three application-side skills are about **using** re-frame2, this skill is about **realising** it.
 

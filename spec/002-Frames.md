@@ -754,6 +754,10 @@ Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-d
 
 The shape that drains as part of the surrounding cascade is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](MIGRATION.md) for the migration rule.
 
+#### Cross-frame `dispatch-sync` during a sibling drain warns but proceeds
+
+The same-frame check above is strict: a `dispatch-sync!` against the caller's own frame during its drain is rejected. The cross-frame case is *not* rejected. A `dispatch-sync!` against a **different** frame while the caller's frame is mid-drain interleaves the cascades — frame B runs to settled, then frame A continues. This is intentional (frames are independent state machines per [§Rules rule 1](#rules) — no cross-frame drain), but rarely the caller's intent, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` (per [009 §Error categories (initial set)](009-Instrumentation.md#error-categories-initial-set)) so observability tools spot the pattern. The dispatch proceeds; `:recovery :no-recovery`. For fire-and-forget cross-frame coordination prefer the async form `(rf/dispatch event {:frame other})` — it queues on the target frame's router and drains on a later cycle, after the caller's cascade settles. Per rf2-fp97.
+
 ### Preserved low-level APIs are per-frame
 
 The router/queue helpers preserved from v1 operate on a *specific* frame's router state. Multi-frame routing made them under-specified in v1; v1.x of re-frame2 locks the rule:
@@ -792,6 +796,12 @@ The distinction is documentary and conceptual, not technical. One dispatch pipel
   {:on-create   [:auth/initialise]
    :drain-depth 100})       ;; default and runtime-overridable
 ```
+
+### Single-drainer invariant (concurrent hosts)
+
+The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning. Per rf2-ynk7.
+
+On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
 
 ### What is and isn't drained
 

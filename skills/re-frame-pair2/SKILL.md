@@ -1,16 +1,17 @@
 ---
 name: re-frame-pair2
 description: >
-  Pair-program with a live re-frame2 application. Attach to a running
-  shadow-cljs build via nREPL, inspect any frame's app-db, dispatch
-  events, hot-swap handlers, trace the six dominoes, and read the
-  per-frame epoch history — all through re-frame2's own runtime
-  contract (Tool-Pair Spec). No re-frame-10x dependency. Use this
-  skill whenever the user asks about their running re-frame2 app or
-  uses any of: re-frame2, app-db, dispatch, subscribe, reg-event,
-  reg-sub, reg-fx, reg-machine, frame, epoch, interceptor, sub-cache,
-  trace-buffer, register-trace-cb, register-epoch-cb!, restore-epoch,
-  re-com, shadow-cljs.
+  Pair-program against a **running** re-frame2 application via its
+  Tool-Pair contract — attach to a live shadow-cljs nREPL, inspect a
+  frame's app-db, dispatch events, hot-swap handlers, read the trace
+  stream and per-frame epoch history, and time-travel with
+  `restore-epoch`. Use when the user is operating on (or wants to
+  operate on) a live runtime they have running locally. **Do not use**
+  for static spec reading, architecture questions, design discussion,
+  or ordinary source edits when no runtime is involved — those belong
+  to `skills/re-frame2/` (authoring) or direct spec reading. See
+  `references/vocabulary.md` for the surface glossary; vocabulary
+  matches alone do not justify activation.
 allowed-tools:
   # MCP transport (preferred — single persistent nREPL connection per session)
   - mcp__re-frame-pair2__discover-app
