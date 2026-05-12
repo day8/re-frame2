@@ -28,7 +28,8 @@
   (1) explicit > implicit at the call site; (2) the registry is bundle
   weight even when unused — under rf2-agql an app that requires only
   the adapter it needs ships only that adapter's code."
-  (:require [re-frame.trace :as trace]))
+  (:require [re-frame.late-bind :as late-bind]
+            [re-frame.trace :as trace]))
 
 ;; ---- adapter installation -------------------------------------------------
 
@@ -118,3 +119,51 @@
   (let [a @installed-adapter
         f (:register-context-provider a)]
     (when f (f frame-keyword))))
+
+;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
+;;
+;; Each CLJS adapter (reagent, reagent-slim, uix, helix) publishes ~7-9
+;; late-bind hooks at ns-load time so consumers in core (subs, views,
+;; interop) reach the installed adapter's substrate-specific impls
+;; without a static :require. In test bundles that load multiple adapter
+;; ns's, a plain (late-bind/set-fn! k impl) means only the LAST-LOADED
+;; adapter's impl survives — and an app installed via
+;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's impl,
+;; breaking adapter-specific contracts.
+;;
+;; Per rf2-0d35 the fix is to wrap each adapter's impl in a routing
+;; closure that runs the impl ONLY when this adapter is the
+;; (rf/init!)-installed one; otherwise the closure chains to the
+;; previously-registered handler (which itself does the same
+;; active-adapter check for ITS adapter). The chain terminates with
+;; fallback-fn when no previous handler is registered — typically
+;; `(constantly nil)` (default), `(constantly false)` for predicates,
+;; or `#(frame/current-frame)` for the React-context-tier
+;; `:adapter/current-frame` hook (whose chain-bottom is the
+;; dynamic-var / :rf/default resolution in re-frame.frame).
+
+(defn route-hook!
+  "Install `impl-fn` under late-bind hook `hook-key`, wrapped so the call
+  dispatches to `impl-fn` ONLY when `adapter-spec` is the currently
+  (rf/init!)-installed adapter; otherwise it chains to the previously-
+  registered handler. When no previous handler is registered (this is
+  the first/only adapter to publish this hook), the routed closure
+  returns `(fallback-fn)`.
+
+  Per rf2-0d35. See `spec/006-ReactiveSubstrate.md` for the adapter
+  routing contract.
+
+  3-arg form: defaults `fallback-fn` to `(constantly nil)` — the
+  most common shape across the adapters (nil-fallback semantics).
+  4-arg form: callers pass an explicit thunk for predicate hooks
+  (`(constantly false)`) or the React-context tier
+  (`#(frame/current-frame)`)."
+  ([adapter-spec hook-key impl-fn]
+   (route-hook! adapter-spec hook-key impl-fn (constantly nil)))
+  ([adapter-spec hook-key impl-fn fallback-fn]
+   (let [previous (late-bind/get-fn hook-key)]
+     (late-bind/set-fn! hook-key
+       (fn routed-hook [& args]
+         (if (identical? adapter-spec (current-adapter))
+           (apply impl-fn args)
+           (if previous (apply previous args) (fallback-fn))))))))
