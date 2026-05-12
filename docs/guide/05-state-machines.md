@@ -568,7 +568,7 @@ A few traps the pattern doc calls out explicitly:
 - **Input changing mid-process.** The machine's `:data` holds the input vector that `:start-scan` snapshotted. If the source data changes while the scan runs, the machine keeps processing the original snapshot — which is usually what you want. If it isn't, `:reset` and re-start.
 - **Forgetting cancel.** Long jobs need a cancel path. The state-machine shape makes this trivial; ad-hoc self-redispatch loops make it painful.
 
-The v1 idiom for this — `^:flush-dom` event metadata, or self-redispatching `{:dispatch [...]}` "tail call" loops — is gone. The replacement is this machine: explicit states, named transitions, encapsulated `:data`, cancellation as a transition, progress as a snapshot field. Full walkthrough including the `:dispatch-later {:ms 0}` "yield once before one big block" variant: [`spec/Pattern-LongRunningWork.md`](../../spec/Pattern-LongRunningWork.md).
+The v1 idiom for this — `^:flush-dom` event metadata, or self-redispatching `{:dispatch [...]}` "tail call" loops — is gone. The replacement is this machine: explicit states, named transitions, encapsulated `:data`, cancellation as a transition, progress as a snapshot field. Full walkthrough including the `:dispatch-later {:ms 0}` "yield once before one big block" variant: [`spec/Pattern-LongRunningWork.md`](../../spec/Pattern-LongRunningWork.md). For where this pattern sits among the other shapes of performance work in re-frame2 — and the worker-offload alternative — see [11a — Performance](11a-performance.md#when-to-reach-for-the-chunked-work-machine).
 
 ## When to reach for a machine, and when not to
 
