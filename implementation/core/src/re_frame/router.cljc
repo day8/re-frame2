@@ -69,7 +69,22 @@
         default-frame      #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
                                       (f)
                                       (frame/current-frame))
-                              :clj  (frame/current-frame))]
+                              :clj  (frame/current-frame))
+        explicit-frame?    (some? (:frame opts))
+        ;; Per rf2-o8m0: capture whether resolution fell through the entire
+        ;; chain (dynamic var unbound, adapter context unresolvable, no
+        ;; explicit `:frame` opt) and landed on `:rf/default` purely as
+        ;; the bottom-of-chain default. The warning surface in
+        ;; `process-event*` uses this flag to discriminate "dispatch
+        ;; explicitly targeted :rf/default" from "dispatch lost its
+        ;; frame-context binding and silently slid to :rf/default." Dev-
+        ;; only — like the rest of the trace surface, elided under
+        ;; `interop/debug-enabled?` so production carries no allocation
+        ;; for the warning detection.
+        fallthrough?       (when interop/debug-enabled?
+                             (and (not explicit-frame?)
+                                  (nil? frame/*current-frame*)
+                                  (= :rf/default default-frame)))]
     (cond-> {:event                  event
              :frame                  (or (:frame opts) default-frame)
              :fx-overrides           (:fx-overrides opts {})
@@ -79,10 +94,79 @@
              :origin                 (:origin opts :app)
              :dispatched-at          (interop/now-ms)}
       dispatch-id        (assoc :dispatch-id        dispatch-id)
-      parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id))))
+      parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
+      fallthrough?       (assoc :fell-through-to-default? true))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
+
+(defn- non-default-frame-registered?
+  "True when at least one registered, non-destroyed frame other than
+  `:rf/default` exists. The `:rf.warning/dispatch-from-async-callback-
+  fell-through-to-default` warning is suppressed when this is false:
+  single-frame apps cannot hit the footgun (the resolution chain has
+  nowhere else to land), so emitting the warning would be noise rather
+  than signal. Per rf2-o8m0."
+  []
+  (let [ids (frame/frame-ids)]
+    (boolean (some (fn [k] (not= :rf/default k)) ids))))
+
+(defn- emit-fallthrough-warning!
+  "Per rf2-o8m0: dispatch landed on `:rf/default` purely because the
+  resolution chain found nothing else (dynamic var unbound, adapter
+  React-context unresolvable, no explicit `:frame` opt) AND the target
+  handler does not exist on `:rf/default`. The user almost certainly
+  wanted the dispatch to ride a non-default frame; the most common
+  trigger is dispatching from an async callback (setTimeout,
+  addEventListener, requestAnimationFrame, Promise.then) attached
+  inside a view body, where the surrounding `*current-frame*` binding
+  does not survive the async escape (per Spec 002 §Dispatches issued
+  from inside a handler body).
+
+  Suppressed when no non-default frame is registered — single-frame
+  apps cannot hit the footgun.
+
+  `:source-coord` is left to the existing `:rf.trace/trigger-handler`
+  surface (rf2-3nn8): when a handler is in scope, `emit-error!` /
+  `emit!` hoists the triggering handler's source-coord automatically.
+  When no handler is in scope (the async-callback case the warning is
+  primarily aimed at) `*current-trigger-handler*` is unbound and the
+  field is omitted — `dispatch` is a fn, not a macro, so the call site
+  cannot be stamped without changing the public API. Documented
+  limitation; tools that need call-site attribution capture it
+  externally."
+  [envelope]
+  (when (and (:fell-through-to-default? envelope)
+             (non-default-frame-registered?))
+    (let [event    (:event envelope)
+          event-id (first event)
+          reason   (str "Dispatch of `" event-id "` resolved to `:rf/default` "
+                        "because no `:frame` was supplied and `*current-frame*` "
+                        "was unbound, but no handler for that event is "
+                        "registered on `:rf/default`. The dispatch most "
+                        "likely originated from an async callback "
+                        "(`setTimeout`, `addEventListener`, "
+                        "`requestAnimationFrame`, `Promise.then`) attached "
+                        "from inside a view body — the surrounding "
+                        "frame-context binding does not survive the async "
+                        "escape (per Spec 002 §Dispatches issued from "
+                        "inside a handler body). Fixes (priority order): "
+                        "(a) use `:dispatch-later` or a registered `reg-fx` "
+                        "— both capture the frame in their closure; "
+                        "(b) capture `(rf/bound-dispatcher)` inside the "
+                        "render and call it from the callback; "
+                        "(c) attach the listener from a Form-3 "
+                        "`:component-did-mount` / `use-effect` hook so "
+                        "the dispatcher is captured during render but "
+                        "the listener runs after commit.")]
+      (trace/emit! :warning
+                   :rf.warning/dispatch-from-async-callback-fell-through-to-default
+                   {:event        event
+                    :event-id     event-id
+                    :detected-at  (interop/now-ms)
+                    :routed-to    :rf/default
+                    :reason       reason
+                    :recovery     :no-recovery}))))
 
 (defn- apply-overrides
   "Per Spec 002 §Per-frame and per-call overrides: per-frame and per-call
@@ -218,12 +302,25 @@
       (let [handler-meta (resolve-handler event-id)]
         (cond
           (nil? handler-meta)
-          (trace/emit-error! :rf.error/no-such-handler
-                             {:event-id event-id
-                              :event    event
-                              :frame    frame
-                              :kind     :event
-                              :recovery :replaced-with-default})
+          (do
+            ;; Per rf2-o8m0: when a dispatch lands on `:rf/default` purely
+            ;; because resolution fell through (no `:frame` opt, dynamic
+            ;; var unbound, adapter context unresolvable) AND the handler
+            ;; is missing from `:rf/default`, the user-supplied event
+            ;; almost certainly belongs to a different frame and the
+            ;; dispatch lost its frame-context binding mid-flight
+            ;; (typically: an async callback attached inside a view
+            ;; body). Emit the warning ahead of the
+            ;; `:rf.error/no-such-handler` error so consumers see the
+            ;; specific diagnostic; the error fires too, preserving the
+            ;; existing handler-missing trace contract.
+            (emit-fallthrough-warning! envelope)
+            (trace/emit-error! :rf.error/no-such-handler
+                               {:event-id event-id
+                                :event    event
+                                :frame    frame
+                                :kind     :event
+                                :recovery :replaced-with-default}))
 
           :else
           ;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
