@@ -293,14 +293,116 @@ module.exports = {
       }
     }
 
-    // Click Tests → the tests placeholder appears, :test chip active.
+    // Click Tests → the test pane (rf2-qmjo — `data-test="story-test-
+    // view"`) appears, :test chip active. The pane auto-runs the
+    // variant on first mount; the :loaded variant carries three
+    // canonical `:rf.assert/*` events in its :play slot, all passing.
     await modeTestChip.click();
-    await page
-      .locator('[data-test="story-tests-placeholder"]')
-      .waitFor({ state: 'visible', timeout: 5000 });
+    const testView = page.locator('[data-test="story-test-view"]');
+    await testView.waitFor({ state: 'visible', timeout: 5000 });
     if ((await modeTestChip.getAttribute('aria-selected')) !== 'true') {
       throw new Error('expected :test chip to be aria-selected="true" after click');
     }
+
+    // ----------------------------------------------------------------
+    // 3b-ii. :test mode — in-canvas aggregated test runner (rf2-qmjo)
+    // ----------------------------------------------------------------
+    //
+    // The :test pane composes four sections — header / summary /
+    // per-test rows / empty-state — per spec/009. For :story.counter/
+    // loaded the :play slot declares three passing assertions, so the
+    // status pill MUST read "3 passed" and the row table MUST list
+    // three rows all with data-status="pass".
+    await page
+      .locator('[data-test="story-test-parent-story"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+    await page
+      .locator('[data-test="story-test-rerun"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+
+    // The status pill renders after the auto-run resolves — poll
+    // because the run is asynchronous.
+    const statusPill = page.locator('[data-test="story-test-status-pill"]');
+    await statusPill.waitFor({ state: 'visible', timeout: 5000 });
+    {
+      const start = Date.now();
+      let pillText = '';
+      while (Date.now() - start < 5000) {
+        pillText = await statusPill.innerText().catch(() => '');
+        if (/passed/i.test(pillText)) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!/3\s+passed/i.test(pillText)) {
+        throw new Error(
+          `expected the :test pane's status pill to read "3 passed" for :story.counter/loaded, got: "${pillText}"`,
+        );
+      }
+    }
+
+    // The counts row carries the green / red / grey tallies.
+    const counts = page.locator('[data-test="story-test-counts"]');
+    await counts.waitFor({ state: 'visible', timeout: 2000 });
+    const countsText = await counts.innerText();
+    if (!/3\s+passed/.test(countsText) || !/0\s+failed/.test(countsText)) {
+      throw new Error(
+        `expected counts to read "3 passed / 0 failed", got: "${countsText}"`,
+      );
+    }
+
+    // The per-test rows: three rows, all data-status="pass". Each row
+    // labels its canonical :rf.assert/* id.
+    const passRows = page.locator('[data-test="story-test-row"][data-status="pass"]');
+    {
+      const start = Date.now();
+      let n = 0;
+      while (Date.now() - start < 5000) {
+        n = await passRows.count();
+        if (n >= 3) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (n < 3) {
+        throw new Error(
+          `expected at least 3 passing assertion rows for :story.counter/loaded, got ${n}`,
+        );
+      }
+    }
+    // No failing rows for /loaded.
+    const failRows = await page
+      .locator('[data-test="story-test-row"][data-status="fail"]')
+      .count();
+    if (failRows !== 0) {
+      throw new Error(
+        `expected 0 failing rows for :story.counter/loaded, got ${failRows}`,
+      );
+    }
+
+    // The Re-run button re-fires the lifecycle. Click it; the pill
+    // must still read "3 passed" afterwards. Polling because the run
+    // is async; we check both that the button reappears (running?
+    // toggles off) and the pill stays green.
+    await page.locator('[data-test="story-test-rerun"]').click();
+    {
+      const start = Date.now();
+      let recovered = false;
+      while (Date.now() - start < 5000) {
+        const txt = await statusPill.innerText().catch(() => '');
+        if (/3\s+passed/i.test(txt)) {
+          recovered = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!recovered) {
+        throw new Error(
+          'expected status pill to still read "3 passed" after Re-run click',
+        );
+      }
+    }
+
+    // Last-run elapsed badge MUST render once a run has completed.
+    await page
+      .locator('[data-test="story-test-elapsed"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
 
     // Verify the persisted localStorage record. The mode-tabs primitive
     // writes under `re-frame.story/active-mode-tab/:story.counter/loaded`.
@@ -329,7 +431,7 @@ module.exports = {
     await waitForVariantTitle(page, ':story.counter/loaded');
 
     // After reload + re-select, the :test chip should be re-hydrated as
-    // active and the tests placeholder visible. Poll: hydration from
+    // active and the test pane visible. Poll: hydration from
     // localStorage runs on the first render of the strip for this
     // variant, which is the tick after `clickVariant` settles.
     {
@@ -353,7 +455,7 @@ module.exports = {
       }
     }
     await page
-      .locator('[data-test="story-tests-placeholder"]')
+      .locator('[data-test="story-test-view"]')
       .waitFor({ state: 'visible', timeout: 5000 });
 
     // Switch back to Canvas so the remaining sub-tests see the live

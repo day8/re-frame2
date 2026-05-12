@@ -11,6 +11,7 @@
 - **[006-MCP-Surface.md](006-MCP-Surface.md)** — The boundary between Story and `tools/story-mcp/`; surfaces Story exposes for the MCP jar; late-bind `reg-story-panel` for tooling embeds.
 - **[007-Mode-Tabs.md](007-Mode-Tabs.md)** — The render-shell's top-of-canvas `:dev` / `:docs` / `:test` switcher; the chrome-level primitive every 2026 component playground ships (rf2-9hc8).
 - **[008-Docs-Mode.md](008-Docs-Mode.md)** — The `:docs` mode pane — read-only AutoDocs-equivalent: header, prose, args, decorators, parameters, tags for the active variant (rf2-rodx).
+- **[009-Test-Mode.md](009-Test-Mode.md)** — The `:test` mode pane — in-canvas aggregated test runner: status pill, per-row pass/fail, collapsible failure detail, Re-run button (rf2-qmjo).
 - **[API.md](API.md)** — Consolidated public surface for `day8/re-frame2-story`: every `reg-*`, every fn, every fx-id, every cofx-id.
 - **[Principles.md](Principles.md)** — Story-specific non-negotiables — EDN-first first among them — the test new features pass against.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — WHY each major call was made; the seven rf2-m6tu §6 decisions plus Phase-2 SOTA additions and IMPL-SPEC-emergent calls.

@@ -10,9 +10,9 @@
               in `re-frame.story.ui.docs` (rf2-rodx); this primitive
               owns the chip strip only.
   - `:test` — Tests. The in-canvas aggregated pass/fail summary for the
-              variant's interactions / assertions. The full
-              implementation lands with rf2-qmjo; this primitive ships
-              the placeholder.
+              variant's interactions / assertions. Implemented in
+              `re-frame.story.ui.test-mode` (rf2-qmjo); this primitive
+              owns the chip strip only.
 
   ## Primitive surface
 
@@ -30,7 +30,7 @@
 
   - `:dev`  → existing canvas / workspace path (unchanged).
   - `:docs` → `re-frame.story.ui.docs/docs-view` (rf2-rodx).
-  - `:test` → `tests-placeholder` (rf2-qmjo will replace this).
+  - `:test` → `re-frame.story.ui.test-mode/test-view` (rf2-qmjo).
 
   ## Visual style
 
@@ -184,18 +184,9 @@
 
 ;; ---- placeholder panes ---------------------------------------------------
 ;;
-;; rf2-rodx (Docs) is now implemented in `re-frame.story.ui.docs`. The
-;; `:test` placeholder remains until rf2-qmjo lands — the chrome
-;; surfaces the contract so users know the mode exists and that the
-;; dedicated view is on the roadmap.
-
-(defn tests-placeholder
-  "Stub for the `:test` mode pane. Replaced by rf2-qmjo."
-  [variant-id]
-  [:div {:style     (:placeholder styles)
-         :data-test "story-tests-placeholder"}
-   [:div {:style {:font-weight "bold" :margin-bottom "8px"}}
-    "Tests view"]
-   [:div "Aggregated pass/fail summary of interactions / assertions for "
-    [:code (str variant-id)]
-    " coming in rf2-qmjo."]])
+;; rf2-rodx (Docs) is implemented in `re-frame.story.ui.docs`; rf2-qmjo
+;; (Tests) is implemented in `re-frame.story.ui.test-mode`. Both
+;; placeholders have been removed — the shell routes the `:docs` /
+;; `:test` cases directly at the dedicated panes. The `:placeholder`
+;; style entry below stays in the styles map in case a future pane
+;; needs an empty-state shape, but no placeholder fn is registered.

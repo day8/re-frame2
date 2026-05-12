@@ -26,6 +26,7 @@
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.sidebar :as sidebar]
+            [re-frame.story.ui.test-mode :as test-mode]
             [re-frame.story.ui.trace :as trace]
             [re-frame.story.ui.workspace :as workspace]))
 
@@ -303,6 +304,43 @@
       (is (= [{:key :greeting :value "hi" :doc "the greeting"}]
              rows)))
     (is (= [:dev :docs] (docs/variant-tags :story.dvh/x)))))
+
+;; ---- :test mode (rf2-qmjo) ----------------------------------------------
+
+(deftest test-view-is-a-fn
+  (testing "test-view is callable from the shell"
+    (is (fn? test-mode/test-view))))
+
+(deftest test-view-empty-state-without-play
+  (testing "test-view renders the empty-state placeholder when the
+            variant body has no :play slot — the variant is registered
+            but declares zero assertions, so no run is fired."
+    (story/reg-variant :story.tv/no-play {:events []})
+    (let [result (test-mode/test-view :story.tv/no-play)]
+      ;; r/create-class returns a fn — Reagent will invoke it during
+      ;; render. We at least confirm the helper returns a non-nil
+      ;; component descriptor.
+      (is (some? result)))
+    (is (nil? (test-mode/test-view nil))
+        "no variant-id = no pane")))
+
+(deftest test-view-pure-helpers
+  (testing "the pure section helpers run end-to-end in CLJS too"
+    (let [summary (test-mode/aggregate-summary
+                    [{:assertion :rf.assert/path-equals :passed? true}
+                     {:assertion :rf.assert/sub-equals  :passed? false}])]
+      (is (= 2 (:total summary)))
+      (is (= 1 (:passed summary)))
+      (is (= 1 (:failed summary)))
+      (is (false? (:all-passed? summary))))
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/path-equals
+                 :payload   [[:k] 1] :passed? true})]
+      (is (= :pass (:status row))))
+    (is (= "12 ms" (test-mode/format-elapsed-ms 12)))
+    (is (= "1.2 s" (test-mode/format-elapsed-ms 1234)))
+    (is (re-matches #"\d{2}:\d{2}:\d{2}"
+                    (test-mode/format-timestamp-ms (.getTime (js/Date.)))))))
 
 ;; ---- canvas: decorator-wrap exception swallow ---------------------------
 ;;

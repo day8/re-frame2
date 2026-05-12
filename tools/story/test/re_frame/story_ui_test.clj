@@ -24,6 +24,7 @@
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.docs   :as docs]
             [re-frame.story.ui.state  :as state]
+            [re-frame.story.ui.test-mode :as test-mode]
             [re-frame.story.ui.workspace :as workspace]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -396,3 +397,131 @@
       ;; Sorted by workspace id (alphabetic) then content order — :a/a
       ;; before :b/b.
       (is (= ["alpha" "beta"] bodies)))))
+
+;; ---- test mode (rf2-qmjo) -----------------------------------------------
+
+(deftest test-mode-parent-story-id
+  (testing "parent-story-id mirrors the docs helper"
+    (is (= :story.foo (test-mode/parent-story-id :story.foo/bar)))
+    (is (nil? (test-mode/parent-story-id :no-namespace)))
+    (is (nil? (test-mode/parent-story-id nil)))))
+
+(deftest test-mode-variant-has-tests?-checks-play-slot
+  (testing "variant-has-tests? is false when :play is absent or empty"
+    (story/reg-variant :story.tm/empty {:events []})
+    (story/reg-variant :story.tm/empty-play {:events [] :play []})
+    (is (not (test-mode/variant-has-tests? :story.tm/empty)))
+    (is (not (test-mode/variant-has-tests? :story.tm/empty-play))))
+  (testing "variant-has-tests? is true when :play carries any event"
+    (story/reg-variant :story.tm/has
+      {:events [] :play [[:rf.assert/path-equals [:count] 0]]})
+    (is (test-mode/variant-has-tests? :story.tm/has)))
+  (testing "variant-has-tests? returns false for an unknown variant-id"
+    (is (not (test-mode/variant-has-tests? :story.tm/unknown)))))
+
+(deftest test-mode-aggregate-summary-counts-pass-fail-skip
+  (testing "aggregate-summary tallies passed / failed / skipped"
+    (let [s (test-mode/aggregate-summary
+              [{:assertion :rf.assert/path-equals :passed? true}
+               {:assertion :rf.assert/path-equals :passed? false}
+               {:assertion :rf.assert/sub-equals  :passed? true}
+               {:assertion :rf.assert/skipped     :passed? false}])]
+      (is (= 4 (:total s)))
+      (is (= 2 (:passed s)))
+      (is (= 1 (:failed s)))
+      (is (= 1 (:skipped s)))
+      (is (false? (:all-passed? s)))))
+  (testing "aggregate-summary's :all-passed? is true only when every
+            non-skipped record passed AND no records were skipped"
+    (let [all-pass (test-mode/aggregate-summary
+                     [{:assertion :rf.assert/path-equals :passed? true}
+                      {:assertion :rf.assert/sub-equals  :passed? true}])]
+      (is (true?  (:all-passed? all-pass)))
+      (is (= 0   (:failed all-pass)))
+      (is (= 0   (:skipped all-pass))))
+    (let [with-skip (test-mode/aggregate-summary
+                      [{:assertion :rf.assert/path-equals :passed? true}
+                       {:assertion :rf.assert/skipped     :passed? false}])]
+      (is (false? (:all-passed? with-skip))
+          "a skipped record disqualifies :all-passed?")))
+  (testing "aggregate-summary on an empty vector returns zeros + :all-passed? false"
+    (let [s (test-mode/aggregate-summary [])]
+      (is (= 0 (:total s)))
+      (is (= 0 (:passed s)))
+      (is (= 0 (:failed s)))
+      (is (= 0 (:skipped s)))
+      (is (false? (:all-passed? s))
+          "zero records = not 'all passed' (the variant ran nothing)")))
+  (testing "aggregate-summary tolerates nil"
+    (let [s (test-mode/aggregate-summary nil)]
+      (is (= 0 (:total s)))
+      (is (false? (:all-passed? s))))))
+
+(deftest test-mode-assertion-row-projection
+  (testing "assertion-row maps a passing record to :status :pass"
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/path-equals
+                 :payload   [[:count] 7]
+                 :passed?   true
+                 :expected  7
+                 :actual    7})]
+      (is (= :pass (:status row)))
+      (is (= :rf.assert/path-equals (:assertion row)))
+      (is (re-find #":rf.assert/path-equals" (:label row)))
+      (is (re-find #"\[\[:count\] 7\]" (:label row)))))
+  (testing "assertion-row maps a failing record to :status :fail + surfaces detail"
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/path-equals
+                 :payload   [[:count] 7]
+                 :passed?   false
+                 :expected  7
+                 :actual    0
+                 :reason    "mismatch"
+                 :source    {:file "stories.cljs" :line 42}})]
+      (is (= :fail (:status row)))
+      (let [d (:detail row)]
+        (is (= 7   (:expected d)))
+        (is (= 0   (:actual   d)))
+        (is (= "mismatch" (:reason d)))
+        (is (= {:file "stories.cljs" :line 42} (:source d))))))
+  (testing "assertion-row maps :rf.assert/skipped to :status :skip"
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/skipped :passed? false})]
+      (is (= :skip (:status row)))))
+  (testing "assertion-row reads :source-coord as a fallback for :source"
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/sub-equals
+                 :passed?   false
+                 :source-coord {:file "f.cljs" :line 9}})]
+      (is (= {:file "f.cljs" :line 9} (-> row :detail :source)))))
+  (testing "assertion-row's :label omits an empty payload"
+    (let [row (test-mode/assertion-row
+                {:assertion :rf.assert/no-warnings
+                 :payload   []
+                 :passed?   true})]
+      (is (= ":rf.assert/no-warnings" (:label row)))))
+  (testing "assertion-row tolerates a fully-empty record without throwing"
+    (let [row (test-mode/assertion-row nil)]
+      (is (= :fail (:status row))
+          "nil record defaults to fail — a missing passed? slot can't be 'pass'")
+      (is (some? (:label row))))))
+
+(deftest test-mode-format-elapsed-ms
+  (testing "format-elapsed-ms switches at the 1s boundary"
+    (is (= "0 ms"   (test-mode/format-elapsed-ms 0)))
+    (is (= "12 ms"  (test-mode/format-elapsed-ms 12)))
+    (is (= "999 ms" (test-mode/format-elapsed-ms 999)))
+    (is (= "1.0 s"  (test-mode/format-elapsed-ms 1000)))
+    (is (= "1.2 s"  (test-mode/format-elapsed-ms 1234))))
+  (testing "format-elapsed-ms tolerates nil / non-numbers / negatives"
+    (is (= "" (test-mode/format-elapsed-ms nil)))
+    (is (= "" (test-mode/format-elapsed-ms "no")))
+    (is (= "" (test-mode/format-elapsed-ms -5)))))
+
+(deftest test-mode-format-timestamp-ms
+  (testing "format-timestamp-ms emits an HH:mm:ss-shaped string"
+    (let [s (test-mode/format-timestamp-ms (System/currentTimeMillis))]
+      (is (re-matches #"\d{2}:\d{2}:\d{2}" s))))
+  (testing "format-timestamp-ms returns empty string for non-numbers"
+    (is (= "" (test-mode/format-timestamp-ms nil)))
+    (is (= "" (test-mode/format-timestamp-ms "no")))))
