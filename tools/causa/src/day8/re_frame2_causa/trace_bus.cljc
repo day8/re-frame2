@@ -79,6 +79,101 @@
   []
   @buffer-state)
 
+;; ---- consumer-side filter (rf2-qi8au) -----------------------------------
+;;
+;; Causa's panels slice the buffer by the same filter vocabulary the
+;; framework exposes on `(rf/trace-buffer opts)` per Spec 009 §Retain-N
+;; trace ring buffer (rf2-97ah0 extended the vocab with nine axes —
+;; :severity / :event-id / :handler-id / :source / :origin / :dispatch-id /
+;; :since-ms / :between / :pred — on top of the original :operation /
+;; :op-type / :since / :frame). The framework's filter is private inside
+;; `trace-buffer`; consumers wanting the same algebra against a buffer
+;; they hold themselves (Causa's deeper ring; a snapshot lifted out of a
+;; session) would otherwise duplicate the predicate. `filter-events`
+;; exposes that algebra as a pure-data fn against an arbitrary event
+;; vector, locking the consumer contract: when Causa panels begin
+;; slicing the buffer, they use the same vocabulary the framework does.
+;;
+;; Pure-data + JVM-runnable so the JVM test suite can drive every axis
+;; without booting a CLJS runtime. No atoms, no interop, no swap!.
+
+(defn filter-events
+  "Apply the trace-buffer filter vocabulary to an arbitrary event vector.
+  Returns a vector containing only events where every supplied filter
+  key matches. Filters compose AND-wise; an absent key means
+  'no constraint on that axis'. Mirrors `re-frame.trace/trace-buffer`'s
+  filter algebra so Causa-side consumers slice the buffer using the
+  same vocabulary the framework exposes.
+
+  Recognised keys (per Spec 009 §Retain-N trace ring buffer + rf2-97ah0):
+
+    Pre-rf2-97ah0:
+      :operation     — keep events with this :operation value.
+      :op-type       — keep events with this :op-type value.
+      :since         — keep events whose :id is strictly greater.
+      :frame         — keep events whose :frame (top-level or :tags) matches.
+
+    rf2-97ah0 extensions:
+      :severity      — keep events whose :op-type matches the tier
+                       (:error / :warning / :info). Synonym for :op-type
+                       restricted to those three values.
+      :event-id      — keep events whose :tags :event-id matches.
+      :handler-id    — keep events whose :tags :handler-id matches.
+      :source        — keep events whose :source (top-level, hoisted
+                       from :tags by emit!) matches.
+      :origin        — keep events whose :tags :origin matches.
+      :dispatch-id   — keep events whose :tags :dispatch-id matches
+                       (cascade-wide per rf2-g6ih4).
+      :since-ms      — keep events whose :time is strictly greater than
+                       this host-clock timestamp.
+      :between       — `[t0 t1]` two-element vector — keep events whose
+                       :time falls in [t0, t1] inclusive.
+      :pred          — `(fn [ev] -> truthy)` arbitrary predicate.
+
+  Returns `events` unchanged (as a vector) when `opts` is empty or nil.
+
+  Per rf2-qi8au — locks the consumer contract against the framework's
+  filter vocabulary."
+  ([events] (filter-events events nil))
+  ([events opts]
+   (if (empty? opts)
+     (vec events)
+     (let [{:keys [operation op-type since frame
+                   severity event-id handler-id source origin
+                   dispatch-id since-ms between pred]} opts
+           [between-t0 between-t1] (when (and (sequential? between)
+                                              (= 2 (count between)))
+                                     between)
+           predicate
+           (fn [ev]
+             (and (or (nil? operation) (= operation (:operation ev)))
+                  (or (nil? op-type)   (= op-type   (:op-type ev)))
+                  (or (nil? since)     (and (number? (:id ev))
+                                            (> (:id ev) since)))
+                  (or (nil? frame)
+                      (= frame (or (:frame ev)
+                                   (get-in ev [:tags :frame]))))
+                  (or (nil? severity) (= severity (:op-type ev)))
+                  (or (nil? event-id)
+                      (= event-id (get-in ev [:tags :event-id])))
+                  (or (nil? handler-id)
+                      (= handler-id (get-in ev [:tags :handler-id])))
+                  (or (nil? source)
+                      (= source (or (:source ev)
+                                    (get-in ev [:tags :source]))))
+                  (or (nil? origin)
+                      (= origin (get-in ev [:tags :origin])))
+                  (or (nil? dispatch-id)
+                      (= dispatch-id (get-in ev [:tags :dispatch-id])))
+                  (or (nil? since-ms)
+                      (and (number? (:time ev))
+                           (> (:time ev) since-ms)))
+                  (or (nil? between-t0)
+                      (and (number? (:time ev))
+                           (<= between-t0 (:time ev) between-t1)))
+                  (or (nil? pred) (pred ev))))]
+       (filterv predicate events)))))
+
 (defn clear-buffer!
   "Empty the buffer. Tooling uses this between sessions. No-op in
   production."
