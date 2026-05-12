@@ -59,6 +59,8 @@ Rather than one giant schema for the whole `app-db`, schemas are registered **at
 
 This fits re-frame's grain — code already accesses `app-db` via paths; schemas are similarly path-anchored. Composable. Hot-reload-friendly per slice. Tooling and agents can ask "what's the schema at path P?" and get a precise local answer.
 
+`reg-app-schema` returns its `path` argument — the primary id under which the schema registers in the `:app-schema` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+
 ### A schema for the whole `app-db`
 
 The empty path `[]` means "the whole `app-db`" — same convention as `get-in`/`assoc-in`. Use it to register a root schema:

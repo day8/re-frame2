@@ -189,6 +189,22 @@ For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](00
 
 The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
 
+## `reg-*` return-value convention
+
+Every `reg-*` registration surface returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. This is uniform across the family: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-frame` / `reg-view` / `reg-view*` / `reg-machine` / `reg-machine*` / `reg-app-schema` / `reg-route` / `reg-flow` / `reg-head` / `reg-error-projector` all return their first positional id argument. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg); `reg-app-schema` returns its `path` (the path IS the registration id for the `:app-schema` kind, per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)).
+
+The uniformity is load-bearing. It lets call-site code thread the registration id without a separate literal:
+
+```clojure
+(let [event-id (rf/reg-event-fx :cart.item/add ...)]
+  (rf/dispatch [event-id {:id ...}]))
+
+(let [machine-id (rf/reg-machine :auth.login/flow ...)]
+  (rf/dispatch [machine-id :submit]))
+```
+
+Tooling, generators, and CP scaffolds rely on the return value to chain registrations into wiring code. The contract is **fixed-and-additive**: future `reg-*` surfaces ship with the same return shape.
+
 ## `reg-view` auto-id derivation rule
 
 Per [Spec 004 §reg-view](004-Views.md#reg-view-is-the-multi-frame-contract), the `reg-view` macro auto-derives the registered id from the symbol you supply:

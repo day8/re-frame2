@@ -19,6 +19,8 @@
 
 ## Registration
 
+> **Return value.** Every `reg-*` row below returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg). Per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+
 | API | M/Fn | Signature | Status | Spec | Notes |
 |---|---|---|---|---|---|
 | `reg-event-db` | M | `(reg-event-db id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | Macro for source-coord capture. See [MIGRATION §M-5](MIGRATION.md) for higher-order-use migration. |
