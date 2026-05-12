@@ -515,7 +515,7 @@ The context's value is the **keyword**, not the frame record: each consumer reso
 
 - **No `frame-provider` in scope.** Reagent's `(.-context cmp)` returns the React empty default (`#js {}`); the keyword/string check fails and the lookup falls through to `:rf/default`. Function-component substrates read `_currentValue` directly, which equals the createContext default (`:rf/default`).
 - **Render fn invoked outside Reagent** (REPL, tests). `reagent.core/current-component` returns `nil`; the React-context tier is skipped. `with-frame` covers tests that need a non-default frame; bare invocations get `:rf/default`.
-- **Reagent prop-conversion of named values** (rf2-d4sf). Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props. `[:> Provider {:value :foo} ...]` reaches React with `value="foo"`, not the keyword. Both impls round-trip the string back to a keyword via `re-frame.adapter.context/coerce-context-value` so consumers see the shape this spec documents. Note: `(name kw)` is lossy for namespaced keywords (`(name :auth/main)` → `"main"`), so a frame-provider authored with a namespaced keyword observed through the React-context tier resolves to the unqualified part — in practice `frame-provider` callers pass unqualified keywords (the canonical shape) and this lossiness does not bite.
+- **Reagent prop-conversion of named values** (rf2-d4sf). Stock Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props. The canonical user-facing surface (`rf/frame-provider`) sidesteps this by mounting the Provider via Reagent's `:r>` interop head — the props map flows to React as a raw JS object, so `:value :foo/bar` reaches React as the original keyword and the namespace is preserved across the React-context round trip on every adapter. A user who writes `[:> (.-Provider frame-context) {:value :foo}]` directly (raw `:>` interop, not `rf/frame-provider`) still passes through stock Reagent's prop-conversion under the classic adapter: `convert-prop-value` rewrites `:foo` to `"foo"`, and `re-frame.adapter.context/coerce-context-value` rounds the string back to a keyword. Note that `(name kw)` is lossy for namespaced keywords (`(name :auth/main)` → `"main"`); raw-hiccup mounts that need a namespaced frame-id should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
 - **Concurrent rendering.** React 18 may render the same component multiple times before commit. The context read is idempotent — same provider value across re-renders — so this is safe. Closures captured during render hold the keyword by value; re-render produces a new closure with the same keyword. See [§Open questions — Concurrent React rendering](#concurrent-react-rendering).
 
 ### View-side details — see Spec 004
@@ -663,7 +663,12 @@ Implementation skeleton (Reagent flavour):
 
 (defn frame-provider [props & children]
   (let [frame (or (:frame props) :rf/default)]
-    (into [:> (.-Provider frame-context) {:value frame}] children)))
+    ;; `:r>` bypasses Reagent's `convert-prop-value`; the props map flows
+    ;; to React as a raw JS object. That bypass preserves the namespace
+    ;; of namespaced frame keywords (`:tenant/admin`), which stock
+    ;; Reagent's `convert-prop-value` would otherwise strip via
+    ;; `(name kw)`. Children remain hiccup.
+    (into [:r> (.-Provider frame-context) #js {:value frame}] children)))
 ```
 
 A missing or `nil` `:frame` falls through to `:rf/default` — matches the no-provider case (defensive default). An explicit `(rf/frame-provider {} ...)` is therefore equivalent to no provider at all; tooling-generated trees that elide the prop don't blow up.

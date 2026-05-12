@@ -158,7 +158,7 @@ This decision closes the rf2-d4sf bug class structurally.
 
 In stock Reagent, `convert-prop-value` stringifies any keyword passed as a prop value, regardless of which prop it is. This was a convenience for HTML attributes — `:class :primary` becoming `class="primary"` — but it bit React-context Provider values: when a Provider received `:value :some-keyword`, Reagent rewrote it to `"some-keyword"` and the React context lost its identity. re-frame2's `re-frame.adapter.context/coerce-context-value` defensively un-stringified the value at the consumer site. The defensive workaround papered over the symptom; the root cause sat upstream in Reagent.
 
-The narrowed shape removes the symptom by removing the cause. `:value` is not in the HTML-attribute set, so a keyword passed as `:value` survives. The Provider receives the keyword. The defensive coerce becomes vestigial — and Stage 4 deletes it.
+The narrowed shape removes the symptom by removing the cause under the slim adapter. `:value` is not in the HTML-attribute set, so a keyword passed as `:value` survives prop-conversion. The Provider receives the keyword. The defensive `coerce-context-value` is no longer load-bearing for the slim adapter path. It survives the rewrite because the classic adapter (`day8/re-frame2-reagent`) still uses stock Reagent's prop-conversion and the helper is the defensive cover for any user code that mounts a Provider via raw `[:> (.-Provider frame-context) {:value :foo}]` hiccup directly. The canonical user-facing surface (`rf/frame-provider`) routes through Reagent's `:r>` interop head so namespaced frame-ids survive the React-context round trip on every adapter — see Spec 002 §`frame-provider` for the prop-conversion bypass.
 
 The audit cross-check confirmed the breakage surface is bounded: across re-com, re-frame-10x, Dash8, rf8, none of the four codebases visibly relies on stringification of non-HTML props. The dev-mode warning catches any incidental users whose code we did not audit.
 
@@ -321,7 +321,7 @@ This is one of the surfaces stock Reagent cannot deliver because it requires the
 
 ### Frame-context primitive integrates with the component lifecycle
 
-re-frame2's frame-context — the per-component frame the view renders against — is wired through the modern `React.createContext` API. The rewrite's renderer threads frame-context through the React tree without monkey-patching `getChildContext` or any of the legacy-context machinery React 19 removed. The `re-frame.adapter.context/coerce-context-value` defensive workaround retires (per §5) because the rewrite's narrowed `convert-prop-value` does not stringify the keyword values frame-context uses.
+re-frame2's frame-context — the per-component frame the view renders against — is wired through the modern `React.createContext` API. The rewrite's renderer threads frame-context through the React tree without monkey-patching `getChildContext` or any of the legacy-context machinery React 19 removed. The narrowed `convert-prop-value` (per §5) removes the keyword-stringification footgun for the slim path; the canonical user-facing surface (`rf/frame-provider`) routes the Provider mount through Reagent's `:r>` interop head so namespaced frame-ids survive on every adapter. `re-frame.adapter.context/coerce-context-value` survives as defensive cover for raw-hiccup `[:> Provider {:value :foo}]` mounts under the classic adapter.
 
 ### `flush-views!` replaces the brittle `r/flush`
 

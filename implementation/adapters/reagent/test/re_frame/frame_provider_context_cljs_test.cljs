@@ -46,17 +46,22 @@
   PR #195 broadly; this suite covers the seven-scenario surface
   contract in one place.
 
-  Frame-id naming convention: every mounted scenario uses
-  *unnamespaced* frame keywords (e.g. `:rf-22ds-1-outer`, NOT
-  `:rf.22ds-1/outer`). Reagent's `convert-prop-value`
-  (reagent.impl.template) calls `(name kw)` on named prop values,
-  which drops the keyword's namespace. The shared
-  `re-frame.adapter.context/coerce-context-value` keywordises a
-  string back to a keyword but cannot reconstruct the lost
-  namespace, so a `[:> Provider {:value :foo/bar}]` reaches the
-  read-side as `:bar`, not `:foo/bar`. This is a separate gap from
-  the resolution-chain contracts under test here — see rf2-c5jz
-  for the namespace-stripping issue.
+  Frame-id naming convention: the seven seven-scenario tests below
+  use unnamespaced frame keywords (e.g. `:rf-22ds-1-outer`) — they
+  pre-date the namespace-preservation contract and are kept as-is
+  so the diff stays focused. The
+  `namespaced-frame-id-survives-react-context-round-trip` regression
+  test pins the contract that `rf/frame-provider` with a namespaced
+  frame keyword (e.g. `:tenant/admin`) preserves the namespace across
+  the React-context round trip — the canonical surface mounts the
+  Provider via Reagent's `:r>` interop head, which bypasses
+  `convert-prop-value`. A raw-hiccup mount via
+  `[:> (.-Provider frame-context) {:value :foo/bar}]` (NOT via
+  `rf/frame-provider`) still drops the namespace under the classic
+  adapter because that path passes through stock Reagent's
+  `convert-prop-value`; the shared
+  `re-frame.adapter.context/coerce-context-value` is the defensive
+  cover for that raw-hiccup case.
 
   Scenario-3 asserts the structured `:rf.error/frame-context-corrupted`
   trace event fires on a corrupted `_currentValue` read (rf2-8q66
@@ -566,3 +571,61 @@
         "the frame keyword threads through as the first invocation arg")
     (is (= [child] rest-args)
         "children follow the frame keyword unchanged")))
+
+;; ---- Regression: namespaced frame-ids survive the React-context round trip ---
+;;
+;; Stock Reagent's `convert-prop-value` (reagent.impl.template) calls
+;; `(name kw)` on named prop values, dropping the namespace. A naive
+;; `[:> Provider {:value :tenant/admin}]` mount under the classic
+;; adapter therefore reaches the read side as `:admin` (namespace
+;; gone). The canonical user-facing surface (`rf/frame-provider`)
+;; works around this by mounting the Provider via Reagent's `:r>`
+;; interop head — the props map flows to React as a raw JS object,
+;; `convert-prop-value` is bypassed entirely, and the keyword reaches
+;; React unchanged.
+;;
+;; This test pins the namespace-preservation contract end-to-end:
+;; mount a frame-provider with a namespaced frame-id, render a
+;; reg-view'd probe under it, and assert that `(rf/current-frame)`
+;; from inside the probe returns the FULL namespaced keyword.
+
+(deftest namespaced-frame-id-survives-react-context-round-trip
+  "Regression — `rf/frame-provider` with a namespaced frame-id
+   (`:tenant/admin`) preserves the namespace across the React-context
+   round trip. Without the `:r>` bypass the classic Reagent adapter
+   would strip the namespace via `(name kw)` in `convert-prop-value`
+   and the probe would observe `:admin` instead."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (let [target :rf-22ds-ns/tenant-admin]
+      (rf/reg-frame target {:doc "namespaced frame-id regression"})
+      (rf/reg-event-db :rf-22ds-ns/seed (fn [_ [_ v]] {:tag v}))
+      (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
+      (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))
+
+      (let [observed-frame (atom nil)
+            observed-value (atom nil)]
+        (rf/reg-view* :rf-22ds-ns/probe
+                      (fn []
+                        (reset! observed-frame (rf/current-frame))
+                        (reset! observed-value @(rf/subscribe [:rf-22ds-ns/tag]))
+                        [:div "probe"]))
+        (let [render-fn  (rf/view :rf-22ds-ns/probe)
+              mount-node (make-mount-node!)
+              root       (rdc/create-root mount-node)]
+          (try
+            (react-dom/flushSync
+              (fn []
+                (rdc/render root [rf/frame-provider {:frame target}
+                                  [render-fn]])))
+            (is (= target @observed-frame)
+                (str "current-frame inside the wrapped subtree resolves to the FULL "
+                     "namespaced keyword (got " (pr-str @observed-frame) ")"))
+            (is (= :tenant-admin (-> @observed-frame name keyword))
+                "sanity: the unqualified part matches the namespaced keyword's name")
+            (is (= "rf-22ds-ns" (namespace @observed-frame))
+                "sanity: the namespace survived (would be nil if prop-conversion stripped it)")
+            (is (= :wrapped-value @observed-value)
+                "subscribe routes against the namespaced frame's app-db, not :rf/default's")
+            (finally
+              (try (rdc/unmount root) (catch :default _ nil)))))))))

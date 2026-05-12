@@ -978,26 +978,27 @@ Because the throw is the only thing in the body, `:advanced` Closure compilation
 
 The rewrite's narrowed `convert-prop-value` (§7.2 + DECISION-2) and folded source-coord stamping (§5.4 + §9.4) make several existing re-frame2 internals vestigial. Stage 4 deletes them as part of the rewrite-adoption commit.
 
-### §11.1 `re-frame.adapter.context/coerce-context-value`
+### §11.1 `re-frame.adapter.context/coerce-context-value` — RETAINED (was: delete)
 
-File: `implementation/core/src/re_frame/adapter/context.cljs:65-73`. The shared coercion that un-stringifies `convert-prop-value`'s keyword-stringification path. Under DECISION-2's narrowed `convert-prop-value`, keywords passed to non-HTML prop names (including `:value` on a React-context Provider) are no longer stringified — the coercion has nothing to undo.
+File: `implementation/core/src/re_frame/adapter/context.cljs`. The shared coercion that un-stringifies `convert-prop-value`'s keyword-stringification path.
 
-**Stage 4 actions**:
-- Delete `coerce-context-value`.
-- Update call sites:
-  - `re-frame.views/current-frame` (views.cljs:113-116) — replace `(adapter-context/coerce-context-value (.-context cmp))` with the bare `(.-context cmp)` if a keyword, else nil.
-  - `re-frame.views/read-react-context-frame` (views.cljs:430-452) — same simplification.
-  - `re-frame.adapter.context/function-component-current-frame` (context.cljs:94-113) — same simplification.
-- The fast-path becomes: `(when (keyword? v) v)`. The string-to-keyword fallback is no longer needed.
+**Retraction**: An earlier revision of this section instructed deleting `coerce-context-value` on the grounds that DECISION-2's narrowed `convert-prop-value` removes the over-stringification under the slim adapter. The audit during Stage 4-F surfaced that the function is **still load-bearing for the classic-Reagent adapter path** (`implementation/adapters/reagent/`), which uses stock `reagent.impl.template/convert-prop-value` and therefore still stringifies keyword props. Both adapters share the same `re-frame.views/current-frame` resolver via the `:adapter/current-frame` late-bind hook, so deleting the coercion would silently break `(rf/subscribe ...)` and `(rf/dispatch ...)` under any `[:> Provider {:value :tenant}]` raw-hiccup mount on the classic adapter.
+
+The canonical user-facing mount (`rf/frame-provider`) now goes through `re-frame.adapter.context/provider-element`, which builds the Provider via `React.createElement` directly and bypasses Reagent's prop conversion altogether — so the user-facing path preserves namespaced frame-ids on every adapter. `coerce-context-value` remains as **defensive coverage for raw-hiccup Provider mounts** authored as `[:> (.-Provider frame-context) {:value :foo}]` directly, which still hit stock Reagent's prop conversion under the classic bridge.
+
+**Stage 4 actions** (revised):
+- **Keep** `coerce-context-value` in `re-frame.adapter.context`.
+- Keep the keyword-and-string coercion shape: `keyword? v → v`; non-empty `string? v → (keyword v)`; else nil.
+- Keep the call sites at `re-frame.views/current-frame` and `re-frame.adapter.context/function-component-current-frame` unchanged — both still consult the helper.
+- Stage 4-F item #2 (delete `coerce-context-value`) is **withdrawn**. The forced-defensive comments referenced in §11.2 are tightened to call out the helper's revised rationale (defensive cover for raw-hiccup mounts), not removed.
 
 ### §11.2 Defensive comments referencing rf2-d4sf
 
 Multiple places reference Reagent's stringification as the rationale for defensive coercion:
-- `views.cljs:104-111` (current-frame docstring).
-- `views.cljs:431-447` (read-react-context-frame docstring).
-- `context.cljs:51-63` (the coerce-context-value section header).
+- `views.cljs` / `views/provider.cljs` (current-frame docstring).
+- `context.cljs` (the coerce-context-value section header).
 
-Stage 4 updates these comments to reflect the new state: the stringification class is structurally removed (per DECISION-2), and the fast-path is keyword-only.
+Stage 4 tightens these comments to reflect the revised state: under the slim adapter the stringification class is structurally absent (per DECISION-2); under the classic adapter it still applies to raw `[:> Provider {:value :foo}]` hiccup mounts. The canonical user-facing surface (`rf/frame-provider`) bypasses prop conversion via `provider-element` so the namespace of namespaced frame-ids survives the React-context round trip; the helper is the safety net for raw-hiccup paths.
 
 ### §11.3 The `inject-source-coord-attr` walker
 

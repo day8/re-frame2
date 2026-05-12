@@ -58,9 +58,25 @@
   the frame keyword as its first render-time arg and scopes that keyword
   to its subtree via React context. One built component services every
   frame — the keyword lives in the Provider's `:value`, not in a
-  closure."
+  closure.
+
+  Uses Reagent's `:r>` interop head so the props map flows to React as a
+  raw JS object without passing through `reagent.impl.template/convert-
+  prop-value`. That bypass is what makes a *namespaced* frame keyword
+  (`:tenant/admin`) survive the React-context round trip on the classic
+  Reagent adapter — stock Reagent's `convert-prop-value` calls `(name kw)`
+  on named prop values, which drops the namespace before React sees the
+  prop. The slim adapter (`day8/reagent-slim`) preserves keywords for
+  non-HTML prop names so the namespace would survive there even via the
+  `[:> Provider ...]` hiccup form; routing the canonical surface through
+  `:r>` keeps the behaviour identical across adapters.
+
+  Children remain hiccup — `:r>` only short-circuits prop conversion;
+  children are translated by the renderer as usual. Per
+  `re-frame.adapter.context/provider-element` for the React-element-
+  building counterpart that adapter ns offers for substrate-side mounts."
   [frame-kw & children]
-  (into [:> (.-Provider frame-context) {:value frame-kw}] children))
+  (into [:r> (.-Provider frame-context) #js {:value frame-kw}] children))
 
 (defn build-frame-provider
   "Used by re-frame.adapter.reagent/register-context-provider. Returns
@@ -140,13 +156,18 @@
   `:rf.warning/plain-fn-under-non-default-frame-once` warning
   meaningful (rf2-d3k3 / rf2-d4sf).
 
-  Per rf2-d4sf the keyword/string check tolerates Reagent's
-  prop-stringified shape: when a frame-provider is reached via
-  `[:> Provider {:value :foo} ...]` interop, `convert-prop-value`
-  rewrites `:foo` to `\"foo\"` before React sees it. The shared
-  coercion in `re-frame.adapter.context/coerce-context-value` undoes
-  that stringification so the Reagent path returns a keyword
-  regardless of how the Provider was authored."
+  The keyword/string coercion via
+  `re-frame.adapter.context/coerce-context-value` is defensive cover
+  for users who mount a Provider via raw `[:> (.-Provider frame-context)
+  {:value :foo}]` hiccup directly. Under the classic Reagent adapter
+  that path still passes through stock Reagent's `convert-prop-value`,
+  which stringifies named values (and drops keyword namespaces — see
+  `frame-provider-component`). The canonical user-facing surface
+  (`rf/frame-provider`) bypasses `convert-prop-value` via `:r>` so the
+  Provider's `:value` reaches React as the original keyword (namespace
+  preserved). The helper survives the slim rewrite because the
+  defensive-cover use case for raw-hiccup mounts is independent of
+  which Reagent build is loaded."
   []
   (or frame/*current-frame*
       (when-let [cmp (current-component)]

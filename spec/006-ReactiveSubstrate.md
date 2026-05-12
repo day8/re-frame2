@@ -709,7 +709,10 @@ What this gives:
   ;; the frame keyword lives in the Provider's :value at render time, not
   ;; in a build-time closure.
   (fn [frame-kw & children]
-    (into [:> (.-Provider frame-context) {:value frame-kw}] children)))
+    ;; `:r>` bypasses Reagent's `convert-prop-value` so the keyword's
+    ;; namespace survives the React-context round trip — see Spec 002
+    ;; §`frame-provider` for the prop-conversion rationale.
+    (into [:r> (.-Provider frame-context) #js {:value frame-kw}] children)))
 ```
 
 The `read-frame-from-context` lookup chain (`*current-frame*` dynamic var → React context → `:rf/default`) is documented in [002 §Reading the frame from React context](002-Frames.md#reading-the-frame-from-react-context-cljs-implementation-detail).
@@ -739,7 +742,7 @@ The impl is substrate-specific:
 - **Reagent** registers `re-frame.views/current-frame`, which uses Reagent's class-component `(.-context cmp)` path. The path is intentionally narrow — it surfaces context only to components whose `:contextType` matches `frame-context` (i.e. components registered via `reg-view*`). Plain Reagent fns route to `:rf/default`, which is what the `:rf.warning/plain-fn-under-non-default-frame-once` warning targets.
 - **UIx / Helix** register `re-frame.adapter.context/function-component-current-frame`, which reads `_currentValue` directly off the shared context object. Function components have no `(.-context cmp)` slot, so `_currentValue` is the substrate-portable path; UIx's `use-context` and Helix's `use-context` are sugar over the same read.
 
-Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by `with-frame` / `bound-fn`) and the `:rf/default` tier; only the middle (React-context) tier differs. Both tolerate Reagent's prop-stringified-keyword shape via `re-frame.adapter.context/coerce-context-value` so a Reagent-authored `[:> Provider {:value :tenant}]` Provider is observed correctly by every substrate.
+Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by `with-frame` / `bound-fn`) and the `:rf/default` tier; only the middle (React-context) tier differs. The canonical user-facing surface (`rf/frame-provider`) mounts the Provider via Reagent's `:r>` interop head so the props map bypasses `reagent.impl.template/convert-prop-value` — the `:value` keyword (namespace and all) reaches React unchanged. As defensive cover, both impls round-trip the prop-stringified shape via `re-frame.adapter.context/coerce-context-value` so a raw-hiccup `[:> Provider {:value :tenant}]` mount (not via `rf/frame-provider`) is still observed correctly by every substrate. The helper is lossy for namespaced keywords on raw-hiccup mounts under the classic adapter (`(name :foo/bar)` is `"bar"`); raw-hiccup mounts that need namespaced frame-ids should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
 
 **Plain-fn-under-non-default-frame warning.** A plain Reagent fn (not registered via `reg-view`) cannot subscribe to the closest enclosing `frame-provider` because plain fns lack the `^{:context-type frame-context}` metadata `reg-view` attaches. When such a plain fn calls `(rf/subscribe ...)` *and* the React-context tier resolves to a non-default frame, the runtime emits `:rf.warning/plain-fn-under-non-default-frame-once` (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)) — once per (fn, frame) pair, not per render — pointing the user at `reg-view` or `with-frame`.
 
