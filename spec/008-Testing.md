@@ -17,7 +17,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Need | API |
 |---|---|
 | Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame f)` |
-| Scoped REPL/test block | `(rf/with-frame [binding-sym frame-or-id] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
+| Scoped REPL/test block | `(rf/with-frame :frame-id body...)` *or* `(rf/with-frame [sym expr] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
 | Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:http stub-fn}})` |
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
@@ -33,18 +33,34 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 
 ### `with-frame` call shapes
 
-`with-frame` has **one canonical shape** — a binding-vector form, modelled on `with-open`:
+`with-frame` has **two canonical shapes**, both normative and both required of every host. The canonical definition lives in [002 §`with-frame`](002-Frames.md#with-frame); this section gathers the test-surface usage notes.
+
+#### Shape 1 — bare keyword (operate on an existing frame)
 
 ```clojure
-(rf/with-frame [binding-sym frame-or-id] body...)
+(rf/with-frame :scratch
+  (rf/dispatch-sync [:init])
+  @(rf/subscribe [:status]))
 ```
 
-`frame-or-id` is either:
+Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. The frame is **not** created or destroyed by the macro — the keyword is used as-is. Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`), e.g. shared fixtures across multiple `deftest` blocks, REPL sessions.
 
-- a freshly-created frame value (typical: `(rf/make-frame opts)`); or
-- a registered frame id (keyword), to use the named registered frame for the body.
+#### Shape 2 — binding-vector (create, use, destroy)
 
-In both cases, `binding-sym` is bound to the frame value (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), the frame is set as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) the frame is destroyed if it was created by `make-frame` in the binding expression, or `reset-frame` is called if a registered id was supplied (so the next test starts fresh). Hosts MAY provide a one-arg id-only shortcut `(rf/with-frame :id body...)` as sugar for `(rf/with-frame [_ :id] body...)`; the binding-vector form is the canonical surface tests are written against.
+```clojure
+(rf/with-frame [binding-sym expr] body...)
+```
+
+Evaluates `expr` (typically `(rf/make-frame opts)`), binds the result to `binding-sym` (so the body can refer to it for `get-frame-db`, `dispatch-sync` opts, etc.), sets that frame as the implicit `*current-frame*` for the body's dynamic extent (so `dispatch-sync` and `subscribe` inside the body resolve to it without needing `{:frame ...}`), and on body exit (success or exception) calls `destroy-frame` on whatever was bound. Modelled on `with-open`. Used when the frame's lifetime is exactly the body — per-test fixtures, devcard widgets, REPL sessions wanting guaranteed teardown.
+
+#### Discriminator
+
+The macro inspects its first argument:
+
+- Keyword → Shape 1.
+- Vector `[sym expr]` → Shape 2.
+
+Both shapes are part of the normative test surface; tests, fixtures, and helper macros MAY freely use either, and hosts MUST support both.
 
 ### JVM-runnable boundary (authoritative)
 
