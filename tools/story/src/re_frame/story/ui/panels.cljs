@@ -173,24 +173,44 @@
 (defn layout-debug-view
   "Layout-debug controls panel. Lists the three layout-debug decorators
   with toggles so the user can enable / disable each at runtime without
-  touching variant body."
-  [variant-id]
-  (let [active (active-layout-debug-decorators variant-id)]
-    [:div {:style (:layout-wrap styles)}
-     [:div {:style (:layout-title styles)} "Layout-debug"]
-     (for [id [layout-debug/id-measure
-               layout-debug/id-outline
-               layout-debug/id-pseudo]]
-       ^{:key id}
-       [:label {:style    (:toggle styles)
-                :on-click (fn [_] (when variant-id
-                                    (toggle-layout-debug! variant-id id)))}
-        [:input {:type     "checkbox"
-                 :checked  (boolean (contains? active id))
-                 :readOnly true}]
-        [:span {:style (:decor-id styles)} (str id)]])
-     [:div {:style (:hint styles)}
-      "toggle adds the decorator at variant render time (per IMPL-SPEC §2.8.6)"]]))
+  touching variant body.
+
+  Form-2 (per rf2-4t5u): the render fn returned by the outer fn derefs
+  `layout-debug-toggles` directly inside the body. The form-2 shape
+  ensures Reagent's reaction-tracking observes the deref at render
+  time — under the registered-view path the user fn is wrapped by
+  `reg-view*`'s `frame-aware-view`, and the panel-host additionally
+  wraps it in `frame-provider-ns-safe` (which calls `r/as-element`
+  on the child). The form-1 shape worked in isolation but didn't
+  re-render through the wrapper chain; the form-2 inner-fn shape is
+  the canonical Reagent idiom that survives nested wrapping.
+
+  Also (rf2-4t5u): the toggle event is wired via `:on-change` on the
+  `<input>` (not `:on-click` on the surrounding `<label>`). Clicking
+  the label propagates an implicit click to the contained input, and
+  a label-side `:on-click` ALSO sees that bubbled click — so the
+  state was being toggled twice per user click and the rendered DOM
+  reverted to its prior shape (the bug's outerHTML-byte-identical
+  symptom). Wiring `:on-change` on the input is the controlled-
+  checkbox idiom and fires exactly once per user click."
+  [_variant-id]
+  (fn [variant-id]
+    (let [active @layout-debug-toggles
+          on-for (get active variant-id #{})]
+      [:div {:style (:layout-wrap styles)}
+       [:div {:style (:layout-title styles)} "Layout-debug"]
+       (for [id [layout-debug/id-measure
+                 layout-debug/id-outline
+                 layout-debug/id-pseudo]]
+         ^{:key id}
+         [:label {:style (:toggle styles)}
+          [:input {:type      "checkbox"
+                   :checked   (boolean (contains? on-for id))
+                   :on-change (fn [_] (when variant-id
+                                        (toggle-layout-debug! variant-id id)))}]
+          [:span {:style (:decor-id styles)} (str id)]])
+       [:div {:style (:hint styles)}
+        "toggle adds the decorator at variant render time (per IMPL-SPEC §2.8.6)"]])))
 
 ;; ---- registration -------------------------------------------------------
 
