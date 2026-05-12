@@ -273,6 +273,8 @@ The 3-arity overload is **opt-in** by declaring a third parameter:
 
 Implementations arity-detect the fn at call time: a fn that declares a fixed 3-arg invocation is called with `[data event {:state :meta}]`; everything else (the canonical 2-arity, plus variadic helpers like `(constantly true)`) is called with `[data event]`. The detection is structural — no metadata needed on the fn — so inline `(fn [data ev ctx] ...)` vs `(fn [data ev] ...)` is the only declaration the user makes.
 
+**Variadic-fn footgun.** Because arity-detection is structural, variadic fns like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity and called *without* the introspection slot — even if the body would have used a third positional `ctx`. If you actually want the introspection slot, write a real 3-arity fn (`(fn [data event ctx] ...)`); reaching for a variadic shorthand silently strips the slot. The footgun is intentional: the variadic case is overwhelmingly the "don't care about extra args" idiom (`constantly`, ignoring lambdas), and 2-arity invocation is the safer default.
+
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
 
 ### Actions
