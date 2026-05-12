@@ -55,6 +55,8 @@ Here's the file, in full, with the surrounding ceremony removed:
 
 That's everything. Copy-paste-runnable. Let's take it apart.
 
+> **Chapter vs the runnable file.** The listing above is the teaching shape: one view, `reg-event-db` for the initialiser, the smallest thing that runs. The runnable in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs) is intentionally a little richer — it splits the UI into two views (`counter-buttons` + `counter-app`) and widens `:counter/initialise` to `reg-event-fx` with a `:fx` walk so the perf-instrumented build can exercise the `rf:fx:*` perf bucket on init. Both shapes are equivalent for the counter's behaviour. Likewise, seeding `app-db` via `dispatch-sync [:counter/initialise]` at mount (as the chapter does) and seeding it via `make-frame {:on-create [:counter/initialise]}` (as the test below does) are equivalent ways to land the initial state before the first read — pick whichever fits the call site.
+
 ## Initialisation
 
 ```clojure
@@ -152,7 +154,7 @@ The `:<-` is the input declaration. The framework builds a dependency graph from
 
 This is the only piece with substantive shape. Let's look at it carefully.
 
-`reg-view` is a defn-shape macro. It registers a render function (under the auto-derived id `(keyword *ns* "counter")`) and defs the symbol `counter` in the current namespace, bound to the wrapped fn. Hiccup elsewhere can reference it as `[counter]`. The render function returns **hiccup** — a Clojure data structure that describes a DOM tree. `[:div ...]` is a `<div>`. `[:button {:on-click ...} "-"]` is a `<button>` with a click handler and the text `"-"`.
+`reg-view` is a defn-shape macro. It registers a render function (under a namespaced keyword auto-derived from the registration site — for this file, `:counter.core/counter`) and defs the symbol `counter` in the current namespace, bound to the wrapped fn. Hiccup elsewhere can reference it as `[counter]`. The render function returns **hiccup** — a Clojure data structure that describes a DOM tree. `[:div ...]` is a `<div>`. `[:button {:on-click ...} "-"]` is a `<button>` with a click handler and the text `"-"`.
 
 Inside the body, two names are available that you didn't define:
 
@@ -322,6 +324,10 @@ The `init!` call follows the same shape on every adapter — pick the right `ada
 ```
 
 For a mixed-substrate app — say a build that imports both Reagent and UIx — pick the active adapter by passing the right Var. There is no multi-adapter ambiguity to resolve at boot: only one adapter is ever installed, and the call site names it.
+
+### A slim Reagent for ship-size
+
+For apps where bundle size matters, `re-frame.adapter.reagent-slim` wires re-frame2 to a Reagent rewrite that omits server-rendering and large-runtime parts (no `reagent.impl.*`, no `react-dom/server`). The same counter mounted on it lives at [`examples/reagent/counter_slim_and_fast/`](../../examples/reagent/counter_slim_and_fast/) — the event handlers, subs, and views are byte-for-byte identical to the canonical example; only the requires (`reagent2.dom.client` instead of `reagent.dom.client`) and the adapter Var passed to `init!` change. Reach for it when you've measured a ship-size problem and confirmed the missing capabilities aren't on your hot path.
 
 ## Next
 
