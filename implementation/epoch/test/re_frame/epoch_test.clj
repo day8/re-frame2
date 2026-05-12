@@ -300,7 +300,7 @@
         (is (has-error-op? events :rf.error/no-such-handler))
         (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
           (is (= :frame (:kind (:tags ev))))
-          (is (= :no/such/frame (:frame-id (:tags ev)))))))))
+          (is (= :no/such/frame (:frame (:tags ev)))))))))
 
 (deftest restore-failure-unknown-epoch
   (testing "restore-epoch with an epoch-id not in history fires :rf.epoch/restore-unknown-epoch"
@@ -1111,7 +1111,7 @@
       (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
                      @recorded)]
         (is (= :frame (:kind (:tags ev))))
-        (is (= :no/such/frame (:frame-id (:tags ev))))))))
+        (is (= :no/such/frame (:frame (:tags ev))))))))
 
 (deftest reset-frame-db!-failure-during-drain
   (testing "reset-frame-db! called from inside a drain returns false and
@@ -1290,8 +1290,8 @@
                        @recorded)]
           (is (= :frame (:kind (:tags ev)))
               "tags carry :kind :frame")
-          (is (= :test/short-lived (:frame-id (:tags ev)))
-              "tags carry :frame-id"))))))
+          (is (= :test/short-lived (:frame (:tags ev)))
+              "tags carry :frame"))))))
 
 (deftest destroyed-frame-reset-frame-db!-raises-no-such-handler
   (testing "(rf/reset-frame-db! destroyed _) emits :rf.error/no-such-handler
@@ -1313,7 +1313,7 @@
       (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
                      @recorded)]
         (is (= :frame (:kind (:tags ev))))
-        (is (= :test/short-lived (:frame-id (:tags ev))))))))
+        (is (= :test/short-lived (:frame (:tags ev))))))))
 
 (deftest destroyed-frame-silences-epoch-cb-listener
   (testing "A register-epoch-cb! callback that observed a frame receives
@@ -1345,8 +1345,8 @@
         (let [ev (first silenced)]
           (is (= :rf.epoch.cb (:op-type ev))
               ":op-type is :rf.epoch.cb")
-          (is (= :test/short-lived (:frame-id (:tags ev)))
-              "tags carry :frame-id")
+          (is (= :test/short-lived (:frame (:tags ev)))
+              "tags carry :frame")
           (is (= ::watcher (:cb-id (:tags ev)))
               "tags carry :cb-id")))
 

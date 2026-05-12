@@ -296,7 +296,7 @@
   ;; up the in-flight event's frame (not :rf/default). The CLJS
   ;; companion `re-frame.dispatch-frame-capture-cljs-test` covers the
   ;; full matrix (sync, setTimeout, :fx [[:dispatch ...]],
-  ;; :dispatch-later, bound-dispatcher). This JVM test pins the
+  ;; :dispatch-later, dispatcher). This JVM test pins the
   ;; sync-from-handler contract on the substrate-agnostic foundation.
   (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
     (rf/reg-frame :rf-l5q3.jvm/tenant-a {:doc "tenant-a frame"})
@@ -326,8 +326,8 @@
   ;; first. With the router's per-handler binding of
   ;; `frame/*current-frame*` to the envelope's :frame, the call site
   ;; reports the handler's frame, not :rf/default. This is the contract
-  ;; that lets `(rf/bound-dispatcher)`, `(rf/dispatcher)`,
-  ;; `(rf/subscriber)`, etc. — all of which capture the value of
+  ;; that lets `(rf/dispatcher)`, `(rf/subscriber)`, etc. — all of
+  ;; which capture the value of
   ;; `(rf/current-frame)` at call time — capture the right frame when
   ;; called from a handler body. Asserts the observable property
   ;; directly (avoids the async drain-thread timing the captured-fn
@@ -650,7 +650,7 @@
           "root element carries the data-rf-render-hash attribute"))))
 
 (deftest destroy-frame-signals-active-machines
-  (testing "destroy-frame emits :rf.machine/destroyed-on-frame-exit per active machine"
+  (testing "destroy-frame emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
     (rf/reg-frame :tenant-a {:doc "tenant"})
     ;; Seed a machine snapshot directly into app-db so we don't need to
     ;; run a full machine through this test.
@@ -663,7 +663,7 @@
       (rf/register-trace-cb! ::df (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame :tenant-a)
       (rf/remove-trace-cb! ::df)
-      (let [machine-traces (filter #(= :rf.machine/destroyed-on-frame-exit
+      (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                         (:operation %))
                                    @traces)]
         (is (= 2 (count machine-traces))
@@ -672,7 +672,9 @@
             "all traces carry the destroyed frame's id")
         (is (= #{:authed :pending}
                (set (map #(:last-state (:tags %)) machine-traces)))
-            "each trace carries its machine's last-state")))))
+            "each trace carries its machine's last-state")
+        (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
+            "each trace carries :reason :parent-frame-destroyed")))))
 
 (deftest spawn-id-is-frame-scoped
   (testing "actor-id allocation is scoped per-parent-snapshot — independent frames don't share an actor-id sequence"

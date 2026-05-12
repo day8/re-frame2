@@ -11,9 +11,17 @@
   registered cofx into the context."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
+
+(def ^{:doc "Sentinel for `inject-cofx`'s 3-arity 'no-value' branch.
+  Used by `re-frame.core/inject-cofx`'s macro form (rf2-ts1a) to thread
+  a call-site through the no-value path without inventing a private
+  sentinel at the macro layer. Equality-tested via `identical?` so
+  user values never collide."} no-value
+  ::no-value)
 
 (defn- maybe-validate-cofx!
   "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
@@ -59,9 +67,21 @@
   "Build a :before-only interceptor that runs the registered cofx and
   injects its result into the context's :coeffects.
 
-  Two arities:
-    (inject-cofx :id)        — no value
-    (inject-cofx :id value)  — passes value as second arg to the cofx fn
+  Three arities:
+    (inject-cofx :id)                  — no value, no call-site
+    (inject-cofx :id value)            — value, no call-site
+    (inject-cofx :id value call-site)  — value + macro-stamped call-site
+                                         (use `cofx/no-value` for the
+                                         no-value path with a call-site)
+
+  Per rf2-ts1a: the 3-arity form is what `re-frame.core/inject-cofx`'s
+  macro expands to — it captures `(meta &form)` at the user call site
+  and stamps it into the interceptor's closure. The `:before` body
+  binds `trace/*current-call-site*` to the captured value so error
+  events emitted from inside the body (`:rf.error/no-such-cofx`,
+  schema-validation failures, exceptions thrown by the cofx fn) carry
+  the invocation coord. Pass `nil` for the call-site to opt out of
+  stamping (the 1-/2-arity forms wrap to this with `nil`).
 
   Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
   fn returns, if the cofx's metadata carries a :spec, validate the
@@ -76,38 +96,34 @@
   the enclosing event handler's binding (set by the router) — the
   cofx that doesn't exist has no coord to point at."
   ([cofx-id]
-   (interceptor/->interceptor
-     :id (keyword (str "cofx-" (name cofx-id)))
-     :before
-     (fn [ctx]
-       (if-let [meta (registrar/lookup :cofx cofx-id)]
-         (binding [trace/*current-trigger-handler*
-                   (trace/trigger-handler-from-meta :cofx cofx-id meta)]
-           (-> ((:handler-fn meta) ctx)
-               (maybe-validate-cofx! cofx-id meta)))
-         (let [event (interceptor/get-coeffect ctx :event)]
-           (trace/emit-error! :rf.error/no-such-cofx
-                              {:cofx-id  cofx-id
-                               :event-id (when (vector? event) (first event))
-                               :recovery :no-recovery})
-           ctx)))))
+   (inject-cofx cofx-id no-value nil))
   ([cofx-id value]
-   (interceptor/->interceptor
-     :id (keyword (str "cofx-" (name cofx-id)))
-     :before
-     (fn [ctx]
-       (if-let [meta (registrar/lookup :cofx cofx-id)]
-         (binding [trace/*current-trigger-handler*
-                   (trace/trigger-handler-from-meta :cofx cofx-id meta)]
-           (-> ((:handler-fn meta) ctx value)
-               (maybe-validate-cofx! cofx-id meta)))
-         (let [event (interceptor/get-coeffect ctx :event)]
-           (trace/emit-error! :rf.error/no-such-cofx
-                              {:cofx-id    cofx-id
-                               :cofx-value value
-                               :event-id   (when (vector? event) (first event))
-                               :recovery   :no-recovery})
-           ctx))))))
+   (inject-cofx cofx-id value nil))
+  ([cofx-id value call-site]
+   (let [valued?      (not (identical? value no-value))
+         captured-cs  (when interop/debug-enabled? call-site)]
+     (interceptor/->interceptor
+       :id (keyword (str "cofx-" (name cofx-id)))
+       :before
+       (fn [ctx]
+         (if-let [meta (registrar/lookup :cofx cofx-id)]
+           (binding [trace/*current-trigger-handler*
+                     (trace/trigger-handler-from-meta :cofx cofx-id meta)
+                     trace/*current-call-site*
+                     (or captured-cs trace/*current-call-site*)]
+             (-> (if valued?
+                   ((:handler-fn meta) ctx value)
+                   ((:handler-fn meta) ctx))
+                 (maybe-validate-cofx! cofx-id meta)))
+           (binding [trace/*current-call-site*
+                     (or captured-cs trace/*current-call-site*)]
+             (let [event (interceptor/get-coeffect ctx :event)]
+               (trace/emit-error! :rf.error/no-such-cofx
+                                  (cond-> {:cofx-id  cofx-id
+                                           :event-id (when (vector? event) (first event))
+                                           :recovery :no-recovery}
+                                    valued? (assoc :cofx-value value)))
+               ctx))))))))
 
 ;; ---- standard cofx --------------------------------------------------------
 

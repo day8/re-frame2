@@ -572,6 +572,72 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
 
+## Call-site helpers
+
+The canonical `[:rf.http/managed args-map]` envelope is correct and complete, but the args map carries 12+ keys and every call site repeats `{:request {:method <verb> :url <url>} ...}` boilerplate. The `re-frame.http` namespace ships pure synthesis fns — one per HTTP verb — that build the canonical fx vector from a URL + an optional args map. Result:
+
+```clojure
+;; Without helpers — the canonical form, always supported:
+{:fx [[:rf.http/managed {:request {:method :get :url "/api/items"}
+                         :on-success [:items/loaded]}]]}
+
+;; With helpers — same envelope, fewer keys at the call site:
+{:fx [(rf.http/get "/api/items" {:on-success [:items/loaded]})]}
+```
+
+### Surface
+
+```clojure
+(:require [re-frame.http :as rf.http])
+
+(rf.http/get     url)  (rf.http/get     url args)
+(rf.http/post    url)  (rf.http/post    url args)
+(rf.http/put     url)  (rf.http/put     url args)
+(rf.http/delete  url)  (rf.http/delete  url args)
+(rf.http/patch   url)  (rf.http/patch   url args)
+(rf.http/head    url)  (rf.http/head    url args)
+(rf.http/options url)  (rf.http/options url args)
+```
+
+Each helper returns a `[:rf.http/managed args-map]` vector ready to drop into `:fx`. The helper pins `(:method (:request args-map))` to its verb's keyword and `(:url (:request args-map))` to the URL argument; caller-supplied `:method` / `:url` under `:request` are overwritten so the call-site contract reads cleanly.
+
+| Helper | `(:request (:method ...))` pinned to |
+|---|---|
+| `rf.http/get`     | `:get`     |
+| `rf.http/post`    | `:post`    |
+| `rf.http/put`     | `:put`     |
+| `rf.http/delete`  | `:delete`  |
+| `rf.http/patch`   | `:patch`   |
+| `rf.http/head`    | `:head`    |
+| `rf.http/options` | `:options` |
+
+### Args-map merging
+
+Top-level keys (`:decode`, `:accept`, `:retry`, `:timeout-ms`, `:on-success`, `:on-failure`, `:request-id`, `:abort-signal`, etc.) pass through to the args map unchanged. The `:request` map is itself merged with the helper's `{:method <verb> :url url}` pair (helper wins on `:method` and `:url`; caller supplies `:headers`, `:body`, `:params`, `:credentials`, etc.).
+
+```clojure
+(rf.http/post "/api/items"
+              {:request    {:body new-item :request-content-type :json}
+               :on-success [:items/created]
+               :on-failure [:items/create-failed]})
+;; ↓ expands to ↓
+[:rf.http/managed
+ {:request    {:method :post :url "/api/items"
+               :body   new-item :request-content-type :json}
+  :on-success [:items/created]
+  :on-failure [:items/create-failed]}]
+```
+
+### Naming
+
+`get` collides with `clojure.core/get`; the namespace does `(:refer-clojure :exclude [get])` internally. Users alias the namespace (`[re-frame.http :as rf.http]`) and write `(rf.http/get ...)` — the alias is what makes the bare verb names readable. The other verbs (`post`, `put`, `delete`, `patch`, `head`, `options`) don't collide with `clojure.core`.
+
+### Artefact
+
+Ships in `day8/re-frame2-http` alongside the `:rf.http/managed` fx the helpers reference. Loading the helpers and the fx are a single dep decision; an app that omits the http artefact can't call the helpers in the first place (compile-time `ns` failure) rather than discovering at dispatch time that `:rf.http/managed` isn't registered.
+
+The helpers are NOT re-exported from `re-frame.core` — users explicitly `(:require [re-frame.http :as rf.http])`. Re-exporting under the `rf/` segment would lose the `rf.http/` namespace prefix that makes the call site read as "an HTTP GET" rather than "some framework get".
+
 ## Examples
 
 ### A — Simplest possible (sugar all the way down)
@@ -649,6 +715,53 @@ The auth flow has separate success/error handlers (often a state machine), so th
 ```
 
 The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, then a fresh request fires.
+
+### F — Same flows, with the call-site helpers
+
+```clojure
+(:require [re-frame.http :as rf.http])
+
+;; A — minimal GET, default reply addressing:
+(rf/reg-event-fx :ping
+  (fn [{:keys [db]} [_ msg]]
+    (if-let [reply (:rf/reply msg)]
+      {:db (assoc db :pinged-at (:elapsed-at reply))}
+      {:fx [(rf.http/get "/ping")]})))                       ;; ← 1 line vs 1 envelope
+
+;; B — schema-driven GET with retry:
+(rf/reg-event-fx :articles/list
+  (fn [{:keys [db]} [_ {:keys [page] :as msg}]]
+    (if-let [reply (:rf/reply msg)]
+      ...
+      {:fx [(rf.http/get "/articles"
+                         {:request {:params {:page page :page-size 20}}
+                          :decode  ArticleListResponse
+                          :retry   {:on           #{:rf.http/transport :rf.http/http-5xx}
+                                    :max-attempts 3
+                                    :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}})]})))
+
+;; C — POST with body and explicit reply targets:
+(rf/reg-event-fx :auth/login
+  (fn [{:keys [db]} [_ creds]]
+    {:fx [(rf.http/post "/auth/login"
+                        {:request    {:body creds :request-content-type :json}
+                         :decode     AuthResponse
+                         :on-success [:auth/login-success]
+                         :on-failure [:auth/login-error]})]}))
+
+;; E — aborting a stale search:
+(rf/reg-event-fx :search/query
+  (fn [{:keys [db]} [_ {:keys [q] :as msg}]]
+    (if-let [reply (:rf/reply msg)]
+      ...
+      {:fx [[:rf.http/managed-abort :search]
+            (rf.http/get "/search"
+                         {:request    {:params {:q q}}
+                          :request-id :search
+                          :decode     SearchResponse})]})))
+```
+
+The fx vectors the helpers synthesise are exactly the same shape as the hand-written versions in §A–§E above; `:fx-overrides`, `with-managed-request-stubs`, the trace stream, and pair tools see no difference. The helpers are call-site sugar over the same canonical envelope.
 
 ## Testing
 

@@ -35,7 +35,8 @@
 | `reg-view*` | Fn | `(reg-view* id render-fn)` / `(reg-view* id metadata render-fn)` | v1 | 004 | Plain-fn surface beneath `reg-view`. No auto-def, no auto-inject, no compile check. Use for computed ids, library-generated views, Reagent Form-3 (`create-class`), or registration without a Var. The `*` follows Clojure's `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). |
 | `reg-machine` | M | `(reg-machine machine-id machine-spec)` | v1 | 005 | Walks the literal spec form at expansion time; stamps per-element source coords under `:rf.machine/source-coords` (rf2-8bp3). Top-level call-site coords land on `handler-meta`. |
 | `reg-machine*` | Fn | `(reg-machine* machine-id machine-spec)` | v1 | 005 | Plain-fn surface beneath `reg-machine`. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. |
-| `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 | |
+| `reg-app-schema` | M | `(reg-app-schema path schema)` / `(reg-app-schema path schema opts)` | v1 | 010 | |
+| `reg-app-schemas` | M | `(reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})` / `(reg-app-schemas {…} opts)` — bulk plural form for feature-modular apps that register 5–20 paths against the same prefix (per Conventions §Feature-modularity prefix convention). Each entry routes through the singular `reg-app-schema` and is stamped with this call's source-coords. Returns the vector of paths registered (rf2-jzs9) | v1 | 010 | |
 | `reg-flow` | Fn | `(reg-flow flow)` / `(reg-flow id flow)` | v1 | 013 | |
 | `reg-route` | M | `(reg-route id metadata)` | v1 | 012 | |
 | `reg-head` | M | `(reg-head id ?metadata head-fn)` | v1 (deferred — see rf2-gr0n) | 011 | New registry kind `:head`; routes name a registered head via `:head` route metadata. |
@@ -59,9 +60,12 @@
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `dispatch` | Fn | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended) | 002 |
-| `dispatch-sync` | Fn | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended) | 002 |
-| `subscribe` | Fn | `(subscribe query-v)` / `(subscribe query-v opts)` | v1 (preserved + extended) | 002 |
+| `dispatch` | M | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended); macro per rf2-ts1a — captures call-site for `:rf.trace/call-site` | 002 |
+| `dispatch*` | Fn | `(dispatch* event)` / `(dispatch* event opts)` | rf2-ts1a — fn form for HoF / programmatic dispatch (no call-site stamping) | 002 |
+| `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro per rf2-ts1a | 002 |
+| `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | rf2-ts1a — fn form for HoF / programmatic sync dispatch | 002 |
+| `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro per rf2-ts1a | 002 |
+| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | rf2-ts1a — fn form for HoF / programmatic subscribe | 002 |
 | `subscribe-value` | Fn | `(subscribe-value query-v)` / `(subscribe-value frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 002 |
 | `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period) | v1 | 002 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
@@ -77,10 +81,8 @@
 | `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` *or* `(with-frame [sym expr] body)` | v1 | 002 |
 | `bound-fn` | M | `(bound-fn [args] body)` | v1 | 002 |
-| `bound-dispatcher` | Fn | `(bound-dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a dispatch fn safe to call from async callbacks where the dynamic-var binding has unwound | v1 | 002 |
-| `bound-subscriber` | Fn | `(bound-subscriber)` → `(fn [query-v] ...)` — companion to `bound-dispatcher` for subscribe | v1 | 002 |
-| `dispatcher` | Fn | `(dispatcher)` (called during render) → frame-bound dispatch fn | v1 | 004 |
-| `subscriber` | Fn | `(subscriber)` (called during render) → frame-bound subscribe fn | v1 | 004 |
+| `dispatcher` | Fn | `(dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a frame-bound dispatch fn. Safe to call during render AND from async callbacks where the dynamic-var binding has unwound | v1 | 002, 004 |
+| `subscriber` | Fn | `(subscriber)` → `(fn [query-v] ...)` — companion to `dispatcher` for subscribe. Captures the current frame at call time | v1 | 002, 004 |
 | `view` | Fn | `(view view-id)` → render-fn (runtime-lookup handle) | v1 | 001, 004 |
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
@@ -246,8 +248,17 @@ Standard cofx (server-only):
 | `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
 | `reg-http-interceptor` | Fn | `(reg-http-interceptor {:frame ... :id ... :before (fn [ctx] ctx')})` — register a request-side interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). `:before` receives a ctx `{:request :args :frame :event}` and returns a (possibly-modified) ctx. | v1 (optional capability) | 014 |
 | `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). Single-arity targets `:rf/default`. | v1 (optional capability) | 014 |
+| `re-frame.http/get`     | Fn | `(rf.http/get url)` / `(rf.http/get url args)` — build a `[:rf.http/managed {:request {:method :get :url url} ...}]` fx vector (per [014 §Call-site helpers](014-HTTPRequests.md#call-site-helpers), rf2-pf4k). | v1 (optional capability) | 014 |
+| `re-frame.http/post`    | Fn | `(rf.http/post url)` / `(rf.http/post url args)` — POST helper; same shape as `get`. | v1 (optional capability) | 014 |
+| `re-frame.http/put`     | Fn | `(rf.http/put url)` / `(rf.http/put url args)` — PUT helper. | v1 (optional capability) | 014 |
+| `re-frame.http/delete`  | Fn | `(rf.http/delete url)` / `(rf.http/delete url args)` — DELETE helper. | v1 (optional capability) | 014 |
+| `re-frame.http/patch`   | Fn | `(rf.http/patch url)` / `(rf.http/patch url args)` — PATCH helper. | v1 (optional capability) | 014 |
+| `re-frame.http/head`    | Fn | `(rf.http/head url)` / `(rf.http/head url args)` — HEAD helper. | v1 (optional capability) | 014 |
+| `re-frame.http/options` | Fn | `(rf.http/options url)` / `(rf.http/options url args)` — OPTIONS helper. | v1 (optional capability) | 014 |
 
 Public API surface in `re-frame.core` for ports that ship Spec 014. Ports that omit it MUST NOT register `:rf.http/*` for any other purpose (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+
+The verb helpers (`get` / `post` / `put` / `delete` / `patch` / `head` / `options`) live in `re-frame.http` — users `(:require [re-frame.http :as rf.http])` alongside `re-frame.core`. They're pure synthesis fns that produce the canonical `[:rf.http/managed args-map]` fx vector; the namespace ships in `day8/re-frame2-http` (same artefact as the fx they reference) so loading the helpers and the fx are a single dep decision.
 
 ### Reply-payload shape
 
@@ -395,7 +406,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
 | `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
 | `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
-| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame-id`, `:cb-id` |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 
@@ -428,7 +439,7 @@ Pattern-level error categories:
 | `:rf.error/override-fallthrough` | An override targeted an unregistered id |
 | `:rf.error/duplicate-url-binding` | Two frames declared `:url-bound? true` simultaneously (per Spec 012 R-4) |
 | `:rf.error/adapter-already-installed` | `install-adapter!` called after frames exist (per Spec 006 S-1) |
-| `:rf.error/no-adapter-specified` | `(rf/init! …)` was called with no args, nil, or a non-map argument (e.g. a keyword). The only legal call shape is `(rf/init! adapter-map)` — require the adapter ns and pass its `adapter` Var (per Spec 006 §Adapter selection at boot, rf2-agql) |
+| `:rf.error/no-adapter-specified` | `(rf/init! …)` was called with nil or a non-map argument (e.g. a keyword). The only legal call shape is `(rf/init! adapter-map)` — require the adapter ns and pass its `adapter` Var (per Spec 006 §Adapter selection at boot, rf2-agql). (The no-arg form `(rf/init!)` raises `ArityException` at compile/load time per rf2-3ubmv — that case never reaches runtime.) |
 | `:rf.error/derived-container-replaced` | `replace-container!` called on a derived container (per Spec 006 §make-derived-value) |
 | `:rf.error/adapter-disposed` | An adapter function was called after `dispose-adapter!` ran |
 | `:rf.fx/skipped-on-platform` | Fx was skipped because `:platforms` excluded the active platform |
@@ -492,6 +503,7 @@ Schemas are **open** by default (consumers tolerate unknown keys; producers grow
 |---|---|---|---|---|---|
 | `dispatch-sequence` | Fn | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` | v1 | 008 | `opts`: `:after-each (fn [db ev] ...)`, `:frame`. Returns final `app-db`. Lives in `re-frame.test-support`. |
 | `assert-state` | Fn | `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` opts | v1 | 008 | Mismatch fires `clojure.test/is`-style failure via `do-report`. Lives in `re-frame.test-support`. |
+| `with-overrides` | M | `(with-overrides {fx-id -> override, …} body+)` | v1 | 002, 008 | Lexical-scope `:fx-overrides` binding (rf2-5uwl). Every `dispatch` / `dispatch-sync` inside the body merges the supplied map into its envelope's `:fx-overrides`. Precedence: per-call opt > lexical `with-overrides` > per-frame `:fx-overrides`. Composes with `with-frame`. Lives in `re-frame.core`. |
 | `run-test-sync` | M | `(run-test-sync body...)` | v1 | 008 | v1 compatibility shim. Snapshots/restores the registrar around `body`; v2's `dispatch-sync` is already synchronous so synchronicity is not added. Lives in `re-frame.test-support`. |
 | `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | 008 | Pure sub computation against an `app-db` value. Lives in `re-frame.core`. |
 | `snapshot-registrar` / `restore-registrar!` / `with-fresh-registrar` / `reset-runtime-fixture` | Fn | per docstring | v1 | 008 | Fixture machinery. Lives in `re-frame.test-support`. |
@@ -504,7 +516,8 @@ The v2 std-interceptor surface is **three specific helpers** plus the `->interce
 
 | API | M/Fn | Signature | Purpose |
 |---|---|---|---|
-| `inject-cofx` | Fn | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
+| `inject-cofx` | M | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Macro per rf2-ts1a — captures call-site for `:rf.trace/call-site` on errors emitted from inside the cofx body. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
+| `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | Fn form (rf2-ts1a) for HoF / programmatic interceptor construction — no call-site stamping. |
 | `path` | Fn | `(path & path)` | Focus a handler on an `app-db` sub-slice. Specific work — `:before` focuses, `:after` splices the result back into parent db. |
 | `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
 | `->interceptor` | Fn | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. |
@@ -547,10 +560,10 @@ Reserved fx-ids for runtime flow management via `:fx`:
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args, nil, or a non-map argument raises `:rf.error/no-adapter-specified`. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-agql. Ensures `:rf/default` frame is present | v1 | 006 |
+| `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args raises a language-level `ArityException` at compile/load time (rf2-3ubmv — the no-arg arity was cut so the missing-adapter mistake surfaces before runtime). Calling `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-agql. Ensures `:rf/default` frame is present | v1 | 006 |
 | `install-adapter!` | Fn | `(install-adapter! adapter-map)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
-| `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys) | v1 | — |
+| `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys). One of three orthogonal configuration surfaces per [Conventions §Configuration surfaces](Conventions.md#configuration-surfaces-configure-vs-set--vs-per-frame-metadata) (`configure` for process-level data knobs; `set-!` / `install-!` for adapter-pluggable hooks; per-frame metadata for frame-scoped overrides). | v1 | — |
 
 ---
 
@@ -648,7 +661,8 @@ See [007-Stories.md](007-Stories.md).
 | `dispatch-sync-with` (master) | Use `(dispatch-sync event {:fx-overrides {...}})` | MIGRATION M-4 |
 | `dispatch-to` (proposed earlier) | Use `(dispatch event {:frame :todo})` | 002 |
 | `subscribe-to` (proposed earlier) | Use `(subscribe query-v {:frame :todo})` | 002 |
-| `frame-dispatcher` (proposed earlier) | Renamed to `bound-dispatcher` | 002 |
+| `frame-dispatcher` (proposed earlier) | Use `dispatcher` (captures current frame at call time; safe to call during render and from async callbacks) | 002 |
+| `bound-dispatcher` / `bound-subscriber` (proposed earlier) | Cut as pure aliases for `dispatcher` / `subscriber` (rf2-knz3l). The verb-form names already imply capture-at-call-time semantics | 002 |
 | `enable-performance-api-tracing!` (proposed earlier) | Performance-API instrumentation is gated on the compile-time `re-frame.performance/enabled?` `goog-define`, not a runtime toggle (see [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) | 009 |
 | `add-trace-listener` / `remove-trace-listener` (proposed earlier) | Use `register-trace-cb!` / `remove-trace-cb!` | 009 |
 | `register-trace-cb` / `remove-trace-cb` (no-bang, proposed earlier) | Renamed to `register-trace-cb!` / `remove-trace-cb!` (bang form matches the side-effecting nature of listener registration) | 009 |

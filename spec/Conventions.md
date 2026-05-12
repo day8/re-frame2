@@ -15,7 +15,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 |---|---|---|
 | `:rf/*` | Pattern-level events emitted or consumed by the framework (e.g. `:rf/hydrate`, `:rf/server-init`); reserved app-db keys (`:rf/machines`, `:rf/route`); pattern-level effect-map keys; the universal default frame id (`:rf/default`) | 002 / 011 / 012 |
 | `:rf.frame/<gensym>` | Anonymous frame-identifier namespace, owned by `make-frame` (e.g. `:rf.frame/123` for a gensym'd frame id). | 002 |
-| `:rf.frame/<operation>` | Frame-lifecycle trace-operation namespace, owned by the router and frame lifecycle (e.g. `:rf.frame/drain-aborted`, `:rf.frame/destroyed`). | 002 / 009 |
+| `:rf.frame/<operation>` | Frame-lifecycle trace-operation namespace, owned by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`). | 002 / 009 |
 | `:rf.registry/*` | Registrar mutation trace operations (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`) | 001 / 009 |
 | `:rf.fx/*` | Effect-resolution advisories (`:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`); reserved fx-ids in machine `:fx` (`:rf.fx/spawn-args`) | 002 / 009 |
 | `:rf.error/*` | Error trace operations (handler exception, sub exception, fx exception, etc.) | 009 |
@@ -244,11 +244,67 @@ When adding a public surface, ask in order:
 
 The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-trace-cb!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
 
+## Configuration surfaces: `configure` vs `set-!` vs per-frame metadata
+
+re-frame2 has three orthogonal configuration surfaces. The user-facing question "where do I configure X?" depends on the **lifetime** of X and on whether the consumer needs to hand the framework a specific **implementation reference** (a function or component) versus just a keyword/value setting. The three buckets are exhaustive; every framework-owned config option slots into exactly one. New options pick their bucket by mechanism, not by feel.
+
+### 1. `(rf/configure key opts)` — process-level runtime knobs
+
+For knobs that apply globally to the framework runtime, are addressed by a **keyword** (no impl-reference required), and whose values are plain data (numbers, booleans, small maps). The full key vocabulary is enumerated at [API.md §Configure keys](API.md#configure-keys) and is fixed-and-additive.
+
+- `(rf/configure :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
+- `(rf/configure :trace-buffer {:depth 200})` — ring-buffer depth for trace events
+- `(rf/configure :sub-cache {:grace-period-ms 50})` — deferred ref-counting grace period
+- `(rf/configure :strict-subs true)` — reject unschema'd sub-registrations
+- `(rf/configure :ssr {:public-error-id ...})` — SSR error-projection policy
+
+### 2. `set-!` / `install-!` fns — adapter-pluggable hooks
+
+For substitution points where the consumer hands the framework a **specific implementation** (a function or component) that the framework will hold a strong reference to and call from arbitrary sites. The bang earns its keep because the surface mutates an implementation-defined process-level slot (per [§Naming](#naming-when-does-a-surface-carry-) bucket 3).
+
+- `(rf/install-adapter! reagent/adapter)` — install the reactive-substrate adapter
+- `(rf/set-schema-validator! malli.core/validate)` — swap the schema validator
+- `(rf/set-schema-explainer! malli.core/explain)` — swap the schema explainer
+
+These are NOT folded under `configure` because keyword-keyed addressing loses the type information that the consumer needs to pass an actual fn/component reference: `configure` is for *data*, `set-!` is for *impls*.
+
+### 3. Per-frame metadata — frame-scoped overrides
+
+For configuration whose lifetime is a single frame's existence — expressed at frame creation via `reg-frame`'s metadata map or per-dispatch via the `dispatch` opts argument (per [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides)). These keys flow through the dispatch envelope; per-call merges over per-frame on key conflict.
+
+- `:fx-overrides` — replace registered fx handlers by id, for the lifetime of one frame (or one dispatch)
+- `:interceptor-overrides` — replace interceptors in the chain by `:id`
+- `:interceptors` — *add* (prepend) interceptors to the chain
+- `:on-create` / `:on-destroy` — lifecycle events fired at frame create / destroy
+
+### How to slot a new config option
+
+When adding a new configuration surface, ask in order:
+
+1. Does it hand the framework a fn or component the framework must hold by reference? → bucket 2 (`set-!` / `install-!`).
+2. Is it a global runtime knob with a plain-data value? → bucket 1 (`configure`).
+3. Does it apply only to a specific frame's lifetime (or a single dispatch)? → bucket 3 (per-frame metadata via `reg-frame` or dispatch opts).
+
+If the option seems to want two buckets, the option is doing two things and should be split. If it fits none, file a bead against this section rather than coining a fourth surface.
+
 ## `*`-suffix naming for fn-versions of macros
 
-When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
+When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals, **stamps invocation call-sites** for tooling per [009 §`:rf.trace/call-site` — naming the invocation line](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line-rf2-ts1a)); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, registration without the macro tier, or higher-order use (`(map dispatch* xs)` — the macro can't ride a HoF position).
 
-For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch)); future macros that want fn partners follow the same convention.
+The current pairs:
+
+| Macro (ergonomic) | Fn (`*` form) | Spec |
+|---|---|---|
+| `reg-view` | `reg-view*` | [004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch) |
+| `reg-machine` | `reg-machine*` | [005 §reg-machine vs reg-machine*](005-StateMachines.md) |
+| `dispatch` | `dispatch*` | rf2-ts1a — call-site stamping |
+| `dispatch-sync` | `dispatch-sync*` | rf2-ts1a — call-site stamping |
+| `subscribe` | `subscribe*` | rf2-ts1a — call-site stamping |
+| `inject-cofx` | `inject-cofx*` | rf2-ts1a — call-site stamping |
+
+The `dispatch` / `subscribe` / `inject-cofx` macros (per rf2-ts1a) are the canonical invocation surface in user code — they pay no extra runtime cost in production (the call-site stamp DCEs under `:advanced` + `goog.DEBUG=false`) and let tooling render two click-to-jump links per error: registration-site (`:rf.trace/trigger-handler`) and invocation-site (`:rf.trace/call-site`). The `*`-fn forms exist for higher-order use and programmatic / REPL paths where there is no syntactic call site to attribute to.
+
+Future macros that want fn partners follow the same convention.
 
 The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
 

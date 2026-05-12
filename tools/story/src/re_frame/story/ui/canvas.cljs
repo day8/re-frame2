@@ -26,6 +26,7 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.multi-substrate :as multi-substrate]
+            [re-frame.story.ui.open-in-editor :as open-in-editor]
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.state :as state]))
 
@@ -213,6 +214,7 @@
   - >1 substrate → multi-substrate side-by-side grid (IMPL-SPEC §2.2)."
   [variant-id]
   (let [view-id        (variant-component variant-id)
+        variant-body   (registrar/handler-meta :variant variant-id)
         decorator-pack (decorators/resolve-decorators variant-id)
         eff-args       (args/resolve-args
                          variant-id
@@ -236,6 +238,12 @@
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))
               ")")])
+      ;; rf2-evgf5: per-variant 'Open in editor' chip. Reads :source
+      ;; off the variant body and routes through the user's configured
+      ;; editor URI scheme. Renders nothing when no source-coord was
+      ;; captured at registration.
+      (when variant-id
+        (open-in-editor/open-chip-for-variant variant-body))
       ;; Stage 6: per-variant share affordance (IMPL-SPEC §2.8.5).
       (when variant-id
         [share/share-button variant-id])]

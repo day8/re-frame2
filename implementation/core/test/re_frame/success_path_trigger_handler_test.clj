@@ -198,3 +198,210 @@
                      " must omit :rf.trace/trigger-handler"))))
         (finally
           (rf/remove-trace-cb! ::rec))))))
+
+;; ---- :sub/run carries the sub's registration coord (rf2-npm2p) ------------
+;;
+;; Spec 009 §:rf.trace/trigger-handler table — "Inside a sub recompute (body
+;; fn): the sub's coord". The `:sub/run` success-trace emits inside the
+;; sub's recompute scope, so it carries the sub's own registration coord
+;; (not the enclosing event handler's, even when the recompute fires
+;; inside a dispatch's drain). Causa's event-detail panel + pair2's
+;; jump-to-source UX render click-to-jump links from this slot on every
+;; trace in a cascade, including sub recomputes.
+
+(deftest sub-run-carries-sub-trigger
+  (testing ":sub/run rides the sub's own registration coord — Causa /
+   pair2 want jump-to-source to land on the reg-sub site of the sub
+   that recomputed, not the upstream event handler whose db change
+   caused the recompute"
+    (rf/reg-sub :rf2-npm2p/n
+                (fn [db _] (:n db)))
+    (let [evs (record-traces
+                (fn [] (deref (rf/subscribe [:rf2-npm2p/n]))))
+          [run] (events-of evs :sub/run)]
+      (is (some? run) ":sub/run trace fired on recompute")
+      (assert-trigger-shape run :sub :rf2-npm2p/n))))
+
+(deftest sub-run-trigger-rides-at-top-level
+  (testing ":rf.trace/trigger-handler on :sub/run is a top-level field,
+   NOT nested under :tags — mirrors the error / fx-handled / machine-
+   transition shapes"
+    (rf/reg-sub :rf2-npm2p/top-level
+                (fn [db _] db))
+    (let [evs   (record-traces
+                  (fn [] (deref (rf/subscribe [:rf2-npm2p/top-level]))))
+          [run] (events-of evs :sub/run)]
+      (is (some? run))
+      (is (contains? run :rf.trace/trigger-handler)
+          ":rf.trace/trigger-handler lives at top level")
+      (is (not (contains? (:tags run) :rf.trace/trigger-handler))
+          ":rf.trace/trigger-handler does NOT live under :tags"))))
+
+(deftest sub-run-trigger-matches-registrar-coord
+  (testing "the :source-coord under :rf.trace/trigger-handler on :sub/run
+   equals what the registrar holds on the sub's slot — same comparison
+   the other scope tests do (fx, machine, event)"
+    (rf/reg-sub :rf2-npm2p/coord
+                (fn [db _] db))
+    (let [sub-meta (rf/handler-meta :sub :rf2-npm2p/coord)
+          evs      (record-traces
+                     (fn [] (deref (rf/subscribe [:rf2-npm2p/coord]))))
+          [run]    (events-of evs :sub/run)
+          coord    (-> run :rf.trace/trigger-handler :source-coord)]
+      (is (some? run))
+      (is (= (:ns     sub-meta) (:ns coord)))
+      (is (= (:file   sub-meta) (:file coord)))
+      (is (= (:line   sub-meta) (:line coord)))
+      (is (= (:column sub-meta) (:column coord))))))
+
+(deftest sub-run-trigger-is-sub-not-enclosing-event
+  (testing "when a sub fires during a dispatch (the event handler's
+   db change is observed by a subsequent deref), :sub/run still carries
+   the SUB's coord — not the enclosing event handler's. The runtime
+   rebinds `*current-trigger-handler*` around the sub recompute for
+   exactly this reason; otherwise tools would jump to the upstream
+   event handler whenever a sub fired during a cascade."
+    (rf/reg-sub :rf2-npm2p/from-cascade
+                (fn [db _] (:n db)))
+    ;; Register an event handler that dispatches the db change and
+    ;; ALSO derefs the sub inside the same handler — that way the
+    ;; recompute fires inside the in-flight event handler's binding
+    ;; scope, and the trigger-handler hoist contract is what's under
+    ;; test: does the inner sub-binding override the outer event-
+    ;; handler-binding for the `:sub/run` emit? Per Spec 009 §:rf.trace
+    ;; /trigger-handler table, yes (the inner scope wins).
+    (rf/reg-event-db :rf2-npm2p/changes-n
+                     (fn [db _]
+                       (let [new-db (assoc db :n 1)]
+                         ;; Touch the sub from inside the event body
+                         ;; so the recompute fires while the event
+                         ;; handler's binding is in scope.
+                         @(rf/subscribe [:rf2-npm2p/from-cascade])
+                         new-db)))
+    (let [evs   (record-traces
+                  (fn [] (rf/dispatch-sync [:rf2-npm2p/changes-n])))
+          [run] (events-of evs :sub/run)]
+      (is (some? run) ":sub/run fired inside the cascade")
+      ;; The KIND under trigger-handler is :sub, not :event. Even
+      ;; though the deref happens INSIDE the event handler's drain,
+      ;; the sub-recompute body rebinds the trigger-handler. Same
+      ;; shape as fx-handled — the inner binding wins over the outer.
+      (assert-trigger-shape run :sub :rf2-npm2p/from-cascade))))
+
+(deftest programmatic-sub-omits-trigger-on-run
+  (testing "a sub registered without the macro path (no source-coord
+   stamp on the registrar slot) emits :sub/run with no
+   :rf.trace/trigger-handler field — better no-data than poison-data
+   (mirrors the fx-handled programmatic path)"
+    (let [reg-fn (requiring-resolve 're-frame.subs/reg-sub)]
+      (reg-fn :rf2-npm2p/programmatic
+              (fn [db _] db)))
+    (let [evs   (record-traces
+                  (fn [] (deref (rf/subscribe [:rf2-npm2p/programmatic]))))
+          [run] (events-of evs :sub/run)]
+      (is (some? run) ":sub/run fired")
+      (is (not (contains? run :rf.trace/trigger-handler))
+          "programmatic sub-registration → no coord → field omitted"))))
+
+;; ---- cofx body carries the cofx's registration coord (rf2-npm2p) ----------
+;;
+;; Spec 009 §:rf.trace/trigger-handler table — "Inside a cofx fn body:
+;; the cofx's coord". `cofx.cljc` rebinds `*current-trigger-handler*`
+;; around the cofx fn invocation so traces emitted from inside the
+;; cofx body (e.g. an instrumented http cofx emitting `:rf.http/issued`)
+;; carry the cofx's own registration coord, not the enclosing event
+;; handler's.
+;;
+;; The framework's stock cofx surface emits no success-path trace of its
+;; own (`cofx.cljc` only emits `:rf.error/no-such-cofx` on the miss
+;; path). To exercise the success-path binding contract, the test
+;; registers a cofx whose body itself calls `trace/emit!` — exactly the
+;; pattern an instrumented cofx (http, persistence, websocket) would
+;; use to surface its work into the trace stream. The emitted event
+;; rides the cofx's trigger-handler binding because it fires from
+;; inside the cofx fn's invocation scope.
+
+(deftest cofx-body-trace-carries-cofx-trigger
+  (testing "a trace emitted from inside the cofx fn body rides the
+   cofx's registration coord — the cofx rebinds
+   `*current-trigger-handler*` around the body, overriding the
+   enclosing event handler's binding"
+    (rf/reg-cofx :rf2-npm2p/instrumented-cofx
+                 (fn [ctx]
+                   ;; Emit a custom trace from inside the cofx body —
+                   ;; this is exactly what an instrumented cofx
+                   ;; (http issuance, persistence read, etc.) does to
+                   ;; surface its work into the trace stream. The
+                   ;; binding established by `cofx.cljc`'s `:before`
+                   ;; phase MUST cause this emit to carry the cofx's
+                   ;; coord (not the enclosing event handler's).
+                   (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {:from :cofx})
+                   ctx))
+    (rf/reg-event-fx :rf2-npm2p/uses-cofx
+                     [(rf/inject-cofx :rf2-npm2p/instrumented-cofx)]
+                     (fn [_cofx _event] {}))
+    (let [evs     (record-traces
+                    (fn [] (rf/dispatch-sync [:rf2-npm2p/uses-cofx])))
+          [probe] (events-of evs :rf2-npm2p/probe)]
+      (is (some? probe) "custom trace fired from inside the cofx body")
+      (assert-trigger-shape probe :cofx :rf2-npm2p/instrumented-cofx))))
+
+(deftest cofx-body-trigger-rides-at-top-level
+  (testing ":rf.trace/trigger-handler on a cofx-body trace is a
+   top-level field, NOT nested under :tags"
+    (rf/reg-cofx :rf2-npm2p/top-level-cofx
+                 (fn [ctx]
+                   (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
+                   ctx))
+    (rf/reg-event-fx :rf2-npm2p/use-top-level-cofx
+                     [(rf/inject-cofx :rf2-npm2p/top-level-cofx)]
+                     (fn [_ _] {}))
+    (let [evs     (record-traces
+                    (fn [] (rf/dispatch-sync [:rf2-npm2p/use-top-level-cofx])))
+          [probe] (events-of evs :rf2-npm2p/probe)]
+      (is (some? probe))
+      (is (contains? probe :rf.trace/trigger-handler)
+          ":rf.trace/trigger-handler lives at top level")
+      (is (not (contains? (:tags probe) :rf.trace/trigger-handler))
+          ":rf.trace/trigger-handler does NOT live under :tags"))))
+
+(deftest cofx-body-trigger-matches-registrar-coord
+  (testing "the :source-coord under :rf.trace/trigger-handler on a
+   cofx-body trace equals what the registrar holds on the cofx's slot"
+    (rf/reg-cofx :rf2-npm2p/coord-cofx
+                 (fn [ctx]
+                   (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
+                   ctx))
+    (rf/reg-event-fx :rf2-npm2p/use-coord-cofx
+                     [(rf/inject-cofx :rf2-npm2p/coord-cofx)]
+                     (fn [_ _] {}))
+    (let [cofx-meta (rf/handler-meta :cofx :rf2-npm2p/coord-cofx)
+          evs       (record-traces
+                      (fn [] (rf/dispatch-sync [:rf2-npm2p/use-coord-cofx])))
+          [probe]   (events-of evs :rf2-npm2p/probe)
+          coord     (-> probe :rf.trace/trigger-handler :source-coord)]
+      (is (some? probe))
+      (is (= (:ns     cofx-meta) (:ns coord)))
+      (is (= (:file   cofx-meta) (:file coord)))
+      (is (= (:line   cofx-meta) (:line coord)))
+      (is (= (:column cofx-meta) (:column coord))))))
+
+(deftest programmatic-cofx-omits-trigger-on-body-trace
+  (testing "a cofx registered without the macro path (no source-coord
+   stamp on the registrar slot) — traces emitted from inside its body
+   carry no :rf.trace/trigger-handler field. Better no-data than
+   poison-data, mirroring the fx + sub programmatic paths."
+    (let [reg-fn (requiring-resolve 're-frame.cofx/reg-cofx)]
+      (reg-fn :rf2-npm2p/prog-cofx
+              (fn [ctx]
+                (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
+                ctx)))
+    (rf/reg-event-fx :rf2-npm2p/use-prog-cofx
+                     [(rf/inject-cofx :rf2-npm2p/prog-cofx)]
+                     (fn [_ _] {}))
+    (let [evs     (record-traces
+                    (fn [] (rf/dispatch-sync [:rf2-npm2p/use-prog-cofx])))
+          [probe] (events-of evs :rf2-npm2p/probe)]
+      (is (some? probe))
+      (is (not (contains? probe :rf.trace/trigger-handler))
+          "programmatic cofx-registration → no coord → field omitted"))))

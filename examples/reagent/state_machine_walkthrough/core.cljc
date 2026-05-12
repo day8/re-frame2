@@ -247,17 +247,24 @@
 
 (defn drain-retry-then-lockout-test
   "Three failures cycle :submitting → :error-shown → :idle ×3, then a
-  fourth :submit fails the guard and lands at :locked-out."
+  fourth :submit fails the guard and lands at :locked-out.
+
+  Uses `rf/with-overrides` (rf2-5uwl) — the lexical-scope counterpart to
+  the per-frame `:fx-overrides` opt on `make-frame`: every dispatch
+  inside the macro body inherits the override map, so the seven
+  identical `:rf.http/managed` swaps don't need to thread the override
+  through each call. Composes with `with-frame`."
   []
-  (let [f (rf/make-frame {:fx-overrides {:rf.http/managed :auth.login/canned-failure}})]
-    (dotimes [_ 3]
+  (let [f (rf/make-frame {})]
+    (rf/with-overrides {:rf.http/managed :auth.login/canned-failure}
+      (dotimes [_ 3]
+        (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+                                              {:email "x@y.z" :password "wrong"}]]
+                          {:frame f})
+        (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
       (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                             {:email "x@y.z" :password "wrong"}]]
-                        {:frame f})
-      (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
-    (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
-                                          {:email "x@y.z" :password "wrong"}]]
-                      {:frame f})
+                        {:frame f}))
     (let [state (rf/compute-sub [:auth.login/state] (rf/get-frame-db f))]
       (assert (= :locked-out state)
               (str "expected :locked-out on 4th attempt, got " state)))

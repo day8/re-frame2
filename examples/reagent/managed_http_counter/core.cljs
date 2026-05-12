@@ -33,6 +33,10 @@
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
+            ;; rf2-pf4k — call-site helpers (rf.http/get / post / put /
+            ;; delete / patch / head / options) that synthesise the
+            ;; canonical [:rf.http/managed args-map] envelope.
+            [re-frame.http :as rf.http]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -69,12 +73,13 @@
                (assoc :status :error
                       :error  (:failure (:rf/reply msg))))}
 
-      ;; Initial branch — issue the request.
+      ;; Initial branch — issue the request. rf2-pf4k: the
+      ;; `rf.http/get` helper synthesises the same `[:rf.http/managed
+      ;; args-map]` envelope a hand-written `:method :get` entry
+      ;; would; the call-site reads as one line of intent.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [[:rf.http/managed
-             {:request {:method :get :url "api/inc.json"}
-              :decode  :json}]]})))
+       :fx [(rf.http/get "api/inc.json" {:decode :json})]})))
 
 ;; -- Fail (real 404 from http-server) ----------------------------------------
 
@@ -88,17 +93,16 @@
       ;; Should not happen — the URL is intentionally 404.
       {:db (assoc db :status :idle :error nil)}
 
+      ;; rf2-pf4k — same `rf.http/get` helper as above. Per Spec 014
+      ;; §Classification order, status-check fires before decode — so
+      ;; even with `:decode :json`, a 404 with an HTML or plain-text
+      ;; body classifies as :rf.http/http-4xx (the raw body lands at
+      ;; :body), not :rf.http/decode-failure. Leaving :decode at the
+      ;; default `:auto` here exercises the common case: a JSON
+      ;; endpoint that 404s with a load-balancer HTML page.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [[:rf.http/managed
-             ;; Per Spec 014 §Classification order, status-check fires
-             ;; before decode — so even with `:decode :json`, a 404 with
-             ;; an HTML or plain-text body classifies as :rf.http/http-4xx
-             ;; (the raw body lands at :body), not :rf.http/decode-failure.
-             ;; Leaving :decode at the default `:auto` here exercises the
-             ;; common case: a JSON endpoint that 404s with a load-balancer
-             ;; HTML page.
-             {:request {:method :get :url "api/does-not-exist"}}]]})))
+       :fx [(rf.http/get "api/does-not-exist")]})))
 
 ;; -- Retry-recover (canned-stub at app level) --------------------------------
 ;;
@@ -145,12 +149,13 @@
       (some-> msg :rf/reply :kind some?)
       {:db (assoc db :status :idle)}
 
+      ;; rf2-pf4k — `rf.http/get` with `:request-id` for the abort
+      ;; surface; reads the same as the hand-written form.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [[:rf.http/managed
-             {:request    {:method :get :url "api/long"}
-              :request-id :counter/long
-              :decode     :json}]]})))
+       :fx [(rf.http/get "api/long"
+                         {:request-id :counter/long
+                          :decode     :json})]})))
 
 (rf/reg-event-fx :counter/cancel
   (fn [{:keys [db]} _]

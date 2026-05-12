@@ -170,33 +170,29 @@
       (is (identical? tenant-before (get @frame/frames :tenant-x))
           "ensure-default-frame! leaves unrelated frames untouched"))))
 
-;; ---- (rf/init! ...) explicit-adapter contract (rf2-agql) -----------------
+;; ---- (rf/init! ...) explicit-adapter contract (rf2-agql, rf2-3ubmv) ------
 ;;
 ;; Per rf2-agql `(rf/init! ...)` requires an explicit adapter spec map.
-;; The no-arg form and the keyword form both raise
-;; :rf.error/no-adapter-specified — there is no default-adapter registry
-;; to fall back to and no keyword-to-adapter lookup table.
+;; Per rf2-3ubmv the no-arg arity was cut from the fn defn entirely so
+;; calling `(rf/init!)` raises a language-level ArityException at the
+;; call site rather than a runtime ex-info — earlier diagnosis, clearer
+;; stack trace, IDE-flaggable. The nil and keyword forms still raise
+;; :rf.error/no-adapter-specified at runtime (there is no default-
+;; adapter registry to fall back to and no keyword-to-adapter lookup
+;; table).
 
-(deftest init-no-arg-raises-no-adapter-specified
-  (testing "(rf/init!) with no args raises :rf.error/no-adapter-specified"
+(deftest init-no-arg-raises-arity-exception
+  (testing "(rf/init!) with no args raises ArityException (rf2-3ubmv — the no-arg arity was cut)"
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed")
     (let [thrown (try
                    (rf/init!)
                    nil
-                   (catch clojure.lang.ExceptionInfo e e))]
+                   (catch clojure.lang.ArityException e e))]
       (is (some? thrown)
-          "rf/init! with no args raises")
-      (is (= ":rf.error/no-adapter-specified"
-             (some-> thrown ex-message))
-          "the thrown exception carries the :rf.error/no-adapter-specified tag")
-      (let [data (ex-data thrown)]
-        (is (= 'init! (:where data))
-            "ex-data identifies the calling fn")
-        (is (= :no-recovery (:recovery data))
-            "ex-data flags :no-recovery — the call must be re-issued with an explicit adapter")
-        (is (string? (:reason data))
-            "ex-data carries a :reason string explaining the recovery path")))
+          "rf/init! with no args raises ArityException — ArityException is more discoverable than runtime ex-info")
+      (is (re-find #"init!" (str (.getMessage ^clojure.lang.ArityException thrown)))
+          "the ArityException message identifies init! as the offending fn"))
     (is (nil? (adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 

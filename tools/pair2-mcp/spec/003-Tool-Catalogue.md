@@ -1,6 +1,6 @@
 # 003-Tool-Catalogue
 
-The seven MCP tools.
+The nine MCP tools.
 
 ## discover-app
 
@@ -130,3 +130,155 @@ know yet which slice carries the answer.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :snapshot-failed` (with `:message`) on any other failure.
+
+## subscribe
+
+Streaming subscription on the trace or epoch bus (rf2-hq49). Push-mode
+replacement for the polling-shaped `watch-epochs` op. The MCP
+`tools/call` request stays open for the lifetime of the subscription;
+each batch of matching events is emitted as a
+`notifications/progress` notification correlated to the original call
+via `extra._meta.progressToken`. The final `tools/call` result is a
+summary `{:ok? true :sub-id :delivered N :overflow N :ticks K :reason
+<terminated-reason>}`.
+
+### Topics
+
+| Topic    | What gets pushed                                                  |
+|----------|-------------------------------------------------------------------|
+| `trace`  | Every raw trace event matching `filter`.                          |
+| `epoch`  | Every assembled `:rf/epoch-record` matching `filter`.             |
+| `fx`     | Sugar — `topic :trace` with base filter `{:op-type :fx}`.         |
+| `error`  | Sugar — `topic :trace` with base filter `{:op-type :error}`.      |
+
+User-supplied filter keys win over the topic's base filter on conflict
+— the topic is a default, not a lock. So `subscribe {:topic :fx
+:filter {:op-type :info}}` actually streams `:info` traces (the user
+filter wins). Don't do this — but the substrate doesn't refuse it.
+
+### Filter vocabulary
+
+For `topic` of `:trace`, `:fx`, or `:error`, the filter map mirrors the
+`(re-frame.core/trace-buffer opts)` filter vocabulary (rf2-97ah0).
+Recognised keys (all AND-compose; absent key means "no constraint on
+that axis"):
+
+| Key              | Match against (`ev` is the event)                                 |
+|------------------|-------------------------------------------------------------------|
+| `:operation`     | `(= operation (:operation ev))`                                   |
+| `:op-type`       | `(= op-type (:op-type ev))`                                       |
+| `:severity`      | Alias for `:op-type`, restricted to `:error` / `:warning` / `:info`. |
+| `:frame`         | `(:frame ev)` or `(get-in ev [:tags :frame])`                     |
+| `:event-id`      | `(get-in ev [:tags :event-id])`                                   |
+| `:handler-id`    | `(get-in ev [:tags :handler-id])`                                 |
+| `:source`        | `(:source ev)` or `(get-in ev [:tags :source])` — one of `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration`. |
+| `:origin`        | `(get-in ev [:tags :origin])` — `:app` / `:pair` / `:story` / `:test`. |
+| `:dispatch-id`   | `(get-in ev [:tags :dispatch-id])`                                |
+| `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
+| `:between`       | `[t0 t1]` — `(<= t0 (:time ev) t1)` host-clock ms.                |
+
+For `topic :epoch`, the filter map mirrors `epoch-matches?` (same
+vocab `watch-epochs` already accepts):
+
+| Key                  | Match against (`e` is the `:rf/epoch-record`)                 |
+|----------------------|---------------------------------------------------------------|
+| `:event-id`          | `(:event-id e)`                                               |
+| `:event-id-prefix`   | `(str/starts-with? (str event-id) (str prefix))`              |
+| `:effects`           | `(some #(= effects (:fx-id %)) (:effects e))`                 |
+| `:touches-path`      | `(:db-before e)` or `(:db-after e)` carries something at path |
+| `:sub-ran`           | `(some #(or (= sub-ran (:sub-id %)) (= sub-ran (first (:query-v %)))) (:sub-runs e))` |
+| `:render`            | `(some #(= render (str (:render-key %))) (:renders e))`       |
+| `:origin`            | One of the `:event/dispatched` traces has `(:tags :origin)` = `origin`. |
+| `:frame`             | `(= frame (:frame e))`                                        |
+
+### Args
+
+- `topic` (string, **required**) — one of `"trace"`, `"epoch"`, `"fx"`,
+  `"error"`.
+- `filter` (object **or** string, optional) — filter map. Accepted as
+  a JSON object or an EDN-encoded string. EDN is preferred when the
+  filter carries keywords or namespaced ids (a JSON object can't
+  carry `:cart/add` natively).
+- `max-buffered` (integer, default `500`) — runtime-side queue cap.
+  When full, new events are dropped and the count is reported in
+  `:overflow`. The dropped events are the *newest* — keeping the
+  oldest lets you reconstruct the start of a storm.
+- `poll-ms` (integer, default `100`) — server-side poll cadence. The
+  MCP server polls the runtime's drain at this interval and emits a
+  progress notification per non-empty batch.
+- `max-ms` (integer, default `0` = unbounded) — hard upper-bound on
+  how long the subscription stays open. `0` = stay open until the
+  client cancels.
+- `max-events` (integer, default `0` = unbounded) — terminate after
+  this many events have been delivered.
+- `build` (string, default `"app"`) — shadow-cljs build id.
+
+### Returns
+
+While the subscription is open, each non-empty batch tick emits
+
+```jsonc
+{
+  "method": "notifications/progress",
+  "params": {
+    "progressToken": "<token>",  // echoed from the call's _meta
+    "progress": <tick-number>,   // monotonic, 1-based
+    "message": "{:sub-id \"...\" :events [...] :overflow 0}",
+    "data": { "overflow": 0 }
+  }
+}
+```
+
+`message` is an EDN-printed string carrying the event batch — the
+same shape the runtime's `drain-subscription!` returns. Capable MCP
+clients can also inspect `data.overflow` for the count of dropped
+events on this tick.
+
+On termination, the `tools/call` result is
+
+```clojure
+{:ok? true
+ :sub-id <uuid>
+ :topic  <keyword>
+ :delivered <integer>
+ :overflow  <integer>
+ :ticks     <integer>
+ :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached}
+```
+
+`:reason` is `:aborted` when the client cancelled the call,
+`:sub-gone` when the runtime's subscription disappeared (typically a
+full page reload, or an `unsubscribe` op fired separately),
+`:max-ms-reached` / `:max-events-reached` when the caller's
+upper-bounds fire.
+
+### Termination paths
+
+1. **Client cancel** — the MCP client cancels the `tools/call`. The
+   server's `extra.signal` AbortSignal fires; the poll loop notices
+   on its next tick, evaluates `unsubscribe!` against the runtime,
+   and resolves with `:reason :aborted`.
+2. **Out-of-band `unsubscribe`** — a separate MCP call to the
+   `unsubscribe` tool removes the sub from the runtime registry.
+   The next drain returns `:gone? true`; the poll loop resolves
+   with `:reason :sub-gone`.
+3. **Cap reached** — `max-ms` or `max-events` is exceeded.
+
+### Failure modes
+
+- `:reason :unknown-topic` if `topic` is missing or not one of the
+  four. Surfaced as `isError: true`.
+- `:reason :runtime-not-preloaded` if the preload hasn't run.
+- `:reason :subscribe-failed` on any other failure during subscribe.
+
+## unsubscribe
+
+Close a streaming subscription out-of-band. Idempotent — closing an
+unknown sub-id returns `{:ok? true :sub-id <id> :existed? false}`
+rather than an error. Useful when an MCP client wants to stop a
+stream without cancelling the `tools/call` directly (e.g. when the
+agent host can't propagate cancellation cleanly).
+
+**Args**: `sub-id` (string, **required**), `build` (string).
+
+**Returns**: `{:ok? true :sub-id <id> :existed? <bool>}`.

@@ -185,17 +185,23 @@
      exception emit :rf.error/sub-exception and yield nil (recovery
      :replaced-with-default)."
   [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
-  (trace/emit! :sub/run :sub/run
-               {:sub-id  query-id
-                :query-v query-v
-                :frame   frame-id})
-  ;; Per rf2-3nn8: bind `*current-trigger-handler*` to the sub's own
-  ;; source-coord for the body-fn invocation + the validation step so
-  ;; any error trace fired during the recompute (the `:rf.error/sub-
-  ;; exception` catch below, schema-validation failures, transitive
+  ;; Per rf2-3nn8 / rf2-lf84g (success-path widening) / rf2-npm2p
+  ;; (sub-recompute scope coverage): bind `*current-trigger-handler*` to
+  ;; the sub's own source-coord for the `:sub/run` success-trace emit,
+  ;; the body-fn invocation, and the validation step so every trace
+  ;; fired during the recompute (success path: `:sub/run`; error path:
+  ;; `:rf.error/sub-exception`, schema-validation failures, transitive
   ;; sub misses) carries the in-flight sub's coord.
+  ;;
+  ;; Per Spec 009 §:rf.trace/trigger-handler table row "Inside a sub
+  ;; recompute (body fn)": carries the sub's coord. The emit MUST sit
+  ;; inside the binding for the sub's coord to ride the success trace.
   (binding [trace/*current-trigger-handler*
             (trace/trigger-handler-from-meta :sub query-id sub-meta)]
+    (trace/emit! :sub/run :sub/run
+                 {:sub-id  query-id
+                  :query-v query-v
+                  :frame   frame-id})
     (try
       (let [computed (performance/mark-and-measure :sub query-id
                       (if (empty? input-signals)
@@ -357,7 +363,14 @@
   non-default-frame-once` fires once per (component-id, frame-id)
   pair. The check is late-bound through re-frame.views (CLJS-only) so
   the JVM build never loads it; production (`:advanced` +
-  `goog.DEBUG=false`) elides via `interop/debug-enabled?`."
+  `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
+
+  Per rf2-ts1a: this is the runtime-callable fn form. The macro form
+  `re-frame.core/subscribe` captures `(meta &form)` and delegates here
+  through `re-frame.core/subscribe*`, binding `trace/*current-call-site*`
+  for the duration so any error emitted inside the synchronous miss
+  path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
+  the invocation coord."
   ([query-v]
    #?(:cljs
       (let [frame-id (resolve-current-frame)]

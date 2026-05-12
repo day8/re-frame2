@@ -13,6 +13,7 @@
 - **[008-Docs-Mode.md](008-Docs-Mode.md)** — The `:docs` mode pane — read-only AutoDocs-equivalent: header, prose, args, decorators, parameters, tags for the active variant (rf2-rodx).
 - **[009-Test-Mode.md](009-Test-Mode.md)** — The `:test` mode pane — in-canvas aggregated test runner: status pill, per-row pass/fail, collapsible failure detail, Re-run button (rf2-qmjo).
 - **[010-Toolbar.md](010-Toolbar.md)** — The chrome-level toolbar that exposes registered `reg-mode` tuples as toggle chips above the three-pane layout; Storybook-8 theme/viewport/locale parallels via the optional `:axis` slot (rf2-p0mv).
+- **[011-Actions-Panel.md](011-Actions-Panel.md)** — The chronological per-variant log of user-action dispatches + dispatch-shaped fx-handled emits; filters the variant's trace buffer to the two channels that answer "what did the user do?" (rf2-5yriz).
 - **[API.md](API.md)** — Consolidated public surface for `day8/re-frame2-story`: every `reg-*`, every fn, every fx-id, every cofx-id.
 - **[Principles.md](Principles.md)** — Story-specific non-negotiables — EDN-first first among them — the test new features pass against.
 - **[DESIGN-RATIONALE.md](DESIGN-RATIONALE.md)** — WHY each major call was made; the seven rf2-m6tu §6 decisions plus Phase-2 SOTA additions and IMPL-SPEC-emergent calls.

@@ -76,6 +76,6 @@ Four things matter:
 ### Cross-references
 
 - [Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](../../../spec/004-Views.md#views-must-not-attach-native-dom-event-listeners-from-render-bodies) and [§Views MUST NOT own imperative library lifecycles directly](../../../spec/004-Views.md#views-must-not-own-imperative-library-lifecycles-directly) — bare `addEventListener` in a render body leaks listeners and silently routes dispatches to `:rf/default`; library lifecycles belong in `use-effect`.
-- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(rf/dispatcher)` / `(rf/bound-dispatcher)` at render-time to carry the frame.
+- [Spec 002 §Dispatches issued from inside a handler body](../../../spec/002-Frames.md#dispatches-issued-from-inside-a-handler-body) — async callbacks escape the dynamic frame binding; capture `(rf/dispatcher)` at render-time to carry the frame.
 - **Outer/inner Pattern (Pattern-OuterInner)** — the canonical home for wrapping stateful JS components (D3, Mapbox, animation libraries); the worked example above is one instance.
 - [Helix 0.2.x docs — `use-effect`](https://github.com/lilactown/helix/blob/master/docs/creating-components.md) — the underlying hook's signature, deps-vector semantics, and stale-closure considerations.

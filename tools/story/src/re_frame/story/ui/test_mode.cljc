@@ -50,6 +50,7 @@
                        [re-frame.story.runtime   :as runtime]
                        [re-frame.story.async     :as async]
                        [re-frame.interop         :as interop]
+                       [re-frame.story.ui.open-in-editor :as open-in-editor]
                        [re-frame.story.ui.state  :as state]])))
 
 ;; ---- pure: parent-story-id ----------------------------------------------
@@ -478,7 +479,11 @@
       (when (and (map? source) (or (:file source) (:line source)))
         [:div {:style (:detail-source styles)}
          (str "at " (:file source)
-              (when (:line source) (str ":" (:line source))))])]))
+              (when (:line source) (str ":" (:line source))))
+         ;; rf2-evgf5: per-assertion 'Open in editor' chip — surfaces the
+         ;; assertion's source-coord (the play-step site, captured by the
+         ;; assertion's record builder per spec/004).
+         (open-in-editor/open-chip source :test-detail)])]))
 
 #?(:cljs
    (defn- status-glyph

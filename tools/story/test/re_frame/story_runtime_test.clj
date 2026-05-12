@@ -451,6 +451,25 @@
     (let [r (story/resolve-args :story.cfg/v)]
       (is (= :dark (:theme r))))))
 
+(deftest configure-sets-editor-preference
+  (testing "configure! writes the :editor preference (rf2-evgf5)"
+    ;; Default is :vscode.
+    (config/set-editor! :vscode)
+    (is (= :vscode (config/get-editor)))
+    (story/configure! {:editor :cursor})
+    (is (= :cursor (config/get-editor)))
+    (story/configure! {:editor :idea})
+    (is (= :idea (config/get-editor)))
+    (story/configure! {:editor {:custom "zed://file/{path}:{line}"}})
+    (is (= {:custom "zed://file/{path}:{line}"} (config/get-editor)))
+    ;; Reset for downstream tests.
+    (config/set-editor! :vscode))
+  (testing "configure! with no :editor leaves the preference untouched"
+    (config/set-editor! :cursor)
+    (story/configure! {:global-args {:theme :dark}})
+    (is (= :cursor (config/get-editor)))
+    (config/set-editor! :vscode)))
+
 ;; ===========================================================================
 ;; ASYNC ABSTRACTION
 ;; ===========================================================================

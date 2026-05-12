@@ -64,11 +64,11 @@
 (defn- handle-list [_req]
   (js/Promise.resolve #js {:tools (tools/tool-descriptors-js)}))
 
-(defn- handle-call [conn req]
+(defn- handle-call [conn req extra]
   (let [params (j/get req :params)
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
-    (-> (tools/invoke conn name args)
+    (-> (tools/invoke conn name args extra)
         (.catch (fn [err]
                   (log! "handler threw for" name "—" (.-message err))
                   #js {:isError true
@@ -91,7 +91,8 @@
                  #js {:name server-name :version server-version}
                  #js {:capabilities #js {:tools #js {}}})]
     (j/call server :setRequestHandler ListToolsSchema handle-list)
-    (j/call server :setRequestHandler CallToolSchema (fn [req] (handle-call conn req)))
+    (j/call server :setRequestHandler CallToolSchema
+            (fn [req extra] (handle-call conn req extra)))
     server))
 
 (defn main [& _args]

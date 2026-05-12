@@ -78,7 +78,9 @@
   ;; Spec 004 §reg-view, the macros live in re-frame.core; CLJS users
   ;; can write `rf/reg-view` after `(:require [re-frame.core :as rf])`
   ;; without an explicit `:require-macros` clause at the call site.
-  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame bound-fn]])))
+  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame bound-fn
+                                                   dispatch dispatch-sync
+                                                   subscribe inject-cofx]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -494,6 +496,40 @@
                          `(rf-schemas/reg-app-schema ~path ~schema ~opts')))))
 
 #?(:clj
+   (defmacro reg-app-schemas
+     "Bulk-register a `{path -> schema}` map against the active frame
+     (or the `:frame` opt). Per rf2-jzs9 — plural form of
+     `reg-app-schema`, designed for feature-modular apps (per
+     Conventions §Feature-modularity prefix convention) where a
+     feature module registers 5–20 schemas under a shared path prefix.
+
+     Shape:
+
+       (rf/reg-app-schemas {[:auth]                AuthSlice
+                            [:auth :login-form]    FormSlice
+                            [:cart]                CartSlice
+                            [:cart :items]         [:vector CartItem]})
+
+       (rf/reg-app-schemas {...} {:frame :tenant/a})
+
+     Each entry is registered via the singular `reg-app-schema` fn;
+     source-coords captured at this call site stamp every registrar
+     slot. Returns the vector of paths registered.
+
+     Per rf2-p7va the schemas implementation lives in the
+     `day8/re-frame2-schemas` artefact; the emitted form looks the
+     producing fn up via the late-bind hook table so core never
+     statically requires it. Apps that use `reg-app-schemas` MUST add
+     `day8/re-frame2-schemas` to their deps and require
+     `re-frame.schemas` at app boot; without it, the lookup returns
+     `nil` and the call throws a clear error."
+     {:arglists '([path->schema] [path->schema opts])}
+     [path->schema & [opts]]
+     (let [opts' (or opts {})]
+       (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                         `(rf-schemas/reg-app-schemas ~path->schema ~opts')))))
+
+#?(:clj
    (defmacro reg-machine
      "Register a machine as an event handler. Per Spec 001 the metadata
      stamped onto the registry slot includes :ns / :line / :file captured
@@ -566,10 +602,11 @@
 
 #?(:cljs
    (do
-     (def reg-flow       rf-flows/reg-flow)
-     (def reg-route      rf-routing/reg-route)
-     (def reg-app-schema rf-schemas/reg-app-schema)
-     (def reg-machine*   rf-machines/reg-machine*)))
+     (def reg-flow        rf-flows/reg-flow)
+     (def reg-route       rf-routing/reg-route)
+     (def reg-app-schema  rf-schemas/reg-app-schema)
+     (def reg-app-schemas rf-schemas/reg-app-schemas)
+     (def reg-machine*    rf-machines/reg-machine*)))
 
 ;; Plain-fn surface for the JVM. Used by code-gen pipelines and the
 ;; conformance corpus when registering machines without a literal spec
@@ -622,13 +659,174 @@
 (def clear-subscription-cache! subs/clear-subscription-cache!)
 
 ;; ---- dispatch and subscribe -----------------------------------------------
+;;
+;; Per rf2-ts1a — call-site source-coords. Each user-facing surface ships
+;; as a macro + `*`-fn pair (Q1=C: existing-name macro, fn-form gets the
+;; `*` suffix; same convention as `reg-view` / `reg-view*` and `reg-
+;; machine` / `reg-machine*` per Conventions §`*`-suffix naming).
+;;
+;;   `dispatch`       — macro; captures `(meta &form)` and routes through
+;;                       `dispatch*` with the call-site stamped on `opts`.
+;;   `dispatch*`      — runtime-callable fn (delegates to `router/dispatch!`).
+;;                       Use this in HoF contexts (`(map dispatch* xs)`) or
+;;                       when the surface is reached programmatically.
+;;
+;; Same shape for `dispatch-sync` / `dispatch-sync*`, `subscribe` /
+;; `subscribe*`, `inject-cofx` / `inject-cofx*`.
+;;
+;; The compile-time `:rf.trace/call-site` map elides under `goog.DEBUG=
+;; false` (Q3=B dev-only elision) — the macro expansion is
+;; `(if interop/debug-enabled? <stamping-call> <plain-call>)` so the
+;; entire stamping branch (including the literal map) DCE's. emit-error!
+;; reads `trace/*current-call-site*` and attaches the value as
+;; `:rf.trace/call-site` (Q2=A flat sibling of `:rf.trace/trigger-handler`)
+;; on the emitted event.
 
-(def dispatch       router/dispatch!)
-(def dispatch-sync  router/dispatch-sync!)
-(def subscribe      subs/subscribe)
+(def dispatch*       router/dispatch!)
+(def dispatch-sync*  router/dispatch-sync!)
 (def subscribe-value subs/subscribe-value)
-(def unsubscribe    subs/unsubscribe)
-(def compute-sub    subs/compute-sub)
+(def unsubscribe     subs/unsubscribe)
+(def compute-sub     subs/compute-sub)
+
+(defn subscribe*
+  "Runtime-callable fn form of `subscribe`. Per rf2-ts1a — the macro
+  form `re-frame.core/subscribe` captures `(meta &form)` and binds
+  `trace/*current-call-site*` around a call to this fn. Direct callers
+  (HoF use, programmatic subscribe paths, view-render closures injected
+  by `reg-view`) skip the call-site stamping by calling this fn
+  directly.
+
+  Arities mirror `re-frame.subs/subscribe`."
+  ([query-v]            (subs/subscribe query-v))
+  ([frame-id query-v]   (subs/subscribe frame-id query-v)))
+
+(defn inject-cofx*
+  "Runtime-callable fn form of `inject-cofx`. Per rf2-ts1a — the macro
+  form `re-frame.core/inject-cofx` captures `(meta &form)` and routes
+  here with the call-site as the trailing arg. Direct callers skip
+  call-site stamping by omitting the trailing arg.
+
+  Arities:
+    (inject-cofx* :id)                  — no value, no call-site
+    (inject-cofx* :id value)            — value, no call-site
+    (inject-cofx* :id value call-site)  — full macro path (value + call-site)
+
+  The macro expansion uses `cofx/no-value` (a public sentinel) to thread
+  the call-site through the no-value branch without ambiguity."
+  ([cofx-id]                      (cofx/inject-cofx cofx-id))
+  ([cofx-id value]                (cofx/inject-cofx cofx-id value nil))
+  ([cofx-id value call-site]      (cofx/inject-cofx cofx-id value call-site)))
+
+;; ---- call-site capturing macros (rf2-ts1a) -------------------------------
+;;
+;; Each macro captures `(meta &form)` and `*ns*` / `*file*` at expansion
+;; time and emits an `(if interop/debug-enabled? <stamping> <plain>)`
+;; branch around the matching `*`-fn call. Under :advanced +
+;; `goog.DEBUG=false` the closure compiler constant-folds the gate to
+;; false and the entire stamping branch — including the literal
+;; `:rf.trace/call-site` map — DCE's. Per Q3=B dev-only elision.
+;;
+;; The `coords-form` helper is reused from `re-frame.source-coords` so
+;; the literal map carries the same `{:ns :file :line :column}` shape as
+;; registration-site coords (rf2-mdjp `:file` resolution rules apply
+;; identically — form-meta `:file` wins, `"NO_SOURCE_PATH"` sentinel is
+;; dropped).
+
+#?(:clj
+   (defn ^:private call-site-form
+     "Build the literal call-site cond-> map for a callable's macro form.
+     Returns the unguarded form; callers wrap in their own
+     `(if interop/debug-enabled? ... ...)` so the entire branch (binding
+     scope or opts-key assoc) DCEs under `goog.DEBUG=false`."
+     [form-meta ns-sym file]
+     (source-coords/coords-form form-meta file ns-sym)))
+
+#?(:clj
+   (defmacro dispatch
+     "Enqueue `event-vec` on the target frame's router. Per Spec 002
+     §Routing. Per rf2-ts1a: macro form — captures the call site at
+     compile time and threads it through the dispatch envelope so any
+     error trace emitted while the handler chain runs carries the
+     invocation coord as `:rf.trace/call-site`.
+
+     For higher-order use (`(map dispatch* xs)`) and programmatic
+     callers, use `dispatch*` — the runtime-callable fn form."
+     ([event-vec]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch* ~event-vec {:rf.trace/call-site ~cs-form})
+           (re-frame.core/dispatch* ~event-vec))))
+     ([event-vec opts]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch* ~event-vec
+                                    (assoc ~opts :rf.trace/call-site ~cs-form))
+           (re-frame.core/dispatch* ~event-vec ~opts))))))
+
+#?(:clj
+   (defmacro dispatch-sync
+     "Run `event-vec` end-to-end synchronously, then drain. Per Spec 002
+     §dispatch-sync. Per rf2-ts1a: macro form — captures the call site
+     and threads it through the dispatch envelope.
+
+     For higher-order use and programmatic callers, use `dispatch-sync*`."
+     ([event-vec]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch-sync* ~event-vec {:rf.trace/call-site ~cs-form})
+           (re-frame.core/dispatch-sync* ~event-vec))))
+     ([event-vec opts]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch-sync* ~event-vec
+                                         (assoc ~opts :rf.trace/call-site ~cs-form))
+           (re-frame.core/dispatch-sync* ~event-vec ~opts))))))
+
+#?(:clj
+   (defmacro subscribe
+     "Per Spec 006 §Lookup algorithm. Per rf2-ts1a: macro form —
+     captures the call site and binds `trace/*current-call-site*`
+     around the underlying subscribe so the synchronous miss path
+     (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
+     the invocation coord.
+
+     For HoF / programmatic subscribe, use `subscribe*`."
+     ([query-v]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (binding [re-frame.trace/*current-call-site* ~cs-form]
+             (re-frame.core/subscribe* ~query-v))
+           (re-frame.core/subscribe* ~query-v))))
+     ([frame-id query-v]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (binding [re-frame.trace/*current-call-site* ~cs-form]
+             (re-frame.core/subscribe* ~frame-id ~query-v))
+           (re-frame.core/subscribe* ~frame-id ~query-v))))))
+
+#?(:clj
+   (defmacro inject-cofx
+     "Build a `:before`-only interceptor that runs the registered cofx.
+     Per rf2-ts1a: macro form — captures the call site and threads it
+     into the interceptor's closure so errors emitted from inside the
+     cofx body (`:rf.error/no-such-cofx`, schema-validation failures)
+     carry the invocation coord.
+
+     For HoF / programmatic interceptor construction, use `inject-cofx*`."
+     ([cofx-id]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        ;; Route through the 3-arity with the `cofx/no-value` sentinel
+        ;; so the call-site can ride. The 3-arity branch in
+        ;; cofx/inject-cofx detects the sentinel via identical? and
+        ;; takes the no-value path through the cofx fn body.
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/inject-cofx* ~cofx-id re-frame.cofx/no-value ~cs-form)
+           (re-frame.core/inject-cofx* ~cofx-id))))
+     ([cofx-id value]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/inject-cofx* ~cofx-id ~value ~cs-form)
+           (re-frame.core/inject-cofx* ~cofx-id ~value))))))
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
 ;;
@@ -645,7 +843,7 @@
 ;; Per rf2-d4sf the public `current-frame` consults the
 ;; `:adapter/current-frame` late-bind hook on CLJS so the React-context
 ;; tier of the resolution chain is live at this call site (and at every
-;; user-facing surface that flows through `(dispatcher)`/`(subscriber)`/
+;; user-facing surface that flows through `(dispatcher)` / `(subscriber)` /
 ;; `bound-fn` capture). The JVM build falls through to
 ;; `frame/current-frame` (dynamic-var → :rf/default).
 (defn current-frame
@@ -665,21 +863,32 @@
   Captures the frame at call time, so closures do not need to thread it.
 
   Per Spec 004 §Affordance for plain fns:
-    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])"
+    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])
+
+  Per rf2-ts1a: the returned closure delegates to the fn-form
+  `dispatch*` so it does NOT bake the call-site of this very file's
+  body onto every dispatch — captured dispatchers run from user
+  callsites (timers, event listeners, etc.) where the original
+  invocation has no syntactic position to attribute to."
   []
   (let [frame (current-frame)]
     (fn dispatch-fn
-      ([event] (dispatch event {:frame frame}))
-      ([event opts] (dispatch event (assoc opts :frame frame))))))
+      ([event]      (dispatch* event {:frame frame}))
+      ([event opts] (dispatch* event (assoc opts :frame frame))))))
 
 (defn subscriber
   "Return a fn that subscribes under the current frame. Captures the
-  frame at call time. The returned fn delegates to subscribe."
+  frame at call time. The returned fn delegates to subscribe.
+
+  Per rf2-ts1a: the returned closure delegates to `subs/subscribe`
+  (the underlying fn) for the same reason `dispatcher` uses `dispatch*`
+  — captured subscribers live across the macro/call-site horizon and
+  shouldn't pin this file's line."
   []
   (let [frame (current-frame)]
     (fn subscribe-fn
       [query-v]
-      (subscribe frame query-v))))
+      (subs/subscribe frame query-v))))
 
 ;; with-frame is a macro (per Spec 002 §with-frame and spec/API.md row 74).
 ;; Two shapes:
@@ -721,9 +930,9 @@
      anything else triggers Shape 1.
 
      For async closures that fire after the body returns, capture the
-     frame keyword via `bound-fn` / `bound-dispatcher` / `bound-subscriber`
-     — the dynamic binding has unwound by then, and (under Shape 2) the
-     frame has already been destroyed."
+     frame keyword via `bound-fn` / `dispatcher` / `subscriber` — the
+     dynamic binding has unwound by then, and (under Shape 2) the frame
+     has already been destroyed."
      {:arglists '([frame-id body+] [[sym expr] body+])}
      [bindings & body]
      (cond
@@ -740,23 +949,18 @@
        `(binding [frame/*current-frame* ~bindings]
           ~@body))))
 
-(defn bound-dispatcher
-  "Capture the current frame and return a frame-bound dispatch fn that
-  is safe to call from async callbacks where dynamic-var binding is no
-  longer in scope. Per Spec 002 §bound-fn / bound-dispatcher."
-  []
-  (dispatcher))
+;; Note: the `bound-dispatcher` / `bound-subscriber` aliases were cut
+;; under rf2-knz3l — they were pure aliases for `dispatcher` /
+;; `subscriber` whose `bound-` prefix added redundant noise (the verb-
+;; form names already imply capture-at-call-time semantics). Callers
+;; that need an async-safe dispatch / subscribe closure call
+;; `(rf/dispatcher)` / `(rf/subscriber)` directly.
 
-(defn bound-subscriber
-  "As bound-dispatcher, for subscribe."
-  []
-  (subscriber))
-
-;; `bound-fn` is the macro-form of `bound-dispatcher`/`bound-subscriber`:
-;; captures `*current-frame*` at definition time, restores it at call
-;; time. Useful for closures called from async boundaries (timers,
-;; http-handlers, promises) where dynamic-var binding has been lost.
-;; Per Spec 002 §bound-fn.
+;; `bound-fn` (below) is the macro-form sibling of `dispatcher` /
+;; `subscriber`: captures `*current-frame*` at definition time and
+;; restores it at call time. Useful for closures called from async
+;; boundaries (timers, http-handlers, promises) where the dynamic-var
+;; binding has been lost. Per Spec 002 §bound-fn.
 
 #?(:clj
    (defmacro bound-fn
@@ -768,6 +972,45 @@
           (fn ~argv
             (binding [re-frame.frame/*current-frame* ~frame-sym]
               ~@body))))))
+
+#?(:clj
+   (defmacro with-overrides
+     "Bind a per-call `:fx-overrides` map for `body`'s lexical scope.
+     Per rf2-5uwl — test-support ergonomic that lifts the
+     `{fx-id -> override}` map out of every `(rf/dispatch ... {:fx-overrides ...})`
+     call site when a block of dispatches all want the same overrides.
+
+     Shape:
+
+       (rf/with-overrides {:fx/http :fx/http-stub
+                           :fx/clock (fn [m _] :tick)}
+         (rf/dispatch-sync [:user/login {...}])
+         (rf/dispatch-sync [:tick])
+         ...)
+
+     Each enclosed `dispatch` / `dispatch-sync` runs with the supplied
+     overrides as if the caller had threaded
+     `{:fx-overrides {...}}` through every call. The same override-value
+     shapes the per-call opt accepts are honoured (per
+     [Spec 002 §`:fx-overrides`](spec/002-Frames.md#fx-overrides--replace-fx-handlers)):
+     a keyword (redirect to a registered fx), a fn `(fn [m args] ...)`
+     (one-off lambda), or nil (no-op fall-through).
+
+     Precedence on key collision:
+
+       per-call opt  >  lexical `with-overrides`  >  per-frame `:fx-overrides`
+
+     A `(rf/dispatch ev {:fx-overrides {:fx/http :other}})` inside a
+     `(rf/with-overrides {:fx/http :stub} ...)` block wins; the macro's
+     value applies to dispatches that DON'T thread their own opt.
+
+     Composes with `with-frame` — nest in either order. The macro is a
+     thin `binding` over the same per-call merge `(rf/dispatch ...
+     {:fx-overrides ...})` takes; production paths are unaffected when
+     no test binds the Var."
+     [overrides-map & body]
+     `(binding [re-frame.router/*fx-overrides* ~overrides-map]
+        ~@body)))
 
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
 ;; reg-view (the macro) lives above as a JVM/CLJS-shared `#?(:clj defmacro)`.
@@ -972,55 +1215,56 @@
   "Idempotent boot. Installs a substrate adapter and ensures the
   `:rf/default` frame is present.
 
-  Required arg — there is no default-adapter registry. Pass the adapter
-  spec map you want installed:
+  Required arg — you MUST pass the adapter spec map. There is no
+  default-adapter registry and no no-arg arity (per rf2-3ubmv): calling
+  `(rf/init!)` raises a language-level `ArityException` at compile time
+  (CLJS) / load time (JVM), surfacing the missing-adapter error at the
+  earliest possible moment.
+
+  Each adapter ns exports an `adapter` Var holding the spec map.
+  Consumers require the ns and pass that Var:
 
     (require '[re-frame.adapter.reagent :as reagent])
     (rf/init! reagent/adapter)
 
   Per rf2-agql (replaces rf2-84po): rf2 ships no default-adapter
-  registry. Each adapter ns exports an `adapter` var (the spec map);
-  consumers require the ns and pass the var explicitly. This keeps
+  registry. Each adapter ns exports an `adapter` Var (the spec map);
+  consumers require the ns and pass the Var explicitly. This keeps
   adapter wiring explicit at the call site and removes the bundle
   weight a registry would impose on apps that do not need it.
 
-  Argument shapes:
+  Argument shape:
 
     (rf/init! adapter-map) ;; install the adapter — only valid form
 
-  Calling `(rf/init!)` with no args raises
-  `:rf.error/no-adapter-specified`. Calling `(rf/init! :reagent)` (a
-  keyword) also raises — there is no registry to look up. The error
-  message points the consumer at the adapter ns + var pattern.
+  Calling `(rf/init! nil)` or `(rf/init! :reagent)` (a keyword) raises
+  `:rf.error/no-adapter-specified` at runtime — there is no registry to
+  look up. The error message points the consumer at the adapter-ns +
+  adapter-Var pattern.
 
   Per Spec 006 §Adapter selection at boot."
-  ([]
-   (throw (ex-info ":rf.error/no-adapter-specified"
-                   {:where    'init!
-                    :recovery :no-recovery
-                    :reason   "rf/init! requires an explicit adapter spec map. Require the adapter ns and pass its `adapter` var: (require '[re-frame.adapter.reagent :as reagent]) (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed; there is no implicit default."})))
-  ([adapter-map]
-   (cond
-     (nil? adapter-map)
-     (throw (ex-info ":rf.error/no-adapter-specified"
-                     {:where    'init!
-                      :recovery :no-recovery
-                      :reason   "rf/init! was called with nil. Require the adapter ns and pass its `adapter` var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
+  [adapter-map]
+  (cond
+    (nil? adapter-map)
+    (throw (ex-info ":rf.error/no-adapter-specified"
+                    {:where    'init!
+                     :recovery :no-recovery
+                     :reason   "rf/init! was called with nil. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
 
-     (not (map? adapter-map))
-     (throw (ex-info ":rf.error/no-adapter-specified"
-                     {:where    'init!
-                      :received adapter-map
-                      :expected "adapter spec map"
-                      :recovery :no-recovery
-                      :reason   "rf/init! takes the adapter spec map directly — there is no keyword form and no registry. Require the adapter ns and pass its `adapter` var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
+    (not (map? adapter-map))
+    (throw (ex-info ":rf.error/no-adapter-specified"
+                    {:where    'init!
+                     :received adapter-map
+                     :expected "adapter spec map"
+                     :recovery :no-recovery
+                     :reason   "rf/init! takes the adapter spec map directly — there is no keyword form and no registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
 
-     :else
-     (do
-       (when-not (adapter/current-adapter)
-         (adapter/install-adapter! adapter-map))
-       (frame/ensure-default-frame!)
-       nil))))
+    :else
+    (do
+      (when-not (adapter/current-adapter)
+        (adapter/install-adapter! adapter-map))
+      (frame/ensure-default-frame!)
+      nil)))
 
 ;; ---- self-registration of framework subs ----------------------------------
 ;;

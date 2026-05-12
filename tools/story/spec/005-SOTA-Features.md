@@ -128,11 +128,37 @@ Autodocs panel from `:doc` + schemas + variant table — the basic
 panel ships at v1; the polish (cross-link navigation, hover preview,
 prose-injection points) is v1.1.
 
-### "Open in editor" per variant
+### "Open in editor" per variant (rf2-evgf5 — shipped)
 
 Reads the `:source` slot stamped at registration time and opens the
-variant's defining file:line in the configured editor (via the editor
-MCP, when available).
+variant's defining file:line in the configured editor.
+
+The affordance renders as an `open` chip next to:
+
+- The variant title in the canvas header (reads the variant body's
+  `:source` slot — stamped at `reg-variant` time per spec/001).
+- Each failing `:test` mode row's failure detail (reads the
+  assertion record's `:source` slot per spec/004).
+
+Click sets `window.location.href` to a URI-scheme handler the OS
+dispatches to the configured editor:
+
+| Editor (config key) | URI scheme |
+|---|---|
+| `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
+| `:cursor`           | `cursor://file/<path>:<line>:<column>` |
+| `:idea`             | `idea://open?file=<path>&line=<line>&column=<column>` |
+| `{:custom <tpl>}`   | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
+
+The host sets the preference via `(story/configure! {:editor :cursor})`
+at boot. Unknown keywords fall back to `:vscode` so a typo still
+yields a clickable URI rather than a no-op. Source-coords without
+`:file` hide the chip entirely.
+
+The shared URI builder lives at `re-frame.source-coords.editor-uri`
+under the core artefact and is CLJC-portable; Causa's mirror
+affordance (`day8.re-frame2-causa.open-in-editor`) consumes the same
+helper.
 
 ## Production elision under `:advanced`
 
@@ -232,7 +258,7 @@ phase-2 SOTA adds that are cheap.
 | Live performance ribbon (FPS, INP, long tasks, CLS, memory, Reagent profiling) | Stage 6 (deferred) |
 | Design-token panel (conditional on upstream token emission) | Stage 6 (deferred) |
 | MCP write surface (`register-variant`, `unregister-variant`) | Stage 7 (deferred) |
-| "Open in editor" per variant | Stage 8 (post-Stage-1) |
+| "Open in editor" per variant (rf2-evgf5) | shipped — Stage 6 + Stage 8 |
 | Per-variant autodocs panel polish | Stage 6 (deferred) |
 
 ## v2 ship list (post-1.0 deferred)

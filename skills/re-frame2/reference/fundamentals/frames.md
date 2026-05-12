@@ -2,7 +2,7 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or capturing the current frame in an async callback via `bound-dispatcher`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or capturing the current frame in an async callback via `dispatcher`.
 
 ## What a frame is
 
@@ -47,14 +47,14 @@ Three tiers (`frame.cljc:38-51`, `core.cljc:899-909`):
 
 ## Capturing the frame in async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the dynamic var binding is gone by the time it runs. Capture the frame at call time with `bound-dispatcher` / `bound-subscriber`:
+When you `setTimeout` or hand a callback to a promise, the dynamic var binding is gone by the time it runs. Capture the frame at call time with `dispatcher` / `subscriber`:
 
 ```clojure
-(let [d (rf/bound-dispatcher)]
+(let [d (rf/dispatcher)]
   (.then promise #(d [:result-arrived %])))
 ```
 
-`dispatcher` and `bound-dispatcher` are aliases (`core.cljc:940-945`); use whichever name reads better.
+The verb-form names imply capture-at-call-time semantics; the earlier `bound-dispatcher` / `bound-subscriber` aliases were cut as redundant under rf2-knz3l.
 
 ## Canonical mini-example
 
@@ -106,7 +106,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame` to 
 ## Common gotchas
 
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`frame.cljc:152-183`). Use `reset-frame` for a full destroy+recreate.
-- **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *two* trace events — the reason event `:rf.machine/destroyed-on-frame-exit` (op-type `:machine`) and the uniform lifecycle event `:rf.machine.lifecycle/destroyed` (op-type `:rf.machine.lifecycle/destroyed`); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. Subsequent dispatch / subscribe raises `:rf.error/frame-destroyed`. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
+- **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. Subsequent dispatch / subscribe raises `:rf.error/frame-destroyed`. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` is a CLJS macro AND a JVM-friendly fn.** The macro form (`re-frame.core/with-frame`) wraps an expression; the fn form (`core.cljc:932`) takes a thunk — use the fn from JVM tests / SSR / REPL.
 - **Wrapping plain Reagent fns in a non-default `frame-provider` doesn't bind the frame.** Use `reg-view` so the `:contextType` wiring picks up the provider. Watch for the once-per-handler warning.
 - **`:rf/default` is implicit.** Don't re-`reg-frame :rf/default` unless you specifically want to attach metadata to it — calling it without any is a no-op.

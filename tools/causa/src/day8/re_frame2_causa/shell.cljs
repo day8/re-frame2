@@ -38,7 +38,8 @@
   `mount.cljs`. No per-substrate switches in view code."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
-            [day8.re-frame2-causa.registry :as registry]))
+            [day8.re-frame2-causa.registry :as registry]
+            [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
 ;; ---- design tokens (dark theme per spec/007-UX-IA.md) --------------------
 

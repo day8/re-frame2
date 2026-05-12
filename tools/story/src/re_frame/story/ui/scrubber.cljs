@@ -17,6 +17,17 @@
   new epochs commit. The listener is keyed by variant id and torn down
   when the shell unmounts.
 
+  ## Cross-reference to the trace panel (rf2-sxwvf)
+
+  Per `spec/011-Trace-Scrubber-Cross-Ref.md` (rf2-sxwvf), the scrubber's
+  current selection is exported as a shared per-variant ratom
+  (`selections`) keyed by variant-id. The trace panel derefs this slot
+  to filter / highlight the cascade view. The selection is held as a
+  stable `:epoch-id` (NOT the slider's index) so a history-shift that
+  evicts old epochs doesn't silently re-point the selection at the
+  wrong record. Nil selection (the default) means 'no scrub in flight'
+  — the trace panel shows the full buffer.
+
   ## Elision
 
   Epoch history itself sits inside `interop/debug-enabled?` (spec/009);
@@ -26,6 +37,7 @@
   (:require [reagent.core :as r]
             [re-frame.epoch :as epoch]
             [re-frame.story.config :as config]
+            [re-frame.story.ui.scrubber-xref :as xref]
             [re-frame.story.ui.state :as state]))
 
 ;; ---- per-variant 'live history' ratom ------------------------------------
@@ -52,6 +64,66 @@
   [variant-id]
   (swap! histories dissoc variant-id)
   nil)
+
+;; ---- per-variant scrubber 'selection' ratom (rf2-sxwvf) ------------------
+;;
+;; The trace panel derefs this slot to know which epoch the user is
+;; currently inspecting. Selection holds the epoch's stable `:epoch-id`
+;; (NOT the slider's slot index) so a history-shift evicting older
+;; epochs doesn't silently re-point the selection. nil ⇒ no scrub in
+;; flight, trace panel renders the full buffer.
+
+(defonce selections
+  ;; {variant-id → r/atom holding the current selected :epoch-id (or nil)}
+  (atom {}))
+
+(defn ensure-selection-atom!
+  "Return the per-variant `selection` ratom, creating it on first
+  access. Public so the trace panel can deref the same instance the
+  scrubber commits to (a fresh `r/atom` on each render would break
+  Reagent reactivity)."
+  [variant-id]
+  (or (get @selections variant-id)
+      (let [a (r/atom nil)]
+        (swap! selections assoc variant-id a)
+        a)))
+
+(defn selected-epoch-id
+  "Return the currently-scrubbed `:epoch-id` for `variant-id`, or nil.
+  Public read surface for the trace panel's cross-reference path."
+  [variant-id]
+  (some-> (get @selections variant-id) deref))
+
+(defn select-epoch!
+  "Set the scrubber's selection for `variant-id`. Pass nil to clear."
+  [variant-id epoch-id]
+  (let [a (ensure-selection-atom! variant-id)]
+    (reset! a epoch-id))
+  nil)
+
+(defn drop-selection!
+  "Remove the per-variant selection atom. Called from shell unmount."
+  [variant-id]
+  (swap! selections dissoc variant-id)
+  nil)
+
+(defn cascade-id-for-epoch
+  "Return the cascade `:dispatch-id` that produced `epoch-id` in
+  `variant-id`'s history, or nil if the epoch is gone or carried no
+  dispatch-id-bearing events (e.g. synthetic epochs from
+  `reset-frame-db!`). Thin wrapper around the pure-data
+  `xref/cascade-id-for-epoch` so the resolution logic is shared with
+  the JVM unit tests."
+  [variant-id epoch-id]
+  (xref/cascade-id-for-epoch (epoch/epoch-history variant-id) epoch-id))
+
+(defn max-trace-event-id-for-epoch
+  "Return the maximum trace-event `:id` recorded for `epoch-id` —
+  the pivot the trace panel uses to filter out cascades emitted AFTER
+  the selected epoch settled. Thin wrapper around the pure-data
+  `xref/max-trace-event-id-for-epoch`."
+  [variant-id epoch-id]
+  (xref/max-trace-event-id-for-epoch (epoch/epoch-history variant-id) epoch-id))
 
 ;; ---- the epoch callback --------------------------------------------------
 
@@ -111,6 +183,14 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-size "10px"}
+   :release     {:padding "2px 8px"
+                 :background "#5a5a5a"
+                 :color "white"
+                 :border "none"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :font-size "10px"
+                 :margin-left "6px"}
    :empty       {:color "#9a9a9a" :font-style "italic"}})
 
 ;; ---- public component ----------------------------------------------------
@@ -126,20 +206,29 @@
 (defn panel
   "The scrubber component. Renders a slider over the variant frame's
   epoch history, a 'capture' button that pins the current epoch, and a
-  chip row of pinned snapshots."
+  chip row of pinned snapshots.
+
+  On commit (slider release or pinned-chip click) the selected
+  `:epoch-id` is published to the per-variant `selections` ratom so the
+  trace panel can filter+highlight against it (rf2-sxwvf). Clicking
+  'release' clears the selection (trace panel re-shows the full
+  buffer)."
   [variant-id]
-  (let [history-atom (ensure-history-atom! variant-id)
+  (let [history-atom   (ensure-history-atom! variant-id)
+        selection-atom (ensure-selection-atom! variant-id)
         ;; Local UI state for the slider position — separate from the
         ;; framework's epoch history so the user can scrub without
         ;; committing until they release.
-        slider-pos   (r/atom nil)]
+        slider-pos     (r/atom nil)]
     (fn [variant-id]
-      (let [history (or @history-atom [])
-            n       (count history)
-            shell   @state/shell-state-atom
-            pinned  (get-in shell [:pinned-snapshots variant-id] [])
-            pos     (or @slider-pos (dec n) 0)]
-        [:div {:style (:panel styles)}
+      (let [history   (or @history-atom [])
+            n         (count history)
+            shell     @state/shell-state-atom
+            pinned    (get-in shell [:pinned-snapshots variant-id] [])
+            selection @selection-atom
+            pos       (or @slider-pos (dec n) 0)]
+        [:div {:style (:panel styles)
+               :data-test "story-scrubber"}
          [:div {:style (:title styles)}
           "Time travel " (when variant-id (str (pr-str variant-id)))
           " — " n " epochs"]
@@ -154,6 +243,7 @@
                       :max       (max 0 (dec n))
                       :value     pos
                       :style     (:slider styles)
+                      :data-test "story-scrubber-slider"
                       :on-change (fn [e]
                                    (reset! slider-pos
                                            (js/parseInt
@@ -165,7 +255,12 @@
                                      (when-let [record (get history idx)]
                                        (epoch/restore-epoch
                                          variant-id
-                                         (:epoch-id record)))))}]
+                                         (:epoch-id record))
+                                       ;; rf2-sxwvf: publish the selection
+                                       ;; so the trace panel filters /
+                                       ;; highlights against it.
+                                       (reset! selection-atom
+                                               (:epoch-id record)))))}]
              [:button {:style    (:button styles)
                        :on-click (fn [_]
                                    (let [record (get history pos)
@@ -175,12 +270,27 @@
                                          state/pin-snapshot
                                          variant-id label
                                          (:epoch-id record)))))}
-              "capture"]]
+              "capture"]
+             ;; rf2-sxwvf: 'release' clears the scrub-selection so the
+             ;; trace panel reverts to showing the full buffer. Only
+             ;; rendered when there IS a selection to clear, so the
+             ;; panel's visual weight is unchanged in the default
+             ;; (no-scrub) state.
+             (when selection
+               [:button {:style    (:release styles)
+                         :data-test "story-scrubber-release"
+                         :on-click (fn [_]
+                                     (reset! selection-atom nil))}
+                "release"])]
             (when (seq pinned)
               [:div {:style (:chip-row styles)}
                (for [{:keys [label epoch-id]} pinned]
                  ^{:key (str label "-" epoch-id)}
                  [:span {:style    (:chip styles)
                          :on-click (fn [_]
-                                     (epoch/restore-epoch variant-id epoch-id))}
+                                     (epoch/restore-epoch variant-id epoch-id)
+                                     ;; rf2-sxwvf: pinned-chip restore
+                                     ;; also publishes selection so
+                                     ;; trace cross-references.
+                                     (reset! selection-atom epoch-id))}
                   label])])])]))))

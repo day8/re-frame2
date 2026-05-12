@@ -42,6 +42,7 @@
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
             [re-frame.story.runtime :as runtime]
+            [re-frame.story.ui.actions :as actions]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.docs :as docs]
@@ -158,6 +159,10 @@
     (scrubber/remove-listener! variant-id)
     (trace/drop-buffer! variant-id)
     (scrubber/drop-history! variant-id)
+    ;; rf2-sxwvf: drop the per-variant scrub selection too — the cross-
+    ;; reference ratom is keyed by variant-id and needs the same
+    ;; teardown shape as the history / buffer ratoms.
+    (scrubber/drop-selection! variant-id)
     (swap! listened-variants disj variant-id)))
 
 (defn- teardown-all-listeners! []
@@ -253,6 +258,15 @@
        [scrubber/panel variant-id])
      (when (and (:trace vis) variant-id)
        [trace/panel variant-id])
+     ;; rf2-5yriz — Actions panel.  Reads from the same per-variant
+     ;; trace buffer the six-domino panel reads, but filters down to
+     ;; dispatches + dispatch-shaped fx-handled emits and renders
+     ;; chronologically with pause + clear affordances.  Wired here
+     ;; (not via reg-story-panel) because Story's built-in chrome
+     ;; panels (trace, scrubber, controls, actions) are always-present
+     ;; and have no late-bind contract.
+     (when (and (:actions vis) variant-id)
+       [actions/panel variant-id])
      ;; Stage 6: render any registered :right-placement story panels.
      (when variant-id
        [panels/render-panels-at-placement :right variant-id vis])]))

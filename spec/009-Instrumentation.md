@@ -107,22 +107,29 @@ Additional values for re-frame2 concerns:
 - `:flow` — flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)). The op-type for the whole flow trace stream; per-flow events live under `:rf.flow/*` operations (`:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed` — see [§Flow trace events](#flow-trace-events) below). Tools filter `op-type :flow` to subscribe to the whole flow stream.
 - `:error` / `:warning` — universal severity discriminators for failure events. The category-specific identity lives in `:operation` (e.g. `:rf.error/handler-exception`); see [§Error contract](#error-contract) for the authoritative model.
 - `:info` — informational advisories the runtime emits without warning or error severity (e.g. `:rf.http/retry-attempt` per [014 §Retry and backoff](014-HTTPRequests.md#retry-and-backoff)). Tools that filter for issues subscribe to `:warning` / `:error`; tools that surface activity timelines subscribe to `:info` as well.
-- **Frame-exit machine teardown — dual emit.** When a frame's destroy walks each surviving machine snapshot, `frame.cljc` emits **two trace events per destroyed machine instance**, in order. Both events carry identical `:tags {:frame <id> :machine-id <id> :last-state <state>}`; they differ only in the `(:op-type, :operation)` pair and exist to serve two distinct consumer perspectives.
-    1. **The machine-substrate reason event** — `:op-type :machine`, `:operation :rf.machine/destroyed-on-frame-exit`. Carries the *reason* a machine instance is going away: the surrounding frame is being torn down. Machine-substrate observers (HTTP cancellers, machine-keyed cleanup hooks, telemetry that needs to discriminate teardown causes) filter on `:op-type :machine` and branch on `:operation` to pick out the frame-exit cause from other teardown reasons (`:rf.machine/finished`, an explicit `[:rf.machine/destroy <id>]`, a parent-unmount cascade).
-    2. **The lifecycle-bucket event** — `:op-type :rf.machine.lifecycle/destroyed`, `:operation :rf.machine.lifecycle/destroyed`. Mirrors the uniform-shape `:rf.machine.lifecycle/created` emit at `reg-machine` so lifecycle observers see one consistent op-type for create *and* destroy across every cause and code path. Tools that just want "an actor instance appeared / went away" subscribe to `:op-type :rf.machine.lifecycle/*` and remain agnostic to *why*.
+- **Frame-exit machine teardown — single emit on the lifecycle channel.** When a frame's destroy walks each surviving machine snapshot, `frame.cljc` emits **one trace event per destroyed machine instance** on the unified lifecycle channel: `:op-type :rf.machine.lifecycle/destroyed`, `:operation :rf.machine.lifecycle/destroyed`. `:tags {:frame <id> :machine-id <id> :last-state <state> :reason :parent-frame-destroyed}`. The `:reason` tag discriminates *why* the actor went away — frame-exit emits `:parent-frame-destroyed`; the fx-substrate's `:rf.machine/destroyed` emit site (`lifecycle_fx.cljc`) carries the other reasons under the same `:reason` slot (`:rf.machine/finished` for natural termination, `:explicit` for `[:rf.machine/destroy <id>]`, `:parent-unmount-cascade` for parent-cascade teardown). Tools that just want "an actor instance appeared / went away" subscribe to `:op-type :rf.machine.lifecycle/*` and branch on `:reason` only when they need cause-specific routing.
 
-    Consumer-intent split: the `:machine`-op-type event answers "why is this actor going away?" — its `:operation` namespaces the reason. The `:rf.machine.lifecycle/destroyed`-op-type event answers "did an actor's lifecycle just close?" — its op-type is the same shape used at instance creation. Both fire from the **same destroy walk** so a consumer observing both sees them adjacent in the stream.
+    The `:reason` enum (canonical values used by the runtime):
 
-    Future-direction note: the `:rf.machine/destroyed` event emitted by `fx.cljc` (the fx-substrate observation) carries a `:reason` tag enumerating the cause (`:rf.machine/finished` / `:explicit` / `:parent-unmount-cascade`). A future refactor may unify the dual-emit above into a single `:reason`-tagged emit (with `:reason :parent-frame-destroyed` or similar) so frame-exit becomes one more reason in the same shape. This spec pins the current dual-emit shape; the unification is not in scope here.
-- `:rf.frame/drain-aborted` — lifecycle event emitted by `router.cljc` when the drain loop detects `(:destroyed? (:lifecycle frame))` mid-cycle and drops remaining queued events. `:op-type :event`. `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning).
+    | `:reason` | Emitted by | Meaning |
+    |---|---|---|
+    | `:parent-frame-destroyed` | `frame.cljc` (`destroy-frame!`) | The actor's owning frame was destroyed; its snapshot was reaped as part of the frame-exit cascade. |
+    | `:rf.machine/finished` | `lifecycle_fx.cljc` | The actor reached a `:final?` state and the runtime auto-destroyed it after firing the parent's `:on-done`. |
+    | `:explicit` | `lifecycle_fx.cljc` | The actor was destroyed by an explicit `[:rf.machine/destroy <id>]` fx. |
+    | `:parent-unmount-cascade` | `lifecycle_fx.cljc` | The actor was a spawned child whose parent state exited (per [005 §Cancellation cascade](005-StateMachines.md#cancellation-cascade--in-flight-rfhttpmanaged-aborts)). |
+
+    The enum is open per [§`:tags` is the open-ended bag](#tags-is-the-open-ended-bag); future causes are additive.
+- `:rf.frame/drain-interrupted` — lifecycle event emitted by `router.cljc` when the drain loop detects `(:destroyed? (:lifecycle frame))` mid-cycle and drops remaining queued events. `:op-type :frame` (the frame-lifecycle family — see `:frame/created` / `:frame/destroyed` siblings; **not** `:op-type :event`, which is reserved for "an event was dispatched"). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning).
 - `:rf.epoch/snapshotted` / `:rf.epoch/restored` / `:rf.epoch/db-replaced` — epoch-history operations under `:op-type :rf.epoch`. `-snapshotted` fires after each drain-settle when the runtime has appended a fresh `:rf/epoch-record`; `-restored` fires after a successful `restore-epoch`; `-db-replaced` fires after a successful `reset-frame-db!` (the rf2-zq55 pair-tool write surface — see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). Per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel). `:tags {:frame <id> :epoch-id <id> :event-id <id>?}`.
-- `:rf.epoch.cb/silenced-on-frame-destroy` — listener-silencing notification emitted **once per `(frame-id, cb-id)` pair** when a frame previously observed by a `register-epoch-cb!` callback is destroyed (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656). `:op-type :rf.epoch.cb`. `:tags {:frame-id <id> :cb-id <id>}`. The callback registration remains in place; the trace exists so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Repeat destroys of the same frame do not re-emit; a re-registration of a same-keyed frame followed by a fresh delivery re-arms the cb's observation set so a subsequent destroy re-emits.
+- `:rf.epoch.cb/silenced-on-frame-destroy` — listener-silencing notification emitted **once per `(frame, cb-id)` pair** when a frame previously observed by a `register-epoch-cb!` callback is destroyed (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames) and rf2-d656). `:op-type :rf.epoch.cb`. `:tags {:frame <id> :cb-id <id>}`. The callback registration remains in place; the trace exists so a tool whose previously-firing cb has gone silent learns *why* without polling registry state. Repeat destroys of the same frame do not re-emit; a re-registration of a same-keyed frame followed by a fresh delivery re-arms the cb's observation set so a subsequent destroy re-emits.
 
 Consumers filter by `:op-type` (or `:source`, or `(get-in ev [:tags :frame])`) to get the slice they care about. Adding new `:op-type` values is non-breaking — tools ignore what they don't understand.
 
 ### `:tags` is the open-ended bag
 
 Variable per-event data goes in `:tags`. Existing examples: `:event-id`, `:event`, `:frame`, `:phase`, `:dispatch-id`, `:parent-dispatch-id`, `:origin`, `:app-db-before`, `:app-db-after`, `:sub-id`, `:query-v`, `:input-signals`, `:fx-id`, `:fx-args`. New tags can be added without breaking consumers. Use `:tags` for op-type-specific data; reserve top-level keys for fields universal across all events.
+
+**Canonical per-frame routing key (rf2-shaa1).** Every trace event that names a frame uses `:frame` under `:tags`. The framework MUST NOT emit `:frame-id` as a tag key — `:frame` is the single canonical name; ports that re-emit must follow suit. Consumers read `(get-in ev [:tags :frame])`. (Historical drift in v2 development used both; the alias has been retired.)
 
 ### Open shape; new fields are additive
 
@@ -351,7 +358,7 @@ The framework emits trace events from these call sites:
 - `subs.cljc` — `:sub/create`, `:sub/run`; `:rf.error/no-such-sub` and `:rf.error/sub-exception` for failure paths.
 - `fx.cljc` — `:event/do-fx` per drain step, `:rf.fx/handled` per dispatched fx, `:fx/override-applied`, `:warning :rf.fx/skipped-on-platform`, `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`, plus `:rf.machine/spawned` and `:rf.machine/destroyed`.
 - `cofx.cljc` — `:rf.error/no-such-cofx` (emitted by `inject-cofx` when the cofx-id has no registered handler).
-- `router.cljc` — `:event :event` (`:run-start` and `:run-end` phases), `:event :event/dispatched`, `:event :event/db-changed`, `:rf.error/handler-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:warning :rf.warning/dispatch-from-async-callback-fell-through-to-default` (emitted alongside `:rf.error/no-such-handler` when a dispatch landed on `:rf/default` purely because the resolution chain fell through and the handler is missing; per rf2-o8m0), `:rf.error/dispatch-sync-in-handler`, `:rf.error/frame-destroyed`, `:rf.error/flow-eval-exception`, `:rf.frame/drain-aborted` (lifecycle event emitted when the drain loop detects a destroyed frame mid-cycle; per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning)).
+- `router.cljc` — `:event :event` (`:run-start` and `:run-end` phases), `:event :event/dispatched`, `:event :event/db-changed`, `:rf.error/handler-exception`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, `:warning :rf.warning/dispatch-from-async-callback-fell-through-to-default` (emitted alongside `:rf.error/no-such-handler` when a dispatch landed on `:rf/default` purely because the resolution chain fell through and the handler is missing; per rf2-o8m0), `:rf.error/dispatch-sync-in-handler`, `:rf.error/frame-destroyed`, `:rf.error/flow-eval-exception`, `:rf.frame/drain-interrupted` (lifecycle event emitted when the drain loop detects a destroyed frame mid-cycle; per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning)).
 - `frame.cljc` — `:frame/created`, `:frame/re-registered`, `:frame/destroyed`, `:rf.machine.lifecycle/destroyed`.
 - `registrar.cljc` — `:rf.registry/handler-registered`, `:rf.registry/handler-replaced`, `:rf.registry/handler-cleared`.
 - `machines.cljc` — `:rf.machine/event-received`, `:rf.machine/transition`, `:rf.machine.microstep/transition` (one per microstep on `:always`-driven cascades, per [005 §Trace events](005-StateMachines.md#trace-events)), `:rf.machine/snapshot-updated`, `:rf.machine.lifecycle/created`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released` (per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id)), `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/skipped-on-server` (under SSR; per [005 §SSR mode](005-StateMachines.md#ssr-mode)), plus the machine-error categories.
@@ -723,6 +730,9 @@ All error trace events are open maps with these required keys:
    {:kind         #{:event :sub :fx :cofx :view}
     :id           keyword
     :source-coord {:ns sym? :file string? :line int? :column int?}}
+ :rf.trace/call-site                             ;; (when present) invocation coord stamped by the
+   {:ns sym? :file string?                       ;; macro form (rf2-ts1a). Dev-only — elided under
+    :line int? :column int?}                     ;; :advanced + goog.DEBUG=false.
  :tags      {:category    :rf.error/<category>   ;; same as :operation, for consumer convenience
              :failing-id  any                    ;; the registered id that failed (event id, fx id, sub id, view id, etc.)
              :reason      string                 ;; one-sentence human description
@@ -760,6 +770,44 @@ Production elision: the slot is **NOT separately elided**. The trace surface as 
 
 Consumer access: read `(:rf.trace/trigger-handler event)` for the map, `(get-in event [:rf.trace/trigger-handler :source-coord])` for the coord, `(get-in event [:rf.trace/trigger-handler :id])` for the handler's id. No new namespace is required to read the slot.
 
+#### `:rf.trace/call-site` — naming the invocation line (rf2-ts1a)
+
+The optional top-level `:rf.trace/call-site` slot is a **sibling** of `:rf.trace/trigger-handler` (not nested) and names the **invocation line** of the user-facing surface that triggered the trace event — the `(rf/dispatch [:bad-event])` line, the `(rf/subscribe [:bad-sub])` line, the `(rf/inject-cofx :missing)` line, the `(rf/dispatch-sync [:throws])` line. Where trigger-handler answers *"where is the failing handler defined?"*, call-site answers *"where is the failing handler called?"* Tools render two clickable links per error: registration-site jump (trigger-handler) and invocation-site jump (call-site).
+
+Shape (flat map, mirrors `:source-coord` under `:rf.trace/trigger-handler`):
+
+```clojure
+{:ns     <sym>     ;; the calling namespace
+ :file   <string>  ;; the source file, per rf2-mdjp `:file` resolution
+ :line   <int>     ;; the line of the macro form
+ :column <int>}    ;; optional refinement
+```
+
+The macro forms of four user-facing surfaces stamp the call-site at compile time; their `*`-suffix fn counterparts (per [Conventions §`*`-suffix naming](Conventions.md#-suffix-naming-for-fn-versions-of-macros)) do not stamp:
+
+| Surface | Macro (stamps) | Fn-form (no stamp) |
+|---|---|---|
+| Dispatch (queued) | `dispatch` | `dispatch*` |
+| Dispatch (sync)   | `dispatch-sync` | `dispatch-sync*` |
+| Subscribe         | `subscribe` | `subscribe*` |
+| Inject cofx       | `inject-cofx` | `inject-cofx*` |
+
+For `dispatch` / `dispatch-sync`, the call-site rides through the dispatch envelope and is bound around `process-event!` so errors emitted **inside the handler chain** (handler exception, no-such-cofx, no-such-fx, schema validation failures) attach the call-site of the dispatch that triggered the cascade — the user lands on the line they wrote, not somewhere deep in framework code. For `subscribe`, the macro binds the Var around the synchronous miss path so `:rf.error/no-such-sub` and `:rf.error/frame-destroyed` carry the invocation coord. For `inject-cofx`, the macro stamps into the interceptor's closure so the `:before` body's emits carry the original `(rf/inject-cofx :id)` line — the interceptor itself may run later in the cascade, but the captured coord still points at the user's code.
+
+Coverage:
+
+| Reached through                  | `:rf.trace/call-site` present? |
+|---|---|
+| Macro form (`dispatch`, `subscribe`, `inject-cofx`, `dispatch-sync`) | Yes |
+| Fn form (`dispatch*`, `subscribe*`, `inject-cofx*`, `dispatch-sync*`) | No |
+| Higher-order use (`(map dispatch* xs)`) — fn form required | No |
+| View-render injected `dispatch` / `subscribe` locals (per `reg-view`) | No — the wrapper delegates through `dispatch*` / `subs/subscribe` |
+| Captured dispatcher / subscriber (`(rf/dispatcher)`, `(rf/bound-dispatcher)`) | No — the returned closure delegates through `dispatch*` |
+
+Production elision (Q3=B): **dev-only**. Each macro expands to `(if interop/debug-enabled? <stamping-branch> <no-stamping-branch>)`; under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to false and the entire stamping branch DCE's — the literal `{:rf.trace/call-site {...}}` map vanishes from the bundle. Apps using `goog.DEBUG=true` builds (or any JVM build) get the field; the default `:advanced` + `goog.DEBUG=false` production build does not — the elision-probe (per [§Production builds](#production-builds-zero-overhead-zero-code)) asserts the `"rf.trace/call-site"` string fragment is absent from the production bundle. The trace surface itself is still gated; this is an additional compile-time gate that strips the call-site machinery even when the trace surface is kept live.
+
+The mechanism is "compile-time map + dynamic-var bind + emit-error read." The macro produces a literal map at compile time; the runtime binds `re-frame.trace/*current-call-site*` around the underlying `*`-fn call (or threads the value through the dispatch envelope so `process-event!` binds it for the handler chain); `emit-error!` reads the Var and hoists it onto the emitted event when bound. No new namespace or registry; consumer access is `(:rf.trace/call-site event)`.
+
 ### Error namespace convention — five prefix shapes
 
 Error categories use **five distinct namespace prefixes**:
@@ -789,7 +837,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/no-such-sub` | A subscription's `:<-` input refers to an unregistered sub | `:sub-id`, `:unresolved-input`, `:resolved-inputs` |
 | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed validation | `:where` (`:event`/`:sub-return`/`:app-db`/`:fx-args`/...), `:path`, `:value`, `:explanation` (Malli explanation map) |
 | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit | `:depth`, `:queue-size`, `:last-event` |
-| `:rf.error/no-such-handler` | A registrar-shaped lookup missed. Covers three distinct failure modes, discriminated by the **`:kind` tag** (mandatory on every emit): (1) `:kind :event` — a `dispatch` / `dispatch-sync` arrived with no registered event handler (emitted by router.cljc); (2) `:kind :frame` — a Tool-Pair surface (`restore-epoch`, `reset-frame-db!`) addressed a frame-id that is not in the frame registrar (emitted by epoch.cljc; see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)); (3) `:kind :route` — `:rf.route/handle-url-change` (or a `route-url` caller) saw a URL that matched no registered `:path` pattern (emitted by routing.cljc; see [012 §Route-not-found](012-Routing.md#route-not-found--rfroutenot-found-canonical) and the default-projector mapping at [011 §Default projector](011-SSR.md)). Consumers route on `:kind` for per-mode handling; tools that want a single "registrar miss" filter match the operation keyword alone | `:kind` (one of `:event`, `:frame`, `:route` — mandatory), plus mode-specific keys: `:event` + `:event-id` + `:frame` (`:kind :event`); `:frame-id` (`:kind :frame`); `:url` + `:frame` (`:kind :route`). All three modes also carry `:recovery :replaced-with-default` |
+| `:rf.error/no-such-handler` | A registrar-shaped lookup missed. Covers three distinct failure modes, discriminated by the **`:kind` tag** (mandatory on every emit): (1) `:kind :event` — a `dispatch` / `dispatch-sync` arrived with no registered event handler (emitted by router.cljc); (2) `:kind :frame` — a Tool-Pair surface (`restore-epoch`, `reset-frame-db!`) addressed a frame-id that is not in the frame registrar (emitted by epoch.cljc; see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)); (3) `:kind :route` — `:rf.route/handle-url-change` (or a `route-url` caller) saw a URL that matched no registered `:path` pattern (emitted by routing.cljc; see [012 §Route-not-found](012-Routing.md#route-not-found--rfroutenot-found-canonical) and the default-projector mapping at [011 §Default projector](011-SSR.md)). Consumers route on `:kind` for per-mode handling; tools that want a single "registrar miss" filter match the operation keyword alone | `:kind` (one of `:event`, `:frame`, `:route` — mandatory), plus mode-specific keys: `:event` + `:event-id` + `:frame` (`:kind :event`); `:frame` (`:kind :frame`); `:url` + `:frame` (`:kind :route`). All three modes also carry `:recovery :replaced-with-default` |
 | `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside an event handler's interceptor pipeline (use `:fx [[:dispatch event]]` instead — see [002 §dispatch-sync](002-Frames.md#dispatch-sync)) | `:event`, `:enclosing-event`, `:enclosing-frame` |
 | `:rf.error/effect-map-shape` | A `reg-event-fx` handler returned a top-level effect-map key other than `:db` / `:fx` (per [MIGRATION §M-8](MIGRATION.md#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level)). The runtime drops the offending key and emits one trace per offending key; legal `:db` / `:fx` keys still apply | `:failing-id` (event-id), `:event-id`, `:event` (vector), `:offending-key`, `:value`, `:reason` |
 | `:rf.error/effect-handler-bad-return` | A `reg-event-fx` handler returned a value that is neither a map nor `nil` (e.g. a vector, number, string, keyword — typically a typo or thinko). Without a map the runtime cannot extract `:db` / `:fx` and cannot guess the handler's intent, so the dispatch is treated as a no-op. `nil` remains the documented legal no-op and does not trigger this trace. Per rf2-k3bj. Emitted by `events.cljc`'s `fx-handler->interceptor` | `:event-id` (first of the event vector, when vector-shaped), `:event` (vector), `:returned` (the offending value), `:returned-type` (the runtime type), `:reason`, `:recovery :no-recovery` |
@@ -866,7 +914,7 @@ This convention is **stable**: new error categories adopt one of the five existi
 | `:rf.error/http-interceptor-failed` | A request-side interceptor's `:before` fn threw. The runtime emits this category, then re-throws — `re-frame.fx` catches the re-throw and emits the cascade-level `:rf.error/fx-handler-exception`; the request is NOT dispatched. Per [014 §Middleware §Failure mode](014-HTTPRequests.md#failure-mode) (rf2-6y3q) | `:frame`, `:interceptor-id`, `:url`, `:cause` |
 | `:rf.error/http-bad-interceptor` | `reg-http-interceptor` was called with an invalid interceptor map (missing `:id`, non-keyword `:id`, or non-fn `:before`). Surfaced as a thrown ex-info from the registration call, not a trace. Per [014 §Middleware](014-HTTPRequests.md#middleware) (rf2-6y3q) | `:where` (`'reg-http-interceptor`), `:received`, `:reason` |
 | `:route.nav-token/stale-suppressed` | An async result arrived carrying a `:nav-token` that no longer matches the active route's token; the result is silently suppressed. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). `:op-type :error` (the suppression is the failure mode the consumer needs to see) | `:carried-token`, `:current-token`, `:event-id` |
-| `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning). Lifecycle event, not error-shaped: `:op-type :event`, no `:recovery` | `:frame`, `:dropped-count` |
+| `:rf.frame/drain-interrupted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning). Lifecycle event, not error-shaped: `:op-type :frame` (per the `:frame/*` lifecycle family), no `:recovery` | `:frame`, `:dropped-count` |
 
 `:rf.fx/skipped-on-platform` is technically a *warning* not an error, but it rides the same envelope and routes through the same listener path; consumers can branch on `:op-type` (`:warning` vs `:error`) if they want to distinguish.
 
@@ -1039,7 +1087,7 @@ Each frame has at most one `:on-error` handler. Re-registering the frame replace
 | `:rf.http/cljs-only-key-ignored-on-jvm` | `:ignored` | The unsupported key is dropped; the request proceeds with the remaining keys. |
 | `:rf.http/retry-attempt` | `:retried` | A new attempt is scheduled; the consumer sees the trace and the eventual final outcome via `:on-failure` / `:on-success`. |
 | `:route.nav-token/stale-suppressed` | `:logged-and-skipped` | The async reply is suppressed; the active navigation cascade continues unchanged. |
-| `:rf.frame/drain-aborted` | n/a | Lifecycle event, not error-shaped. Remaining queued events are dropped silently. |
+| `:rf.frame/drain-interrupted` | n/a | Lifecycle event, not error-shaped. Remaining queued events are dropped silently. |
 
 #### Style rubric for `:reason` strings (non-normative)
 

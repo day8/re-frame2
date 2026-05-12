@@ -373,7 +373,7 @@ In priority order, where the frame keyword comes from:
 
 The router binds the dynamic-var tier of the resolution chain to the in-flight event's `:frame` for the duration of `process-event!`. The contract is:
 
-- **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event-fx` whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/bound-dispatcher)`, `(rf/dispatcher)`, `(rf/subscriber)`, and `(rf/current-frame)` — all of which read the dynamic-var tier first.
+- **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event-fx` whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/dispatcher)`, `(rf/subscriber)`, and `(rf/current-frame)` — all of which read the dynamic-var tier first.
 - **Async callbacks escape the binding.** When a handler defers work via `js/setTimeout`, `js/Promise.then`, `requestAnimationFrame`, or any other host-level async primitive, the deferred callback fires on a fresh stack with no dynamic binding. A bare `(rf/dispatch [:child])` from inside the callback falls through to `:rf/default`. This is a fundamental property of dynamic scope — not a bug.
 
 The three frame-safe affordances for async callbacks are, in canonical-first order:
@@ -382,7 +382,7 @@ The three frame-safe affordances for async callbacks are, in canonical-first ord
 
 2. **`:fx [[:dispatch-later {:ms <n> :event event-vec}]]`** — the `:dispatch-later` fx captures `frame-id` in its closure before scheduling the timer, so the deferred dispatch carries the correct frame regardless of when the timer fires.
 
-3. **`(rf/bound-dispatcher)`** — captures the active frame at call time and returns a closure `(fn [event] (dispatch event {:frame <captured>}))`. Use when the handler must hand a dispatch fn to a non-fx async library (a websocket subscription, a third-party SDK that takes a callback) where neither `:fx` nor `:dispatch-later` fits.
+3. **`(rf/dispatcher)`** — captures the active frame at call time and returns a closure `(fn [event] (dispatch event {:frame <captured>}))`. Use when the handler must hand a dispatch fn to a non-fx async library (a websocket subscription, a third-party SDK that takes a callback) where neither `:fx` nor `:dispatch-later` fits. (The earlier `bound-dispatcher` alias was cut under rf2-knz3l; the verb-form name already implies capture-at-call-time semantics.)
 
 The contract is regression-tested by `re-frame.dispatch-frame-capture-cljs-test` (rf2-l5q3). Pattern-LongRunningWork and Pattern-WebSocket both rely on it.
 
@@ -615,12 +615,13 @@ When the actual dispatching happens after the fx handler has returned (HTTP call
           (.catch #(rf/dispatch on-failure {:frame frame}))))))
 ```
 
-The `bound-dispatcher` helper makes this a one-liner:
+A closure over `(:frame m)` keeps each call site terse:
 
 ```clojure
 (reg-fx :my-app/http
   (fn [m {:keys [url on-success on-failure]}]
-    (let [d (rf/bound-dispatcher m)]                ;; closure over (:frame m)
+    (let [frame (:frame m)
+          d     (fn [ev] (rf/dispatch ev {:frame frame}))]
       (-> (js/fetch url)
           (.then  #(d on-success))
           (.catch #(d on-failure))))))
@@ -639,15 +640,15 @@ Existing fx libraries shipping unary handlers `(fn [args] (rf/dispatch ...))` co
 
 `do-fx` detects arity at registration. When invoking a unary handler, it wraps the call in `(binding [*current-frame* (:frame m)] ...)`, so any internal `(rf/dispatch event)` is frame-aware via the dynamic-var fallback. **The dynamic var is a compatibility shim, not the primary mechanism** — new fx code uses the binary form.
 
-The async case is the one place where unary legacy handlers can still get multi-frame routing wrong: if the library captures a callback that fires after the handler returns, the dynamic-var binding has unwound. Library authors targeting re-frame2's multi-frame use cases should update to binary; swap `(rf/dispatch ev)` for `(rf/dispatch ev {:frame frame})` or use `bound-dispatcher` in async callbacks.
+The async case is the one place where unary legacy handlers can still get multi-frame routing wrong: if the library captures a callback that fires after the handler returns, the dynamic-var binding has unwound. Library authors targeting re-frame2's multi-frame use cases should update to binary; swap `(rf/dispatch ev)` for `(rf/dispatch ev {:frame frame})` or capture `(rf/dispatcher)` inside the binary handler's body where `*current-frame*` is bound.
 
 #### What library authors of async fx have to know
 
 - **Update to binary signature** when targeting re-frame2 multi-frame.
 - **Read `(:frame m)` once** at handler entry; pass it into closures.
-- **Pass `:frame` explicitly** in callbacks — `(rf/dispatch ev {:frame frame})` — or use `bound-dispatcher`. Don't rely on plain `dispatch` in callbacks; the binding is gone.
+- **Pass `:frame` explicitly** in callbacks — `(rf/dispatch ev {:frame frame})` — or capture a frame-bound dispatch fn via `(rf/dispatcher)` inside the binary handler body (where `*current-frame*` is bound to `(:frame m)`). Don't rely on plain `dispatch` in callbacks; the binding is gone.
 
-`bound-dispatcher` (in fx) and `bound-fn` (in view callbacks) are the same idea applied at different boundaries: capture the frame at definition time, re-establish it when the closure fires.
+`(rf/dispatcher)` (capture-at-call-time, used in fx and views) and `bound-fn` (the macro form, used in view callbacks) are the same idea applied at different boundaries: capture the frame at definition time, re-establish it when the closure fires.
 
 ### What `frame-provider` is (CLJS reference)
 
@@ -858,13 +859,13 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
   (try
     (loop [depth 0]
       ;; Destroyed-frame check fires BEFORE dequeue (per Edge cases #4 below):
-      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-aborted`
+      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-interrupted`
       ;; with the dropped count, and stop. In-flight events finish
       ;; (run-to-completion); only events not yet dequeued are dropped.
       (when (:destroyed? (:lifecycle frame))
         (let [dropped (count @(:queue (:router frame)))]
           (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
-          (trace! :rf.frame/drain-aborted
+          (trace! :rf.frame/drain-interrupted
                   {:frame (:id frame) :dropped dropped}))
         (throw ::halt))
       (when (> depth (:drain-depth (:config frame)))
@@ -1054,7 +1055,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 1. **`:raise` inside an `:always` action.** The microstep that fires the action accumulates its `:fx` (including `:raise`) into the same Level-3 accumulator; the next iteration of the cascade drains the new raise-queue before re-checking `:always`. Same loop, no special case. Tracked via the same depth limits.
 2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
 3. **`:dispatch` to self in a handler.** Goes to the back of the runtime FIFO, runs against the post-commit snapshot. **Different** from `:raise`, which runs pre-commit, depth-first. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
-4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-aborted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
+4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-interrupted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
 5. **Effect handler kicks off async work and returns.** Handler returns synchronously; the async work runs against future ticks; its eventual reply is a fresh `dispatch` per [Pattern-AsyncEffect](Pattern-AsyncEffect.md). The drain loop is non-blocking — `:fx` "complete" means the fx-handler fn has returned, not that its observable side effects have settled.
 
 ## Per-frame and per-call overrides
@@ -1208,9 +1209,9 @@ Library authors **do not need to know about frames** if they only register handl
 
 - **re-frame-undo** registers an interceptor that records pre/post `db` snapshots. When the interceptor runs, the context's `:db` is whichever frame's `app-db` is in play; undo state lives at some path inside *that* frame's app-db. Each frame ends up with its own independent undo history. The library does no extra work.
 - **re-frame-async-flow** schedules events via the standard `:dispatch` effect; frame propagation is automatic per the rule above.
-- **re-pressed**, **re-frame-http-fx**, etc. — same story, provided their fx implementations use the standard dispatch effect or the `bound-dispatcher` helper.
+- **re-pressed**, **re-frame-http-fx**, etc. — same story, provided their fx implementations use the standard dispatch effect or capture a frame-bound dispatch fn via `(rf/dispatcher)`.
 
-Authors of fx that escape into async land *do* have to use `bound-dispatcher` to forward the frame. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as opt-in rule O-5 in [MIGRATION.md](MIGRATION.md).
+Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/dispatcher)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as opt-in rule O-5 in [MIGRATION.md](MIGRATION.md).
 
 ## Tooling and agent-amenability
 
