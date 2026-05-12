@@ -97,11 +97,11 @@
 (defn- variant-event?
   "Filter predicate: true iff `ev` targets `variant-id`'s frame. The
   trace events emit `:frame` under `:tags`; events that have no frame
-  scope (registry / global) match nothing."
+  scope (registry / global) match nothing. Per Spec 009 §Per-frame
+  routing — `:frame` is the canonical tag key (rf2-shaa1 dropped the
+  `:frame-id` alias from impl emit sites)."
   [variant-id ev]
-  (let [frame (or (get-in ev [:tags :frame])
-                  (get-in ev [:tags :frame-id]))]
-    (= variant-id frame)))
+  (= variant-id (get-in ev [:tags :frame])))
 
 (defn register-listener!
   "Install a trace listener that appends every `variant-id`-scoped event

@@ -858,13 +858,13 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
   (try
     (loop [depth 0]
       ;; Destroyed-frame check fires BEFORE dequeue (per Edge cases #4 below):
-      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-aborted`
+      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-interrupted`
       ;; with the dropped count, and stop. In-flight events finish
       ;; (run-to-completion); only events not yet dequeued are dropped.
       (when (:destroyed? (:lifecycle frame))
         (let [dropped (count @(:queue (:router frame)))]
           (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
-          (trace! :rf.frame/drain-aborted
+          (trace! :rf.frame/drain-interrupted
                   {:frame (:id frame) :dropped dropped}))
         (throw ::halt))
       (when (> depth (:drain-depth (:config frame)))
@@ -1054,7 +1054,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 1. **`:raise` inside an `:always` action.** The microstep that fires the action accumulates its `:fx` (including `:raise`) into the same Level-3 accumulator; the next iteration of the cascade drains the new raise-queue before re-checking `:always`. Same loop, no special case. Tracked via the same depth limits.
 2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
 3. **`:dispatch` to self in a handler.** Goes to the back of the runtime FIFO, runs against the post-commit snapshot. **Different** from `:raise`, which runs pre-commit, depth-first. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
-4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-aborted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
+4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-interrupted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
 5. **Effect handler kicks off async work and returns.** Handler returns synchronously; the async work runs against future ticks; its eventual reply is a fresh `dispatch` per [Pattern-AsyncEffect](Pattern-AsyncEffect.md). The drain loop is non-blocking — `:fx` "complete" means the fx-handler fn has returned, not that its observable side effects have settled.
 
 ## Per-frame and per-call overrides

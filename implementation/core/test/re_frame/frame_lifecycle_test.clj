@@ -136,7 +136,7 @@
 ;; ---- Spec 002 §Destroy — machine cascade ---------------------------------
 
 (deftest destroy-frame-cascade-emits-per-active-machine
-  (testing "destroy emits :rf.machine/destroyed-on-frame-exit for EACH active machine snapshot"
+  (testing "destroy emits one :rf.machine.lifecycle/destroyed per active machine snapshot, carrying :reason :parent-frame-destroyed"
     (rf/reg-frame :ten {:doc "tenant"})
     ;; Seed three machine snapshots directly into app-db so we don't
     ;; depend on a full machine-runtime invocation.
@@ -151,7 +151,7 @@
       (rf/register-trace-cb! ::cascade (fn [ev] (swap! traces conj ev)))
       (rf/destroy-frame :ten)
       (rf/remove-trace-cb! ::cascade)
-      (let [cascade (filter #(= :rf.machine/destroyed-on-frame-exit (:operation %))
+      (let [cascade (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                             @traces)]
         (is (= 3 (count cascade))
             "one trace event per active machine snapshot")
@@ -162,7 +162,9 @@
             "every machine-id is signalled exactly once")
         (is (= #{:authed :reviewing :collected}
                (set (map #(:last-state (:tags %)) cascade)))
-            "each event carries that machine's last-state from the snapshot"))
+            "each event carries that machine's last-state from the snapshot")
+        (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) cascade)
+            "each event carries :reason :parent-frame-destroyed (the unified discriminator)"))
       ;; A :frame/destroyed trace is also emitted (after the cascade).
       (is (some #(= :frame/destroyed (:operation %)) @traces)
           "expected a :frame/destroyed trace"))))

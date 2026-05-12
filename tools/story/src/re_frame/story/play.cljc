@@ -81,8 +81,9 @@
            (str "trace-" (when frame-id (str frame-id)))))
 
 (defn- frame-of [ev]
-  (or (get-in ev [:tags :frame])
-      (get-in ev [:tags :frame-id])))
+  ;; Per Spec 009 §Per-frame routing: the canonical tag key is :frame
+  ;; (rf2-shaa1 dropped the :frame-id alias from impl emit sites).
+  (get-in ev [:tags :frame]))
 
 ;; Per-frame pending-exception accumulator. The listener captures
 ;; `:rf.error/handler-exception` synchronously (from inside the running

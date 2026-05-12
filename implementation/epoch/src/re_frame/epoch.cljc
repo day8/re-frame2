@@ -204,8 +204,8 @@
                             vec)]
       (doseq [cb-id silenced-cbs]
         (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                     {:frame-id frame-id
-                      :cb-id    cb-id}))
+                     {:frame  frame-id
+                      :cb-id  cb-id}))
       (swap! observed-frames-by-cb
              (fn [m]
                (reduce-kv (fn [acc cb-id frames]
@@ -660,8 +660,8 @@
       ;; (1) Frame registered?
       (nil? frame-record)
       [:fail :rf.error/no-such-handler
-       {:kind     :frame
-        :frame-id frame-id}]
+       {:kind  :frame
+        :frame frame-id}]
 
       ;; (2) In-flight drain?
       (let [router (:router frame-record)
@@ -808,8 +808,8 @@
         (nil? frame-record)
         (do
           (emit-restore-failure! :rf.error/no-such-handler
-                                 {:kind     :frame
-                                  :frame-id frame-id})
+                                 {:kind  :frame
+                                  :frame frame-id})
           false)
 
         ;; (2) In-flight drain?
