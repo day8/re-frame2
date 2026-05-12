@@ -104,14 +104,14 @@ Two pieces of committed research informed the design; both live in
 [`findings/`](findings/):
 
 - **Phase 1.** [`findings/re-frame-2-story-feature-set.md`](findings/re-frame-2-story-feature-set.md)
-  — rf2-m6tu (~5,200 words). Per-tool survey of the JS workshop
-  ecosystem (Storybook, Histoire, Ladle, React Cosmos, Lookbook,
-  devcards, workspaces, Pattern Lab); cross-tool pattern synthesis;
+  (~5,200 words). Per-tool survey of the JS workshop ecosystem
+  (Storybook, Histoire, Ladle, React Cosmos, Lookbook, devcards,
+  workspaces, Pattern Lab); cross-tool pattern synthesis;
   re-frame2-specific extensions; v1 feature spec; seven open design
   questions.
 - **Phase 2.** [`findings/re-frame-2-story-sota-refinement.md`](findings/re-frame-2-story-sota-refinement.md)
-  — rf2-94b0 (~5,300 words). Independent SOTA refinement against
-  Phase 1; identified six additions Phase 1 missed (live perf ribbon,
+  (~5,300 words). Independent SOTA refinement against Phase 1;
+  identified six additions Phase 1 missed (live perf ribbon,
   layout-debug trio, mode primitive, variants-grid layout,
   design-token panel, QR sharing).
 

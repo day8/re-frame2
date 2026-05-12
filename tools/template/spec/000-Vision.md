@@ -1,6 +1,6 @@
 # Template — Vision
 
-> Bead [rf2-lrtc](../../../). Tool [`tools/template/`](../). Artefact
+> Tool [`tools/template/`](../). Artefact
 > `day8/clj-template.re-frame2`.
 >
 > The v2 equivalent of v1's
@@ -55,9 +55,8 @@ and recognises the shape. That continuity is deliberate.
   adapter coord differ.
 - **Counter as canonical example.** The generated counter is the
   same shape the developer reads about in [Guide chapter 03
-  — Your first app](../../../docs/guide/03-your-first-app.md)
-  (rf2-2kzw throughline). What the template emits is what the guide
-  walks through.
+  — Your first app](../../../docs/guide/03-your-first-app.md).
+  What the template emits is what the guide walks through.
 - **Lockstep with the reference implementation's pins.** The
   shadow-cljs / react pins the template emits track
   `implementation/package.json` — the smoke-tested combination is
@@ -85,7 +84,7 @@ and recognises the shape. That continuity is deliberate.
 ## Cross-references
 
 - [`tools/README.md`](../../README.md) — the tools/ convention and
-  the per-tool spec/ folder convention (rf2-bfax).
+  the per-tool spec/ folder convention.
 - [001-Substrate-Variants.md](001-Substrate-Variants.md) — the three
   shipped variants.
 - [002-Generated-Shape.md](002-Generated-Shape.md) — the file tree
@@ -95,4 +94,4 @@ and recognises the shape. That continuity is deliberate.
   was made.
 - [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
   — the worked-example throughline the template's generated counter
-  aligns with (rf2-2kzw).
+  aligns with.

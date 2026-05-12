@@ -204,9 +204,9 @@ in parallel. The panel surfaces the agent's actions (the `:origin
   this — if the agent needs to render a viewer-like surface, it
   composes Causa-MCP tool calls.
 - **No mobile launch mode** (lock #5).
-- **No tablet-responsive standalone viewer** at v1.0. The original
-  rf2-buor design proposed one; the lock-#9 hybrid retires the use
-  case to MCP.
+- **No tablet-responsive standalone viewer** at v1.0. An earlier
+  design proposed one; the lock-#9 hybrid retires the use case to
+  MCP.
 
 ## Default summary
 

@@ -6,11 +6,11 @@
 
 ## The three variants
 
-| Substrate | Beads | Default? | View library | Generated `core.cljs` shape |
-|---|---|---|---|---|
-| `:reagent` | (canonical) | yes | Reagent | Reagent component + `r/render` |
-| `:uix` | rf2-3yij | no | UIx | UIx defui + `uix/render-root` |
-| `:helix` | rf2-2qit | no | Helix | Helix defnc + `createRoot` |
+| Substrate | Default? | View library | Generated `core.cljs` shape |
+|---|---|---|---|
+| `:reagent` | yes | Reagent | Reagent component + `r/render` |
+| `:uix` | no | UIx | UIx defui + `uix/render-root` |
+| `:helix` | no | Helix | Helix defnc + `createRoot` |
 
 Reagent is the canonical default — the substrate every re-frame and
 re-frame2 example targets first. UIx and Helix are equally supported;
@@ -99,10 +99,9 @@ shape the developer reads about in:
 - [`examples/helix/counter_helix/`](../../../examples/helix/counter_helix/) —
   the Helix counter.
 
-What the template emits is what the guide walks through (rf2-2kzw
-throughline). A developer who runs `clojure -X:project/new
-:template re-frame2 ...` and then reads Guide chapter 03 sees the
-same code in both places.
+What the template emits is what the guide walks through. A
+developer who runs `clojure -X:project/new :template re-frame2 ...`
+and then reads Guide chapter 03 sees the same code in both places.
 
 ## Future variants
 
@@ -115,8 +114,7 @@ Reserved space — not implemented:
 - **SSR.** Once Spec 011 has a Reagent-side reference implementation
   the template can ship an SSR variant of the counter.
 - **reagent-slim.** Once the substrate-portable reagent-slim adapter
-  exists (rf2-3sk6) the template can ship it as a fourth substrate
-  choice.
+  exists the template can ship it as a fourth substrate choice.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.
