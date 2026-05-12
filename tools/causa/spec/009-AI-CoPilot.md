@@ -217,6 +217,44 @@ In-session affordances:
 - `Ctrl+P` / `Ctrl+N` walk previous / next questions.
 - `Ctrl+R` searches within the conversation.
 
+## Redaction defaults
+
+By default, Causa's co-pilot sees only metadata, not values. This is a
+privacy-by-default stance — opt in to unmask.
+
+### Defaults
+
+| Category | Sent to LLM by default | Opt-in toggle |
+|---|---|---|
+| Event-vector args | `<redacted>` | `:rf.causa.copilot/unmask-event-args` |
+| App-db slice values | `<redacted>` | `:rf.causa.copilot/unmask-app-db` |
+| Source coords | full | (always sent) |
+| Handler IDs | full | (always sent) |
+| Trace metadata (`:dispatch-id`, `:operation`, severity) | full | (always sent) |
+
+### Settings UI
+
+Settings panel exposes per-category toggles (see
+[`007-UX-IA.md`](./007-UX-IA.md) §Modal layers — Settings, under "AI
+provider"). Defaults preserve Lock 12's privacy bet without changing
+the persistence decision (still ephemeral).
+
+### Rationale
+
+Source coords + handler IDs + trace metadata are sufficient for the
+canonical "why did this re-render?" questions. Values are needed only
+for "what's wrong with this specific app-db slice?" — opt-in surfaces
+that when the user explicitly wants it.
+
+### Cross-references
+
+- §Ephemeral conversation above (Lock #12 — conversation persistence
+  is ephemeral).
+- Sentry Session Replay's privacy-by-default precedent (all text
+  masked unless `sentry-unmask`).
+- [`007-UX-IA.md`](./007-UX-IA.md) §Modal layers — Settings panel
+  surfaces the per-category toggles.
+
 ## Voice / STT
 
 **Not at v1.0** (lock #13 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md)).
