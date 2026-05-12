@@ -68,7 +68,7 @@ Each row is "new in re-frame2 → new tooling story Causa must tell."
 | **Trace bus** (Spec 009) | The substrate of everything. Causa does not invent its own trace shape. |
 | **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel; pre-folded `:sub-runs` / `:renders` / `:effects` mean Causa renders, doesn't refold. |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
-| **`register-epoch-cb`** | The per-cascade listener routes the causality graph and the event-detail panel. |
+| **`register-epoch-cb!`** | The per-cascade listener routes the causality graph and the event-detail panel. |
 | **Schemas (Malli)** (Spec 010) | Real-time schema-violation feed with the five named recovery modes. |
 | **SSR + hydration** (Spec 011) | Hydration-mismatch debugger; server-vs-client render-tree diff. |
 | **Routing** (Spec 012) | URL ↔ frame state visualisation; nav-token timeline with stale-result suppression in flight. |
@@ -79,8 +79,8 @@ Each row is "new in re-frame2 → new tooling story Causa must tell."
 
 | Panel | What it does | Data source |
 |---|---|---|
-| **Event detail** *(hero)* | The canonical-question-answering panel. Event vector, source, `caused-by` link, inline mini-graph, db-diff, fx fired, subs recomputed, renders, duration. | `register-epoch-cb` + `:rf/epoch-record` projections. |
-| **Causality graph** *(peer)* | Vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`. Click node → detail. Drag time-range → filter. Find-root-cause button. | `(rf/trace-buffer {:op-type :event})` + `register-epoch-cb`. |
+| **Event detail** *(hero)* | The canonical-question-answering panel. Event vector, source, `caused-by` link, inline mini-graph, db-diff, fx fired, subs recomputed, renders, duration. | `register-epoch-cb!` + `:rf/epoch-record` projections. |
+| **Causality graph** *(peer)* | Vertical directed graph keyed by `:dispatch-id` / `:parent-dispatch-id`. Click node → detail. Drag time-range → filter. Find-root-cause button. | `(rf/trace-buffer {:op-type :event})` + `register-epoch-cb!`. |
 | **Causality strip** | The flat horizontal version of the graph, pinned at the top of every panel. Last 20 dispatches as pills. Always visible. | Same as causality graph. |
 | **Event log** | Per-frame list of dispatched events; group-by-cascade; right-click → "re-dispatch" (with `:origin :causa`). | `(rf/trace-buffer {:op-type :event :frame current-frame})`. |
 | **App-db inspector** | Slice-centric; touched slices first, pinned slices second, full-tree as escape hatch. Read-only. | `(rf/get-frame-db frame-id)` + epoch's changed-paths set. |

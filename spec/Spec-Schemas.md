@@ -225,10 +225,19 @@ Universal trace event shape, including error events.
    [:time      :any]                                                       ;; emit timestamp (host clock)
    [:tags      {:optional true} [:map-of :keyword :any]]                   ;; op-type-specific payload
    [:source    {:optional true} :keyword]                                  ;; (when present) the trigger source
-   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]])
+   [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]
+   [:rf.trace/trigger-handler {:optional true}                              ;; (when present) the in-scope handler at emit time
+                              [:map
+                               [:kind         [:enum :event :sub :fx :cofx :view]]
+                               [:id           :keyword]
+                               [:source-coord [:map
+                                               [:ns     {:optional true} :symbol]
+                                               [:file   {:optional true} :string]
+                                               [:line   {:optional true} :int]
+                                               [:column {:optional true} :int]]]]]])
 ```
 
-The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:parent-dispatch-id` rides under `:tags` of `:event/dispatched` events only (it documents inter-cascade lineage). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]`.
+The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:parent-dispatch-id` rides under `:tags` of `:event/dispatched` events only (it documents inter-cascade lineage). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]`. Per-event handler attribution rides under the top-level `:rf.trace/trigger-handler` slot when a handler is in scope at emit time — `:rf.fx/handled` carries the fx handler's coord, `:rf.machine/transition` carries the machine's coord, every `:rf.error/*` carries the responsible handler's coord, every emit inside an event handler's chain carries the event handler's coord. Per [009 §`:rf.trace/trigger-handler` — naming the in-scope handler](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler).
 
 The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The reserved values used by the framework (in alphabetical order):
 
@@ -303,7 +312,7 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
 
 The `:op-type` discriminates severity: `:error` halts or recovers a specific operation; `:warning` is an advisory the runtime emitted alongside continuing default behaviour. Consumers branch on `:op-type` for severity routing and on `:operation` for category-specific handling.
 
-The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. Not elided in production — `:rf.error/*` traces are not elided (unlike `:rf.assert/*`) and this slot rides along with them.
+The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Inherited from the universal `TraceEvent` shape — the slot rides on every trace event emitted while a handler is in scope, not just errors (per rf2-lf84g — success-path traces like `:rf.fx/handled` and `:rf.machine/transition` carry it too). Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. Not elided in production — `:rf.error/*` traces are not elided (unlike `:rf.assert/*`) and this slot rides along with them.
 
 The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing categories cannot be renamed or removed; new categories are added by extending the operation namespace. The current set is enumerated in [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) and reproduced in [API.md §Error contract](API.md#error-contract). Reserved operation namespaces:
 
@@ -809,7 +818,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 (def EpochCbSilencedOnFrameDestroyTags
   ;; :rf.epoch.cb/silenced-on-frame-destroy — emitted once per
   ;; (frame-id, cb-id) pair when a frame previously observed by a
-  ;; register-epoch-cb callback is destroyed. :op-type :rf.epoch.cb (not
+  ;; register-epoch-cb! callback is destroyed. :op-type :rf.epoch.cb (not
   ;; :error). One-shot; subsequent destroys of the same frame do not
   ;; re-emit. The callback registration remains in place; eviction is
   ;; the consumer's call. Per Tool-Pair §Surface behaviour against
@@ -878,6 +887,15 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:detected-at  :int]                              ;; wall-clock ms
    [:reason       :string]
    [:source-coord {:optional true} :any]])           ;; optional — `dispatch` is not macro-stamped, so the call-site coord may be absent
+
+(def CrossFrameDispatchSyncDuringDrainTags
+  [:map
+   [:category     [:= :rf.warning/cross-frame-dispatch-sync-during-drain]]
+   [:caller-frame :keyword]                          ;; `*current-frame*` at the call site, or `:rf/none` when unbound
+   [:target-frame :keyword]                          ;; the `dispatch-sync!`'s `:frame` opt (or resolved default)
+   [:other-frame  :keyword]                          ;; an arbitrary mid-drain sibling — typically the caller's frame
+   [:event        [:vector :any]]
+   [:reason       :string]])
 
 (def DecodeDefaultedTags
   [:map

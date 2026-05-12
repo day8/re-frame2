@@ -94,7 +94,7 @@ A cofx handler is a function from context to context. It receives the full conte
 
 The convention is to inject under the same keyword you registered with — the cofx id and the coeffect key are the same keyword. The handler is free to inject under a different key, but tooling and validation assume the symmetric case, so deviate only with reason.
 
-`reg-cofx` takes an optional metadata map between the id and the handler — the same shape every other `reg-*` accepts (per [Spec 001](../../spec/001-Registration.md)). `:doc` is the most common metadata key. `:spec` attaches a Malli schema that the runtime validates the injected value against ([Spec 010](../../spec/010-Schemas.md)) — a `:now` cofx with `{:spec [:fn inst?]}` will fail fast if some test stub forgets to return a date.
+`reg-cofx` takes an optional metadata map between the id and the handler — the same shape every other `reg-*` accepts. `:doc` is the most common metadata key. `:spec` attaches a Malli schema that the runtime validates the injected value against — a `:now` cofx with `{:spec [:fn inst?]}` will fail fast if some test stub forgets to return a date.
 
 Two arities exist for the handler fn:
 
@@ -215,6 +215,58 @@ Read a value out of `localStorage` by key. TodoMVC's `:todo.storage/todos` cofx 
 
 `examples/reagent/todomvc/db.cljs` and its sibling `events.cljs` exercise the pattern end-to-end. The `:initialise` handler stays pure; the only place `localStorage.getItem` appears in the codebase is inside `reg-cofx`. SSR — where there's no `localStorage` — gets a `nil` for the cofx value because the `some->` short-circuits; the handler degrades gracefully without branching on platform.
 
+## Reading a sub from a handler
+
+Sooner or later you'll write a handler that needs a sub's current value. An order-placement event wants to stamp the order with the currently-logged-in user; an "apply discount" event wants to read the cart total computed by `[:cart/total]`. The wrong move — and the one the reflex reaches for — is to call `rf/subscribe` (or its one-shot sibling `rf/subscribe-value`) directly from inside the handler body:
+
+```clojure
+;; Don't do this
+(rf/reg-event-fx :order/place
+  (fn [{:keys [db]} [_ order]]
+    (let [current (rf/subscribe-value [:user/current])]   ;; ← implicit read
+      {:db (assoc-in db [:orders (:id order)]
+                     (assoc order :placed-by current))})))
+```
+
+This breaks the same per-handler purity property cofx exist to protect, for the same reasons calling `(js/Date.)` from a handler does. The handler's output is no longer a function of its `[coeffects event]` pair — it now also depends on whatever `:user/current` happens to compute against the registry at drain time. The test framework can't fix `:user/current` for one handler without globally re-registering the sub. Replaying an epoch becomes brittle because the recorded event won't carry the sub's value, only its id. Subs are part of the view-stream's reactivity story (chapter 06); reading one from a handler crosses streams.
+
+The fix is the same one we used for `:now` and `:new-id` — wrap the impure read as a cofx and inject it:
+
+```clojure
+(rf/reg-cofx :user/current
+  {:doc "Inject the value of the [:user/current] sub into coeffects."}
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :user/current]
+              (rf/subscribe-value [:user/current]))))
+
+(rf/reg-event-fx :order/place
+  [(rf/inject-cofx :user/current)]
+  (fn [{:keys [db user/current]} [_ order]]
+    {:db (assoc-in db [:orders (:id order)]
+                   (assoc order :placed-by current))}))
+```
+
+Now the handler is back to being a pure function of `db`, `user/current`, and the event. The single impure operation — materialising a reaction, derefing it, unsubscribing — is quarantined inside the cofx handler. `rf/subscribe-value` is the right primitive here: it does that whole three-step dance in one call, so the cofx leaves no live reaction behind. (Using `@(rf/subscribe ...)` would also produce the right value but leak the reaction until GC; for one-shot reads at injection time, prefer `subscribe-value`.)
+
+When the sub takes arguments, parameterise the cofx with the binary form from earlier in the chapter:
+
+```clojure
+(rf/reg-cofx :sub/value
+  (fn [ctx query-v]
+    (assoc-in ctx [:coeffects :sub/value]
+              (rf/subscribe-value query-v))))
+
+;; One generic cofx; the call site picks the sub:
+(rf/reg-event-fx :order/cancel
+  [(rf/inject-cofx :sub/value [:order/by-id 42])]
+  (fn [{:keys [db sub/value]} _]
+    {:db (assoc-in db [:orders 42 :status] :cancelled)}))
+```
+
+You will reach for this often enough that "wrap as cofx" becomes muscle memory. It's worth flagging — and you may have noticed its absence — that re-frame2 deliberately does not ship a `cofx-from-sub` shortcut that collapses the five-line `reg-cofx` form into a single helper. The shortcut was considered (rf2-gw8j) and rejected. The five lines aren't friction to be papered over; they're the surface area that says "this is a coeffect, register it like one." A helper would imply subscribing-inside-handlers is the rule and the cofx is the workaround. It isn't — the cofx is the rule, and the wrap is the cost of admission for any handler that reads anything beyond `:db` and `:event`. The same five-line shape is what `:now`, `:new-id`, and `:local-store` use; sub-values aren't special.
+
+The same pattern, in agent-skill form (terser, with the gotchas pinned for AI authors): [`skills/re-frame2/`](../../skills/re-frame2/) → `reference/fundamentals/cofx.md` §*Reading a sub from a handler — wrap as cofx*.
+
 ## Testing via cofx stubs
 
 This is the payoff. A handler that uses `(inject-cofx :now)` is testable without faking `js/Date`, mocking the clock, or threading a `Clock` argument through every call site. The test re-registers `:now` with a stub before the handler-under-test runs, and the framework's id-redirect picks up the new binding:
@@ -246,7 +298,7 @@ This is the payoff. A handler that uses `(inject-cofx :now)` is testable without
 
 Three things to notice:
 
-**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. Per-frame and per-call overrides go further still — [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) covers `:interceptor-overrides` for stubbing the *interceptor itself* (e.g. swapping `:rf/inject-cofx-now` for one frame's events), useful when you want the stub scoped to one frame rather than to the whole test registry.
+**The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. A frame's `:interceptor-overrides` slot can go further still — swapping the *interceptor itself* (e.g. `:rf/inject-cofx-now`) for one frame's events when you want the stub scoped to one frame rather than to the whole test registry.
 
 **`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 13 §Registrar isolation](13-testing.md#registrar-isolation-with-fresh-registrar).
 
@@ -272,6 +324,7 @@ The forward link from [chapter 07's table](07-interceptors.md#the-context-map) p
 - `reg-cofx` registers a cofx handler that takes the context (and optionally a value) and returns the context with the cofx value injected under `[:coeffects <id>]`.
 - Multiple cofxes compose by listing multiple `inject-cofx` interceptors in source order.
 - `reg-event-db` doesn't see injected cofx values; use `reg-event-fx` for any handler that needs them.
+- A handler that needs a sub's current value wraps the read as a cofx and injects it — never `rf/subscribe` from inside a handler body.
 - Testing is by re-registration — stub `:now` to return a fixed instant, scope it with `with-fresh-registrar`, and the handler-under-test becomes deterministic.
 
 ## Next
@@ -279,4 +332,3 @@ The forward link from [chapter 07's table](07-interceptors.md#the-context-map) p
 - [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
 - [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
 - [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
-- [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the normative surface for `:interceptor-overrides`, including the `:rf/inject-cofx-now` override pattern.

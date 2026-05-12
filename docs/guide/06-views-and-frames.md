@@ -73,7 +73,7 @@ The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-c
 ??? note "Advanced: which Reagent forms `reg-view` supports (skip on first read)"
     If you're already familiar with Reagent's Form-1 / Form-2 / Form-3 distinction, this is how the macro handles each. If not, you don't need this yet — come back when the compile-time error above sends you here.
 
-    Form-1 views — render fns whose body is a literal hiccup expression — get the auto-inject via the macro's expansion. Form-2 views — render fns that return another fn (the "outer fn closes over args, inner fn does the work" Reagent idiom) — also work, and are the canonical shape when the view needs to capture per-instance state in the closure or maintain a Reagent-local atom for transient UI state. Form-3 (`reagent.core/create-class`) is not supported by the macro; use the underlying `reg-view*` fn for those rare cases. Both supported shapes are documented in [Spec 004](../../spec/004-Views.md).
+    Form-1 views — render fns whose body is a literal hiccup expression — get the auto-inject via the macro's expansion. Form-2 views — render fns that return another fn (the "outer fn closes over args, inner fn does the work" Reagent idiom) — also work, and are the canonical shape when the view needs to capture per-instance state in the closure or maintain a Reagent-local atom for transient UI state. Form-3 (`reagent.core/create-class`) is not supported by the macro; use the underlying `reg-view*` fn for those rare cases.
 
     ```clojure
     ;; Form-1 — direct render
@@ -153,7 +153,7 @@ What's *not* wrapped is anything attached imperatively from inside the render bo
   [:div {:on-animation-end #(dispatch [:tile/finished])}])
 ```
 
-If there is no synthetic-event surface for what you need — `setTimeout`, `fetch`, `requestAnimationFrame`, `IntersectionObserver`, a WebSocket — the right shape is a **registered fx** ([Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md), and [chapter 10](10-doing-http-requests.md) walks through the HTTP instance). The fx captures the frame at registration; the per-event reply is a registered event the fx dispatches with the frame already resolved. For mount-time imperative attach to a specific DOM node (a third-party library, a chart, a map), the substrate's lifecycle hook is the escape hatch — `reagent.core/create-class` via `reg-view*` in Reagent, `use-effect` in UIx / Helix.
+If there is no synthetic-event surface for what you need — `setTimeout`, `fetch`, `requestAnimationFrame`, `IntersectionObserver`, a WebSocket — the right shape is a **registered fx**. The fx captures the frame at registration; the per-event reply is a registered event the fx dispatches with the frame already resolved. [Chapter 10](10-doing-http-requests.md) walks through the HTTP instance. For mount-time imperative attach to a specific DOM node (a third-party library, a chart, a map), the substrate's lifecycle hook is the escape hatch — `reagent.core/create-class` via `reg-view*` in Reagent, `use-effect` in UIx / Helix.
 
 ### Animations
 
@@ -163,11 +163,11 @@ Animation is a view-layer concern, but it follows the same rule the rest of this
 
 > **Transitions — the 95% case.** State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. No completion event needed — by the time the animation kicks off, `app-db` has already moved on; the visual is catching up. Opacity fades, slide-in / slide-out, accordion expand, list reorder, modal scrim, route transitions all fit. The view binds `:class` / `:style` from a sub; CSS does the interpolation.
 
-> **Continuous loops — physics, games, scroll inertia.** Per-frame state mutation IS the truth. The right shape is a registered fx (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration; the event handler updates state; the view renders. Cancellation is a sibling fx that cancels the RAF handle. This is [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) with `requestAnimationFrame` substituted for HTTP — same six-step shape, same frame-capture discipline.
+> **Continuous loops — physics, games, scroll inertia.** Per-frame state mutation IS the truth. The right shape is a registered fx (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration; the event handler updates state; the view renders. Cancellation is a sibling fx that cancels the RAF handle. The shape is the same async-effect six-step structure used for HTTP, with `requestAnimationFrame` substituted for the network round-trip — same frame-capture discipline.
 
 > **Library bridges — Framer Motion, React-Spring, GSAP, AutoAnimate.** The library is component-shaped — it owns its own imperative timing inside its own component tree. The wrapping shape is **outer/inner**: the outer is a registered view that reads subs and produces props; the inner is a `reagent.core/create-class` Form-3 (via `reg-view*`) or a `use-effect` wrapper that hands the library the state-derived props. The view layer never imperatively dispatches; the library's internal completion callbacks bridge at the inner boundary using the same lifecycle-hook discipline.
 
-Most animations are Regime A. Reach for B only when state genuinely advances per-frame. Reach for C only when a third-party library owns the timing. Genuine "the state must wait for an exact `animationend`" cases are rare, and usually signal that "state is truth, visual catches up" wasn't fully exploited. When the case is genuine, the lifecycle hook is the escape hatch — it attaches the listener after commit, cleans up on unmount, and carries the frame correctly because the dispatcher closure was built during render. Full normative contract: [Spec 004 §Animations](../../spec/004-Views.md#animations).
+Most animations are Regime A. Reach for B only when state genuinely advances per-frame. Reach for C only when a third-party library owns the timing. Genuine "the state must wait for an exact `animationend`" cases are rare, and usually signal that "state is truth, visual catches up" wasn't fully exploited. When the case is genuine, the lifecycle hook is the escape hatch — it attaches the listener after commit, cleans up on unmount, and carries the frame correctly because the dispatcher closure was built during render.
 
 ### The Signal Graph
 
@@ -229,7 +229,7 @@ These are **optional ergonomics**, not the canonical idiom in this guide; the ex
 
 The architecture above assumes a view inside a `frame-provider` subtree picks up the surrounding frame. The CLJS reference uses **React context** to carry this — when you wrap a subtree with `[rf/frame-provider {:frame :left} ...]`, every registered view rendered underneath receives the frame id through context, and the auto-injected `dispatch`/`subscribe` resolves against it.
 
-The propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` dispatches to `:left`. The full resolution chain (dynamic-var → React context → `:rf/default`) is specified in [Spec 002 §3](../../spec/002-Frames.md). The split-counter example below exercises the resolution; the view fn doesn't know which frame it's been instantiated under, and the framework routes correctly.
+The propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` dispatches to `:left`. The full resolution chain is dynamic-var → React context → `:rf/default`. The split-counter example below exercises the resolution; the view fn doesn't know which frame it's been instantiated under, and the framework routes correctly.
 
 ### The Var-reference idiom
 
@@ -307,7 +307,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :app/main               {:preset :default})  ;; same as omitting :preset
 ```
 
-Each preset expands at registration time into a fixed bundle — `:test` redirects `:rf.http/managed` to the canned-success stub (so HTTP fx don't reach the network in tests) and stamps `:drain-depth 100`; `:story` does the same redirect and tightens `:drain-depth` to 16 so runaway dispatch cascades fail fast under a story; `:ssr-server` sets `:platform :server` and wires the server-projection error path. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets--capability-bundles-for-common-configurations).
+Each preset expands at registration time into a fixed bundle — `:test` redirects `:rf.http/managed` to the canned-success stub (so HTTP fx don't reach the network in tests) and stamps `:drain-depth 100`; `:story` does the same redirect and tightens `:drain-depth` to 16 so runaway dispatch cascades fail fast under a story; `:ssr-server` sets `:platform :server` and wires the server-projection error path. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change.
 
 This matters because the call site now declares its intent — "this is a test frame" — and tooling (test runners, story runners, SSR adapters) reads that declaration without inferring it from the surrounding code.
 
@@ -346,11 +346,11 @@ Two instances of the same registered view, different frames. Each subtree's `dis
 
 One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story).
 
 ## Routing as state
 
-Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 17](17-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
+Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 17](17-routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
 
 ## A small example: split counter
 
@@ -393,8 +393,8 @@ A useful test: if two instances might want to share state under any circumstance
 
 Two adjacent topics deserve a pointer before you leave views and frames, but neither is needed up front:
 
-- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do. Full contract: [Spec 013 — Flows](../../spec/013-Flows.md).
-- **Pattern-NineStates — the canonical UI render checklist** (`Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`). Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [08 — State machines §Parallel regions](08-state-machines.md#parallel-regions). Full convention: [Pattern-NineStates](../../spec/Pattern-NineStates.md).
+- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do.
+- **Nine-states UI checklist** — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`. Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [08 — State machines §Parallel regions](08-state-machines.md#parallel-regions).
 
 ## What we covered
 

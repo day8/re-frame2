@@ -31,7 +31,7 @@ and MCP covers the remote case.
 ```
 
 The preload registers Causa's listeners under `register-trace-cb!`
-and `register-epoch-cb`, mounts a hidden DOM root, listens for
+and `register-epoch-cb!`, mounts a hidden DOM root, listens for
 `Ctrl+Shift+C`. No code change in the app itself.
 
 Same convention as re-frame-10x v1; muscle-memory transfer is free.

@@ -168,4 +168,4 @@ If filing is not possible (e.g. `bd` is not configured in the target repo), prod
 - Do not force every retro into a code contribution or bead.
 - Do not file speculative beads unsupported by the session.
 - Do not pressure the user to file anything.
-- Do not propose fixes that route through `re-frame-10x` — re-frame2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb`, `register-epoch-cb`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).
+- Do not propose fixes that route through `re-frame-10x` — re-frame2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation).

@@ -317,7 +317,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
 | `:rf.http/decode-failure` | A success-eligible (2xx) response whose body the decode pipeline rejected (schema validation error, JSON syntax error, custom decoder threw). Non-2xx responses never produce `:rf.http/decode-failure` — they classify by status. | `:body-text`, `:cause`, `:schema-validation-failure?` |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. The user's failure map sits at `:detail`; `:decoded` carries the pre-`:accept` decoded value for context. | `:detail` (user's verbatim failure map), `:decoded` |
-| `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal` | `:request-id` (if any), `:reason` (`:user` / `:request-id-superseded`) |
+| `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal` | `:request-id` (if any), `:reason` (`:user` on the reply; `:request-id-superseded` is trace-only — see [§`:request-id` (internal)](#request-id-internal)) |
 
 The category vocabulary is **closed for v1** — additions require a Spec change. The `:rf.http/*` namespace makes these unambiguous wherever they leak: trace events, error projector, `:retry :on` sets, epoch records.
 
@@ -404,7 +404,7 @@ A subsequent `:rf.http/managed-abort` fx with the same id (compared by `=`) canc
 {:fx [[:rf.http/managed-abort [:articles :load "hello"]]]}
 ```
 
-When two in-flight requests share an id, issuing a new one with the same id supersedes the old one (`:reason :request-id-superseded` on the aborted reply); a manual `:rf.http/managed-abort` aborts whichever request currently holds the id (`:reason :user`).
+When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersede event still emits to the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`); consumers wanting abort telemetry subscribe via `register-trace-cb!` at `:warning` or `:error` severity. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
 
 ### `:abort-signal` (external)
 
@@ -440,7 +440,7 @@ The aborted reply is the same shape as a manual-abort failure:
                       :actor-id   <destroyed-spawned-actor-id>}}}
 ```
 
-The discriminator from a user-issued abort is `:reason` — `:user` (manual `:rf.http/managed-abort`), `:request-id-superseded` (a fresh request with the same `:request-id`), or `:actor-destroyed` (this contract). Callers that branch on `:reason` recover that distinction; callers that don't see one uniform "aborted" outcome.
+The discriminator from a user-issued abort is `:reason` — `:user` (manual `:rf.http/managed-abort`) or `:actor-destroyed` (this contract). Callers that branch on `:reason` recover that distinction; callers that don't see one uniform "aborted" outcome. (The third reason value, `:request-id-superseded`, never lands on a reply dispatch — per [§`:request-id` (internal)](#request-id-internal) supersede suppresses the prior request's reply and emits only to the trace bus.)
 
 The reply lands at the originating handler exactly as any other reply does (per [§Reply addressing](#reply-addressing)). For requests issued by a spawned actor whose handler the destroy already unregistered, the dispatch is a no-op — the actor's snapshot is gone and there is no event handler to receive the reply. The trace event still fires; the abort is still observable through instrumentation.
 

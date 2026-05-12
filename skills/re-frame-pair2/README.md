@@ -1,5 +1,7 @@
 # re-frame-pair2
 
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
 A `Skill` which makes `Claude Code` a better pair programmer by allowing it to **interact with your running [re-frame2](https://github.com/day8/re-frame2) application**.
 
 This is the **re-frame2 sibling** of [`re-frame-pair`](https://github.com/day8/re-frame-pair) (the v1 skill, which targeted re-frame + re-frame-10x). re-frame-pair2 is **decoupled from re-frame-10x entirely** — it consumes only re-frame2's own runtime contract (the [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/master/docs/specification/Tool-Pair.md)).
@@ -237,7 +239,7 @@ The pieces (design; see *Status* above):
 2. `eval-cljs.sh` sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame_pair2/runtime.cljs` is the `re-frame-pair2.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`), and installs the `js/globalThis.__re_frame_pair2_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
 
 See [`docs/initial-spec.md`](docs/initial-spec.md) for the full operation catalogue, architecture, error surfaces, versioning, and phased delivery plan.
 

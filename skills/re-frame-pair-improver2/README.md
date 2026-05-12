@@ -1,6 +1,8 @@
 # re-frame-pair-improver2
 
-`re-frame-pair-improver2` is a Claude ***meta-skill*** for [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
+`re-frame-pair-improver2` is a Claude ***meta-skill*** for [`re-frame-pair2`](../re-frame-pair2/). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
 
 It is the re-frame2 sibling of [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver), which targets the v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair) tool against [`re-frame`](https://github.com/day8/re-frame) v1.
 
@@ -32,7 +34,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - [`re-frame2`](https://github.com/day8/re-frame2) — the framework. When friction is caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings), beads route here, not to `re-frame-pair2`.
 - [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver) — the v1 sibling that targets v1 `re-frame-pair`.
 
-This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-trace-cb`, `register-epoch-cb`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
+This skill does **not** depend on or reference `re-frame-10x`. re-frame2's Tool-Pair surfaces (`register-trace-cb!`, `register-epoch-cb!`, `epoch-history`, `restore-epoch`, `app-schemas`, source-coord annotation) replace the v1 reliance on the 10x dev tool.
 
 ## Typical output
 

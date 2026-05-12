@@ -28,7 +28,7 @@
 | `reg-event-ctx` | M | `(reg-event-ctx id ?metadata-or-interceptors handler)` | v1 (preserved + extended) | 002 | |
 | `reg-sub` | M | `(reg-sub id ?metadata signal-fn? computation-fn)` | v1 (preserved + extended) | 002 | `:<-` sugar preserved. The only sub-registration form in v2. |
 | `reg-fx` | M | `(reg-fx id ?metadata handler)` | v1 (preserved + extended) | 002 | Unary or binary handler. |
-| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | |
+| `reg-cofx` | M | `(reg-cofx id ?metadata handler)` | v1 (preserved) | 002 | Reading a sub's value from a handler is by cofx-wrapping — see [Guide ch.05 §Reading a sub from a handler](../docs/guide/05-coeffects.md#reading-a-sub-from-a-handler). |
 | `reg-frame` | M | `(reg-frame id metadata)` | v1 | 002 | Atomic create + register. |
 | `make-frame` | Fn | `(make-frame opts) → :rf.frame/<id>` | v1 | 002 | Anonymous frame; gensym'd id. |
 | `reg-view` | M | `(reg-view sym [args] body+)` / `(reg-view sym docstring [args] body+)` / `(reg-view ^{:rf/id :explicit/id} sym [args] body+)` | v1 | 004 | Defn-shape; auto-defs the symbol; auto-derives id from `(keyword *ns* sym)`; auto-injects `dispatch` / `subscribe` as lexical bindings; rejects non-defn-shape bodies at macroexpand. |
@@ -74,10 +74,11 @@
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `frame-provider` | Fn (Reagent component) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
+| `frame-provider` | Component (Reagent) | `[rf/frame-provider {:frame :todo} & children]` | v1 | 002 |
 | `with-frame` | M | `(with-frame :keyword body)` *or* `(with-frame [sym expr] body)` | v1 | 002 |
 | `bound-fn` | M | `(bound-fn [args] body)` | v1 | 002 |
-| `bound-dispatcher` | Fn | `(bound-dispatcher m)` → `(fn [event] ...)` | v1 | 002 |
+| `bound-dispatcher` | Fn | `(bound-dispatcher)` → `(fn [event] ...)` — captures the current frame at call time and returns a dispatch fn safe to call from async callbacks where the dynamic-var binding has unwound | v1 | 002 |
+| `bound-subscriber` | Fn | `(bound-subscriber)` → `(fn [query-v] ...)` — companion to `bound-dispatcher` for subscribe | v1 | 002 |
 | `dispatcher` | Fn | `(dispatcher)` (called during render) → frame-bound dispatch fn | v1 | 004 |
 | `subscriber` | Fn | `(subscriber)` (called during render) → frame-bound subscribe fn | v1 | 004 |
 | `view` | Fn | `(view view-id)` → render-fn (runtime-lookup handle) | v1 | 001, 004 |
@@ -186,6 +187,8 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
+| `render-tree-hash` | Fn | `(render-tree-hash render-tree)` → 32-bit FNV-1a structural hash (lowercase hex). Identical output on JVM and CLJS for the same canonical-EDN representation. Per [011 §Hydration-mismatch detection](011-SSR.md). | v1 | 011 |
+| `project-error` | Fn | `(project-error frame-id trace-event)` → `:rf/public-error`. Applies the active error-projector (selected by `(rf/configure :ssr {:public-error-id ...})`) for the named frame. Per [011 §Server error projection](011-SSR.md). | v1 | 011 |
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 
@@ -238,6 +241,9 @@ Standard cofx (server-only):
 | `:rf.http/managed-canned-success` | fx | `[:rf.http/managed-canned-success {:value v}]` — synthesises the canonical success reply (per [014 §Testing](014-HTTPRequests.md#testing)) | v1 (optional capability, dev/test) | 014 |
 | `:rf.http/managed-canned-failure` | fx | `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]` — synthesises the canonical failure reply | v1 (optional capability, dev/test) | 014 |
 | `with-managed-request-stubs` | M | `(with-managed-request-stubs route-map body+)` — route-map `{[<method> <url>] {:reply ...}}` per [014 §Testing](014-HTTPRequests.md#testing) | v1 (optional capability, dev/test) | 014 |
+| `with-managed-request-stubs*` | Fn | `(with-managed-request-stubs* route-map body-fn)` — plain-fn surface beneath `with-managed-request-stubs`; the `*` follows the Clojure `let`/`let*`, `fn`/`fn*` idiom (per [Conventions](Conventions.md)). Use for computed route-maps or non-literal bodies. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
+| `install-managed-request-stubs!` | Fn | `(install-managed-request-stubs! route-map)` — install the stub routes; persists until `uninstall-managed-request-stubs!` is called. Lower-level than `with-managed-request-stubs`; use when stubs span multiple `deftest`s. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
+| `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
 | `reg-http-interceptor` | Fn | `(reg-http-interceptor {:frame ... :id ... :before (fn [ctx] ctx')})` — register a request-side interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). `:before` receives a ctx `{:request :args :frame :event}` and returns a (possibly-modified) ctx. | v1 (optional capability) | 014 |
 | `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). Single-arity targets `:rf/default`. | v1 (optional capability) | 014 |
 
@@ -320,10 +326,10 @@ For tooling, agents, story tools, 10x.
 | `snapshot-of` | Fn | `(snapshot-of path)` / `(snapshot-of path opts)` | v1 | ✓ | 002 |
 | `sub-topology` | Fn | `(sub-topology)` → `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` — static dependency graph from `:<-` declarations. Pure data over the registrar; `:inputs` always present (empty for layer-1); the per-entry `:doc` / `:ns` / `:line` / `:file` keys are present when registration carries them. | v1 | ✓ | 002 |
 | `sub-cache` | Fn | `(sub-cache frame-id)` → live cache state | v1 | ✗ (CLJS-only) | 002 |
-| `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` → map of path → schema | v1 | ✓ | 010 |
-| `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | ✓ | 010 |
-| `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | ✓ | 010 |
-| `compute-sub` | Fn | `(compute-sub query-v db)` | v1 | ✓ | 008 |
+
+Schema-introspection accessors — `app-schemas`, `app-schema-at`, `app-schemas-digest` — are rowed canonically in [§Schemas](#schemas).
+
+`compute-sub` is rowed canonically in [§Testing](#testing) (pure sub computation against an `app-db` value).
 
 ---
 
@@ -336,6 +342,8 @@ For tooling, agents, story tools, 10x.
 | `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | 010 |
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
+| `set-schema-validator!` | Fn | `(set-schema-validator! validate-fn)` / `(set-schema-validator! {:validate validate-fn :explain explain-fn})` — install the validator (and optionally the explainer) every dev-time schema-validation site routes through. `nil` disables validation entirely. Default ships Malli's `validate`/`explain` pair; this seam lets apps swap in their own validator to drop the Malli dep. Per [010 §Non-Malli validators (rf2-froe)](010-Schemas.md). | v1 | 010 |
+| `set-schema-explainer!` | Fn | `(set-schema-explainer! explain-fn)` — install the explainer used to enrich `:rf.error/schema-validation-failure` traces' `:explain` key. Companion to `set-schema-validator!`. Per [010 §Non-Malli validators (rf2-froe)](010-Schemas.md). | v1 | 010 |
 | `:spec/validate-at-boundary` (interceptor) | — | Add to a `reg-event-*`'s positional interceptor vector for production-boundary validation | v1 | 010 |
 
 See [010 §Schemas](010-Schemas.md) for `:spec` metadata, validation timing, and dev/prod elision.
@@ -350,7 +358,6 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 |---|---|---|---|---|
 | `register-trace-cb!` | Fn | `(register-trace-cb! key callback-fn)` — `callback-fn` receives one trace event per call | v1 (dev-only) | 009 |
 | `remove-trace-cb!` | Fn | `(remove-trace-cb! key)` → nil | v1 (dev-only) | 009 |
-| `clear-trace-cbs!` | Fn | `(clear-trace-cbs!)` → nil — drops all registered listeners; test-time helper consumed by `re-frame.test-support/reset-runtime-fixture` | v1 (dev-only) | 009 |
 | `emit-trace!` | Fn | `(emit-trace! op-type operation tags)` → nil | v1 (dev-only) | 009 |
 | `re-frame.interop/debug-enabled?` | Var | `^boolean` (alias of `goog.DEBUG` on CLJS; `true` on JVM) | v1 | 009 |
 | `re-frame.performance/enabled?` | Var | `^boolean` `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}` to bracket event dispatch / sub recompute / fx walk / view render in `performance.mark` + `performance.measure` calls (User-Timing entries `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`). **Compile-time only** — not a `(rf/configure ...)` knob; runtime mutation has no effect. Default `false`; under `:advanced` + default the bracket DCEs and shipped binaries carry zero User-Timing instrumentation. CLJS-only — JVM is a no-op. See [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation) and [Tool-Pair §Performance API consumption](Tool-Pair.md#performance-api-consumption) | v1 | 009 |
@@ -369,8 +376,8 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 | `epoch-history` | Fn | `(epoch-history frame-id)` → vector of epoch records. Returns `[]` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
 | `restore-epoch` | Fn | `(restore-epoch frame-id epoch-id)` → boolean (true on success). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair |
 | `reset-frame-db!` | Fn | `(reset-frame-db! frame-id new-db)` → boolean (true on success) — pair-tool write surface (state injection). Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false` for an unknown / destroyed frame. | v1 (dev-only) | Tool-Pair |
-| `register-epoch-cb` | Fn | `(register-epoch-cb key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
-| `remove-epoch-cb` | Fn | `(remove-epoch-cb key)` | v1 (dev-only) | Tool-Pair, 009 |
+| `register-epoch-cb!` | Fn | `(register-epoch-cb! key callback-fn)` — assembled-epoch listener. Process-global; a callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 (dev-only) | Tool-Pair, 009 |
+| `remove-epoch-cb!` | Fn | `(remove-epoch-cb! key)` | v1 (dev-only) | Tool-Pair, 009 |
 | `(rf/configure :epoch-history {:depth N})` | — | See [§Configure keys](#configure-keys). | v1 (dev-only) | Tool-Pair |
 | `get-frame-db` (cross-ref to [§Public registrar query API](#public-registrar-query-api)) | Fn | Returns `nil` for an unknown / destroyed frame (per [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames)). | v1 | 002 |
 
@@ -514,11 +521,12 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 
 ### `reg-flow` / `clear-flow` (Spec 013)
 
-`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`.
+`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`. `clear-flow` is rowed canonically in [§Clearing registrations](#clearing-registrations) (`(clear-flow id)` deregisters and `dissoc-in`s on `:path`).
+
+Reserved fx-ids for runtime flow management via `:fx`:
 
 | Name | Kind | Signature | Status |
 |---|---|---|---|
-| `clear-flow` | Fn | `(clear-flow id)` — deregister; `dissoc-in` on `:path` | v2 |
 | `:rf.fx/reg-flow` | Reserved fx-id | `[:rf.fx/reg-flow flow-map]` — register a flow at runtime via `:fx` | v2 |
 | `:rf.fx/clear-flow` | Reserved fx-id | `[:rf.fx/clear-flow id]` — clear a registered flow via `:fx` | v2 |
 
@@ -539,11 +547,9 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `make-restore-fn` | Fn | `(make-restore-fn)` / `(make-restore-fn frame-id)` → restore-fn | v1 (preserved + extended) | 002 |
 | `init!` | Fn | `(init! adapter-map)` — idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; consumers require the ns and pass the Var, e.g. `(rf/init! reagent/adapter)`. Calling `(init!)` with no args, nil, or a non-map argument raises `:rf.error/no-adapter-specified`. Per [006 §Adapter selection at boot](006-ReactiveSubstrate.md#adapter-selection-at-boot) and rf2-agql. Ensures `:rf/default` frame is present | v1 | 006 |
 | `install-adapter!` | Fn | `(install-adapter! adapter-map)` — must be called before any frame is created. Lower-level than `init!`; most consumers call `init!` instead | v1 | 006 |
 | `current-adapter` | Fn | `(current-adapter)` → `:reagent` / `:plain-atom` / `:custom` | v1 | 006 |
-| `init-platform` | Fn | `(init-platform :server \| :client)` — sets the active platform; defaults from build target | v1 | 011 |
 | `configure` | Fn | `(configure key opts)` — runtime config; key vocabulary in [§Configure keys](#configure-keys) | v1 | — |
 
 ---
@@ -557,7 +563,6 @@ Runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every fram
 | `:epoch-history` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 50}` | v1 (dev-only) | Tool-Pair |
 | `:trace-buffer` | `{:depth N}` — non-negative integer; 0 disables | `{:depth 200}` | v1 (dev-only) | 009 |
 | `:sub-cache` | `{:grace-period-ms N}` — non-negative integer; 0 selects synchronous disposal | `{:grace-period-ms 50}` | v1 | 006 |
-| `:dom-source-annotations?` | boolean — historical opt-in flag; superseded by mandatory injection per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1). Setting this false has no effect — the gate is `interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); production `:advanced` builds elide the attribute via DCE | n/a (always-on under dev) | v1 (dev-only) | 006, Tool-Pair |
 | `:strict-subs` | boolean — reject sub-registration shapes that don't have a registered schema | `false` | v1 | 010 |
 | `:ssr` | `{:public-error-id :detect-mismatch? :on-mismatch :on-view-exception :dev-error-detail?}` (see [011](011-SSR.md) for each) | per [011](011-SSR.md) | v1 | 011 |
 
@@ -588,6 +593,9 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot | v1 | 005 |
 | `machines` | Fn | `(machines)` → seq of registered machine-ids | v1 | 005 |
 | `machine-meta` | Fn | `(machine-meta machine-id)` → registration metadata; carries `:rf.machine/source-coords` index when registered via the macro | v1 | 005 |
+| `machine-by-system-id` | Fn | `(machine-by-system-id system-id)` / `(machine-by-system-id system-id frame-id)` → spawned-machine id bound to `system-id` in the frame's `[:rf/system-ids]` reverse index (or `nil`). Per [005 §Named addressing via `:system-id`](005-StateMachines.md). | v1 | 005 |
+| `dispatch-to-system` | Fn | `(dispatch-to-system system-id event)` / `(dispatch-to-system system-id event frame-id)` — sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; no-op when the system-id is unbound. Per [005 §Cross-machine messaging by name](005-StateMachines.md). | v1 | 005 |
+| `has-tag?` | Fn | `(has-tag? machine-id tag)` → reaction whose value is `true` iff the machine's snapshot's `:tags` set contains `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Per [005 §State tags (rf2-ee0d / Nine States Stage 1)](005-StateMachines.md). | v1 | 005 |
 | `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | 005 |
 | `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | 005 |
 | `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | 005 |

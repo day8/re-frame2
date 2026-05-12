@@ -63,7 +63,7 @@
   ;; elision_probe.cljs require re-frame.http-managed; conformance_test.clj
   ;; / examples_test.clj / smoke_test.clj exercise re-frame.ssr surfaces;
   ;; elision_probe.cljs requires re-frame.epoch and exercises the public
-  ;; epoch-history / restore-epoch / register-epoch-cb / remove-epoch-cb
+  ;; epoch-history / restore-epoch / register-epoch-cb! / remove-epoch-cb!
   ;; / clear-history! / clear-epoch-cbs! surface so the production-elision
   ;; build asserts every gated branch in the namespace).
   ;; Per rf2-p7va those tests stay in core/test/ and pull schemas in as

@@ -146,7 +146,18 @@
   §`:rf/epoch-record` `:effects` projection: every dispatched fx surfaces
   one entry, with `:outcome :ok` for the success path. The epoch projection
   consumes this trace; pair tools route off it without re-folding the raw
-  trace stream."
+  trace stream.
+
+  Per rf2-lf84g: when called inside the fx-handler's
+  `*current-trigger-handler*` binding (the user-registered fx branch),
+  `emit!` hoists the fx handler's registration coord onto the emitted
+  event's `:rf.trace/trigger-handler` slot — so consumers can jump to
+  the fx's `reg-fx` site from the success trace. Reserved fx-id calls
+  (`:dispatch`, `:dispatch-later`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`)
+  emit outside any fx-handler binding; the outer event handler's
+  binding (if any) stamps the event handler's coord instead, which is
+  the right attribution for those — they don't have their own
+  registration site."
   [fx-id args frame-id]
   (trace/emit! :fx :rf.fx/handled
                {:fx-id   fx-id
@@ -228,15 +239,22 @@
     ;; a second lookup.
     (if-let [meta resolved-meta]
       (if (fx-runs-on-platform? meta active-platform)
-        (let [;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
-              ;; duration of the fx handler's invocation (including the
-              ;; exception path) so error traces emitted from inside
-              ;; the fx body — `:rf.error/fx-handler-exception` here and
-              ;; anything the body itself surfaces — carry the fx
-              ;; handler's source-coord.
-              ok? (binding [trace/*current-trigger-handler*
-                            (trace/trigger-handler-from-meta :fx fx-id meta)]
-                    (try
+        ;; Per rf2-3nn8 (error path) and rf2-lf84g (success path): bind
+        ;; `*current-trigger-handler*` for the duration of the fx
+        ;; handler's invocation AND for the success-path `:rf.fx/handled`
+        ;; emit that follows. Error traces emitted from inside the fx
+        ;; body (`:rf.error/fx-handler-exception` here and anything the
+        ;; body itself surfaces) carry the fx handler's source-coord;
+        ;; the success-path `:rf.fx/handled` emit picks up the same
+        ;; coord through `emit!`'s hoist of `*current-trigger-handler*`
+        ;; (the outer event handler's binding would otherwise stamp the
+        ;; event handler's coord onto the `:rf.fx/handled` event, which
+        ;; is not what consumers want — Story/Causa want jump-to-source
+        ;; to land on the fx handler's `reg-fx` site, not the event
+        ;; handler that produced the fx vector).
+        (binding [trace/*current-trigger-handler*
+                  (trace/trigger-handler-from-meta :fx fx-id meta)]
+          (let [ok? (try
                       ((:handler-fn meta) (cond-> {:frame frame-id}
                                             origin-event (assoc :event origin-event))
                                           args)
@@ -252,9 +270,9 @@
                                               :exception-message msg
                                               :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
                                               :recovery          :no-recovery}))
-                        false)))]
-          (when ok?
-            (emit-handled! fx-id args frame-id)))
+                        false))]
+            (when ok?
+              (emit-handled! fx-id args frame-id))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
                      {:fx-id                fx-id
                       :frame                frame-id

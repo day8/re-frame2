@@ -90,7 +90,7 @@ The form's *value* — the actual shape it's collecting — is a separate schema
 (rf/reg-app-schema [:auth :login :draft] LoginForm)
 ```
 
-Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the schema mechanics in general, see [chapter 04's app-db note](04-events-state-cycle.md) and [`spec/010-Schemas.md`](../../spec/010-Schemas.md).
+Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the schema mechanics in general, see [chapter 04's app-db note](04-events-state-cycle.md).
 
 ## Error visibility — touched OR submit-attempted
 
@@ -168,7 +168,7 @@ The slice defaults — what `:initialise` lands — are kept as a separate def s
         (update-in [:auth :login :touched] conj field))))
 ```
 
-The `:spec` registration metadata constrains the event vector at dispatch time — `[:form.login/edit-field :email "user@host"]` validates; `[:form.login/edit-field "email" 42]` fails fast. This is the same `:spec` slot used everywhere events register a schema, covered in [`spec/010-Schemas.md`](../../spec/010-Schemas.md).
+The `:spec` registration metadata constrains the event vector at dispatch time — `[:form.login/edit-field :email "user@host"]` validates; `[:form.login/edit-field "email" 42]` fails fast. This is the same `:spec` slot used everywhere events register a schema.
 
 `:submit` is the busiest handler. It runs full-form validation against the value schema; if clean, it flips the status to `:submitting` and dispatches the HTTP request; if dirty, it writes the errors back without firing a request. Either way, `:submit-attempted?` latches `true`:
 
@@ -350,7 +350,7 @@ A handful of common-but-not-default extensions, sketched here for orientation; t
 
 ### Per-field async validation
 
-"Is this username taken?" is async — the answer comes from the server. Compose with [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md): the `:blur-field` handler issues an async check; the result event writes into `:errors` under the same field id used by synchronous validation; the standard `:field-error` sub picks up both without caring which validator wrote the entry. Because async results can arrive after the user has typed further into the field, carry an epoch (or the current value) on the dispatch and ignore stale replies — [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md).
+"Is this username taken?" is async — the answer comes from the server. Compose with [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md): the `:blur-field` handler issues an async check; the result event writes into `:errors` under the same field id used by synchronous validation; the standard `:field-error` sub picks up both without caring which validator wrote the entry. Because async results can arrive after the user has typed further into the field, carry an epoch (or the current value) on the dispatch and ignore stale replies.
 
 ### Cross-field validation
 
@@ -393,14 +393,12 @@ A form implementation matches the convention when:
 - The submit button is disabled when `:can-submit?` is false.
 - Server-side validation mirrors the client schema where applicable.
 
-The checklist is identical to the one in [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md). It exists in both places because forms are the kind of feature you build in a hurry, ship, and discover six months later that a previous you skipped the visibility rule. The checklist is the five-minute audit.
+The checklist is intentionally duplicated between this chapter and the Pattern doc — forms are the kind of feature you build in a hurry, ship, and discover six months later that a previous you skipped the visibility rule. The checklist is the five-minute audit.
 
 ## Cross-references
 
 - [`spec/Pattern-Forms.md`](../../spec/Pattern-Forms.md) — the normative pattern doc: slice schema, seven-event table, full canonical rules.
-- [`spec/010-Schemas.md`](../../spec/010-Schemas.md) — the schema layer this pattern leans on for `:draft` validation and slice integrity.
 - [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic async shape per-field async validation composes with.
-- [`spec/Pattern-StaleDetection.md`](../../spec/Pattern-StaleDetection.md) — epoch-carry for async validation that can be superseded by further typing.
 - [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the request-lifecycle slice the submit step reuses when the server is involved.
 - [chapter 08 — State machines](08-state-machines.md) — multi-step wizards layer a machine on top of the form slice.
 - [`examples/reagent/realworld/auth.cljs`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld/auth.cljs) — RealWorld's login and register forms exercise the convention end-to-end; `article_editor.cljs` and `comments.cljs` extend it across longer drafts and inline-comment submissions.

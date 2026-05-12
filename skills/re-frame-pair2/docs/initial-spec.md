@@ -37,7 +37,7 @@ re-frame-pair2 itself contributes **zero** additional host-project configuration
 ### Terminology
 
 - **Trace stream** — `(rf/register-trace-cb)` listeners + `(rf/trace-buffer)` retain-N ring. The fine-grained, per-emit stream (Spec 009).
-- **Assembled epoch** — one `:rf/epoch-record` per drain-settle, with structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-epoch-cb)` and `(rf/epoch-history frame-id)`.
+- **Assembled epoch** — one `:rf/epoch-record` per drain-settle, with structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-epoch-cb!)` and `(rf/epoch-history frame-id)`.
 - **Frame** — a re-frame2 isolated runtime instance (Spec 002). Most apps have one (`:rf/default`); larger apps have several.
 - **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch (`:app`, `:pair`, `:story`, `:ui`, `:timer`, `:http`...). The skill stamps `:pair` on its own dispatches.
 - **Session sentinel** — a UUID interned at preload-load time. The MCP server probes the load-time mirror at `js/globalThis.__re_frame_pair2_runtime`; its absence means the preload isn't configured (or the page refreshed and the next bundle load hasn't run the preload yet).
@@ -75,7 +75,7 @@ shadow-cljs nREPL into the connected browser runtime. Same as v1.
 Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame2's own surfaces:
 
 - `(rf/register-trace-cb :re-frame-pair2 cb)` — raw trace stream. The skill's listener id is fixed (one listener per skill per Spec 009).
-- `(rf/register-epoch-cb :re-frame-pair2-epoch cb)` — assembled-epoch stream. Mirrors `register-trace-cb`'s contract.
+- `(rf/register-epoch-cb! :re-frame-pair2-epoch cb)` — assembled-epoch stream. Mirrors `register-trace-cb`'s contract.
 - `(rf/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure :trace-buffer {:depth N})`).
 - `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure :epoch-history {:depth N})`).
 - `(rf/restore-epoch frame-id epoch-id)` — first-class time-travel with six documented failure modes (Tool-Pair §Time-travel).

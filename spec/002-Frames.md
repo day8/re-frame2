@@ -38,7 +38,7 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
 ;; Plain (non-view) APIs — frame-aware variants
 (rf/dispatch      [:foo])                          ;; defaults to :rf/default
 (rf/dispatch      [:foo] {:frame :todo             ;; opts map extends the dispatch envelope
-                          :fx-overrides {:http stub-fn}})
+                          :fx-overrides {:my-app/http stub-fn}})
 (rf/dispatch-sync [:foo] {:fx-overrides {...}})    ;; same opts-arg shape, sync variant
 (rf/subscribe     [:bar])                          ;; defaults to :rf/default
 (rf/subscribe     [:bar] {:frame :todo})           ;; opts arg targets a specific frame
@@ -98,7 +98,7 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
   {:doc          "..."                          ;; like all reg-*
    :on-create    [:todo/initialise]             ;; single event dispatched after creation
    :on-destroy   [:todo/cleanup]                ;; single event dispatched before teardown
-   :fx-overrides {:http http-stub-fn}           ;; per-frame fx replacements
+   :fx-overrides {:my-app/http http-stub-fn}    ;; per-frame fx replacements
    :interceptors [recorder validator]           ;; prepended to every event in this frame
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :on-error     :rf.error/server-projection    ;; error-handler policy per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame); typically preset-supplied (e.g. `:ssr-server`)
@@ -163,7 +163,7 @@ The framework stamps the dispatch envelope with the frame's id automatically —
 - `:on-destroy` events do not fire (they only fire on `destroy-frame`).
 - Sub-cache, router queue, in-flight events all remain.
 
-**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event-fx` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`. Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
+**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event-fx` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`. Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
 
 **Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:on-create` and re-saves will not see the new init event re-fire — they need to call `reset-frame` to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
 
@@ -343,7 +343,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
 ```clojure
 {:event        [:add-todo "milk"]      ;; the user-facing vector, unchanged
  :frame        :todo                   ;; resolved frame keyword
- :fx-overrides {:http stub-fn}         ;; per-dispatch fx replacements (master's dispatch-with)
+ :fx-overrides {:my-app/http stub-fn}  ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
  :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :timer :http :machine :repl :ssr-hydration :test :other`)
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
@@ -356,7 +356,7 @@ The envelope is just a map. Any field can be set by:
 - **Frame-level config** — `reg-frame` keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
 - **Lexical injection** — `reg-view`-injected `dispatch` closures carry `:frame` from React context.
 
-The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. (Clojure metadata on the event vector is accepted as a backwards-compat shim — see [MIGRATION.md](MIGRATION.md).)
+The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. Event-vector metadata is not an opt-channel in v2; use the two-arg `(dispatch event opts)` form. (The one v1 metadata case — `^:flush-dom` — is rewritten to `:dispatch-later {:ms 0}`; see [MIGRATION.md §M-16](MIGRATION.md#m-16-flush-dom-event-vector-metadata-removed--replace-with-dispatch-later-ms-0).)
 
 The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the same shape they always have (`db`+`event-vec` for `reg-event-db`, context map for `reg-event-fx`); the envelope is not exposed to user handlers.
 
@@ -572,11 +572,11 @@ The trickiest correctness question. Consider:
 ```clojure
 (rf/reg-event-fx :load-todo
   (fn [{:keys [db event]}]
-    {:fx [[:http {:url "/todo/1"
-                  :on-success [:todo-loaded]}]]}))
+    {:fx [[:my-app/http {:url "/todo/1"
+                         :on-success [:todo-loaded]}]]}))
 ```
 
-When `:load-todo` is dispatched in frame `:todo`, the `:http` effect fires. Some time later, the HTTP machinery dispatches `[:todo-loaded ...]`. **It must dispatch into `:todo`, not `:rf/default`** — otherwise the response lands in the wrong app-db.
+When `:load-todo` is dispatched in frame `:todo`, the `:my-app/http` effect fires (`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md)). Some time later, the HTTP machinery dispatches `[:todo-loaded ...]`. **It must dispatch into `:todo`, not `:rf/default`** — otherwise the response lands in the wrong app-db.
 
 The mechanism is symmetric with how event handlers receive their context: **fx handlers receive the same `m` that the originating event handler received**, including `:frame`. Routing follows from explicit data, not implicit state.
 
@@ -607,7 +607,7 @@ The runtime needs to resolve fx-handlers against the frame record (for `:fx-over
 When the actual dispatching happens after the fx handler has returned (HTTP callback, websocket message, timer, deferred promise), the fx handler captures `(:frame m)` into the closure that fires later:
 
 ```clojure
-(reg-fx :http
+(reg-fx :my-app/http
   (fn [m {:keys [url on-success on-failure]}]
     (let [frame (:frame m)]
       (-> (js/fetch url)
@@ -618,7 +618,7 @@ When the actual dispatching happens after the fx handler has returned (HTTP call
 The `bound-dispatcher` helper makes this a one-liner:
 
 ```clojure
-(reg-fx :http
+(reg-fx :my-app/http
   (fn [m {:keys [url on-success on-failure]}]
     (let [d (rf/bound-dispatcher m)]                ;; closure over (:frame m)
       (-> (js/fetch url)
@@ -745,7 +745,7 @@ For async closures that fire after the body returns, capture the frame keyword e
 
 ```clojure
 (rf/dispatch-sync [:foo] {:frame :todo
-                          :fx-overrides {:http stub-fn}})
+                          :fx-overrides {:my-app/http stub-fn}})
 ```
 
 #### Calling `dispatch-sync` *inside* a handler is an error
@@ -753,6 +753,10 @@ For async closures that fire after the body returns, capture the frame keyword e
 Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-dispatch-drain-semantics)), the cascade is already running synchronously, so `dispatch-sync` from inside a handler conveys no extra meaning over `dispatch`. Calling `dispatch-sync` inside an event handler's interceptor pipeline is **rejected**: the runtime emits `:rf.error/dispatch-sync-in-handler` (per [009 §Error contract](009-Instrumentation.md#error-contract)) and the call is dropped (default recovery `:no-recovery`).
 
 The shape that drains as part of the surrounding cascade is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](MIGRATION.md) for the migration rule.
+
+#### Cross-frame `dispatch-sync` during a sibling drain warns but proceeds
+
+The same-frame check above is strict: a `dispatch-sync!` against the caller's own frame during its drain is rejected. The cross-frame case is *not* rejected. A `dispatch-sync!` against a **different** frame while the caller's frame is mid-drain interleaves the cascades — frame B runs to settled, then frame A continues. This is intentional (frames are independent state machines per [§Rules rule 1](#rules) — no cross-frame drain), but rarely the caller's intent, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` (per [009 §Error categories (initial set)](009-Instrumentation.md#error-categories-initial-set)) so observability tools spot the pattern. The dispatch proceeds; `:recovery :no-recovery`. For fire-and-forget cross-frame coordination prefer the async form `(rf/dispatch event {:frame other})` — it queues on the target frame's router and drains on a later cycle, after the caller's cascade settles. Per rf2-fp97.
 
 ### Preserved low-level APIs are per-frame
 
@@ -792,6 +796,12 @@ The distinction is documentary and conceptual, not technical. One dispatch pipel
   {:on-create   [:auth/initialise]
    :drain-depth 100})       ;; default and runtime-overridable
 ```
+
+### Single-drainer invariant (concurrent hosts)
+
+The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning. Per rf2-ynk7.
+
+On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
 
 ### What is and isn't drained
 
@@ -1051,7 +1061,7 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 
 > **Expected use case: testing.** Overrides are designed for tests, story fixtures, REPL exploration, and dev-time scenarios. They are *not* a production behaviour-routing mechanism — production code should use ordinary fx and interceptors registered globally. Overrides exist so tests can run without monkey-patching the global registry; they leave no trace once the test ends.
 >
-> **Pattern-level contract vs. CLJS reference (locked):** at the **pattern level**, override values are *registered ids* — `{:http :http/canned-200}` swaps one registered fx for another by id. Functions don't serialise across the wire; an SSR-capable architecture (Spec 011) requires id-valued overrides. The **CLJS reference v1** additionally supports function-valued overrides (`{:http (fn [m args] ...)}`) as a client-only convenience for tests and story fixtures where the override is a one-off lambda. Both forms accepted; id-valued is the portable shape, function-valued is CLJS-only sugar.
+> **Pattern-level contract vs. CLJS reference (locked):** at the **pattern level**, override values are *registered ids* — `{:my-app/http :my-app/http.canned-200}` swaps one registered fx for another by id. Functions don't serialise across the wire; an SSR-capable architecture (Spec 011) requires id-valued overrides. The **CLJS reference v1** additionally supports function-valued overrides (`{:my-app/http (fn [m args] ...)}`) as a client-only convenience for tests and story fixtures where the override is a one-off lambda. Both forms accepted; id-valued is the portable shape, function-valued is CLJS-only sugar.
 >
 > **Asymmetry (explicit, locked):** other-language implementations need only support **id-valued** overrides — that's the conformance contract. The CLJS reference accepting function values is a local ergonomic affordance, not a pattern-level contract. AI scaffolding (Construction-Prompts) and the conformance corpus generate id-valued overrides. The `:rf/dispatch-envelope` schema's `:fx-overrides` value is `[:map-of :keyword :any]` rather than `[:map-of :keyword :keyword]` precisely because the CLJS reference admits the function-valued form; non-CLJS implementations narrow the value type to id-only.
 
@@ -1072,24 +1082,24 @@ The pattern-level form is **id-valued** — replace one registered fx with anoth
 ```clojure
 ;; per-call — id-valued (canonical, portable)
 (rf/dispatch [:user/login {:email "..."}]
-             {:fx-overrides {:http         :http.canned-200
+             {:fx-overrides {:my-app/http  :my-app/http.canned-200
                              :localstorage nil}})                       ;; nil = noop
 
 ;; per-frame — id-valued
 (rf/reg-frame :story.auth.login-form/loading
   {:on-create    [:auth/show-loading]
-   :fx-overrides {:http :http.pending-stub}})
+   :fx-overrides {:my-app/http :my-app/http.pending-stub}})
 
 ;; per-call — function-valued (CLJS reference convenience for tests)
 (rf/dispatch [:user/login {:email "..."}]
-             {:fx-overrides {:http (fn [m args] (canned-response args))}})
+             {:fx-overrides {:my-app/http (fn [m args] (canned-response args))}})
 ```
 
 Where the id-valued form points: a separate `reg-fx` registration. The id-valued form composes with the registry — the override is itself a queryable, schema'd, source-coordinated artefact:
 
 ```clojure
-(rf/reg-fx :http.canned-200
-  {:doc       "Test stub: every :http call resolves to a canned 200 response."
+(rf/reg-fx :my-app/http.canned-200
+  {:doc       "Test stub: every :my-app/http call resolves to a canned 200 response."
    :platforms #{:client :server}}
   (fn [_m args]
     (when-let [on-success (:on-success args)]

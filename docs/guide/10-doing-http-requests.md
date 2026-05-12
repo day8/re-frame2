@@ -2,7 +2,7 @@
 
 Most SPAs spend their lives talking to a server. A handler dispatches; a fetch goes out; some milliseconds later a reply lands; the handler integrates the reply; the view re-renders. Repeat a few thousand times per session.
 
-[Chapter 04](04-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. The full normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md); this chapter is the human-track companion.
+[Chapter 04](04-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. This chapter is the human-track for managed HTTP.
 
 ## What `:rf.http/managed` is
 
@@ -39,7 +39,7 @@ We kept rewriting this. Every re-frame v1 app we shipped, every consulting codeb
 - **How do you abort a stale request?** Mostly we didn't. Search-as-you-type with five letters in flight raced its way to whichever response landed last.
 - **How do you stub it for tests?** Each team grew its own, and the stubs went stale the moment the response shape did.
 
-Each team's answer was reasonable in isolation. The cost was that nothing composed across teams — pair tools couldn't introspect "an HTTP request" because there was no such thing in the framework, only a thousand variations on it. So we picked one canonical answer for each question, locked it in [Spec 014](../../spec/014-HTTPRequests.md), and shipped it as `:rf.http/managed`. Apps that adopt it get retry, abort, frame-aware reply addressing, schema-driven decode, the closed `:rf.http/*` failure category set, status-before-decode classification, and test stubs *as a single uniform surface*. Pair tools introspect that surface; conformance fixtures grade against it; AI scaffolds emit code that fits it.
+Each team's answer was reasonable in isolation. The cost was that nothing composed across teams — pair tools couldn't introspect "an HTTP request" because there was no such thing in the framework, only a thousand variations on it. So we picked one canonical answer for each question and shipped it as `:rf.http/managed`. Apps that adopt it get retry, abort, frame-aware reply addressing, schema-driven decode, the closed `:rf.http/*` failure category set, status-before-decode classification, and test stubs *as a single uniform surface*. Pair tools introspect that surface; conformance fixtures grade against it; AI scaffolds emit code that fits it.
 
 The lower-level option (write your own fx) is still there for wire-level control — custom transport, raw bytes, idiosyncratic protocols. `:rf.http/managed` covers the common case, ergonomically, and pair tools can rely on it.
 
@@ -66,7 +66,7 @@ The args map for `:rf.http/managed` is small. The required keys are `:request` (
  :abort-signal external-controller-signal}
 ```
 
-The full table — every key, every type, every default — is in [Spec 014 §The args map](../../spec/014-HTTPRequests.md#the-args-map). Two pieces are worth highlighting in narrative.
+Two pieces are worth highlighting in narrative.
 
 ### `:request` carries the wire shape
 
@@ -132,7 +132,7 @@ Every failure carries a `:kind` keyword in the framework-reserved `:rf.http/*` n
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. |
 | `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal`. |
 
-The vocabulary is **closed for v1** — additions require a Spec change. See [Spec 014 §Failure categories](../../spec/014-HTTPRequests.md#failure-categories-closed-set) for the full table.
+The vocabulary is **closed for v1** — additions require a Spec change.
 
 ## Decode pipeline
 
@@ -294,10 +294,8 @@ Your codebase shouldn't carry HTTP archaeology. Every layer of "this is how we u
 
 ## Cross-references
 
-- [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md) — the normative contract: every key, every default, every failure shape.
 - [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the 5-key request-lifecycle slice; managed-HTTP writes through this slice.
 - [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic six-step async shape that managed-HTTP specialises.
-- [`spec/Pattern-StaleDetection.md`](../../spec/Pattern-StaleDetection.md) — epoch carry; managed requests inherit it.
 - [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter) — the runnable per-button demo of every contract row.
 - [`examples/reagent/realworld/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld) — the canonical breadth demo across auth, routing, forms, machines, optimistic updates, and SSR-relevant payload concerns.
 

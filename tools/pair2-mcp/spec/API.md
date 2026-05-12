@@ -67,7 +67,6 @@ per the [MCP transport spec](https://modelcontextprotocol.io/specification/2025-
 |---|---|---|
 | `SHADOW_CLJS_BUILD_ID` | `"app"` | Default build id passed to `cljs-eval`. Overridable per-op via the `build` argument. |
 | `SHADOW_CLJS_NREPL_PORT` | (unset) | Explicit nREPL port; takes precedence over port-file discovery. |
-| `PAIR2_RUNTIME_PATH` | `skills/re-frame-pair2/scripts/runtime.cljs` | Path the server reads when re-injecting the runtime after a sentinel miss. |
 
 ### nREPL port discovery
 

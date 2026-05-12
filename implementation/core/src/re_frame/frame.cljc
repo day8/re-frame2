@@ -154,14 +154,26 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defn- new-frame-record [id config]
-  {:id        id
-   :app-db    (adapter/make-state-container {})
-   :router    (atom {:queue interop/empty-queue :scheduled? false})
-   :sub-cache (atom {})
-   :lifecycle {:created-at (interop/now-ms)
-               :destroyed? false
-               :listeners  []}
-   :config    config})
+  {:id         id
+   :app-db     (adapter/make-state-container {})
+   :router     (atom {:queue interop/empty-queue :scheduled? false})
+   ;; Per rf2-ynk7 §single-drainer invariant: a separate CAS-able cell
+   ;; that admits at most one thread into `drain!` at a time. On the JVM
+   ;; the executor's `next-tick` callback can wake while the calling
+   ;; thread is mid-drain (e.g. `dispatch-sync!`); without this guard,
+   ;; both threads' peek+pop sequence on `:queue` is non-atomic and
+   ;; double-processes / drops envelopes (the rf2-lmkk #442 flake). The
+   ;; loser of the CAS no-ops; the winning drainer rechecks the queue
+   ;; before releasing the flag so envelopes queued in the gap are not
+   ;; orphaned. CLJS is single-threaded so the CAS is uncontended there,
+   ;; but the same flag preserves the contract under any future
+   ;; concurrent host.
+   :drain-lock (atom false)
+   :sub-cache  (atom {})
+   :lifecycle  {:created-at (interop/now-ms)
+                :destroyed? false
+                :listeners  []}
+   :config     config})
 
 (declare destroy-frame!)
 
@@ -306,7 +318,7 @@
 (defn- notify-epoch-listeners!
   "Step 8. Per Tool-Pair §Surface behaviour against destroyed frames
   (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-  for every register-epoch-cb listener that previously observed this
+  for every register-epoch-cb! listener that previously observed this
   frame. Late-bound through the hook table so core never statically
   requires the epoch artefact."
   [id]

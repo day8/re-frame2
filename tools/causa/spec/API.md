@@ -19,7 +19,7 @@ wins.
 The preload:
 
 1. Registers Causa's trace listener via `re-frame.core/register-trace-cb!`.
-2. Registers Causa's epoch listener via `re-frame.core/register-epoch-cb`.
+2. Registers Causa's epoch listener via `re-frame.core/register-epoch-cb!`.
 3. Mounts a hidden `<div id="causa-root">` into `document.body`.
 4. Listens for `Ctrl+Shift+C` (toggle) and the floating-pill click.
 5. Reads localStorage for theme / density / AI-provider settings.
@@ -143,7 +143,7 @@ reference:
 | Surface | Spec | What Causa reads |
 |---|---|---|
 | `(rf/register-trace-cb! key callback)` | Spec 009 | The trace bus (every operation). |
-| `(rf/register-epoch-cb key callback)` | Tool-Pair | The per-cascade epoch records. |
+| `(rf/register-epoch-cb! key callback)` | Tool-Pair | The per-cascade epoch records. |
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |

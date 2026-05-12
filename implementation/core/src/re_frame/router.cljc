@@ -437,73 +437,163 @@
       (discard! frame-id))))
 
 (defn- handle-drain-settled!
-  "Tail-path for the empty-queue branch of `drain!`. Clear `:scheduled?`
-  and, if at least one event was processed, commit the epoch record
-  per Tool-Pair §Time-travel."
-  [frame-id router db-before depth]
-  (swap! router assoc :scheduled? false)
+  "Tail-path for the empty-queue branch of `drain!`. If at least one event
+  was processed, commit the epoch record per Tool-Pair §Time-travel.
+
+  Per rf2-ynk7 §single-drainer invariant: `:scheduled?` is no longer
+  cleared here. The drain loop's outer `finally` clears `:scheduled?`
+  AND releases `:drain-lock` under a single `locking router` block so
+  any concurrent submitter's `ensure-drain-scheduled!` check serializes
+  against the release. Splitting the two would re-open the
+  enqueue-after-empty-check race that motivated this bead."
+  [frame-id _router db-before depth]
   (when (pos? depth)
     (when-let [settle! (late-bind/get-fn :epoch/settle!)]
       (let [db-after (frame/frame-app-db-value frame-id)]
         (settle! frame-id db-before db-after)))))
 
-(defn- drain!
-  "Outer drain loop for a single frame. Repeatedly dequeue and process
-  until the queue is empty. Bounded by :drain-depth (default 100; per
-  Spec 002 §Run-to-completion §Rules).
+(defn- drain-loop!
+  "The drain body proper. Assumes the caller holds `:drain-lock` (per
+  rf2-ynk7 §single-drainer invariant) so this fn has exclusive access
+  to the queue's peek+pop pair.
 
-  Sets :in-drain? on the router state for the duration of the loop so
-  reentrant dispatch-sync! detects 'we're already in a drain' and
-  refuses (regardless of whether the outer drain came from
-  dispatch-sync or async dispatch).
+  Outer loop re-enters whenever an envelope arrives between the inner
+  empty-check and the lock-protected release window. Each pass takes a
+  fresh `db-before` snapshot so the epoch settle callback (Tool-Pair
+  §Time-travel) sees the right pre-cascade state for that pass."
+  [frame-id router drain-lock drain-depth]
+  (loop []
+    (let [db-before (frame/frame-app-db-value frame-id)
+          outcome
+          (try
+            ;; Per rf2-ynk7: track which thread holds the drain so the
+            ;; dispatch-sync guard ("nested inside a handler?") can
+            ;; discriminate same-thread nesting from a concurrent caller
+            ;; on a different thread. On CLJS — single-threaded — every
+            ;; check is necessarily same-thread, so `true` works as the
+            ;; marker.
+            (swap! router assoc :in-drain? #?(:clj (Thread/currentThread)
+                                              :cljs true))
+            (loop [depth      0
+                   last-event nil]
+              (cond
+                (>= depth drain-depth)
+                (do (handle-depth-exceeded! frame-id router db-before depth last-event)
+                    ::halt)
 
-  Two tail-paths are extracted as named helpers:
+                :else
+                (let [{:keys [queue]} @router]
+                  (if (empty? queue)
+                    (do (handle-drain-settled! frame-id router db-before depth)
+                        ::settled)
+                    ;; Per rf2-ynk7: with the single-drainer invariant
+                    ;; held by drain-lock, this peek+pop pair is now
+                    ;; atomic w.r.t. any other drain attempt. The pre-
+                    ;; fix race (executor and main thread both peek the
+                    ;; same envelope) cannot occur — the loser of the
+                    ;; CAS in `drain-try!` / `drain-block!` never reaches
+                    ;; this code.
+                    (let [envelope (peek queue)]
+                      (swap! router update :queue pop)
+                      (process-event! envelope)
+                      (recur (inc depth) (:event envelope)))))))
+            (finally
+              (swap! router assoc :in-drain? nil)))]
+      (cond
+        ;; Depth-exceeded forcibly cleared the queue and set
+        ;; :scheduled? false. Just release the drain-lock — no need to
+        ;; re-check the queue (it's empty by construction).
+        (= outcome ::halt)
+        (locking router
+          (reset! drain-lock false))
 
-    `handle-depth-exceeded!` — when the depth limit is hit, restore
-    `app-db` to the pre-drain snapshot (atomic rollback per Spec 002
-    §Run-to-completion §Rules rule 3), then emit
-    :rf.error/drain-depth-exceeded, then halt (the remaining queued
-    events are discarded). Rationale: re-frame's general 'events are
-    atomic' principle extends to the drain — a depth-exceeded drain
-    composes many events whose collective effect on `:db` is a partial
-    cascade; preserving that partial cascade leaves callers observing
-    a state no single event produced. Rolling back to `db-before` is
-    the same discipline applied to the partial-drain boundary.
+        ;; Inner loop saw the queue empty. Under the same lock that
+        ;; submitters take in `ensure-drain-scheduled!`, re-check the
+        ;; queue. If a submitter enqueued between the inner empty-check
+        ;; and now, see the new envelope and recur. Otherwise clear
+        ;; `:scheduled?` AND release `:drain-lock` under one lock so a
+        ;; serialized submitter observes both flags false and schedules
+        ;; a fresh drain. This is the orphan-prevention seam.
+        :else
+        (let [more?
+              (locking router
+                (let [{:keys [queue]} @router]
+                  (if (empty? queue)
+                    (do (swap! router assoc :scheduled? false)
+                        (reset! drain-lock false)
+                        false)
+                    true)))]
+          (when more?
+            (recur)))))))
 
-    `handle-drain-settled!` — when the queue empties, clear `:scheduled?`
-    and commit the epoch record per Tool-Pair §Time-travel. The settle!
-    / discard-buffer! hooks are looked up through late-bind so this
-    namespace stays free of a require on re-frame.epoch."
+(defn- drain-emergency-release!
+  "Mid-drain panic path. An unhandled exception escaped `drain-loop!`
+  past its own `finally` cleanup. Clear the router flags and release
+  the drain-lock so the frame is not permanently stuck — then re-throw
+  so the caller observes the failure."
+  [router drain-lock]
+  (locking router
+    (swap! router assoc :scheduled? false :in-drain? nil)
+    (reset! drain-lock false)))
+
+(defn- drain-try!
+  "Async drain entry point (called from `interop/next-tick`). CAS-tries
+  the drain-lock; on lose, the active drainer holds the responsibility
+  for the queue (its release block re-checks under lock — see
+  drain-loop!). On win, runs the drain body and releases.
+
+  Per rf2-ynk7 §single-drainer invariant."
   [frame-id]
   (let [frame-record (frame/frame frame-id)]
     (when frame-record
-      (let [router       (:router frame-record)
-            drain-depth  (get-in frame-record [:config :drain-depth] drain-depth-default)
-            ;; Per Tool-Pair §Time-travel: snapshot `:db-before` at the
-            ;; instant the drain begins so the eventual `:rf/epoch-record`
-            ;; can carry the pre-cascade state regardless of how many
-            ;; intermediate handlers commit `:db`. Per Spec 002 §Run-to-
-            ;; completion §Rules rule 3, the same snapshot is the
-            ;; rollback target if the drain trips the depth limit.
-            db-before    (frame/frame-app-db-value frame-id)]
-        (swap! router assoc :in-drain? true)
-        (try
-          (loop [depth      0
-                 last-event nil]
-            (cond
-              (>= depth drain-depth)
-              (handle-depth-exceeded! frame-id router db-before depth last-event)
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        (when (compare-and-set! drain-lock false true)
+          (try
+            (drain-loop! frame-id router drain-lock drain-depth)
+            (catch #?(:clj Throwable :cljs :default) t
+              (drain-emergency-release! router drain-lock)
+              (throw t))))))))
 
-              :else
-              (let [{:keys [queue]} @router]
-                (if (empty? queue)
-                  (handle-drain-settled! frame-id router db-before depth)
-                  (let [envelope (peek queue)]
-                    (swap! router update :queue pop)
-                    (process-event! envelope)
-                    (recur (inc depth) (:event envelope)))))))
-          (finally
-            (swap! router assoc :in-drain? false)))))))
+(defn- drain-block!
+  "Synchronous drain entry point (called from `dispatch-sync!`). Unlike
+  the async path, dispatch-sync's contract requires the cascade settle
+  before return — so on CAS-loss this path BLOCKS (Thread/yield on JVM;
+  trivially uncontended on CLJS) until the active drainer releases the
+  lock, then runs `under-lock-fn` (typically the seed-push) and drains.
+
+  Per rf2-ynk7 §single-drainer invariant: dispatch-sync's seed-push at
+  the FRONT of the queue MUST happen while it holds the drain-lock —
+  otherwise the prepend interleaves with the active drainer's peek+pop
+  and produces the same race the drain-lock was introduced to fix
+  (envelope A peek'd, B prepended, A popped becomes B, B processed as
+  if it were A's pop result). The `under-lock-fn` callback shape lets
+  the caller perform the seed-push inside the lock seam.
+
+  `under-lock-fn` runs once, immediately after CAS-acquire, before the
+  drain loop. Exceptions inside it propagate through the same emergency-
+  release path as the drain loop body."
+  [frame-id under-lock-fn]
+  (let [frame-record (frame/frame frame-id)]
+    (when frame-record
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        ;; Spin-CAS until we acquire. On JVM the active drainer holds
+        ;; the lock for the duration of one drain pass — bounded by
+        ;; drain-depth events at most — so the wait is bounded. CLJS
+        ;; is single-threaded; the CAS succeeds on first attempt.
+        (loop []
+          (when-not (compare-and-set! drain-lock false true)
+            #?(:clj (Thread/yield))
+            (recur)))
+        (try
+          (under-lock-fn)
+          (drain-loop! frame-id router drain-lock drain-depth)
+          (catch #?(:clj Throwable :cljs :default) t
+            (drain-emergency-release! router drain-lock)
+            (throw t)))))))
 
 (defn- ensure-drain-scheduled!
   [frame-id router]
@@ -515,7 +605,7 @@
               (do (swap! router assoc :scheduled? true)
                   true))))]
     (when should-schedule?
-      (interop/next-tick (fn [] (drain! frame-id))))))
+      (interop/next-tick (fn [] (drain-try! frame-id))))))
 
 (defn- emit-dispatched-trace!
   "Emit the :event :event/dispatched trace event for this envelope. Per
@@ -555,6 +645,65 @@
          (ensure-drain-scheduled! (:frame envelope) router)))
      nil)))
 
+(defn- other-frame-mid-drain
+  "Per rf2-fp97 — Spec 002 §dispatch-sync cross-frame note. Return the
+  frame-id of any registered, non-destroyed frame OTHER than `target-id`
+  whose router currently shows `:in-sync-drain?` or `:in-drain?` true.
+  Returns nil when no such frame exists.
+
+  Used by `dispatch-sync!` to detect the cross-frame cascade pattern
+  (frame A mid-drain, a handler calls `(rf/dispatch-sync! [...] {:frame :b})`).
+  The same-frame case is already an error; the cross-frame case is
+  intentional but surprising, so we surface it as
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` rather than
+  refuse. Frames are independent state machines (per Spec 002 §Rules
+  rule 1) and frame B's drain doesn't violate frame A's contract.
+
+  Dev-only — the caller gates on `interop/debug-enabled?` to skip the
+  registry walk in production."
+  [target-id]
+  (some (fn [id]
+          (when (not= id target-id)
+            (when-let [fr (frame/frame id)]
+              (let [r @(:router fr)]
+                (when (or (:in-sync-drain? r) (:in-drain? r))
+                  id)))))
+        (frame/frame-ids)))
+
+(defn- emit-cross-frame-warning!
+  "Per rf2-fp97: emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
+  when `dispatch-sync!` lands on frame `target-id` while a different
+  frame (`other-id`) is mid-drain. The caller frame is read from
+  `frame/*current-frame*`; when unbound (no frame context — e.g. a
+  process-level REPL caller threading the dispatch through some unusual
+  path) the field is `:rf/none`.
+
+  Per Mike's 2026-05-13 Option B decision: warn, do not refuse.
+  Continues with the dispatch."
+  [target-id other-id event]
+  (let [caller-id (or frame/*current-frame* :rf/none)
+        reason    (str "dispatch-sync! against `" target-id "` while frame `"
+                       other-id "` is mid-drain. The two cascades will "
+                       "interleave: `" target-id "`'s drain runs to settled "
+                       "while `" other-id "` is still in flight, then `"
+                       other-id "` continues. Frames are independent state "
+                       "machines so this does not violate either frame's "
+                       "contract (per Spec 002 §Run-to-completion §Rules "
+                       "rule 1 — no cross-frame drain), but the interleaved "
+                       "ordering is rarely the caller's intent. If the goal "
+                       "is fire-and-forget cross-frame coordination, prefer "
+                       "the async form `(rf/dispatch event {:frame other})` "
+                       "— it queues on the target frame's router and drains "
+                       "on a later cycle, after the caller's cascade settles.")]
+    (trace/emit! :warning
+                 :rf.warning/cross-frame-dispatch-sync-during-drain
+                 {:caller-frame caller-id
+                  :target-frame target-id
+                  :other-frame  other-id
+                  :event        event
+                  :reason       reason
+                  :recovery     :no-recovery})))
+
 (defn dispatch-sync!
   "Bypass the queue scheduler and process this single event end-to-end
   immediately, then drain any synchronously-enqueued events to fixed
@@ -568,7 +717,16 @@
   true before draining, any dispatch! calls inside the seed handler's
   :fx vector enqueue without scheduling an async drain — the sync drain
   picks them up. Counting the seed event as drain depth 0 keeps drain-
-  depth limits behaving uniformly across sync and async dispatch."
+  depth limits behaving uniformly across sync and async dispatch.
+
+  Per rf2-fp97: when the same-frame reentry check passes but ANOTHER
+  frame is currently mid-drain, the runtime emits
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` and continues
+  with the dispatch. The cross-frame cascade interleaves (target frame
+  drains to settled before the caller's drain resumes); per Spec 002
+  §Rules rule 1 this is intentional (frames are independent state
+  machines) but rarely the caller's intent, so the warning surfaces the
+  pattern for observability tools without refusing the call."
   ([event] (dispatch-sync! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
@@ -579,11 +737,22 @@
                           {:frame (:frame envelope) :event event
                            :recovery :no-recovery})
 
-       (let [r @(:router frame-record)]
-         (or (:in-sync-drain? r) (:in-drain? r)))
-       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside ANY
-       ;; running drain (sync or async) is an error — the event would
-       ;; interleave with the outer handler's run-to-completion.
+       (let [r @(:router frame-record)
+             ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
+             ;; thread (or nil). Only flag as "nested" when the current
+             ;; thread is the drainer — a different thread mid-drain is
+             ;; a concurrent caller, which `drain-block!` handles
+             ;; correctly by spin-CAS-waiting. CLJS: `:in-drain?` is
+             ;; `true` or `nil`; the equality check still discriminates
+             ;; (truthy = same-thread by construction on a single-
+             ;; threaded host).
+             same-thread-drain?
+             #?(:clj  (identical? (:in-drain? r) (Thread/currentThread))
+                :cljs (true? (:in-drain? r)))]
+         (or (:in-sync-drain? r) same-thread-drain?))
+       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
+       ;; SAME frame's running drain (sync or async) is an error — the
+       ;; event would interleave with the outer handler's run-to-completion.
        (trace/emit-error! :rf.error/dispatch-sync-in-handler
                           {:frame    (:frame envelope)
                            :event    event
@@ -592,18 +761,38 @@
 
        :else
        (let [router (:router frame-record)]
+         ;; Per rf2-fp97 (Mike's 2026-05-13 Option B decision): the
+         ;; same-frame reentry check passed; now check whether any OTHER
+         ;; frame is mid-drain. If so, the dispatch will interleave with
+         ;; that frame's cascade — warn but proceed. Dev-only: gated on
+         ;; `interop/debug-enabled?` so production skips the registry
+         ;; walk.
+         (when interop/debug-enabled?
+           (when-let [other-id (other-frame-mid-drain (:frame envelope))]
+             (emit-cross-frame-warning! (:frame envelope) other-id event)))
          (emit-dispatched-trace! envelope true)
-         ;; Put the seed at the front and mark scheduled to suppress async.
-         ;; :in-sync-drain? lets a nested dispatch-sync detect the unsafe
-         ;; call and refuse rather than silently interleave.
-         (swap! router (fn [{:keys [queue] :as r}]
-                         (assoc r
-                                :queue (into interop/empty-queue
-                                             (cons envelope queue))
-                                :scheduled?     true
-                                :in-sync-drain? true)))
          (try
-           (drain! (:frame envelope))
+           ;; Per rf2-ynk7 §single-drainer invariant: dispatch-sync
+           ;; needs the cascade settled before return AND the seed-
+           ;; push at the FRONT of the queue must not interleave with
+           ;; an active drainer's peek+pop. drain-block! spin-CAS-
+           ;; acquires the drain-lock, THEN runs the callback below
+           ;; (the prepend now sits inside the single-drainer window —
+           ;; no other drain can be mid-peek+pop), THEN runs the drain
+           ;; loop. The :in-sync-drain? flag suppresses any concurrent
+           ;; dispatch-sync from another thread; :scheduled? true
+           ;; suppresses async drain scheduling mid-cascade.
+           ;; :in-sync-drain? is cleared in the outer finally after
+           ;; drain-block! returns.
+           (drain-block!
+             (:frame envelope)
+             (fn []
+               (swap! router (fn [{:keys [queue] :as r}]
+                               (assoc r
+                                      :queue (into interop/empty-queue
+                                                   (cons envelope queue))
+                                      :scheduled?     true
+                                      :in-sync-drain? true)))))
            (finally
              (swap! router assoc :in-sync-drain? false)))))
      nil)))

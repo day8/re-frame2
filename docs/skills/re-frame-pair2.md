@@ -18,7 +18,7 @@ The cardinal rule: **REPL changes are ephemeral, source edits are permanent.** A
 
 ## When to reach for it
 
-Load this skill when the user mentions a **running** re-frame2 app, or any of: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-trace-cb`, `register-epoch-cb`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
+Load this skill when the user mentions a **running** re-frame2 app, or any of: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-trace-cb!`, `register-epoch-cb!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
 
 Do **not** use this skill for:
 

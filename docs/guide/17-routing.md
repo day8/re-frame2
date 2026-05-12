@@ -61,9 +61,9 @@ Routes are registry entries — same shape as events, fxs, subs:
    :params [:map [:rest :string]]})
 ```
 
-The grammar is small — five productions. **Literal segment** (`/articles`), **named param** (`:id`), **optional segment group** (`{/:slug}?`), **catch-all/splat** (`*rest`), and **root** (`/`). The full grammar with rules is in [Spec 012 §Path-pattern grammar](../../spec/012-Routing.md#path-pattern-grammar-canonical) — it's a strict subset of RFC 6570 Level 1 plus a splat extension, parseable by hand in any host.
+The grammar is small — five productions. **Literal segment** (`/articles`), **named param** (`:id`), **optional segment group** (`{/:slug}?`), **catch-all/splat** (`*rest`), and **root** (`/`). The rules are an RFC-6570-Level-1 subset plus the splat extension, parseable by hand in any host.
 
-When two routes can match the same URL, [a six-rule cascade](../../spec/012-Routing.md#route-ranking-algorithm) decides which wins. More static segments beat fewer; longer paths beat shorter; named params beat splats; exact patterns beat optional-group patterns. The cascade is **structural** — the score is computable from each pattern's parsed shape, no URL needed. Implementations pre-compute the score at registration time.
+When two routes can match the same URL, a six-rule cascade decides which wins — the four most-load-bearing rules are: more static segments beat fewer; longer paths beat shorter; named params beat splats; exact patterns beat optional-group patterns. The cascade is **structural** — the score is computable from each pattern's parsed shape, no URL needed. Implementations pre-compute the score at registration time.
 
 ## A first routing loop
 
@@ -110,7 +110,7 @@ The `:rf/route` key is reserved. Path params (`:params`) and query params (`:que
 
 `:transition` is a tiny FSM driven by the runtime: `:idle` when no navigation is in flight; `:loading` while the active route's `:on-match` events are draining; `:error` if any errors. A global progress bar reads `:rf.route/transition` and renders when it's `:loading`; an error banner reads `:rf.route/error`.
 
-Schema for the slice: `:rf/route-slice` (per [Spec-Schemas](../../spec/Spec-Schemas.md#rfroute-slice)).
+Schema for the slice: `:rf/route-slice`, a map with `:route-id` (keyword), `:params` (path-params map), `:query` (query-params map), `:fragment` (string or nil), `:transition` (one of `#{:idle :loading :error}`), `:error` (error info or nil), and `:nav-token` (runtime epoch).
 
 ## Navigation is an event
 
@@ -275,6 +275,4 @@ You now have the URL ↔ state loop: routes are registry entries, navigation is 
 
 - [17a — Routing: reference and advanced topics](17a-routing-reference.md) — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol for unsaved-changes prompts, query-string defaults and retain keys, multi-frame routing, the pure `match-url` / `route-url` helpers, and a RealWorld worked example.
 - [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
-- [Spec 012 — Routing](../../spec/012-Routing.md) — the full normative surface, including the path-pattern grammar's productions, the route ranking cascade, scroll restoration, and SSR integration in detail.
 - [chapter 11 — The server side](11-server-side.md) — how routing folds into SSR.
-- [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — why nav-tokens are the same shape as `:after`-timer epochs, and the cross-cutting pattern.

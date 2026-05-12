@@ -39,7 +39,7 @@ You'd use `re-frame-pair2` when you want an AI agent that can do experimentally 
 
 A Storybook-flavoured component playground built around re-frame2's frame primitive. Each story is a frame, with controls that dispatch events and surfaces that watch subscriptions. Machine-state visualisation, per-story time-travel, frame-aware fixture data — the same machinery the runtime uses for the live app, scoped to a single component.
 
-[Spec 007 — Stories](../../spec/007-Stories.md) carries the design. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
+The design treats each story as a registered frame: declarative controls dispatch events, surfaces render against subscriptions, and per-story time-travel uses the framework's own epoch buffer. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
 
 ### `re-frame-causa` — interactive devtools *(in design)*
 
@@ -100,7 +100,7 @@ That's the whole shape. The trace listener is a function. The epoch list is a qu
 A few things to notice:
 
 - The id `:my-app/debug-panel` is the listener's handle; pass it to `remove-trace-cb!` to detach. Tools coexist on the bus by giving themselves a unique namespaced id.
-- The filter `(= :event (:op-type ev))` keeps this listener cheap. Trace events have a load-bearing `:op-type` field that's the universal discriminator — `:event`, `:sub/run`, `:fx`, `:flow`, `:machine`, `:rf.epoch/restored`, and more. New op-types are additive; tools that don't recognise an op-type ignore it without breaking ([Spec 009 §Trace event](../../spec/009-Instrumentation.md)).
+- The filter `(= :event (:op-type ev))` keeps this listener cheap. Trace events have a load-bearing `:op-type` field that's the universal discriminator — `:event`, `:sub/run`, `:fx`, `:flow`, `:machine`, `:rf.epoch/restored`, and more. New op-types are additive; tools that don't recognise an op-type ignore it without breaking.
 - `(rf/epoch-history :rf/default)` returns the frame's ring buffer, oldest-first. The default depth is 50; configure with `(rf/configure :epoch-history {:depth N})`.
 - `restore-epoch` rewinds the frame's `app-db` to the named epoch's `:db-after`. **Effects already fired** (HTTP sent, navigation pushed) are not reversed — restore is a state operation, not a universe operation. Surface that caveat in your UI.
 
@@ -166,7 +166,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
 
 That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-causa`'s timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
 
-The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
+The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb!`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
 ## Performance: the prod-friendly channel
 
@@ -233,7 +233,7 @@ Subscribe to it with `register-trace-cb!`:
     (println (:operation ev) (:tags ev))))
 ```
 
-The callback fires once per emitted event — fine-grained, raw. The shape of the event is documented in [Spec 009 §Trace event](../../spec/009-Instrumentation.md). The load-bearing field is `:op-type` — the universal discriminator. Tools that only care about a single subsystem filter inside the callback:
+The callback fires once per emitted event — fine-grained, raw. Each event is a map with `:op-type`, `:operation`, `:tags`, `:timestamp`, and category-specific keys; the load-bearing field is `:op-type` — the universal discriminator. Tools that only care about a single subsystem filter inside the callback:
 
 ```clojure
 (rf/register-trace-cb!
@@ -249,7 +249,7 @@ The callback fires once per emitted event — fine-grained, raw. The shape of th
         nil))))
 ```
 
-The same pattern works for `:machine`, `:event`, `:sub/run`, `:fx`, etc. New op-types are additive (per [Spec 009](../../spec/009-Instrumentation.md)); a tool that doesn't recognise an op-type ignores it without breaking.
+The same pattern works for `:machine`, `:event`, `:sub/run`, `:fx`, etc. New op-types are additive; a tool that doesn't recognise an op-type ignores it without breaking.
 
 To unsubscribe:
 
@@ -276,7 +276,7 @@ Default depth is per-implementation. The buffer is dev-only and elides under pro
 `register-trace-cb!` is the **raw** stream. For tools that route diagnostics off "what just happened in this drain?", a complementary listener fires once per **drain-settle**, with the cascade's structured projections already computed:
 
 ```clojure
-(rf/register-epoch-cb
+(rf/register-epoch-cb!
   :my-tool/dashboard
   (fn [{:keys [frame event-id epoch-id sub-runs renders effects] :as record}]
     (record-recomputes! frame event-id (count sub-runs))
@@ -288,7 +288,7 @@ Default depth is per-implementation. The buffer is dev-only and elides under pro
     nil))
 ```
 
-The record (per [Spec-Schemas §`:rf/epoch-record`](../../spec/Spec-Schemas.md#rfepoch-record)) carries:
+The record carries:
 
 - `:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`
 - `:db-before`, `:db-after`
@@ -300,7 +300,7 @@ The record (per [Spec-Schemas §`:rf/epoch-record`](../../spec/Spec-Schemas.md#r
 Two listener shapes coexist by design:
 
 - **`register-trace-cb!`** is the raw stream — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators).
-- **`register-epoch-cb`** is the assembled stream — one fully-shaped record per drain-settle, used by tools that route diagnostics off "what happened in this cascade" rather than re-folding the raw stream each time.
+- **`register-epoch-cb!`** is the assembled stream — one fully-shaped record per drain-settle, used by tools that route diagnostics off "what happened in this cascade" rather than re-folding the raw stream each time.
 
 Most pair-shaped tools prefer the assembled stream and reach for the raw stream only when they need detail the projection drops.
 
@@ -319,7 +319,7 @@ Six failure modes are enumerated and named for `restore-epoch`, each emitting a 
 | **Version mismatch** | The frame's recorded `:rf/snapshot-version` is incompatible with the currently-loaded machine definition. |
 | **Concurrent-drain rejection** | Called while the frame's drain is still in flight; retry after settle. |
 
-`restore-epoch` returns `true` on success, `false` on any failure. Pair tools display the `:operation` and `:tags` to the user and route from the failure to a remediation. The full table with `:tags` schemas is in [Tool-Pair §Time-travel](../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
+`restore-epoch` returns `true` on success, `false` on any failure. Pair tools display the `:operation` and `:tags` to the user and route from the failure to a remediation. Each failure mode's `:tags` carries the frame-id, the requested epoch-id, and one diagnostic key — `:reason` for unknown / concurrent-drain rejections, `:explanation` (Malli) for schema mismatches, `:missing-id` for missing-handler, `:expected`/`:got` for version-mismatch.
 
 Listening for restore outcomes:
 
@@ -390,9 +390,9 @@ The four colon-separated segments are `<ns>:<sym>:<line>:<col>`:
 - `<line>` — source line at `reg-view` macro-expansion time
 - `<col>` — source column
 
-The format is a **public, parseable contract** (per [Spec-Schemas §`:rf/source-coord-attr`](../../spec/Spec-Schemas.md#rfsource-coord-attr)). Tools split on the colon and recover the four pieces directly.
+The format is a **public, parseable contract** — colon-separated `<ns>:<sym>:<line>:<col>`. Tools split on the colon and recover the four pieces directly.
 
-To recover the file path too, follow the parsed handler-id back to the registration metadata via `:rf/source-coord-meta` (per [Spec-Schemas](../../spec/Spec-Schemas.md)), which carries all four keys including `:file`. The DOM attribute is the cheap-on-the-wire form; the registration metadata is the rich form.
+To recover the file path too, follow the parsed handler-id back to the registration metadata via `:rf/source-coord-meta`, which carries all four keys plus `:file`. The DOM attribute is the cheap-on-the-wire form; the registration metadata is the rich form.
 
 The annotation is **dev-only** — gated on the universal `re-frame.interop/debug-enabled?`. Production builds elide via DCE; the rendered HTML in production carries no `data-rf2-source-coord` bytes.
 
@@ -418,7 +418,7 @@ Subscriptions chain — `:count-doubled` depends on `:count`. The framework know
 ;;    :edges #{[:count-doubled :count] ...}}
 ```
 
-This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers). The shape lives in [Spec 006 §Subscription topology](../../spec/006-ReactiveSubstrate.md); the function shipped in PR #142.
+This is **static** — no runtime, no live cache, no Reagent. It reads off the registry. Use it to render a graph of "everything derived," find the leaves (subs nothing else depends on), find the roots (subs that read `app-db` directly), and spot dead subs (registered but no consumers).
 
 ### Reference: behaviour against destroyed frames
 
@@ -432,18 +432,14 @@ The runtime commits to a **closed contract** for these races so a tool can route
 | `(rf/get-frame-db frame-id)` | read | Returns `nil`. Consumers consult `(rf/frame-meta frame-id)` for destroyed-vs-unknown. |
 | `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
 | `(rf/reset-frame-db! frame-id new-db)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
-| Pre-registered `register-epoch-cb` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame-id, cb-id)` pair, with `:tags {:frame-id <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
+| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame-id, cb-id)` pair, with `:tags {:frame-id <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
 
 The pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when ...)` is sufficient); **mutating-shaped surfaces raise structurally** (so a tool that intended a write learns the write did not happen); **listener fan-out emits a one-shot trace** when a previously-registered callback is silenced because its observed frame was destroyed.
 
-Why "silencing" is a trace and not a return value: the `register-epoch-cb` callback never sees a record from a destroyed frame — the runtime stops producing records the moment the destroy walks. A tool that didn't know its observed frame was destroyed would see a callback that simply *stopped firing*, with no signal to route off. The silencing trace closes that gap.
-
-The full contract is in [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames).
+Why "silencing" is a trace and not a return value: the `register-epoch-cb!` callback never sees a record from a destroyed frame — the runtime stops producing records the moment the destroy walks. A tool that didn't know its observed frame was destroyed would see a callback that simply *stopped firing*, with no signal to route off. The silencing trace closes that gap.
 
 ## Next
 
 - [16 — Performance](16-performance.md) — when to reach for the `rf:` channel, and the four shapes of slowness the framework has answers for.
 - [17 — Routing](17-routing.md) — the URL ↔ state contract.
-- [Tool-Pair](../../spec/Tool-Pair.md) — the full normative contract for pair-shaped tools.
-- [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the trace stream's full shape and the error contract.
 - [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) — the AI pair-programming skill, today.
