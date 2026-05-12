@@ -639,6 +639,7 @@
 
 (def match-url rf-routing/match-url)
 (def route-url rf-routing/route-url)
+(def route-link rf-routing/route-link)
 
 ;; ---- machine helpers ------------------------------------------------------
 

@@ -59,3 +59,31 @@
                      :route-id id
                      :recovery :no-recovery
                      :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
+
+(defn route-link
+  "Per Spec 012 §Linking from views and API.md `route-link` row.
+  Registered view at `:route/link` — renders an `<a href=...>` from a
+  registered route id and intercepts plain primary-button clicks to
+  dispatch `:rf/url-requested`. Modifier-key clicks (cmd / ctrl / shift /
+  alt) and middle-click defer to the browser. Late-bound via
+  `:routing/route-link`.
+
+  Shape:
+    [rf/route-link {:to :route-id
+                    :params {...}
+                    :query {...}
+                    :fragment \"...\"
+                    & passthrough-html-attrs} & children]
+
+  The CLJS hook publishes the Reagent-wrapped render fn (returned by
+  `reg-view*`); the JVM hook publishes the SSR-side render fn. Either
+  way `[rf/route-link ...]` in a `.cljc` render tree renders correctly
+  on both platforms."
+  {:arglists '([props & children])}
+  [& args]
+  (if-let [f (late-bind/get-fn :routing/route-link)]
+    (apply f args)
+    (throw (ex-info ":rf.error/routing-artefact-missing"
+                    {:where    'route-link
+                     :recovery :no-recovery
+                     :reason   "rf/route-link requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))

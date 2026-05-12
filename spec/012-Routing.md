@@ -597,18 +597,33 @@ Two named events are part of the routing contract. Implementations register them
 
 These events are the **decision points** for navigation policy. The policy is enumerable and testable: dispatch `[:rf/url-requested {:url "/cart"}]` from a test, observe the resulting `:rf.route/navigate`, no DOM simulation required.
 
-`route-link`'s body becomes:
+`route-link` ships in the routing artefact as a registered view at id `:route/link`. The body:
 
 ```clojure
-(rf/reg-view route-link [{:keys [to params query]} & children]
-  (let [url (rf/route-url to (or params {}) (or query {}))]
-    [:a {:href     url
-         :on-click (fn [e]
-                     (when (plain-left-click? e)        ;; no modifier keys
-                       (.preventDefault e)
-                       (dispatch [:rf/url-requested {:url url :to to :params params :query query}])))}
-     children]))
+(rf/reg-view ^{:rf/id :route/link} route-link
+  [{:keys [to params query fragment on-click] :as props} & children]
+  (let [base-url (rf/route-url to (or params {}) (or query {}))
+        url      (if (and fragment (not= "" fragment))
+                   (str base-url "#" fragment)
+                   base-url)
+        attrs    (-> props
+                     (dissoc :to :params :query :fragment :on-click)
+                     (assoc :href url
+                            :on-click
+                            (fn [e]
+                              (when on-click (on-click e))
+                              (when (and (not (.-defaultPrevented e))
+                                         (plain-left-click? e))   ;; no modifier keys; primary button
+                                (.preventDefault e)
+                                (dispatch [:rf/url-requested
+                                           (cond-> {:url url :to to}
+                                             (seq params) (assoc :params params)
+                                             (seq query)  (assoc :query query)
+                                             fragment     (assoc :fragment fragment))])))))]
+    (into [:a attrs] children)))
 ```
+
+The view exposes three behavioural seams: passthrough attributes (`:class`, `:title`, `:id`, `:aria-label`, …) flow through to the `<a>`; a caller-supplied `:on-click` runs before the framework's interception and can pre-empt it by calling `.preventDefault`; and modifier-key clicks defer to the browser so middle-click / cmd-click / shift-click keep their native open-in-new-tab affordances. `route-url` is the single point where the URL is synthesised, so route-rename and route-shape changes flow into every `route-link` site without per-link edits.
 
 ## Scroll restoration
 
