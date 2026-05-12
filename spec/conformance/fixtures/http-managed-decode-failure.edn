@@ -38,7 +38,7 @@
                  :failure {:kind         :rf.http/decode-failure
                            :body-text    "{not-valid-json"
                            :cause        "JSON syntax error"
-                           :malli-error? false}}]]]}}
+                           :schema-validation-failure? false}}]]]}}
 
  :fixture/frame-config
  {:on-create    []
@@ -53,7 +53,7 @@
                       :failure {:kind         :rf.http/decode-failure
                                 :body-text    "{not-valid-json"
                                 :cause        "JSON syntax error"
-                                :malli-error? false}}}}
+                                :schema-validation-failure? false}}}}
 
   :trace-emissions
   [{:operation :event :tags {:event-id :articles/list}}

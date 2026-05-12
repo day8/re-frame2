@@ -316,7 +316,7 @@
                                 (encoding/failure-map :rf.http/decode-failure
                                                       {:body-text body-text
                                                        :cause     (.-message e)
-                                                       :malli-error? (boolean (:malli-error? d))})))))
+                                                       :schema-validation-failure? (boolean (:malli-error? d))})))))
 
                         :else
                         ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx
