@@ -1,0 +1,16 @@
+{
+  "name": "re-frame-pair2-fixture",
+  "version": "0.0.0-SNAPSHOT",
+  "private": true,
+  "description": "Minimal re-frame2 fixture app for pair2 validation tests (rf2-cxik).",
+  "devDependencies": {
+    "shadow-cljs": "3.4.10",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "scripts": {
+    "watch": "shadow-cljs watch app",
+    "release": "shadow-cljs release app",
+    "clean": "rm -rf out public/out .shadow-cljs target"
+  }
+}
