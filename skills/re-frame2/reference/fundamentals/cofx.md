@@ -63,6 +63,48 @@ The cofx writes under `[:coeffects :todo.storage/todos]`; the handler destructur
 
 Pure handlers are testable, replayable (for re-frame-pair2 epoch restore), and serialisable (for SSR snapshots). A handler that reads `Date.now()` directly is non-deterministic; the same handler that destructures `now` from coeffects is a pure function of its inputs.
 
+## Reading a sub from a handler — wrap as cofx
+
+A handler that needs a sub's current value **must not** call `(rf/subscribe ...)` (or `rf/subscribe-value`) from inside its body. Subscriptions are a view-layer concern; reading one implicitly from a handler breaks per-handler purity — the same `[coeffects event]` pair would no longer fully determine the handler's output, and `subscribe` would silently establish a reaction in whatever evaluation context the drain loop happened to be in.
+
+The canonical shape is to wrap the sub read as a cofx and inject it. The cofx handler is the one place the impure read lives; the event handler stays a function of its coeffects map.
+
+```clojure
+;; Register a cofx that materialises the sub at injection time.
+(rf/reg-cofx :user/current
+  {:doc "Inject the value of the [:user/current] sub into coeffects."}
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :user/current]
+              (rf/subscribe-value [:user/current]))))
+
+;; Inject and destructure like any other cofx.
+(rf/reg-event-fx :order/place
+  [(rf/inject-cofx :user/current)]
+  (fn [{:keys [db user/current]} [_ order]]
+    {:db (assoc-in db [:orders (:id order)]
+                   (assoc order :placed-by current))}))
+```
+
+Two notes on the cofx body:
+
+- **`rf/subscribe-value` is the right primitive** — it materialises, derefs, and unsubscribes in one call, so the cofx leaves no reaction behind. `@(rf/subscribe ...)` inside the cofx would also work but leaks the reaction until GC.
+- **Parameterise with the 2-arg form.** If the sub takes args (`[:order/by-id 42]`), register the cofx binary and pass the args through `inject-cofx`:
+
+```clojure
+(rf/reg-cofx :sub/value
+  (fn [ctx query-v]
+    (assoc-in ctx [:coeffects :sub/value] (rf/subscribe-value query-v))))
+
+;; Used:
+(rf/reg-event-fx :order/cancel
+  [(rf/inject-cofx :sub/value [:order/by-id 42])]
+  (fn [{:keys [db sub/value]} _] ...))
+```
+
+There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core` (rf2-gw8j closed as won't-ship, 2026-05-13). The five-line `reg-cofx` wrapper above is the canonical shape; collapsing it into a one-liner would imply that subscribing-inside-handlers is the rule and the wrap is the workaround, when it is the other way around.
+
+Narrative treatment of the same pattern (for humans): `SKILL-REDIRECT.md` → **Guide ch.05 §Reading a sub from a handler**.
+
 ## Common gotchas
 
 - **`inject-cofx` returns an interceptor, not the value.** It must go in the positional interceptors vector, not the metadata-map (the metadata-map's `:interceptors` key is silently dropped — see [events.md](events.md)).
