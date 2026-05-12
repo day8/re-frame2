@@ -3,7 +3,7 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all seven tools)
+//   - tools/list (expects all six tools)
 //   - tools/call eval-cljs against an absent nREPL (expects graceful
 //     :nrepl-port-not-found degraded mode)
 //
@@ -78,14 +78,14 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all seven tools
+      // 2. tools/list — expect all six tools (rf2-7dvg cut inject-runtime
+      // in favour of a shadow-cljs :preloads entry; see SKILL.md §Setup).
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       const expected = [
         'discover-app',
         'dispatch',
         'eval-cljs',
-        'inject-runtime',
         'tail-build',
         'trace-window',
         'watch-epochs',

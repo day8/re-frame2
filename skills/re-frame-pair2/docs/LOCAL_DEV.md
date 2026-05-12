@@ -72,17 +72,17 @@ Once the skill directory is in place:
 - **Implicit**: ask about your running re-frame2 app in natural language (*"what's in `app-db` under `:cart`?"*). Claude auto-matches the skill's description.
 - **Explicit**: type `/re-frame-pair2` or name it in a prompt (*"Using re-frame-pair2, trace `[:cart/apply-coupon ...]`"*).
 
-First use of a session runs `scripts/discover-app.sh` — that connects to your shadow-cljs nREPL, verifies prerequisites, and injects the runtime namespace.
+First use of a session runs `scripts/discover-app.sh` — that connects to your shadow-cljs nREPL, verifies prerequisites, and probes the preloaded `re-frame-pair2.runtime` marker.
 
 ## Dev loop: iterating on the skill itself
 
-The power of the symlink approach is that editing `SKILL.md` / `scripts/runtime.cljs` / `scripts/ops.clj` in the repo takes effect immediately:
+The power of the symlink approach is that editing `SKILL.md` / `preload/re_frame_pair2/runtime.cljs` / `scripts/ops.clj` in the repo takes effect immediately:
 
 | You edited... | What Claude sees after your next prompt |
 |---|---|
 | `SKILL.md` frontmatter or body | New vocabulary / recipes on next invocation (may need to restart the Claude Code session for the description change to be re-indexed). |
 | `scripts/ops.clj` | Next `bb` invocation picks it up — no action needed. |
-| `scripts/runtime.cljs` | The injected code in the browser is **stale** until you explicitly re-push it. Run `scripts/inject-runtime.sh` in the connected session; it now force-reinjects regardless of the session sentinel so your edits land without a full page refresh. |
+| `preload/re_frame_pair2/runtime.cljs` | shadow-cljs hot-reloads the namespace into the running app as soon as you save (it's on the consumer's `:source-paths`). No re-inject command. If the changes touch `defonce`'d state (listeners, atoms), reload the page once. |
 | Shell shims (`*.sh`) | Next invocation picks them up. |
 
 ## Troubleshooting
@@ -143,7 +143,15 @@ If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` 
 
 ### Changes to `runtime.cljs` aren't taking effect
 
-The session sentinel fast-path in `discover-app.sh` skips re-injection if the runtime is already present. To push edits into a live session, run `scripts/inject-runtime.sh` — it force-reinjects regardless.
+shadow-cljs hot-reloads namespaces under `:source-paths` on save. If your edits aren't landing:
+
+1. Confirm `preload/` is on `:source-paths` in `shadow-cljs.edn` (see `SKILL.md` §Setup).
+2. Check the shadow-cljs console for a compile error on the namespace.
+3. Edits to `defonce`'d state (the trace/epoch listeners, the global marker) don't re-run — reload the page once.
+
+### `:runtime-not-preloaded`
+
+The skill's runtime namespace isn't loaded into your app. Add the two-line preload setup in `SKILL.md` §Setup and reload the page (or wait for the next shadow-cljs rebuild).
 
 ## Uninstall / reset
 

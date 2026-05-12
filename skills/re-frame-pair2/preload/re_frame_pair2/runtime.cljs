@@ -1,9 +1,11 @@
-;;;; re-frame-pair2.runtime — injected helper namespace
+;;;; re-frame-pair2.runtime — pair2 helper namespace, preloaded into the app.
 ;;;;
-;;;; This file is evaluated by `scripts/inject-runtime.sh` on first
-;;;; connect. It creates the `re-frame-pair2.runtime` namespace inside
-;;;; the running browser app and populates it with helpers that the
-;;;; skill's ops call through `eval-cljs.sh`.
+;;;; This file is loaded into the consumer app via shadow-cljs's
+;;;; `:devtools :preloads` mechanism. See `skills/re-frame-pair2/SKILL.md`
+;;;; for the one-line setup; the MCP server's `discover-app` tool calls
+;;;; `(re-frame-pair2.runtime/health)` and refuses with a structured
+;;;; `:reason :runtime-not-preloaded` error pointing at the setup doc
+;;;; when the namespace isn't present.
 ;;;;
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
@@ -14,12 +16,12 @@
 ;;;;     listener (`:re-frame-pair2-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
 ;;;;     ordering, listener ordering is not contract.
-;;;;   - The `session-id` sentinel below is re-read on every op. If
-;;;;     it's gone, a full page refresh happened and the shim
-;;;;     re-injects this file.
-;;;;
-;;;; This file is source-of-truth for injection. The shell shim reads
-;;;; it and ships the forms over nREPL — so keep it self-contained.
+;;;;   - The `session-id` sentinel below is read by the MCP server's
+;;;;     preload probe. A mirror is also set on
+;;;;     `js/globalThis.__re_frame_pair2_runtime` at load time so the
+;;;;     probe can be a single bencode round-trip rather than a CLJS
+;;;;     compile. A full page refresh wipes both — `discover-app`
+;;;;     reports the missing preload with a structured setup hint.
 
 (ns re-frame-pair2.runtime
   (:require [re-frame.core :as rf]
@@ -31,13 +33,28 @@
 ;; Session sentinel
 ;; ---------------------------------------------------------------------------
 ;;
-;; A random UUID set once per injection. Every subsequent op reads it
-;; through `eval-cljs.sh`. If a full page refresh has wiped the
-;; browser-side runtime, reading the var throws and the shim knows to
-;; re-inject.
+;; A random UUID set once per preload. The MCP server probes either
+;; `re-frame-pair2.runtime/session-id` (CLJS var) or its mirror at
+;; `js/globalThis.__re_frame_pair2_runtime` (cheaper, no compile) to
+;; confirm this namespace landed in the running browser session.
 
 (def session-id
   (str (random-uuid)))
+
+;; Globally-visible mirror — the preload probe in
+;; `re-frame-pair2-mcp.tools/ensure-runtime!` reads this rather than
+;; resolving the CLJS var, so the probe is one bencode round-trip on
+;; the persistent socket. Set at namespace-load time; cleared by a
+;; full page refresh (along with everything else). The marker uses
+;; `js-obj` (not the `#js` reader literal) so the bb-runnable
+;; structural tests under `tests/runtime/` keep reading the rest of
+;; the file — bb's reader rejects `#js` at top level.
+(defonce ^:private install-global-sentinel!
+  (do (when (exists? js/globalThis)
+        (aset js/globalThis "__re_frame_pair2_runtime"
+              (js-obj "session-id" session-id
+                      "installed"  (js/Date.now))))
+      true))
 
 (defn sentinel
   "Return the session sentinel. Used by the shim to confirm the runtime

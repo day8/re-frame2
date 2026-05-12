@@ -40,7 +40,7 @@ re-frame-pair2 itself contributes **zero** additional host-project configuration
 - **Assembled epoch** — one `:rf/epoch-record` per drain-settle, with structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-epoch-cb)` and `(rf/epoch-history frame-id)`.
 - **Frame** — a re-frame2 isolated runtime instance (Spec 002). Most apps have one (`:rf/default`); larger apps have several.
 - **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch (`:app`, `:pair`, `:story`, `:ui`, `:timer`, `:http`...). The skill stamps `:pair` on its own dispatches.
-- **Session sentinel** — a UUID the skill interns on injection; its absence after a REPL lookup means the browser has refreshed and re-injection is needed.
+- **Session sentinel** — a UUID interned at preload-load time. The MCP server probes the load-time mirror at `js/globalThis.__re_frame_pair2_runtime`; its absence means the preload isn't configured (or the page refreshed and the next bundle load hasn't run the preload yet).
 
 ---
 
@@ -99,15 +99,16 @@ re-frame-pair2/
 │   ├── TESTING.md
 │   └── capabilities.md
 ├── scripts/
-│   ├── discover-app.sh             # connect + verify + inject
+│   ├── discover-app.sh             # connect + verify + probe preload
 │   ├── eval-cljs.sh                # raw CLJS eval
-│   ├── inject-runtime.sh           # force re-inject runtime.cljs
 │   ├── dispatch.sh                 # pair-tagged dispatch
 │   ├── trace-window.sh             # last-N-ms epoch window
 │   ├── watch-epochs.sh             # pull-mode live watch
 │   ├── tail-build.sh               # probe-based hot-reload wait
-│   ├── ops.clj                     # babashka dispatcher (every op)
-│   └── runtime.cljs                # injected helper namespace
+│   └── ops.clj                     # babashka dispatcher (every op)
+├── preload/
+│   └── re_frame_pair2/
+│       └── runtime.cljs            # shadow-cljs :preloads target
 └── .github/
     └── workflows/
         ├── ci.yml
@@ -116,7 +117,9 @@ re-frame-pair2/
 
 ### 3.4 Session sentinel
 
-Same as v1: a UUID interned on injection. Every op reads it; absence triggers re-injection. Survives hot-reloads of the running CLJS code; lost on full page refresh.
+A UUID set once at preload-load time, mirrored to `js/globalThis.__re_frame_pair2_runtime`. The MCP server's `discover-app` probes the mirror; absence means the preload isn't configured and the op refuses with `:reason :runtime-not-preloaded`. A full page refresh wipes both the var and the mirror, but the next bundle load re-runs the preload — no manual reconnect step.
+
+(Pre-rf2-7dvg the runtime was injected via `cljs-eval` on first connect each session; that path was cut along with the cljs-eval fallback for pre-alpha simplicity.)
 
 ### 3.5 Watch transport
 

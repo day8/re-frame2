@@ -11,22 +11,24 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the seven pair2
+via shadow-cljs to a single `.js` file) that exposes the six pair2
 ops as MCP tools. AI agents (Claude Code, Cursor, Copilot) launch it
 as a subprocess; one persistent nREPL socket is held for the lifetime
 of the session.
 
 Per-op latency drops from ~700ms (bash startup + babashka startup +
 fresh nREPL connect per call) to ~5–50ms (one bencode round-trip on
-the open socket).
+the open socket). The first-connect inject step is also gone (rf2-7dvg):
+the runtime ships into the consumer app via shadow-cljs `:preloads`,
+so `discover-app` is just a marker probe rather than a hundreds-of-ms
+cljs-eval compile.
 
 ## Tool surface
 
 | MCP tool       | Bash-shim equivalent      | What it does |
 |----------------|---------------------------|--------------|
-| `discover-app` | `discover-app.sh`         | Verify shadow-cljs nREPL is reachable, inject the pair2 runtime, return a health summary. Run first every session. |
+| `discover-app` | `discover-app.sh`         | Verify shadow-cljs nREPL is reachable, probe the preloaded pair2 runtime marker, return a health summary. Run first every session. |
 | `eval-cljs`    | `eval-cljs.sh`            | Evaluate a CLJS form via shadow-cljs's `cljs-eval`. Returns the EDN value. |
-| `inject-runtime` | `inject-runtime.sh`     | Force a re-ship of `runtime.cljs` to the connected runtime. |
 | `dispatch`     | `dispatch.sh`             | Fire a re-frame2 event with `:origin :pair`. Modes: queued, sync, trace. Frame and fx-overrides supported. |
 | `trace-window` | `trace-window.sh`         | Return the epochs that landed in the last N ms. |
 | `watch-epochs` | `watch-epochs.sh`         | Pull-mode poll for matching epochs added after a given epoch-id. Predicate keys: `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`, `:sub-ran`, `:render`, `:origin`, `:frame`. |
@@ -77,18 +79,20 @@ Or, with the pair2 skill loaded, just describe the task — the skill's
 SKILL.md teaches the agent which tool to call. See
 [`../../skills/re-frame-pair2/SKILL.md`](../../skills/re-frame-pair2/SKILL.md).
 
-## How sentinel-based reconnect works
+## How preload probing works (rf2-7dvg)
 
 A full page reload in the browser destroys the CLJS runtime but
-leaves the nREPL socket on the JVM side intact. The bash-shim chain
-detected this by probing `re-frame-pair2.runtime/session-id` —
-if the var was empty, the runtime was re-shipped.
+leaves the nREPL socket on the JVM side intact. shadow-cljs re-runs
+the consumer's `:preloads` as part of the next bundle load, so the
+`re-frame-pair2.runtime` namespace reappears in the new realm
+together with the load-time marker at
+`js/globalThis.__re_frame_pair2_runtime`.
 
-The MCP server ports the same check. Every tool that needs the runtime
-calls `ensure-runtime!` first; if the sentinel is missing, `runtime.cljs`
-is re-injected from the skill before the actual op runs. No manual
-reconnect step is needed — page reload → next tool call → automatic
-re-inject → op proceeds.
+Every tool that needs the runtime calls `ensure-runtime!` first; the
+probe is one bencode round-trip on the persistent socket. Missing
+marker → structured `:reason :runtime-not-preloaded` error with the
+setup hint. There is no cljs-eval inject fallback (rf2-7dvg cut it
+for pre-alpha simplicity).
 
 ## Spec
 
