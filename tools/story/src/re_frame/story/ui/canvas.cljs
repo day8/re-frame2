@@ -296,7 +296,15 @@
        (let [shell      @state/shell-state-atom
              variant-id (:selected-variant shell)
              _tick      (:hot-reload-tick shell)]   ;; deref to subscribe
-         [:div {:style (:wrap styles)}
+         ;; Per rf2-xc65: the canvas wrap is the scrollable container
+         ;; for variant content; `tab-index "0"` makes it keyboard-
+         ;; focusable so axe-core's `scrollable-region-focusable` rule
+         ;; passes. The `<section>` element + aria-label give it a
+         ;; landmark name (it's nested inside the shell's <main> so
+         ;; landmark structure remains: main > section).
+         [:section {:style      (:wrap styles)
+                    :aria-label "Variant canvas"
+                    :tab-index  "0"}
           (if variant-id
             [canvas-inner variant-id]
             [:div {:style (:empty styles)}

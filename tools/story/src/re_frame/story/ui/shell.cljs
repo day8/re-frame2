@@ -225,12 +225,20 @@
 
   Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
   `reg-story-panel` registration with `:placement :right` appears here.
-  The built-in v1.0 panels (a11y, layout-debug toggles) ride this path."
+  The built-in v1.0 panels (a11y, layout-debug toggles) ride this path.
+
+  Renders as an `<aside>` landmark (per rf2-xc65) so screen readers can
+  jump straight to the inspectors and so axe-core's
+  `region`/`landmark-one-main` rules pass. `tabindex=\"0\"` makes the
+  scrollable container reachable for keyboard users."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
         vis        (:panel-visibility shell)]
-    [:div {:style (:right styles)}
+    [:aside {:style    (:right styles)
+             :role     "complementary"
+             :aria-label "Inspectors"
+             :tab-index "0"}
      (when (:controls vis)
        [controls/panel variant-id])
      (when (and (:scrubber vis) variant-id)
@@ -245,13 +253,18 @@
   "The main content pane — workspace if one is selected, otherwise the
   variant canvas. Stage 6 (rf2-zhwd) appends any registered
   `:bottom`-placement story panels (e.g. the 10x epoch panel stub)
-  below the canvas."
+  below the canvas.
+
+  Renders as a `<main>` landmark (per rf2-xc65) so the rendered variant
+  has a containing landmark and axe-core's `region` /
+  `landmark-one-main` rules pass."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
         ws-id      (:selected-workspace shell)
         vis        (:panel-visibility shell)]
-    [:div {:style (:main styles)}
+    [:main {:style (:main styles)
+            :aria-label "Story canvas"}
      (cond
        ws-id    [workspace/workspace-view ws-id]
        variant-id [canvas/canvas]
@@ -266,7 +279,12 @@
 
 (defn shell
   "The top-level shell component. Composes the sidebar, main pane, and
-  right panel into a three-pane layout."
+  right panel into a three-pane layout.
+
+  Per rf2-xc65 each pane is rendered as a semantic HTML5 landmark
+  (`<nav>` sidebar, `<main>` canvas, `<aside>` inspectors) so axe-core's
+  `region` / `landmark-*` rules pass and screen-reader users can
+  navigate the shell by landmark."
   []
   (r/create-class
     {:display-name "rf-story-shell"
