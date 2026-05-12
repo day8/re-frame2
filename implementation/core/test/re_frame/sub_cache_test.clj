@@ -452,3 +452,177 @@
           (is (= count-after-dispose @recompute-count)
               "subsequent state changes still do not recompute"))))))
 
+;; ---- rf2-f3rd: layer-2+ disposal decrements input ref-counts --------------
+;;
+;; Per Spec 006 §Reference counting and disposal — disposal cascades clause:
+;; "When a layer-2 sub disposes, its layer-1 inputs lose one reader each;
+;; if they were held only by that layer-2 sub, they enter their own
+;; grace-period." Pre-fix, `compute-and-cache!`'s `add-on-dispose!`
+;; callback only dissoc'd the parent slot and never decremented the
+;; input ref-counts that `subscribe` incremented during construction —
+;; so input ref-counts leaked. The fix walks `:input-signals` and calls
+;; `unsubscribe` on each input symmetrically with the construction-time
+;; `subscribe` calls. These tests pin the symmetric invariant.
+
+(deftest layer-2-disposal-decrements-input-ref-counts
+  (testing "disposing a layer-2 sub decrements ref-counts on every :<- input"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum
+      :<- [:a]
+      :<- [:b]
+      (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    ;; Subscribe to the parent layer-2 sub. This recursively subscribes
+    ;; to both inputs, bumping each to ref-count 1.
+    (let [r (rf/subscribe [:sum])]
+      (is (= 5 @r))
+      (is (= 1 (entry-ref-count [:sum])) "parent ref-count = 1")
+      (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
+      (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
+
+    ;; Dispose the parent (sole subscriber drops → grace=0 sync dispose).
+    (rf/unsubscribe [:sum])
+
+    ;; Parent slot is gone; inputs cascaded to ref-count 0 and were
+    ;; themselves disposed (no other holders).
+    (is (not (contains? (cache-keys) [:sum])) "parent disposed")
+    (is (not (contains? (cache-keys) [:a]))
+        "input :a disposed via cascade (ref-count → 0)")
+    (is (not (contains? (cache-keys) [:b]))
+        "input :b disposed via cascade (ref-count → 0)")))
+
+(deftest layer-2-disposal-respects-shared-inputs
+  (testing "disposing one layer-2 sub decrements shared input only by one"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :c (fn [db _] (:c db)))
+    ;; Two layer-2 subs that share input :a.
+    (rf/reg-sub :ab :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/reg-sub :ac :<- [:a] :<- [:c] (fn [[a c] _] (+ a c)))
+    (rf/dispatch-sync [:init])
+
+    (rf/subscribe [:ab])
+    (rf/subscribe [:ac])
+
+    ;; :a is held by both layer-2 subs → ref-count 2.
+    (is (= 2 (entry-ref-count [:a])) "shared input :a has ref-count 2")
+    (is (= 1 (entry-ref-count [:b])))
+    (is (= 1 (entry-ref-count [:c])))
+
+    ;; Dispose one layer-2 sub.
+    (rf/unsubscribe [:ab])
+
+    ;; :a's ref-count drops to 1 (not 0) — the other layer-2 still holds it.
+    (is (not (contains? (cache-keys) [:ab])) ":ab disposed")
+    (is (contains? (cache-keys) [:a])
+        ":a survives — still referenced by :ac")
+    (is (= 1 (entry-ref-count [:a]))
+        "shared input ref-count dropped by exactly 1 (now 1, not 0, not 2)")
+    (is (not (contains? (cache-keys) [:b]))
+        ":b was held only by :ab — disposed via cascade")
+    (is (contains? (cache-keys) [:c])
+        ":c untouched — still held by :ac")
+    (is (= 1 (entry-ref-count [:c])))
+
+    ;; Dispose the other layer-2 sub. Now :a's ref-count hits 0.
+    (rf/unsubscribe [:ac])
+    (is (not (contains? (cache-keys) [:ac])))
+    (is (not (contains? (cache-keys) [:a]))
+        ":a finally disposed after the last layer-2 holder dropped")
+    (is (not (contains? (cache-keys) [:c]))
+        ":c disposed via cascade")))
+
+(deftest layer-2-disposal-respects-externally-held-input
+  (testing "an input also held by a direct subscribe is not over-disposed"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    ;; External subscriber to :a, parallel to the layer-2 sub that also uses :a.
+    (rf/subscribe [:a])
+    (rf/subscribe [:sum])
+
+    ;; :a has TWO holders: the direct subscribe AND :sum's construction.
+    (is (= 2 (entry-ref-count [:a]))
+        ":a ref-count is 2 — one direct subscribe, one layer-2 dependency")
+    (is (= 1 (entry-ref-count [:b])))
+    (is (= 1 (entry-ref-count [:sum])))
+
+    ;; Dispose the layer-2 sub. :a's count drops from 2 → 1 (NOT 0).
+    (rf/unsubscribe [:sum])
+    (is (not (contains? (cache-keys) [:sum])))
+    (is (contains? (cache-keys) [:a]) ":a NOT disposed — external holder remains")
+    (is (= 1 (entry-ref-count [:a]))
+        "decrement was exactly one — external subscribe still holds :a")
+    (is (not (contains? (cache-keys) [:b]))
+        ":b had only the layer-2 holder — disposed via cascade")
+
+    ;; External unsubscribe finishes the job.
+    (rf/unsubscribe [:a])
+    (is (not (contains? (cache-keys) [:a]))
+        ":a disposed when external holder drops")))
+
+(deftest layer-3-disposal-cascades-through-chain
+  (testing "disposal cascades recursively through a layer-3 chain"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:a 2}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
+    (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
+    (rf/dispatch-sync [:init])
+
+    (let [r (rf/subscribe [:a*4])]
+      (is (= 8 @r))
+      (is (= 1 (entry-ref-count [:a*4])))
+      (is (= 1 (entry-ref-count [:a*2])))
+      (is (= 1 (entry-ref-count [:a]))))
+
+    (rf/unsubscribe [:a*4])
+
+    ;; Whole chain cascaded to disposal.
+    (is (not (contains? (cache-keys) [:a*4])))
+    (is (not (contains? (cache-keys) [:a*2])))
+    (is (not (contains? (cache-keys) [:a])))))
+
+(deftest layer-2-multi-subscriber-disposal-keeps-inputs-alive
+  (testing "with two parent subscribers, dropping one keeps inputs at ref-count 1"
+    (subs/configure! {:grace-period-ms 0})
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    ;; Two subscribers to the same parent — parent ref-count goes to 2,
+    ;; inputs are constructed once (only the FIRST subscribe runs the
+    ;; cache-miss path that subscribes to inputs).
+    (rf/subscribe [:sum])
+    (rf/subscribe [:sum])
+    (is (= 2 (entry-ref-count [:sum])))
+    (is (= 1 (entry-ref-count [:a]))
+        "inputs only acquired on the cache-miss path — ref-count 1")
+    (is (= 1 (entry-ref-count [:b])))
+
+    ;; First unsubscribe: parent drops to 1, inputs untouched
+    ;; (the parent slot didn't dispose, so its on-dispose didn't fire).
+    (rf/unsubscribe [:sum])
+    (is (= 1 (entry-ref-count [:sum])))
+    (is (= 1 (entry-ref-count [:a]))
+        "inputs untouched — parent slot still live")
+    (is (= 1 (entry-ref-count [:b])))
+
+    ;; Second unsubscribe: parent disposes, cascade fires.
+    (rf/unsubscribe [:sum])
+    (is (not (contains? (cache-keys) [:sum])))
+    (is (not (contains? (cache-keys) [:a])))
+    (is (not (contains? (cache-keys) [:b])))))
+
