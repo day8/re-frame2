@@ -1,0 +1,53 @@
+;; @day8/re-frame-pair2-mcp — MCP (Model Context Protocol) server for
+;; re-frame-pair2 (rf2-drd9 parent epic; this file added by rf2-druw to
+;; normalise tools/ shape).
+;;
+;; ## Why this artefact's deps.edn is shaped differently to its siblings
+;;
+;; The other tools/ artefacts (tools/template/, tools/story/,
+;; tools/story-mcp/) ship as JVM Maven jars to Clojars and carry a
+;; :clein/build alias for that release path. This artefact is the
+;; exception: re-frame-pair2-mcp ships as a Node binary on npm —
+;; ClojureScript is compiled to a single self-contained `out/server.js`
+;; via shadow-cljs and published as `@day8/re-frame-pair2-mcp`. There
+;; is no Clojars publish path and no JVM-side consumer. End users
+;; install Node only; the compiled JS has no Clojure dependency.
+;;
+;; Why a deps.edn nonetheless?
+;;   1. Repo uniformity. Per tools/README.md "each tool gets its own
+;;      subdirectory, structured like the per-adapter jars". A
+;;      deps.edn declares the artefact-as-such and gives any future
+;;      JVM-side surface a home to land in without retro-fitting.
+;;   2. shadow-cljs deps resolution. shadow-cljs reads :paths +
+;;      :dependencies from this file when present, keeping the source
+;;      of truth in one place rather than split between deps.edn and
+;;      shadow-cljs.edn's own :dependencies vector.
+;;   3. Tooling discoverability. clj-kondo, cljfmt, IDEs and similar
+;;      surface tools all expect deps.edn at the artefact root; its
+;;      absence is friction that the rest of tools/ doesn't suffer.
+;;
+;; ## Bundle isolation
+;;
+;; Per tools/README.md the dependency arrow flows tool → implementation
+;; (and never the reverse). This artefact has no `:local/root` dep on
+;; `implementation/` because it does not :require any re-frame2 source:
+;; it terminates the agent host's stdio channel and bridges to a
+;; separately-running re-frame app's nREPL socket. The runtime injection
+;; (`runtime.cljs`) ships from the pair2 skill, not from here.
+;;
+;; ## Tests
+;;
+;; The canonical test entry-point is `npm test` (which invokes
+;; `shadow-cljs compile server-test && node out/server-test.js`).
+;; The `:test` alias here is a thin shim for habit / IDE consistency:
+;; `clojure -M:test` still routes through shadow-cljs because the
+;; sources are .cljs and need a CLJS compiler.
+{:paths ["src"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.11.1"}
+         org.clojure/clojurescript {:mvn/version "1.11.132"}
+         applied-science/js-interop {:mvn/version "0.4.2"}
+         thheller/shadow-cljs      {:mvn/version "3.4.10"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :main-opts   ["-m" "shadow.cljs.devtools.cli" "compile" "server-test"]}}}
