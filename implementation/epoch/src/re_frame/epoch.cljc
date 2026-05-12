@@ -625,6 +625,101 @@
   (trace/emit-error! operation
                      (assoc tags :recovery :no-recovery)))
 
+(defn- check-restore-preconditions!
+  "Validate the six documented preconditions for restoring `frame-id`
+  to `epoch-id`. Returns:
+
+    [:ok epoch]  — all checks passed; `epoch` is the resolved history
+                   record whose `:db-after` is the restore target.
+    [:fail kw tags]
+                 — first failing check; `kw` is the trace operation
+                   the caller must emit, `tags` are its tags. No
+                   trace events are emitted from inside this helper —
+                   emission is the caller's job so the
+                   precondition test stays a pure data check.
+
+  Failure modes preserve the exact operation keywords and tag shapes
+  the public surface has always emitted (see `restore-epoch`'s
+  docstring for the catalogue)."
+  [frame-id epoch-id]
+  (let [frame-record (frame/frame frame-id)]
+    (cond
+      ;; (1) Frame registered?
+      (nil? frame-record)
+      [:fail :rf.error/no-such-handler
+       {:kind     :frame
+        :frame-id frame-id}]
+
+      ;; (2) In-flight drain?
+      (let [router (:router frame-record)
+            r      (when router @router)]
+        (and r (or (:in-drain? r) (:in-sync-drain? r))))
+      [:fail :rf.epoch/restore-during-drain
+       {:frame    frame-id
+        :epoch-id epoch-id}]
+
+      :else
+      (let [history (epoch-history frame-id)
+            epoch   (find-epoch frame-id epoch-id)]
+        (cond
+          ;; (3) Epoch present in current history?
+          (nil? epoch)
+          [:fail :rf.epoch/restore-unknown-epoch
+           {:frame        frame-id
+            :epoch-id     epoch-id
+            :history-size (count history)}]
+
+          :else
+          (let [db-target (:db-after epoch)]
+            (cond
+              ;; (4) Schema mismatch?
+              (not (schema-validate-ok? frame-id db-target))
+              ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
+              ;; the trace carries both the digest pinned on the
+              ;; epoch record (recorded) and the current frame's
+              ;; live digest, so pair tools can pinpoint *what
+              ;; changed* about the schema set, not merely *that*
+              ;; it changed.
+              [:fail :rf.epoch/restore-schema-mismatch
+               {:frame                  frame-id
+                :epoch-id               epoch-id
+                :schema-digest-recorded (:schema-digest epoch)
+                :schema-digest-current  (current-schema-digest frame-id)
+                :failing-paths          (failing-paths-for frame-id db-target)}]
+
+              ;; (5) Missing handler referenced from db?
+              (seq (missing-references db-target))
+              [:fail :rf.epoch/restore-missing-handler
+               {:frame    frame-id
+                :epoch-id epoch-id
+                :missing  (missing-references db-target)}]
+
+              ;; (6) Machine snapshot version drift?
+              (some? (machine-version-mismatch db-target))
+              (let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
+                [:fail :rf.epoch/restore-version-mismatch
+                 {:frame            frame-id
+                  :epoch-id         epoch-id
+                  :machine-id       machine-id
+                  :version-recorded recorded
+                  :version-current  current}])
+
+              :else
+              [:ok epoch])))))))
+
+(defn- perform-restore!
+  "Carry out the actual `app-db` rewind once preconditions have passed.
+  Replaces the frame's container with `epoch`'s `:db-after` and emits
+  `:rf.epoch/restored`. Returns `true`."
+  [frame-id epoch]
+  (let [container (frame/get-frame-db frame-id)
+        db-target (:db-after epoch)]
+    (adapter/replace-container! container db-target)
+    (trace/emit! :rf.epoch :rf.epoch/restored
+                 {:frame    frame-id
+                  :epoch-id (:epoch-id epoch)})
+    true))
+
 (defn restore-epoch
   "Rewind the frame's `app-db` to the named epoch's `:db-after`. Emits
   `:rf.epoch/restored` on success.
@@ -643,88 +738,11 @@
   [frame-id epoch-id]
   (if-not interop/debug-enabled?
     false
-    (let [frame-record (frame/frame frame-id)]
-      (cond
-        ;; (1) Frame registered?
-        (nil? frame-record)
-        (do
-          (emit-restore-failure! :rf.error/no-such-handler
-                                 {:kind     :frame
-                                  :frame-id frame-id})
-          false)
-
-        ;; (2) In-flight drain?
-        (let [router (:router frame-record)
-              r      (when router @router)]
-          (and r (or (:in-drain? r) (:in-sync-drain? r))))
-        (do
-          (emit-restore-failure! :rf.epoch/restore-during-drain
-                                 {:frame    frame-id
-                                  :epoch-id epoch-id})
-          false)
-
-        :else
-        (let [history (epoch-history frame-id)
-              epoch   (find-epoch frame-id epoch-id)]
-          (cond
-            ;; (3) Epoch present in current history?
-            (nil? epoch)
-            (do
-              (emit-restore-failure! :rf.epoch/restore-unknown-epoch
-                                     {:frame        frame-id
-                                      :epoch-id     epoch-id
-                                      :history-size (count history)})
-              false)
-
-            :else
-            (let [db-target (:db-after epoch)]
-              (cond
-                ;; (4) Schema mismatch?
-                (not (schema-validate-ok? frame-id db-target))
-                (do
-                  ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
-                  ;; the trace carries both the digest pinned on the
-                  ;; epoch record (recorded) and the current frame's
-                  ;; live digest, so pair tools can pinpoint *what
-                  ;; changed* about the schema set, not merely *that*
-                  ;; it changed.
-                  (emit-restore-failure! :rf.epoch/restore-schema-mismatch
-                                         {:frame                  frame-id
-                                          :epoch-id               epoch-id
-                                          :schema-digest-recorded (:schema-digest epoch)
-                                          :schema-digest-current  (current-schema-digest frame-id)
-                                          :failing-paths          (failing-paths-for frame-id db-target)})
-                  false)
-
-                ;; (5) Missing handler referenced from db?
-                (let [missing (missing-references db-target)]
-                  (seq missing))
-                (do
-                  (emit-restore-failure! :rf.epoch/restore-missing-handler
-                                         {:frame    frame-id
-                                          :epoch-id epoch-id
-                                          :missing  (missing-references db-target)})
-                  false)
-
-                ;; (6) Machine snapshot version drift?
-                (let [m (machine-version-mismatch db-target)]
-                  (some? m))
-                (let [{:keys [machine-id recorded current]} (machine-version-mismatch db-target)]
-                  (emit-restore-failure! :rf.epoch/restore-version-mismatch
-                                         {:frame            frame-id
-                                          :epoch-id         epoch-id
-                                          :machine-id       machine-id
-                                          :version-recorded recorded
-                                          :version-current  current})
-                  false)
-
-                :else
-                (let [container (frame/get-frame-db frame-id)]
-                  (adapter/replace-container! container db-target)
-                  (trace/emit! :rf.epoch :rf.epoch/restored
-                               {:frame    frame-id
-                                :epoch-id epoch-id})
-                  true)))))))))
+    (let [result (check-restore-preconditions! frame-id epoch-id)]
+      (case (first result)
+        :ok   (perform-restore! frame-id (second result))
+        :fail (do (emit-restore-failure! (second result) (nth result 2))
+                  false)))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
 ;;
