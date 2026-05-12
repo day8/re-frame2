@@ -137,7 +137,7 @@
                       :line-height "1.5"}
       :prose-flow    {:display "flex"
                       :flex-direction "column"}
-      :empty         {:color "#666"
+      :empty         {:color "#9a9a9a"
                       :font-style "italic"
                       :padding "24px"
                       :text-align "center"}}))
@@ -204,12 +204,12 @@
         [:div {:style (:cell-title styles)}
          [:span (pr-str variant-id)]
          (when view-id
-           [:span {:style {:color "#888" :margin-left "8px"
+           [:span {:style {:color "#b0b0b0" :margin-left "8px"
                            :font-weight "normal"}}
             (str "→ " (pr-str view-id))])]
         (cond
           (nil? view-id)
-          [:div {:style {:color "#888" :font-style "italic"
+          [:div {:style {:color "#b0b0b0" :font-style "italic"
                          :padding "8px 0"}}
            "variant has no :component registered — register one on the story or variant body"]
 
@@ -236,7 +236,7 @@
                   [resolved-view eff-args]
                   (:hiccup decorator-pack)
                   eff-args)]]
-              [:div {:style {:color "#888" :font-style "italic"
+              [:div {:style {:color "#b0b0b0" :font-style "italic"
                              :padding "8px 0"}}
                (str ":component " (pr-str view-id)
                     " is not registered as a view")])))

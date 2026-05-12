@@ -132,7 +132,7 @@
   (let [resolved (rf/view view-id)]
     (if resolved
       [resolved eff-args]
-      [:div {:style {:color "#888" :font-style "italic"}}
+      [:div {:style {:color "#b0b0b0" :font-style "italic"}}
        (str ":component " (pr-str view-id) " is not registered as a view")])))
 
 (defn install-reagent-substrate!

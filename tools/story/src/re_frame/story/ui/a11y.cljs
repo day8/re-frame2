@@ -194,7 +194,7 @@
                  :align-items "center"
                  :margin-bottom "8px"}
    :section-h   {:font-weight "bold"
-                 :color "#888"
+                 :color "#b0b0b0"
                  :text-transform "uppercase"
                  :font-size "10px"
                  :letter-spacing "0.5px"}
@@ -207,8 +207,8 @@
                  :font-size "10px"}
    :run-busy    {:background "#666"
                  :cursor "wait"}
-   :status      {:color "#888" :font-size "10px" :margin-top "4px"}
-   :empty       {:color "#666" :font-style "italic" :padding "4px 0"}
+   :status      {:color "#b0b0b0" :font-size "10px" :margin-top "4px"}
+   :empty       {:color "#9a9a9a" :font-style "italic" :padding "4px 0"}
    :violation   {:padding "6px 8px"
                  :margin "4px 0"
                  :border-left "3px solid"
@@ -282,7 +282,7 @@
      [:div {:style (:v-desc styles)} (.-description v)]
      (when first-target
        [:div {:style (:v-target styles)} (str "→ " first-target)])
-     [:div {:style {:color "#666" :font-size "10px"}}
+     [:div {:style {:color "#9a9a9a" :font-size "10px"}}
       (str ":" (.-id v) " · " (or impact "moderate"))]]))
 
 (defn panel
