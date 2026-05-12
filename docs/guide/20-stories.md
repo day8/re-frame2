@@ -1,6 +1,8 @@
 # 20 — Stories
 
-You've seen the runtime in chapter 04, the views in chapter 06, the test machinery in chapter 14, and the tooling pitch in chapter 16. This chapter is where they converge.
+> **Optional deep-dive.** This chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](14-testing.md), and [devtools](16-devtools-and-pair-tools.md) chapters. If you haven't yet, come back later — Stories is a layered surface on top of those, not the next link in the linear sequence.
+
+You've seen the runtime in the [events chapter](04-events-state-cycle.md), the views in the [views chapter](06-views-and-frames.md), the test machinery in the [testing chapter](14-testing.md), and the tooling pitch in the [devtools chapter](16-devtools-and-pair-tools.md). This chapter is where they converge.
 
 [`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a **frame-aware component playground** — Storybook-flavoured, but built on re-frame2's primitives the whole way down. Each variant of a component runs in its own dedicated frame (chapter 06). Each variant body is plain data, not a function (no `<Counter.story.tsx>` with inline JSX). Args resolve through a three-layer chain. Assertions ride the same `dispatch` pipeline as production events. Time-travel scrubs through `restore-epoch` (chapter 16). When you want to scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` against the same component you're shipping.
 
