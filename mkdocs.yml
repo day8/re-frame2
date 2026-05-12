@@ -114,6 +114,7 @@ nav:
       - Remote data: spec/Pattern-RemoteData.md
       - Reusable components: spec/Pattern-ReusableComponents.md
       - Stale detection: spec/Pattern-StaleDetection.md
+      - Stateful components: spec/Pattern-StatefulComponents.md
       - WebSocket: spec/Pattern-WebSocket.md
 
   - Skills:
