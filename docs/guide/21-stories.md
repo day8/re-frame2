@@ -1,4 +1,4 @@
-# 20 — Stories
+# 21 — Stories
 
 > **Optional deep-dive.** This chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](13-testing.md), and [devtools](15-devtools-and-pair-tools.md) chapters. If you haven't yet, come back later — Stories is a layered surface on top of those, not the next link in the linear sequence.
 

@@ -8,7 +8,7 @@ If you're an AI agent or implementor, you want the [specification](../../spec/RE
 
 ## Chapters
 
-The guide is in two parts. The **core path** (chapters 01-11) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 12-20) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
+The guide is in two parts. The **core path** (chapters 01-11) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 12-21) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
 
 Chapter **09 — Forms** sits between 08 and 10 as a side-track: not load-bearing for the mental model the way 08 is, but standard enough that most readers will want it before they reach 10. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
 
@@ -49,13 +49,14 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 16 | [Performance](16-performance.md) | Your page feels slow — the four shapes of slowness (big props, deep `=`, inline callbacks, expensive subs), the framework's answers, and the `rf:` User Timing surface. |
 | 17 | [Routing](17-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 | 18 | [From re-frame v1](18-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. The chapter is appendix-shaped — deps to bump, the migration skill to run, and the broad categories of breakage to expect. |
-| 20 | [Stories](20-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
+| 19 | [Adapters](19-adapters.md) | You're choosing or wiring a view-layer substrate — Reagent, UIx, or Helix. Covers the substrate-agnostic story, the `init!` call shape, the three adapter packages, and the slim-Reagent option for ship-size builds. |
+| 21 | [Stories](21-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
 
 ### Close-out
 
 | # | Chapter | What it covers |
 |---|---|---|
-| 19 | [Where to go next](19-where-next.md) | A one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. Read this when you finish the chapters and want to know "now what?" |
+| 20 | [Where to go next](20-where-next.md) | A one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. Read this when you finish the chapters and want to know "now what?" |
 
 ### Worked examples
 

@@ -4,7 +4,7 @@ The smallest interesting program is a counter: a number, two buttons, the number
 
 The full source is in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs). This chapter walks through it section by section, explaining what each piece is doing and *why it's shaped the way it is*. By the end you'll have seen every load-bearing primitive in re-frame2 at least once.
 
-This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; for adapter comparisons and the `init!` call shape across substrates, see [chapter 19 — Adapters](19-where-next.md#adapters--the-pattern-across-substrates).)
+This chapter uses **Reagent** — the canonical CLJS view substrate, the one the rest of the guide uses. (re-frame2 also has UIx and Helix adapters; for adapter comparisons and the `init!` call shape across substrates, see [chapter 19 — Adapters](19-adapters.md).)
 
 ## What we're building
 
@@ -197,7 +197,7 @@ Four things happen here.
 
 `(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
 
-Without `init!`, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. For the call shape across UIx, Helix, and SSR — and why the call is explicit at every call site — see [chapter 19 — Adapters](19-where-next.md#adapters--the-pattern-across-substrates).
+Without `init!`, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. For the call shape across UIx, Helix, and SSR — and why the call is explicit at every call site — see [chapter 19 — Adapters](19-adapters.md).
 
 ## What just happened
 
@@ -260,7 +260,7 @@ That's it. The shape doesn't change. There's no new primitive to learn. Every ch
 
 This is the real claim of re-frame2: **the cost of new features is bounded by the size of the feature, not by the size of the app**. In a poorly-shaped app, adding a feature requires reading a substantial fraction of the existing code to know where to wire it in. In a re-frame2 app, you read the events, the subs, and the view that touches the area you're changing, and that's enough.
 
-For how this same counter looks under UIx and Helix, what `init!` is doing under the hood, and the slim-Reagent option for ship-size builds, see [chapter 19 — Adapters](19-where-next.md#adapters--the-pattern-across-substrates).
+For how this same counter looks under UIx and Helix, what `init!` is doing under the hood, and the slim-Reagent option for ship-size builds, see [chapter 19 — Adapters](19-adapters.md).
 
 ## Next
 
