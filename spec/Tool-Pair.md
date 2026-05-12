@@ -448,7 +448,7 @@ The framework is **infrastructure-complete** for AI-tool consumption: data shape
 
 ## Future-compat commitments
 
-Per the philosophy of [Spec-ulation](Principles.md), the pair-tool runtime contract grows additively:
+Per the philosophy of [Spec-ulation](Principles.md#spec-ulation), the pair-tool runtime contract grows additively:
 
 - **Trace event categories** are stable; new categories are added with new `:operation` keywords.
 - **Registry query API** signatures are stable; new query functions are additive.

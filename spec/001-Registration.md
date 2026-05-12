@@ -32,7 +32,7 @@ Every registration takes the same shape:
 
 The **id** is an instance of the [identity primitive](000-Vision.md#the-identity-primitive--required-properties).
 
-The **metadata map** is open (consumers tolerate unknown keys; new keys are added additively per [Spec-ulation](Principles.md)). The standard keys are:
+The **metadata map** is open (consumers tolerate unknown keys; new keys are added additively per [Spec-ulation](Principles.md#spec-ulation)). The standard keys are:
 
 | Key | Type | Required? | Meaning |
 |---|---|---|---|

@@ -231,7 +231,7 @@ Universal trace event shape, including error events.
 
 The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` / `:parent-dispatch-id` under `:tags` of `:event/dispatched` events (per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)). Per-event frame attribution rides under `[:tags :frame]`.
 
-The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md). The reserved values used by the framework (in alphabetical order):
+The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The reserved values used by the framework (in alphabetical order):
 
 | `:op-type` | Used for | Spec |
 |---|---|---|
@@ -952,7 +952,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:dropped-count :int]])
 ```
 
-Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is fixed-and-additive per [Spec-ulation](Principles.md): existing categories cannot be renamed or removed; new categories appear additively.
+Pattern-level: every implementation registers an equivalent set of schemas. The category vocabulary is fixed-and-additive per [Spec-ulation](Principles.md#spec-ulation): existing categories cannot be renamed or removed; new categories appear additively.
 
 The schemas above are *open* (Malli's default `[:map ...]`) — consumers receive payloads that conform to the listed keys plus any additive keys the implementation adds. Validation against these schemas is non-fatal in dev: a `validate` failure is logged via the same trace stream (per [009](009-Instrumentation.md)) but does not abort the consumer. In production, both validation and the trace stream are compile-time elided (per [009](009-Instrumentation.md) lead claim and [Spec 000 C-000.35](000-Vision.md)) — there is no runtime validation cost and no trace emission.
 
