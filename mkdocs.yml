@@ -42,6 +42,15 @@ theme:
     - content.code.annotate
     - content.code.copy
 
+# Material bundles the `search` plugin and enables it by default when no
+# `plugins:` block is declared. We declare it explicitly (rf2-5790) so the
+# search affordance — load-bearing for navigating a 7000+ line guide — stays
+# wired up across future MkDocs/Material versions that may flip the default.
+# Any future plugin addition (e.g. minify, redirects) must keep `- search`
+# in the list, otherwise search silently disappears.
+plugins:
+  - search
+
 extra:
   social:
     - icon: fontawesome/brands/github-alt
