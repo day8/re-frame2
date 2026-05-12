@@ -171,7 +171,7 @@ These are **read-only**. The model cannot call:
 …through tool use. The model can *propose* these via action chips
 (`[Rewind to here]`, `[Re-dispatch]`); the user clicks to confirm.
 
-The tool catalogue mirrors what `tools/10x-mcp/` exposes (see
+The tool catalogue mirrors what `tools/causa-mcp/` exposes (see
 [`010-MCP-Server.md`](./010-MCP-Server.md)) — the same surface is
 available to local agents (Claude Code, Cursor) over MCP.
 

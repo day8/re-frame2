@@ -1,0 +1,65 @@
+;; day8/re-frame2-causa — Causa, the re-frame2 devtools panel (Phase 1
+;; foundation, rf2-n6x4q; parent epic rf2-5aw5v).
+;;
+;; Per tools/README.md the artefact is a downstream consumer of
+;; implementation/core/ + an adapter (Reagent, UIx, or Helix). Causa
+;; does NOT register any new framework primitives; every surface it
+;; exposes is built on the Spec 009 trace bus, the Spec 002 frame
+;; primitive, and the Spec 006 substrate adapter API. The bundle-
+;; isolation contract holds: nothing in implementation/ may
+;; :require from here.
+;;
+;; ## Pin lockstep with implementation/core
+;;
+;; Causa rides the core artefact at :local/root during development;
+;; the release workflow rewrites :local/root → :mvn/version pinned to
+;; the same VERSION file the core artefact reads (mirrors the pattern
+;; in tools/story/deps.edn). Causa's published version equals the
+;; framework's published version at every release — same lockstep
+;; convention used by implementation/adapters/* (rf2-w05l) so apps
+;; never mix incompatible core + tools versions.
+;;
+;; ## Phase 1 scope (this commit)
+;;
+;; Foundation only: preload, Ctrl+Shift+C, frame-provider :rf/causa
+;; isolation, empty-shell layout, trace bus subscription. Panels
+;; (event-detail hero, causality graph, time-travel, app-db diff,
+;; etc.) ship as separate beads under rf2-5aw5v.
+;;
+;; ## MCP surface
+;;
+;; Per spec/010-MCP-Server.md the agent surface ships in
+;; tools/causa-mcp/ (day8/re-frame2-causa-mcp), a separate Node-side
+;; artefact. Nothing in this deps.edn references the MCP server.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../../implementation/core"}
+
+         ;; Reagent is the default substrate for Causa's UI at v1 (the
+         ;; preload uses Reagent's createRoot via reagent.dom.client
+         ;; when the host is Reagent; the substrate adapter abstracts
+         ;; the render path for other adapters). Pinned to the same
+         ;; version implementation/shadow-cljs.edn carries.
+         reagent/reagent {:mvn/version "2.0.1"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; Clojars deploy. Mirrors implementation/adapters/reagent/deps.edn
+  ;; — the release workflow rewrites :local/root → :mvn/version before
+  ;; invoking clein.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-causa
+   :main     day8.re-frame2-causa.preload
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src"]}}}

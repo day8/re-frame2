@@ -1,6 +1,6 @@
 # 010-MCP-Server
 
-Causa ships an MCP server as a separate jar at `tools/10x-mcp/`. The
+Causa ships an MCP server as a separate jar at `tools/causa-mcp/`. The
 server exposes Causa's surfaces as MCP tools so AI agents (Claude
 Code, Cursor, Copilot) can read and write a live re-frame2 runtime
 without opening Causa's UI.
@@ -18,9 +18,9 @@ and agents ship as distinct jars so the MCP server can be loaded
 without dragging the entire Causa UI into the classpath; the two
 surfaces split:
 
-- **`tools/10x/`** — `day8/re-frame2-causa`. The DOM-injected panel.
+- **`tools/causa/`** — `day8/re-frame2-causa`. The DOM-injected panel.
   Pulled by `:preloads`. Browser-side artefact.
-- **`tools/10x-mcp/`** — `day8/re-frame2-causa-mcp`. The MCP server.
+- **`tools/causa-mcp/`** — `day8/re-frame2-causa-mcp`. The MCP server.
   Pulled by `npm install`. Node-side artefact, attached over nREPL.
 
 Both consume the same re-frame2 instrumentation surface (Spec 009
@@ -132,7 +132,7 @@ Tool-execution errors use `isError: true` with a structured EDN
 error map in `content[0].text` — never a protocol-level error.
 
 The full schema of each tool's args is bundled in
-`tools/10x-mcp/src/day8/re_frame2_causa_mcp/tools.cljs` (matching
+`tools/causa-mcp/src/day8/re_frame2_causa_mcp/tools.cljs` (matching
 the layout in `tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`)
 and surfaced via `tools/list` in MCP-standard JSONSchema form.
 
@@ -152,7 +152,7 @@ automatic re-inject → op proceeds.
 
 ## Compared to pair2-mcp
 
-| Axis | `tools/pair2-mcp/` | `tools/10x-mcp/` |
+| Axis | `tools/pair2-mcp/` | `tools/causa-mcp/` |
 |---|---|---|
 | **Audience** | Editor-side AI workflows (pair-programming). | Debugger-side AI workflows (inspection, time-travel). |
 | **Surface** | 7 tools focused on dispatch / eval / hot-swap / trace. | 12 tools focused on inspection (graph, app-db, machine, issues) + restore / reset / dispatch. |
@@ -207,6 +207,6 @@ This doc is the **contract**, not the implementation. The
 implementation details (shadow-cljs build, the bencode pin, the
 specific tools.cljs shape) follow `tools/pair2-mcp/spec/`'s structure
 and prose; replicating them here would be redundant. When
-`tools/10x-mcp/` lands, it will carry its own `spec/` folder with
+`tools/causa-mcp/` lands, it will carry its own `spec/` folder with
 the four pair2-mcp-shape files (000-Vision, 001-Wire-Protocol,
 002-nREPL-Transport, 003-Tool-Catalogue) parameterised for Causa.

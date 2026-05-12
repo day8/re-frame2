@@ -138,7 +138,7 @@ instrumentation surface:
 - **`tools/story/`** — the component playground. Embeds Causa's
   event-detail panel as a per-variant observability ribbon (per the
   embedding contract in [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)).
-- **`tools/10x/`** *(this tool)* — the human-driven debugger. Embeds
+- **`tools/causa/`** *(this tool)* — the human-driven debugger. Embeds
   `tools/machines-viz/` for state-chart rendering.
 
 The dependency arrows: Causa → `machines-viz` (for the chart) →

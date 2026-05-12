@@ -267,7 +267,7 @@ Does Causa support mobile / tablet / phone viewports?
 ## Lock #6 — MCP timing
 
 **Locked 2026-05-12 (Mike).** **Ship at v1.0.** Via
-`tools/10x-mcp/`, mirroring the `tools/pair2-mcp/` pattern.
+`tools/causa-mcp/`, mirroring the `tools/pair2-mcp/` pattern.
 
 ### Question
 
@@ -281,7 +281,7 @@ When does Causa's MCP server ship — v1.0 or v1.1?
 
 ### Pick
 
-**Ship at v1.0.** Via `tools/10x-mcp/`.
+**Ship at v1.0.** Via `tools/causa-mcp/`.
 
 ### Why
 
@@ -445,7 +445,7 @@ mode?
 - **(c) Chrome extension.** The IPC-isolated approach. Out of
   process from the runtime.
 - **(d) Hybrid: in-app overlay + MCP for remote-attach.** In-app is
-  the primary; the agent-driven case is handled by `tools/10x-mcp/`,
+  the primary; the agent-driven case is handled by `tools/causa-mcp/`,
   not by a custom Causa protocol.
 
 ### Pick
@@ -720,7 +720,7 @@ is unchanged by adding voice later; pure additive feature.
 | 3 | App-db editing | **Never — read-only forever** | 2026-05-11 |
 | 4 | Session export | **Never** | 2026-05-11 |
 | 5 | Mobile | **Desktop only** | 2026-05-11 |
-| 6 | MCP timing | **v1.0 via `tools/10x-mcp/`** | 2026-05-12 |
+| 6 | MCP timing | **v1.0 via `tools/causa-mcp/`** | 2026-05-12 |
 | 7 | Hero panel | **Event-detail** (graph demoted to peer) | 2026-05-12 |
 | 8 | AI panel default state | **Collapsed** with subtle cue | 2026-05-12 |
 | 9 | Launch modes | **Hybrid: in-app + MCP** | 2026-05-12 |

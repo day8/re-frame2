@@ -113,7 +113,7 @@ still pass through (pointer-events on the dim overlay are disabled).
 
 ### Mechanism
 
-The MCP server (`tools/10x-mcp/`, per [`010-MCP-Server.md`](./010-MCP-Server.md))
+The MCP server (`tools/causa-mcp/`, per [`010-MCP-Server.md`](./010-MCP-Server.md))
 is an stdio JSON-RPC server launched by the agent host (Claude Code,
 Cursor, etc.) as a subprocess. The server connects over nREPL to the
 running shadow-cljs build (which is connected to the user's browser).

@@ -162,9 +162,9 @@ registers re-frame-10x's existing epoch panel as a story panel via:
    :render    :re-frame-10x.epoch-panel/view})
 ```
 
-The 10x epoch view is consumed from `day8/re-frame2-10x` (per the
-`tools/10x/` line in [`tools/README.md`](../../README.md)). Story's
-panel is the **adapter**; 10x stays its own artefact, on its own
+The Causa epoch view is consumed from `day8/re-frame2-causa` (per the
+`tools/causa/` line in [`tools/README.md`](../../README.md)). Story's
+panel is the **adapter**; Causa stays its own artefact, on its own
 release cadence.
 
 **Rationale.** The epoch panel's UX (time-travel scrubber, app-db

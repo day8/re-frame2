@@ -55,6 +55,14 @@
                 ;; classpath; it does NOT introduce a require dependency.
                 "../tools/story/src"
                 "../tools/story/test"
+                ;; tools/causa (Causa Phase 1 foundation, rf2-n6x4q).
+                ;; Same rationale as tools/story above — source paths
+                ;; added so the :node-test build picks up
+                ;; `tools/causa/test/day8/re_frame2_causa/*_cljs_test.cljs`.
+                ;; Bundle-isolation contract still holds: nothing under
+                ;; implementation/ may :require anything under tools/.
+                "../tools/causa/src"
+                "../tools/causa/test"
                 ;; Per rf2-kx74 examples/ is grouped per substrate. Each
                 ;; substrate root is its own shadow-cljs source path so
                 ;; the per-example namespaces (counter.core,
@@ -235,7 +243,15 @@
   {:target     :browser
    :output-dir "out/examples/counter"
    :asset-path "."
-   :modules    {:main {:init-fn counter.core/run}}}
+   :modules    {:main {:init-fn counter.core/run}}
+   ;; Causa Phase 1 smoke (rf2-n6x4q). Pulling the preload here is the
+   ;; convention-anchoring path standing rule: every Phase-2+ panel
+   ;; bead inherits this entry. The preload is dev-only — the
+   ;; `:devtools` block is honoured by `shadow-cljs watch` /
+   ;; `compile` but NOT by `release` (per shadow-cljs's docs on the
+   ;; :devtools key), so the per-example Playwright spec running
+   ;; against `release` builds remains unaffected.
+   :devtools   {:preloads [day8.re-frame2-causa.preload]}}
 
   ;; rf2-5lbx — counter mounted on day8/reagent-slim (the rewrite),
   ;; same six-domino logic as :examples/counter but every Reagent
