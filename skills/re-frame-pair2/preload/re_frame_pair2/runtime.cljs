@@ -9,13 +9,18 @@
 ;;;;
 ;;;; Design invariants (see docs/initial-spec.md):
 ;;;;   - All trace and epoch reads consume re-frame2's public Tool-Pair
-;;;;     surfaces (`re-frame.core/register-trace-cb`, `trace-buffer`,
+;;;;     surfaces (`re-frame.core/register-trace-cb!`, `trace-buffer`,
 ;;;;     `register-epoch-cb!`, `epoch-history`, `restore-epoch`). No
 ;;;;     reaching into private namespaces.
 ;;;;   - Exactly one trace listener (`:re-frame-pair2`) and one epoch
 ;;;;     listener (`:re-frame-pair2-epoch`) are registered. Multi-tool
 ;;;;     coexistence is the expected default; per Spec 009 §Listener
 ;;;;     ordering, listener ordering is not contract.
+;;;;   - Streaming subscriptions (rf2-hq49) ride those same single
+;;;;     listener slots — the listener fans matching events into per-
+;;;;     subscription queues. `subscribe!` / `drain-subscription!` /
+;;;;     `unsubscribe!` are the public surface the MCP server's
+;;;;     `subscribe` op consumes.
 ;;;;   - The `session-id` sentinel below is read by the MCP server's
 ;;;;     preload probe. A mirror is also set on
 ;;;;     `js/globalThis.__re_frame_pair2_runtime` at load time so the
@@ -313,20 +318,23 @@
   ;; last-pair-epoch). Populated by the dispatch helpers below.
   (atom #{}))
 
-(defn- on-epoch [record]
-  (swap! observed-epochs
-         (fn [m]
-           (let [frame-id (:frame record)
-                 v        (or (get m frame-id) [])
-                 v+       (conj v record)
-                 n        (count v+)]
-             (assoc m frame-id (if (> n 500) (subvec v+ (- n 500)) v+))))))
+;; The per-frame `observed-epochs` stash and the streaming dispatch both
+;; ride the same `register-epoch-cb!` slot — combined into
+;; `on-epoch-streaming` below to keep listener ordering deterministic
+;; (rf2-hq49). The legacy single-purpose `on-epoch` was inlined into the
+;; streaming listener.
+
+(declare on-epoch-streaming)
 
 (defn- ensure-epoch-listener!
   "Register the assembled-epoch listener if it isn't already. Idempotent —
-   passing the same id twice replaces (per `register-epoch-cb!` contract)."
+   passing the same id twice replaces (per `register-epoch-cb!` contract).
+
+   Installs the streaming-aware listener (rf2-hq49). The streaming
+   dispatch is a no-op when no subscriptions are active, so this is
+   safe to install unconditionally."
   []
-  (rf/register-epoch-cb! :re-frame-pair2-epoch on-epoch))
+  (rf/register-epoch-cb! :re-frame-pair2-epoch on-epoch-streaming))
 
 (defn epoch-history
   "Pass-through to (rf/epoch-history frame-id) — the framework's
@@ -444,20 +452,281 @@
 
 (defonce ^:private last-trace-id (atom 0))
 
-(defn- on-trace [event]
-  (when-let [id (:id event)]
-    (when (number? id) (reset! last-trace-id id))))
+;; The legacy `last-trace-id` cursor and the streaming dispatch both
+;; ride the same `register-trace-cb!` slot — combined into
+;; `on-trace-streaming` below (rf2-hq49). The legacy `on-trace` was
+;; inlined into the streaming listener.
+
+(declare on-trace-streaming)
 
 (defn- ensure-trace-listener!
-  "Register the raw-trace listener if it isn't already."
+  "Register the raw-trace listener if it isn't already.
+
+   Installs the streaming-aware listener (rf2-hq49). The streaming
+   dispatch is a no-op when no subscriptions are active, so this is
+   safe to install unconditionally — `last-trace-event-id` keeps
+   working through it."
   []
-  (rf/register-trace-cb :re-frame-pair2 on-trace))
+  (rf/register-trace-cb! :re-frame-pair2 on-trace-streaming))
 
 (defn last-trace-event-id
   "Last trace event id observed by the skill's listener. Useful as a
    `:since` cursor for `(rf/trace-buffer {:since N})`."
   []
   @last-trace-id)
+
+;; ---------------------------------------------------------------------------
+;; Streaming subscriptions (rf2-hq49)
+;; ---------------------------------------------------------------------------
+;;
+;; A subscription is a server-side filtered tap on the trace bus or the
+;; epoch bus. The MCP server registers a subscription via `subscribe!`,
+;; then polls `drain-subscription!` in a tight loop to retrieve queued
+;; events between polls; each batch is pushed back to the MCP client as
+;; a `notifications/progress` notification.
+;;
+;; Why poll-from-server rather than push-from-runtime? The runtime lives
+;; in the browser tab; the only side-channel back to the MCP server is
+;; the nREPL socket (controlled by the server). Polling at ~100ms is
+;; well below the perceptual threshold for the agent loop, costs one
+;; bencode round-trip per tick, and stays correct across page reloads
+;; (a reload wipes the runtime's subscription registry along with
+;; everything else; the server's poll loop sees an empty drain + the
+;; sub-id absent from `subscription-info`, and exits cleanly).
+;;
+;; Per-subscription state:
+;;   {:id <uuid>
+;;    :topic    :trace | :epoch | :fx | :error
+;;    :filter   <filter-map>         ;; vocab depends on topic
+;;    :queue    <vector of events>   ;; appended-to by the cb, drained by the server
+;;    :overflow <integer>            ;; events dropped because queue exceeded :max-buffered
+;;    :created-at <ms>
+;;    :max-buffered <integer>}       ;; queue cap; default 500
+;;
+;; Topic semantics:
+;;   :trace  — every event in the raw trace stream matching `:filter`
+;;             (filter map mirrors `(rf/trace-buffer)` filter vocab —
+;;             see rf2-97ah0). One event per delivered trace event.
+;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`
+;;             (filter map mirrors `epoch-matches?` — see watch-epochs).
+;;             One event per committed epoch.
+;;   :fx     — sugar for `:topic :trace :filter {:op-type :fx}` with
+;;             optional `:fx-id` and `:event-id` axes from the trace
+;;             filter vocabulary.
+;;   :error  — sugar for `:topic :trace :filter {:op-type :error}`,
+;;             with `:event-id`/`:handler-id`/`:source` available.
+;;
+;; The :fx and :error topics compose with axes from the trace filter
+;; vocabulary verbatim — they just default `:op-type` to `:fx` /
+;; `:error` and let callers override the rest.
+
+(defonce ^:private subscriptions
+  ;; sub-id -> subscription map (see above)
+  (atom {}))
+
+(def ^:private default-max-buffered 500)
+
+(defn- topic->base-filter
+  "Map a topic keyword to its base trace-filter constraints. `:fx` and
+   `:error` are sugar over `:op-type`; `:trace` and `:epoch` add no
+   base constraint here (the user-supplied filter is the only constraint)."
+  [topic]
+  (case topic
+    :fx    {:op-type :fx}
+    :error {:op-type :error}
+    {}))
+
+(defn- compose-trace-filter
+  "Compose the topic's base trace-filter with the user-supplied filter.
+   User keys win on conflict — the topic is a default, not a lock."
+  [topic user-filter]
+  (merge (topic->base-filter topic) (or user-filter {})))
+
+(declare epoch-matches?) ;; resolved below
+
+(defn- trace-matches?
+  "Test a raw trace event against a filter map. Mirrors the filter
+   vocabulary of `(rf/trace-buffer opts)` (rf2-97ah0) — composes
+   AND-wise, absent key means no constraint on that axis."
+  [filter-map ev]
+  (let [{:keys [operation op-type frame severity
+                event-id handler-id source origin
+                dispatch-id since-ms between]}
+        filter-map
+        [t0 t1] (when (and (sequential? between) (= 2 (count between)))
+                  between)]
+    (boolean
+      (and (or (nil? operation)  (= operation (:operation ev)))
+           (or (nil? op-type)    (= op-type   (:op-type ev)))
+           (or (nil? severity)   (= severity  (:op-type ev)))
+           (or (nil? frame)      (= frame
+                                    (or (:frame ev)
+                                        (get-in ev [:tags :frame]))))
+           (or (nil? event-id)   (= event-id
+                                    (get-in ev [:tags :event-id])))
+           (or (nil? handler-id) (= handler-id
+                                    (get-in ev [:tags :handler-id])))
+           (or (nil? source)     (= source
+                                    (or (:source ev)
+                                        (get-in ev [:tags :source]))))
+           (or (nil? origin)     (= origin
+                                    (get-in ev [:tags :origin])))
+           (or (nil? dispatch-id)(= dispatch-id
+                                    (get-in ev [:tags :dispatch-id])))
+           (or (nil? since-ms)   (and (number? (:time ev))
+                                      (> (:time ev) since-ms)))
+           (or (nil? t0)         (and (number? (:time ev))
+                                      (<= t0 (:time ev) t1)))))))
+
+(defn- enqueue!
+  "Append an event to a subscription's queue, honouring max-buffered.
+   When the queue is full we drop the new event and increment overflow —
+   keeping the oldest events lets the agent reconstruct the start of a
+   storm rather than seeing only the tail."
+  [sub-state sub-id event]
+  (update sub-state sub-id
+          (fn [sub]
+            (when sub
+              (let [q  (:queue sub)
+                    n  (count q)
+                    cap (:max-buffered sub default-max-buffered)]
+                (if (>= n cap)
+                  (update sub :overflow (fnil inc 0))
+                  (update sub :queue conj event)))))))
+
+(defn- dispatch-trace-to-subs!
+  "Called from the raw-trace listener — iterates active subscriptions of
+   trace-like topics, matches, enqueues. Cheap when no subs exist (the
+   common path)."
+  [ev]
+  (swap! subscriptions
+         (fn [m]
+           (reduce-kv
+             (fn [acc sub-id sub]
+               (if (and (contains? #{:trace :fx :error} (:topic sub))
+                        (trace-matches? (:compiled-filter sub) ev))
+                 (enqueue! acc sub-id ev)
+                 acc))
+             m m))))
+
+(defn- dispatch-epoch-to-subs!
+  "Called from the assembled-epoch listener — iterates active epoch
+   subscriptions, matches, enqueues."
+  [record]
+  (swap! subscriptions
+         (fn [m]
+           (reduce-kv
+             (fn [acc sub-id sub]
+               (if (and (= :epoch (:topic sub))
+                        (epoch-matches? (or (:filter sub) {}) record))
+                 (enqueue! acc sub-id record)
+                 acc))
+             m m))))
+
+(defn- on-trace-streaming
+  "Replacement raw-trace listener that drives both the last-trace-id
+   cursor (legacy) and the streaming subs dispatch."
+  [ev]
+  (when-let [id (:id ev)]
+    (when (number? id) (reset! last-trace-id id)))
+  (dispatch-trace-to-subs! ev))
+
+(defn- on-epoch-streaming
+  "Replacement assembled-epoch listener that drives both the observed
+   stash (legacy) and the streaming subs dispatch."
+  [record]
+  (swap! observed-epochs
+         (fn [m]
+           (let [frame-id (:frame record)
+                 v        (or (get m frame-id) [])
+                 v+       (conj v record)
+                 n        (count v+)]
+             (assoc m frame-id (if (> n 500) (subvec v+ (- n 500)) v+)))))
+  (dispatch-epoch-to-subs! record))
+
+(defn subscribe!
+  "Open a streaming subscription on the trace or epoch bus. Returns
+   `{:ok? true :sub-id <uuid>}`. Subsequent calls to
+   `drain-subscription!` return queued events matching `:filter`.
+
+   Opts:
+     :topic   :trace | :epoch | :fx | :error  (required)
+     :filter  filter map — vocab depends on topic. See namespace docs.
+     :max-buffered  cap on the in-runtime queue. Default 500. Once
+                    the cap is reached, new events are dropped and
+                    counted in `:overflow`.
+
+   Idempotency: each call returns a fresh sub-id — repeated `subscribe!`
+   calls do not share state. Use `unsubscribe!` to release."
+  [{:keys [topic filter max-buffered] :as opts}]
+  (cond
+    (not (contains? #{:trace :epoch :fx :error} topic))
+    {:ok? false :reason :unknown-topic
+     :hint "Recognised topics: :trace :epoch :fx :error"
+     :given topic}
+
+    :else
+    (let [sub-id (str (random-uuid))
+          compiled (when (#{:trace :fx :error} topic)
+                     (compose-trace-filter topic filter))
+          sub {:id            sub-id
+               :topic         topic
+               :filter        (or filter {})
+               :compiled-filter compiled
+               :queue         []
+               :overflow      0
+               :created-at    (js/Date.now)
+               :max-buffered  (or max-buffered default-max-buffered)}]
+      ;; Make sure the upgraded listeners are wired (idempotent — same
+      ;; id, replaces the basic listeners installed by `health`).
+      (rf/register-trace-cb! :re-frame-pair2 on-trace-streaming)
+      (rf/register-epoch-cb! :re-frame-pair2-epoch on-epoch-streaming)
+      (swap! subscriptions assoc sub-id sub)
+      {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))
+
+(defn unsubscribe!
+  "Drop subscription `sub-id`. Returns `{:ok? true :sub-id ...}` even
+   if the id was unknown — callers (the MCP server's poll loop) want
+   idempotent close."
+  [sub-id]
+  (let [existed? (contains? @subscriptions sub-id)]
+    (swap! subscriptions dissoc sub-id)
+    {:ok? true :sub-id sub-id :existed? existed?}))
+
+(defn drain-subscription!
+  "Pop every queued event for `sub-id` and return them in order.
+   Returns `{:ok? true :sub-id ... :events [...] :overflow <n> :gone? bool}`.
+   If the subscription doesn't exist (already unsubscribed or runtime
+   was reloaded), `:gone? true`."
+  [sub-id]
+  (let [snap (atom nil)]
+    (swap! subscriptions
+           (fn [m]
+             (if-let [sub (get m sub-id)]
+               (do (reset! snap {:events (:queue sub)
+                                 :overflow (:overflow sub)})
+                   (assoc m sub-id (-> sub
+                                       (assoc :queue [])
+                                       (assoc :overflow 0))))
+               (do (reset! snap nil) m))))
+    (if-let [{:keys [events overflow]} @snap]
+      {:ok? true :sub-id sub-id :events events :overflow (or overflow 0) :gone? false}
+      {:ok? true :sub-id sub-id :events [] :overflow 0 :gone? true})))
+
+(defn subscription-info
+  "Return active subscription metadata — handy for diagnostics. Returns
+   `{:ok? true :subs [{:id :topic :filter :queue-depth :overflow :created-at}]}`.
+   Does not drain."
+  []
+  {:ok? true
+   :subs (mapv (fn [[sub-id sub]]
+                 {:id        sub-id
+                  :topic     (:topic sub)
+                  :filter    (:filter sub)
+                  :queue-depth (count (:queue sub))
+                  :overflow  (:overflow sub)
+                  :created-at (:created-at sub)})
+               @subscriptions)})
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch correlation (Spec 009 §Dispatch correlation)

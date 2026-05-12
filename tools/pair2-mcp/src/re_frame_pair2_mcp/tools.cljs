@@ -14,6 +14,9 @@
   | watch-epochs  | Pull-mode live epoch streaming                            |
   | tail-build    | Wait for a hot-reload to land                             |
   | snapshot      | Coarse-grained per-frame state read (mega-op)             |
+  | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
+  |               | watch-epochs (rf2-hq49)                                   |
+  | unsubscribe   | Close a streaming subscription                            |
 
   ## Preload probe (no per-session inject)
 
@@ -34,6 +37,7 @@
   Each MCP tool returns `{:content [{:type \"text\" :text <edn-string>}]}`
   on success, or `{:isError true :content [...]}` on failure."
   (:require [applied-science.js-interop :as j]
+            [cljs.reader]
             [clojure.string :as str]
             [re-frame-pair2-mcp.nrepl :as nrepl]))
 
@@ -394,6 +398,211 @@
         (.catch (fn [err] (err->result :snapshot-failed err))))))
 
 ;; ---------------------------------------------------------------------------
+;; Tool: subscribe — streaming trace + epoch channel (rf2-hq49).
+;;
+;; The MCP `tools/call` request runs until either:
+;;   (a) the client aborts (cancellation arrives via the MCP `extra.signal`
+;;       AbortSignal), or
+;;   (b) an `unsubscribe` op clears the sub-id from the runtime.
+;;
+;; While running, each batch of newly-queued runtime events is shipped to
+;; the client as a `notifications/progress` notification correlated to the
+;; original tools/call via `extra._meta.progressToken`. The final
+;; `tools/call` result is a summary `{:ok? true :sub-id :delivered N
+;; :overflow N :reason <terminated-reason>}`.
+;;
+;; The runtime queue is bounded (default 500); overflow events get
+;; counted in a per-sub `:overflow` slot and surfaced verbatim. The
+;; server's poll cadence (`:poll-ms`, default 100) is well below the
+;; agent-loop perceptual threshold and costs one bencode round-trip
+;; per tick.
+;;
+;; Filter vocabulary (server-side normalisation happens on the runtime).
+;;
+;; Topics:
+;;   :trace  — every entry of the raw trace stream matching `:filter`.
+;;             `:filter` keys: :operation :op-type :frame :severity
+;;                            :event-id :handler-id :source :origin
+;;                            :dispatch-id :since-ms :between
+;;             (mirrors `(rf/trace-buffer)` per rf2-97ah0).
+;;   :epoch  — every assembled `:rf/epoch-record` matching `:filter`.
+;;             `:filter` keys: :event-id :event-id-prefix :effects
+;;                            :touches-path :sub-ran :render :origin
+;;                            :frame  (mirrors `epoch-matches?`).
+;;   :fx     — sugar for :topic :trace :filter {:op-type :fx ...}.
+;;   :error  — sugar for :topic :trace :filter {:op-type :error ...}.
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-poll-ms 100)
+
+(defn- progress-payload
+  "Build the JSON params payload for one `notifications/progress` tick.
+  `events` is the EDN-printed string of the batch (kept as a string so
+  the agent host sees the same shape as `tools/call` results)."
+  [progress-token tick events overflow]
+  #js {:progressToken progress-token
+       :progress      tick
+       ;; `message` is the human-readable slot. We stash an EDN form
+       ;; here so an MCP client that surfaces progress messages to
+       ;; the agent shows the events directly. A capable client can
+       ;; additionally inspect the `data` slot for the structured
+       ;; counts.
+       :message       events
+       :data          #js {:overflow overflow}})
+
+(defn- parse-filter-arg
+  "MCP-side filter arg can be either a JS object or an EDN string. We
+  accept both for ergonomic parity with the bash-shim chain (`pred`
+  has been a JSON object there). Returns an EDN-printable map or nil
+  when missing."
+  [raw]
+  (cond
+    (nil? raw)        nil
+    (string? raw)     (try (cljs.reader/read-string raw)
+                           (catch :default _
+                             {:invalid-filter-edn raw}))
+    (map? raw)        raw
+    :else             (js->clj raw :keywordize-keys true)))
+
+(defn- subscribe-tool [conn args extra]
+  (let [build-id    (arg-build args)
+        topic       (some-> (arg args :topic) keyword)
+        filter-map  (parse-filter-arg (arg args :filter))
+        max-buf     (or (arg args :max-buffered) 500)
+        poll-ms     (or (arg args :poll-ms) default-poll-ms)
+        max-ms      (or (arg args :max-ms) 0)    ;; 0 = no upper bound
+        max-events  (or (arg args :max-events) 0) ;; 0 = no upper bound
+        progress-tk (some-> extra
+                            (j/get :_meta)
+                            (j/get :progressToken))
+        send-note   (some-> extra (j/get :sendNotification))
+        signal      (some-> extra (j/get :signal))]
+    (cond
+      (or (nil? topic)
+          (not (#{:trace :epoch :fx :error} topic)))
+      (js/Promise.resolve
+        (err-text {:ok? false :reason :unknown-topic
+                   :given (arg args :topic)
+                   :hint "Recognised topics: trace, epoch, fx, error."}))
+
+      :else
+      (let [subscribe-form
+            (str "(re-frame-pair2.runtime/subscribe! "
+                 (pr-str (cond-> {:topic topic
+                                  :max-buffered max-buf}
+                           filter-map (assoc :filter filter-map)))
+                 ")")]
+        (-> (ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
+            (.then
+              (fn [subscribe-resp]
+                (if-not (:ok? subscribe-resp)
+                  ;; Runtime refused (unknown topic, etc.) — surface verbatim.
+                  (ok-text subscribe-resp)
+                  (let [sub-id (:sub-id subscribe-resp)]
+                    (js/Promise.
+                      (fn [resolve _reject]
+                        (let [tick      (atom 0)
+                              delivered (atom 0)
+                              overflow* (atom 0)
+                              terminate
+                              (fn [reason]
+                                ;; Drop the runtime subscription and
+                                ;; resolve. Idempotent — unsubscribe!
+                                ;; returns :existed? false the second
+                                ;; time.
+                                (-> (nrepl/cljs-eval-value
+                                      conn build-id
+                                      (str "(re-frame-pair2.runtime/unsubscribe! "
+                                           (pr-str sub-id) ")"))
+                                    (.catch (fn [_] nil))
+                                    (.then
+                                      (fn [_]
+                                        (resolve
+                                          (ok-text
+                                            {:ok?        true
+                                             :sub-id     sub-id
+                                             :topic      topic
+                                             :delivered  @delivered
+                                             :overflow   @overflow*
+                                             :ticks      @tick
+                                             :reason     reason}))))))
+                              poll
+                              (fn poll []
+                                (cond
+                                  ;; Client cancelled the tools/call.
+                                  (and signal (.-aborted signal))
+                                  (terminate :aborted)
+
+                                  ;; Caller-supplied upper bounds.
+                                  (and (pos? max-events)
+                                       (>= @delivered max-events))
+                                  (terminate :max-events-reached)
+
+                                  :else
+                                  (-> (nrepl/cljs-eval-value
+                                        conn build-id
+                                        (str "(re-frame-pair2.runtime/drain-subscription! "
+                                             (pr-str sub-id) ")"))
+                                      (.then
+                                        (fn [drain-resp]
+                                          (cond
+                                            (:gone? drain-resp)
+                                            (terminate :sub-gone)
+
+                                            :else
+                                            (let [evts (:events drain-resp)
+                                                  ov   (:overflow drain-resp 0)
+                                                  n    (count evts)]
+                                              (swap! overflow* + ov)
+                                              (when (or (pos? n) (pos? ov))
+                                                (swap! tick inc)
+                                                (swap! delivered + n)
+                                                (when (and send-note progress-tk)
+                                                  (try
+                                                    (send-note
+                                                      #js {:method "notifications/progress"
+                                                           :params (progress-payload
+                                                                     progress-tk
+                                                                     @tick
+                                                                     (pr-str
+                                                                       {:sub-id sub-id
+                                                                        :events evts
+                                                                        :overflow ov})
+                                                                     ov)})
+                                                    (catch :default _ nil))))
+                                              (js/setTimeout poll poll-ms)))))
+                                      (.catch
+                                        (fn [_err]
+                                          ;; nREPL hiccup — back off
+                                          ;; and try again rather than
+                                          ;; collapsing the stream.
+                                          (js/setTimeout poll (* 2 poll-ms)))))))]
+                          ;; Optional max-ms hard cap.
+                          (when (pos? max-ms)
+                            (js/setTimeout #(terminate :max-ms-reached) max-ms))
+                          (poll))))))))
+            (.catch (fn [err] (err->result :subscribe-failed err))))))))
+
+(defn- unsubscribe-tool [conn args]
+  (let [build-id (arg-build args)
+        sub-id   (arg args :sub-id)]
+    (cond
+      (or (nil? sub-id) (str/blank? sub-id))
+      (js/Promise.resolve
+        (err-text {:ok? false :reason :missing-sub-id
+                   :hint "usage: unsubscribe {sub-id '<uuid>'}"}))
+
+      :else
+      (let [form (str "(re-frame-pair2.runtime/unsubscribe! "
+                      (pr-str sub-id) ")")]
+        (-> (ensure-runtime! conn build-id)
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then (fn [v] (ok-text (merge {:ok? true :sub-id sub-id}
+                                           (when (map? v) v)))))
+            (.catch (fn [err] (err->result :unsubscribe-failed err))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool descriptors — exposed via tools/list.
 ;; ---------------------------------------------------------------------------
 
@@ -460,6 +669,42 @@
                                          :items {:type "string"
                                                  :enum ["app-db" "sub-cache" "machines" "epochs" "traces"]}}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
+                  :additionalProperties false}}
+   {:name "subscribe"
+    :description (str "Open a streaming subscription on the trace or epoch bus. Push-mode replacement for watch-epochs. "
+                      "Long-running tools/call — emits each batch of matching events as a notifications/progress notification "
+                      "(correlated via the call's progressToken), and resolves with a summary when the client cancels or an "
+                      "unsubscribe op fires. Topics: 'trace' (raw trace stream), 'epoch' (assembled :rf/epoch-records), "
+                      "'fx' (trace stream filtered to :op-type :fx), 'error' (trace stream filtered to :op-type :error). "
+                      "Filter vocab depends on topic — :trace/:fx/:error accept the (rf/trace-buffer) filter map "
+                      "(:operation :op-type :frame :severity :event-id :handler-id :source :origin :dispatch-id :since-ms :between); "
+                      ":epoch accepts the epoch-matches? predicate map (:event-id :event-id-prefix :effects :touches-path "
+                      ":sub-ran :render :origin :frame). Pass `filter` either as a JSON object or as an EDN-encoded string.")
+    :inputSchema {:type "object"
+                  :properties {:topic   {:type "string"
+                                         :description "Topic name. Required."
+                                         :enum ["trace" "epoch" "fx" "error"]}
+                               :filter  {:description "Filter map (JSON object) or EDN string. Vocab depends on topic."
+                                         :oneOf [{:type "object"}
+                                                 {:type "string"}]}
+                               :max-buffered {:type "integer"
+                                              :description "Runtime-side queue cap. Default 500. Overflow is counted, not blocked."}
+                               :poll-ms {:type "integer"
+                                         :description "Server poll cadence in ms. Default 100."}
+                               :max-ms  {:type "integer"
+                                         :description "Hard upper-bound on how long the subscription stays open, ms. 0 = unbounded (close on cancel only). Default 0."}
+                               :max-events {:type "integer"
+                                            :description "Terminate after this many events have been delivered. 0 = unbounded. Default 0."}
+                               :build   {:type "string"}}
+                  :required ["topic"]
+                  :additionalProperties false}}
+   {:name "unsubscribe"
+    :description "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false."
+    :inputSchema {:type "object"
+                  :properties {:sub-id {:type "string"
+                                        :description "The uuid returned by `subscribe`."}
+                               :build  {:type "string"}}
+                  :required ["sub-id"]
                   :additionalProperties false}}])
 
 (defn tool-descriptors-js []
@@ -469,8 +714,12 @@
   "Dispatch a `tools/call` invocation to the right tool implementation.
   Returns a Promise resolving to the MCP result object. Unknown tools
   resolve to an isError result rather than throwing — keeps the server
-  loop simple."
-  [conn name args]
+  loop simple.
+
+  `extra` carries the MCP `extra` payload (signal + sendNotification +
+  _meta.progressToken) for streaming tools. Non-streaming tools
+  ignore it."
+  [conn name args extra]
   (case name
     "discover-app"     (discover-app   conn args)
     "eval-cljs"        (eval-cljs-tool conn args)
@@ -479,5 +728,7 @@
     "watch-epochs"     (watch-epochs-tool conn args)
     "tail-build"       (tail-build-tool conn args)
     "snapshot"         (snapshot-tool  conn args)
+    "subscribe"        (subscribe-tool conn args extra)
+    "unsubscribe"      (unsubscribe-tool conn args)
     (js/Promise.resolve
       (err-text {:ok? false :reason :unknown-tool :tool name}))))
