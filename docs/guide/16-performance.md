@@ -1,4 +1,4 @@
-# 17 — Performance
+# 16 — Performance
 
 re-frame2 is a fast pattern, but it isn't a magic one. The runtime trims work where the architecture lets it — subs are cached per-frame, drains coalesce renders, views can run pure-equal checks on data because *data is data* — and the rest is up to you. When your app gets slow, the cause is almost always one of four shapes, and the framework has an answer for each.
 
@@ -9,7 +9,7 @@ What you'll come away with:
 - A short, named taxonomy of where slowness comes from in a re-frame2 app.
 - The framework's answer to each shape — how to write views, subs, and callbacks so the pipeline stays cheap.
 - When to reach for the chunked-work state machine from [chapter 08](08-state-machines.md#pattern-longrunningwork-cpu-bound-work-as-a-chunked-machine), and when to offload to a worker instead.
-- The `rf:` Performance API surface from [chapter 16](16-devtools-and-pair-tools.md#performance-the-prod-friendly-channel) and how to read it in Chrome DevTools.
+- The `rf:` Performance API surface from [chapter 15](15-devtools-and-pair-tools.md#performance-the-prod-friendly-channel) and how to read it in Chrome DevTools.
 - One worked example: a list-with-checkboxes that goes from "noticeably laggy" to "feels instant" through three small refactors.
 
 The whole chapter is CLJS-flavoured — the dynamic model is the same on the JVM, but rendering performance is a browser story. JVM-side timing belongs to host profilers, not to re-frame2's surfaces.
@@ -192,7 +192,7 @@ The v1 idiom for this work — `^:flush-dom` event metadata, self-redispatching 
 
 ## The `rf:` Performance API surface
 
-The trace bus from [chapter 16](16-devtools-and-pair-tools.md#what-you-get-for-free) is dev-only. For production timing — APM dashboards, in-house perf overlays, "is this page slower in production than in dev?" investigations — re-frame2 ships a second observation channel through the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
+The trace bus from [chapter 15](15-devtools-and-pair-tools.md#what-you-get-for-free) is dev-only. For production timing — APM dashboards, in-house perf overlays, "is this page slower in production than in dev?" investigations — re-frame2 ships a second observation channel through the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
 
 When the channel is on, the runtime brackets four hot-path call sites with `performance.mark` / `performance.measure` entries, all stably named under the `rf:` prefix:
 
@@ -418,7 +418,7 @@ A few things the chapter deliberately does not cover.
 - **Bundle size.** Production bundle size is a Closure-compiler story, not a re-frame2 one. The DCE story for the trace surface and the `rf:` channel is in [Spec 009](../../spec/009-Instrumentation.md#production-elision-verification); how to keep *your* code small is a `:advanced` story.
 - **Animation performance.** Reagent renders into React renders into the DOM. Animation jank is usually a DOM / CSS story, not a re-frame2 one. The chunked-work machine helps when you've blocked the main thread; for `transform` / `opacity` smoothness, the browser's `will-change` and `transform: translateZ(0)` tricks live one layer deeper.
 - **Server-side rendering performance.** SSR is JVM-side; the `rf:` channel is browser-only; profiling SSR uses host tools. The shape of [chapter 11](11-server-side.md) is what governs server-side cost, not this chapter.
-- **Sub-graph topology analysis.** The static sub-graph (`(rf/sub-topology)`, [chapter 16 §Reference](16-devtools-and-pair-tools.md#reference-the-static-sub-graph-sub-topology)) is the right lever when you want to find dead subs or visualise dependencies. The performance angle on it is "every redundant edge is a potential cache miss"; the tooling angle covers the rest.
+- **Sub-graph topology analysis.** The static sub-graph (`(rf/sub-topology)`, [chapter 15 §Reference](15-devtools-and-pair-tools.md#reference-the-static-sub-graph-sub-topology)) is the right lever when you want to find dead subs or visualise dependencies. The performance angle on it is "every redundant edge is a potential cache miss"; the tooling angle covers the rest.
 
 ## What we covered
 
@@ -430,6 +430,6 @@ A few things the chapter deliberately does not cover.
 ## Next
 
 - [08 — State machines §Pattern-LongRunningWork](08-state-machines.md#pattern-longrunningwork-cpu-bound-work-as-a-chunked-machine) — the chunked-work machine in full.
-- [16 — Tooling](16-devtools-and-pair-tools.md) — the trace bus, the epoch records, the source-coord story.
+- [15 — Tooling](15-devtools-and-pair-tools.md) — the trace bus, the epoch records, the source-coord story.
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the Web Worker offload alternative for genuinely heavy CPU work.
 - [Spec 009 §Performance instrumentation](../../spec/009-Instrumentation.md#performance-instrumentation) — the normative contract for the `rf:` surface (entry names, gating, bundle isolation).

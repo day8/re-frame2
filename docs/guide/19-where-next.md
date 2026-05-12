@@ -44,7 +44,7 @@ Both are written precisely (so the AI track can use them) but readably (so this 
 
 ## Migrate from v1
 
-If you have an existing re-frame v1 app to bring across, [chapter 12](12-from-re-frame-v1.md) is the narrative version of the story. The mechanical version is [spec/MIGRATION.md](../../spec/MIGRATION.md) — an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 12 first to know what's coming; reach for MIGRATION when you're ready to drive the actual port.
+If you have an existing re-frame v1 app to bring across, [chapter 18](18-from-re-frame-v1.md) is the narrative version of the story. The mechanical version is [spec/MIGRATION.md](../../spec/MIGRATION.md) — an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 18 first to know what's coming; reach for MIGRATION when you're ready to drive the actual port.
 
 ## Read the spec
 

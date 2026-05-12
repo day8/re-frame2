@@ -63,13 +63,13 @@ nav:
     - "09 — Forms": guide/09-forms.md
     - "10 — Doing HTTP requests": guide/10-doing-http-requests.md
     - "11 — The server side": guide/11-server-side.md
-    - "12 — From re-frame v1": guide/12-from-re-frame-v1.md
-    - "13 — The dynamic model": guide/13-the-dynamic-model.md
-    - "14 — Testing": guide/14-testing.md
-    - "15 — Errors": guide/15-errors.md
-    - "16 — Tooling": guide/16-devtools-and-pair-tools.md
-    - "17 — Performance": guide/17-performance.md
-    - "18 — Routing": guide/18-routing.md
+    - "12 — The dynamic model": guide/12-the-dynamic-model.md
+    - "13 — Testing": guide/13-testing.md
+    - "14 — Errors": guide/14-errors.md
+    - "15 — Tooling": guide/15-devtools-and-pair-tools.md
+    - "16 — Performance": guide/16-performance.md
+    - "17 — Routing": guide/17-routing.md
+    - "18 — From re-frame v1": guide/18-from-re-frame-v1.md
     - "19 — Where to go next": guide/19-where-next.md
     - "20 — Stories": guide/20-stories.md
 

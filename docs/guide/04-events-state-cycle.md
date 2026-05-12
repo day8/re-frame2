@@ -29,7 +29,7 @@ Et tu, React? The same trade runs through Reagent. You write a view function tha
 
 re-frame2 generalises this trade to *every* side-effect, not just `app-db` and the DOM. Your handler doesn't fetch HTTP; it returns a value that *says* "an HTTP request should happen." Your handler doesn't write localStorage; it returns a value that says "this key should be written." Your handler doesn't navigate; it returns a value that says "the URL should change." In every case the handler causes; the runtime does.
 
-The handler is the cleanest layer in the system. Every function it calls is pure. Every value it touches is immutable. Every test it has runs in a millisecond, without a browser, without a network, without a clock. The price is that "do X" becomes "return a value describing X." That price is paid once, at one boundary, and the rest of the codebase composes by the rules of pure-function composition — [chapter 13](13-the-dynamic-model.md#v-the-banana-issue) makes the deeper case for why that matters.
+The handler is the cleanest layer in the system. Every function it calls is pure. Every value it touches is immutable. Every test it has runs in a millisecond, without a browser, without a network, without a clock. The price is that "do X" becomes "return a value describing X." That price is paid once, at one boundary, and the rest of the codebase composes by the rules of pure-function composition — [chapter 12](12-the-dynamic-model.md#v-the-banana-issue) makes the deeper case for why that matters.
 
 ### What goes wrong if you don't
 

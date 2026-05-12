@@ -1,4 +1,4 @@
-# 13 — The dynamic-model story
+# 12 — The dynamic-model story
 
 > *Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed.*
 > — E. W. Dijkstra
@@ -107,7 +107,7 @@ Programmers, by habit, focus on **parts** — the dominoes, the handlers, the vi
 
 **Events as assembly language.** Look at the stream of events your app dispatches over a session — `[:user/clicked-save]`, `[:nav/route-changed ...]`, `[:tx/applied ...]`. That collection is a program. It is data. It is executed by a virtual machine you wrote, namely your registered event handlers. Each `reg-event` adds an instruction to the machine's instruction set. Assembly running on an x86, events running on your handler-machine — same idea, same shape. It happens to be a particularly debuggable VM: the program is loggable, the machine is queryable, the execution is run-to-completion.
 
-**Event sourcing.** Once you accept that events are the program, the consequence falls out: events are the source of truth, and `app-db` is a projection. To reproduce any bug you need only the last checkpoint plus the events since. Pure, loggable data — no heap dump, no timing capture. re-frame2's epoch system (chapter 16) makes this concrete: a frame's whole state at any past event is reachable by a pointer swap.
+**Event sourcing.** Once you accept that events are the program, the consequence falls out: events are the source of truth, and `app-db` is a projection. To reproduce any bug you need only the last checkpoint plus the events since. Pure, loggable data — no heap dump, no timing capture. re-frame2's epoch system (chapter 15) makes this concrete: a frame's whole state at any past event is reachable by a pointer swap.
 
 **App-db as the result of a perpetual reduce.** Event handlers have the signature `(state, event) → state`. That is exactly the signature of `reduce`'s combining function. So `app-db` is the running accumulator of `(reduce step initial-db events-so-far)` — where `step` is dispatch over the registered handler set. `app-db` isn't *primary*; it's *temporary storage for the fold*. Events are primary. Elm called this `foldp` — fold-from-the-past — and it is one of the most useful mental models in the framework.
 
