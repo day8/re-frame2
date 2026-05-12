@@ -29,6 +29,10 @@ re-frame2's stance: that information should never have left. If the runtime know
  :time      1700000000000                     ;; emit time (host clock)
  :source    :ui                               ;; trigger origin (:ui :timer :http ...)
  :recovery  :no-recovery                      ;; what the runtime did after
+ :rf.trace/trigger-handler                    ;; (optional) the in-scope handler
+ {:kind         :event
+  :id           :cart/add-item
+  :source-coord {:ns 'myapp.cart :file "src/myapp/cart.cljs" :line 142 :column 3}}
  :tags      {:category    :rf.error/handler-exception
              :failing-id  :cart/add-item
              :reason      "Event handler `:cart/add-item` threw: ..."
@@ -44,6 +48,8 @@ Three fields do the load-bearing work:
 - **`:op-type`** is the universal severity — `:error` or `:warning`. A consumer that wants "show me everything that failed" filters on `:op-type :error`.
 - **`:operation`** is the category — namespaced (`:rf.error/...`, `:rf.warning/...`, `:rf.fx/...`, `:rf.ssr/...`, `:rf.epoch/...`). A consumer that wants "show me only handler exceptions" filters on `:operation :rf.error/handler-exception`.
 - **`:recovery`** is what re-frame2 did *after* the error — `:no-recovery`, `:replaced-with-default`, `:logged-and-skipped`, `:warned-and-replaced`, `:skipped`, `:retried`, `:ignored`. (See [§Recovery semantics](#recovery-semantics) below.)
+
+The optional **`:rf.trace/trigger-handler`** slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (10x, pair, IDE jump-to-source) consume the coord to render click-to-jump links straight to the offending handler. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent on outermost-dispatch errors with no handler resolved (e.g. `:rf.error/no-such-handler`).
 
 Everything else rides under `:tags`, with category-specific keys. The full schema lives in [Spec-Schemas](../../spec/Spec-Schemas.md) under `:rf/trace-event`; the per-category `:tags` shapes are pinned in [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas).
 

@@ -59,6 +59,77 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
+;; ---- trigger-handler (rf2-3nn8) -------------------------------------------
+;;
+;; Per Spec 009 §Error contract: every `:rf.error/*` trace event MAY carry a
+;; `:rf.trace/trigger-handler` field naming the handler whose execution
+;; produced the error. The field is OPTIONAL — it is present when an
+;; in-scope handler can be identified (event handler running, sub
+;; recomputing, fx handler dispatching, cofx injecting, view rendering)
+;; and absent when no handler is in scope (e.g. outermost-dispatch
+;; `:rf.error/no-such-handler`).
+;;
+;; The runtime carries the in-scope handler through the dynamic Var
+;; `*current-trigger-handler*`. Runtime boundaries (the router's
+;; `process-event!`, the sub recompute path, the fx dispatcher, the
+;; cofx injector, the view render wrapper) bind the Var around the
+;; user code they run; `emit-error!` reads the Var and hoists its
+;; value to the top-level `:rf.trace/trigger-handler` slot on the
+;; emitted event when bound.
+;;
+;; Shape (locked, per rf2-3nn8):
+;;
+;;   {:kind         <kw>                  ;; :event / :sub / :fx / :cofx / :view
+;;    :id           <kw>                  ;; the registered handler's id
+;;    :source-coord {:ns     <sym>
+;;                   :file   <string>
+;;                   :line   <int>
+;;                   :column <int>}}      ;; or nil when no source-coord captured
+;;
+;; The field is NOT elided in production — unlike `:rf.assert/*` which
+;; is dev-only, `:rf.error/*` traces ride into prod builds and the
+;; trigger-handler coord rides with them. Per Spec 009 §Production
+;; builds the broader trace surface is dev-only via `interop/debug-
+;; enabled?`; this Var sits inside that gate and naturally elides with
+;; the surrounding error emit when prod-elided.
+
+(def ^:dynamic *current-trigger-handler*
+  "The handler currently in scope for trace emission. Bound by each
+  runtime boundary (router, subs, fx, cofx, views). When bound and an
+  error trace fires, `emit-error!` attaches the value to the event as
+  `:rf.trace/trigger-handler`. nil outside any handler's scope.
+
+  Shape: `{:kind <kw> :id <kw> :source-coord {:ns :file :line :column}?}`.
+
+  Per rf2-3nn8."
+  nil)
+
+(defn trigger-handler-from-meta
+  "Build a `:rf.trace/trigger-handler` value from a registrar meta map.
+  `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
+  `id` is the registered id; `meta` is the registrar slot's metadata (as
+  returned by `registrar/lookup`). Picks `:ns` / `:file` / `:line` /
+  `:column` off the meta map (the source-coord stamp lives flat on the
+  meta map per `re-frame.source-coords/merge-coords`).
+
+  Returns nil when no source-coord keys are present on `meta` — the
+  Var stays unbound and the error event omits the field. That covers
+  the programmatic-registration path (the underlying registration fns
+  called directly without the macro wrapping) where coords would be
+  meaningless framework-internal positions.
+
+  Per rf2-3nn8."
+  [kind id meta]
+  (let [coord (cond-> nil
+                (:ns     meta) (assoc :ns     (:ns     meta))
+                (:file   meta) (assoc :file   (:file   meta))
+                (:line   meta) (assoc :line   (:line   meta))
+                (:column meta) (assoc :column (:column meta)))]
+    (when coord
+      {:kind         kind
+       :id           id
+       :source-coord coord})))
+
 ;; ---- retain-N trace ring buffer (dev-only) -------------------------------
 ;;
 ;; Per Spec 009 §Retain-N trace ring buffer. Holds the most recent N completed
@@ -214,15 +285,24 @@
   "Emit a structured error trace event. Per Spec 009 §Error contract:
   `:operation` is the error category (e.g. `:rf.error/handler-exception`),
   `:op-type` is :error, and `:tags` includes `:category`, `:exception`,
-  `:where`, etc."
+  `:where`, etc.
+
+  Per rf2-3nn8: when `*current-trigger-handler*` is bound (a handler is
+  currently in scope — event handler running, sub recomputing, fx
+  handler dispatching, cofx injecting, view rendering), the value is
+  hoisted to the top-level `:rf.trace/trigger-handler` slot on the
+  emitted event. Absent when no handler is in scope (e.g. outermost-
+  dispatch `:rf.error/no-such-handler`)."
   [error-operation tags]
   (when interop/debug-enabled?
-    (let [event {:operation error-operation
-                 :op-type   :error
-                 :id        (next-event-id)
-                 :time      (interop/now-ms)
-                 :tags      (merge {:category error-operation} tags)
-                 :recovery  (:recovery tags :no-recovery)}]
+    (let [trigger *current-trigger-handler*
+          event   (cond-> {:operation error-operation
+                           :op-type   :error
+                           :id        (next-event-id)
+                           :time      (interop/now-ms)
+                           :tags      (merge {:category error-operation} tags)
+                           :recovery  (:recovery tags :no-recovery)}
+                    trigger (assoc :rf.trace/trigger-handler trigger))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]

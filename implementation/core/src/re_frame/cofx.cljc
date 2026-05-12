@@ -67,15 +67,24 @@
   fn returns, if the cofx's metadata carries a :spec, validate the
   injected value. On failure, mark the context with
   :rf/skip-handler? so subsequent handler interceptors short-circuit
-  (recovery: :no-recovery; downstream queue continues)."
+  (recovery: :no-recovery; downstream queue continues).
+
+  Per rf2-3nn8: while the cofx fn body runs, the cofx's own
+  source-coord is the in-scope trigger-handler — errors emitted from
+  inside the cofx point at the cofx definition, not the enclosing
+  event handler. The miss path (`:rf.error/no-such-cofx`) inherits
+  the enclosing event handler's binding (set by the router) — the
+  cofx that doesn't exist has no coord to point at."
   ([cofx-id]
    (interceptor/->interceptor
      :id (keyword (str "cofx-" (name cofx-id)))
      :before
      (fn [ctx]
        (if-let [meta (registrar/lookup :cofx cofx-id)]
-         (-> ((:handler-fn meta) ctx)
-             (maybe-validate-cofx! cofx-id meta))
+         (binding [trace/*current-trigger-handler*
+                   (trace/trigger-handler-from-meta :cofx cofx-id meta)]
+           (-> ((:handler-fn meta) ctx)
+               (maybe-validate-cofx! cofx-id meta)))
          (let [event (interceptor/get-coeffect ctx :event)]
            (trace/emit-error! :rf.error/no-such-cofx
                               {:cofx-id  cofx-id
@@ -88,8 +97,10 @@
      :before
      (fn [ctx]
        (if-let [meta (registrar/lookup :cofx cofx-id)]
-         (-> ((:handler-fn meta) ctx value)
-             (maybe-validate-cofx! cofx-id meta))
+         (binding [trace/*current-trigger-handler*
+                   (trace/trigger-handler-from-meta :cofx cofx-id meta)]
+           (-> ((:handler-fn meta) ctx value)
+               (maybe-validate-cofx! cofx-id meta)))
          (let [event (interceptor/get-coeffect ctx :event)]
            (trace/emit-error! :rf.error/no-such-cofx
                               {:cofx-id    cofx-id

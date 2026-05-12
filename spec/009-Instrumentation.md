@@ -609,6 +609,10 @@ All error trace events are open maps with these required keys:
  :time      timestamp                            ;; emit time, host clock
  :source    keyword?                             ;; (when present) the trigger source — :ui, :timer, :http, ...
  :recovery  keyword?                             ;; :no-recovery, :replaced-with-default, :skipped, ...
+ :rf.trace/trigger-handler                       ;; (when present) the in-scope handler at emit time
+   {:kind         #{:event :sub :fx :cofx :view}
+    :id           keyword
+    :source-coord {:ns sym? :file string? :line int? :column int?}}
  :tags      {:category    :rf.error/<category>   ;; same as :operation, for consumer convenience
              :failing-id  any                    ;; the registered id that failed (event id, fx id, sub id, view id, etc.)
              :reason      string                 ;; one-sentence human description
@@ -617,6 +621,29 @@ All error trace events are open maps with these required keys:
 ```
 
 `:source` and `:recovery` are top-level fields hoisted out of `:tags` by the runtime; both are present on every error event. `:frame` rides under `:tags` (every emit site that knows the frame supplies it there). The `:tags` payload's category-specific keys are documented per category below, and each category has a registered Malli schema so consumers can validate / branch on the payload safely.
+
+#### `:rf.trace/trigger-handler` — naming the in-scope handler
+
+The optional top-level `:rf.trace/trigger-handler` slot names the handler whose execution produced the error and carries its registration-site source-coord. Tools (10x, pair, IDE jump-to-source) render click-to-jump links from this field — given an error event, the user lands on the line of code that defined the offending handler.
+
+Coverage is keyed off "is a handler currently in scope at emit time?":
+
+| Emit context | `:rf.trace/trigger-handler` present? | Carries |
+|---|---|---|
+| Inside an event handler's interceptor chain | Yes | The event handler's coord |
+| Inside a cofx fn body | Yes | The cofx's coord |
+| Inside an fx handler body | Yes | The fx handler's coord |
+| Inside a sub recompute (body fn) | Yes | The sub's coord |
+| Inside a view render | Yes | The view's coord |
+| At outermost dispatch with no handler resolved (`:rf.error/no-such-handler`) | No | — |
+| At depth-exceeded drain rollback (`:rf.error/drain-depth-exceeded`) | No | — |
+| At registration-time failures emitted outside any handler | No | — |
+
+The `:source-coord` payload is whatever the registrar slot's metadata holds. Macro-driven registration (`reg-event-*`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-error-projector`) stamps `:ns` / `:file` / `:line` / `:column` flat onto the meta map at compile time; the trigger-handler builder picks those keys off and re-nests them under `:source-coord`. Programmatic / REPL registrations bypass the macro path and carry no coord — in that case the entire `:rf.trace/trigger-handler` slot is omitted rather than populated with placeholder data (better no field than poison-data).
+
+Production elision: the slot is **NOT separately elided**. The trace surface as a whole is gated by `re-frame.interop/debug-enabled?` per [§Production builds](#production-builds-zero-overhead-zero-code) — when an error trace is emitted at all, the trigger-handler field rides along on it. There is no second gate that selectively drops the field while keeping the rest of the event. Apps that keep the trace surface in production (rare; opt in by setting `goog.DEBUG=true` on the `:advanced` build) get the trigger-handler coord along with every error event. Apps using the default `goog.DEBUG=false` `:advanced` build get neither the field nor the surrounding trace surface — the entire `(when interop/debug-enabled? ...)` branch DCEs.
+
+Consumer access: read `(:rf.trace/trigger-handler error-event)` for the map, `(get-in error-event [:rf.trace/trigger-handler :source-coord])` for the coord, `(get-in error-event [:rf.trace/trigger-handler :id])` for the handler's id. No new namespace is required to read the slot.
 
 ### Error namespace convention — five prefix shapes
 
