@@ -22,6 +22,7 @@
             [re-frame.story :as story]
             [re-frame.story.registrar :as story-registrar]
             [re-frame.story.ui.canvas :as canvas]
+            [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.sidebar :as sidebar]
@@ -263,7 +264,45 @@
     (is (fn? sidebar/sidebar))
     (is (fn? trace/panel))
     ;; The controls/panel takes a variant-id arg.
-    (is (fn? controls/panel))))
+    (is (fn? controls/panel))
+    ;; rf2-rodx — the :docs mode pane.
+    (is (fn? docs/docs-view))))
+
+(deftest docs-view-returns-hiccup-for-registered-variant
+  (testing "docs-view returns a hiccup vector for a registered variant — the
+            shell can mount it without a thrown ns-resolution error.
+            The CLJS smoke proves the cljs-only `:require` (args /
+            decorators / state) and the section renderers compose."
+    (story/reg-story :story.dv
+      {:doc       "parent for the docs-view smoke."
+       :tags      #{:dev :docs}})
+    (story/reg-variant :story.dv/x
+      {:doc       "a tiny variant."
+       :args      {:label "L"}
+       :argtypes  {:label {:doc "label slot"}}
+       :tags      #{:dev :docs}
+       :events    []})
+    (let [result (docs/docs-view :story.dv/x)]
+      (is (vector? result))
+      ;; Root is a <section> per the read-only contract.
+      (is (= :section (first result))))
+    ;; The fn returns nil when given no variant id (the shell already
+    ;; gates this, but the helper guards itself too).
+    (is (nil? (docs/docs-view nil)))))
+
+(deftest docs-view-section-pure-helpers
+  (testing "the pure section helpers run end-to-end in CLJS too"
+    (story/reg-story :story.dvh
+      {:tags #{:dev :docs}})
+    (story/reg-variant :story.dvh/x
+      {:args      {:greeting "hi"}
+       :argtypes  {:greeting {:doc "the greeting"}}
+       :tags      #{:dev :docs}
+       :events    []})
+    (let [rows (docs/args-rows :story.dvh/x {:greeting "hi"})]
+      (is (= [{:key :greeting :value "hi" :doc "the greeting"}]
+             rows)))
+    (is (= [:dev :docs] (docs/variant-tags :story.dvh/x)))))
 
 ;; ---- canvas: decorator-wrap exception swallow ---------------------------
 ;;

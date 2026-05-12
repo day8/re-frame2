@@ -44,6 +44,7 @@
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
+            [re-frame.story.ui.docs :as docs]
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
@@ -267,8 +268,10 @@
 
   Per rf2-9hc8 a Canvas | Docs | Tests mode-tab strip sits at the top
   of the pane when a variant is selected; selection is per-variant and
-  persists across reloads in localStorage. The `:docs` and `:test`
-  panes are placeholders for rf2-rodx / rf2-qmjo respectively; `:dev`
+  persists across reloads in localStorage. Per rf2-rodx the `:docs`
+  pane now renders `docs/docs-view` — the read-only AutoDocs surface
+  composed of header / prose / args / decorators / parameters / tags
+  sections. `:test` remains a placeholder for rf2-qmjo; `:dev`
   preserves the existing canvas / workspace behaviour."
   []
   (let [shell      @state/shell-state-atom
@@ -288,7 +291,7 @@
      (cond
        ws-id    [workspace/workspace-view ws-id]
        variant-id (case mode-tab
-                    :docs [mode-tabs/docs-placeholder variant-id]
+                    :docs [docs/docs-view variant-id]
                     :test [mode-tabs/tests-placeholder variant-id]
                     [canvas/canvas])
        :else

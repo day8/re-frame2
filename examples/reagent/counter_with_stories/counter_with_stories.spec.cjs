@@ -175,44 +175,130 @@ module.exports = {
     const tabsStrip = page.locator('[data-test="story-mode-tabs"]');
     await tabsStrip.waitFor({ state: 'visible', timeout: 5000 });
 
-    const devChip = tabsStrip.locator('[data-mode-tab="dev"]');
-    const docsChip = tabsStrip.locator('[data-mode-tab="docs"]');
-    const testChip = tabsStrip.locator('[data-mode-tab="test"]');
+    // Rename the mode-tab chip handles `modeXxxChip` so they don't
+    // collide with the sidebar tag-filter chips (a `docsChip` variable
+    // re-declared further down in the same arrow function scope is a
+    // JS syntax error — keep the mode-tab handles distinct).
+    const modeDevChip = tabsStrip.locator('[data-mode-tab="dev"]');
+    const modeDocsChip = tabsStrip.locator('[data-mode-tab="docs"]');
+    const modeTestChip = tabsStrip.locator('[data-mode-tab="test"]');
 
     // All three chips must render.
-    await devChip.waitFor({ state: 'visible', timeout: 2000 });
-    await docsChip.waitFor({ state: 'visible', timeout: 2000 });
-    await testChip.waitFor({ state: 'visible', timeout: 2000 });
+    await modeDevChip.waitFor({ state: 'visible', timeout: 2000 });
+    await modeDocsChip.waitFor({ state: 'visible', timeout: 2000 });
+    await modeTestChip.waitFor({ state: 'visible', timeout: 2000 });
 
     // Default mode-tab is :dev — the canvas is up. The :dev chip is
     // active, the other two are not.
-    if ((await devChip.getAttribute('aria-selected')) !== 'true') {
+    if ((await modeDevChip.getAttribute('aria-selected')) !== 'true') {
       throw new Error('expected :dev chip to be aria-selected="true" by default');
     }
-    if ((await docsChip.getAttribute('aria-selected')) !== 'false') {
+    if ((await modeDocsChip.getAttribute('aria-selected')) !== 'false') {
       throw new Error('expected :docs chip to be aria-selected="false" by default');
     }
 
-    // Click Docs → the docs placeholder appears and the :docs chip
-    // becomes active. The canvas (data-test="count") disappears from
-    // <main> because the docs pane replaces it.
-    await docsChip.click();
-    await page
-      .locator('[data-test="story-docs-placeholder"]')
-      .waitFor({ state: 'visible', timeout: 5000 });
-    if ((await docsChip.getAttribute('aria-selected')) !== 'true') {
+    // Click Docs → the docs pane (rf2-rodx — `data-test="story-docs-
+    // view"`) appears and the :docs chip becomes active. The canvas
+    // (data-test="count") disappears from <main> because the docs
+    // pane replaces it.
+    await modeDocsChip.click();
+    const docsView = page.locator('[data-test="story-docs-view"]');
+    await docsView.waitFor({ state: 'visible', timeout: 5000 });
+    if ((await modeDocsChip.getAttribute('aria-selected')) !== 'true') {
       throw new Error('expected :docs chip to be aria-selected="true" after click');
     }
-    if ((await devChip.getAttribute('aria-selected')) !== 'false') {
+    if ((await modeDevChip.getAttribute('aria-selected')) !== 'false') {
       throw new Error('expected :dev chip to flip aria-selected="false" after switching');
     }
 
+    // ----------------------------------------------------------------
+    // 3b-i. :docs mode — AutoDocs view sections (rf2-rodx)
+    // ----------------------------------------------------------------
+    //
+    // The :docs pane composes six sections — header / prose / args /
+    // decorators / parameters / tags — per spec/008. The header MUST
+    // render the parent story id and at least one tag chip; the args
+    // table MUST list every resolved arg with a key/default/doc row;
+    // the tags section MUST forward-link the per-tag chip to the
+    // sidebar tag-filter.
+    await page
+      .locator('[data-test="story-docs-parent-story"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+    await page
+      .locator('[data-test="story-docs-args-table"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+    await page
+      .locator('[data-test="story-docs-decorators-table"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+    await page
+      .locator('[data-test="story-docs-tags-section"]')
+      .waitFor({ state: 'visible', timeout: 2000 });
+
+    // The args table for :story.counter/loaded carries the :label
+    // arg (overridden to "Total" on the variant) — the canonical
+    // assertion that the args walk reflects the resolved precedence.
+    const labelRow = page
+      .locator('[data-test="story-docs-args-row"][data-arg-key=":label"]');
+    await labelRow.waitFor({ state: 'visible', timeout: 2000 });
+    const labelRowText = await labelRow.innerText();
+    if (!/Total/.test(labelRowText)) {
+      throw new Error(
+        `expected :label arg row to show "Total" as the resolved default, got: ${labelRowText}`,
+      );
+    }
+
+    // The decorators table MUST include the story-level log-decorator
+    // entry. resolve-decorators surfaces it under :hiccup.
+    const hiccupRow = page
+      .locator('[data-test="story-docs-decorator-row"][data-section="hiccup"]')
+      .first();
+    await hiccupRow.waitFor({ state: 'visible', timeout: 2000 });
+
+    // The tags-section chips MUST forward-link to the sidebar filter.
+    // Click the bottom :test chip; the shell's :tag-filter state slot
+    // gains :test, the chip flips aria-pressed="true".
+    const docsTestTagChip = page
+      .locator('[data-test="story-docs-tag-link"][data-docs-tag="test"]');
+    await docsTestTagChip.waitFor({ state: 'visible', timeout: 2000 });
+    await docsTestTagChip.click();
+    {
+      const start = Date.now();
+      let pressed = null;
+      while (Date.now() - start < 2000) {
+        pressed = await docsTestTagChip.getAttribute('aria-pressed').catch(() => null);
+        if (pressed === 'true') break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (pressed !== 'true') {
+        throw new Error(
+          `expected :test docs tag chip to flip aria-pressed="true" after click, got ${pressed}`,
+        );
+      }
+    }
+    // Toggle back off so the sidebar tag-filter assertions in §4
+    // start from a clean slate (the :tag-filter is shared state).
+    await docsTestTagChip.click();
+    {
+      const start = Date.now();
+      let pressed = null;
+      while (Date.now() - start < 2000) {
+        pressed = await docsTestTagChip.getAttribute('aria-pressed').catch(() => null);
+        if (pressed === 'false') break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (pressed !== 'false') {
+        throw new Error(
+          `expected :test docs tag chip to flip aria-pressed="false" after second click, got ${pressed}`,
+        );
+      }
+    }
+
     // Click Tests → the tests placeholder appears, :test chip active.
-    await testChip.click();
+    await modeTestChip.click();
     await page
       .locator('[data-test="story-tests-placeholder"]')
       .waitFor({ state: 'visible', timeout: 5000 });
-    if ((await testChip.getAttribute('aria-selected')) !== 'true') {
+    if ((await modeTestChip.getAttribute('aria-selected')) !== 'true') {
       throw new Error('expected :test chip to be aria-selected="true" after click');
     }
 

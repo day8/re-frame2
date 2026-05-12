@@ -92,7 +92,9 @@ is a separate concern.
 
 `:dev` → existing canvas / hot-reload / decorators path (unchanged
 from Story v1).
-`:docs` → the docs pane (placeholder until rf2-rodx).
+`:docs` → the docs pane — `re-frame.story.ui.docs/docs-view`
+(rf2-rodx). See [`008-Docs-Mode.md`](008-Docs-Mode.md) for the
+section composition + read-only contract.
 `:test` → the tests pane (placeholder until rf2-qmjo).
 
 ## Per-variant selection + localStorage persistence
@@ -138,8 +140,10 @@ Selectors:
 
 - The strip: `[data-test="story-mode-tabs"]`
 - Each chip: `[data-mode-tab="dev|docs|test"]`
-- Placeholders: `[data-test="story-docs-placeholder"]`,
-  `[data-test="story-tests-placeholder"]`
+- Docs pane root: `[data-test="story-docs-view"]` (rf2-rodx; see
+  [`008-Docs-Mode.md`](008-Docs-Mode.md) for the per-section
+  selectors)
+- Tests placeholder: `[data-test="story-tests-placeholder"]`
 
 ## Visual style
 
@@ -150,8 +154,8 @@ borders, monospace 11px.
 
 ## Out-of-scope at this primitive
 
-- **The `:docs` pane content.** A placeholder div ships now; rf2-rodx
-  ships the real AutoDocs view.
+- **The `:docs` pane content.** Owned by rf2-rodx — see
+  [`008-Docs-Mode.md`](008-Docs-Mode.md) for the section composition.
 - **The `:test` pane content.** A placeholder div ships now; rf2-qmjo
   ships the aggregated pass/fail view.
 - **Workspace mode-tabs.** Workspaces enumerate multiple variants;
