@@ -389,7 +389,7 @@ A useful test: if two instances might want to share state under any circumstance
 
 Two adjacent topics deserve a pointer before you leave views and frames, but neither is needed up front:
 
-- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do.
+- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do. The canonical introduction lives at [18 — From re-frame v1 §Flows](18-from-re-frame-v1.md#flows--the-replacement-for-on-changes) (flows are the migration target for v1's `on-changes`); the full contract is [Spec 013](../../spec/013-Flows.md).
 - **Nine-states UI checklist** — `Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`. Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [08 — State machines §Parallel regions](08-state-machines.md#parallel-regions).
 
 ## What we covered
