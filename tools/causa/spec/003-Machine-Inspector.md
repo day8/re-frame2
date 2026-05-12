@@ -161,6 +161,102 @@ state per-machine in localStorage).
 - **Transition history** virtualises past 200 entries; older entries
   scroll into view but are not retained in DOM.
 
+## Share affordance
+
+Right-click on the machine chart (or use the panel header's `⋯`
+overflow menu) surfaces a **Copy machine as…** sub-menu:
+
+| Format | Output |
+|---|---|
+| **PNG** | Rasterised chart at 2x DPR, transparent background, current-state highlight included. Copied to clipboard as an image. |
+| **SVG** | Vector chart with embedded fonts (so it renders identically when pasted into a doc or a Figma frame), current-state highlight included. Copied to clipboard as `image/svg+xml`. |
+| **Share URL** | A URL with a serialised static machine definition encoded in the fragment (`#machine=<base64-edn>`). When opened in a Causa-equipped page, Causa renders the chart in a read-only viewer; when opened elsewhere it falls back to a hosted viewer in `tools/machines-viz/`. |
+
+Inspired by Stately Visualizer's registry-style share (save chart,
+share URL, embed iframe). The use cases: dropping a chart into a
+pull-request description, into a design doc, into a Slack thread,
+or onto a whiteboard during a design discussion.
+
+### NOT a session export
+
+This is **not** a session export. Lock #4 holds: Causa never
+serialises the running trace stream, the epoch buffer, the app-db
+history, or the conversation — those are session-local by design,
+for the privacy and reproducibility reasons spelled out in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) (Lock #4 — Session
+export).
+
+What this share affordance serialises is a **static machine
+definition**:
+
+- The machine's topology (states, transitions, guards, actions,
+  `:invoke` / `:invoke-all` declarations, `:after` timer
+  specifications) — i.e. the data that was registered via
+  `reg-machine`.
+- The machine's current state at the moment of the share (the
+  `[:rf/machines <id>]` snapshot) — for visual continuity, so the
+  recipient sees what the sharer was looking at.
+- The machine-id and the source-coord metadata for jump-to-source
+  resolution.
+
+What it does **not** serialise:
+
+- Trace events, epochs, app-db slices outside `[:rf/machines <id>]`,
+  user inputs, fx outputs, conversation buffer.
+- Any data from any panel other than the machine inspector.
+- Any cross-machine state (parent / sibling machines unless the
+  sharer's chart explicitly includes them via `:invoke-all`).
+
+The serialised form is **reproducible from the registry alone**:
+anyone with the same re-frame2 build and the same `reg-machine`
+call can reconstruct the topology byte-for-byte. The current-state
+field is the only non-reproducible bit, and it is purely a
+visual-highlight hint — the recipient can clear it via the
+read-only viewer's "show idle" toggle.
+
+### Read-only viewer
+
+A page that loads with `#machine=...` in its URL fragment renders
+the chart in a read-only `MachineChart` (the same component from
+`tools/machines-viz/` but with `:on-state-click` and
+`:on-transition-click` no-op'd, and the transition-history ribbon
+hidden — there is no transition history to show; this is a
+snapshot, not a session). The page surfaces a single banner: "This
+is a static machine chart, not a Causa session — interactions are
+disabled."
+
+### Privacy posture
+
+A share URL embeds **only** machine topology + current-state. It
+contains no event vectors, no user data, no app-db slices, no
+source code. Authors of state machines must still treat the
+registered topology as code (it may reveal product structure), but
+the share affordance does not leak run-time data.
+
+The chart is generated client-side; nothing is sent to a server.
+The hosted viewer in `tools/machines-viz/` is statically hostable
+and itself stateless.
+
+### Performance
+
+- PNG / SVG rendering: client-side via the same SVG primitive the
+  inspector uses, at the chart's natural size. Sub-50ms for charts
+  up to ~80 nodes.
+- Share-URL encoding: edn → transit-write → base64; for typical
+  machines (~20 states, ~30 transitions) the URL is under 4 KB.
+  Charts large enough to exceed common URL limits (~8 KB) surface
+  a "Copy as edn fragment instead" fallback that puts the payload
+  on the clipboard.
+
+### Accessibility
+
+The PNG / SVG outputs include an `<title>` and `<desc>` element
+(SVG) or alt-text companion (PNG, as a sidecar `text/plain` payload
+on the clipboard) summarising the machine: its id, its current
+state, and the number of states / transitions. Screen readers
+pasting the SVG into a document have the same overview the
+sighted user has.
+
 ## Empty state
 
 When no machines are registered:

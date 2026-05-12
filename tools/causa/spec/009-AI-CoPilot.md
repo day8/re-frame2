@@ -127,6 +127,12 @@ Context you have:
 Rules:
 - Cite source coords for every claim (e.g. "events.cljs:213").
 - Reference epoch ids so the user can verify in the panel.
+- When you cite a runtime identifier — a dispatch-id, a path, an
+  epoch-number, or a handler-id — emit the structured form
+  {:rf.copilot/chip <key> <value>} inline so the UI renders an
+  interactive chip pointing at that piece of evidence. Use the
+  plain text form only when the identifier cannot be expressed as a
+  chip (e.g. partially-redacted values).
 - Say "I cannot determine that" plainly when you cannot.
 - One action suggestion at a time.
 - Never invent data. If you do not see it in the trace, do not claim it.
@@ -183,6 +189,9 @@ Responses are markdown rendered with:
   json).
 - **Source-coord chips.** `src/cart/events.cljs:213` renders as a
   chip with a `🔗` icon; click opens source.
+- **Causa data chips.** Structured runtime identifiers in the
+  response render as interactive Causa chips, not plain text — see
+  §Causa data chips below.
 - **Action chips.** `[Open source]`, `[Show graph]`, `[Rewind here]`,
   `[Filter to this cascade]` — inline buttons in the response.
   Action chips that mutate runtime (rewind, re-dispatch) always
@@ -194,6 +203,108 @@ Responses are markdown rendered with:
 
 Responses **stream** (per token, ~25 tokens/sec). First words within
 ~600ms of Enter. Respects `prefers-reduced-motion` (instant render).
+
+## Causa data chips
+
+The model produces citations as **structured tokens**, not prose.
+When the LLM's tool-call response or streamed answer contains a known
+runtime identifier — a `:dispatch-id`, a `:path`, an
+`:epoch-number`, a `:handler-id` — Causa renders it as a clickable
+chip that opens the relevant panel pointed at that exact piece of
+evidence. The model talks; the chip points.
+
+This is Lock 2 made concrete: the co-pilot is a *navigator pointing
+at evidence*. A chip is not text-styled-as-a-link; it is a live
+handle on the runtime — the same primitive that the Causality panel
+and the Trace panel render. (Inspired by Portal's "any value can be
+inspected by clicking"; in Causa every cited value is the inspected
+handle itself.)
+
+### Chip types
+
+| Token shape | Chip | Click target |
+|---|---|---|
+| `:dispatch-id <uuid>` | `◆ :checkout/submit` | Events panel — opens that epoch in event-detail. |
+| `:path [<seg> <seg> ...]` | `▥ [:cart :items 3 :qty]` | App-db panel — opens that slice in the app-db inspector, with the path expanded and the slice highlighted. |
+| `:epoch-number <n>` | `⏵ epoch 47` | Bottom scrubber — jumps the scrubber to that epoch (passive; does not rewind). |
+| `:handler-id <id>` | `⚙ :cart/finalise` | Events panel → "Open source" — opens that handler's registration site (the `reg-event-*` call), falling back to the `:doc` if no coord is stamped. |
+
+### Visual treatment
+
+- Same chip chrome as source-coord chips (background `bg-3`,
+  `radius-sm`, 12px caption type) so the eye reads them as
+  first-class data, not decoration.
+- Glyph encodes type (the table above). Glyphs are the same set used
+  in the sidebar and causality strip (`◆`, `▥`, `⏵`, `⚙`) so the
+  chip's affordance is legible without colour.
+- Hover surfaces a tooltip with the resolved value the chip refers
+  to (e.g. an epoch-number chip's tooltip shows the epoch's event
+  vector and timestamp). The user can verify the chip points where
+  it should before clicking — the navigator-not-oracle posture
+  applies to chips too.
+- Right-click opens a small menu: **Open** (default), **Pin** (for
+  app-db paths — pins the slice in App-db's pinned-slices area),
+  **Copy** (copies the identifier as edn).
+
+### Encoding contract
+
+The model emits citations as inline edn fragments inside the
+streamed text:
+
+```
+The :checkout/submit was dispatched from
+{:rf.copilot/chip :dispatch-id #uuid "..."} by :cart/finalise
+({:rf.copilot/chip :handler-id :cart/finalise}). The :path
+{:rf.copilot/chip :path [:cart :items 3 :qty]} changed from 1 to 0
+at {:rf.copilot/chip :epoch-number 47}.
+```
+
+The renderer parses `{:rf.copilot/chip <key> <value>}` fragments at
+stream time and swaps them for the chip component. The system prompt
+(§System prompt above) instructs the model in this encoding;
+unstructured citations still render as plain text and the user reads
+them as prose. The renderer never invents chips from free text — a
+chip only ever renders where the model emitted the explicit form.
+
+### Why structured citations
+
+Free-text identifiers (`epoch 47`, `events.cljs:213`) work but are
+brittle: a model that paraphrases ("the 47th epoch") drops the
+handle. Structured fragments fail loudly: malformed edn renders as
+the literal fragment, surfacing the model's confusion rather than
+hiding it behind plausible prose. The model is rewarded for naming
+data precisely.
+
+### Failure modes
+
+- **Unresolvable identifier.** A chip whose target doesn't exist
+  (stale epoch, GC'd dispatch-id, unregistered handler) renders
+  greyed-out with a `⚠` glyph; click surfaces a "no longer in the
+  trace buffer" tooltip. The model is not asked to verify resolution
+  before emitting; the runtime is the truth.
+- **Empty path / `nil` value.** A `:path` chip pointing at a path
+  that doesn't exist in the current `app-db` opens the App-db panel
+  scrolled to the deepest existing ancestor, with a "this path is
+  absent at the active epoch" hint inline.
+- **Cross-frame identifiers.** When the model cites a `:dispatch-id`
+  from a frame other than the active one, the chip displays the
+  frame badge (`:user/main`) and clicking switches frame as part of
+  opening the epoch.
+
+### Out of scope
+
+- **No editing chip targets after render.** A chip's binding is
+  fixed at emit time; if the user wants to rebind, they ask again.
+- **No drag-and-drop.** Chips are buttons, not draggable values
+  (drag-and-drop would invite the user to compose mutations across
+  panels — out of scope for a pull-only Q&A surface).
+- **No chips in user input.** The user types text; only the model
+  emits chips. (The command palette is the user-side equivalent
+  surface for jumping to a specific epoch / handler / path.)
+
+Cross-reference: [`001-Causality-Graph.md`](./001-Causality-Graph.md)
+§Interactions — chips reuse the same panel-jump primitives the
+graph's click and right-click affordances expose.
 
 ## Ephemeral conversation
 
