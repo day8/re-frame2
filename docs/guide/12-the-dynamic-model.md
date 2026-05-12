@@ -1,5 +1,7 @@
 # 12 — The dynamic-model story
 
+> **If you're skipping this chapter, the upshot:** the *dynamic model* — the story you tell yourself about what happens when something changes — is the load-bearing property of any system, more than syntax or types or performance. Some dynamic models (FSMs, pure functions) are fundamentally easier to reason about than others (Turing-complete free-form code). re-frame2 deliberately chose to be **less powerful** than the host language: pure handlers, data-shaped effects, run-to-completion drain, pure views. The constraint is the source of everything else the framework offers — testability, time-travel, replay, SSR, AI-amenability. If you're convinced and just want to write code, you can safely skip; pick this up the day you want the full argument with citations.
+
 > *Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed.*
 > — E. W. Dijkstra
 
