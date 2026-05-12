@@ -354,7 +354,10 @@
        {:type "button"
         :on-click #(dispatch [:article/toggle-favorite slug])}
        [:i.ion-heart] " " favoritesCount]]
-     [routing/route-link {:to :route/article :params {:slug slug} :class "preview-link"}
+     [routing/route-link {:to          :route/article
+                          :params      {:slug slug}
+                          :class       "preview-link"
+                          :data-testid (str "article-preview-link-" slug)}
       [:h1 title]
       [:p description]
       [:span "Read more..."]

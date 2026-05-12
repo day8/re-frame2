@@ -118,24 +118,29 @@
 
 (reg-view ^{:doc "Anchor helper for the RealWorld example. Uses the runtime's
                    `:rf/url-requested` event so modifier-key and browser-navigation
-                   semantics stay on the framework path."}
-          route-link [{:keys [to params query fragment class]} & children]
+                   semantics stay on the framework path.
+
+                   `:data-testid` (optional) is propagated to the underlying
+                   anchor so Playwright specs can target individual nav
+                   links and article-preview cards by stable id."}
+          route-link [{:keys [to params query fragment class data-testid]} & children]
   (let [base-url (rf/route-url to (or params {}) (or query {}))
         url      (str base-url (when fragment (str "#" fragment)))]
-    [:a {:href     url
-         :class    class
-         :on-click (fn [e]
-                     (when (and (zero? (.-button e))
-                                (not (.-metaKey e))
-                                (not (.-ctrlKey e))
-                                (not (.-shiftKey e)))
-                       (.preventDefault e)
-                       (dispatch [:rf/url-requested
-                                  {:url url
-                                   :to to
-                                   :params params
-                                   :query query
-                                   :fragment fragment}])))}
+    [:a (cond-> {:href     url
+                 :class    class
+                 :on-click (fn [e]
+                             (when (and (zero? (.-button e))
+                                        (not (.-metaKey e))
+                                        (not (.-ctrlKey e))
+                                        (not (.-shiftKey e)))
+                               (.preventDefault e)
+                               (dispatch [:rf/url-requested
+                                          {:url url
+                                           :to to
+                                           :params params
+                                           :query query
+                                           :fragment fragment}])))}
+          data-testid (assoc :data-testid data-testid))
      (into [:<>] children)]))
 
 ;; ============================================================================

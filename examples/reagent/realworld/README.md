@@ -118,7 +118,10 @@ at `implementation/test/re_frame/realworld_cljs_test.cljs` (run with
 
 The Playwright spec at `realworld.spec.cjs` exercises the user-visible
 flow against the `:rf.http/managed.realworld-demo` override and runs as
-part of `npm run test:examples`.
+part of `npm run test:examples`. Coverage includes the initial-load
+shell (navbar, global feed, sidebar tags), article-detail navigation,
+the auth machine end-to-end (login → authed navbar), and an optimistic
+comment-submission round-trip through the comment form.
 
 ## Why RealWorld
 

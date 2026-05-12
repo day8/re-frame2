@@ -293,8 +293,8 @@
   (let [mine?   (= (:username current-user)
                    (get-in comment [:author :username]))
         temp?   (str/starts-with? (str (:id comment)) "temp-")]
-    [:div.card
-     [:div.card-block [:p.card-text (:body comment)]]
+    [:div.card {:data-testid (str "comment-card-" (:id comment))}
+     [:div.card-block [:p.card-text {:data-testid "comment-body"} (:body comment)]]
      [:div.card-footer
       [routing/route-link {:to     :route/profile
                            :params {:username (get-in comment [:author :username])}
@@ -335,12 +335,15 @@
        [:<>
         [:div.banner
          [:div.container
-          [:h1 (:title article)]
-          [:p (:description article)]
+          [:h1 {:data-testid "article-title"} (:title article)]
+          [:p {:data-testid "article-description"} (:description article)]
           [:button.btn.btn-sm.btn-outline-primary
-           {:type "button"
-            :on-click #(dispatch [:article/toggle-favorite (:slug article)])}
-           [:i.ion-heart] " " (:favoritesCount article)]]]
+           {:type        "button"
+            :data-testid "article-favorite"
+            :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
+           [:i.ion-heart] " "
+           [:span {:data-testid "article-favorites-count"}
+            (:favoritesCount article)]]]]
         [:div.container.page
          [:div.row.article-content
           [:div.col-md-12
@@ -356,12 +359,14 @@
           [:div.col-xs-12.col-md-8.offset-md-2
            (if current-user
              [:form.card.comment-form
-              {:on-submit (fn [e]
+              {:data-testid "comment-form"
+               :on-submit (fn [e]
                             (.preventDefault e)
                             (dispatch [:comment-form/submit]))}
               [:div.card-block
                [:textarea.form-control
-                {:rows 3
+                {:data-testid "comment-body-input"
+                 :rows 3
                  :placeholder "Write a comment..."
                  :value (:body comment-draft)
                  :disabled submitting?
@@ -370,6 +375,7 @@
                [:img.comment-author-img {:src (:image current-user)}]
                [:button.btn.btn-sm.btn-primary
                 {:type "submit"
+                 :data-testid "comment-submit"
                  :disabled submitting?}
                 (if submitting? "Posting…" "Post Comment")]]
               (when body-error
