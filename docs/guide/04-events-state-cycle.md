@@ -308,20 +308,14 @@ This is the testing experience that drove people to re-frame in the first place.
 
 ## Patterns: the next layer up
 
-Once you've internalised events-as-data and effects-as-data, you start noticing that real apps have *recurring shapes* on top of those primitives. A feature that loads remote data has a slice and a four-event lifecycle. A form has a draft, a submitted snapshot, a status, per-field errors. An app's boot is a chained sequence with progress UI and fail-fatal points. A WebSocket connection is a state machine that owns a long-lived socket. A handler that posts work to an external system and waits for an asynchronous reply has a six-step shape. CPU-heavy work needs to either yield or move to a worker. Async results that arrive after the user has moved on need to be quietly suppressed.
+Once you've internalised events-as-data and effects-as-data, you start noticing that real apps have *recurring shapes* on top of those primitives. Each recurring shape has been distilled into a **Pattern** doc — convention, not Spec, but canonical naming so codebases and AI scaffolds converge on one answer rather than re-deriving.
 
-Each of these has been distilled into a **Pattern** doc — convention, not Spec, but canonical naming so codebases and AI scaffolds converge on one answer rather than re-deriving:
+Two Patterns bottom out directly on what this chapter covered, so flag them now:
 
-- [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
-- [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice.
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft/submitted/status/errors as a standard slice. (Guide: [09 — Forms](09-forms.md).)
-- [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init, progress UI, fail-fatal points.
-- [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection as a state machine.
-- [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
-- [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
-- [Pattern-NineStates](../../spec/Pattern-NineStates.md) — making the nine common UI states (`Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`) explicit in data so each branch is testable.
+- [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape that the `:rf.http/managed` example above is one instance of.
+- [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice (idle / loading / loaded / error / stale).
 
-The pattern docs are themselves human-readable — closer in voice to this guide than to the Specs. When the shape of a feature you're building matches one of them, read the pattern doc and copy the shape; don't invent a new one.
+The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, StaleDetection, NineStates — is covered in [chapter 19 — Where to go next](19-where-next.md#look-up-a-pattern-by-name), with one-line summaries you can scan when the shape of your problem matches. Read the Pattern doc and copy the shape; don't invent a new one.
 
 ## A note on revertibility
 
