@@ -214,8 +214,9 @@
       ;; component itself shows up as a vector beginning with the cell
       ;; component fn. We at least confirm the workspace produced
       ;; non-empty grid contents and the cell fn appears as a child.
+      ;; The wrap is a `<section>` landmark per rf2-xc65 (a11y).
       (is (vector? tree))
-      (is (= :div (first tree))))))
+      (is (= :section (first tree))))))
 
 (deftest workspace-view-empty-for-missing-workspace
   (testing "workspace-view renders an empty / not-registered notice for

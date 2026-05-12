@@ -319,13 +319,21 @@
      (let [body (registrar/handler-meta :workspace workspace-id)]
        (cond
          (nil? body)
-         [:div {:style (:wrap styles)}
+         ;; Per rf2-xc65: workspace wrap is a scrollable container —
+         ;; `tab-index "0"` + aria-label make it focusable and named so
+         ;; axe-core's scrollable-region-focusable rule passes. The
+         ;; `<section>` lives inside the shell's <main> landmark.
+         [:section {:style      (:wrap styles)
+                    :aria-label "Workspace"
+                    :tab-index  "0"}
           [:div {:style (:empty styles)}
            "workspace " (pr-str workspace-id) " is not registered"]]
 
          :else
          (let [cells (resolve-layout workspace-id body)]
-           [:div {:style (:wrap styles)}
+           [:section {:style      (:wrap styles)
+                      :aria-label (str "Workspace " (pr-str workspace-id))
+                      :tab-index  "0"}
             [:div {:style (:title styles)}
              (str (pr-str workspace-id)
                   " (" (name (:layout body)) ")")]

@@ -136,7 +136,11 @@
 
 (defn sidebar
   "Top-level sidebar component. Reads the registry snapshot + shell
-  state, builds the filtered tree, and renders."
+  state, builds the filtered tree, and renders.
+
+  Per rf2-xc65 the sidebar renders as a `<nav>` landmark with
+  `tabindex=\"0\"` so axe-core's `region` rule passes and keyboard
+  users can focus the scrollable tree."
   []
   (let [shell        @state/shell-state-atom
         registry     (state/registry-snapshot)
@@ -146,7 +150,9 @@
         visible      (state/filter-variants (:variants registry) tag-filter)
         grouped      (state/group-variants-by-story visible)
         workspaces   (:workspaces registry)]
-    [:div {:style (:wrap styles)}
+    [:nav {:style      (:wrap styles)
+           :aria-label "Stories and workspaces"
+           :tab-index  "0"}
      [:div {:style (:header styles)} "Stories"]
      [tag-filter-row (:variants registry) tag-filter]
      (if (empty? grouped)

@@ -244,7 +244,14 @@
     (fn [variant-id]
       (let [events   @buffer
             cascades (group-cascades events)]
-        [:div {:style (:panel styles)}
+        ;; Per rf2-xc65: the panel wrap is scrollable (`overflow auto`
+        ;; + `max-height 240px`). `tab-index "0"` + an aria-label make
+        ;; it keyboard-focusable and named so axe-core's
+        ;; `scrollable-region-focusable` rule passes.
+        [:div {:style      (:panel styles)
+               :role       "region"
+               :aria-label "Trace cascades"
+               :tab-index  "0"}
          [:div {:style (:title styles)}
           "Trace " (when variant-id (str (pr-str variant-id))) " — "
           (count events) " events, " (count cascades) " cascades"]
