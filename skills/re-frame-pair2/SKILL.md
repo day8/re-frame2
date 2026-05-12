@@ -19,6 +19,7 @@ allowed-tools:
   - mcp__re-frame-pair2__trace-window
   - mcp__re-frame-pair2__watch-epochs
   - mcp__re-frame-pair2__tail-build
+  - mcp__re-frame-pair2__snapshot
   # Bash-shim transport (deprecated — kept for back-compat sessions
   # where the MCP server isn't installed yet)
   - Bash(scripts/discover-app.sh *)

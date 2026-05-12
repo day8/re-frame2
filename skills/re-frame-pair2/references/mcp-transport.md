@@ -50,9 +50,40 @@ The server auto-discovers the nREPL port from (in order):
 | `scripts/trace-window.sh 1000`    | `trace-window` | `{ms: 1000}` |
 | `scripts/watch-epochs.sh --event-id-prefix :cart` | `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
 | `scripts/tail-build.sh --probe '<form>'` | `tail-build` | `{probe: "..."}` |
+| _(none — MCP-only)_                | `snapshot`     | `{frames: "all"\|[":rf/default"...], include: ["app-db","sub-cache","machines","epochs","traces"]}` |
 
 (`inject-runtime` is gone — the runtime ships into the app via
 shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)
+
+## When to use `snapshot` vs the per-op reads
+
+`snapshot` is the **coarse-grained mega-op** for investigate-X
+workflows that would otherwise chain 5-10 individual reads
+(`app-db/snapshot` + `subs/cache` + `machines/list` + `epoch/history`
++ `trace/buffer`, etc.). Each per-op read is its own bencode
+round-trip plus Claude-think latency; `snapshot` collapses the whole
+thing into one round-trip.
+
+Use `snapshot` when:
+
+- You're starting a post-mortem and don't yet know which slice
+  carries the answer.
+- You want a fixed reference point — same call, same shape, several
+  hypotheses to test against it.
+- You need cross-slice context (e.g. "what was app-db at the same
+  moment the trace ring shows this event?").
+
+Use the per-op reads when:
+
+- You know exactly which slice you want and only need that slice.
+- You want a path-scoped value (`runtime/app-db-at [:deep :path]`).
+- You want a derived projection (`runtime/find-where`, `cascade-of`,
+  `last-pair-epoch`) — `snapshot` returns raw history; projections
+  still need their dedicated forms via `eval-cljs`.
+
+`snapshot` accepts `include` to subset the slices —
+`{include: ["app-db","epochs"]}` returns just those two — and
+`frames` to pick a subset of frame-ids — `{frames: [":stories"]}`.
 
 ## Preload probe (no inject step)
 

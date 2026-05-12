@@ -864,6 +864,90 @@
        result))))
 
 ;; ---------------------------------------------------------------------------
+;; Coarse-grained snapshot — one round-trip per investigate-X workflow.
+;; ---------------------------------------------------------------------------
+;;
+;; Many investigate-X tasks chain 5-10 reads — each currently a fresh nREPL
+;; round-trip plus Claude-think latency. The runtime-side composer below
+;; assembles every per-frame slice (:app-db, :sub-cache, :machines, :epochs,
+;; :traces) in one CLJS eval, so the MCP `snapshot` op is a single bencode
+;; round-trip producing one map keyed by frame-id.
+;;
+;; Each slice delegates to the existing per-slice reader — no parallel
+;; reimplementation. The composer just routes by `:include` keys.
+
+(def ^:private all-snapshot-slices
+  [:app-db :sub-cache :machines :epochs :traces])
+
+(defn- snapshot-frame-slice
+  "Compute one slice for one frame-id. Delegates to the existing per-slice
+   readers."
+  [frame-id slice]
+  (case slice
+    :app-db     (rf/get-frame-db frame-id)
+    :sub-cache  (rf/sub-cache frame-id)
+    ;; The global machine-id list is registrar-level (not per-frame).
+    ;; Per Spec 005 each frame holds its own machine snapshots at
+    ;; [:rf/machines machine-id] in app-db, so the per-frame slice
+    ;; returns {:ids [...] :state {machine-id snapshot}}.
+    :machines   (let [ids (vec (rf/machines))
+                      state (or (get (rf/get-frame-db frame-id) :rf/machines)
+                                {})]
+                  {:ids ids :state state})
+    :epochs     (vec (rf/epoch-history frame-id))
+    ;; The retain-N trace ring buffer is global; filter by frame.
+    :traces     (vec (rf/trace-buffer {:frame frame-id}))
+    nil))
+
+(defn- snapshot-frame
+  "Assemble the requested slices for one frame-id."
+  [frame-id slices]
+  (reduce (fn [m slice]
+            (assoc m slice (snapshot-frame-slice frame-id slice)))
+          {}
+          slices))
+
+(defn snapshot-state
+  "Coarse-grained per-frame state read. Returns one map keyed by
+   frame-id whose values are slice maps.
+
+   Opts:
+     :frames    :all (default) or a vector of frame-ids.
+     :include   vector of slice keywords. Defaults to
+                [:app-db :sub-cache :machines :epochs :traces].
+                Pass a subset to skip slices.
+
+   Example return shape:
+
+     {:rf/default {:app-db {...}
+                   :sub-cache {[:cart/total] {:value 42 :ref-count 2}}
+                   :machines {:ids [:auth] :state {:auth {...}}}
+                   :epochs [{...}{...}]
+                   :traces [{...}{...}]}
+      :stories    {...}}
+
+   Routes through existing per-slice readers — no parallel implementation.
+   Side effects: installs the trace + epoch listeners (idempotent via
+   `health`)."
+  ([] (snapshot-state {}))
+  ([{:keys [frames include]
+     :or   {frames  :all
+            include all-snapshot-slices}}]
+   (install-last-click-capture!)
+   (ensure-trace-listener!)
+   (ensure-epoch-listener!)
+   (let [registered (vec (rf/frame-ids))
+         fids       (cond
+                      (= :all frames)  registered
+                      (sequential? frames) (vec frames)
+                      :else            registered)
+         slices     (vec include)]
+     (reduce (fn [m fid]
+               (assoc m fid (snapshot-frame fid slices)))
+             {}
+             fids))))
+
+;; ---------------------------------------------------------------------------
 ;; Health check
 ;; ---------------------------------------------------------------------------
 

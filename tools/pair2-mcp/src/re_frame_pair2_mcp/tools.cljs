@@ -13,6 +13,7 @@
   | trace-window  | Epochs in the last N ms                                   |
   | watch-epochs  | Pull-mode live epoch streaming                            |
   | tail-build    | Wait for a hot-reload to land                             |
+  | snapshot      | Coarse-grained per-frame state read (mega-op)             |
 
   ## Preload probe (no per-session inject)
 
@@ -318,6 +319,81 @@
                           :message (.-message err)}))))))))
 
 ;; ---------------------------------------------------------------------------
+;; Tool: snapshot — coarse-grained per-frame state read in one round-trip.
+;;
+;; Many investigate-X workflows chain 5-10 reads; each is a bencode
+;; round-trip plus Claude-think latency. This op composes the existing
+;; per-slice readers server-side and returns a per-frame map.
+;; ---------------------------------------------------------------------------
+
+(def ^:private valid-slices
+  #{:app-db :sub-cache :machines :epochs :traces})
+
+(defn- ->frame-keyword
+  "Coerce a frame-id string into a keyword. Accepts both bare names
+   (`\"rf/default\"`) and EDN-shaped strings (`\":rf/default\"`) — strips
+   a leading colon when present so callers can pass either form."
+  [x]
+  (cond
+    (keyword? x) x
+    (string? x)
+    (let [s (if (str/starts-with? x ":") (subs x 1) x)]
+      (keyword s))
+    :else (keyword x)))
+
+(defn- parse-frames-arg
+  "Normalise the `frames` MCP arg into the form the runtime expects.
+   Accepts `:all`, the string \"all\", a JS array of strings, or a CLJS
+   vector. Returns `:all` or a vector of keyword frame-ids. Returns
+   `:all` for nil / empty / unrecognised input — least-surprise."
+  [raw]
+  (cond
+    (nil? raw) :all
+    (or (= raw :all) (= raw "all")) :all
+    (array? raw)
+    (->> (js->clj raw) (mapv ->frame-keyword))
+    (sequential? raw)
+    (mapv ->frame-keyword raw)
+    :else :all))
+
+(defn- parse-include-arg
+  "Normalise the `include` MCP arg into the slice vector the runtime
+   expects. Filters to known slices; returns the full set when arg
+   is nil / empty / all-unknown."
+  [raw]
+  (let [full [:app-db :sub-cache :machines :epochs :traces]
+        coerce (fn [xs]
+                 (->> xs
+                      (map keyword)
+                      (filter valid-slices)
+                      vec))]
+    (cond
+      (nil? raw) full
+      (array? raw)
+      (let [v (coerce (js->clj raw))]
+        (if (seq v) v full))
+      (sequential? raw)
+      (let [v (coerce raw)]
+        (if (seq v) v full))
+      :else full)))
+
+(defn- snapshot-tool [conn args]
+  (let [build-id (arg-build args)
+        frames   (parse-frames-arg (arg args :frames))
+        include  (parse-include-arg (arg args :include))
+        opts     {:frames frames :include include}
+        form     (str "(re-frame-pair2.runtime/snapshot-state "
+                      (pr-str opts) ")")]
+    (-> (ensure-runtime! conn build-id)
+        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+        (.then (fn [v]
+                 (ok-text {:ok?      true
+                           :frames   (if (= :all frames) :all (vec frames))
+                           :include  include
+                           :snapshot v})))
+        (.catch (fn [err] (err->result :snapshot-failed err))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool descriptors — exposed via tools/list.
 ;; ---------------------------------------------------------------------------
 
@@ -368,6 +444,22 @@
                   :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
                                :wait-ms {:type "integer" :description "Max wait in ms (default 5000)"}
                                :build   {:type "string"}}
+                  :additionalProperties false}}
+   {:name "snapshot"
+    :description (str "Coarse-grained per-frame state read in one round-trip — the mega-op for investigate-X workflows. "
+                      "Returns a map keyed by frame-id whose values carry the requested slices: "
+                      ":app-db, :sub-cache, :machines, :epochs, :traces. "
+                      "Server-side composition over the existing per-slice runtime readers. "
+                      "Prefer this over chaining 5-10 individual reads.")
+    :inputSchema {:type "object"
+                  :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
+                                         :oneOf [{:type "string"}
+                                                 {:type "array" :items {:type "string"}}]}
+                               :include {:type "array"
+                                         :description "Slices to include. Defaults to all five. Recognised: app-db, sub-cache, machines, epochs, traces."
+                                         :items {:type "string"
+                                                 :enum ["app-db" "sub-cache" "machines" "epochs" "traces"]}}
+                               :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
                   :additionalProperties false}}])
 
 (defn tool-descriptors-js []
@@ -386,5 +478,6 @@
     "trace-window"     (trace-window-tool conn args)
     "watch-epochs"     (watch-epochs-tool conn args)
     "tail-build"       (tail-build-tool conn args)
+    "snapshot"         (snapshot-tool  conn args)
     (js/Promise.resolve
       (err-text {:ok? false :reason :unknown-tool :tool name}))))

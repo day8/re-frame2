@@ -123,6 +123,7 @@ schemas and result shapes are specified in
 | `trace-window` | Return epoch records from the last N ms. |
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
 | `tail-build` | Wait for a hot-reload to land by polling a probe form. |
+| `snapshot`   | Coarse-grained per-frame state read in one round-trip. Returns `:app-db` + `:sub-cache` + `:machines` + `:epochs` + `:traces` slices for every (or a subset of) frame(s). Mega-op for investigate-X workflows. |
 
 (Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
 the runtime ships into consumer apps via shadow-cljs `:devtools
@@ -203,6 +204,7 @@ analogues. Listed here for reference:
 | `re-frame-pair2.runtime/trace-window` | preload/re_frame_pair2/runtime.cljs | Last-N-ms epoch lookback. |
 | `re-frame-pair2.runtime/watch-epochs` | preload/re_frame_pair2/runtime.cljs | Poll for epochs after id. |
 | `re-frame-pair2.runtime/probe` | preload/re_frame_pair2/runtime.cljs | Hot-reload landed signal. |
+| `re-frame-pair2.runtime/snapshot-state` | preload/re_frame_pair2/runtime.cljs | Per-frame slice composer fed by `:include` / `:frames` opts; backs the `snapshot` MCP tool. |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
 | `:origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
@@ -221,6 +223,14 @@ identical between the two surfaces.
 | `trace-window.sh` | `trace-window` |
 | `watch-epochs.sh` | `watch-epochs` |
 | `tail-build.sh` | `tail-build` |
+| _(none — MCP-only)_ | `snapshot` |
+
+The `snapshot` mega-op has no bash equivalent — it's a coarse-grained
+composition of the existing per-slice runtime readers, shipped as
+part of the rf2-x70e drop to cut round-trips for investigate-X
+workflows. Agents that need its semantics under the bash shim chain
+the per-op reads (`app-db/snapshot` + `subs/cache` + `machines/list`
++ `epoch/history` + `trace/buffer`) in sequence.
 
 Agents may mix shim calls and MCP tool calls in the same workflow
 during the transition. New sessions should prefer the MCP server for
