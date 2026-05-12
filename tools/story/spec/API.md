@@ -93,7 +93,8 @@ public; their unsuffixed macro counterparts cover authored cases.
 
 | Cofx id | Shape | Notes |
 |---|---|---|
-| `:story/mode` | `<mode-id>` | The active mode for the variant. |
+| `:story/active-modes` | `[<mode-id> ...]` | The chrome-toolbar's active mode-set (rf2-p0mv). See [`010-Toolbar.md`](010-Toolbar.md). |
+| `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. See [`010-Toolbar.md`](010-Toolbar.md). |
 | `:story/substrate` | `:reagent`, `:uix`, ... | The active substrate. |
 
 ## Canonical assertion events
