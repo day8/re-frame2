@@ -129,6 +129,18 @@ If you've used re-frame v1, the pattern above is mostly familiar. What re-frame2
 
 Almost everything. The same six dominoes. The same opinionated stance on a single source of truth. The same preference for data over APIs over syntax. The same Clojure-flavoured ethos: open maps, immutable values, stable contracts, late binding. If you've used re-frame v1, you can read re-frame2 code and understand it on the first pass — most of the time without noticing what changed.
 
+> ### Sidebar: where re-frame2 isn't the right fit
+>
+> No tool fits every job. A short, honest list of cases where we'd point you elsewhere:
+>
+> - **Telemetry-rate event streams.** If your app ingests thousands of events per second — financial tickers, sensor firehoses, real-time game state — re-frame2's per-event overhead becomes the bottleneck. The queue, interceptor chain, and trace stream are cheap per event but not free. Past some threshold, you want a tighter loop and a hand-rolled ring buffer, not a six-domino pipeline.
+>
+> - **Thin veneers over server-rendered HTML.** If the server owns the state and the client is mostly progressive enhancement — the territory Hotwire, htmx, and LiveView occupy — `app-db` is overkill. There isn't enough client-side state to justify the apparatus. A handful of vanilla handlers will out-finish you.
+>
+> - **Teams fully committed to React hooks idioms.** re-frame2 is a deliberate departure from `useState`/`useEffect`/`useContext`. A team that's organised its hiring, mental models, and component library around hooks will feel re-frame2 as cultural friction without a compelling forcing function. The pattern works best when adopted, not imposed.
+>
+> Outside those three buckets, the rest of this guide is for you.
+
 ## Where to read next
 
 If the argument lands, the next chapter ([01a — app-db](01a-app-db.md)) introduces the single most important *noun* in the model — the immutable map every re-frame2 app pivots around — in ten minutes. After that, [02 — Your first app](02-your-first-app.md) walks through a counter end-to-end. It's the smallest possible re-frame2 program, in narrative form, with the shape of every primitive made visible.
