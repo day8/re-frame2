@@ -329,6 +329,18 @@
 
 (defonce ^:private warned-non-dom-roots (atom #{}))
 
+(defn clear-warned-non-dom-roots!
+  "Reset the warn-once cache for non-DOM-root warnings. Tests use this
+  between cases (via `reset-runtime-fixture` and the chained
+  `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
+  encounter warning cannot silently swallow a later test's same-id
+  warning. Per rf2-4edk — the cache is a process-wide `defonce` so
+  the user-facing warn-once UX is unchanged in production; test-time
+  clearing is the only effect."
+  []
+  (reset! warned-non-dom-roots #{})
+  nil)
+
 (defn- warn-non-dom-root!
   "Emit a one-shot warning per id that a registered view's root is
   exempt from source-coord injection — a Fragment, a function/class
@@ -545,3 +557,20 @@
       (if (identical? adapter (substrate-adapter/current-adapter))
         (wrap-view id metadata user-fn)
         (when previous (previous id metadata user-fn))))))
+
+;; Per rf2-4edk: contribute a clear of THIS adapter's `warned-non-dom-roots`
+;; cache to the chained `:adapter/clear-warn-once-caches!` hook. The hook
+;; is chained — each adapter (helix, uix) and re-frame.views all contribute
+;; a clear-step; `reset-runtime-fixture` invokes the top of the chain and
+;; every contributor's reset runs (unlike `:adapter/current-frame` etc.
+;; this hook is NOT routed through the installed adapter — every loaded
+;; adapter's cache must clear because test bundles can mount different
+;; adapters across tests and each adapter's defonce persists). Production
+;; behaviour is unchanged: the warn-once `defonce` is still per-process
+;; for users; only test-time clearing is new.
+(let [previous (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+  (late-bind/set-fn! :adapter/clear-warn-once-caches!
+    (fn helix-adapter-clear-warn-once-caches! []
+      (clear-warned-non-dom-roots!)
+      (when previous (previous))
+      nil)))

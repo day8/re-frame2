@@ -271,6 +271,18 @@
 
 (defonce ^:private warned-non-dom-roots (atom #{}))
 
+(defn clear-warned-non-dom-roots!
+  "Reset the warn-once cache for non-DOM-root warnings. Tests use this
+  between cases (via `reset-runtime-fixture` and the chained
+  `:adapter/clear-warn-once-caches!` hook) so a sibling test's first-
+  encounter warning cannot silently swallow a later test's same-id
+  warning. Per rf2-4edk — the cache is a process-wide `defonce` so
+  the user-facing warn-once UX is unchanged in production; test-time
+  clearing is the only effect."
+  []
+  (reset! warned-non-dom-roots #{})
+  nil)
+
 (defn- warn-non-dom-root!
   "Emit a one-shot warning per id that the reg-view'd component returned
   a non-DOM root (a fn/class component, or a React Fragment). Pair tools
@@ -605,3 +617,17 @@
                    maybe-warn-plain-fn-under-non-default-frame!)
 (late-bind/set-fn! :views/clear-plain-fn-warned-pairs!
                    clear-plain-fn-warned-pairs!)
+
+;; Per rf2-4edk: register a clear of the `warned-non-dom-roots` cache
+;; under the chained `:adapter/clear-warn-once-caches!` hook. The hook
+;; is chained — each adapter (helix, uix) and this views ns all
+;; contribute a clear-step; `reset-runtime-fixture` invokes the top of
+;; the chain and every contributor's reset runs. Production behaviour
+;; is unchanged: the warn-once `defonce` is still per-process for users;
+;; only test-time clearing is new.
+(let [previous (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+  (late-bind/set-fn! :adapter/clear-warn-once-caches!
+    (fn views-clear-warn-once-caches! []
+      (clear-warned-non-dom-roots!)
+      (when previous (previous))
+      nil)))
