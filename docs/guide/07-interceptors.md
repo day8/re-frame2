@@ -97,7 +97,7 @@ The handler runs as the last `:before` on the way in. That's not a quirk — it'
 
 Why reverse on the way out? Because each `:after` is the dual of the corresponding `:before`. If `B:before` sets up some state on the context, `B:after` is the natural place to tear that state down. Putting them in reverse order means `B:after` runs *after* `C:after` has finished — `B` was outside `C` on the way in, so it's outside `C` on the way out. The `path` interceptor (covered below) and the `unwrap` interceptor (in [Spec 002 §Standard interceptors](../../spec/002-Frames.md)) both lean on this symmetry — they stash on the way in, restore on the way out.
 
-> **Forward link — the diagram.** A canonical adaptation of v1's `interceptors.png` (the pipeline visualisation showing one event traversing the sandwich) is in flight under bead **rf2-t33c**. When it lands, it'll sit here.
+> **Forward link — the diagram.** A canonical adaptation of v1's `interceptors.png` (the pipeline visualisation showing one event traversing the sandwich) is in flight. When it lands, it'll sit here.
 
 ## A worked example — a logger
 

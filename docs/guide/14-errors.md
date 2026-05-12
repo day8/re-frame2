@@ -318,7 +318,7 @@ A missing **cofx** behaves similarly. If `inject-cofx` references an unregistere
     {:db (assoc db :loading? true)}))
 ```
 
-…the framework emits `:rf.error/no-such-cofx` with `:cofx-id :auth/token-from-storage` and `:event-id :user/load`. The interceptor chain continues; the handler runs with the cofx map unchanged (no `:auth/token-from-storage` key). The handler reads `nil` from where it expected a token. Cross-link: this is the structured-trace replacement for v1's `println` warning on missing cofx (rf2-mq9o); the next section shows how to test it.
+…the framework emits `:rf.error/no-such-cofx` with `:cofx-id :auth/token-from-storage` and `:event-id :user/load`. The interceptor chain continues; the handler runs with the cofx map unchanged (no `:auth/token-from-storage` key). The handler reads `nil` from where it expected a token. Cross-link: this is the structured-trace replacement for v1's `println` warning on missing cofx; the next section shows how to test it.
 
 ### Scenario 4 — schema validation at the boundary
 
@@ -381,7 +381,7 @@ The runtime rejects the dispatch and emits:
 
 ## Testing error paths
 
-The pattern: register a trace listener that collects events, run the operation that should fail, assert on the collected traces. This is exactly the shape `re-frame.cofx-test` uses to pin the `:rf.error/no-such-cofx` contract (rf2-mq9o):
+The pattern: register a trace listener that collects events, run the operation that should fail, assert on the collected traces. This is exactly the shape `re-frame.cofx-test` uses to pin the `:rf.error/no-such-cofx` contract:
 
 ```clojure
 (ns my-app.cart-test
