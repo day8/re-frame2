@@ -97,3 +97,42 @@
   "Return the current global args map."
   []
   @global-args)
+
+;; ---- *editor* (rf2-evgf5 — 'Open in editor' affordance) ----------------
+;;
+;; Per Spec 005-SOTA-Features.md §'Open in editor' per variant, every
+;; source-coord-bearing Story surface (variant canvas title, per-test
+;; failure detail, etc.) renders a small 'Open' button that launches the
+;; user's editor at the registered file:line. The user picks the editor
+;; once at boot via `(story/configure! {:editor :cursor})`; this atom
+;; holds the chosen editor.
+;;
+;; Defaults to `:vscode` — the most-installed editor in 2026 (Stack
+;; Overflow Developer Survey 2025 + JetBrains DevEcosystem 2025).
+;; Accepts the keywords `:vscode` / `:cursor` / `:idea` plus the
+;; `{:custom "<uri-template>"}` form (see
+;; `re-frame.source-coords.editor-uri/editor-uri`).
+;;
+;; The atom is plain data; production builds with `enabled?` false DCE
+;; the UI shell that reads it, so the editor preference itself is
+;; harmless if it survives into a release bundle.
+
+(defonce
+  ^{:doc "Atom holding the editor preference. Default `:vscode`. Set
+         by `re-frame.story/configure!` via the `:editor` key. Read by
+         the UI shell's open-in-editor buttons."}
+  editor
+  (atom :vscode))
+
+(defn set-editor!
+  "Replace the editor preference. Accepts `:vscode` / `:cursor` /
+  `:idea` / `{:custom \"<template>\"}` / nil (resets to `:vscode`).
+  Story's `configure!` calls this."
+  [e]
+  (reset! editor (or e :vscode))
+  nil)
+
+(defn get-editor
+  "Return the current editor preference."
+  []
+  @editor)
