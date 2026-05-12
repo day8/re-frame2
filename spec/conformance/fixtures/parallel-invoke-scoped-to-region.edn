@@ -37,8 +37,12 @@
                      :states  {:neutral {}}}}}
    :snapshot     {:state {:data :idle :ui :neutral} :data {}}
    :event        [:fetch]
-   :expect-next-snapshot {:state {:data :loading :ui :neutral}
-                          :data  {}}
+   ;; Per rf2-gr8q: the in-snapshot spawn-counter is threaded across
+   ;; regions; entering :loading in the :data region bumps the
+   ;; `:fetcher` slot to 1.
+   :expect-next-snapshot {:state            {:data :loading :ui :neutral}
+                          :data             {}
+                          :rf/spawn-counter {:fetcher 1}}
    :expect-effects
    [[:rf.machine/spawn
      {:machine-id    :fetcher

@@ -4,8 +4,7 @@
 ;; Per Spec 005 §State machines the machine grammar
 ;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
 ;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
-;; `:rf.machine/destroy` effect handlers, the per-process
-;; spawn-counter) ships as a separate
+;; `:rf.machine/destroy` effect handlers) ships as a separate
 ;; Maven artefact so apps that don't register any machines don't drag
 ;; the namespace, the `:rf/machines` app-db slot's runtime support, or
 ;; the machine-transition engine onto the classpath.

@@ -15,7 +15,12 @@
 ;;
 ;; Pure-call machine-transition (the conformance harness's runner) carries
 ;; no parent registration, so :rf/parent-id is the sentinel
-;; :rf/transition-pure (matches the spawn-counter sentinel).
+;; :rf/transition-pure.
+;;
+;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
+;; `:rf/spawn-counter` (a per-machine-id integer map). A fresh fixture
+;; snapshot starts without the slot; each child spawn bumps its own
+;; machine-id slot so the three children land at #1 each.
 
 {:fixture/id           :machine/invoke-all-join-all-completes
  :fixture/spec-version "1.0"
@@ -55,11 +60,16 @@
      :error  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
-   :expect-next-snapshot {:state :hydrating :data {}}
+   :expect-next-snapshot {:state            :hydrating
+                          :data             {}
+                          :rf/spawn-counter {:load-config        1
+                                             :load-feature-flags 1
+                                             :load-user-profile  1}}
    :expect-effects
    ;; The runtime emits 1 init fx + N spawn fxs in this order. Spawn-id
-   ;; allocation is deterministic via the spawn-counter (per machine-id);
-   ;; each spawn-id is `:<machine-id>#1` since the counter resets per fixture.
+   ;; allocation is deterministic via the snapshot's `:rf/spawn-counter`
+   ;; (per machine-id) per rf2-gr8q; each spawn-id is `:<machine-id>#1`
+   ;; because each :machine-id has its own counter slot starting from 0.
    [[:rf.machine/invoke-all-init
      {:rf/parent-id :rf/transition-pure
       :rf/invoke-id [:hydrating]

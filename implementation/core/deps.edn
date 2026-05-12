@@ -44,7 +44,9 @@
  {;; The core artefact's tests historically exercised schema-aware,
   ;; machine-aware, routing-aware AND flow-aware paths (every
   ;; reset-runtime fixture rolled the per-frame schema registry, the
-  ;; spawn-counter, the route-registration counter, and the per-frame
+  ;; machines wall-clock-timer table (rf2-gr8q replaced the per-process
+  ;; spawn-counter atom with in-snapshot allocation), the route-
+  ;; registration counter, and the per-frame
   ;; flow registry; many test files require re-frame.schemas to set up
   ;; their data shapes; smoke_test.clj / pattern_smoke_test.clj /
   ;; conformance_test.clj exercise re-frame.machines/reg-machine +

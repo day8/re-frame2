@@ -44,7 +44,12 @@
      :ready  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
-   :expect-next-snapshot {:state :working :data {}}
+   ;; Per rf2-gr8q: the in-snapshot `:rf/spawn-counter` advances once per
+   ;; child spawn — all five children share the `:worker` machine-id so
+   ;; the slot lands at 5 after the entry cascade.
+   :expect-next-snapshot {:state            :working
+                          :data             {}
+                          :rf/spawn-counter {:worker 5}}
    :expect-effects
    [[:rf.machine/invoke-all-init
      {:rf/parent-id :rf/transition-pure

@@ -527,8 +527,17 @@
                           (transition/denormalise-state
                             (transition/initial-cascade machine (transition/state-path decl))
                             decl)))
-        initial    (cond-> {:state initial-state
-                            :data  (or (:data machine) {})}
+        initial    (cond-> {:state            initial-state
+                            :data             (or (:data machine) {})
+                            ;; Per rf2-gr8q: the spawn-id allocator lives
+                            ;; in-snapshot at `:rf/spawn-counter` so that
+                            ;; `machine-transition` is an honest pure
+                            ;; function. The slot is always present on
+                            ;; live snapshots (seeded here at registration
+                            ;; time); pure-call snapshots (the conformance
+                            ;; harness) may omit it — the reducer treats
+                            ;; absent slots as 0 via fnil-update.
+                            :rf/spawn-counter {}}
                      (some? (:meta machine)) (assoc :meta (:meta machine)))]
     (parallel/commit-tags-parallel machine initial)))
 
@@ -999,18 +1008,33 @@
 ;; fx`. Frame isolation is preserved by the snapshot living at
 ;; `[:rf/machines <id>]` inside the spawning frame's app-db.
 
-(defn- compute-actor-id
-  "Resolve the actor id for a spawn. Per Spec 005 §Declarative :invoke
-  Spec-spec keys: `:invoke-id` is an explicit id (per-state singleton);
-  otherwise the runtime allocated id is sourced from the spawn args
-  the transition runner produced via next-spawn-id."
-  [args frame-id]
+(defn- pre-allocated-actor-id
+  "Resolve the pre-allocated actor id carried on the spawn args. Per Spec
+  005 §Declarative :invoke Spec-spec keys: `:invoke-id` is an explicit
+  literal (per-state singleton); `:rf/spawned-id` is stamped by the
+  transition reducer (rf2-gr8q — allocated from the parent snapshot's
+  `:rf/spawn-counter`). Returns nil for hand-emitted
+  `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
+  the caller (spawn-fx) allocates such ids from the frame's app-db
+  spawn-counter slot inside the spawn's db-swap so the allocation
+  shares the same write."
+  [args]
   (or (:invoke-id args)
-      (:rf/spawned-id args)
-      ;; Fallback: re-allocate (shouldn't happen for declarative :invoke,
-      ;; but supports hand-emitted [:rf.machine/spawn args] forms from
-      ;; action :fx).
-      (transition/next-spawn-id frame-id (or (:id-prefix args) (:machine-id args)))))
+      (:rf/spawned-id args)))
+
+(defn- allocate-actor-id-in-db
+  "Hand-emitted-spawn fallback allocator (rf2-gr8q). When the spawn args
+  carry no pre-allocated id (no `:invoke-id`, no `:rf/spawned-id`), this
+  fn bumps the frame's app-db counter at `[:rf/spawn-counter <machine-id>]`
+  and returns `[new-db spawned-id]`. Per rf2-gr8q the global
+  `spawn-counter` atom is gone; the allocator lives where the side-effect
+  belongs — inside the fx-handler's app-db swap — so the pure transition
+  layer stays effect-free."
+  [db machine-id]
+  (let [db' (update-in db [:rf/spawn-counter machine-id] (fnil inc 0))
+        n   (get-in db' [:rf/spawn-counter machine-id])]
+    [db' (keyword (namespace machine-id)
+                  (str (name machine-id) "#" n))]))
 
 (defn- resolve-spawn-machine
   "Resolve the machine spec to register for a spawn. `:machine-id`
@@ -1058,7 +1082,13 @@
       leaf-level `:on :rf.machine/spawned :target ...` transition."
   [{:keys [frame]} args]
   (let [frame-id   (or frame :rf/default)
-        spawned-id (compute-actor-id args frame-id)
+        ;; Per rf2-gr8q: prefer the pre-allocated id (declarative :invoke
+        ;; routes through the transition reducer which bumps the parent
+        ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
+        ;; no pre-allocated id; the frame's app-db spawn-counter slot
+        ;; serves as the fallback allocator, bumped inside the same
+        ;; db-swap as the snapshot install / registry bind below.
+        pre-id     (pre-allocated-actor-id args)
         spec       (resolve-spawn-machine args)
         spec'      (if (and spec (contains? args :data))
                      (assoc spec :data (:data args))
@@ -1070,6 +1100,23 @@
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
         track?     (and parent-id invoke-id)
+        ;; Resolve the final spawned id: pre-allocated when present;
+        ;; else allocate from app-db inside the swap below. We pre-read
+        ;; the db once so the trace event and reg-machine* call see the
+        ;; same id the snapshot install / registry bind will use. The
+        ;; db-swap re-applies the increment to the (potentially-newer)
+        ;; db at write time — for the JVM atom container the read is
+        ;; consistent because adapter/replace-container! is the only
+        ;; writer during fx drain.
+        container  (frame/get-frame-db frame-id)
+        old-db     (when container (adapter/read-container container))
+        machine-id-for-alloc (or (:id-prefix args) (:machine-id args))
+        [db-after-alloc spawned-id]
+        (cond
+          pre-id        [old-db pre-id]
+          (and old-db machine-id-for-alloc)
+                        (allocate-actor-id-in-db old-db machine-id-for-alloc)
+          :else         [old-db nil])
         ;; Per rf2-ijm7: stamp framework-reserved keys into the spawned
         ;; actor's initial :data so the actor knows its own address
         ;; (:rf/self-id) and, for declarative-:invoke spawns, its
@@ -1095,8 +1142,11 @@
       (reg-machine* spawned-id spec''))
     ;; (3) Initialise the snapshot + (4) bind :system-id + (5) bind the
     ;; runtime-owned spawn registry (atomically under one app-db swap so
-    ;; observers see consistent state).
-    (when-let [container (frame/get-frame-db frame-id)]
+    ;; observers see consistent state). When the spawned id was allocated
+    ;; from the frame's app-db (the hand-emitted-spawn fallback path),
+    ;; `db-after-alloc` already carries the bumped counter — install the
+    ;; snapshot on top of that.
+    (when container
       (let [parallel-child? (and spec'' (parallel/parallel? spec''))
             initial-decl  (:initial spec'')
             initial-state (when spec''
@@ -1121,11 +1171,10 @@
                                   {:state initial-state
                                    :data  (or (:data spec'') {})})
                                 (assoc :rf/bootstrap-pending? true)))
-            old-db        (adapter/read-container container)
             existing      (when system-id
-                            (get-in old-db [:rf/system-ids system-id]))
+                            (get-in db-after-alloc [:rf/system-ids system-id]))
             new-db
-            (cond-> old-db
+            (cond-> db-after-alloc
               spec''     (assoc-in [:rf/machines spawned-id] initial-snap)
               system-id  (assoc-in [:rf/system-ids system-id] spawned-id)
               track?     (assoc-in [:rf/spawned parent-id invoke-id] spawned-id))]

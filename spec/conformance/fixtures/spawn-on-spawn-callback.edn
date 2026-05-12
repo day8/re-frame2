@@ -61,11 +61,13 @@
    :snapshot     {:state :idle :data {}}
    :event        [:go]
    ;; After entering :working, the desugared spawn fx fires and the
-   ;; on-spawn callback installs the deterministic actor id (per
-   ;; machines/next-spawn-id, the first spawn for this machine spec gets
-   ;; :http/post#1) under :data.:born-with-id.
-   :expect-next-snapshot {:state :working
-                          :data  {:born-with-id :http/post#1}}
+   ;; on-spawn callback installs the deterministic actor id (per rf2-gr8q
+   ;; allocate-spawned-id, the first spawn for this machine spec gets
+   ;; :http/post#1) under :data.:born-with-id. The in-snapshot counter
+   ;; at `:rf/spawn-counter` records the bumped value.
+   :expect-next-snapshot {:state            :working
+                          :data             {:born-with-id :http/post#1}
+                          :rf/spawn-counter {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post
                                               :data          {:url "/api/x"}

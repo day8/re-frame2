@@ -44,9 +44,13 @@
  [[:sup/flow [:start]]]
 
  :fixture/expect
- ;; The :worker/proc's gensym'd id is :worker/proc#1 (per next-spawn-id).
- ;; The reverse index records :worker → :worker/proc#1, and the actor's
- ;; snapshot is initialised under [:rf/machines :worker/proc#1].
+ ;; The :worker/proc's gensym'd id is :worker/proc#1 (per rf2-gr8q
+ ;; allocate-spawned-id — the parent snapshot's :rf/spawn-counter slot
+ ;; advances). The reverse index records :worker → :worker/proc#1, and
+ ;; the actor's snapshot is initialised under [:rf/machines :worker/proc#1].
+ ;; The fixture asserts via submap? — the runtime's extra keys
+ ;; (`:rf/spawn-counter`, the actor's framework-stamped `:rf/self-id`
+ ;; etc.) are tolerated.
  {:final-app-db
   {:rf/machines
    {:sup/flow      {:state    :working

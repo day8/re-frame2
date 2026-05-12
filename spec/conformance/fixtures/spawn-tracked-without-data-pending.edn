@@ -67,8 +67,12 @@
    :snapshot     {:state :idle :data {}}
    :event        [:submit]
    ;; Snapshot's :data is unchanged — there's no :on-spawn callback, so
-   ;; the parent's :data carries no spawn-related bookkeeping.
-   :expect-next-snapshot {:state :authenticating :data {}}
+   ;; the parent's :data carries no spawn-related bookkeeping. Per
+   ;; rf2-gr8q the spawn-id allocator advances the snapshot's
+   ;; `:rf/spawn-counter` slot — visible at top level alongside `:data`.
+   :expect-next-snapshot {:state            :authenticating
+                          :data             {}
+                          :rf/spawn-counter {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post
                                               :data          {:url "/api/login"}
