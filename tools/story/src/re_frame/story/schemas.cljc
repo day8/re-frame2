@@ -280,9 +280,17 @@
 
 (def Mode
   "Schema for the body of `reg-mode` — a saved-tuple of global args.
-  Per IMPL-SPEC §2.8.3 modes ship in v1."
+  Per IMPL-SPEC §2.8.3 modes ship in v1.
+
+  Per spec/010 §Optional grouping — `:axis` (v1) the body MAY carry an
+  optional `:axis` keyword that groups modes for the toolbar's chip
+  layout. When present, the toolbar renders one labelled group per axis
+  with **single-select-within-axis** semantics. Modes without `:axis`
+  render in a trailing un-grouped section with multi-select semantics.
+  The schema change is additive — unchanged bodies remain valid."
   [:map
    [:doc  {:optional true} :string]
+   [:axis {:optional true} :keyword]
    [:args ArgMap]])
 
 ;; ---- :rf/story-panel ------------------------------------------------------

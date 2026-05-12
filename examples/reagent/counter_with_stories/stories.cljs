@@ -97,6 +97,18 @@
             :background  "#ffffff"
             :foreground  "#1a1a1a"}})
 
+  ;; rf2-xi9zk: an `:axis :theme`-tagged mode exercises the chrome-
+  ;; level toolbar's single-select-within-axis semantics (spec/010
+  ;; §Selection semantics — by axis). Toggling :Mode.app/sepia
+  ;; deactivates any other `:axis :theme` mode that was active.
+  (story/reg-mode :Mode.app/sepia
+    {:doc  "Sepia theme — exercises the toolbar's single-select-
+           within-axis behaviour (`:axis :theme`)."
+     :axis :theme
+     :args {:theme      :sepia
+            :background "#f4ecd8"
+            :foreground "#5b4636"}})
+
   ;; -------------------------------------------------------------------------
   ;; reg-decorator — a project-custom hiccup decorator
   ;;

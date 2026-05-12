@@ -62,6 +62,10 @@
             ;; CLJS-only so the JVM classpath stays lean.
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.share        :as share]
+            ;; rf2-xi9zk: chrome-level toolbar's cofx + subscriptions
+            ;; (`:story/active-modes`, `:story/active-args`) — pure
+            ;; .cljc so the cofx are exercisable from JVM tests.
+            [re-frame.story.ui.cofx      :as ui-cofx]
             ;; Stage 4 (rf2-ekai) — UI shell. CLJS-only require so JVM
             ;; consumers (tests, REPL exploration) don't pull Reagent /
             ;; reagent.dom.client into their classpath.
@@ -398,6 +402,10 @@
   ;; module declares the three :hiccup-kind decorators against the
   ;; story registrar).
   (layout-debug/install-canonical-layout-debug!)
+  ;; rf2-xi9zk — chrome-level toolbar's cofx + subs. Register the
+  ;; `:story/active-modes` and `:story/active-args` coeffect handlers +
+  ;; matching subscriptions backed by the shell-state-atom.
+  (ui-cofx/install-canonical-cofx!)
   ;; CLJS-only Stage 6 surfaces: multi-substrate Reagent default +
   ;; the v1.0 panel set.
   #?(:cljs (ui-multi-substrate/install-reagent-substrate!))

@@ -614,25 +614,116 @@ module.exports = {
     );
 
     // ====================================================================
-    // 8. Mode picker — :Mode.app/dark and :Mode.app/light chips
+    // 8. Chrome-level toolbar — chip render, axis selection, reset (rf2-xi9zk)
     // ====================================================================
     //
-    // The mode picker exposes every registered mode as a toggleable
-    // chip in the right pane. Toggling a mode flips its entry in
-    // `:active-modes`; the chip swaps to the active style.
+    // Per spec/010 the toolbar lives above the three-pane row (chrome-
+    // wide, NOT inside the controls aside). It exposes every registered
+    // `:mode` as a clickable chip — toggling a chip flips its entry in
+    // `:active-modes`; `:axis`-tagged modes single-select-within-axis
+    // (toggling :Mode.app/sepia evicts any other `:axis :theme` mode).
     //
-    // We click `:Mode.app/dark`, confirm the chip is now styled active,
-    // then click again to deactivate. The DOM doesn't expose the
-    // active-state via class (inline-styled), so we instead verify the
-    // mode appears as a clickable chip and that clicking it does not
-    // crash the shell (the canvas stays mounted with its variant title).
-    const darkModeChip = aside.getByText(':Mode.app/dark', { exact: false }).first();
-    await darkModeChip.waitFor({ state: 'visible', timeout: 5000 });
-    await darkModeChip.click();
+    // counter_with_stories registers three theme modes:
+    //   - :Mode.app/dark   (no axis — multi-select)
+    //   - :Mode.app/light  (no axis — multi-select)
+    //   - :Mode.app/sepia  (:axis :theme — single-select-within-axis)
+    const toolbar = page.locator('[data-test="story-toolbar"]');
+    await toolbar.waitFor({ state: 'visible', timeout: 5000 });
+
+    const darkChip = toolbar.locator('[data-toolbar-mode=":Mode.app/dark"]');
+    const lightChip = toolbar.locator('[data-toolbar-mode=":Mode.app/light"]');
+    const sepiaChip = toolbar.locator('[data-toolbar-mode=":Mode.app/sepia"]');
+    await darkChip.waitFor({ state: 'visible', timeout: 5000 });
+    await lightChip.waitFor({ state: 'visible', timeout: 5000 });
+    await sepiaChip.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Initial: every chip is aria-pressed="false".
+    if ((await darkChip.getAttribute('aria-pressed')) !== 'false') {
+      throw new Error('expected :Mode.app/dark chip to start aria-pressed="false"');
+    }
+
+    // Click :dark → aria-pressed="true"; :light + :sepia stay "false".
+    await darkChip.click();
+    {
+      const start = Date.now();
+      let pressed = null;
+      while (Date.now() - start < 2000) {
+        pressed = await darkChip.getAttribute('aria-pressed').catch(() => null);
+        if (pressed === 'true') break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (pressed !== 'true') {
+        throw new Error(`expected :dark chip aria-pressed="true" after click, got ${pressed}`);
+      }
+    }
+    if ((await lightChip.getAttribute('aria-pressed')) !== 'false') {
+      throw new Error('expected :light chip to remain aria-pressed="false" after :dark click (multi-select)');
+    }
+
+    // Click :light (un-axis-tagged) → both :dark + :light active (multi-select).
+    await lightChip.click();
+    {
+      const start = Date.now();
+      let bothActive = false;
+      while (Date.now() - start < 2000) {
+        const a = await darkChip.getAttribute('aria-pressed').catch(() => null);
+        const b = await lightChip.getAttribute('aria-pressed').catch(() => null);
+        if (a === 'true' && b === 'true') {
+          bothActive = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!bothActive) {
+        throw new Error('expected :dark + :light to coexist (no axis tag = multi-select)');
+      }
+    }
+
+    // Click :sepia (:axis :theme) — single-select-within-axis. :sepia
+    // is the only :axis :theme-tagged mode in the example; :dark + :light
+    // are NOT axis-tagged so they're unaffected (axis-tagged toggles
+    // only evict siblings sharing the SAME axis).
+    await sepiaChip.click();
+    {
+      const start = Date.now();
+      let ok = false;
+      while (Date.now() - start < 2000) {
+        const sepia = await sepiaChip.getAttribute('aria-pressed').catch(() => null);
+        if (sepia === 'true') {
+          ok = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!ok) {
+        throw new Error('expected :sepia chip to flip aria-pressed="true" after click');
+      }
+    }
+
+    // Reset button appears once at least one mode is active; clicking
+    // it clears every chip back to aria-pressed="false".
+    const toolbarResetBtn = toolbar.locator('[data-test="story-toolbar-reset"]');
+    await toolbarResetBtn.waitFor({ state: 'visible', timeout: 2000 });
+    await toolbarResetBtn.click();
+    {
+      const start = Date.now();
+      let cleared = false;
+      while (Date.now() - start < 2000) {
+        const a = await darkChip.getAttribute('aria-pressed').catch(() => null);
+        const b = await lightChip.getAttribute('aria-pressed').catch(() => null);
+        const c = await sepiaChip.getAttribute('aria-pressed').catch(() => null);
+        if (a === 'false' && b === 'false' && c === 'false') {
+          cleared = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!cleared) {
+        throw new Error('expected reset-button click to flip every chip back to aria-pressed="false"');
+      }
+    }
     // Canvas should still be mounted and titled with the same variant.
     await waitForVariantTitle(page, ':story.counter/loaded');
-    // Toggle back off so subsequent assertions get a clean active-modes set.
-    await darkModeChip.click();
 
     // ====================================================================
     // 9. Decorator list — read-only listing in the controls panel
