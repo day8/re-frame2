@@ -445,15 +445,66 @@ corresponding `:assertions` record.
 ## Schema-derivation pipeline
 
 The control-derivation logic walks the registered Malli schema for
-`:component`:
+`:component` (or an explicit `:schema` slot on the variant/story
+body — Story consults the variant body first, then the parent story,
+then the registered view) and emits a `{arg-key → widget-spec}` map:
 
-- `:string` → `:text`
-- `:int`, `:double` with `:min` / `:max` → bounded `:number`
-- `:boolean` → `:boolean`
-- `:enum`-of-strings → `:select`
-- `:keyword` → `:text` with keyword-coercion
-- Nested `:map` → group with collapsible header
+**Scalar forms**
+
+- `:string` → `{:widget :text}`
+- `:int` / `:double` (optional `:min` / `:max`) → `{:widget :number}`
+- `:boolean` → `{:widget :boolean}`
+- `:keyword` → `{:widget :text}` (keyword-coercion at edit time)
+- `[:enum a b c]` → `{:widget :select :options [a b c]}`
+
+**Collection forms (rf2-agshe)**
+
+The walker recurses into Malli's standard collection operators. Each
+collection widget-spec carries enough data for the renderer to expand
+it into nested rows:
+
+- `[:map [k1 s1] [k2 s2] ...]`
+  → `{:widget :group :kind :map
+      :entries [{:key k1 :widget <recur s1>}
+                {:key k2 :widget <recur s2>} ...]}`
+
+  The renderer shows a labelled header per key and one nested row per
+  entry. Editing entry `kN` writes through to `[:cell-overrides
+  variant-id arg-key kN]`.
+
+- `[:vector X]`
+  → `{:widget :repeater :kind :vector :element <recur X>}`
+
+  The renderer shows the current entries one-per-row with an inline
+  `[-]` button each and a trailing `[+]` button. Adding seeds a
+  default value derived from `X` (`:text → ""`, `:number → 0`,
+  `:boolean → false`, `:select → first option`, `:group → {}`,
+  nested `:repeater → []`, nested `:tuple → [default-per-position]`).
+  Removing an entry slices the underlying vector. Editing entry `i`
+  writes through to `[:cell-overrides variant-id arg-key i]`.
+
+- `[:set X]`
+  → `{:widget :repeater :kind :set :element <recur X>}`
+
+  Identical to `:vector` but the value round-trips through `set` —
+  duplicates collapse and entry order is by stringified value (stable).
+
+- `[:tuple X Y ...]`
+  → `{:widget :tuple :kind :tuple
+      :positions [<recur X> <recur Y> ...]}`
+
+  Fixed-arity sibling of `:repeater` — one row per declared position;
+  no `[+]` / `[-]` affordance. Editing position `i` writes through to
+  `[:cell-overrides variant-id arg-key i]`.
+
+When the schema-walker has nothing to consult (no `:schema`, no
+matching `:argtypes` key), the controls panel falls back to inferring a
+widget-spec from the *value's* CLJS shape — maps recurse as `:group`,
+vectors as `:repeater`, scalars classify by `string?`/`integer?`/etc.
+This keeps "zero argtypes" stories from collapsing to inert `:text`
+widgets for non-trivial value shapes.
 
 Author-supplied `:argtypes` overrides the auto-derivation key-by-key.
 Stage 2 owns the macro side; Stage 4 (controls layer) owns the
-rendering — see [`003-Render-Shell.md`](003-Render-Shell.md).
+rendering — see [`003-Render-Shell.md`](003-Render-Shell.md). The
+nested-collection walker landed via rf2-agshe.

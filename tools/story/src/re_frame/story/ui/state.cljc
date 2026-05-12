@@ -12,7 +12,9 @@
   - `select-workspace`   — change the focused workspace id.
   - `toggle-tag-filter`  — flip a tag on/off in the filter set.
   - `set-active-modes`   — replace the active mode set.
-  - `set-cell-override`  — set a single arg override.
+  - `set-cell-override`  — set a single arg override (scalar key or
+                           nested path; the nested-path arity backs the
+                           nested-schema controls walker, rf2-agshe).
   - `clear-cell-overrides` — drop all overrides for the focused variant.
   - `filter-variants`    — pure fn: given a set of variant bodies + the
                            shell state, return the visible subset.
@@ -170,9 +172,29 @@
       (seq unaxed) (conj [::unaxed unaxed]))))
 
 (defn set-cell-override
-  "Set a single arg override for `variant-id`."
-  [state variant-id arg-key value]
-  (assoc-in state [:cell-overrides variant-id arg-key] value))
+  "Set a single arg override for `variant-id`. The override may target
+  either a top-level arg-key (scalar arity) or a nested path within the
+  arg's value (vector arity — used by the nested Malli walker per
+  rf2-agshe). The vector arity is path-aware: the first element is the
+  top-level arg-key; the remaining elements address into the nested
+  value via `assoc-in` semantics.
+
+  - 3-arity:           `(set-cell-override state v k v)` — scalar override.
+  - vector-key arity:  `(set-cell-override state v [k & path] value)` —
+                       nested override. When `path` is empty the call is
+                       equivalent to the scalar form."
+  [state variant-id arg-key-or-path value]
+  (cond
+    (and (sequential? arg-key-or-path) (seq arg-key-or-path))
+    (let [[k & path] arg-key-or-path]
+      (assoc-in state (into [:cell-overrides variant-id k] path) value))
+
+    (sequential? arg-key-or-path)
+    ;; Empty path — no-op (caller error; leave state untouched).
+    state
+
+    :else
+    (assoc-in state [:cell-overrides variant-id arg-key-or-path] value)))
 
 (defn clear-cell-overrides
   "Drop every override for `variant-id`."
