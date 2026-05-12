@@ -26,7 +26,7 @@ Spec 005 §Declarative `:invoke` §Worked example (verbatim shape). While the pa
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one |
 | `:data` | initial data for the child — literal map or `(fn [snapshot event] data)` | optional |
 | `:on-spawn` | `(fn [data spawned-id] new-data)` — advisory; record the child id in the parent's `:data` if you want | optional |
-| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states---onDone--output-key) below. | optional |
+| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states--final--on-done--output-key) below. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:invoke-id` | explicit id instead of gensym (per-state singleton) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
