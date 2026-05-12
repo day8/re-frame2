@@ -172,6 +172,32 @@ All of these instantiate the same shape:
 - **Service Worker messaging** — `postMessage` in/out, with `MessageChannel` for correlation.
 - **Native bridges** — React Native, Capacitor, Tauri, Electron — all expose `postMessage`-shaped APIs.
 - **AI / LLM API calls** — HTTP variant with streaming-token replies; each chunk dispatches an event.
+- **`requestAnimationFrame` loops** — continuous animation, physics, or game loops. A `:ui/raf-loop` fx owns the RAF cycle: the fx schedules its first frame, captures `:frame` per this pattern's standard rule, and on each browser frame dispatches a per-frame event carrying delta-time. The event handler updates state; the view renders from the new state. A sibling fx (`:ui/raf-loop-stop`) cancels the RAF handle. Same kick-off-and-await shape as managed HTTP; RAF is the async source instead of `fetch`. Sketch:
+
+  ```clojure
+  (defonce ^:private raf-handle (atom nil))
+
+  (rf/reg-fx :ui/raf-loop
+    (fn fx-raf-loop [m {:keys [on-frame]}]
+      (let [frame-id (:frame m)
+            last     (atom nil)]
+        (letfn [(tick [now]
+                  (let [prev @last
+                        dt   (if prev (- now prev) 0)]
+                    (reset! last now)
+                    (rf/dispatch (conj on-frame dt) {:frame frame-id})
+                    (reset! raf-handle (js/requestAnimationFrame tick))))]
+          (reset! raf-handle (js/requestAnimationFrame tick))))))
+
+  (rf/reg-fx :ui/raf-loop-stop
+    (fn fx-raf-loop-stop [_ _]
+      (when-let [h @raf-handle] (js/cancelAnimationFrame h))
+      (reset! raf-handle nil)))
+
+  (rf/reg-event-db :scene/tick
+    (fn handler-scene-tick [db [_ dt-ms]]
+      (update db :scene physics/step dt-ms)))
+  ```
 - **Geolocation, sensor APIs, background sync** — registered listener dispatches reply events on each emission.
 
 Pattern-RemoteData is the specific case of Pattern-AsyncEffect for HTTP requests with the standard 5-key slice. Other instances may carry a different slice shape (or no slice at all, e.g., a fire-and-forget log fx); the shape — fx posts, listener replies, event commits — is what they share.
