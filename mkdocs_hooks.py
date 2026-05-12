@@ -34,7 +34,12 @@ import re
 
 GH_BLOB_BASE = "https://github.com/day8/re-frame2/blob/main"
 
-# Case 1a: guide/* pages link to spec via ../../spec/ — collapse one level.
+# Case 1a: guide/* and skills/* pages link to spec via ../../spec/ — collapse
+# one level. Both trees live at docs/<tree>/X.md (depth 2 below repo root),
+# so from the source tree the correct ref to spec/ is ../../spec/, while in
+# the staged docs_dir (where spec/ is copied to docs/spec/) the correct ref
+# is ../spec/. The rewrite is identical for both trees because they share
+# the same depth.
 _GUIDE_TO_SPEC = re.compile(r'\]\(\.\./\.\./spec/')
 
 # Case 1b: docs-root pages (e.g. docs/release-process.md) link to spec via
@@ -102,15 +107,17 @@ _REWRITES = (
 
 
 def on_page_markdown(markdown, page, config, files):
-    """Rewrite cross-tree links in guide/* and spec/* pages.
+    """Rewrite cross-tree links in guide/*, skills/*, and spec/* pages.
 
-    1. ../../spec/ -> ../spec/   (only on guide/* pages; spec IS staged)
+    1. ../../spec/ -> ../spec/   (on guide/* and skills/* pages; spec IS
+                                  staged into docs/spec/, and both trees
+                                  share the same docs/<tree>/X.md depth)
     2. ../../examples/ and ../examples/  -> https://github.com/.../examples/
     3. ../../README.md and ../README.md  -> https://github.com/.../README.md
     """
     src = page.file.src_path.replace('\\', '/')
 
-    if src.startswith('guide/'):
+    if src.startswith('guide/') or src.startswith('skills/'):
         markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
     elif src.startswith('spec/'):
         # Spec pages link to docs-root pages via ../docs/ — collapse the
