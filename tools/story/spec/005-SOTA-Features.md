@@ -158,7 +158,12 @@ yields a clickable URI rather than a no-op. Source-coords without
 The shared URI builder lives at `re-frame.source-coords.editor-uri`
 under the core artefact and is CLJC-portable; Causa's mirror
 affordance (`day8.re-frame2-causa.open-in-editor`) consumes the same
-helper.
+helper. The matrix above is the canonical list for *both* tools — see
+[`tools/causa/spec/007-UX-IA.md` §Editor protocol matrix](../../causa/spec/007-UX-IA.md#editor-protocol-matrix)
+for Causa's keyboard-side surface and the Settings-modal hook. Story
+and Causa keep independent config keys (`:rf.story/editor` vs
+`:rf.causa/editor`) so a host can route each tool to a different
+editor.
 
 ## Production elision under `:advanced`
 
