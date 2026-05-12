@@ -213,76 +213,137 @@
     id))
 
 ;; ---- destruction ----------------------------------------------------------
+;;
+;; destroy-frame! runs an ordered teardown. Each step lives in its own
+;; named helper so the body of destroy-frame! reads as documentation; the
+;; helper names ARE the step list. Order matters — see destroy-frame!'s
+;; docstring and Spec 002 §Destroy.
+
+(defn- fire-on-destroy-event!
+  "Step 1. Fire the user-supplied :on-destroy event before any lifecycle
+  mutation, so handlers still observe an alive frame. No-op when the
+  frame has no :on-destroy or when the router artefact is absent."
+  [id f]
+  (when-let [on-destroy (get-in f [:config :on-destroy])]
+    (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+      (dispatch-sync on-destroy {:frame id}))))
+
+(defn- notify-machine-destruction!
+  "Step 2 (with interleaved 2a). For every machine that has an active
+  snapshot under [:rf/machines ...] in app-db:
+
+    2a. Fire the rf2-wvkn HTTP abort hook (Spec 005 §Cancellation
+        cascade — frame-destroy is a documented destroy trigger).
+        Late-bound; nil when the http artefact is absent. Runs BEFORE
+        the trace events so observers see abort-then-destroy ordering.
+    2.  Emit :rf.machine/destroyed-on-frame-exit (the observer-facing
+        lifecycle signal — telemetry, logging, hand-written cleanup
+        hooks).
+        Then emit :rf.machine.lifecycle/destroyed per Spec 009
+        §:op-type vocabulary, pairing with :rf.machine.lifecycle/created
+        emitted at reg-machine.
+
+  Full automatic exit-cascade would require storing every machine def
+  in a registry, which is out of scope for the v1 closed kind set."
+  [id]
+  (let [container  (get-frame-db id)
+        db         (when container (adapter/read-container container))
+        machines   (get db :rf/machines)
+        abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
+    (doseq [[machine-id snapshot] machines]
+      (when abort-http
+        (try (abort-http machine-id)
+             (catch #?(:clj Throwable :cljs :default) _ nil)))
+      (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
+                   {:frame      id
+                    :machine-id machine-id
+                    :last-state (:state snapshot)})
+      (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
+                   {:frame      id
+                    :machine-id machine-id
+                    :last-state (:state snapshot)}))))
+
+(defn- mark-frame-destroyed!
+  "Step 3. Flip :lifecycle :destroyed? so subsequent dispatch / subscribe
+  against this frame raises :rf.error/frame-destroyed. Done before
+  sub-cache disposal so a racing reaction can't re-enter on a frame
+  that's mid-teardown."
+  [id]
+  (swap! frames update id assoc-in [:lifecycle :destroyed?] true))
+
+(defn- tear-down-sub-cache!
+  "Step 4. Walk every cached reaction in the frame's sub-cache and
+  dispose it; clear the cache atom. Disposal exceptions are swallowed
+  so one bad on-dispose can't block the rest of teardown."
+  [f]
+  (when-let [cache (:sub-cache f)]
+    (doseq [[_k entry] @cache]
+      (when-let [r (:reaction entry)]
+        (try (interop/dispose! r)
+             (catch #?(:clj Throwable :cljs :default) _ nil))))
+    (reset! cache {})))
+
+(defn- emit-frame-destroyed-trace!
+  "Step 5. Emit the :frame/destroyed trace, AFTER the per-machine
+  cascade so listeners see machines-then-frame ordering."
+  [id]
+  (trace/emit! :frame :frame/destroyed
+               {:frame id}))
+
+(defn- dissoc-frame!
+  "Step 6. Remove the frame record from the `frames` atom so subsequent
+  lookups return nil."
+  [id]
+  (swap! frames dissoc id))
+
+(defn- unregister-frame!
+  "Step 7. Per Spec 001 §Hot-reload semantics — drop the frame from the
+  registrar, surfacing :rf.registry/handler-cleared so tools tracking
+  the live registry observe the slot freed."
+  [id]
+  (registrar/unregister! :frame id))
+
+(defn- notify-epoch-listeners!
+  "Step 8. Per Tool-Pair §Surface behaviour against destroyed frames
+  (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
+  for every register-epoch-cb listener that previously observed this
+  frame. Late-bound through the hook table so core never statically
+  requires the epoch artefact."
+  [id]
+  (when-let [on-destroyed (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (try (on-destroyed id)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn destroy-frame!
-  "Tear down a frame. Per Spec 002 §Destroy:
-   1. Run the frame's :on-destroy event (if any) via dispatch-sync.
-   2. Emit :rf.machine/destroyed-on-frame-exit for each machine that
-      has an active snapshot under [:rf/machines ...] in app-db. This
-      is the lifecycle signal observers (telemetry, logging, hand-
-      written cleanup hooks) can react to — full automatic exit-
-      cascade would require storing every machine def in a registry,
-      which is out of scope for the v1 closed kind set.
-   3. Mark the frame :destroyed?, dispose every cached reaction in
-      the sub-cache, dissoc the frame from the registry.
+  "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
 
-   Subsequent dispatch / subscribe against a destroyed frame raises
-   :rf.error/frame-destroyed."
+    1. fire-on-destroy-event!       — run the user :on-destroy event
+                                      while the frame is still alive.
+    2. notify-machine-destruction!  — for each active machine snapshot:
+                                      (2a) fire the rf2-wvkn HTTP abort
+                                      hook, then emit the
+                                      :rf.machine/destroyed-on-frame-exit
+                                      and :rf.machine.lifecycle/destroyed
+                                      traces.
+    3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
+    4. tear-down-sub-cache!         — dispose every cached reaction.
+    5. emit-frame-destroyed-trace!  — emit :frame/destroyed.
+    6. dissoc-frame!                — remove from the `frames` atom.
+    7. unregister-frame!            — drop from the registrar.
+    8. notify-epoch-listeners!      — fire the rf2-d656 epoch hook.
+
+  Subsequent dispatch / subscribe against a destroyed frame raises
+  :rf.error/frame-destroyed."
   [id]
   (when-let [f (frame id)]
-    ;; (1) fire the user-supplied :on-destroy event before mutating
-    ;; lifecycle state so handlers see a still-alive frame.
-    (when-let [on-destroy (get-in f [:config :on-destroy])]
-      (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
-        (dispatch-sync on-destroy {:frame id})))
-    ;; (2) signal active-machine teardown so observers can hook in.
-    (let [container (get-frame-db id)
-          db        (when container (adapter/read-container container))
-          machines  (get db :rf/machines)
-          ;; rf2-wvkn — fire the in-flight HTTP abort hook for each
-          ;; surviving machine before the trace events. Late-bound; nil
-          ;; when the http artefact is absent. Per Spec 005 §Cancellation
-          ;; cascade — frame-destroy is one of the documented destroy
-          ;; triggers.
-          abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
-      (doseq [[machine-id snapshot] machines]
-        (when abort-http
-          (try (abort-http machine-id)
-               (catch #?(:clj Throwable :cljs :default) _ nil)))
-        (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
-                     {:frame      id
-                      :machine-id machine-id
-                      :last-state (:state snapshot)})
-        ;; Per Spec 009 §:op-type vocabulary: :rf.machine.lifecycle/destroyed
-        ;; is the documented machine-instance-teardown signal. Pair with
-        ;; :rf.machine.lifecycle/created emitted at reg-machine.
-        (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
-                     {:frame      id
-                      :machine-id machine-id
-                      :last-state (:state snapshot)})))
-    (swap! frames update id assoc-in [:lifecycle :destroyed?] true)
-    ;; (3) sub-cache disposal: walk every entry and dispose.
-    (when-let [cache (:sub-cache f)]
-      (doseq [[_k entry] @cache]
-        (when-let [r (:reaction entry)]
-          (try (interop/dispose! r)
-               (catch #?(:clj Throwable :cljs :default) _ nil))))
-      (reset! cache {}))
-    (trace/emit! :frame :frame/destroyed
-                 {:frame id})
-    (swap! frames dissoc id)
-    ;; Per Spec 001 §Hot-reload semantics — destroying a frame removes it
-    ;; from the registrar, surfacing :rf.registry/handler-cleared so tools
-    ;; tracking the live registry observe the slot freed.
-    (registrar/unregister! :frame id)
-    ;; Per Tool-Pair §Surface behaviour against destroyed frames
-    ;; (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-    ;; for every register-epoch-cb listener that previously observed
-    ;; this frame. Late-bound through the hook table so core never
-    ;; statically requires the epoch artefact.
-    (when-let [on-destroyed (late-bind/get-fn :epoch/on-frame-destroyed)]
-      (try (on-destroyed id)
-           (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (fire-on-destroy-event! id f)
+    (notify-machine-destruction! id)
+    (mark-frame-destroyed! id)
+    (tear-down-sub-cache! f)
+    (emit-frame-destroyed-trace! id)
+    (dissoc-frame! id)
+    (unregister-frame! id)
+    (notify-epoch-listeners! id)
     nil))
 
 (defn reset-frame!
