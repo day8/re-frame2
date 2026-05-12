@@ -138,9 +138,11 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 ### 13. Hot-reload of a machine action while instance is running
 
 - **Specs:** [005-StateMachines §Actions](005-StateMachines.md#actions), [001-Registration §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
-- **Scenario:** A globally-registered `:machine-action :auth/login-attempt` is re-registered (figwheel save) while a machine instance is mid-transition with that action mid-flight.
-- **Behaviour:** The in-flight action invocation completes against the resolved (old) action fn. The next microstep — including any `:always` microstep that follows in the same Level-3 cascade — resolves the new action fn. Active instances are *not* re-spawned; the machine definition itself is unchanged.
-- **Reason:** Run-to-completion of in-flight work is the hot-reload contract guarantee 1 (per [001 §The hot-reload contract](001-Registration.md#the-hot-reload-contract)). Picking up new actions on next microstep keeps the dev-loop tight without disrupting active flows.
+- **Scenario:** A machine's action body — `:auth/login-attempt` in the machine's `:actions` map — is edited and the namespace is re-evaluated (figwheel save) while a machine instance is mid-transition with that action mid-flight. Two sub-cases differ in where the action body lives:
+  1. **Action body defined inline in the machine spec's `:actions` map.** The save re-runs `reg-machine`, which replaces the machine's `:event` slot atomically. Active instances continue running with the spec they captured at spawn time; the new body applies to **future spawns** only.
+  2. **Action body defined as a Clojure var referenced from the machine's `:actions` map.** The save re-`def`s the var. Every call site (active instances included) resolves the var on its next microstep and picks up the new body.
+- **Behaviour:** In both sub-cases, any in-flight action invocation completes against the resolved (old) fn — guarantee 1 of the hot-reload contract. Sub-case 1's instances finish their lifecycle against the captured spec; sub-case 2's instances see the new body on the next microstep through ordinary var resolution. Active instances are *not* re-spawned in either case.
+- **Reason:** There is **no** `:machine-action` registry kind (per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set) and [005 §Globally-registered guards/actions vs machine-scoped (RESOLVED)](005-StateMachines.md#globally-registered-guardsactions-vs-machine-scoped-resolved)) — machine guards and actions are machine-scoped declarations, not registry entries. The two paths (inline body vs Clojure-var ref) give the developer the choice of "respawn-required" vs "live-pickup" semantics without the framework needing a separate registry for action bodies.
 - **Status:** `Provisional` — fixture pending: `hot-reload-machine-action.edn`.
 
 ## Drain loop × Substrate

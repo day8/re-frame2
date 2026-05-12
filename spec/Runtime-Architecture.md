@@ -85,9 +85,9 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 ### 1. Registrar
 
-**Role.** Hold every registered handler, sub, fx, cofx, view, machine action, machine guard, route, head, and error projector. Look-up is `(kind, id) → metadata-map`. The metadata map carries the handler fn under a closed key per [001 §Registration grammar](001-Registration.md#registration-grammar).
+**Role.** Hold every registered event handler (including machine handlers, which register as `:event` entries per [005](005-StateMachines.md)), sub, fx, cofx, view, frame, route, app-schema, head, error-projector, and flow. Look-up is `(kind, id) → metadata-map`. The metadata map carries the handler fn under a closed key per [001 §Registration grammar](001-Registration.md#registration-grammar). Machine **guards and actions are machine-scoped** — declared in each machine's `:guards` / `:actions` map inside `create-machine-handler` — and are **not** registry kinds (per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)).
 
-**Inputs.** Calls from `reg-event-fx`, `reg-event-db`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine-action`, `reg-machine-guard`, `reg-machine`, `reg-frame`, `reg-route`, `reg-head` — the closed registry-kind set in [001](001-Registration.md). Per-frame error policy is registered via `reg-frame`'s `:on-error` slot (per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame)).
+**Inputs.** Calls from `reg-event-fx`, `reg-event-db`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view` / `reg-view*`, `reg-machine` / `reg-machine*` (which register under `:event` with `:rf/machine? true` metadata), `reg-frame`, `reg-route`, `reg-app-schema`, `reg-head`, `reg-error-projector`, `reg-flow` — the closed registry-kind set in [001](001-Registration.md). Per-frame error policy is registered via `reg-frame`'s `:on-error` slot (per [009 §Error-handler policy](009-Instrumentation.md#error-handler-policy-on-error-per-frame)).
 
 **Outputs.** Lookup returns the metadata map (or `nil`); query API returns id sets per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api).
 
@@ -272,7 +272,7 @@ Most of these components have v1 ancestors. The CLJS-reference implementor can l
 
 | Component | Mostly inherited from v1 | New in re-frame2 |
 |---|---|---|
-| Registrar | Lookup shape, mutation primitive, reserved unqualified fx-ids | Two-form middle slot, schema attachment, frame as a registry kind, machine kinds (`:machine`, `:machine-action`, `:machine-guard`), source-coord capture |
+| Registrar | Lookup shape, mutation primitive, reserved unqualified fx-ids | Two-form middle slot, schema attachment, frame as a registry kind, source-coord capture. Machines register as ordinary `:event` entries (no new `:machine` / `:machine-action` / `:machine-guard` kinds — guards/actions are machine-scoped per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)) |
 | Frame container | The shape of `app-db` as a value | Frames as a layer (v1 has one global `app-db`; v2 has per-frame containers), the `:preset` expansion, the lifecycle vocabulary |
 | Router | Per-frame FIFO, `next-tick` scheduling | Per-frame queues (v1 is global), `:drain-depth` limit, run-to-completion guarantee in spec |
 | Drain loop | Level 4 (the FIFO router-layer drain) | Levels 1–3 (machine cascades, `:always` microsteps, snapshot commit), `:raise` as a pre-commit primitive distinct from `:dispatch`, structured drain-depth/raise-depth/always-depth limits |
