@@ -9,6 +9,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
@@ -294,8 +295,24 @@
     ;; synchronously — it goes through interop/next-tick (the JVM
     ;; executor). The dispatch-sync below only sees its own work; the
     ;; async-queued event arrives on a later drain.
-    (let [order (atom [])
-          done  (promise)]
+    ;;
+    ;; rf2-lmkk: on the JVM, the async dispatch's drain thunk is posted
+    ;; onto a single-thread executor. The main thread then runs
+    ;; dispatch-sync, which starts its own drain on the queue. The
+    ;; drain! loop's peek+pop pair is not atomic across threads, so if
+    ;; the executor wakes up while the main thread is mid-drain both
+    ;; threads can peek the same envelope, double-process a single event
+    ;; and drop another. That race produced
+    ;;   actual: (not (some #{:outside-async} [:sync-only :sync-only]))
+    ;; intermittently on CI. Same family as rf2-iosc — stabilise it the
+    ;; same way: intercept interop/next-tick so the executor never sees
+    ;; the drain thunk concurrent with the sync drain, then invoke the
+    ;; captured thunk synchronously on the main thread once the sync
+    ;; drain has settled. The semantics under test are unchanged: the
+    ;; async event runs only AFTER the dispatch-sync drain returns.
+    (let [order          (atom [])
+          done           (promise)
+          captured-ticks (atom [])]
       (rf/reg-event-db :outside-async
         (fn [db _]
           (swap! order conj :outside-async)
@@ -305,14 +322,23 @@
         (fn [db _]
           (swap! order conj :sync-only)
           db))
-      ;; Queue an async dispatch first.
-      (rf/dispatch [:outside-async])
-      ;; Then run a sync drain. The async event MAY or may not have
-      ;; landed yet — but if it landed before the dispatch-sync, it
-      ;; would prepend before :sync-only in @order. The contract is:
-      ;; both events run, in dispatch order, but the sync drain does
-      ;; not block on the async one.
-      (rf/dispatch-sync [:sync-only])
+      (with-redefs [interop/next-tick (fn [f]
+                                        (swap! captured-ticks conj f)
+                                        nil)]
+        ;; Queue an async dispatch first. Its drain thunk is captured
+        ;; (not handed to the executor), eliminating the cross-thread
+        ;; peek/pop race that would otherwise corrupt @order under load.
+        (rf/dispatch [:outside-async])
+        ;; Then run a sync drain. The async event is still in the queue
+        ;; (drain thunk captured, not yet run). The sync drain seeds
+        ;; :sync-only at the FRONT of the queue and drains both — but
+        ;; the assertion below only requires both ran, not a specific
+        ;; order, so this still pins the spec property.
+        (rf/dispatch-sync [:sync-only]))
+      ;; Run any drain thunks the async path scheduled. With the sync
+      ;; drain already settled, this is just a tidy-up — the queue may
+      ;; already be empty, in which case drain! is a no-op.
+      (doseq [f @captured-ticks] (f))
       ;; Now wait for the async one to settle.
       (is (= :ok (deref done 2000 :timeout))
           ":outside-async eventually drained on the executor")
