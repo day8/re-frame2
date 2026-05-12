@@ -362,7 +362,7 @@ rail → co-pilot (when open). `Esc` always returns focus to the canvas.
 | `Shift+Space` | Slow play (1000ms intervals) |
 | `0` | Jump view to oldest |
 | `$` | Jump view to newest |
-| `*` | Pin a snapshot at current epoch |
+| `*` | Pin a snapshot at current epoch (session-scoped; see [`002-Time-Travel.md`](./002-Time-Travel.md) §Pinned snapshots) |
 
 ### Co-pilot
 
