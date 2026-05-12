@@ -38,8 +38,13 @@ If you'd like a **frame-aware component playground** alongside the live app — 
 
 When you hit a recurring shape — async work, websockets, forms, remote data, boot — the specification ships a **Pattern doc** for it. Pattern docs are convention, not Spec: they name the canonical answer for shapes that bottom out on the framework's primitives. They're closer in voice to this guide than to the Specs, and they're the right next stop when the shape of your problem matches one of them.
 
+Two are introduced inline in [chapter 04](04-events-state-cycle.md#patterns-the-next-layer-up) because they bottom out on effects-as-data directly:
+
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — async work as data, not callbacks. The generic post-work-await-reply shape.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — the standard 5-key lifecycle slice for HTTP requests (idle / loading / loaded / error / stale).
+
+The rest — look these up when you hit the matching shape:
+
 - [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [09 — Forms](09-forms.md).)
 - [Pattern-Boot](../../spec/Pattern-Boot.md) — chained app initialisation with progress UI and fail-fatal points.
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
