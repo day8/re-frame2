@@ -29,6 +29,7 @@
     "SKILL.md",
     "README.md",
     "LICENSE",
+    "agents/",
     "scripts/",
     "preload/",
     ".claude-plugin/",
