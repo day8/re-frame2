@@ -52,8 +52,11 @@
   ;; {variant-id → r/atom holding a vector of trace events, newest-last}
   (atom {}))
 
-(defn- ensure-buffer!
-  "Return the per-variant ratom, creating it on first access."
+(defn ensure-buffer!
+  "Return the per-variant trace-buffer ratom, creating it on first
+  access.  Public so sibling panels (e.g. the Actions panel per
+  rf2-5yriz) can subscribe to the SAME ratom the six-domino trace
+  panel reads from — both panels share the buffer."
   [variant-id]
   (or (get @buffers variant-id)
       (let [a (r/atom [])]

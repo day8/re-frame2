@@ -56,8 +56,8 @@
   - `:panel-visibility`  — {panel-id → boolean}. Determines whether a
                            registered :story-panel renders in the chrome.
                            Stage 4 ships a vanilla set of panels (trace /
-                           scrubber / controls); Stage 6 will register
-                           more via reg-story-panel.
+                           scrubber / controls / actions per rf2-5yriz);
+                           Stage 6 will register more via reg-story-panel.
   - `:active-mode-tab`   — {variant-id → :dev | :docs | :test}. Per-variant
                            mode-tab selection for the render-shell's top
                            Canvas | Docs | Tests switcher (rf2-9hc8).
@@ -73,7 +73,7 @@
    :hot-reload-tick    0
    :fingerprints       {}
    :pinned-snapshots   {}
-   :panel-visibility   {:trace true :scrubber true :controls true}
+   :panel-visibility   {:trace true :scrubber true :controls true :actions true}
    :active-mode-tab    {}})
 
 ;; ---- pure transition fns (JVM-testable) ----------------------------------
