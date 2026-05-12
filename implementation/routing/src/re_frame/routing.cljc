@@ -35,9 +35,11 @@
             [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            [re-frame.router :as router]
             [re-frame.source-coords :as source-coords]
             [re-frame.subs :as subs]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace]
+            #?@(:cljs [[re-frame.views :as views]])))
 
 ;; ---- url encoding / decoding ---------------------------------------------
 ;;
@@ -914,6 +916,126 @@ unknown strategies as :preserve (no-op)."}
 (subs/reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
 (subs/reg-sub :rf.route/error      :<- [:rf/route] (fn [route _] (:error route)))
 
+;; ---- route-link registered view ------------------------------------------
+;;
+;; Per Spec 012 §Linking from views and §Standard runtime events, and the
+;; API.md `route-link` row: a registered view at `:route/link` renders an
+;; `<a href="...">` for a known route-id and intercepts plain primary-button
+;; clicks. Plain left-click (no modifier keys) dispatches
+;; `:rf/url-requested`; modifier-key clicks (cmd / ctrl / shift / alt) and
+;; auxiliary-button clicks (middle-click) defer to the browser so users get
+;; the native open-in-new-tab affordance.
+;;
+;; The view is CLJS-only — anchor rendering is DOM-bound and there is no
+;; meaningful JVM counterpart. The pure helpers `route-url` (URL synthesis)
+;; and the `:rf/url-requested` event handler are both JVM-callable, which
+;; is what the JVM-side tests reach for.
+;;
+;; Frame-handling: the view dispatches via `re-frame.router/dispatch!`,
+;; which captures the frame at call time through the same resolution chain
+;; (dynamic var → React-context → `:rf/default`) every registered view's
+;; auto-injected `dispatch` already uses. Routes themselves are a single
+;; global registry (the `:route` registrar kind), so per-frame routing is
+;; a non-issue at the link layer — the URL string is derived from the
+;; route id alone, and the resulting `:rf/url-requested` lands in the
+;; frame that owned the click.
+
+#?(:cljs
+   (defn- plain-left-click?
+     "Return true when the click event is a plain primary-button click with
+     no modifier keys. Modifier-key or auxiliary-button clicks defer to
+     the browser so users keep open-in-new-tab / open-in-new-window
+     affordances."
+     [e]
+     (and (zero? (.-button e))
+          (not (.-metaKey e))
+          (not (.-ctrlKey e))
+          (not (.-shiftKey e))
+          (not (.-altKey e)))))
+
+#?(:cljs
+   (defn route-link-render
+     "Render fn for the `:route/link` registered view. Exposed (without
+     the registry wrap) so tests can call it directly without going
+     through Reagent's component pipeline.
+
+     Shape:
+       [rf/route-link {:to :route-id
+                       :params {...}
+                       :query {...}
+                       :fragment \"...\"
+                       :on-click <opt user fn>
+                       & passthrough-html-attrs}
+        & children]
+
+     `:to` is the only required key. `:params`, `:query`, and `:fragment`
+     are forwarded to `route-url` for href synthesis. Any other key on the
+     props map is passed through to the underlying `<a>` element (e.g.
+     `:class`, `:title`, `:id`, `:aria-label`).
+
+     If the caller supplies an `:on-click` fn, it is invoked first; when
+     it calls `.preventDefault` (or otherwise the event's
+     `defaultPrevented` is true after it returns) the framework's
+     plain-left-click interception is skipped — the caller has taken
+     responsibility for the navigation. Otherwise the standard rules
+     apply: plain left-click → `preventDefault` + dispatch
+     `:rf/url-requested`; modifier-key or middle-click → no interception."
+     [{:keys [to params query fragment on-click] :as props} & children]
+     (let [base-url (route-url to (or params {}) (or query {}))
+           url      (if (and fragment (not= "" fragment))
+                      (str base-url "#" fragment)
+                      base-url)
+           attrs    (-> props
+                        (dissoc :to :params :query :fragment :on-click)
+                        (assoc :href url
+                               :on-click
+                               (fn [e]
+                                 (when on-click (on-click e))
+                                 (when (and (not (.-defaultPrevented e))
+                                            (plain-left-click? e))
+                                   (.preventDefault e)
+                                   (router/dispatch!
+                                     [:rf/url-requested
+                                      (cond-> {:url url :to to}
+                                        (seq params)   (assoc :params params)
+                                        (seq query)    (assoc :query  query)
+                                        fragment       (assoc :fragment fragment))])))))]
+       (into [:a attrs] children))))
+
+(defn route-link-render-ssr
+   "JVM render fn for `:route/link`. Renders the `<a href=...>` shell
+   without the click-interception logic — server-side rendering has no
+   DOM events to intercept, so the anchor is emitted as-is and clicks
+   on the hydrated page run the CLJS render fn's on-click path. Per
+   Spec 011 the render tree is the contract; this is the JVM half of
+   that contract for the `:route/link` view."
+   [{:keys [to params query fragment] :as props} & children]
+   (let [base-url (route-url to (or params {}) (or query {}))
+         url      (if (and fragment (not= "" fragment))
+                    (str base-url "#" fragment)
+                    base-url)
+         attrs    (-> props
+                      (dissoc :to :params :query :fragment :on-click)
+                      (assoc :href url))]
+     (into [:a attrs] children)))
+
+#?(:cljs
+   (def route-link
+     "Registered view at `:route/link`. Intercepts plain left-clicks and
+     dispatches `:rf/url-requested`; modifier-key clicks defer to the
+     browser. Per Spec 012 §Linking from views and API.md `route-link`
+     row. The underlying render fn is `route-link-render`."
+     (views/reg-view* :route/link
+                      (source-coords/merge-coords {})
+                      route-link-render))
+   :clj
+   ;; JVM: register the SSR-side render fn under :route/link so the
+   ;; registrar carries the slot on both platforms (route-link views in
+   ;; .cljc render trees resolve identically server- and client-side).
+   (registrar/register! :view :route/link
+                        (assoc (source-coords/merge-coords {})
+                               :handler-fn route-link-render-ssr)))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Per rf2-k682 the routing surface ships in `day8/re-frame2-routing`.
@@ -932,3 +1054,11 @@ unknown strategies as :preserve (no-op)."}
 (late-bind/set-fn! :routing/route-url        route-url)
 (late-bind/set-fn! :routing/reset-counters!  reset-counters!)
 (late-bind/set-fn! :routing/route-sub-fn     route-sub-fn)
+
+;; route-link is exposed on both platforms so .cljc render trees that
+;; embed `[rf/route-link ...]` resolve identically server- and client-side.
+;; CLJS publishes the Reagent-wrapped render fn (the one `reg-view*`
+;; returned); JVM publishes the SSR render fn. Late-bind keeps
+;; `re-frame.core` decoupled from this artefact.
+#?(:cljs (late-bind/set-fn! :routing/route-link route-link)
+   :clj  (late-bind/set-fn! :routing/route-link route-link-render-ssr))

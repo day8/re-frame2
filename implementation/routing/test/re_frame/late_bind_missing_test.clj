@@ -98,3 +98,25 @@
                 "ex-data carries :route-id from the call site")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
+
+(deftest route-link-raises-when-routing-artefact-missing
+  (testing "rf/route-link raises :rf.error/routing-artefact-missing when the :routing/route-link hook is nil"
+    ;; Per rf2-uhv2 the route-link surface is published through the
+    ;; :routing/route-link late-bind hook (CLJS → Reagent-wrapped render
+    ;; fn; JVM → SSR render fn). Consumers without the routing artefact
+    ;; see the hook unregistered; the wrapper in re-frame.core-routing
+    ;; raises the documented missing-artefact error.
+    (with-hook-as-nil :routing/route-link
+      (fn []
+        (let [thrown (try (rf/route-link {:to :route/probe})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown)
+              "route-link throws when the routing artefact is absent")
+          (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
+              "the documented error category appears in the message")
+          (let [data (ex-data thrown)]
+            (is (= 'route-link (:where data))
+                "ex-data carries :where = 'route-link")
+            (is (= :no-recovery (:recovery data))
+                "ex-data carries :recovery = :no-recovery")))))))
