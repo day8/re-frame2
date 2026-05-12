@@ -120,6 +120,7 @@ nav:
     - "re-frame2 (authoring)": skills/re-frame2.md
     - re-frame2-setup: skills/re-frame2-setup.md
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md
+    - re-frame2-implementor: skills/re-frame2-implementor.md
     - re-frame-pair2: skills/re-frame-pair2.md
     - re-frame-pair-improver2: skills/re-frame-pair-improver2.md
 
