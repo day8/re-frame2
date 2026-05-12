@@ -90,6 +90,21 @@ Constrained models are deliberately less powerful and therefore much easier to r
 
 Data DSLs are strictly preferred over string DSLs because data composes, diffs, lints, validates, and round-trips cleanly; strings do none of those. See [§Rationale — the application as a virtual machine](#rationale--the-application-as-a-virtual-machine) below.
 
+### Spec-ulation
+
+**Principle:** contracts are **fixed-and-additive** — existing names, keys, and values cannot be renamed, repurposed, or removed; new ones are added by extension. Growth is additive; the existing surface is stable.
+
+The term echoes Rich Hickey's *Spec-ulation* keynote: a healthy system grows by **accretion** (new optional keys, new vocabulary values, new operations) and **relaxation** (loosening a requirement), never by **breakage** (renaming a key, tightening a contract, removing a value). Consumers tolerate unknown keys and unknown vocabulary values; producers add new keys/values without coordinating a breaking change. Spec-ulation is the discipline that lets independent tools, libraries, and AI-generated code keep working as the framework evolves.
+
+Concretely, the Spec applies the rule to every cross-cutting vocabulary and every open map:
+
+- **Open maps with optional keys.** Registration metadata maps, frame configs, error `:tags`, epoch records, snapshot records — all open. New optional keys arrive additively; existing keys hold their meaning. Closed maps are reserved for boundary-validation cases ([Construction-Prompts.md §Schemas grow additively](Construction-Prompts.md)).
+- **Reserved-and-additive vocabularies.** The reserved `app-db` keys, the reserved `fx-id` set, the `:op-type` vocabulary, the error-category namespaces, and the `configure` knob set are all **fixed-and-additive**: names already in the table cannot be repurposed; new names are added by Spec change ([Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys), [Spec-Schemas §Trace event](Spec-Schemas.md), [API §configure](API.md)).
+- **Open vocabularies extended by users.** The `:op-type` vocabulary is **open** — implementations and tools may add new values additively ([Spec-Schemas §Trace event](Spec-Schemas.md)). The framework reserves a namespace prefix (`:rf.*`); user code stays out of that prefix and is otherwise free to extend.
+- **Closed surfaces require a Spec-ulation increment.** A surface that is intentionally closed for v1 (e.g. the pair-tool restore failure categories) can only grow by an explicit Spec change — never by silent extension at runtime ([Tool-Pair §Future-compat commitments](Tool-Pair.md)).
+
+The cost is verbosity at the design margin (you cannot rename a misnamed key once it ships; you must deprecate-and-add). The benefit is exactly what AI-generated code, downstream tools, and long-lived applications need: a contract that doesn't move under them. Spec-ulation is the stability discipline that makes the rest of the AI-first principles — public query surfaces, machine-readable errors, schemas-on-the-wire — durable across versions.
+
 ## The deliverable principle
 
 ### Construction prompts as a deliverable
