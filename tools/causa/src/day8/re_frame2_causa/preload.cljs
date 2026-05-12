@@ -51,6 +51,14 @@
   ;; this sentinel suppresses re-registration on `:after-load`.
   (atom false))
 
+(defonce ^:private epoch-cb-registered?
+  ;; Idempotency sentinel for the epoch-callback registration. Same
+  ;; rationale as `trace-cb-registered?`. Phase 3 (rf2-t53ze) — the
+  ;; Time Travel panel needs a per-settle pump from
+  ;; `rf/register-epoch-cb!` into Causa's app-db so the scrubber's
+  ;; subscriptions re-fire when the framework appends an epoch.
+  (atom false))
+
 (defn register-trace-collector!
   "Register Causa's trace-collector callback under
   `:rf.causa/trace-collector`. Idempotent via the
@@ -63,11 +71,39 @@
                            trace-bus/collect-trace!))
   nil)
 
+(defn register-epoch-collector!
+  "Register Causa's epoch-settle pump under `:rf.causa/epoch-collector`.
+
+  On every drain-settle the framework's epoch artefact fires this
+  callback with the assembled `:rf/epoch-record`; the cb dispatches
+  `:rf.causa/epoch-recorded` into the `:rf/causa` frame so the
+  registry's event handler re-reads `rf/epoch-history` and pumps the
+  fresh snapshot into Causa's app-db. The scrubber's
+  `:rf.causa/epoch-history` sub then re-fires off the standard
+  app-db-write reactive path.
+
+  Idempotent via the `epoch-cb-registered?` sentinel. No-op when the
+  `day8/re-frame2-epoch` artefact is not on the classpath
+  (`rf/register-epoch-cb!` is itself a no-op in that case)."
+  []
+  (when (compare-and-set! epoch-cb-registered? false true)
+    (rf/register-epoch-cb! :rf.causa/epoch-collector
+      (fn [record]
+        ;; Wrap the dispatch in :rf/causa so the registry's handler
+        ;; writes to Causa's app-db, not the host's. The cb's record
+        ;; carries :frame — pass it as the dispatch arg so the
+        ;; handler can compare against its target-frame and skip
+        ;; updates for non-target frames.
+        (rf/with-frame :rf/causa
+          (rf/dispatch [:rf.causa/epoch-recorded (:frame record)])))))
+  nil)
+
 (defn reset-for-test!
-  "Reset the preload's idempotency sentinel so test fixtures can drive
+  "Reset the preload's idempotency sentinels so test fixtures can drive
   multiple load cycles. Test-only — never call from production code."
   []
   (reset! trace-cb-registered? false)
+  (reset! epoch-cb-registered? false)
   nil)
 
 ;; ---- side-effecting boot -------------------------------------------------
@@ -88,4 +124,5 @@
 (when interop/debug-enabled?
   (registry/register-causa-handlers!)
   (register-trace-collector!)
+  (register-epoch-collector!)
   (keybinding/attach!))
