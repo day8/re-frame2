@@ -56,11 +56,13 @@
           (is (= ":rf.error/schemas-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            ;; The macro syntax-quotes 'reg-app-schema at expansion
-            ;; site, so the symbol stamped onto :where is namespace-
-            ;; qualified against `re-frame.core` (the macro's home ns).
-            (is (= 're-frame.core/reg-app-schema (:where data))
-                "ex-data carries :where = 're-frame.core/reg-app-schema (macro form)")
+            ;; Per rf2-hoiu the throw lives in
+            ;; `re-frame.core-schemas/reg-app-schema` — the sibling-
+            ;; namespace fn-form delegate the macro routes through — so
+            ;; `:where` is the bare unqualified symbol of the user-facing
+            ;; surface (`rf/reg-app-schema`).
+            (is (= 'reg-app-schema (:where data))
+                "ex-data carries :where = 'reg-app-schema")
             (is (= [:probe] (:path data))
                 "ex-data carries :path from the call site")
             (is (= :no-recovery (:recovery data))
