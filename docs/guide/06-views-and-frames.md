@@ -348,47 +348,9 @@ One small detail to recognise when you see it in the inspector: every `reg-view`
 
 You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
 
-## Computed values as state — the flow escape hatch
-
-Most derived values are subscriptions — they live in the per-frame sub-cache and are consumed by views. Sometimes, though, the derived value isn't *just* for views: you want it **in `app-db`** so another event handler can read it as plain data, it survives SSR/hydration, it shows up in the inspector, a registered schema can cover it.
-
-That's what **flows** are for. A flow is a registered rule: "when these `app-db` paths change, run this pure function and write the result to that `app-db` path." Same compute-on-input-change semantics as subs; different storage location.
-
-```clojure
-(rf/reg-flow
-  {:id     :rectangle/area
-   :inputs [[:width] [:height]]
-   :output (fn [w h] (* w h))
-   :path   [:area]})
-```
-
-Flows are deliberately a **niche convenience**, not a sub replacement — a typical re-frame2 app has dozens of subs and one or two flows. Full contract: [Spec 013](../../spec/013-Flows.md).
-
 ## Routing as state
 
 Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 17](17-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
-
-## Making the common UI states explicit — Pattern-NineStates
-
-Once your view is reading state from `app-db`, a temptation appears: branch the render on a few obvious cases (`loading`, `loaded`, `error`) and call it done. The trouble is that most pages have more than three meaningful states, and the missing ones — the empty result, the single-item case, the too-many-results case, the validation-failure case, the terminal "this is archived now" case — end up visually undefined unless you treat them as first-class.
-
-**Pattern-NineStates** names the canonical checklist for a page-level render contract:
-
-| # | State | Typical source |
-|---|---|---|
-| 1 | **Nothing** — user hasn't asked for a fetch yet | `:data` region at `:nothing` |
-| 2 | **Loading** — first fetch in flight | `:data` region at `:loading` |
-| 3 | **Empty** — loaded, zero results | `:data` region at `:empty` |
-| 4 | **One** — loaded, exactly one result | `:data` region at `:one` |
-| 5 | **Some** — loaded, manageable list | `:data` region at `:some` |
-| 6 | **Too Many** — loaded, count above a domain threshold | `:data` region at `:too-many` |
-| 7 | **Incorrect** — user input invalid, user can fix it | `:form` region at `:incorrect` |
-| 8 | **Correct** — visible success acknowledgement | `:form` region at `:correct` |
-| 9 | **Done / Frozen** — domain reached terminal / read-only | `:mode` region at `:done` |
-
-The pattern is a **design checklist** plus a **rendering convention**, not a universal ontology — most pages don't need all nine, but most pages do need *more than three*. The shape is one `:type :parallel` state machine with three regions (`:data` / `:form` / `:mode`); every state declares `:tags` from a small canonical vocabulary (`:data/loading`, `:form/invalid`, `:mode/done`, …); a single render-priority table + selector sub collapses the tag union into one render-model keyword, and the root view's `case` over that keyword is the only branch site. "We forgot what happens when the result is empty" stops being a class of bug because the region's `:empty` state is enumerable from the machine declaration.
-
-Full convention plus a worked example: [`spec/Pattern-NineStates.md`](../../spec/Pattern-NineStates.md) and [`examples/reagent/nine_states/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/nine_states).
 
 ## A small example: split counter
 
@@ -427,6 +389,13 @@ There's a temptation, when you first see frames, to use them like React componen
 
 A useful test: if two instances might want to share state under any circumstance, they're not separate frames. They're separate slices of the same frame's `app-db`.
 
+## Beyond this chapter
+
+Two adjacent topics deserve a pointer before you leave views and frames, but neither is needed up front:
+
+- **Flows — computed values stored in `app-db`** (rather than the per-frame sub-cache). A niche convenience for derived values that need to be visible to other handlers, survive SSR/hydration, or carry a schema. Reach for it only when a sub won't do. Full contract: [Spec 013 — Flows](../../spec/013-Flows.md).
+- **Pattern-NineStates — the canonical UI render checklist** (`Nothing` / `Loading` / `Empty` / `One` / `Some` / `Too Many` / `Incorrect` / `Correct` / `Done`). Modelled as one parallel state machine with three regions; introduced once you've met parallel regions in [08 — State machines §Parallel regions](08-state-machines.md#parallel-regions). Full convention: [Pattern-NineStates](../../spec/Pattern-NineStates.md).
+
 ## What we covered
 
 - The view layer is plain functions (or registered views) returning hiccup.
@@ -434,7 +403,7 @@ A useful test: if two instances might want to share state under any circumstance
 - Frames are runtime boundaries: each has its own state, queue, sub-cache.
 - Most apps are single-frame; multi-frame is for story tools, SSR, devcards, multi-window.
 - The pattern requires every view to target a specific frame; the CLJS reference uses React context (`frame-provider`) to make that ergonomic.
-- Computed values (flows) and routing both live in `app-db` — multi-frame doesn't change that.
+- Routing is just `app-db` state, like everything else — multi-frame doesn't change that.
 
 ## Next
 
