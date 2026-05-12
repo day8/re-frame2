@@ -153,22 +153,30 @@
     (let [state-map     (:state initial-snapshot)
           region-names  (vec (keys (:regions machine)))
           ordered       (filterv #(contains? state-map %) region-names)]
+      ;; Per rf2-gr8q: thread `:rf/spawn-counter` across regions so any
+      ;; entry-cascade :invoke fires through the shared in-snapshot
+      ;; allocator and the final merged snapshot carries the bumped value.
       (loop [pending     ordered
              cur-data    (:data initial-snapshot)
+             cur-counter (:rf/spawn-counter initial-snapshot)
              new-states  state-map
              acc-fx      []]
         (cond
           (empty? pending)
-          (let [merged (-> initial-snapshot
-                           (assoc :state new-states)
-                           (assoc :data  cur-data))]
+          (let [merged (cond-> (-> initial-snapshot
+                                   (assoc :state new-states)
+                                   (assoc :data  cur-data))
+                         (some? cur-counter)
+                         (assoc :rf/spawn-counter cur-counter))]
             [(commit-tags-parallel machine merged) acc-fx])
 
           :else
           (let [rn          (first pending)
                 region-spec (region-machine machine rn)
-                region-snap {:state (get state-map rn)
-                             :data  cur-data}
+                region-snap (cond-> {:state (get state-map rn)
+                                     :data  cur-data}
+                              (some? cur-counter)
+                              (assoc :rf/spawn-counter cur-counter))
                 step-result (apply-initial-entry-cascade-single region-spec region-snap)]
             (if (and (vector? step-result)
                      (= :re-frame.machines.transition/action-failed (first step-result)))
@@ -177,6 +185,7 @@
                     prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
                 (recur (rest pending)
                        (:data reg-snap)
+                       (:rf/spawn-counter reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (vec (concat acc-fx prefixed-fx)))))))))
     (apply-initial-entry-cascade-single machine initial-snapshot)))
@@ -204,24 +213,34 @@
         (->> (or (keys (:regions machine)) region-names)
              (filter (fn [rn] (contains? state-map rn)))
              (vec))]
+    ;; Per rf2-gr8q: thread the snapshot's `:rf/spawn-counter` through each
+    ;; region's transition so declarative `:invoke` inside a region bumps
+    ;; the SAME counter the rest of the machine shares. Region snapshots
+    ;; carry the slot in/out alongside `:state` + `:data`, matching the
+    ;; round-trip pattern already used for `:data`.
     (loop [pending    ordered-regions
            cur-data   (:data snapshot)
+           cur-counter (:rf/spawn-counter snapshot)
            new-states state-map
            acc-fx     []]
       (cond
         (empty? pending)
         (let [final-state-map (into {} (for [rn region-names] [rn (get new-states rn)]))
-              merged          (-> snapshot
-                                  (assoc :state final-state-map)
-                                  (assoc :data  cur-data))
+              merged          (cond-> (-> snapshot
+                                          (assoc :state final-state-map)
+                                          (assoc :data  cur-data))
+                                (some? cur-counter)
+                                (assoc :rf/spawn-counter cur-counter))
               merged-tagged   (commit-tags-parallel machine merged)]
           [merged-tagged acc-fx])
 
         :else
         (let [rn          (first pending)
               region-spec (region-machine machine rn)
-              region-snap {:state (get state-map rn)
-                           :data  cur-data}
+              region-snap (cond-> {:state (get state-map rn)
+                                   :data  cur-data}
+                            (some? cur-counter)
+                            (assoc :rf/spawn-counter cur-counter))
               step-result (machine-transition region-spec region-snap event)]
           (if (and (vector? step-result)
                    (= :re-frame.machines.transition/action-failed (first step-result)))
@@ -230,6 +249,7 @@
                   prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
               (recur (rest pending)
                      (:data reg-snap)
+                     (:rf/spawn-counter reg-snap)
                      (assoc new-states rn (:state reg-snap))
                      (vec (concat acc-fx prefixed-fx))))))))))
 

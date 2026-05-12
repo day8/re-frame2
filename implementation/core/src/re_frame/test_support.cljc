@@ -64,8 +64,13 @@
             ;; (correct: there is no flow state to preserve).
             ;; re-frame.machines (Spec 005) ships as a separate artefact
             ;; (day8/re-frame2-machines, rf2-xbtj) — the reset fixture
-            ;; touches the machines spawn-counter through the late-bind
-            ;; hook table when the artefact is loaded, no-ops when not.
+            ;; cancels in-flight `:after` wall-clock timers through the
+            ;; late-bind hook table when the artefact is loaded, no-ops
+            ;; when not. Per rf2-gr8q the per-process spawn-counter atom
+            ;; was replaced by in-snapshot allocation; the same late-
+            ;; bind hook name (`:machines/reset-counters!`) is preserved
+            ;; for fixture back-compat but now resets only the wall-
+            ;; clock-timer table.
             ;; re-frame.schemas (Spec 010) ships as a separate artefact
             ;; (day8/re-frame2-schemas, rf2-p7va). The reset fixture
             ;; touches the per-frame schema registry through the
@@ -154,7 +159,9 @@
        reset is late-bound so JVM tests that don't pull them in are
        unaffected).
     3. Disposes the currently-installed substrate adapter.
-    4. Resets the machines spawn-counter.
+    4. Cancels the machines' in-flight `:after` wall-clock timers
+       (per rf2-gr8q the spawn-counter atom is gone; the late-bind
+       hook now resets only the timer table).
     5. Clears trace listeners and adapter warn-once caches
        (`warned-non-dom-roots` across re-frame.views and the helix /
        uix adapters; per rf2-4edk).
@@ -164,9 +171,13 @@
     7. If an `:init-fn` was supplied, invokes it (zero-arg). Use this
        hook for per-suite setup that needs the registrar / adapter live
        — e.g. seeding test data into the just-installed adapter's
-       app-db. (Routing's reg-counter and the machines spawn-counter
-       are reset automatically when their respective artefacts are on
-       the classpath; see steps 4 and the late-bind block above.)
+       app-db. (Routing's reg-counter and the machines wall-clock
+       timer table are reset automatically when their respective
+       artefacts are on the classpath; see step 4 and the late-bind
+       block above. Per rf2-gr8q the machines spawn-counter atom is
+       gone — spawn-id allocation lives in-snapshot now, so per-test
+       isolation is inherited from the registrar / frame snapshot
+       reset rather than from a dedicated reset call.)
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
    10. Resets `frame/frames` back to `{}` for symmetry, and (when their
@@ -237,11 +248,14 @@
            (reset-li!))
          (when clear-fn (clear-fn))
          (adapter/dispose-adapter!)
-         ;; Late-bind: when the machines artefact is loaded, reset the
-         ;; spawn-counter so id allocation is stable across fixture
-         ;; runs. When it isn't, the hook returns nil and this is a
-         ;; no-op (correct: there is no counter state to reset).
-         ;; Per rf2-xbtj — machines ships in day8/re-frame2-machines.
+         ;; Late-bind: when the machines artefact is loaded, cancel
+         ;; in-flight `:after` wall-clock timers so a stale timer from a
+         ;; sibling test cannot survive into this one. When it isn't,
+         ;; the hook returns nil and this is a no-op (correct: there is
+         ;; no timer state to clear). Per rf2-xbtj — machines ships in
+         ;; day8/re-frame2-machines. Per rf2-gr8q — the spawn-counter
+         ;; atom is gone; this hook now resets only the timer table.
+         ;; The hook name is preserved for fixture-surface back-compat.
          (when-let [reset-counters! (late-bind/get-fn :machines/reset-counters!)]
            (reset-counters!))
          ;; Late-bind: when the routing artefact is loaded, reset the

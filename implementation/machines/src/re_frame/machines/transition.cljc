@@ -5,10 +5,11 @@
   grammar — transition resolution along hierarchical paths, the
   exit/action/entry cascade, the macrostep drain semantics for `:raise`
   and `:always`, and the parallel-region broadcast layer. Everything
-  here is a pure function over the [machine snapshot event] triple
-  except for two deterministic-allocation atoms (`spawn-counter` for
-  declarative `:invoke` actor-id allocation per Spec 005 §Declarative
-  `:invoke`, and the test-time helper that resets it).
+  here is a pure function over the [machine snapshot event] triple —
+  no module-level mutable state. Per rf2-gr8q the declarative-`:invoke`
+  spawn-id allocator lives inside the snapshot under `:rf/spawn-counter`
+  (a per-machine-id integer map); the reducer threads the bumped
+  counter through the returned snapshot.
 
   The fx vectors built here name `:rf.machine/spawn`,
   `:rf.machine/destroy`, `:rf.machine/invoke-all-init`,
@@ -134,28 +135,42 @@
       (f data event {:state (:state snapshot) :meta (:meta snapshot)})
       (f data event))))
 
-;; ---- spawn counter --------------------------------------------------------
+;; ---- spawn-id allocator (in-snapshot) -------------------------------------
 ;;
-;; Per Spec 005 §Declarative :invoke (sugar over spawn): on entry to an
-;; :invoke-bearing state the runtime emits a :rf.machine/spawn fx and
-;; assigns the spawned actor a deterministic id of the form
-;; `<machine-id>#<n>`. The counter is per machine-id so independent
-;; invokes don't cross-contaminate.
+;; Per Spec 005 §Declarative :invoke (sugar over spawn) and rf2-gr8q: on
+;; entry to an :invoke-bearing state the runtime emits a :rf.machine/spawn
+;; fx and assigns the spawned actor a deterministic id of the form
+;; `<machine-id>#<n>`. The counter lives inside the snapshot under the
+;; reserved key `:rf/spawn-counter` — a per-machine-id integer map. This
+;; makes `apply-transition-once` an honest pure function: identical
+;; (machine snapshot event) triples produce identical [next-snapshot
+;; effects] pairs including spawn-id sequencing. Each spawn bumps
+;; the snapshot's counter via update-in and the bumped value is the
+;; allocated id.
+;;
+;; `synthesise-initial-snapshot` (in re-frame.machines.lifecycle-fx)
+;; stamps `{:rf/spawn-counter {}}` on every freshly-registered machine's
+;; initial snapshot so the slot is always present for live runtime
+;; spawns. Hand-built snapshots (the conformance fixtures) may omit the
+;; key — the reducer uses `(fnil inc 0)` so absent slots default to 0.
 
-(defonce spawn-counter
-  ;; Keyed by [frame-id machine-id] so independent frames don't share
-  ;; one actor-id sequence — preserves frame isolation and makes
-  ;; deterministic replay / restore reliable. Pure machine-transition
-  ;; calls (the conformance fixture corpus) pass a sentinel frame.
-  (atom {}))   ;; [frame-id machine-id] → int
+(defn- format-spawn-id
+  "Format a spawned actor id of the form `<machine-id>#<n>` preserving
+  any namespace on the machine-id."
+  [machine-id n]
+  (keyword (namespace machine-id)
+           (str (name machine-id) "#" n)))
 
-(defn next-spawn-id
-  [frame-id machine-id]
-  (let [k [frame-id machine-id]
-        n (-> (swap! spawn-counter update k (fnil inc 0))
-              (get k))]
-    (keyword (namespace machine-id)
-             (str (name machine-id) "#" n))))
+(defn allocate-spawned-id
+  "Pure allocator. Given a snapshot and the spawned actor's machine-id,
+  return `[snap' spawned-id]` where snap' carries the bumped counter at
+  `[:rf/spawn-counter <machine-id>]` and spawned-id is
+  `<machine-id>#<bumped-n>`. Per rf2-gr8q the counter lives in-snapshot
+  so machine-transition is deterministic from its arguments."
+  [snap machine-id]
+  (let [snap' (update-in snap [:rf/spawn-counter machine-id] (fnil inc 0))
+        n     (get-in snap' [:rf/spawn-counter machine-id])]
+    [snap' (format-spawn-id machine-id n)]))
 
 ;; ---- state-path helpers (hierarchical) ------------------------------------
 ;;
@@ -590,10 +605,11 @@
 
 (defn- handle-invoke-spawn
   "Handle the `:invoke` branch of the spawn reducer in apply-transition-once.
-  Allocates the spawned actor id (deterministic via `next-spawn-id`),
-  materialises the `:data` fn-form (Spec 005 §Spec-spec keys / rf2-h131),
-  runs the user's `:on-spawn` advisory callback against `:data`, and emits
-  one `[:rf.machine/spawn args]` fx carrying `:rf/parent-id` /
+  Allocates the spawned actor id deterministically via `allocate-spawned-id`
+  (the counter lives in-snapshot at `[:rf/spawn-counter <machine-id>]` per
+  rf2-gr8q), materialises the `:data` fn-form (Spec 005 §Spec-spec keys /
+  rf2-h131), runs the user's `:on-spawn` advisory callback against `:data`,
+  and emits one `[:rf.machine/spawn args]` fx carrying `:rf/parent-id` /
   `:rf/invoke-id` / `:rf/spawned-id` so the spawn-fx handler can bind the
   runtime-owned spawn-registry slot (rf2-t07u Option A revised).
 
@@ -603,12 +619,16 @@
   (let [inv         (:invoke n)
         machine-id  (:machine-id inv)
         invoke-id   (vec prefix)
-        frame-id    (or (:rf/frame machine) :rf/transition-pure)
-        spawned-id  (or (:invoke-id inv)
-                        (next-spawn-id frame-id machine-id))
+        ;; Allocate the spawned id from the snapshot's counter (rf2-gr8q).
+        ;; When `:invoke-id` is an explicit literal the runtime uses it
+        ;; directly and the counter is NOT bumped.
+        [s-after-alloc spawned-id]
+        (if (:invoke-id inv)
+          [s (:invoke-id inv)]
+          (allocate-spawned-id s machine-id))
         [mat-status mat-data]
         (if (contains? inv :data)
-          (materialise-data (:data inv) s event)
+          (materialise-data (:data inv) s-after-alloc event)
           [:ok nil])]
     (if (= :fail mat-status)
       (reduced
@@ -635,12 +655,12 @@
             ;; runtime tracks the spawn-id itself in [:rf/spawned parent-id
             ;; invoke-id].
             s'          (if on-spawn-fn
-                          (let [data     (:data s)
+                          (let [data     (:data s-after-alloc)
                                 new-data (on-spawn-fn data spawned-id)]
                             (if new-data
-                              (assoc s :data new-data)
-                              s))
-                          s)]
+                              (assoc s-after-alloc :data new-data)
+                              s-after-alloc))
+                          s-after-alloc)]
         [s' (vec (concat acc-fx [[:rf.machine/spawn spawn-args]]))]))))
 
 (defn- handle-invoke-all-spawn
@@ -660,15 +680,22 @@
   (let [inv-all     (:invoke-all n)
         children    (:children inv-all)
         invoke-id   (vec prefix)
-        frame-id    (or (:rf/frame machine) :rf/transition-pure)
-        ;; Allocate per-child ids (deterministic via spawn-counter).
-        children'   (mapv
-                      (fn [child]
-                        (let [machine-id (:machine-id child)
-                              spawned-id (or (:invoke-id child)
-                                             (next-spawn-id frame-id machine-id))]
-                          (assoc child :rf/spawned-id spawned-id)))
-                      children)
+        ;; Allocate per-child ids deterministically via the in-snapshot
+        ;; counter (rf2-gr8q). Thread the snapshot through the children
+        ;; in declaration order so each child bumps the counter for its
+        ;; machine-id and the resulting snapshot carries the final value.
+        [s-after-alloc children']
+        (reduce
+          (fn [[snap acc] child]
+            (let [machine-id (:machine-id child)
+                  [snap' spawned-id]
+                  (if (:invoke-id child)
+                    [snap (:invoke-id child)]
+                    (allocate-spawned-id snap machine-id))]
+              [snap' (conj acc (assoc child :rf/spawned-id spawned-id))]))
+          [s []]
+          children)
+        s           s-after-alloc
         children-map (into {} (map (fn [c] [(:id c) (:rf/spawned-id c)])) children')
         join-state  {:children  children-map
                      :done      #{}

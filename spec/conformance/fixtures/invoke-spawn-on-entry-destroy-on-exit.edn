@@ -40,7 +40,13 @@
 ;;
 ;; Pure-call machine-transition (the conformance harness's runner) carries
 ;; no parent registration, so :rf/parent-id is the sentinel
-;; :rf/transition-pure (matches the spawn-counter sentinel).
+;; :rf/transition-pure.
+;;
+;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
+;; `:rf/spawn-counter` (a per-machine-id integer map). A fresh fixture
+;; snapshot starts without the slot; the first spawn bumps the slot to
+;; `{:http/post 1}` and `:http/post#1` is allocated. The expected
+;; next-snapshot below reflects that.
 
 {:fixture/id           :machine/invoke-spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"
@@ -81,9 +87,10 @@
    ;; The :on-spawn callback (:auth/record-actor) records the spawn's id at
    ;; :pending. The fixture harness assigns the deterministic id
    ;; :http/post#1 for spawn-fx in test mode.
-   :expect-next-snapshot {:state :authenticating
-                          :data  {:credentials {:user "alice" :pass "secret"}
-                                  :pending     :http/post#1}}
+   :expect-next-snapshot {:state             :authenticating
+                          :data              {:credentials {:user "alice" :pass "secret"}
+                                              :pending     :http/post#1}
+                          :rf/spawn-counter  {:http/post 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post
                                               :data          {:url "/api/login"

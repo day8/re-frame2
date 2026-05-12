@@ -669,7 +669,7 @@
             "each trace carries its machine's last-state")))))
 
 (deftest spawn-id-is-frame-scoped
-  (testing "actor-id allocation is keyed on [frame-id machine-id], not just machine-id"
+  (testing "actor-id allocation is scoped per-parent-snapshot — independent frames don't share an actor-id sequence"
     (let [machine
           ;; Per Spec 005 §Where snapshots live: spec map does NOT carry
           ;; :id; the id comes from the surrounding reg-event-fx id.
@@ -684,18 +684,7 @@
            ;; Per Spec 005 §Declarative :invoke (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [data _id] data)}}
-          handler (rf/create-machine-handler machine)
-          collect-ids (fn [frame-id]
-                        (let [acc (atom [])]
-                          (rf/reg-fx :spawn.cap
-                                     {:platforms #{:server :client}}
-                                     (fn [_ _] nil))
-                          ;; Inside the handler, capture spawned ids by
-                          ;; intercepting the :rf.machine/spawn fx via a
-                          ;; trace.
-                          acc))
-          ;; Reset counters so this test starts clean.
-          _ ((requiring-resolve 're-frame.machines/reset-counters!))]
+          handler (rf/create-machine-handler machine)]
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
       (rf/reg-event-fx :flow handler)
@@ -711,15 +700,24 @@
               "two :rf.machine/spawned traces — one per frame")
           (is (every? #(= :worker %) ids)
               "both spawned the :worker machine")
-          ;; The actor IDs themselves come through the
-          ;; [:rf.machine/spawn args] fx whose args carry :id-prefix and
-          ;; the runtime stamps the id. Frame-scoping is verified via
-          ;; the spawn-counter staying at 1 for each [frame :worker] key.
-          (let [counter @(deref (resolve 're-frame.machines/spawn-counter))]
-            (is (= 1 (get counter [:left :worker]))
-                "left frame's :worker counter is 1 (independent)")
-            (is (= 1 (get counter [:right :worker]))
-                "right frame's :worker counter is 1 (independent)")))))))
+          ;; Per rf2-gr8q the spawn-counter is no longer a per-process
+          ;; atom — it lives inside each parent machine's snapshot at
+          ;; `:rf/spawn-counter`. Frame-scoping is inherited from
+          ;; per-frame app-db isolation: each frame owns its own copy of
+          ;; the :flow machine's snapshot at [:rf/machines :flow]; each
+          ;; copy's counter advances independently. Read the counter
+          ;; from each frame's snapshot directly.
+          (let [snap-left  (get-in (rf/get-frame-db :left)  [:rf/machines :flow])
+                snap-right (get-in (rf/get-frame-db :right) [:rf/machines :flow])]
+            (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
+                "left frame's :flow snapshot counts one :worker spawn")
+            (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
+                "right frame's :flow snapshot counts one :worker spawn")
+            ;; Sanity: both allocations are independent — neither
+            ;; reached count 2 (cross-frame contamination).
+            (is (every? #(= 1 (get-in % [:rf/spawn-counter :worker]))
+                        [snap-left snap-right])
+                "the per-frame counters didn't share an allocator")))))))
 
 (deftest spawn-and-destroy-machine-fx
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
@@ -844,10 +842,13 @@
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (let [db (rf/get-frame-db f)]
-        (is (= {:state :idle :data {:n 2}}
+        ;; Per rf2-gr8q the snapshot carries `:rf/spawn-counter` seeded
+        ;; by `synthesise-initial-snapshot`. This machine never spawns,
+        ;; so the slot stays empty (`{}`).
+        (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
                (get-in db [:rf/machines :test/tiny]))
             "machine snapshot exists at the spec'd path")
-        (is (= {:state :idle :data {:n 2}}
+        (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
                (rf/compute-sub [:rf/machine :test/tiny] db))
             ":rf/machine sub returns the same snapshot")))))
 

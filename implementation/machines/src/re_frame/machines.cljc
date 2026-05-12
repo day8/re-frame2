@@ -4,8 +4,7 @@
 ;; Per Spec 005 §State machines the machine grammar
 ;; (`reg-machine`, `create-machine-handler`, `machine-transition`,
 ;; the `:rf/machine` framework sub, the `:rf.machine/spawn` /
-;; `:rf.machine/destroy` effect handlers, the per-process
-;; spawn-counter) ships as a separate
+;; `:rf.machine/destroy` effect handlers) ships as a separate
 ;; Maven artefact so apps that don't register any machines don't drag
 ;; the namespace, the `:rf/machines` app-db slot's runtime support, or
 ;; the machine-transition engine onto the classpath.
@@ -118,12 +117,14 @@
 ;; `:require [re-frame.machines :as machines]`) see the same surface
 ;; they did pre-split.
 
-;; The spawn-counter atom lives in `re-frame.machines.transition` (where
-;; `apply-transition-once` and `next-spawn-id` close over it), but a couple
-;; of smoke tests reach into it directly via `re-frame.machines/spawn-
-;; counter` to assert per-frame allocation. Re-bind here so the existing
-;; test surface keeps resolving.
-(def ^:private spawn-counter transition/spawn-counter)
+;; Per rf2-gr8q the global `spawn-counter` atom is gone. Declarative-
+;; :invoke spawns allocate ids inside the parent snapshot's
+;; `:rf/spawn-counter` slot via `re-frame.machines.transition/
+;; allocate-spawned-id`; hand-emitted spawn fxs allocate from the frame's
+;; app-db slot at `[:rf/spawn-counter <machine-id>]` inside the spawn-fx
+;; db-swap. `machine-transition` is now an honest pure function — no
+;; module-level mutable state, deterministic from its (machine snapshot
+;; event) arguments.
 
 (def reg-machine*           lifecycle-fx/reg-machine*)
 (def create-machine-handler lifecycle-fx/create-machine-handler)
@@ -138,17 +139,26 @@
 (def after-cancel-fx        timer/after-cancel-fx)
 
 (defn reset-counters!
-  "Reset the spawn-counter and the `:after`-timer table so id allocation
-  and timer-handle bookkeeping are stable across fixture runs. Cancels
-  every in-flight `:after` timer the runtime is currently tracking.
+  "Cancel every in-flight `:after` timer the runtime is currently tracking.
 
-  Bridges the two atoms that live in `re-frame.machines.transition`
-  (spawn-counter) and `re-frame.machines.timer` (after-timers); the
-  consumer surface is a single fn here so test fixtures don't need to
-  know the split."
+  Per rf2-gr8q the per-process `spawn-counter` atom is gone — declarative-
+  :invoke spawn-id allocation lives inside the parent snapshot's
+  `:rf/spawn-counter` slot, and hand-emitted-spawn allocation lives inside
+  the frame's app-db at `[:rf/spawn-counter <machine-id>]`. Both reset
+  automatically: per-test snapshot rollback (via test-support's registrar
+  snapshot/restore + frame reset) clears the app-db; per-fixture snapshot
+  input in the conformance harness is hand-built fresh on each call. The
+  only remaining per-process state this fn resets is the wall-clock timer
+  table in `re-frame.machines.timer`.
+
+  The fn name (and the `:machines/reset-counters!` late-bind hook key)
+  is kept for back-compat with the test-support fixture and the small
+  set of test namespaces that call it directly. Conceptually the name
+  is now slightly stale — \"reset wall-clock timers\" would be more
+  accurate — but renaming would churn the fixture surface; the
+  semantics-preserving rename is deferred."
   []
-  (timer/cancel-all-timers!)
-  (reset! transition/spawn-counter {}))
+  (timer/cancel-all-timers!))
 
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;

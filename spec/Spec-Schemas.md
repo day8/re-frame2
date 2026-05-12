@@ -1241,6 +1241,17 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; [005 §State tags §Snapshot shape change]
    ;; (005-StateMachines.md#snapshot-shape-change)). Per rf2-ee0d.
    [:tags     {:optional true} [:set :keyword]]
+   ;; :rf/spawn-counter is the per-machine-id integer map the runtime uses
+   ;; to deterministically allocate spawned-actor ids inside a pure
+   ;; machine-transition call. Each declarative `:invoke` bump increments
+   ;; the slot under the spawned child's `:machine-id`; the bumped value
+   ;; is the suffix on the allocated id (`<machine-id>#<n>`). The slot is
+   ;; runtime-owned (`:rf/`-namespaced) — user code MUST NOT write to it.
+   ;; Seeded as `{}` by the runtime when a machine first comes into being
+   ;; (`synthesise-initial-snapshot`); pure-call snapshots (the conformance
+   ;; harness's hand-built input snapshots) may omit it — the reducer
+   ;; defaults absent slots to 0 via `fnil`. Per rf2-gr8q.
+   [:rf/spawn-counter {:optional true} [:map-of :keyword :int]]
    [:meta     {:optional true}
     [:map
      [:rf/snapshot-version {:optional true} :int]                          ;; bumped when definition shape changes incompatibly
@@ -1249,11 +1260,12 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
 
 Stability invariants the implementation upholds (see [005 §Snapshot shape](005-StateMachines.md#snapshot-shape)):
 
-1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean).
+1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and round-trips cleanly.
 2. Snapshots represent committed state only; no in-flight microstate is captured.
 3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member.
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.warning/machine-snapshot-version-mismatch`.
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
+6. `:rf/spawn-counter` is **read-only** for users (rf2-gr8q) — the runtime owns the slot and bumps it on every declarative-`:invoke` spawn. Apps that need to address a spawned actor by id read it from `[:rf/spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
 
 **Effect-map note.** A machine handler returns a standard `:rf/effect-map` (`:db` + `:fx`). The action-internal `{:data :fx}` shape is *internal* to the machine handler; the handler lowers `:data` to a single `:db` write at `[:rf/machines <id> :data]` before returning. The closed `:rf/effect-map` contract (`:db` + `:fx` only) is preserved at the handler boundary.
 
