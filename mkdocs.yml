@@ -68,6 +68,7 @@ nav:
     - "10 — Testing": guide/10-testing.md
     - "10a — Errors": guide/10a-errors.md
     - "11 — Tooling": guide/11-devtools-and-pair-tools.md
+    - "11a — Performance": guide/11a-performance.md
     - "12 — Routing": guide/12-routing.md
     - "14 — Stories": guide/14-stories.md
     - "13 — Where to go next": guide/13-where-next.md

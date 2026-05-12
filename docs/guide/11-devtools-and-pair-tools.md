@@ -197,6 +197,8 @@ The channel is gated on `re-frame.performance/enabled?` — a `goog-define` bool
 
 The Performance API surface is CLJS-only — JVM artefacts (SSR, headless tests) emit no perf entries; tools running there use the host's profilers.
 
+For *when* to reach for this channel — and the four shapes of slowness the cures address — see the companion deep-dive [11a — Performance](11a-performance.md).
+
 ## What re-frame2 does not ship
 
 The contract above is sized to the framework's responsibility. Things that are **not** part of re-frame2 itself:
@@ -438,6 +440,7 @@ The full contract is in [Tool-Pair §Surface behaviour against destroyed frames]
 
 ## Next
 
+- [11a — Performance](11a-performance.md) — when to reach for the `rf:` channel, and the four shapes of slowness the framework has answers for.
 - [12 — Routing](12-routing.md) — the URL ↔ state contract.
 - [Tool-Pair](../../spec/Tool-Pair.md) — the full normative contract for pair-shaped tools.
 - [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the trace stream's full shape and the error contract.

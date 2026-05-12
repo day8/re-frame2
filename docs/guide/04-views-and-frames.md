@@ -121,7 +121,7 @@ The view holds the `sort-by`, holds the price-formatting. Two responsibilities; 
 
 The view is now a thin shaping function over already-shaped data. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
 
-The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule.
+The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [11a — Performance](11a-performance.md).
 
 ### `<sub` and `>evt` — the LIN aliases
 

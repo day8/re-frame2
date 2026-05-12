@@ -281,6 +281,7 @@ If you need a fourth rule, you're probably overthinking it. Interceptors are del
 ## Next
 
 - [05 — State machines](05-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
+- [11a — Performance](11a-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
 - [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the full normative surface for `:interceptors`, `:interceptor-overrides`, and `:fx-overrides`.
 - [Chapter 10 §Stubbing fxs, recording events, replacing interceptors](10-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
 - [Chapter 12 §Route guards](12-routing.md) — an auth interceptor wired on `:rf.route/navigate`.
