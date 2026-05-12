@@ -44,6 +44,13 @@
                   (= operation (:operation ev))))
            @recorded))
 
+(defn- error-events
+  [recorded operation]
+  (filterv (fn [ev]
+             (and (= :error (:op-type ev))
+                  (= operation (:operation ev))))
+           @recorded))
+
 (def ^:private noop-icpt
   ;; A no-op interceptor; just enough to populate a positional vector.
   {:id     :test/noop
@@ -197,3 +204,74 @@
         ":fx kind is untouched")
     (is (some? (registrar/lookup :cofx :test.6z20/cofx))
         ":cofx kind is untouched")))
+
+;; ---- reg-event-fx bad return (rf2-k3bj) ----------------------------------
+;;
+;; Per rf2-k3bj — a `reg-event-fx` handler is contracted to return a map
+;; (or nil, the documented no-op). Any other return type (vector, number,
+;; string, ...) is a thinko: the runtime cannot extract `:db` / `:fx` and
+;; cannot guess the handler's intent. Pre-fix the body silently no-opped.
+;; The fix emits `:rf.error/effect-handler-bad-return` (Spec 009 §Error
+;; contract, :recovery :no-recovery) so the misuse surfaces in dev / 10x.
+
+(deftest reg-event-fx-non-map-return-traces-bad-return-error
+  (testing "handler returning a string emits :rf.error/effect-handler-bad-return; app-db unchanged"
+    (let [recorded (record-traces! ::bad-string)]
+      (rf/reg-event-fx :test.k3bj/string-return
+        (fn [_ _] "hello"))
+      (let [db-before (rf/get-frame-db :rf/default)]
+        (rf/dispatch-sync [:test.k3bj/string-return])
+        (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+          (is (= 1 (count errs))
+              (str "expected exactly one :rf.error/effect-handler-bad-return, got " (count errs)))
+          (let [t (:tags (first errs))]
+            (is (= :test.k3bj/string-return (:event-id t)))
+            (is (= [:test.k3bj/string-return] (:event t)))
+            (is (= "hello" (:returned t)))
+            (is (= (type "hello") (:returned-type t)))
+            (is (string? (:reason t)))
+            (is (re-find #"non-map" (:reason t))))
+          (is (= :no-recovery (:recovery (first errs)))))
+        (is (= db-before (rf/get-frame-db :rf/default))
+            "app-db is unchanged after a no-op recovery"))))
+
+  (testing "handler returning a number emits :rf.error/effect-handler-bad-return"
+    (let [recorded (record-traces! ::bad-number)]
+      (rf/reg-event-fx :test.k3bj/number-return
+        (fn [_ _] 42))
+      (rf/dispatch-sync [:test.k3bj/number-return])
+      (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+        (is (= 1 (count errs)))
+        (is (= 42 (:returned (:tags (first errs))))))))
+
+  (testing "handler returning a vector emits :rf.error/effect-handler-bad-return"
+    (let [recorded (record-traces! ::bad-vector)]
+      (rf/reg-event-fx :test.k3bj/vector-return
+        (fn [_ _] [[:dispatch [:other]]]))
+      (rf/dispatch-sync [:test.k3bj/vector-return])
+      (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
+        (is (= 1 (count errs)))
+        (is (= [[:dispatch [:other]]] (:returned (:tags (first errs)))))))))
+
+(deftest reg-event-fx-nil-return-stays-silent
+  (testing "handler returning nil is a documented legal no-op; no :rf.error/effect-handler-bad-return"
+    (let [recorded (record-traces! ::nil-quiet)]
+      (rf/reg-event-fx :test.k3bj/nil-return
+        (fn [_ _] nil))
+      (let [db-before (rf/get-frame-db :rf/default)]
+        (rf/dispatch-sync [:test.k3bj/nil-return])
+        (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
+            "nil is the documented no-op return and must not fire the bad-return error")
+        (is (= db-before (rf/get-frame-db :rf/default))
+            "app-db is unchanged after a nil-return no-op")))))
+
+(deftest reg-event-fx-map-return-still-works
+  (testing "handler returning a well-shaped {:db ...} effect-map still applies"
+    (let [recorded (record-traces! ::map-good)]
+      (rf/reg-event-fx :test.k3bj/map-return
+        (fn [_ _] {:db {:k3bj/touched? true}}))
+      (rf/dispatch-sync [:test.k3bj/map-return])
+      (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
+          "a map return must not fire the bad-return error")
+      (is (true? (:k3bj/touched? (rf/get-frame-db :rf/default)))
+          ":db was applied as the effect-map specifies"))))
