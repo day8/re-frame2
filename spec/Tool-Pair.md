@@ -336,7 +336,7 @@ The full attachment surface, from the tool's point of view:
 | Read recent trace history (events that already fired) | `(rf/trace-buffer)` (with optional filter map) | [009 §Retain-N trace ring buffer](009-Instrumentation.md#retain-n-trace-ring-buffer-dev-only) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
-| Inject an `app-db` value (state injection / story / repro) | `(rf/reset-frame-db! frame-id new-db)` | [§Pair-tool writes](#pair-tool-writes-state-injection) |
+| Inject an `app-db` value (state injection / story / repro) | `(rf/reset-frame-db! frame-id new-db)` | [§Pair-tool writes](#pair-tool-writes--state-injection) |
 | Configure history depth | `(rf/configure :epoch-history {:depth N})` and `(rf/configure :trace-buffer {:depth N})` | [API.md](API.md) |
 | Inspect registered app-db schemas | `(rf/app-schemas frame-id)` | [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface) |
 | Tag dispatches by actor (e.g. tool vs app) | `:origin` opt on `(rf/dispatch event opts)` | [002 §Dispatch origin tagging](002-Frames.md#dispatch-origin-tagging) |

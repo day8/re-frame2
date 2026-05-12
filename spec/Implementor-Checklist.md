@@ -263,7 +263,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### T2. Performance API equivalent
 
-- **Why it matters.** Browser DevTools cross-correlation. The CLJS reference ships a Chrome Performance API bridge (per [009 §Chrome Performance API integration](009-Instrumentation.md#chrome-performance-api-integration)). Optional in other hosts.
+- **Why it matters.** Browser DevTools cross-correlation. The CLJS reference ships a Chrome Performance API bridge (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)). Optional in other hosts.
 - **Options by host.**
   - **CLJS / JS / TS (browser)** — `performance.mark` / `performance.measure`.
   - **JVM** — `clj-async-profiler`, JFR, or omit.

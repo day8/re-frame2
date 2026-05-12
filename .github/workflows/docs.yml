@@ -62,13 +62,11 @@ jobs:
       # and rf2-sefq.  Runs before `mkdocs build` so the failure mode
       # is "this PR broke a doc anchor", not "mkdocs emitted a warning".
       #
-      # NOTE: `continue-on-error: true` is intentional for the initial
-      # landing — main currently carries 26 pre-existing broken anchors
-      # (rf2-ftkz tracks the sweep).  Once rf2-ftkz closes, drop this
-      # flag so a broken anchor fails the build strictly.
+      # Strict mode: rf2-ftkz swept the 26 pre-existing broken anchors
+      # main carried at landing, so this step is now fail-loud — a PR
+      # that introduces a broken anchor fails the build.
       - name: Validate doc anchor links
         run: python scripts/check_doc_slugs.py --verbose
-        continue-on-error: true
 
       # Stage the spec/ tree under docs/spec/ so MkDocs (which requires
       # docs_dir to be a child of the config file) can see it. The local
