@@ -56,6 +56,7 @@ nav:
     - "01a — app-db": guide/01a-app-db.md
     - "02 — Your first app": guide/02-your-first-app.md
     - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
+    - "03a — Coeffects": guide/03a-coeffects.md
     - "04 — Views and frames": guide/04-views-and-frames.md
     - "04a — Interceptors": guide/04a-interceptors.md
     - "05 — State machines": guide/05-state-machines.md
