@@ -24,6 +24,7 @@
  */
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
@@ -46,11 +47,13 @@ const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 
 // shadow-cljs's :browser-test target generates an index.html with an empty
-// <body>. Some example namespaces (e.g. examples/reagent/nine_states/core.cljs) do
-// `(rdc/create-root (js/document.getElementById "app"))` at namespace-load
-// time. Without an `#app` element, React 18 throws and aborts the test
-// runner before the cljs.test summary is printed. Patch the generated
-// index.html to include a hidden mount point. Idempotent.
+// <body>. Some example namespaces (e.g. examples/reagent/nine_states/core.cljs)
+// historically did `(rdc/create-root (js/document.getElementById "app"))` at
+// namespace-load time. Per rf2-gkf9 the example mounts now defer `create-root`
+// to their `run` fn, but the test harness still needs a single `#app` host so
+// a future regression doesn't crash the runner before cljs.test prints its
+// summary. Patch the generated index.html to include a hidden mount point.
+// Idempotent.
 function ensureMountPoint() {
   if (!fs.existsSync(INDEX)) return;
   const html = fs.readFileSync(INDEX, 'utf8');
@@ -63,6 +66,69 @@ function ensureMountPoint() {
     fs.writeFileSync(INDEX, patched, 'utf8');
     console.log(`Patched ${INDEX} with <div id="app"> mount point.`);
   }
+}
+
+// Server ownership token (rf2-gkf9). The readiness probe and the
+// teardown path both verify that the server reachable on `port` is the
+// one this orchestrator spawned. We do this by:
+//
+//   1. Generating a per-run nonce.
+//   2. Writing it to a sentinel file under the served root BEFORE
+//      spawning http-server (so the file is published as soon as
+//      http-server starts serving the directory).
+//   3. The readiness probe fetches `/.rf-harness-token` and compares
+//      the body to the nonce — only then do we treat the server as
+//      "ours" and proceed to the Playwright runner.
+//   4. On teardown we tear down the PID we spawned and unlink the
+//      sentinel file regardless of test outcome.
+//
+// This positively defeats two failure modes:
+//   - An unrelated http-server (or any HTTP listener) on the same port
+//     gives a 200 to `/` but does NOT have our sentinel — we fail fast
+//     instead of running tests against the wrong asset tree.
+//   - A stale http-server child from a previous aborted run that
+//     re-bound the port between isPortFree() and our spawn — same
+//     detection: its sentinel won't match this run's nonce.
+const TOKEN_FILE_BASENAME = '.rf-harness-token';
+const TOKEN_PATH = path.join(ROOT, TOKEN_FILE_BASENAME);
+
+function writeOwnershipToken() {
+  // Don't write if the target dir doesn't exist yet — let the script
+  // error out elsewhere with a clearer message.
+  if (!fs.existsSync(ROOT)) return null;
+  const token = crypto.randomBytes(16).toString('hex');
+  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
+  return token;
+}
+
+function removeOwnershipToken() {
+  try {
+    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
+  } catch (_) {
+    // best-effort cleanup; do not let teardown bookkeeping fail the run.
+  }
+}
+
+function fetchToken(port) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: `/${TOKEN_FILE_BASENAME}`, timeout: 1000 },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve(null);
+          return;
+        }
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve(body.trim()));
+        res.on('error', () => resolve(null));
+      },
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
 }
 
 // True if the given TCP port is currently free on 127.0.0.1.
@@ -138,22 +204,48 @@ function probe(port) {
   });
 }
 
-// Race-style readiness wait: resolves true on first successful probe,
-// false on timeout, false-with-cause on early child exit. The caller
-// distinguishes between timeout and early-exit via the supplied
-// state object.
-async function waitForReady(port, deadline, state) {
+// Race-style readiness wait: resolves true once the server on `port`
+// answers AND its ownership token matches `expectedToken`. Resolves
+// false on timeout, on early child exit, or if the token mismatches
+// after the server becomes reachable (signals we're talking to a
+// foreign server that happens to be bound to the same port — refuse to
+// proceed). The caller distinguishes timeout vs early-exit vs
+// foreign-server via the state object and the returned reason.
+async function waitForReady(port, expectedToken, deadline, state) {
+  let sawReachable = false;
   while (Date.now() < deadline) {
-    if (state.exited) return false;
-    if (await probe(port)) return true;
-    if (state.exited) return false;
+    if (state.exited) return { ok: false, reason: 'child-exited' };
+    if (await probe(port)) {
+      sawReachable = true;
+      if (state.exited) return { ok: false, reason: 'child-exited' };
+      const got = await fetchToken(port);
+      if (got && got === expectedToken) {
+        return { ok: true };
+      }
+      if (got && got !== expectedToken) {
+        return { ok: false, reason: 'token-mismatch', got };
+      }
+      // token absent yet — http-server may have started but not yet
+      // be serving the sentinel file. Keep polling.
+    }
+    if (state.exited) return { ok: false, reason: 'child-exited' };
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
-  return false;
+  return { ok: false, reason: sawReachable ? 'token-never-served' : 'timeout' };
 }
 
 (async () => {
   ensureMountPoint();
+
+  // Publish the per-run ownership token (rf2-gkf9) before spawning
+  // http-server so the file is visible the moment the server starts
+  // serving the directory. Cleaned up unconditionally in the finally
+  // path below.
+  const token = writeOwnershipToken();
+  if (!token) {
+    console.error(`Asset root missing: ${ROOT}. Did shadow-cljs compile run?`);
+    process.exit(1);
+  }
 
   const port = await resolvePort();
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
@@ -178,20 +270,49 @@ async function waitForReady(port, deadline, state) {
     state.exitSignal = signal;
   });
 
-  const ready = await waitForReady(port, Date.now() + READY_TIMEOUT_MS, state);
-  if (!ready) {
-    if (state.exited) {
+  // Shared teardown — kills the server we spawned (and only that one)
+  // and removes the ownership token. Idempotent.
+  const tornDownRef = { value: false };
+  const teardown = () => {
+    if (tornDownRef.value) return;
+    tornDownRef.value = true;
+    if (!state.exited) {
+      try { server.kill(); } catch (_) {}
+    }
+    removeOwnershipToken();
+  };
+  process.on('exit', teardown);
+  process.on('SIGINT', () => { teardown(); process.exit(130); });
+  process.on('SIGTERM', () => { teardown(); process.exit(143); });
+
+  const ready = await waitForReady(port, token, Date.now() + READY_TIMEOUT_MS, state);
+  if (!ready.ok) {
+    if (ready.reason === 'child-exited' || state.exited) {
       console.error(
         `http-server exited before becoming reachable on :${port} ` +
           `(code=${state.exitCode}, signal=${state.exitSignal}). ` +
           `Likely cause: port already in use or http-server failed to start.`
       );
+    } else if (ready.reason === 'token-mismatch') {
+      console.error(
+        `A server is reachable on :${port}, but its /${TOKEN_FILE_BASENAME} ` +
+          `does not match this run's ownership token. Refusing to run tests ` +
+          `against a server this harness did not launch. ` +
+          `(got "${ready.got}", expected "${token}"). ` +
+          `Set BROWSER_TEST_PORT to pin a different port if this is intentional.`
+      );
+    } else if (ready.reason === 'token-never-served') {
+      console.error(
+        `http-server on :${port} became reachable but never served ` +
+          `/${TOKEN_FILE_BASENAME} within ${READY_TIMEOUT_MS}ms. ` +
+          `Asset root may be inconsistent.`
+      );
     } else {
       console.error(
         `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`
       );
-      server.kill();
     }
+    teardown();
     process.exit(1);
   }
 
@@ -202,11 +323,10 @@ async function waitForReady(port, deadline, state) {
 
   const code = await new Promise((resolve) => runner.on('exit', resolve));
 
-  if (!state.exited) {
-    server.kill();
-  }
+  teardown();
   process.exit(code == null ? 1 : code);
 })().catch((err) => {
   console.error(err);
+  removeOwnershipToken();
   process.exit(1);
 });

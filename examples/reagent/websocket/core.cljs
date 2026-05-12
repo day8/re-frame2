@@ -122,17 +122,21 @@
 ;; MOUNT
 ;; ============================================================================
 ;;
-;; Gated on `(exists? js/document)` so the namespace can load in
-;; non-DOM CLJS hosts (shadow-cljs :node-test, headless test harnesses).
+;; React root held in an atom and populated lazily inside `run` rather
+;; than at ns-load (rf2-gkf9). Multiple example namespaces co-required
+;; by the browser-test bundle's wrapper test namespaces share a single
+;; `#app` element; running `create-root` at ns-load would race multiple
+;; roots onto the same container and leak example-A's mount into
+;; example-B's tests. Mounting in `run` keeps ns-load DOM-side-effect-free.
 ;; The headless fixtures live in `test/websocket/<feature>_test.cljs`
-;; and run without React.
+;; and run in any CLJS host without React.
 
-(defonce react-root
-  (when (exists? js/document)
-    (rdc/create-root (js/document.getElementById "app"))))
+(defonce react-root (atom nil))
 
 (defn ^:export run []
   (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:ws.app/initialise])
-  (when react-root
-    (rdc/render react-root [views/root-view])))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [views/root-view])))

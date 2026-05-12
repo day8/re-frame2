@@ -661,15 +661,23 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 ;;
-;; The DOM mount is gated on (exists? js/document) so the namespace can
-;; load in non-DOM CLJS hosts (shadow-cljs :node-test, headless test
-;; harnesses, JVM). The headless fixtures live in
-;; `test/nine_states/core_test.cljs` and run in any CLJS host without
-;; touching React.
+;; The mount is performed inside `run` rather than at namespace-load time
+;; (rf2-gkf9). Examples are also `:require`'d by the browser-test bundle
+;; (`re-frame.nine-states-cljs-test`) — which also requires sibling
+;; examples like `realworld.core`. If both namespaces called
+;; `rdc/create-root` against `(js/document.getElementById "app")` at
+;; ns-load time, every required example would race to attach a root to
+;; the same `#app` element shared by the test harness, producing
+;; React warnings ("createRoot is being called on the same container
+;; twice") and example-A side effects leaking into example-B's tests.
+;;
+;; Deferring `create-root` to `run` keeps ns-load DOM-side-effect-free,
+;; so multiple example namespaces can co-exist in one CLJS build (the
+;; browser test runner) without stepping on each other's mount points.
+;; The headless fixtures live in `test/nine_states/core_test.cljs` and
+;; run in any CLJS host without touching React.
 
-(defonce react-root
-  (when (exists? js/document)
-    (rdc/create-root (js/document.getElementById "app"))))
+(defonce react-root (atom nil))
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
@@ -681,5 +689,7 @@
     {:doc          "Nine-states demo frame."
      :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
   (rf/dispatch-sync [:nine-states.app/initialise])
-  (when react-root
-    (rdc/render react-root [root-view])))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [root-view])))

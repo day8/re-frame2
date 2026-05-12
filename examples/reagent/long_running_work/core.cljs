@@ -83,16 +83,21 @@
 ;; ============================================================================
 ;;
 ;; React root is `react-root` (avoid colliding with `root-view`).
-;; Gated on (exists? js/document) so the ns is safe to require under
-;; :node-test / JVM smoke / headless cljs-test contexts.
+;; Held in an atom and populated lazily inside `run` rather than at
+;; ns-load (rf2-gkf9). Multiple example namespaces are co-required by
+;; the browser-test bundle's wrapper test namespaces; an ns-load
+;; `create-root` would race multiple roots onto the shared `#app`
+;; element. Keeping `create-root` inside `run` makes ns-load DOM-
+;; side-effect-free; the headless fixtures can `:require` this ns under
+;; :node-test / JVM smoke / cljs-test without touching the DOM.
 
-(defonce react-root
-  (when (exists? js/document)
-    (rdc/create-root (js/document.getElementById "app"))))
+(defonce react-root (atom nil))
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:app/initialise])
-  (when react-root
-    (rdc/render react-root [views/root-view])))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [views/root-view])))
