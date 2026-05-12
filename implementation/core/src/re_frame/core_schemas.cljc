@@ -93,3 +93,28 @@
                       :path     path
                       :recovery :no-recovery
                       :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
+
+(defn reg-app-schemas
+  "Bulk-register `{path -> schema}` against the active frame (or the
+  `:frame` opt). Per rf2-jzs9 — the plural form of `reg-app-schema`,
+  aimed at feature-modular apps (per Conventions §Feature-modularity
+  prefix convention).
+
+  Shape:
+
+    (rf/reg-app-schemas {[:auth] AuthSlice
+                         [:cart] CartSlice
+                         ...})
+    (rf/reg-app-schemas {...} {:frame :tenant/a})
+
+  Returns the vector of paths registered. See `re-frame.schemas/reg-app-schemas`
+  for full semantics and the singular-form fallback when deterministic
+  ordering matters."
+  ([path->schema] (reg-app-schemas path->schema {}))
+  ([path->schema opts]
+   (if-let [f (late-bind/get-fn :schemas/reg-app-schemas)]
+     (f path->schema opts)
+     (throw (ex-info ":rf.error/schemas-artefact-missing"
+                     {:where    'reg-app-schemas
+                      :recovery :no-recovery
+                      :reason   "rf/reg-app-schemas requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))

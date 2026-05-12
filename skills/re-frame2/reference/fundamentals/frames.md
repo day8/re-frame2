@@ -2,7 +2,7 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or capturing the current frame in an async callback via `bound-dispatcher`.
+Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider` to scope a React subtree, or capturing the current frame in an async callback via `dispatcher`.
 
 ## What a frame is
 
@@ -47,14 +47,14 @@ Three tiers (`frame.cljc:38-51`, `core.cljc:899-909`):
 
 ## Capturing the frame in async callbacks
 
-When you `setTimeout` or hand a callback to a promise, the dynamic var binding is gone by the time it runs. Capture the frame at call time with `bound-dispatcher` / `bound-subscriber`:
+When you `setTimeout` or hand a callback to a promise, the dynamic var binding is gone by the time it runs. Capture the frame at call time with `dispatcher` / `subscriber`:
 
 ```clojure
-(let [d (rf/bound-dispatcher)]
+(let [d (rf/dispatcher)]
   (.then promise #(d [:result-arrived %])))
 ```
 
-`dispatcher` and `bound-dispatcher` are aliases (`core.cljc:940-945`); use whichever name reads better.
+The verb-form names imply capture-at-call-time semantics; the earlier `bound-dispatcher` / `bound-subscriber` aliases were cut as redundant under rf2-knz3l.
 
 ## Canonical mini-example
 

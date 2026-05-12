@@ -47,22 +47,19 @@
     (is (identical? reagent-adapter/adapter (adapter/current-adapter))
         "explicit init! installed the Reagent adapter")))
 
-(deftest init-no-arg-raises
-  (testing "(rf/init!) with no args raises :rf.error/no-adapter-specified"
+(deftest init-no-arg-raises-arity-error
+  (testing "(rf/init!) with no args raises a language-level arity error (rf2-3ubmv — no-arg arity cut)"
+    ;; Per rf2-3ubmv the no-arg arity was cut from the fn defn entirely
+    ;; so `(rf/init!)` raises before reaching the runtime ex-info path.
+    ;; CLJS surfaces this as an ordinary Error / TypeError depending on
+    ;; compilation mode; we assert only that *something* throws and no
+    ;; adapter is installed.
     (let [thrown (try
                    (rf/init!)
                    nil
                    (catch :default e e))]
       (is (some? thrown)
-          "rf/init! with no args raises")
-      (is (= ":rf.error/no-adapter-specified"
-             (some-> thrown ex-message))
-          "ex-message carries the :rf.error/no-adapter-specified tag")
-      (let [data (ex-data thrown)]
-        (is (= 'init! (:where data))
-            "ex-data identifies the calling fn")
-        (is (= :no-recovery (:recovery data))
-            "ex-data flags :no-recovery")))
+          "rf/init! with no args raises (cut arity)"))
     (is (nil? (adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 

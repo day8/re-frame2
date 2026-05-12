@@ -1073,3 +1073,48 @@
       (schemas/restore-schemas-by-frame! empty-snap)
       (is (= {} @schemas/schemas-by-frame)
           "restore replaced the atom — the transient schemas are gone, not merged"))))
+
+;; ---- rf/reg-app-schemas (plural, rf2-jzs9) -------------------------------
+
+(deftest reg-app-schemas-bulk-registers-map
+  (testing "rf/reg-app-schemas registers every entry in the supplied {path -> schema} map"
+    (rf/reg-app-schemas
+      {[:auth]                  [:map [:user :string]]
+       [:auth :token]           [:string]
+       [:cart]                  [:map [:items [:vector :string]]]
+       [:cart :items]           [:vector :string]})
+    (is (= [:map [:user :string]]      (rf/app-schema-at [:auth])))
+    (is (= [:string]                   (rf/app-schema-at [:auth :token])))
+    (is (= [:map [:items [:vector :string]]] (rf/app-schema-at [:cart])))
+    (is (= [:vector :string]           (rf/app-schema-at [:cart :items])))))
+
+(deftest reg-app-schemas-returns-paths-registered
+  (testing "rf/reg-app-schemas returns the vector of paths"
+    (let [paths (rf/reg-app-schemas
+                  {[:a] [:int]
+                   [:b] [:int]
+                   [:c] [:int]})]
+      (is (= 3 (count paths)))
+      (is (= #{[:a] [:b] [:c]} (set paths))
+          "every input path appears in the returned vector"))))
+
+(deftest reg-app-schemas-honours-frame-opt
+  (testing "rf/reg-app-schemas applies the :frame opt to every entry"
+    (rf/reg-frame :tenant/a {})
+    (rf/reg-app-schemas
+      {[:auth] [:map [:user :string]]
+       [:cart] [:map [:items :any]]}
+      {:frame :tenant/a})
+    (is (= [:map [:user :string]]
+           (rf/app-schema-at [:auth] {:frame :tenant/a})))
+    (is (= [:map [:items :any]]
+           (rf/app-schema-at [:cart] {:frame :tenant/a})))
+    (is (nil? (rf/app-schema-at [:auth]))
+        "the default frame did NOT receive any of the entries")))
+
+(deftest reg-app-schemas-empty-map-no-op
+  (testing "rf/reg-app-schemas on an empty map is a no-op and returns an empty vector"
+    (let [paths (rf/reg-app-schemas {})]
+      (is (= [] paths))
+      (is (= {} (rf/app-schemas))
+          "no schemas registered on the active frame"))))

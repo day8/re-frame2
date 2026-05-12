@@ -626,7 +626,7 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
    ;; v2 — registered fx subscribes to the source and dispatches; sub reads app-db
    (rf/reg-fx :ws/connect
      (fn [m _]
-       (let [d (rf/bound-dispatcher m)]
+       (let [d (rf/dispatcher)] ;; *current-frame* is bound to (:frame m) inside the binary handler
          (websocket/on-message #(d [:ws/message-received %])))))
 
    (rf/reg-event-db :ws/message-received
@@ -1386,7 +1386,7 @@ The interceptor's `:before` receives a ctx `{:request :args :frame :event}` and 
 
 **Type B — flag for human review.** The rewrite is mechanical *given* a chosen adapter, but the agent must surface every call site so the consumer confirms which adapter the app boots against.
 
-Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! …)` requires an adapter spec map argument. The earlier no-arg form (`(rf/init!)`) and keyword form (`(rf/init! :reagent)`) both raise `:rf.error/no-adapter-specified`. The default-adapter registry — populated by adapter ns-load side-effects under rf2-84po — is dropped entirely.
+Per [rf2-agql](#) (replaces [rf2-84po](#); resolves [rf2-4cb6](#)) `(rf/init! …)` requires an adapter spec map argument. Per [rf2-3ubmv](#) the no-arg arity was cut from the fn defn entirely so the no-arg call `(rf/init!)` raises a language-level `ArityException` at the call site rather than a runtime ex-info — earlier diagnosis, clearer stack trace, IDE-flaggable. The keyword form (`(rf/init! :reagent)`) and the nil form (`(rf/init! nil)`) still raise `:rf.error/no-adapter-specified` at runtime. The default-adapter registry — populated by adapter ns-load side-effects under rf2-84po — is dropped entirely.
 
 **Rationale.**
 
@@ -1745,7 +1745,7 @@ The case where unary fx handlers go wrong is **async dispatch**: if the handler 
 ;; binary, frame-aware
 (rf/reg-fx :http-xhrio
   (fn [m request]
-    (let [d (rf/bound-dispatcher m)                       ;; closure over (:frame m)
+    (let [d (rf/dispatcher)                               ;; *current-frame* bound to (:frame m)
           {:keys [on-success on-failure]} request]
       (ajax/ajax-request 
         {:handler (fn [[ok? response]]
@@ -1755,7 +1755,7 @@ The case where unary fx handlers go wrong is **async dispatch**: if the handler 
 The change is mechanical:
 
 1. Add `m` as the first arg.
-2. At handler entry, get a frame-bound dispatcher: `(let [d (rf/bound-dispatcher m)] ...)`.
+2. At handler entry, capture a frame-bound dispatch fn: `(let [d (rf/dispatcher)] ...)` — the binary handler's body runs with `*current-frame*` bound to `(:frame m)`, so `(rf/dispatcher)` captures that frame.
 3. In every async callback, replace `rf/dispatch` with `d`.
 
 **Apply only if:**

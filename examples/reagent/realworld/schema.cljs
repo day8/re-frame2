@@ -3,8 +3,8 @@
 
    These describe the shape of every wire payload the RealWorld API returns,
    plus the shape of each app-db slice that holds them. The schemas are
-   registered with re-frame2 via `reg-app-schema` for path-based validation
-   per Spec 010.
+   registered with re-frame2 via `reg-app-schemas` (the bulk plural form,
+   per rf2-jzs9) for path-based validation per Spec 010.
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api
@@ -19,7 +19,7 @@
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
-            ;; rf/reg-app-schema resolves at the call sites below.
+            ;; rf/reg-app-schemas resolves at the call site below.
             [re-frame.schemas]))
 
 ;; ============================================================================
@@ -207,34 +207,39 @@
 ;;
 ;; Path-based schema attachment per Spec 010. The framework validates writes
 ;; to these paths in development.
+;;
+;; This example uses the bulk plural form `rf/reg-app-schemas` (rf2-jzs9):
+;; a feature-modular app declares 5–20 schemas in one place, so a single
+;; `{path -> schema}` map reads more cleanly than a tower of singular
+;; `reg-app-schema` calls. Source-coords for the bulk call stamp every
+;; registered entry.
+;;
+;; Note: the `:tags` slice from the slice-form era is gone — the popular-
+;; tags lifecycle is now the `:realworld/tags` machine (the :data-region
+;; machine variant of Pattern-RemoteData), and its snapshot lives at
+;; `[:rf/machines :realworld/tags]`. Similarly the `:settings` slice is
+;; replaced by the `:settings/form` machine at `[:rf/machines :settings/form]`.
 
-(rf/reg-app-schema [:auth]                     AuthSlice)
-(rf/reg-app-schema [:rf/machines :auth/flow]   AuthFlowSnapshot)
-(rf/reg-app-schema [:articles]                 RequestSlice)
-(rf/reg-app-schema [:articles :data]           [:vector Article])
-(rf/reg-app-schema [:article]                  RequestSlice)
-(rf/reg-app-schema [:article :data]            [:maybe Article])
-;; The `:tags` slice from the slice-form era is gone; the popular-tags
-;; lifecycle is now the `:realworld/tags` machine (the :data-region
-;; machine variant of Pattern-RemoteData). The snapshot lives at
-;; `[:rf/machines :realworld/tags]`.
-(rf/reg-app-schema [:rf/machines :realworld/tags] TagsSnapshot)
-(rf/reg-app-schema [:profile]                  RequestSlice)
-(rf/reg-app-schema [:profile :data]            [:maybe Profile])
-(rf/reg-app-schema [:profile.articles]         RequestSlice)
-(rf/reg-app-schema [:profile.articles :data]   [:vector Article])
-(rf/reg-app-schema [:profile.favorites]        RequestSlice)
-(rf/reg-app-schema [:profile.favorites :data]  [:vector Article])
-(rf/reg-app-schema [:comments]                 RequestSlice)
-(rf/reg-app-schema [:comments :data]           [:vector Comment])
-(rf/reg-app-schema [:feed]                     RequestSlice)
-(rf/reg-app-schema [:feed :data]               [:vector Article])
-(rf/reg-app-schema [:comment-form]             FormSlice)
-(rf/reg-app-schema [:auth :login-form]         FormSlice)
-(rf/reg-app-schema [:auth :register-form]      FormSlice)
-(rf/reg-app-schema [:editor]                   EditorSlice)
-;; The `:settings` slice from the slice-form era is gone; the settings
-;; form lifecycle is now the `:settings/form` machine (the :form-region
-;; machine variant of Pattern-Forms). The snapshot lives at
-;; `[:rf/machines :settings/form]`.
-(rf/reg-app-schema [:rf/machines :settings/form] SettingsFormSnapshot)
+(rf/reg-app-schemas
+  {[:auth]                          AuthSlice
+   [:rf/machines :auth/flow]        AuthFlowSnapshot
+   [:articles]                      RequestSlice
+   [:articles :data]                [:vector Article]
+   [:article]                       RequestSlice
+   [:article :data]                 [:maybe Article]
+   [:rf/machines :realworld/tags]   TagsSnapshot
+   [:profile]                       RequestSlice
+   [:profile :data]                 [:maybe Profile]
+   [:profile.articles]              RequestSlice
+   [:profile.articles :data]        [:vector Article]
+   [:profile.favorites]             RequestSlice
+   [:profile.favorites :data]       [:vector Article]
+   [:comments]                      RequestSlice
+   [:comments :data]                [:vector Comment]
+   [:feed]                          RequestSlice
+   [:feed :data]                    [:vector Article]
+   [:comment-form]                  FormSlice
+   [:auth :login-form]              FormSlice
+   [:auth :register-form]           FormSlice
+   [:editor]                        EditorSlice
+   [:rf/machines :settings/form]    SettingsFormSnapshot})

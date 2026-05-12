@@ -37,7 +37,7 @@ The normative contract lives in [`spec/014-HTTPRequests.md`](../../../spec/014-H
   **When to choose each.** Pick the **slice form** when the form's `:status` is the only lifecycle axis worth modelling, when the form is one of many in the same feature (and consistent shape across them buys you copy-paste fluency), or when the form is intentionally small enough that a state machine is over-engineering. Pick the **machine form** when the lifecycle is itself a workflow you want to enumerate and test in isolation, when you'd otherwise be authoring derived boolean subs (`:submitting?`, `:has-errors?`, `:can-submit?`) and a priority `cond` over them, or when the form composes with other axes (modes, tabs, optimistic-update windows) — at that point the per-region machine is what Pattern-NineStates' parallel-region shape is built from.
 - **Routing** — route table, path params, query params, auth gating, route-driven loads, and navigation blocking for the editor.
 - **Optimistic updates** — favorite toggle, comment delete, and follow/unfollow all show rollback-friendly event shapes against the managed-HTTP failure path.
-- **Schemas** — wire payloads and app-db slices are attached with `reg-app-schema`.
+- **Schemas** — wire payloads and app-db slices are attached with `reg-app-schemas` (the bulk plural form, per rf2-jzs9) — one `{path -> schema}` map registers all 22 slices in `schema.cljs`.
 - **SSR boundary** — the app-specific hydration payload helper lives alongside the generic SSR worked example in `examples/reagent/ssr/`.
 
 ## Files

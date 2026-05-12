@@ -34,8 +34,8 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
 | `rf/with-frame` | `(frame-id body)` / `([sym expr] body)` — bind active frame |
 | `rf/current-frame` | `()` — `:rf/default` outside any binding |
-| `rf/dispatcher` / `rf/subscriber` | `()` — frame-bound closure |
-| `rf/bound-dispatcher` / `rf/bound-subscriber` | `()` — capture-for-async sugar |
+| `rf/dispatcher` / `rf/subscriber` | `()` — frame-bound closure; captures `(current-frame)` at call time; safe during render AND from async callbacks |
+| `rf/bound-fn` | `([args] body+)` — macro form of `dispatcher` for callbacks; restores `*current-frame*` inside the body |
 | `rf/frame-provider` | (CLJS) Reagent component `[frame-provider {:frame ...} & children]` |
 | `rf/get-frame-db` | `(frame-id)` — value-form app-db read |
 | `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame |

@@ -45,6 +45,22 @@
 (defn- next-dispatch-id []
   (swap! dispatch-counter inc))
 
+;; ---- lexical-scope fx-override binding (rf2-5uwl) -------------------------
+;;
+;; Per the `rf/with-overrides` macro (declared in re-frame.core) tests
+;; bind this Var to a `{fx-id -> override}` map for the macro body's
+;; lexical scope; `build-envelope` merges it into the per-call
+;; `:fx-overrides` opt. Precedence: per-call opt > lexical
+;; `*fx-overrides*` > per-frame `:fx-overrides` (the existing per-frame
+;; merge stays in `apply-overrides` below).
+;;
+;; Plain map, not a per-frame map: the macro is a test-side ergonomic
+;; aimed at "for THIS block of dispatches, swap these fx for stubs"; it
+;; applies regardless of which frame each dispatch lands on. Tests that
+;; need per-frame overrides keep using `make-frame`'s `:fx-overrides`
+;; key (the per-frame tier).
+(def ^:dynamic *fx-overrides* nil)
+
 (defn- build-envelope
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
   The envelope carries:
@@ -105,7 +121,11 @@
                                   (= :rf/default default-frame)))]
     (cond-> {:event                  event
              :frame                  (or (:frame opts) default-frame)
-             :fx-overrides           (:fx-overrides opts {})
+             ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
+             ;; (bound by `rf/with-overrides`) under the per-call opt so
+             ;; the per-call opt wins on key collision. The per-frame
+             ;; tier is still merged later inside `apply-overrides`.
+             :fx-overrides           (merge *fx-overrides* (:fx-overrides opts {}))
              :interceptor-overrides  (:interceptor-overrides opts {})
              :trace-id               (:trace-id opts)
              :source                 (:source opts :ui)
@@ -178,7 +198,7 @@
                         "inside a handler body). Fixes (priority order): "
                         "(a) use `:dispatch-later` or a registered `reg-fx` "
                         "— both capture the frame in their closure; "
-                        "(b) capture `(rf/bound-dispatcher)` inside the "
+                        "(b) capture `(rf/dispatcher)` inside the "
                         "render and call it from the callback; "
                         "(c) attach the listener from a Form-3 "
                         "`:component-did-mount` / `use-effect` hook so "
@@ -421,7 +441,7 @@
 
       The binding does NOT survive async escapes (setTimeout,
       Promise.then, requestAnimationFrame): the JS callback fires on
-      a fresh stack with no dynamic binding. Use `(rf/bound-dispatcher)`
+      a fresh stack with no dynamic binding. Use `(rf/dispatcher)`
       (capture-at-call-time), `:fx [[:dispatch ...]]` (fx-walker
       threads the frame), or `:dispatch-later` (frame captured in
       closure) for those paths. Per rf2-l5q3.
