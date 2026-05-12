@@ -245,7 +245,7 @@ re-frame2 is spec-first and AI-implementable. If you're an LLM landing here to i
 - "Where does `<surface>` live?" → [spec/Ownership.md](spec/Ownership.md).
 - "What's the contract for `<topic>`?" → `spec/<NNN>-<topic>.md`.
 - "How is this tested?" → [spec/conformance/](spec/conformance/) (executable EDN fixtures).
-- "Does the implementation actually do what the spec says?" → [`implementation/core/`](implementation/core/) + [`implementation/adapters/reagent/`](implementation/adapters/reagent/) + the conformance suite.
+- "Does the implementation actually do what the spec says?" → [`implementation/core/deps.edn`](implementation/core/deps.edn) + [`implementation/adapters/reagent/`](implementation/adapters/reagent/) + the conformance suite.
 - "What's the public API?" → [spec/API.md](spec/API.md).
 - "How do I scaffold a `<kind>`?" → [spec/Construction-Prompts.md](spec/Construction-Prompts.md).
 
