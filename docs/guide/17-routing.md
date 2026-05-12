@@ -1,10 +1,12 @@
 # 17 — Routing
 
-Routing in re-frame2 is **state plus events**, not a separate subsystem.
+**Stop thinking about your routing library. Start thinking about your URL as a sub.**
 
-The URL is a derivable view of `app-db`. Navigation is an event. Browser back/forward is an event. Deep links and SSR feed the same `:rf.route/handle-url-change` handler that client-side popstate does. The current route lives at the `:rf/route` slice; views read it through subs; the root view dispatches on `:rf.route/id`.
+Most SPAs treat the URL as the output of a separate machine — a routing library wired in alongside the rest of the app, with its own runtime, its own component types, its own context. The framework gets state. The router gets URLs. The two are taught to talk through hooks and props, and most of the bugs you ship are in the conversation between them.
 
-There is no separate routing runtime. There are no route-aware components. There is no "router context." It's just data that happens to be reflected in the address bar.
+re-frame2 collapses the seam. The URL is a derivable view of `app-db`. Navigation is an event. Browser back/forward is an event. Deep links and SSR feed the same `:rf.route/handle-url-change` handler that client-side popstate does. The current route lives at the `:rf/route` slice; views read it through subs; the root view dispatches on `:rf.route/id`. Same registry, same dispatch, same time-travel, same tests.
+
+There is no separate routing runtime. There are no route-aware components. There is no "router context." It's just data that happens to be reflected in the address bar — and once you see it that way, the rest of this chapter is consequence.
 
 This chapter walks through the routing surface: registering routes, navigating, reading the route in views, the navigation token that suppresses stale loads, the `:can-leave` protocol for unsaved-changes prompts, and how multi-frame apps handle routes that don't push to the URL.
 
@@ -575,6 +577,20 @@ The same routing setup runs **server-side under SSR** without modification. The 
 - `(rf/handler-meta :route :route/cart)` returns the route's metadata: path, params shape, query shape, `:on-match`, `:on-error`, `:scroll`, `:parent`, tags, source coords. The `:on-match` slot is enumerable — tools render route-loading dependency graphs without parsing handler bodies.
 - `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf/url-changed`, `:rf/url-requested` are stable, named events; trace events surface every navigation and every URL request.
 - A registered `:rf.route/not-found` is required by contract; tools surface the `:rf.warning/no-not-found-route` trace event for apps missing the registration.
+
+## What routing-as-state buys you
+
+Pulling routing inside the registry isn't a stylistic choice. It's the difference between a routing library that lives next to your app and a route that's just another piece of state your app already knows how to handle.
+
+Tests are the most obvious payoff. A blocked navigation, a `:can-leave` guard, a stale `:on-match` reply landing after the user has moved on — each one is a sequence of named events against a frame. Dispatch the events, assert the slice, assert what `:rf.nav/push-url` did or didn't fire. No DOM, no router mock, no event simulation, no hook test library. Routing tests run on the JVM in milliseconds alongside the rest of the unit suite.
+
+Time-travel works on routes the same way it works on the counter. Replay a session and the URL replays with it, because the URL is a function of the slice. Pair-tools enumerate routes (`rf/handlers :route`), render `:on-match` dependency graphs, and surface every navigation as a named trace event. The deterministic ranking cascade means an AI scaffold (or a teammate) can answer "which route matches `/articles/foo`?" by reading data — no need to step through library code.
+
+SSR is the load-bearing case. The same `:rf.route/handle-url-change`, the same `:on-match` events, the same `:rf/route` slice — on a per-request frame, with no client-side `pushState` and no SSR-specific routing code. The seam vanishes because there was never a seam: only one place where URLs become state, only one place where state becomes URLs. The hook-based router needs a different code path for the server. re-frame2 needs none.
+
+Nav-tokens, `:can-leave`, multi-frame routing, query-string defaults, scroll restoration — all of them fall out of the same primitive. They're not features the router has; they're consequences of routes being data and navigation being events. Your routing code is the route table, the `:on-match` events, and a `case` in the root view. Anything else is your app's policy, written the same way you write the rest of the app.
+
+That's the bet this chapter has been defending: the URL is a sub.
 
 ## Next
 
