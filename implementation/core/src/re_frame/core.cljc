@@ -45,6 +45,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
+            [re-frame.trace.projection :as trace-projection]
             [re-frame.substrate.adapter :as adapter]
             ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
             ;; per-feature Maven artefact and looks the producing fns
@@ -891,6 +892,13 @@
 (def emit-trace!         trace/emit!)
 (def trace-buffer        trace/trace-buffer)
 (def clear-trace-buffer! trace/clear-trace-buffer!)
+
+;; Per rf2-wvzgd: cascade projection. Pure-data fn lifted from Story's
+;; trace panel; consumed by Story (`tools/story/src/re_frame/story/ui/
+;; trace.cljs`), and (when impl lands) Causa (rf2-5aw5v) and pair2's
+;; `cascade-of`. CLJC for JVM-side testability.
+(def group-cascades      trace-projection/group-cascades)
+(def domino-bucket       trace-projection/domino-bucket)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
 

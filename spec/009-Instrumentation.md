@@ -244,6 +244,32 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 
 The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
+### Cascade projection (`group-cascades` / `domino-bucket`)
+
+The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the planned Causa event-detail panel, re-frame-pair2's `cascade-of`) all want the **six-domino slice** of the stream — one record per cascade with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
+
+```clojure
+(rf/group-cascades trace-events)
+;; -> [{:dispatch-id <id-or-:ungrouped>
+;;      :event       <event-vector | nil>   ;; from :event/dispatched
+;;      :handler     <trace-event | nil>    ;; the :op-type :event / :operation :event emit
+;;      :fx          <trace-event | nil>    ;; :event/do-fx
+;;      :effects     [<trace-event> ...]    ;; :op-type :fx — :rf.fx/handled, override-applied, …
+;;      :subs        [<trace-event> ...]    ;; :sub/run + :sub/create
+;;      :renders     [<trace-event> ...]    ;; :op-type :view / :operation :view/render
+;;      :other       [<trace-event> ...]}   ;; errors, warnings, machines, frames, flows,
+;;                                          ;;   registry, anything outside the six dominoes
+;;     ...]
+```
+
+Events without a `:dispatch-id` (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under `:dispatch-id :ungrouped`. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-trace-cb!` listener.
+
+`(rf/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-cascades`.
+
+Per rf2-g6ih4 (cascade-wide `:dispatch-id`) the projection is robust against errors, fx, sub-runs, and renders that fire *inside* a drain even though they aren't `:event/dispatched` — every such event carries `:tags :dispatch-id` so they group into the cascade record automatically.
+
+The projection is additive: new `:op-type` values that don't fit a domino slot flow through `:other` without breaking existing consumers.
+
 ### Listener invocation rules
 
 - **Synchronous, event-at-a-time.** Every registered listener is invoked once per emitted trace event, on the runtime's emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD return quickly; expensive work belongs on a tool-owned timer or rAF.

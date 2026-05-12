@@ -37,6 +37,7 @@
   trace panel, so trace capture only runs while the panel is visible."
   (:require [reagent.core :as r]
             [re-frame.trace :as trace]
+            [re-frame.trace.projection :as projection]
             [re-frame.story.config :as config]))
 
 ;; ---- the per-variant trace buffer ----------------------------------------
@@ -123,59 +124,17 @@
     nil))
 
 ;; ---- six-domino projection -----------------------------------------------
+;;
+;; Per rf2-wvzgd the bucketing + group-by logic lives in
+;; `re-frame.trace.projection` so Story, Causa, and pair2 all consume
+;; the same pure-data projection. Story previously carried its own
+;; copy here with two latent bugs (an invented `:event/run` operation
+;; and op-type/operation confusion on the fx, sub, view emits); the
+;; framework version tracks Spec 009's actual op-type vocabulary and
+;; surfaces non-six-domino events under `:other`.
 
-(defn- domino-bucket
-  "Classify a trace event into one of the six domino buckets, or nil if
-  the event doesn't fit. Returns a keyword in
-  `#{:event :handler :fx :effect :sub :render}`."
-  [ev]
-  (case (:op-type ev)
-    :event      (case (:operation ev)
-                  :event/dispatched :event
-                  :event/run        :handler
-                  nil)
-    :event/do-fx :fx
-    :fx          :effect
-    :sub/run     :sub
-    :sub/create  :sub
-    :view/render :render
-    nil))
-
-(defn group-cascades
-  "Group `events` by `:dispatch-id` and project each cascade into a
-  `{:dispatch-id ... :event <vec> :handler <ev> :fx <ev> :effects [...]
-   :subs [...] :renders [...]}` map. Public for JVM-side unit testing —
-  the bucketing is pure data.
-
-  Events without a `:dispatch-id` (e.g. raw render events not yet tied
-  to a cascade) land in a `:ungrouped` slot."
-  [events]
-  (let [groups (group-by (fn [ev] (or (get-in ev [:tags :dispatch-id])
-                                      (get-in ev [:tags :parent-dispatch-id])
-                                      :ungrouped))
-                         events)]
-    (->> groups
-         (map (fn [[dispatch-id evs]]
-                (reduce
-                  (fn [acc ev]
-                    (case (domino-bucket ev)
-                      :event   (assoc acc :event (get-in ev [:tags :event]))
-                      :handler (assoc acc :handler ev)
-                      :fx      (assoc acc :fx ev)
-                      :effect  (update acc :effects (fnil conj []) ev)
-                      :sub     (update acc :subs (fnil conj []) ev)
-                      :render  (update acc :renders (fnil conj []) ev)
-                      acc))
-                  {:dispatch-id dispatch-id
-                   :event       nil
-                   :handler     nil
-                   :fx          nil
-                   :effects     []
-                   :subs        []
-                   :renders     []}
-                  evs)))
-         (sort-by (fn [{:keys [handler]}] (or (:id handler) 0)))
-         vec)))
+;; Re-export for backwards-compat for any in-tree consumer.
+(def group-cascades projection/group-cascades)
 
 ;; ---- styling -------------------------------------------------------------
 
