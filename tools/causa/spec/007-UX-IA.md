@@ -364,6 +364,56 @@ rail → co-pilot (when open). `Esc` always returns focus to the canvas.
 | `$` | Jump view to newest |
 | `*` | Pin a snapshot at current epoch (session-scoped; see [`002-Time-Travel.md`](./002-Time-Travel.md) §Pinned snapshots) |
 
+## Editor protocol matrix
+
+The `o` shortcut (and every `open` chip Causa renders next to a
+source-coord — event detail, causality node, machine inspector, the
+hydration debugger's render-tree rows) sets `window.location.href` to
+a URI-scheme handler the OS dispatches to the user's editor. Lock 11
+(handler-coord fallback) decides *which* coord the chip carries; this
+section is the normative list of URI schemes Causa knows how to
+build from that coord.
+
+### Supported editors
+
+| Editor | Config key | URI template |
+|---|---|---|
+| VS Code (and forks: Cursor, Windsurf, code-server) | `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
+| Cursor (distinct scheme) | `:cursor` | `cursor://file/<path>:<line>:<column>` |
+| JetBrains family (IDEA, WebStorm, Cursive, PyCharm) | `:idea` | `idea://open?file=<path>&line=<line>&column=<column>` |
+| Anything else (Sublime, Zed, Emacs server-mode, Vim with a URL handler) | `{:custom <template>}` | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
+
+### Configuration
+
+- The user picks the editor via the **Settings** modal (`,`) → Editor.
+  Stored under the `:rf.causa/editor` config key.
+- Default: `:vscode` — the most-installed editor in 2026.
+- Unknown / typoed keywords fall back to `:vscode` so a click still
+  yields a usable URI rather than a silent no-op.
+- Source-coords without a `:file` slot hide the chip entirely (the
+  handler never registered with usable location data — there is
+  nothing to open).
+- The preference is **session-scoped**, persisted via the same Causa
+  config substrate as theme / density. No cloud-sync (Lock 4 privacy
+  posture: Causa state stays on the user's machine).
+- Causa's preference is **independent** of Story's `:rf.story/editor`
+  — a host running both tools can route each to a different editor.
+
+### Cross-references
+
+- Lock 11 (handler-coord fallback, in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md))
+  decides which coord the chip carries; this matrix is unchanged by
+  Lock 11 — the URI builder runs on whatever coord arrives.
+- The shared URI builder lives at
+  `implementation/core/src/re_frame/source_coords/editor_uri.cljc`
+  (CLJC, JVM + CLJS portable; introduced via rf2-evgf5).
+- Causa's mirror chip
+  (`day8.re-frame2-causa.open-in-editor/open-chip`) consumes the
+  same helper — see [`API.md` §Open in editor](./API.md#open-in-editor-rf2-evgf5).
+- Story's matching surface — see
+  [`tools/story/spec/005-SOTA-Features.md` §"Open in editor" per variant](../../story/spec/005-SOTA-Features.md).
+- rf2-evgf5 — the chip implementation bead (Story + Causa).
+
 ### Co-pilot
 
 | Key | Action |
@@ -420,7 +470,8 @@ Three modal surfaces float over the chrome:
 2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
    shortcut.
 3. **Settings** (`,`) — 640×480px modal: Theme · Density ·
-   Keybindings · AI provider (includes co-pilot redaction toggles per
+   Keybindings · Editor (per §Editor protocol matrix above) · AI
+   provider (includes co-pilot redaction toggles per
    [`009-AI-CoPilot.md`](./009-AI-CoPilot.md) §Redaction defaults) ·
    Buffer depths · Frame defaults · Telemetry (always off; statement
    of why we don't ship any).
