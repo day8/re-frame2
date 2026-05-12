@@ -147,6 +147,33 @@
       (is (some? v))
       (is (fn? @v)))))
 
+;; ---- return-value contract (rf2-hzos) ------------------------------------
+;;
+;; Per Conventions §`reg-*` return-value convention: every `reg-*` macro
+;; returns its primary id — the keyword the caller registered with. The
+;; auto-def of the Var is a side effect; the macro's terminal value is
+;; the id.
+
+(deftest reg-view-returns-auto-derived-id
+  (testing "(reg-view sym [args] body) returns the auto-derived id"
+    (let [ret (rf/reg-view ret-auto [n] [:p n])]
+      (is (= :re-frame.views-macros-test/ret-auto ret)
+          "the macro returns (keyword *ns* sym), not the auto-defed Var"))))
+
+(deftest reg-view-returns-metadata-override-id
+  (testing "(reg-view ^{:rf/id :explicit/id} sym [args] body) returns the
+            override id"
+    (let [ret (rf/reg-view ^{:rf/id :explicit/ret-meta} ret-meta [n] [:p n])]
+      (is (= :explicit/ret-meta ret)
+          "the macro returns the :rf/id override, not the auto-derived id
+           and not the auto-defed Var"))))
+
+(deftest reg-view-returns-id-with-docstring
+  (testing "(reg-view sym \"doc\" [args] body) returns the id (docstring
+            does not change the return value)"
+    (let [ret (rf/reg-view ret-doc "the doc" [n] [:p n])]
+      (is (= :re-frame.views-macros-test/ret-doc ret)))))
+
 ;; ---- expansion under the legacy import path ------------------------------
 ;;
 ;; Existing examples use `(:require-macros [re-frame.views-macros :refer
@@ -163,18 +190,27 @@
       ;; Both expansions share their structural skeleton.
       (is (= 'do (first exp-core)))
       (is (= 'do (first exp-vm)))
-      (is (= 'def (first (last exp-core))))
-      (is (= 'def (first (last exp-vm)))))))
+      ;; Per rf2-hzos: the terminal expression is the id (matches the
+      ;; reg-* return-value contract). The penultimate form is the
+      ;; auto-def of the Var.
+      (is (= 'def (first (last (butlast exp-core)))))
+      (is (= 'def (first (last (butlast exp-vm))))))))
 
 ;; ---- expander helpers expose stable shape --------------------------------
 
 (deftest expand-reg-view-helper-shape
-  (testing "vm/expand-reg-view returns a (do binding+def) form"
-    (let [exp (vm/expand-reg-view {:line 1 :column 1}
-                                  'my.ns "my_ns.cljc" 'my-widget '([] [:p]))]
+  (testing "vm/expand-reg-view returns a (do binding+def+id) form. Per
+            rf2-hzos: the terminal expression is the id (so the macro's
+            return value is the id, matching the reg-* return-value
+            contract). The penultimate form is the auto-def of the Var."
+    (let [exp     (vm/expand-reg-view {:line 1 :column 1}
+                                      'my.ns "my_ns.cljc" 'my-widget '([] [:p]))
+          def-form (last (butlast exp))]
       (is (= 'do (first exp)))
-      (is (= 'def (first (last exp))))
-      (is (= 'my-widget (second (last exp))))))
+      (is (= :my.ns/my-widget (last exp))
+          "the terminal expression is the registered id")
+      (is (= 'def (first def-form)))
+      (is (= 'my-widget (second def-form)))))
 
   ;; rf2-atsv regression guard. The bug shape was an outer
   ;; (def x (reg-view :id ...)) wrapper that double-def'd against the
