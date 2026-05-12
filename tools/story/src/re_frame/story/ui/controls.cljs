@@ -1,6 +1,9 @@
 (ns re-frame.story.ui.controls
-  "Controls panel — args editor, mode picker, decorator toggles. Per
-  Stage 4 (rf2-ekai) IMPL-SPEC §4 + §9.4.
+  "Controls panel — args editor, decorator toggles. Per Stage 4
+  (rf2-ekai) IMPL-SPEC §4 + §9.4. Per rf2-xi9zk the per-variant mode
+  picker moved to the chrome-level toolbar
+  (`re-frame.story.ui.toolbar`); the controls panel keeps args /
+  decorator sections only.
 
   ## Args derivation
 
@@ -11,11 +14,6 @@
   handful of primitive forms — `:string` / `:int` / `:double` /
   `:boolean` / `:enum`. Deeper Malli walks land in Stage 6 alongside
   the design-tokens panel.
-
-  ## Mode picker
-
-  Renders every registered `:mode` as a toggle row. Toggling activates
-  the mode; the canvas re-runs with the new mode set on the next tick.
 
   ## Decorator toggles
 
@@ -215,34 +213,11 @@
                                state/clear-cell-overrides variant-id))}
         "reset overrides"])]))
 
-(defn mode-picker
-  "Render every registered mode as a toggle. Active modes are tracked
-  in the shell state's `:active-modes` vector — toggle adds/removes."
-  []
-  (let [shell  @state/shell-state-atom
-        modes  (registrar/handlers :mode)
-        active (set (:active-modes shell))]
-    [:div {:style (:section styles)}
-     [:div {:style (:section-h styles)} "Modes"]
-     (if (empty? modes)
-       [:div {:style (:empty styles)} "no modes registered"]
-       [:div {:style (:chip-row styles)}
-        (for [[mid _body] (sort-by key modes)]
-          ^{:key mid}
-          [:span {:style    (merge (:chip styles)
-                                   (when (contains? active mid)
-                                     (:chip-active styles)))
-                  :on-click
-                  (fn [_]
-                    (state/swap-state!
-                      (fn [s]
-                        (state/set-active-modes
-                          s
-                          (let [v (:active-modes s)]
-                            (if (some #(= % mid) v)
-                              (vec (remove #(= % mid) v))
-                              (conj v mid)))))))}
-           (str mid)])])]))
+;; rf2-xi9zk: the controls-panel `mode-picker` is **superseded** by the
+;; chrome-level toolbar (`re-frame.story.ui.toolbar`). Modes are
+;; chrome-wide now — not a per-variant controls section — so a chrome-
+;; level surface is the right home. The controls panel keeps args /
+;; decorator sections only.
 
 (defn decorator-list
   "Show the variant's resolved decorator stack. Stage 4 is read-only;
@@ -285,13 +260,14 @@
    "save layout as :Workspace.x/y"])
 
 (defn panel
-  "The full controls panel — args editor + mode picker + decorator
-  list + save-layout action."
+  "The full controls panel — args editor + decorator list + save-layout
+  action. Per rf2-xi9zk the per-variant mode-picker moved to the
+  chrome-level toolbar (`re-frame.story.ui.toolbar`); the controls
+  panel keeps args / decorator sections only."
   [variant-id]
   [:div {:style (:wrap styles)}
    (when variant-id
      [args-editor variant-id])
-   [mode-picker]
    (when variant-id
      [decorator-list variant-id])
    [save-layout-button]])

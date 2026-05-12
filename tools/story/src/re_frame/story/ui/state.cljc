@@ -99,6 +99,76 @@
   [state modes]
   (assoc state :active-modes (vec modes)))
 
+(defn- mode-axis
+  "Resolve `mode-id`'s `:axis` (if any) via the registrar. Pure data →
+  data; isolated as a helper so `toggle-mode` is trivially JVM-
+  testable (the helper consults the registrar; pass an explicit
+  `axis-fn` to bypass it in pure tests)."
+  [mode-id]
+  (:axis (registrar/handler-meta :mode mode-id)))
+
+(defn toggle-mode
+  "Toggle `mode-id` against the current `active-modes` vector. Honors
+  `:axis` semantics per spec/010 §Selection semantics — by axis:
+
+  - Currently active → deactivate (regardless of axis).
+  - Axis-grouped     → drop siblings sharing the axis, then add.
+  - Un-grouped       → multi-select, append.
+
+  Pure data → data; JVM-testable. The `axis-fn` arity injects the
+  axis-lookup for tests that don't want a live registrar.
+
+  Returns the new active-modes vector — caller is responsible for
+  writing it back via `set-active-modes`."
+  ([active-modes mode-id]
+   (toggle-mode active-modes mode-id mode-axis))
+  ([active-modes mode-id axis-fn]
+   (let [active (vec (or active-modes []))]
+     (cond
+       (some #(= % mode-id) active)
+       (vec (remove #(= % mode-id) active))
+
+       (some? (axis-fn mode-id))
+       (let [axis     (axis-fn mode-id)
+             siblings (set (filter
+                             (fn [mid] (= axis (axis-fn mid)))
+                             active))]
+         (conj (vec (remove siblings active)) mode-id))
+
+       :else
+       (conj active mode-id)))))
+
+(defn clear-active-modes
+  "Drop every active mode — implements the toolbar's `[reset]` action."
+  [state]
+  (assoc state :active-modes []))
+
+(defn group-modes-by-axis
+  "Build the toolbar's chip layout: `{axis [mode-id ...]}` for every
+  `:axis`-tagged mode plus an `::unaxed` bucket for axis-less modes.
+  Within each bucket the ids are sorted alphabetically. Pure data →
+  data; JVM-testable.
+
+  `id->body` is the `{mode-id → mode-body}` map from
+  `(registrar/handlers :mode)`. Returns a sorted-by-axis seq of
+  `[axis [mode-id ...]]` pairs — the `::unaxed` bucket always sorts
+  last so axis-tagged groups render left-to-right with the trailing
+  un-grouped chips on the right."
+  [id->body]
+  (let [axed   (->> id->body
+                    (filter (fn [[_ b]] (some? (:axis b))))
+                    (group-by (fn [[_ b]] (:axis b)))
+                    (map (fn [[axis pairs]]
+                           [axis (vec (sort (map first pairs)))]))
+                    (sort-by (fn [[axis _]] (str axis))))
+        unaxed (->> id->body
+                    (filter (fn [[_ b]] (nil? (:axis b))))
+                    (map first)
+                    sort
+                    vec)]
+    (cond-> (vec axed)
+      (seq unaxed) (conj [::unaxed unaxed]))))
+
 (defn set-cell-override
   "Set a single arg override for `variant-id`."
   [state variant-id arg-key value]

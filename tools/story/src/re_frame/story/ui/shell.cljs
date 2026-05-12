@@ -53,6 +53,7 @@
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
             [re-frame.story.ui.test-mode :as test-mode]
+            [re-frame.story.ui.toolbar :as toolbar]
             [re-frame.story.ui.trace :as trace]
             [re-frame.story.ui.workspace :as workspace]))
 
@@ -60,11 +61,16 @@
 
 (def ^:private styles
   {:root      {:display "flex"
-               :flex-direction "row"
+               :flex-direction "column"
                :height "100vh"
                :font-family "system-ui, sans-serif"
                :background "#1e1e1e"
                :color "#ddd"}
+   :body      {:display "flex"
+               :flex-direction "row"
+               :flex "1"
+               :min-height "0"
+               :overflow "hidden"}
    :main      {:display "flex"
                :flex-direction "column"
                :flex "1"
@@ -334,6 +340,11 @@
      :component-did-mount
      (fn [_]
        (when config/enabled?
+         ;; rf2-xi9zk: hydrate chrome-wide :active-modes from URL +
+         ;; localStorage before the first render of the toolbar /
+         ;; canvas. URL wins over localStorage per spec/010 §URL deep-
+         ;; link. Idempotent and one-shot.
+         (toolbar/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
@@ -346,9 +357,14 @@
      :reagent-render
      (fn []
        [:div {:style (:root styles)}
-        [sidebar/sidebar]
-        [main-pane]
-        [right-panel]
+        ;; rf2-xi9zk: chrome-level toolbar — horizontal strip above the
+        ;; three-pane row. Exposes every registered :mode as a toggle
+        ;; chip; selection writes the chrome-wide :active-modes slot.
+        [toolbar/toolbar-strip]
+        [:div {:style (:body styles)}
+         [sidebar/sidebar]
+         [main-pane]
+         [right-panel]]
         ;; rf2-381i: first-time help overlay + persistent re-open chip.
         ;; The chip lives in a fixed-position slot so it floats above the
         ;; right inspector pane regardless of which panels are visible.
