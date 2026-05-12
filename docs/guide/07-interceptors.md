@@ -1,6 +1,6 @@
 # 07 — Interceptors
 
-You'll see `:interceptors` in `reg-frame`, the positional middle slot of `reg-event-*`, the `event-recorder` test pattern in [chapter 13](13-testing.md), the auth guard in [chapter 17](17-routing.md). All of it bottoms out on one concept this chapter teaches.
+You'll see `:interceptors` in `reg-frame`, the positional middle slot of `reg-event-*`, the `event-recorder` test pattern in [chapter 13](13-testing.md), the auth guard in [chapter 17a](17a-routing-reference.md#worked-example--the-realworld-scaffold). All of it bottoms out on one concept this chapter teaches.
 
 This is a deep-dive. The core path doesn't need it — every counter, form, and HTTP request you've seen so far works without you writing a single interceptor. But the moment you want to *wrap* a handler — capture every event for a recorder, snapshot `app-db` for undo, validate input on the way in, log timing on the way out — interceptors are the surface for it.
 
@@ -244,7 +244,7 @@ The framework's three retained helpers — `path`, `unwrap`, `inject-cofx` — a
 
 **Short-circuiting the handler.** Setting `:rf/skip-handler?` to truthy on the context from a `:before` causes the handler-interceptor (and any downstream `:before` stages it would have wrapped) to be a no-op. The downstream `:after` stages still run — they get the chance to clean up. The schema-validation interceptor uses this on a validation failure ([Spec 010 §Validation order](../../spec/010-Schemas.md)); a custom auth gate could do the same.
 
-**Adding a follow-up dispatch.** An `:after` can `update-in [:effects :fx]` to append a `[:dispatch ...]` row. The event will be queued behind whatever the handler itself returned, in source order. This is how the auth guard in [chapter 17](17-routing.md) redirects unauthorised navigations — the `:before` mutates the event coeffect to point at `:route/login` instead.
+**Adding a follow-up dispatch.** An `:after` can `update-in [:effects :fx]` to append a `[:dispatch ...]` row. The event will be queued behind whatever the handler itself returned, in source order. This is how the auth guard in [chapter 17a](17a-routing-reference.md#worked-example--the-realworld-scaffold) redirects unauthorised navigations — the `:before` mutates the event coeffect to point at `:route/login` instead.
 
 What an interceptor *should not* do:
 
@@ -284,4 +284,4 @@ If you need a fourth rule, you're probably overthinking it. Interceptors are del
 - [16 — Performance](16-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
 - [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the full normative surface for `:interceptors`, `:interceptor-overrides`, and `:fx-overrides`.
 - [Chapter 13 §Stubbing fxs, recording events, replacing interceptors](13-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
-- [Chapter 17 §Route guards](17-routing.md) — an auth interceptor wired on `:rf.route/navigate`.
+- [Chapter 17a §Worked example — the realworld scaffold](17a-routing-reference.md#worked-example--the-realworld-scaffold) — an auth interceptor wired on `:rf.route/navigate`.
