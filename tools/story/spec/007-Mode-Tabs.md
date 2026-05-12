@@ -95,7 +95,9 @@ from Story v1).
 `:docs` → the docs pane — `re-frame.story.ui.docs/docs-view`
 (rf2-rodx). See [`008-Docs-Mode.md`](008-Docs-Mode.md) for the
 section composition + read-only contract.
-`:test` → the tests pane (placeholder until rf2-qmjo).
+`:test` → the tests pane — `re-frame.story.ui.test-mode/test-view`
+(rf2-qmjo). See [`009-Test-Mode.md`](009-Test-Mode.md) for the
+status pill / per-row table / Re-run contract.
 
 ## Per-variant selection + localStorage persistence
 
@@ -143,7 +145,9 @@ Selectors:
 - Docs pane root: `[data-test="story-docs-view"]` (rf2-rodx; see
   [`008-Docs-Mode.md`](008-Docs-Mode.md) for the per-section
   selectors)
-- Tests placeholder: `[data-test="story-tests-placeholder"]`
+- Tests pane root: `[data-test="story-test-view"]` (rf2-qmjo; see
+  [`009-Test-Mode.md`](009-Test-Mode.md) for the per-section
+  selectors)
 
 ## Visual style
 
@@ -156,8 +160,9 @@ borders, monospace 11px.
 
 - **The `:docs` pane content.** Owned by rf2-rodx — see
   [`008-Docs-Mode.md`](008-Docs-Mode.md) for the section composition.
-- **The `:test` pane content.** A placeholder div ships now; rf2-qmjo
-  ships the aggregated pass/fail view.
+- **The `:test` pane content.** Owned by rf2-qmjo — see
+  [`009-Test-Mode.md`](009-Test-Mode.md) for the aggregated
+  pass/fail summary, the per-row table, and the Re-run contract.
 - **Workspace mode-tabs.** Workspaces enumerate multiple variants;
   mixing mode-tabs into the workspace pane conflates two axes. If
   workspaces grow a switcher it lives in a separate spec.
@@ -176,6 +181,8 @@ depend on it. The contract guarantees:
 2. Selection is per-variant and persists across reload.
 3. `:dev` preserves Story v1's exact existing behaviour — no
    regression to the canvas / hot-reload / decorator paths.
-4. The `:docs` / `:test` panes are pluggable: rf2-rodx / rf2-qmjo
-   replace the placeholders without touching the chip strip, the
-   state slot, or the localStorage key shape.
+4. The `:docs` / `:test` panes are pluggable: rf2-rodx
+   ([`008-Docs-Mode.md`](008-Docs-Mode.md)) and rf2-qmjo
+   ([`009-Test-Mode.md`](009-Test-Mode.md)) replaced the
+   placeholders without touching the chip strip, the state slot,
+   or the localStorage key shape.
