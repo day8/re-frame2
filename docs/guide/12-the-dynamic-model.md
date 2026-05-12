@@ -66,12 +66,6 @@ The whole pattern is a deliberate cascade of restrictions. The goal isn't to be 
 
 ## III. Less powerful by design
 
-There is a famous quote in the re-frame docs:
-
-> Just because you can, doesn't mean you should.
-
-It applies more deeply than it might first appear.
-
 Programming languages, especially the modern ones, are designed to be *capable*. You can do anything. You can mutate any variable from any place. You can suspend any function with `await`. You can spawn arbitrary side-effects from arbitrary call sites. These capabilities are intoxicating when you're learning the language. They feel like power, and they are.
 
 But power, in this context, is **the right to do anything**. And the right to do anything, exercised thoughtlessly, becomes the obligation, when reading code, **to consider that anything might have happened**.
