@@ -126,6 +126,45 @@ The view is now a thin shaping function over already-shaped data. The sort and t
 
 The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](16-performance.md).
 
+### The Signal Graph
+
+A view that derefs `@(subscribe [:products/sorted])` is the leaf of a small dataflow. Walk back from the view: `:products/sorted` derefs `:products`; `:products` derefs the frame's `app-db`. That walk is a graph — the **Signal Graph** — and every re-frame2 app has one per frame. The graph is a DAG rooted at the frame's `app-db`, with view functions at the leaves, and chained `reg-sub`s as the interior nodes. Data flows root-to-leaves; the graph itself is built leaves-first (a view that derefs a sub causes that sub's sub-graph to be instantiated, all the way back to `app-db`).
+
+It's instructive to name four conceptual layers.
+
+| Layer | Role | What it does |
+|---|---|---|
+| **1 — Ground truth** | The frame's `app-db` | The root. One immutable map per frame. |
+| **2 — Extractors** | `reg-sub`s that read `app-db` directly | Project a slice. No further computation. |
+| **3 — Materialised views** | `reg-sub`s that compose other subs via `:<-` | Shape, sort, filter, derive. Never read `app-db` directly. |
+| **4 — Leaves** | View functions | Subscribe to layer 2 or 3 and emit hiccup. |
+
+The simplest Signal Graph has no layer 3 — extractors flow straight into views. As soon as a view needs *shaped* data (the sorted-and-formatted product list above), layer 3 appears.
+
+#### Why extractors should be small
+
+The Signal Graph is reactive. When `app-db` changes, **every** layer-2 extractor re-runs — they all have `app-db` as an input, so they all have to be reconsulted. But here's the load-bearing rule:
+
+> **Propagation pruning.** A layer fires its downstream nodes only if its computed value differs from last time, equality-checked with `=`. If the extractor's slice didn't actually change, propagation stops at that layer — downstream subs and views don't re-run.
+
+That makes layer 2 the **circuit breaker** for the whole graph. If extractors stay tiny — a `get-in`, a key lookup, nothing more — they cost almost nothing to re-run on every `app-db` change, and they prune aggressively. The expensive work in layer 3 (sorts, joins, derivations) and layer 4 (hiccup) only runs when a relevant slice has genuinely moved.
+
+Put computation in an extractor and you've blunted the circuit breaker: a sort that runs on every `app-db` change, regardless of whether the underlying list moved. Push the sort into layer 3 and it runs only when the extracted slice changes. Same code, much sharper reactivity.
+
+#### Why `:<-` exists
+
+The chaining syntax —
+
+```clojure
+(rf/reg-sub :products/sorted
+  :<- [:products]
+  (fn [products _] (sort-by :name products)))
+```
+
+— exists so that layer 3 subs can name their layer-2 inputs without reaching back into `app-db`. Two payoffs. First, **shared cache.** Every view that wants `:products/sorted` shares one cached computation; the sort runs once per change to `:products`, not once per view. Second, **the layering is enforced by shape.** A sub that uses `:<-` is, by construction, reading other subs — never `app-db`. A sub that takes `(fn [db _] ...)` is, by construction, an extractor. The framework can read the registry and tell you which layer each sub is on, which is how `sub-topology` (see [chapter 15 §sub-topology](15-devtools-and-pair-tools.md#reference-the-static-sub-graph--sub-topology)) draws the graph.
+
+The discipline is small: keep extractors tiny, put derivation in layer 3, let `:<-` wire the layers together. The reward is a reactivity story where adding a new view never costs more than the work that view's actually new slice required.
+
 ### `<sub` and `>evt` — the LIN aliases
 
 You'll see two short names in v1 code in the wild — `<sub` and `>evt`. They're the **Lambda Island Naming** convention: arrow-shaped aliases that read as "value coming from a sub" and "event going to dispatch."
