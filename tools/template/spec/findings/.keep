@@ -1,0 +1,42 @@
+# findings/
+
+This directory accumulates design-investigation prose for the
+re-frame2 project template.
+
+Findings differ from DESIGN-RATIONALE: rationale entries are
+*locked decisions* with question / options / pick / why. Findings
+are *session-trail working notes* that surfaced patterns, surprises,
+or implementation discoveries — not all of which produce locks.
+
+## What goes here
+
+- Tool-pilot investigation notes (e.g., the clj-new vs deps-new
+  vs bb-wizard pilot, the `:edn-args` strip-on-create discovery,
+  substrate-coercion ecosystem variance across Reagent / UIx /
+  Helix).
+- Audit findings cross-cutting tools/template (per-tool spec
+  audits, dependency-surface reviews, generated-app smoke-test
+  reports).
+- Cross-tool design lineage (e.g., comparisons with v1's
+  `day8/re-frame-template` shape that informed the v2 substrate
+  toggle).
+
+## What doesn't go here
+
+- Locked decisions — those live in `DESIGN-RATIONALE.md`.
+- Substrate-variant contracts — those live in `001-Substrate-Variants.md`.
+- Generated-app shape contracts — those live in `002-Generated-Shape.md`.
+- User-facing reference — that lives in `API.md`.
+- Principles — those live in `Principles.md`.
+
+## Current state
+
+The clj-new vs deps-new pilot and the `:edn-args` strip-on-create
+discovery were captured directly in DESIGN-RATIONALE.md (§1 and §2
+respectively) without a separate findings trail; the rationale's
+question / options / pick / why structure was sufficient on its
+own. Subsequent investigations that warrant prose-preservation
+beyond a rationale entry land here.
+
+Local-only exploratory notes in `ai/findings/` should be promoted
+here when they become normative.
