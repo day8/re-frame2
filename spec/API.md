@@ -130,9 +130,10 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 ## Routing (Spec 012)
 
+`reg-route` is rowed canonically in [§Registration](#registration).
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `reg-route` | M | `(reg-route id metadata)` | v1 | 012 |
 | `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | 012 |
 | `route-url` | Fn | `(route-url route-id path-params)` / `(route-url route-id path-params query-params)` → URL string | v1 | 012 |
 | `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | 012 |
@@ -180,13 +181,13 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 
 ## SSR (Spec 011)
 
+`reg-head` and `reg-error-projector` are rowed canonically in [§Registration](#registration). The head-fn signature is `(fn [db route] head-model)`; the projector-fn signature is `(fn [trace-event] :rf/public-error)`.
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` — head-fn signature `(fn [db route] head-model)` | v1 (deferred — see rf2-gr0n) | 011 |
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
-| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` — projector-fn signature `(fn [trace-event] :rf/public-error)` | v1 | 011 |
 
 Standard SSR-related events:
 
@@ -328,9 +329,10 @@ For tooling, agents, story tools, 10x.
 
 ## Schemas
 
+`reg-app-schema` is rowed canonically in [§Registration](#registration).
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 |
 | `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | 010 |
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
@@ -510,9 +512,10 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 
 ### `reg-flow` / `clear-flow` (Spec 013)
 
+`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`.
+
 | Name | Kind | Signature | Status |
 |---|---|---|---|
-| `reg-flow` | Fn | `(reg-flow flow-map)` — required keys `:id`, `:inputs`, `:output`, `:path` | v2 |
 | `clear-flow` | Fn | `(clear-flow id)` — deregister; `dissoc-in` on `:path` | v2 |
 | `:rf.fx/reg-flow` | Reserved fx-id | `[:rf.fx/reg-flow flow-map]` — register a flow at runtime via `:fx` | v2 |
 | `:rf.fx/clear-flow` | Reserved fx-id | `[:rf.fx/clear-flow id]` — clear a registered flow via `:fx` | v2 |
