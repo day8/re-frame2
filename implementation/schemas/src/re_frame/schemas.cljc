@@ -59,42 +59,64 @@
 ;; A combined `(set-schema-validator! {:validate ... :explain ...})`
 ;; arity exists for callers who want to install both atomically.
 
+;; Per rf2-t0hq the CLJS default validator used to reach Malli through
+;; runtime `resolve` — but CLJS has no runtime resolve (the symbol is
+;; a compile-time analyzer affordance only). The catch silently
+;; swallowed the failure and the validator returned true for every
+;; value, so Malli was never consulted on CLJS unless the user
+;; explicitly called `(rf/set-schema-validator! malli.core/validate)`.
+;;
+;; The fix is the rf2-froe / rf2-p7va substitute-validator pattern:
+;; the `re-frame.schemas.malli` adapter namespace (this artefact)
+;; publishes Malli's `validate` and `explain` into the late-bind hook
+;; table on ns-load. The default fns below consult the table on every
+;; call. Apps opt in to Malli validation on CLJS by requiring
+;; `re-frame.schemas.malli` at app boot.
+;;
+;; On the JVM `requiring-resolve` still works as a no-require fallback
+;; so existing JVM tests / apps keep working without an explicit
+;; require of the adapter ns; the late-bind hook takes precedence when
+;; the adapter ns IS loaded.
+
 (defn- default-malli-validate
-  "The default validator — delegates to malli.core/validate. Returns
-  truthy on conform, falsey on fail. When Malli is not on the
-  classpath the resolve returns nil and we treat the value as
-  passing (we cannot disprove the shape). Apps that want
-  Malli-absent behaviour to be a hard fail register a stricter
-  validator via `set-schema-validator!`."
+  "The default validator — delegates to malli.core/validate via the
+  late-bind hook published by `re-frame.schemas.malli` (rf2-t0hq).
+
+  Lookup order:
+    1. Late-bind hook `:schemas/malli-validate` (published by
+       `re-frame.schemas.malli` when that namespace is loaded).
+    2. On the JVM only, fall back to `(requiring-resolve
+       'malli.core/validate)` so the JVM artefact tests / apps that
+       have Malli on the classpath but don't `:require
+       [re-frame.schemas.malli]` keep working.
+    3. Soft-pass — return true (per Spec 010 §Recommended soft-pass).
+
+  Apps that want Malli-absent behaviour to be a hard fail register
+  a stricter validator via `set-schema-validator!`."
   [schema value]
-  #?(:clj
-     (try
-       (if-let [v (requiring-resolve 'malli.core/validate)]
-         (v schema value)
-         true)
-       (catch Throwable _ true))
-     :cljs
-     (try
-       (if-let [v (resolve 'malli.core/validate)]
-         (v schema value)
-         true)
-       (catch :default _ true))))
+  (if-let [v (late-bind/get-fn :schemas/malli-validate)]
+    (v schema value)
+    #?(:clj  (try
+               (if-let [v (requiring-resolve 'malli.core/validate)]
+                 (v schema value)
+                 true)
+               (catch Throwable _ true))
+       :cljs true)))
 
 (defn- default-malli-explain
-  "The default explainer — delegates to malli.core/explain. Returns
-  the Malli explanation map on fail or nil on conform / when Malli
-  is not on the classpath."
+  "The default explainer — delegates to malli.core/explain via the
+  late-bind hook published by `re-frame.schemas.malli` (rf2-t0hq).
+  Same lookup order as `default-malli-validate`. Returns the Malli
+  explanation map on fail; nil on conform / when Malli is not on the
+  classpath / when the adapter ns is not loaded."
   [schema value]
-  #?(:clj
-     (try
-       (when-let [e (requiring-resolve 'malli.core/explain)]
-         (e schema value))
-       (catch Throwable _ nil))
-     :cljs
-     (try
-       (when-let [e (resolve 'malli.core/explain)]
-         (e schema value))
-       (catch :default _ nil))))
+  (if-let [e (late-bind/get-fn :schemas/malli-explain)]
+    (e schema value)
+    #?(:clj  (try
+               (when-let [e (requiring-resolve 'malli.core/explain)]
+                 (e schema value))
+               (catch Throwable _ nil))
+       :cljs nil)))
 
 (defonce
   ^{:doc "The currently-registered validator fn — `(fn [schema value]

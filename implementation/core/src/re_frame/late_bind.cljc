@@ -68,6 +68,8 @@
     :schemas/set-schema-explainer!         re-frame.schemas/set-schema-explainer! ;; rf2-froe — companion explainer
     :schemas/validate-with-registered-fn   re-frame.schemas/validate-with-registered-fn ;; rf2-r2uh boundary seam
     :schemas/explain-with-registered-fn    re-frame.schemas/explain-with-registered-fn  ;; rf2-r2uh boundary seam
+    :schemas/malli-validate                malli.core/validate                          ;; rf2-t0hq — published by re-frame.schemas.malli adapter ns
+    :schemas/malli-explain                 malli.core/explain                           ;; rf2-t0hq — published by re-frame.schemas.malli adapter ns
     :machines/reg-machine             re-frame.machines/reg-machine* ;; rf2-8bp3 — plain-fn surface
     :machines/create-machine-handler  re-frame.machines/create-machine-handler
     :machines/machine-transition      re-frame.machines/machine-transition

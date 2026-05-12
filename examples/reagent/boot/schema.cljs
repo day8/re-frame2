@@ -11,7 +11,15 @@
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves at the call sites below.
-            [re-frame.schemas]))
+            [re-frame.schemas]
+            ;; Per rf2-t0hq the CLJS default validator routes through
+            ;; the late-bind hook `:schemas/malli-validate`, which the
+            ;; `re-frame.schemas.malli` adapter ns publishes at load
+            ;; time. The require is the canonical CLJS opt-in for
+            ;; Malli validation — without it, the default validator
+            ;; soft-passes per Spec 010 §Recommended soft-pass and
+            ;; no failure trace fires for malformed app-db slices.
+            [re-frame.schemas.malli]))
 
 ;; ============================================================================
 ;; WIRE SHAPES — what the mocked endpoints return
