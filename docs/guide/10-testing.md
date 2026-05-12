@@ -356,6 +356,23 @@ The `->interceptor` primitive used above, the sandwich shape, and the per-frame 
 
 Same shape as `:fx-overrides`; same per-frame / per-call duality. The `nil` value removes the interceptor entirely; a non-nil value substitutes it.
 
+### Stubbing a cofx — deterministic `:now`, predictable ids
+
+A handler that depends on the outside world via `inject-cofx` becomes deterministic by re-registering the cofx against the same id. The stub lives in the same registry the production cofx does; `inject-cofx` finds the override with no special test-mode flag:
+
+```clojure
+(deftest todo-add-stamps-created-at
+  (ts/with-fresh-registrar
+    (rf/reg-cofx :now
+      (fn [ctx] (assoc-in ctx [:coeffects :now] #inst "2026-01-01T12:00:00.000Z")))
+    (rf/with-frame [f (rf/make-frame {})]
+      (rf/dispatch-sync [:todo/add "buy milk"])
+      (is (= #inst "2026-01-01T12:00:00.000Z"
+             (-> (rf/get-frame-db f) :todos first val :created-at))))))
+```
+
+`with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 03a — Coeffects](03a-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
+
 ## Conformance fixtures
 
 The framework ships a **conformance corpus** — host-agnostic EDN fixtures under `spec/conformance/` — that grades implementations against a single source of truth. Each fixture describes a scenario as data: registrations, an event sequence, expected `app-db` shape, expected trace events. A conformance harness reads the fixture, replays it against an implementation, and asserts the results.

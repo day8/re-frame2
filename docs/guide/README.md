@@ -14,6 +14,8 @@ Chapter **05a — Forms** sits between 05 and 06 as a side-track: not load-beari
 
 Chapter **04a — Interceptors** is a similar side-track between 04 and 05: a deep-dive on the wrapping primitive every `:interceptors` slot in the guide bottoms out on. Most readers can skip it on a first pass — the core path doesn't require writing a custom interceptor. Pick it up the first time you want to wrap a handler (a logger, an undo interceptor, a recorder for tests).
 
+Chapter **03a — Coeffects** is the matching side-track between 03 and 04: the *inputs* half of the handler's contract (`:db`, `:event`, and anything else `inject-cofx` injects). Skip it on a first read if your handlers only need `:db` and the event vector; pick it up the first time you hit `(inject-cofx :now)` in someone else's code, or want to test a handler that depends on the current time / a fresh UUID / a value from `localStorage`.
+
 ### Core path
 
 Read these in order. Each chapter assumes the previous one.
@@ -24,6 +26,7 @@ Read these in order. Each chapter assumes the previous one.
 | 01a | [app-db](01a-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
 | 02 | [Your first app](02-your-first-app.md) | The counter, walked through in narrative. |
 | 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
+| 03a | [Coeffects](03a-coeffects.md) | The matching *inputs* half — `reg-cofx`, `inject-cofx`, the side-causes (current time, GUIDs, localStorage). Optional side-track. |
 | 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
 | 04a | [Interceptors](04a-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
 | 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |

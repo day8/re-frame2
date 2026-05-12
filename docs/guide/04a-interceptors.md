@@ -238,7 +238,7 @@ The per-frame chain is **prepended** to the per-handler chain. So an event with 
 
 The framework's three retained helpers — `path`, `unwrap`, `inject-cofx` — are good examples of what `:before` and `:after` can do.
 
-**Adding a coeffect.** [`inject-cofx`](../../spec/002-Frames.md) is the canonical shape: a `:before` that runs a registered cofx fn and merges its result into `:coeffects`. The handler then reads the new value from its cofx map — `reg-event-fx` and `reg-event-ctx` see the full `:coeffects` map as their first argument; `reg-event-db` only sees `db` and the event vector, so it can't read injected cofx values directly (use `reg-event-fx` for any handler that needs them). The cofx mechanism is the subject of its own forthcoming chapter; until that lands, the spec section is the reference.
+**Adding a coeffect.** [`inject-cofx`](03a-coeffects.md) is the canonical shape: a `:before` that runs a registered cofx fn and merges its result into `:coeffects`. The handler then reads the new value from its cofx map — `reg-event-fx` and `reg-event-ctx` see the full `:coeffects` map as their first argument; `reg-event-db` only sees `db` and the event vector, so it can't read injected cofx values directly (use `reg-event-fx` for any handler that needs them). [Chapter 03a — Coeffects](03a-coeffects.md) is the deep-dive on the cofx surface itself; this section just locates it inside the interceptor model.
 
 **Modifying an effect.** An `:after` that walks `[:effects :db]` and applies a transformation lets you write event-handler-agnostic state-shape policy. The `undoable` example above is exactly this: an `:after` that conditionally writes to `[:effects :db :drawer :undo]` after every change.
 

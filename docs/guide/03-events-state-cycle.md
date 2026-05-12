@@ -56,6 +56,8 @@ Three things changed:
 2. The handler is **still pure**. It returns a Clojure map. Every value in that map is just data — strings, keywords, vectors. No `js/fetch`, no callbacks, no promises.
 3. The map describes everything: "set the db to this; *also*, fire a managed HTTP request with these args, and on success dispatch this event, on failure dispatch this one."
 
+The handler's first argument — `{:keys [db]}` — is the **coeffects map**, the symmetric twin of the effect map on the way out. `:db` is the standard input every handler gets for free; the matching surface for handlers that need *other* inputs (the current time, a freshly-minted UUID, a value from `localStorage`) is `inject-cofx`, covered in [chapter 03a](03a-coeffects.md). The core path doesn't need cofx yet — the chapters that follow only destructure `:db` and the event — but the side-track is there the moment a handler wants to read something the runtime hasn't already put under its nose.
+
 Then there are two follow-up handlers, each pure:
 
 ```clojure
