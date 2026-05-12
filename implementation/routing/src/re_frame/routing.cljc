@@ -800,8 +800,14 @@
                             (when scroll-fx [scroll-fx])))})
 
         :else
+        ;; Unmatched URL — same operation as event/frame handler-lookup
+        ;; misses, discriminated by `:kind :route`. See [Spec 009 §Error
+        ;; categories — :rf.error/no-such-handler] for the three-way `:kind`
+        ;; vocabulary (`:event`, `:frame`, `:route`).
         (do (trace/emit-error! :rf.error/no-such-handler
-                               {:url url :recovery :replaced-with-default})
+                               {:url url
+                                :kind :route
+                                :recovery :replaced-with-default})
             {})))))
 
 (events/reg-event-fx :rf.route/handle-url-change
@@ -813,10 +819,14 @@
         ;; in the routing context. The default error projector maps it to a
         ;; public-facing 404. Per Spec 011 §Default projector. We carry
         ;; :frame so the SSR error-projection listener can attribute the
-        ;; trace to the right server frame.
+        ;; trace to the right server frame. The `:kind :route` tag
+        ;; discriminates from `:kind :event` (router.cljc handler-lookup miss)
+        ;; and `:kind :frame` (epoch.cljc frame-lookup miss) — see
+        ;; [Spec 009 §Error categories — :rf.error/no-such-handler].
         (trace/emit-error! :rf.error/no-such-handler
                            {:url url
                             :frame frame
+                            :kind :route
                             :recovery :replaced-with-default}))
       (let [route-id     (or (:route-id m) :rf.route/not-found)
             params       (or (:params m) {:url url})

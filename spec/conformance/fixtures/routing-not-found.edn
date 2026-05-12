@@ -49,7 +49,11 @@
    {:operation :rf.error/no-such-handler
     :op-type   :error
     :recovery  :replaced-with-default
-    :tags      {:url "/garbage/path"}}
+    ;; `:kind :route` discriminates the routing context from the
+    ;; event-handler-miss (`:kind :event`) and frame-lookup-miss
+    ;; (`:kind :frame`) cases of the same operation. Per
+    ;; [Spec 009 §Error categories — :rf.error/no-such-handler].
+    :tags      {:url "/garbage/path" :kind :route}}
 
    ;; The not-found route's :on-match events still fire.
    {:operation :event :tags {:event-id :analytics/log-404}}]}}
