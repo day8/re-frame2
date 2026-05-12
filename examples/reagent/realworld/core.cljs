@@ -29,7 +29,7 @@
    the demo entry below installs a canned-stub override so the headless
    smoke and Playwright run without a network."
   (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
+            [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
@@ -48,7 +48,7 @@
             ;; :rf.error/ssr-artefact-missing.
             [re-frame.ssr]
             [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [realworld.schema]
             [realworld.http]
             [realworld.routing :as routing]
@@ -306,7 +306,7 @@
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."

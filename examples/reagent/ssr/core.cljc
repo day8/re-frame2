@@ -53,8 +53,8 @@
             ;; re-exports raise `:rf.error/ssr-artefact-missing`.
             [re-frame.ssr :as ssr]
             #?(:cljs [cljs.reader])
-            #?(:cljs [reagent.dom.client :as rdc])
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+            #?(:cljs [reagent2.dom.client :as rdc])
+            #?(:cljs [re-frame.adapter.reagent-slim :as reagent-slim-adapter])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -256,7 +256,7 @@
      ;; Pass the adapter spec map directly. There is no
      ;; default-adapter registry — each adapter ns exports an `adapter`
      ;; var the consumer requires and passes here.
-     (rf/init! reagent-adapter/adapter)
+     (rf/init! reagent-slim-adapter/adapter)
      ;; If the page was server-rendered, `:rf/hydrate` replaces app-db with
      ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
      ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no

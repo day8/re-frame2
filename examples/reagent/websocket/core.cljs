@@ -34,9 +34,9 @@
 
    Run standalone via `npm run test:examples`; the mock server keeps
    the app self-contained."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [websocket.schema]
@@ -132,7 +132,7 @@
     (rdc/create-root (js/document.getElementById "app"))))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:ws.app/initialise])
   (when react-root
     (rdc/render react-root [views/root-view])))

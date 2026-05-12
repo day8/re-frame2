@@ -1,6 +1,6 @@
 (ns todomvc.views
   (:require [clojure.string :as str]
-            [reagent.core :as reagent]
+            [reagent2.core :as reagent]
             [re-frame.core :as rf]
             [re-frame.views])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))

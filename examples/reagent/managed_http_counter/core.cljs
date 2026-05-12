@@ -23,7 +23,7 @@
   http-managed-*.edn). Playwright's role is the cross-substrate sanity
   check: the same fx, the same reply shape, end-to-end through Reagent
   and Fetch."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
             ;; Managed-HTTP ships in day8/re-frame2-http.
@@ -33,7 +33,7 @@
             ;; it, dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; -- App-db shape ------------------------------------------------------------
@@ -198,6 +198,6 @@
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (rdc/render root [counter-app]))
