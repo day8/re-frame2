@@ -65,11 +65,25 @@
   reset-frame-db!, not restore-epoch, per spec §Why reset-frame-db!
   not restore-epoch).
 
+  ## Phase 4 scope (rf2-4rqs1) — Causality Graph panel
+
+  Reuses the Phase 2 / Phase 3 surface (trace-buffer, selected-
+  dispatch-id, selected-epoch-id) and adds one composite sub that
+  projects + lays out the graph data the panel consumes:
+
+    - `:rf.causa/causality-graph-data` sub — composite
+
+  No new events are required: the graph reuses
+  `:rf.causa/select-dispatch-id` (shared with the event-detail hero
+  per spec §10 Lock 7) and `:rf.causa/clear-selected-epoch` for the
+  cascade-filter affordance.
+
   Subsequent panel beads add their own per-panel events / subs / fxs."
   (:require [re-frame.core :as rf]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-causa.trace-bus :as trace-bus]
-            [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]))
+            [day8.re-frame2-causa.panels.time-travel-helpers :as tt-helpers]
+            [day8.re-frame2-causa.panels.causality-graph-helpers :as cg-helpers]))
 
 ;; ---- defaults ------------------------------------------------------------
 
@@ -227,6 +241,57 @@
            :pins            pins
            :chip-states     (tt-helpers/chip-states history pins)
            :cap-reached?    (>= (count pins) tt-helpers/default-pin-cap)})))
+
+    ;; ---- Phase 4 (rf2-4rqs1) — Causality Graph composite sub -----
+    ;;
+    ;; The graph reads from the same trace-buffer as the event-detail
+    ;; panel. It projects the buffer via group-cascades, enriches each
+    ;; cascade with its :event/dispatched trace event (so :origin /
+    ;; :parent-dispatch-id are available), then folds into nodes +
+    ;; arrows and computes a top-down layout. When the Time Travel
+    ;; scrubber has a selected-epoch whose settling cascade-id is in
+    ;; the graph, the graph filters to that cascade family.
+    ;;
+    ;; Shape:
+    ;;
+    ;;     {:graph                {:nodes [...] :arrows [...] ...}
+    ;;      :layout               {:positions {...} :width :height ...}
+    ;;      :selected-dispatch-id <id-or-nil>
+    ;;      :selected-epoch-id    <id-or-nil>
+    ;;      :filtered?            <bool>}
+    ;;
+    ;; Per spec §Performance the v1 helper runs O(n) over the buffer.
+    ;; The composite recomputes when any of its signals change — the
+    ;; reactive surface is the same as the event-detail composite.
+    (rf/reg-sub :rf.causa/causality-graph-data
+      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/selected-dispatch-id]
+      :<- [:rf.causa/selected-epoch-id]
+      :<- [:rf.causa/epoch-history]
+      (fn [[buffer selected-id selected-epoch-id history] _query]
+        (let [cascades         (projection/group-cascades buffer)
+              enriched         (cg-helpers/enrich-cascades cascades buffer)
+              graph            (cg-helpers/project-cascades-to-graph enriched)
+              ;; When Time Travel's selected-epoch resolves to a
+              ;; cascade-id, filter the graph to that cascade family.
+              epoch-record     (when selected-epoch-id
+                                 (tt-helpers/find-epoch-in-history
+                                   history selected-epoch-id))
+              cascade-id-filter (some-> epoch-record
+                                        cg-helpers/dispatch-id-of-epoch)
+              filterable?      (and cascade-id-filter
+                                    (some #(= cascade-id-filter (:dispatch-id %))
+                                          (:nodes graph)))
+              graph'           (if filterable?
+                                 (cg-helpers/filter-to-cascade
+                                   graph cascade-id-filter)
+                                 graph)
+              layout           (cg-helpers/compute-layout graph')]
+          {:graph                graph'
+           :layout               layout
+           :selected-dispatch-id selected-id
+           :selected-epoch-id    selected-epoch-id
+           :filtered?            (boolean filterable?)})))
 
     ;; ---- events --------------------------------------------------
     (rf/reg-event-db :rf.causa/select-panel

@@ -1,0 +1,332 @@
+(ns day8.re-frame2-causa.panels.causality-graph
+  "Causality Graph panel — Phase 4 (rf2-4rqs1, parent rf2-5aw5v).
+
+  Per `tools/causa/spec/001-Causality-Graph.md` this is a *peer*
+  panel — first-class, sidebar entry, but not the front door. The
+  hero is event-detail; the graph is the deeper-walk view when the
+  cascade is more than two hops, spans frames, or when triaging a
+  session with 30+ events. No other JS devtool renders this view —
+  it is the unique-to-Causa differentiator (rf2-76qxg audit).
+
+  ## What this panel shows
+
+  Each dispatch cascade in the trace buffer renders as a node;
+  parent→child dispatches connect via arrows. Non-dispatch trace
+  events (fx, sub, render, machine transitions, errors) surface as
+  flags on the parent dispatch's node rather than spawning their own
+  outbound edges (per spec §Edges — 'those traces attach inside their
+  dispatch's node').
+
+  Clicking a node fires `:rf.causa/select-dispatch-id` — the same
+  event the event-detail hero consumes (Phase 2, rf2-op3bz). The two
+  panels share selection so the user can switch between them without
+  re-selecting.
+
+  When the Time Travel scrubber has a selected-epoch (Phase 3,
+  rf2-t53ze) and that epoch's settling cascade-id is in the graph,
+  the graph filters to that cascade family (`filter-to-cascade` in
+  the helpers ns).
+
+  ## Pure hiccup (rf2-tijr)
+
+  Same contract as every other Causa panel — the view is pure
+  hiccup, no Reagent / UIx / Helix references. SVG hiccup hosts the
+  graph; the substrate adapter mounts it via `rf/render`. Frame
+  isolation comes from the enclosing `[rf/frame-provider {:frame
+  :rf/causa}]` in `shell.cljs`.
+
+  ## Helpers
+
+  All pure-data logic — `project-cascades-to-graph`, `compute-layout`,
+  `filter-to-cascade` — lives in `causality_graph_helpers.cljc` so
+  the algebra runs under the JVM unit-test target."
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.causality-graph-helpers :as h]))
+
+;; ---- design tokens (mirrors event_detail.cljs / time_travel.cljs) -------
+
+(def ^:private tokens
+  "Subset of shell.cljs's dark-theme tokens used by this panel."
+  {:bg-1            "#15171B"
+   :bg-2            "#1B1E24"
+   :bg-3            "#232730"
+   :bg-active       "#2A2F3D"
+   :border-subtle   "#232730"
+   :border-default  "#2F3441"
+   :text-primary    "#E8EAF0"
+   :text-secondary  "#A8AEC0"
+   :text-tertiary   "#6B7080"
+   :accent-violet   "#7C5CFF"
+   :cyan            "#43C3D0"
+   :green           "#4ADE80"
+   :yellow          "#FBBF24"
+   :red             "#F87171"
+   :magenta         "#E879F9"})
+
+(def ^:private mono-stack
+  "JetBrains Mono stack per spec/007-UX-IA.md §Typography."
+  "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace")
+
+(def ^:private sans-stack
+  "Inter stack per spec/007-UX-IA.md §Typography."
+  "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
+
+;; ---- pure helpers --------------------------------------------------------
+
+(defn- format-edn
+  "Best-effort EDN-like format. Used to render the event vector
+  inside each node's label."
+  [v]
+  (try
+    (pr-str v)
+    (catch :default _
+      (str v))))
+
+(defn- truncate
+  "Truncate `s` to `n` chars (adding an ellipsis). Pure-data so the
+  node label always fits inside `default-node-width`."
+  [s n]
+  (let [s (str s)]
+    (if (<= (count s) n)
+      s
+      (str (subs s 0 (max 0 (dec n))) "…"))))
+
+(defn- node-label
+  "One-line label for a node. Shows the event vector (or a
+  placeholder when the cascade has no event)."
+  [{:keys [event] :as _node}]
+  (truncate (format-edn (or event :ungrouped)) 22))
+
+;; ---- empty state ---------------------------------------------------------
+
+(defn- empty-state
+  "Rendered when the buffer holds no dispatch cascades yet. Per
+  spec/001-Causality-Graph.md §Empty state — 'No cascades yet. Click
+  around your app — every dispatch lands here as a node.'"
+  []
+  [:div {:data-testid "rf-causa-causality-graph-empty"
+         :style       {:padding "16px"
+                       :color   (:text-tertiary tokens)
+                       :font-family sans-stack
+                       :font-size "13px"}}
+   [:p {:style {:margin "0 0 8px 0"}}
+    "No cascades yet."]
+   [:p {:style {:margin 0
+                :font-size "12px"
+                :color (:text-tertiary tokens)}}
+    "Click around your app — every dispatch lands here as a node."]])
+
+;; ---- SVG primitives ------------------------------------------------------
+
+(defn- node-rect
+  "One dispatch node — a rounded rect with a glyph + event label.
+  Clicking the rect fires `:rf.causa/select-dispatch-id`."
+  [{:keys [dispatch-id origin] :as node}
+   {:keys [x y]}
+   selected?]
+  (let [fill   (or (get h/origin->fill origin)
+                   (get h/origin->fill :app))
+        stroke (get h/status->stroke (h/node-border-token node))
+        stroke-w (if selected? 2 1)
+        cursor "pointer"
+        w h/default-node-width
+        hgt h/default-node-height
+        label (node-label node)
+        glyph (h/node-glyph node selected?)]
+    [:g {:data-testid (str "rf-causa-graph-node-" dispatch-id)
+         :on-click    #(rf/dispatch [:rf.causa/select-dispatch-id dispatch-id])
+         :style       {:cursor cursor}}
+     [:rect {:x            x
+             :y            y
+             :width        w
+             :height       hgt
+             :rx           8
+             :ry           8
+             :fill         fill
+             :fill-opacity (if selected? 1.0 0.85)
+             :stroke       stroke
+             :stroke-width stroke-w}]
+     ;; Glyph (◆ / ○ / ◉) on the left.
+     [:text {:x            (+ x 10)
+             :y            (+ y 26)
+             :fill         "#fff"
+             :font-family  mono-stack
+             :font-size    14
+             :font-weight  700
+             :pointer-events "none"}
+      glyph]
+     ;; Event-vector label (mono).
+     [:text {:x            (+ x 28)
+             :y            (+ y 19)
+             :fill         "#fff"
+             :font-family  mono-stack
+             :font-size    11
+             :pointer-events "none"}
+      label]
+     ;; Sub-label: dispatch-id + status counts.
+     [:text {:x            (+ x 28)
+             :y            (+ y 34)
+             :fill         "rgba(255,255,255,0.7)"
+             :font-family  mono-stack
+             :font-size    9
+             :pointer-events "none"}
+      (str "#" dispatch-id
+           " · fx " (:effect-count node)
+           " · v " (:render-count node))]]))
+
+(defn- arrow-path
+  "Build an SVG path string from the parent's bottom-centre to the
+  child's top-centre. Straight line — per spec §Edge style 'straight
+  lines for in-frame parent → child; curved lines for cross-frame
+  jumps'. Cross-frame swimlanes ride a follow-on bead; v1 ships the
+  in-frame straight-line case."
+  [parent-pos child-pos]
+  (let [w  h/default-node-width
+        hgt h/default-node-height
+        px (+ (:x parent-pos) (/ w 2))
+        py (+ (:y parent-pos) hgt)
+        cx (+ (:x child-pos) (/ w 2))
+        cy (:y child-pos)]
+    (str "M " px " " py " L " cx " " cy)))
+
+(defn- arrow-line
+  "Render one arrow — a path + an arrowhead at the child end. The
+  arrowhead is a tiny triangle, drawn separately so it sits flush
+  against the child node's top border."
+  [arrow positions]
+  (let [[parent-id child-id] arrow
+        ppos (get positions parent-id)
+        cpos (get positions child-id)]
+    (when (and ppos cpos)
+      [:g {:data-testid (str "rf-causa-graph-arrow-" parent-id "-" child-id)}
+       [:path {:d            (arrow-path ppos cpos)
+               :stroke       (:text-tertiary tokens)
+               :stroke-width 1.5
+               :fill         "none"
+               :marker-end   "url(#rf-causa-arrowhead)"}]])))
+
+(defn- defs
+  "SVG `<defs>` element — declares the arrowhead marker every arrow
+  reuses via `marker-end=\"url(#rf-causa-arrowhead)\"`."
+  []
+  [:defs
+   [:marker {:id           "rf-causa-arrowhead"
+             :viewBox      "0 0 10 10"
+             :refX         9
+             :refY         5
+             :markerWidth  6
+             :markerHeight 6
+             :orient       "auto-start-reverse"}
+    [:path {:d    "M 0 0 L 10 5 L 0 10 z"
+            :fill (:text-tertiary tokens)}]]])
+
+;; ---- legend --------------------------------------------------------------
+
+(defn- legend
+  "Compact key explaining the visual encoding. Per spec §Visual
+  encoding the colour-only signal is always paired with a glyph or
+  icon."
+  []
+  [:div {:data-testid "rf-causa-causality-graph-legend"
+         :style       {:padding "6px 12px"
+                       :display "flex"
+                       :flex-wrap "wrap"
+                       :gap "12px"
+                       :border-bottom (str "1px solid " (:border-subtle tokens))
+                       :font-family sans-stack
+                       :font-size "11px"
+                       :color (:text-tertiary tokens)}}
+   (for [[label sym]
+         [["◆ root" :accent-violet]
+          ["○ child" :text-secondary]
+          ["◉ selected" :magenta]
+          [":app violet" :accent-violet]
+          [":pair indigo" :accent-violet]
+          [":story cyan" :cyan]
+          ["err border" :red]
+          ["warn border" :yellow]]]
+     ^{:key label}
+     [:span {:style {:color (sym tokens)}} label])])
+
+;; ---- graph canvas --------------------------------------------------------
+
+(defn- graph-svg
+  "The SVG canvas — defs + arrows + nodes, sized to the layout's
+  bounding box."
+  [{:keys [nodes arrows] :as _graph}
+   {:keys [positions width height] :as _layout}
+   selected-id]
+  [:svg {:data-testid "rf-causa-causality-graph-svg"
+         :width   width
+         :height  height
+         :viewBox (str "0 0 " width " " height)
+         :style   {:display "block"
+                   :background (:bg-2 tokens)}}
+   (defs)
+   ;; Arrows first so nodes paint over the arrow line ends.
+   (into [:g {:data-testid "rf-causa-causality-graph-arrows"}]
+         (for [a arrows]
+           ^{:key (str (first a) "->" (second a))}
+           (arrow-line a positions)))
+   ;; Nodes on top.
+   (into [:g {:data-testid "rf-causa-causality-graph-nodes"}]
+         (for [n nodes
+               :let [pos (get positions (:dispatch-id n))]
+               :when pos]
+           ^{:key (:dispatch-id n)}
+           (node-rect n pos (= selected-id (:dispatch-id n)))))])
+
+;; ---- public view --------------------------------------------------------
+
+(defn causality-graph-view
+  "The Causality Graph panel's root view. Subscribes to
+  `:rf.causa/causality-graph-data` and renders either the empty
+  state (no cascades) or the SVG canvas (one or more cascades)."
+  []
+  (let [{:keys [graph layout selected-dispatch-id selected-epoch-id filtered?]}
+        @(rf/subscribe [:rf.causa/causality-graph-data])
+        nodes (:nodes graph)]
+    [:section {:data-testid "rf-causa-causality-graph"
+               :style       {:height         "100%"
+                             :display        "flex"
+                             :flex-direction "column"
+                             :background     (:bg-2 tokens)
+                             :color          (:text-primary tokens)
+                             :font-family    sans-stack
+                             :font-size      "14px"}}
+     [:header {:style {:padding "16px 16px 8px 16px"}}
+      [:h1 {:style {:font-size   "16px"
+                    :font-weight 600
+                    :margin      0
+                    :color       (:text-primary tokens)}}
+       "Causality"]
+      [:p {:style {:font-size "12px"
+                   :color     (:text-tertiary tokens)
+                   :margin    "4px 0 0 0"}}
+       (str (count nodes) " cascade" (if (= 1 (count nodes)) "" "s")
+            ". Click a node to drill in.")
+       (when filtered?
+         [:span {:data-testid "rf-causa-causality-graph-filtered"
+                 :style       {:margin-left "8px"
+                               :color (:magenta tokens)}}
+          "(filtered to selected epoch's cascade — "
+          [:code {:style {:color (:magenta tokens) :font-family mono-stack}}
+           (str selected-epoch-id)]
+          [:button {:data-testid "rf-causa-causality-graph-clear-filter"
+                    :on-click    #(rf/dispatch [:rf.causa/clear-selected-epoch])
+                    :style       {:margin-left "6px"
+                                  :background "transparent"
+                                  :border (str "1px solid " (:border-default tokens))
+                                  :color (:text-secondary tokens)
+                                  :padding "1px 6px"
+                                  :border-radius "4px"
+                                  :cursor "pointer"
+                                  :font-family sans-stack
+                                  :font-size "10px"}}
+           "clear"]
+          ")"])]]
+     (legend)
+     [:div {:style {:flex 1 :overflow "auto" :padding "0 12px 12px 12px"}}
+      (if (empty? nodes)
+        (empty-state)
+        (graph-svg graph layout selected-dispatch-id))]]))
