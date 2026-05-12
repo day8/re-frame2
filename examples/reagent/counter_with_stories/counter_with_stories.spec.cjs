@@ -880,18 +880,36 @@ module.exports = {
     }
 
     // ====================================================================
-    // 16. Switch back to the live app — counter survives
+    // 16. Switch back to the live app — counter reappears + inc still wired
     // ====================================================================
     //
-    // Hash-change back to the live app; counter should reappear.
-    // The live app re-creates its React root inside `mount-app!` and
-    // re-renders against the surviving app-db (which still says
-    // :count 6 after the click at step 1).
+    // Hash-change back to the live app; counter should reappear. The
+    // live app re-creates its React root inside `mount-app!` and
+    // re-renders against the current app-db.
+    //
+    // Note on the expected starting value: step 3b-ii calls
+    // `page.reload()` to verify the mode-tabs primitive re-hydrates its
+    // selection from localStorage. That reload throws away the live-app
+    // JS context, so the +1 click at step 1 (which bumped :count to 6)
+    // does NOT survive into this final section — `core.cljs` re-runs
+    // `(rf/dispatch-sync [:counter/initialise 5])` on the reloaded page
+    // and the count is back at 5. The trace-panel click at step 10
+    // operates on the Story shell's variant frame, not the live app's
+    // frame, so it doesn't move the live app's :count either.
+    //
+    // We therefore assert the post-reload starting value (5), then click
+    // +1 to confirm the inc handler is still wired in the re-mounted
+    // live app and the canvas re-renders against the bumped app-db
+    // (the original Stage-8 invariant — the SPA round-trip preserves
+    // event wiring + render path).
     await page.evaluate(() => {
       window.location.hash = '#/';
     });
 
     const countAfter = page.locator('[data-test="count"]').first();
-    await expectTextEquals(countAfter, '6', 10000);
+    await expectTextEquals(countAfter, '5', 10000);
+
+    await page.locator('[data-test="inc"]').first().click();
+    await expectTextEquals(countAfter, '6');
   },
 };
