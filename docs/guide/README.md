@@ -19,6 +19,7 @@ Read these in order. Each chapter assumes the previous one.
 | # | Chapter | What it covers |
 |---|---|---|
 | 01 | [Why re-frame2](01-why-re-frame2.md) | The argument. What problem this solves. Why it works. |
+| 01a | [app-db](01a-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
 | 02 | [Your first app](02-your-first-app.md) | The counter, walked through in narrative. |
 | 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
 | 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
@@ -38,6 +39,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 08 | [From re-frame v1](08-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. |
 | 09 | [The dynamic-model story](09-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
 | 10 | [Testing](10-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
+| 10a | [Errors and how to handle them](10a-errors.md) | The `:rf.error/*` taxonomy, the trace-listener surface, `:on-error` policy per frame, recovery semantics, error projectors, and testing error paths. |
 | 11 | [Tooling](11-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-10x` v2). |
 | 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 | 14 | [Stories](14-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |

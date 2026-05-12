@@ -1,0 +1,453 @@
+# 10a — Errors and how to handle them
+
+> *Errors should never pass silently. Unless explicitly silenced.*
+> — The Zen of Python
+
+By this point in the guide you've seen events, handlers, fxs, machines, schemas, and tests. What you haven't seen yet is what happens when something goes wrong — when a handler throws, when a schema rejects, when a dispatched event has no registered handler, when an fx misfires.
+
+This chapter is the answer. re-frame2's stance on errors is deliberate and structural: **errors are first-class structured data, surfaced through the same trace-event stream that surfaces everything else**. They're not exceptions you catch with try/catch in user code. They're not strings in a logger. They're maps, with a stable shape, that consumers — dev panels, error-monitor integrations, AI tools, your tests — read off the wire.
+
+You'll know:
+
+- The `:rf.error/*` taxonomy — what categories the framework emits and what triggers each.
+- How to listen for errors at runtime (`register-trace-cb!`).
+- How to map raw errors to user-facing UX (error projectors).
+- The recovery semantics — what re-frame2 does *after* an error.
+- Common scenarios end to end.
+- How to test that the right errors fire.
+
+## Errors are structured trace events
+
+Every error re-frame2 emits is a map with a known shape:
+
+```clojure
+{:id        42                                ;; unique trace id
+ :operation :rf.error/handler-exception       ;; the category (namespaced kw)
+ :op-type   :error                            ;; the severity (the discriminator)
+ :time      1700000000000                     ;; emit time (host clock)
+ :source    :ui                               ;; trigger origin (:ui :timer :http ...)
+ :recovery  :no-recovery                      ;; what the runtime did after
+ :tags      {:category    :rf.error/handler-exception
+             :failing-id  :cart/add-item
+             :reason      "Event handler `:cart/add-item` threw: ..."
+             :frame       :rf/default
+             :event       [:cart/add-item {...}]
+             :handler-id  :cart/add-item
+             :exception-message "Cannot read property 'price' of undefined"
+             ...}}
+```
+
+Three fields do the load-bearing work:
+
+- **`:op-type`** is the universal severity — `:error` or `:warning`. A consumer that wants "show me everything that failed" filters on `:op-type :error`.
+- **`:operation`** is the category — namespaced (`:rf.error/...`, `:rf.warning/...`, `:rf.fx/...`, `:rf.ssr/...`, `:rf.epoch/...`). A consumer that wants "show me only handler exceptions" filters on `:operation :rf.error/handler-exception`.
+- **`:recovery`** is what re-frame2 did *after* the error — `:no-recovery`, `:replaced-with-default`, `:logged-and-skipped`, `:warned-and-replaced`, `:skipped`, `:retried`, `:ignored`. (See [§Recovery semantics](#recovery-semantics) below.)
+
+Everything else rides under `:tags`, with category-specific keys. The full schema lives in [Spec-Schemas](../../spec/Spec-Schemas.md) under `:rf/trace-event`; the per-category `:tags` shapes are pinned in [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas).
+
+**Production builds eliminate the trace surface entirely.** No exceptions. The error path described here is dev-only — your release bundles contain zero trace code. Errors that need to reach a monitoring service in production do so through your own `:on-error` policy (below), or through SSR's [error projector](#error-projectors-mapping-errors-to-ux) on the server side.
+
+## The error taxonomy
+
+The framework emits errors from a fixed-and-additive set of categories. The full table — every category, every payload — is the authoritative reference in [Spec 009 §Error categories](../../spec/009-Instrumentation.md#error-categories-initial-set). A condensed view, grouped by where they come from:
+
+| Source | Category | When it fires |
+|---|---|---|
+| Event handler | `:rf.error/handler-exception` | A registered handler threw. |
+| Event handler | `:rf.error/no-such-handler` | A dispatch arrived for an unregistered id. |
+| Event handler | `:rf.error/effect-map-shape` | A `reg-event-fx` returned a top-level effect-map key other than `:db` / `:fx`. |
+| Event handler | `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside a handler (use `:fx [[:dispatch event]]`). |
+| Subscription | `:rf.error/sub-exception` | A subscription body threw. |
+| Subscription | `:rf.error/no-such-sub` | A subscription's `:<-` input referenced an unregistered sub. |
+| Fx | `:rf.error/no-such-fx` | A dispatched fx-id had no registered handler. |
+| Fx | `:rf.error/fx-handler-exception` | A registered fx threw during effect resolution. |
+| Cofx | `:rf.error/no-such-cofx` | An `inject-cofx` interceptor referenced an unregistered cofx-id. |
+| Interceptor | `:rf.error/unwrap-bad-event-shape` | The `:rf/unwrap` interceptor saw a non-`[id payload-map]` shape. |
+| Schema | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed Malli validation. |
+| Frame | `:rf.error/frame-destroyed` | A dispatch / subscribe arrived against a destroyed frame. |
+| Router | `:rf.error/drain-depth-exceeded` | The run-to-completion drain hit its depth limit. |
+| Machine | `:rf.error/machine-action-exception` | A machine action body threw. |
+| Machine | `:rf.error/machine-unhandled-event` | An event arrived at a machine and no transition matched. |
+| Routing | `:rf.error/no-such-route` / `:rf.error/missing-route-param` | A route operation referenced an unknown id or omitted a required param. |
+
+Two naming conventions worth knowing:
+
+- **Five prefixes** — `:rf.error/`, `:rf.warning/`, `:rf.fx/`, `:rf.ssr/`, `:rf.epoch/`. The prefix marks the subsystem that owns the category. Cheap to filter on: "show me everything SSR emitted" is `(filter #(str/starts-with? (namespace (:operation %)) "rf.ssr") trace-events)`.
+- **`:op-type` is the severity axis** — `:error` for genuine failures, `:warning` for misuse the runtime recovers from, `:info` for informational events that ride the same envelope (e.g. `:rf.http/retry-attempt`).
+
+The convention is **stable** and **additive**: new categories adopt one of the five existing prefixes; existing names are never renamed or repurposed.
+
+## Listening for errors at runtime
+
+The trace stream is the canonical surface. To attach a listener:
+
+```clojure
+(require '[re-frame.core :as rf])
+
+(rf/register-trace-cb! ::my-error-listener
+  (fn [ev]
+    (when (= :error (:op-type ev))
+      (println "re-frame2 error:"
+               (:operation ev)
+               "—"
+               (get-in ev [:tags :reason])))))
+```
+
+`register-trace-cb!` registers a function that's called with every trace event the runtime emits — events, sub-runs, fx invocations, machine transitions, errors, warnings. You filter for what you care about. The callback runs **synchronously** as part of the emit; keep it cheap, hand off to whatever async sink you want.
+
+To remove the listener:
+
+```clojure
+(rf/remove-trace-cb! ::my-error-listener)
+```
+
+Two patterns that show up often:
+
+### Pattern 1 — route errors to a monitoring service
+
+```clojure
+(rf/register-trace-cb! ::sentry-bridge
+  (fn [ev]
+    (case (:op-type ev)
+      :error
+      (sentry/capture
+        {:category (:operation ev)
+         :reason   (get-in ev [:tags :reason])
+         :frame    (get-in ev [:tags :frame])
+         :tags     (:tags ev)})
+
+      :warning
+      (sentry/breadcrumb {:message (get-in ev [:tags :reason])})
+
+      nil)))                       ;; ignore non-error events
+```
+
+### Pattern 2 — surface errors in a dev panel
+
+```clojure
+(defonce errors (atom []))
+
+(rf/register-trace-cb! ::dev-panel
+  (fn [ev]
+    (when (#{:error :warning} (:op-type ev))
+      (swap! errors conj ev))))
+
+;; ...elsewhere:
+;; @errors is a vector of every error/warning since boot.
+```
+
+This is exactly how re-frame-10x v2 and re-frame-pair2 build their "errors" panel — same listener shape, same filter, richer rendering. The library writes nothing the framework doesn't surface; the trace event *is* the contract.
+
+## Frame-scoped error policy: `:on-error`
+
+`register-trace-cb!` is *observation*. It doesn't change what the runtime does after the error. To change the runtime's behaviour — handle a specific category differently, log to monitoring and substitute a default value, halt versus continue — register an `:on-error` policy on the frame:
+
+```clojure
+(rf/reg-frame :rf/default
+  {:on-create [:app/init]
+   :on-error
+   (fn handle-error [error-event]
+     (case (:operation error-event)
+       :rf.error/handler-exception
+       (do (log-to-monitoring error-event)
+           {:recovery :no-recovery})
+
+       :rf.error/schema-validation-failure
+       (do (log-to-monitoring error-event)
+           {:recovery    :replaced-with-default
+            :replacement (:default-value (:tags error-event))})
+
+       :rf.error/no-such-handler
+       nil                                ;; default recovery is fine
+
+       ;; everything else: trust the per-category default
+       nil))})
+```
+
+The policy is a function that receives the error event and returns either `nil` (no override; the runtime applies its default per-category recovery) or a map with at least `:recovery` set. Optional keys: `:replacement` (the value to substitute when `:recovery` is `:replaced-with-default`), `:notes` (a string surfaced in the resulting trace).
+
+One `:on-error` per frame; re-registering the frame replaces it. The default policy (when none is registered) is "trust the per-category recovery from the table below."
+
+`:on-error` is the surface re-frame2 exposes instead of v1's process-wide `reg-event-error-handler` (which is dropped — see [MIGRATION.md](../../spec/MIGRATION.md) §M-26). Per-frame scoping matters because different frames legitimately want different policies: production app frames log to monitoring; story-tool frames assert in-test; SSR frames substitute a sanitised public-error shape (per [Spec 011](../../spec/011-SSR.md)).
+
+## Recovery semantics
+
+The framework's `:recovery` value tells you what happened *after* the error. Six values cover everything:
+
+| `:recovery` | Meaning |
+|---|---|
+| `:no-recovery` | The error propagated; the operation did not complete. The cascade halts. |
+| `:replaced-with-default` | The runtime substituted a default value and continued. |
+| `:logged-and-skipped` | The runtime emitted the trace, dropped the offending input, and continued. Sibling inputs still apply. |
+| `:warned-and-replaced` | The runtime emitted the trace and did its default action (e.g. hydration falls back to client render). |
+| `:skipped` | The runtime declined to act (e.g. `:rf.fx/skipped-on-platform`). |
+| `:retried` | The runtime retried (e.g. managed HTTP backoff). |
+| `:ignored` | The runtime emitted the advisory and did nothing else (e.g. `:rf.warning/decode-defaulted`). |
+
+The per-category default-recovery table is the authoritative reference: [Spec 009 §Default behaviour by category](../../spec/009-Instrumentation.md#default-behaviour-by-category). A few load-bearing rows:
+
+- **`:rf.error/handler-exception`** → `:no-recovery`. The exception propagates; the cascade halts. The handler did not run to completion; the snapshot is not committed.
+- **`:rf.error/no-such-handler`** → `:replaced-with-default`. The dispatch is a no-op; the runtime emits the trace and moves on. Useful: a feature module's load order is wrong and an early event has no handler, so the app boots into a degraded state instead of crashing.
+- **`:rf.error/no-such-fx`** → `:no-recovery`. The fx is dropped; sibling fx entries in the same effect map still fire. This is **important**: in re-frame2, an unknown fx-id doesn't halt the whole cascade — it just gets skipped, and the trace flags it. The handler's `:db` change still applies; the other `:fx` entries still fire.
+- **`:rf.error/no-such-cofx`** → `:no-recovery`. The cofx injection is a no-op; the ctx flows through unchanged; subsequent interceptors and the handler still run. A typo'd cofx-id manifests as "the value isn't in the cofx map" inside your handler, plus the trace.
+- **`:rf.error/schema-validation-failure`** → `:no-recovery`. Hard-fail to surface bugs early. (Production builds elide the validation entirely per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds), so this is dev-only behaviour by design.)
+
+The shape that matters: **the runtime makes a decision per category, you can override per frame.** You don't write try/catch in handler code; you write policy in `:on-error` (or accept the default).
+
+## Error projectors — mapping errors to UX
+
+For server-side rendering, raw error events should never leak to the browser — they carry handler ids, stack traces, exception messages, internal state. The trace stream is the **internal** record (rich, full detail, monitor-bound); a separate **public projection** is what the client sees.
+
+`reg-error-projector` registers a function that maps a raw error event to a sanitised, client-safe shape:
+
+```clojure
+(rf/reg-error-projector :my-app/public-error
+  (fn project-error [error-event]
+    ;; Return a value matching the :rf/public-error schema.
+    ;; Everything in :tags is internal; only what you return reaches the client.
+    {:status  (case (:operation error-event)
+                :rf.error/handler-exception 500
+                :rf.error/no-such-handler   404
+                :rf.error/schema-validation-failure 400
+                500)
+     :title   "Something went wrong"
+     :detail  (case (:operation error-event)
+                :rf.error/no-such-handler "That action is no longer available."
+                "An unexpected error occurred.")
+     :request-id (get-in error-event [:tags :request-id])}))
+
+;; Activate the projector for SSR:
+(rf/configure :ssr {:public-error-id :my-app/public-error})
+```
+
+The projector is the **canonical surface** for mapping raw errors to user-facing UX. The runtime calls it on the server side before render; the result is what reaches the browser. If the projector itself throws (or returns a non-`:rf/public-error` shape), the runtime falls back to a locked generic-500 shape and emits `:rf.error/sanitised-on-projection` — your monitoring dashboard sees when the public boundary fell back.
+
+Full details — when the projector runs, what `:rf/public-error` requires, server-side error events, sanitisation guarantees — live in [Spec 011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
+
+Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-trace-cb!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
+
+## Common scenarios
+
+A walk through the six failure modes you'll meet most often. Each is JVM-runnable; each maps to a real `:rf.error/*` category.
+
+### Scenario 1 — malformed event vector
+
+```clojure
+(rf/dispatch [])              ;; empty vector — no event-id
+(rf/dispatch [:nope])         ;; well-shaped, but :nope isn't registered
+```
+
+The first call is a programming error caught at the router (the event id is `nil`); the second is the well-formed-but-unknown case. The unknown-handler case emits:
+
+```clojure
+{:operation :rf.error/no-such-handler
+ :op-type   :error
+ :recovery  :replaced-with-default
+ :tags      {:category   :rf.error/no-such-handler
+             :failing-id :nope
+             :event      [:nope]
+             :kind       :event
+             :reason     "No registered handler for event `:nope`."
+             :frame      :rf/default}}
+```
+
+The runtime emits the trace and moves on — the dispatch is a no-op. The app keeps running.
+
+### Scenario 2 — a handler throws
+
+```clojure
+(rf/reg-event-db :cart/add-item
+  (fn [db [_ item]]
+    (update-in db [:cart :items] conj item)))    ;; throws if :cart doesn't exist
+```
+
+If `(:cart db)` is nil and you dispatch `[:cart/add-item {...}]`, `update-in` walks into nil and throws. The runtime catches the throw and emits:
+
+```clojure
+{:operation :rf.error/handler-exception
+ :op-type   :error
+ :recovery  :no-recovery
+ :tags      {:category          :rf.error/handler-exception
+             :failing-id        :cart/add-item
+             :event             [:cart/add-item {...}]
+             :handler-id        :cart/add-item
+             :exception-message "..."
+             :reason            "Event handler `:cart/add-item` threw: ..."
+             :frame             :rf/default}}
+```
+
+`:recovery :no-recovery` means: the exception propagates, the cascade halts, no snapshot is committed. Use a more careful initializer or a defensive `fnil` in the handler:
+
+```clojure
+(rf/reg-event-db :cart/add-item
+  (fn [db [_ item]]
+    (update-in db [:cart :items] (fnil conj []) item)))
+```
+
+### Scenario 3 — missing fx or cofx
+
+```clojure
+(rf/reg-event-fx :order/submit
+  (fn [_ [_ order]]
+    {:db (assoc db :order/submitting? true)
+     :fx [[:rf.http/managed                ;; typo: should be :rf.http/managed
+           {:method :post :url "/orders" :body order}]
+          [:nope/totally-fake-fx {}]]}))    ;; this one has no registered handler
+```
+
+The unregistered fx emits:
+
+```clojure
+{:operation :rf.error/no-such-fx
+ :op-type   :error
+ :recovery  :no-recovery
+ :tags      {:fx-id   :nope/totally-fake-fx
+             :fx-args {}
+             :frame   :rf/default
+             :reason  "No registered fx handler for `:nope/totally-fake-fx`."}}
+```
+
+The `:rf.http/managed` fx still fires; the `:db` change still applies; the cascade continues. **One fx's failure doesn't halt the whole cascade** — that's the load-bearing recovery semantics for `:rf.error/no-such-fx`.
+
+A missing **cofx** behaves similarly. If `inject-cofx` references an unregistered cofx-id:
+
+```clojure
+(rf/reg-event-fx :user/load
+  [(rf/inject-cofx :auth/token-from-storage)]    ;; oops, not registered
+  (fn [{:keys [db]} _]
+    {:db (assoc db :loading? true)}))
+```
+
+…the framework emits `:rf.error/no-such-cofx` with `:cofx-id :auth/token-from-storage` and `:event-id :user/load`. The interceptor chain continues; the handler runs with the cofx map unchanged (no `:auth/token-from-storage` key). The handler reads `nil` from where it expected a token. Cross-link: this is the structured-trace replacement for v1's `println` warning on missing cofx (rf2-mq9o); the next section shows how to test it.
+
+### Scenario 4 — schema validation at the boundary
+
+If you've attached schemas to events (per [Spec 010](../../spec/010-Schemas.md)) and a malformed event arrives:
+
+```clojure
+(rf/reg-event-db
+  :cart/set-quantity
+  {:spec {:event [:catn [:_id :keyword]
+                        [:item-id :uuid]
+                        [:qty pos-int?]]}}
+  (fn [db [_ id qty]]
+    (assoc-in db [:cart :items id :qty] qty)))
+
+(rf/dispatch [:cart/set-quantity "not-a-uuid" -5])
+```
+
+The `:spec/validate-at-boundary` interceptor (when attached) emits:
+
+```clojure
+{:operation :rf.error/schema-validation-failure
+ :op-type   :error
+ :recovery  :no-recovery
+ :tags      {:where       :event
+             :failing-id  :cart/set-quantity
+             :path        [1]
+             :value       "not-a-uuid"
+             :explanation {...}                ;; Malli explanation map
+             :reason      "Event vector for `:cart/set-quantity` failed schema at path [1]: expected :uuid, got \"not-a-uuid\"."}}
+```
+
+The handler doesn't run; the cascade halts. In dev this surfaces the bug fast; in production the validation is elided (per [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)) and the handler runs against the malformed event — which is why schemas are a *dev-time correctness tool*, not a runtime guard.
+
+### Scenario 5 — unhandled exception in an interceptor
+
+Interceptors run before and after the handler. A `:before` fn that throws halts the chain in the same shape as a handler exception — the runtime catches and emits `:rf.error/handler-exception` with `:failing-id` set to the interceptor's id, not the event's. (HTTP middleware has its own narrower category — `:rf.error/http-interceptor-failed` — per [014](../../spec/014-HTTPRequests.md).)
+
+A `:after` fn that throws is the trickier case: by then the handler has produced effects, and the runtime needs to decide whether to let those effects fire. The framework's choice is "halt the cascade" — the snapshot is not committed, the `:fx` queue for this dispatch is not processed. The error event carries enough information (the event vector, the interceptor's id, the partial ctx) for the dev to reconstruct.
+
+### Scenario 6 — frame destroyed mid-dispatch
+
+A subtle one: a dispatch arrives against a frame whose `(:lifecycle frame-record)` carries `:destroyed? true`. This happens in real apps when:
+
+- A story-tool frame is torn down by the harness while an in-flight HTTP reply lands.
+- An SSR request's per-request frame is destroyed after render but an `:on-success` arrives late.
+- A test fixture destroys its frame while a `setTimeout`-scheduled dispatch is still queued.
+
+The runtime rejects the dispatch and emits:
+
+```clojure
+{:operation :rf.error/frame-destroyed
+ :op-type   :error
+ :recovery  :no-recovery
+ :tags      {:frame :test/auth-flow
+             :event [:auth/login-success {...}]
+             :reason "Dispatch to destroyed frame `:test/auth-flow`."}}
+```
+
+`subscribe` against a destroyed frame returns `nil` (with the same trace fired); `dispatch` is rejected entirely. Per-frame teardown semantics are owned by [Spec 002 §Frame lifecycle](../../spec/002-Frames.md#frame-lifecycle).
+
+## Testing error paths
+
+The pattern: register a trace listener that collects events, run the operation that should fail, assert on the collected traces. This is exactly the shape `re-frame.cofx-test` uses to pin the `:rf.error/no-such-cofx` contract (rf2-mq9o):
+
+```clojure
+(ns my-app.cart-test
+  (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.core :as rf]))
+
+(defn- collect-traces!
+  "Register a listener under `id`; return the atom that accumulates events.
+   Caller must `(rf/remove-trace-cb! id)` to detach."
+  [id]
+  (let [acc (atom [])]
+    (rf/register-trace-cb! id (fn [ev] (swap! acc conj ev)))
+    acc))
+
+(deftest unknown-cofx-emits-structured-trace
+  (testing "inject-cofx against a never-registered cofx-id emits
+            :rf.error/no-such-cofx and leaves the ctx unchanged"
+    (let [traces  (collect-traces! ::no-cofx)
+          fired?  (atom false)]
+      (rf/reg-event-fx :test/run-no-cofx
+        [(rf/inject-cofx :test/never-registered)]
+        (fn [_ _]
+          (reset! fired? true)
+          {}))
+      (rf/dispatch-sync [:test/run-no-cofx])
+      (rf/remove-trace-cb! ::no-cofx)
+
+      (is (true? @fired?)
+          "the event handler still fired — the unknown cofx did not halt the chain")
+
+      (let [missing (filter #(= :rf.error/no-such-cofx (:operation %)) @traces)]
+        (is (= 1 (count missing))
+            "exactly one :rf.error/no-such-cofx trace was emitted")
+        (let [t (first missing)]
+          (is (= :error (:op-type t)))
+          (is (= :test/never-registered (get-in t [:tags :cofx-id])))
+          (is (= :test/run-no-cofx (get-in t [:tags :event-id])))
+          (is (= :no-recovery (:recovery t))))))))
+```
+
+Three things to notice about the shape:
+
+1. **The listener is scoped to the test.** `::no-cofx` is the listener id; `remove-trace-cb!` detaches it on the way out. (Use `try`/`finally` or `with-frame`'s teardown if you want to guarantee detach on exception.)
+
+2. **The assertions are structural, not message-shaped.** The test pins `(:operation t)`, `(:op-type t)`, `(get-in t [:tags :cofx-id])` — the *contract*. The `:reason` string is human-facing and may change wording; the structured fields are the API.
+
+3. **The test runs on the JVM.** No browser, no DOM. The trace stream is just data; the listener is a function. The whole cycle — registration, dispatch, trace emission, assertion — runs headlessly.
+
+The same shape applies to every `:rf.error/*` category: register a listener, do the thing that should fail, filter for the operation you expect, assert on the `:tags`. `dispatch-sync` for events; `compute-sub` for subs; `make-frame` + `destroy-frame` for frame-lifecycle errors.
+
+For a test fixture that resets per-frame error listeners across tests, see the `reset-runtime` fixture in [`implementation/core/test/re_frame/cofx_test.clj`](../../implementation/core/test/re_frame/cofx_test.clj) — that's the canonical test harness shape the framework's own suite uses.
+
+## What you'll see in re-frame-10x and re-frame-pair2
+
+The dev tools — re-frame-10x v2 (per [11 — Tooling](11-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+
+re-frame-10x's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
+
+## Where to read next
+
+- **[Spec 009 — Instrumentation](../../spec/009-Instrumentation.md)** — the authoritative reference for the trace surface, the error categories, the per-category recovery defaults, and the `:on-error` policy contract.
+- **[Spec 011 — SSR §Server error projection](../../spec/011-SSR.md#server-error-projection)** — the full story on `reg-error-projector`, the `:rf/public-error` shape, and the server-vs-client error boundary.
+- **[Spec-Schemas](../../spec/Spec-Schemas.md)** — the Malli schema for every trace event (`:rf/trace-event`), including the per-category `:tags` schemas.
+- **[10 — Testing](10-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
+- **[11 — Tooling](11-devtools-and-pair-tools.md)** — what re-frame-10x v2 and re-frame-pair2 do with the trace stream, including the errors panel.
+
+## Next
+
+- [11 — Tooling](11-devtools-and-pair-tools.md) — the third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them.
