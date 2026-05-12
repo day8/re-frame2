@@ -86,7 +86,10 @@
 ;; APP-SHELL VIEWS
 ;; ============================================================================
 
-(reg-view ^{:doc "The site header. Shows different links based on auth state."}
+(reg-view ^{:doc "The site header. Shows different links based on auth state.
+                  Each nav link carries a stable data-testid hook so the
+                  Playwright spec can target it without brittle class /
+                  text matching."}
           header []
   (let [authed? @(subscribe [:auth/authenticated?])
         user    @(subscribe [:auth/user])]
@@ -107,18 +110,26 @@
           [:li.nav-item
            [routing/route-link {:to :route/profile
                                 :params {:username (:username user)}
-                                :class "nav-link"}
+                                :class "nav-link"
+                                :data-testid "nav-username"}
             (:username user)]]
           [:li.nav-item
-           [:a.nav-link {:href "#"
-                         :on-click #(do (.preventDefault %)
-                                        (dispatch [:auth/flow [:auth/logout]]))}
+           [:a.nav-link {:data-testid "nav-logout"
+                         :href        "#"
+                         :on-click    #(do (.preventDefault %)
+                                           (dispatch [:auth/flow [:auth/logout]]))}
             "Logout"]]]
          [:<>
           [:li.nav-item
-           [routing/route-link {:to :route/login :class "nav-link"} "Sign in"]]
+           [routing/route-link {:to :route/login
+                                :class "nav-link"
+                                :data-testid "nav-signin"}
+            "Sign in"]]
           [:li.nav-item
-           [routing/route-link {:to :route/register :class "nav-link"} "Sign up"]]])]]]))
+           [routing/route-link {:to :route/register
+                                :class "nav-link"
+                                :data-testid "nav-signup"}
+            "Sign up"]]])]]]))
 
 (reg-view footer []
   [:footer
@@ -216,9 +227,61 @@
 (def ^:private demo-tags
   ["intro" "demo" "clojure" "re-frame"])
 
-(defn- demo-payload-for-url [url]
-  (let [u (str url)]
+(def ^:private demo-user
+  "Canned `User` payload returned by /users/login, /users (register),
+   and /user (session restore). The Playwright spec submits matching
+   credentials at the login form; the stub doesn't verify the body,
+   it just synthesises the success reply the auth machine expects."
+  {:email    "demo@conduit.dev"
+   :token    "stub.demo.jwt"
+   :username "demo"
+   :bio      "Canned demo user."
+   :image    ""})
+
+(defn- counter-comment
+  "Synthesise a saved Comment reply for POST /articles/:slug/comments.
+   The Spec 014 reply value is `{:comment <Comment>}`; the comments
+   handler patches the optimistic temp card out and inserts this saved
+   row by `:id`. A unique numeric id per call avoids :key collisions
+   when the spec posts more than once."
+  [body]
+  (let [id (+ 1000 (rand-int 100000))]
+    {:comment {:id        id
+               :createdAt "2026-05-13T00:00:00Z"
+               :updatedAt "2026-05-13T00:00:00Z"
+               :body      (or body "stubbed comment")
+               :author    {:username  "demo"
+                           :bio       "Canned demo user."
+                           :image     ""
+                           :following false}}}))
+
+(defn- demo-payload-for-args [args-map]
+  (let [req    (:request args-map)
+        u      (str (:url req))
+        method (or (:method req) :get)]
     (cond
+      ;; /users/login (POST) — Spec User wire shape.
+      (and (= method :post) (str/ends-with? u "/users/login"))
+      {:user demo-user}
+
+      ;; /users (POST, register) — Spec User wire shape. Must precede
+      ;; the bare /users (GET, current user) clause.
+      (and (= method :post) (str/ends-with? u "/users"))
+      {:user demo-user}
+
+      ;; GET /user — current-user session restore. We deliberately do
+      ;; NOT auto-restore here (return empty payload so the schema
+      ;; decode fails into the failure branch and the auth machine
+      ;; falls back to :idle). The Playwright spec relies on the app
+      ;; starting unauthenticated.
+      (and (= method :get) (str/ends-with? u "/user"))
+      {}
+
+      ;; POST /articles/:slug/comments — synthesise the saved Comment
+      ;; the optimistic submit path expects.
+      (and (= method :post) (re-find #"/articles/[^/]+/comments$" u))
+      (counter-comment (some-> req :body :comment :body))
+
       (str/includes? u "/articles/feed")
       {:articles [] :articlesCount 0}
 
@@ -259,8 +322,7 @@
                `:dispatch-later` nil-override seam) still apply."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
-    (let [url     (-> args-map :request :url)
-          payload (demo-payload-for-url url)
+    (let [payload (demo-payload-for-args args-map)
           stub-fn (registrar/handler :fx :rf.http/managed-canned-success)]
       ;; Drive the framework-shipped canned-success stub to get the
       ;; correct reply shape (default reply addressing or explicit

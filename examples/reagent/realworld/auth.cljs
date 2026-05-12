@@ -313,28 +313,33 @@
   (let [draft       @(subscribe [:auth.login-form/draft])
         submitting? @(subscribe [:auth/submitting?])
         err         @(subscribe [:auth/error])]
-    [:div.auth-page
+    [:div.auth-page {:data-testid "login-page"}
      [:h1 "Sign in"]
      [routing/route-link {:to :route/register} "Need an account?"]
      (when err [:ul.error-messages [:li err]])
      [:form
-      {:on-submit (fn [e]
+      {:data-testid "login-form"
+       :on-submit (fn [e]
                     (.preventDefault e)
                     (dispatch [:auth.login-form/submit]))}
       [:fieldset
        [:fieldset.form-group
         [:input {:type        "email"
+                 :data-testid "login-email"
                  :placeholder "Email"
                  :value       (:email draft)
                  :disabled    submitting?
                  :on-change   #(dispatch [:auth.login-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
         [:input {:type        "password"
+                 :data-testid "login-password"
                  :placeholder "Password"
                  :value       (:password draft)
                  :disabled    submitting?
                  :on-change   #(dispatch [:auth.login-form/edit-field :password (.. % -target -value)])}]]
-       [:button {:type "submit" :disabled submitting?}
+       [:button {:type "submit"
+                 :data-testid "login-submit"
+                 :disabled submitting?}
         (if submitting? "Signing in…" "Sign in")]]]]))
 
 (reg-view ^{:doc "Register page."}
