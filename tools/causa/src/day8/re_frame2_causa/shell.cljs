@@ -39,6 +39,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
+            [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
@@ -71,7 +72,7 @@
   [{:id :event-detail :label "Event detail" :bead "rf2-op3bz" :live? true}
    {:id :time-travel  :label "Time travel"  :bead "rf2-t53ze" :live? true}
    {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
-   {:id :causality    :label "Causality"     :bead "rf2-xxx"}
+   {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
    {:id :subs         :label "Subscriptions" :bead "rf2-xxx"}
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
    {:id :trace        :label "Trace"         :bead "rf2-xxx"}
@@ -111,7 +112,7 @@
     [:span {:style {:color       (:text-tertiary tokens)
                     :font-size   "12px"
                     :font-weight 400}}
-     "Phase 3 (rf2-t53ze)"]]
+     "Phase 4 (rf2-4rqs1)"]]
    [:div {:style {:display "flex" :align-items "center" :gap "12px"
                   :color    (:text-secondary tokens)
                   :font-size "12px"
@@ -211,6 +212,7 @@
     (case selected
       :event-detail [event-detail/event-detail-view]
       :time-travel  [time-travel/time-travel-view]
+      :causality    [causality-graph/causality-graph-view]
       [stub-panel (or item {:label "Unknown panel"
                             :bead  "rf2-xxx"})])))
 
