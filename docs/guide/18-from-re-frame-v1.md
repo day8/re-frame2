@@ -63,6 +63,28 @@ A concrete instance of "problems you might run into": v1 codebases that register
 
 The skill applies steps 1–4 unprompted and stops at step 5 for review.
 
+### Flows — the replacement for `on-changes`
+
+Another concrete instance of "removed interceptors": v1's `on-changes` ("when these in-paths change, compute and write to that out-path") migrates to **flows**. A flow is the same compute-on-input-change semantics, lifted out of the per-event interceptor chain and into the runtime — registered once, evaluated automatically after each event drain, toggleable at runtime via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`.
+
+```clojure
+(rf/reg-flow
+  {:id     :rectangle/area
+   :inputs [[:width] [:height]]            ;; vector of app-db paths
+   :output (fn [w h] (* w h))               ;; pure: (in-1, in-2, ...) → output
+   :path   [:area]                          ;; where the result is written
+   :doc    "Rectangle area computed from :width and :height."})
+```
+
+Two things to know up front:
+
+- **Flows are a niche convenience, not a sub replacement.** They're for derived values that are part of the application's *state* — visible to other event handlers, surviving SSR hydration, covered by registered schemas, queryable from the app-db inspector. If the derived value is consumed only by views, the right tool is a subscription (lighter, sub-cache-native, no `app-db` write). A typical re-frame2 app has dozens of subs and a handful of flows; tens of flows is a smell.
+- **What `on-changes` couldn't reach, flows can.** Wizard steps where a derivation only runs while a feature is engaged, feature gates, advanced-mode-only computations — `on-changes` is statically wired into specific events at registration time, so a derivation that should be conditional has no clean shape. Flows are runtime-registered and runtime-clearable; toggling is a normal fx.
+
+The migration rewrite is Type B (see [`MIGRATION.md` §M-21](../../spec/MIGRATION.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors)) — mechanically straightforward (`(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`), but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditionally toggled rather than always-on. Apps without `on-changes` see no migration here at all.
+
+The full contract — frame-scoping, topological evaluation order, schema validation, the toggle fx — is in [Spec 013](../../spec/013-Flows.md).
+
 ## A note on the tooling
 
 `re-frame-10x` — the v1 devtools panel — has been renamed and reimplemented as **`re-frame-causa`** for v2. It is **not** the v1 10x ported to v2; it's a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces (see [15 — Tooling](15-devtools-and-pair-tools.md)). If your v1 project depended on the 10x panel during development, the v2 equivalent is causa, not 10x. The mental model — events, subs, app-db diff, time-travel — carries over; the wiring underneath does not.
