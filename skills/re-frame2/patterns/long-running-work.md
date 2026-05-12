@@ -167,6 +167,8 @@ The worker machines themselves are lifecycle-agnostic — they do not know React
 
 **Progress UI from the machine.** Register subs on `[:rf/machine <id>]` and project `:data` fields into the view. Each chunk advances `:data.processed` and the next browser tick renders the new value.
 
+**Final-state child completion (`:final?` / `:output-key`).** The child's `:done` state above uses `:entry :dispatch-done` to hand-roll a `[:work/child-done ...]` dispatch back to the parent — that wiring predates rf2's first-class final-state surface. The cleaner shape marks the child's `:done` as `:final? true` with `:output-key :shard-result` and lets the `:invoke-all` join engine recognise child completion natively; the parent receives the result via `:on-child-done`'s payload without a custom dispatch action, and the auto-destroy fires on the same step. For the single-machine chunked variant, mark `:complete` as `:final?` only when the machine is `:invoke`'d by an outer coordinator — singleton chunked machines that support `:reset` back to `:idle` must keep `:complete` as an ordinary terminal leaf (per "final means final", a singleton hitting `:final?` auto-destroys, so `:on {:reset :idle}` would never get a chance to fire). See `../reference/state-machines/invoke.md` §Final states for the parallel-region join semantics and the `:rf.machine/done` trace contract.
+
 ## Anti-patterns
 
 - **Computing in subscriptions.** Subs should be cheap and pure; long compute belongs in event handlers. A sub that takes seconds slows every render that touches it.
@@ -183,6 +185,8 @@ The worker machines themselves are lifecycle-agnostic — they do not know React
 ## Pointer to the spec
 
 Full rationale — including the `:invoke-all` runtime contract, the join-state map layout, alternative `:join` modes (`:any`, `:n-of`), and the migration table from v1's self-redispatch / `:abandonment-required` flag / `^:flush-dom` — lives in *Pattern — Long-running work* and Spec 005 *State machines* (see `SKILL-REDIRECT.md` at the repo root).
+
+The `:final?` / `:on-done` / `:output-key` surface for child completion (see *Final-state child completion* above) is documented at `../reference/state-machines/invoke.md` §Final states.
 
 ---
 

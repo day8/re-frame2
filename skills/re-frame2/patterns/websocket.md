@@ -151,6 +151,8 @@ Caller-side:
 
 **SSR.** The connection machine no-ops server-side: `:invoke`'s spawn fx is `:platforms #{:client}`, `:after` timers don't schedule under SSR. The server renders `:disconnected` statically; the client hydrates and starts the connection.
 
+**Final-state termination (`:final?` / `:on-done`).** Two opportunities, both restricted to the *child* role. (1) When the WebSocket machine is itself `:invoke`'d by an outer session machine, a terminal-failed branch (e.g. `:permanently-failed`, distinct from the recoverable `:failed` above) can be marked `:final? true` — the parent's `:invoke` `:on-done` then receives a clean unrecoverable-failure signal with the optional `:output-key` carrying the final `:error`, and the auto-destroy tears down the child without the parent dispatching a custom teardown. (2) A child heartbeat / handshake machine `:invoke`'d from `:connected` (see *Heartbeat* / *Subscription protocol* variations) reaches its own `:expired` or `:handshake-failed` terminal state — marking those `:final?` lets the parent observe the sub-failure via `:on-done` instead of requiring the child to dispatch a custom outbound event. The top-level connection machine itself stays recoverable (no `:final?` on `:failed`) because the canonical shape accepts `:ws/connect` from there. See `../reference/state-machines/invoke.md` §Final states for the constraints (leaf-only, no transitions out) and the `:rf.machine/done` trace contract.
+
 ## Anti-patterns
 
 - **Anchoring `:invoke` on `:connecting` instead of `:active`.** Destroys the socket the moment the leaf transitions to `:authenticating`. Lifetime MUST span all three connection leaves.
@@ -167,6 +169,7 @@ Caller-side:
 
 - Full pattern doc, including request-reply correlation worked example, heartbeat variations, anti-patterns, and SSR composition → SKILL-REDIRECT.md → *Pattern — WebSocket*.
 - The state-machine substrate (`:invoke`, `:after`, `:always`, hierarchical states) → SKILL-REDIRECT.md → *EP — State machines (005)*.
+- `:final?` / `:on-done` / `:output-key` (for child-WS or sub-machine termination) → `../reference/state-machines/invoke.md` §Final states.
 - Connection-epoch idiom (the second use of stale-detection in this pattern) → SKILL-REDIRECT.md → *Pattern — Stale detection*.
 
 ---
