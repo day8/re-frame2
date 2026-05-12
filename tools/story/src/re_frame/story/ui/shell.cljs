@@ -44,6 +44,7 @@
             [re-frame.story.runtime :as runtime]
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
+            [re-frame.story.ui.help :as help]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
@@ -82,7 +83,11 @@
    :tab-active {:color "white"
                 :background "#1e1e1e"
                 :border-bottom "1px solid #1e1e1e"
-                :margin-bottom "-1px"}})
+                :margin-bottom "-1px"}
+   :help-slot {:position "fixed"
+               :top      "8px"
+               :right    "12px"
+               :z-index  1500}})
 
 ;; ---- hot-reload trigger --------------------------------------------------
 
@@ -305,7 +310,13 @@
        [:div {:style (:root styles)}
         [sidebar/sidebar]
         [main-pane]
-        [right-panel]])}))
+        [right-panel]
+        ;; rf2-381i: first-time help overlay + persistent re-open chip.
+        ;; The chip lives in a fixed-position slot so it floats above the
+        ;; right inspector pane regardless of which panels are visible.
+        [:div {:style (:help-slot styles)}
+         [help/help-button]]
+        [help/help-host]])}))
 
 ;; ---- mount / unmount surface ---------------------------------------------
 
