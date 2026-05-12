@@ -59,6 +59,19 @@ The Specs you're most likely to reach for first:
 
 The Companion docs ([Principles](../../spec/Principles.md), [Conventions](../../spec/Conventions.md), [Ownership](../../spec/Ownership.md)) describe the design ground rules that the Specs sit on top of.
 
+## Where re-frame came from
+
+re-frame didn't appear out of nowhere. The original v1 was Mike Thompson and the day8 team's answer, in mid-2014, to a question ClojureScript SPAs kept raising: Reagent gave you a beautiful V, but where does the rest of the app go? The answer was assembled from the ideas that were in the air at the time —
+
+- **Pedestal** — interceptor chains as the way to compose request-handling logic. v2's interceptor stack is a direct descendant.
+- **Flux** — a single direction of data flow, with events as the only way state moves forward.
+- **Om** and early **Elm** — a reactive view layer driven by a typed message stream, with the architecture (not the developer) routing each message to its handler.
+- **CQRS** and Eiffel's older command-query separation — the architectural intuition that *changing* state and *reading* state want to be different shaped things. In re-frame this surfaces as the gap between events/effects and subscriptions/queries.
+
+Beneath all of that sits the ClojureScript substrate — Rich Hickey's language, Dan Holmsand's Reagent and its `ratom`, and the Cognitect community's habit of treating data as the load-bearing primitive. re-frame didn't invent any of that. It composed it into a shape that turned out to be worth keeping.
+
+v2 builds on the same lineage. Frames add runtime isolation; everything else — the six dominoes, the data-first event log, derived subscriptions, the centrality of `app-db` — is inherited. The bones are the same.
+
 ## And then
 
 Write something. Read the trace stream. Open a frame in [pair tools](../../spec/Tool-Pair.md) and watch state move. Pick the example closest to what you're building and fork it.
