@@ -83,8 +83,10 @@ A variant is a **specific scenario** — one state of a story. Variants register
    :events    [[:auth/initialise]
                [:auth/email-changed "alice@example.com"]
                [:auth/login-pressed]]
-   :decorators [[force-fx-stub :http {:status :pending}]]})
+   :decorators [[force-fx-stub :my-app/http {:status :pending}]]})
 ```
+
+(`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
 
 The keyword convention `:story.<path>/<variant>` keeps stories and their variants discoverable as a group, while still being a single keyword for re-frame's purposes.
 
@@ -157,7 +159,7 @@ Two registration forms are canonical, and authors choose by ergonomics:
               :loading           {:events [[:auth/initialise]
                                            [:auth/email-changed "alice@example.com"]
                                            [:auth/login-pressed]]
-                                  :decorators [[force-fx-stub :http {:status :pending}]]}}})
+                                  :decorators [[force-fx-stub :my-app/http {:status :pending}]]}}})
 ```
 
 Both forms are first-class.
@@ -260,7 +262,7 @@ Decorators wrap stories with shared infrastructure: themes, layout containers, m
 
 1. **Hiccup wrapper.** A vector that wraps the rendered view.
 2. **Frame setup.** A function that mutates the story's frame at creation — pre-populates `app-db`, registers per-frame interceptors.
-3. **Fx override.** A declaration that swaps an fx for the lifetime of the variant — `[force-fx-stub :http canned-response]`.
+3. **Fx override.** A declaration that swaps an fx for the lifetime of the variant — `[force-fx-stub :my-app/http canned-response]`.
 
 ```clojure
 ;; Hiccup wrapper — pure visual
@@ -274,7 +276,7 @@ Decorators wrap stories with shared infrastructure: themes, layout containers, m
 
 ;; Fx override — affects effects. The stub payload is data; any handler logic
 ;; lives in a registered event/fx handler that the decorator references by id.
-[force-fx-stub :http {:status 200 :body {...}}]
+[force-fx-stub :my-app/http {:status 200 :body {...}}]
 [force-fx-stub :localstorage {:value nil}]
 ```
 
@@ -360,8 +362,8 @@ Loaders run asynchronously before stories render to fetch data. **Deterministic 
 ;; The async work lives in a registered event handler; the variant references it by id.
 (rf/reg-event-fx :charts.heatmap/fetch-fixture
   (fn [_ _]
-    {:fx [[:http {:url     "/fixtures/heatmap.json"
-                  :on-success [:charts/load-fixture]}]]}))
+    {:fx [[:my-app/http {:url     "/fixtures/heatmap.json"
+                         :on-success [:charts/load-fixture]}]]}))
 
 (rf/reg-variant :story.charts.heatmap/with-real-data
   {:doc      "Renders against a fixture fetched from disk."
@@ -374,7 +376,7 @@ Loaders run asynchronously before stories render to fetch data. **Deterministic 
 
 The variant setup phases run in this fixed order:
 
-1. **Loaders.** Each event in `:loaders` is dispatched into the variant's frame. The library waits for the loader's drain to settle (run-to-completion per [002](002-Frames.md)) and any pending fx the loader emitted (e.g., `:http`) to resolve and dispatch their continuation events. A loader is *complete* when no further events are in flight against the variant's frame.
+1. **Loaders.** Each event in `:loaders` is dispatched into the variant's frame. The library waits for the loader's drain to settle (run-to-completion per [002](002-Frames.md)) and any pending fx the loader emitted (e.g., `:rf.http/managed` or a user-supplied HTTP fx) to resolve and dispatch their continuation events. A loader is *complete* when no further events are in flight against the variant's frame.
 2. **Events.** Each event in `:events` is dispatch-synced in order, after every loader has completed. By the time `:events` runs, the loaded data is already in `app-db`.
 3. **Render.** The view renders against the post-events `app-db`.
 4. **Play.** Each event in `:play` is dispatched in order against the now-rendered view (per [§Play functions](#play-functions)).
@@ -383,7 +385,7 @@ Hosts that don't have a usable async surface for waiting on loader completion (r
 
 ## Effect mocking — hook design, not policy
 
-Stubbing `:http` and similar effects for stories uses **hooks for per-variant interceptors and fx overrides** — not mocking policy baked into `reg-variant`.
+Stubbing HTTP (and similar effects) for stories uses **hooks for per-variant interceptors and fx overrides** — not mocking policy baked into `reg-variant`. The effect being stubbed may be the framework-shipped `:rf.http/managed` (see [014-HTTPRequests](014-HTTPRequests.md)) or a user-supplied fx like `:my-app/http`; the stubbing mechanism is the same.
 
 The framework hooks (at the foundation level — see [002-Frames.md](002-Frames.md)):
 

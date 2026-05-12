@@ -306,7 +306,7 @@
 (defn- notify-epoch-listeners!
   "Step 8. Per Tool-Pair §Surface behaviour against destroyed frames
   (rf2-d656): emit a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-  for every register-epoch-cb listener that previously observed this
+  for every register-epoch-cb! listener that previously observed this
   frame. Late-bound through the hook table so core never statically
   requires the epoch artefact."
   [id]

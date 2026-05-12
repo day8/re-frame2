@@ -500,22 +500,22 @@
 ;; verifies the same machinery loads + records under the Reagent substrate.
 
 (deftest epoch-history-cljs
-  (testing "drain-settle commits a record; register-epoch-cb fires per-cascade"
+  (testing "drain-settle commits a record; register-epoch-cb! fires per-cascade"
     (rf/reg-frame :epoch/cljs {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
     (let [seen (atom [])]
-      (rf/register-epoch-cb ::w (fn [r] (swap! seen conj r)))
+      (rf/register-epoch-cb! ::w (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :epoch/cljs})
       (rf/dispatch-sync [:inc]  {:frame :epoch/cljs})
-      (rf/remove-epoch-cb ::w)
+      (rf/remove-epoch-cb! ::w)
 
       (let [history (rf/epoch-history :epoch/cljs)]
         (is (= 2 (count history)) "two cascades, two records")
         (is (= [:seed :inc] (mapv :event-id history)))
         (is (= {:n 1} (:db-after (last history))))
-        (is (= 2 (count @seen)) "register-epoch-cb fired per-cascade")))))
+        (is (= 2 (count @seen)) "register-epoch-cb! fired per-cascade")))))
 
 ;; ---- frame-provider (rf2-sixo) -------------------------------------------
 ;;

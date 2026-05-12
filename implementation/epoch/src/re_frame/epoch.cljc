@@ -132,7 +132,7 @@
 (defn register-epoch-cb!
   "Register a callback fired once per drain-settle with the assembled
   `:rf/epoch-record`. The id can be any comparable value; passing the
-  same id twice replaces. Per Spec 009 §`register-epoch-cb` —
+  same id twice replaces. Per Spec 009 §`register-epoch-cb!` —
   assembled-epoch listener.
 
   The callback receives a fully-formed record with `:db-after`,
@@ -753,7 +753,7 @@
 ;; harnesses, and time-travel from JSON-loaded bug repros.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
-;; gate as `restore-epoch` / `register-epoch-cb` / the rest of the
+;; gate as `restore-epoch` / `register-epoch-cb!` / the rest of the
 ;; epoch-history machinery. Production builds (`:advanced` +
 ;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
 ;; available in shipped binaries.
@@ -843,7 +843,7 @@
 ;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
 ;; core artefact MUST NOT statically `:require` it. Core's public
 ;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
-;; `rf/register-epoch-cb`, `rf/remove-epoch-cb`) and the
+;; `rf/register-epoch-cb!`, `rf/remove-epoch-cb!`) and the
 ;; `(rf/configure :epoch-history ...)` knob look the producing fns up
 ;; through the hook table at call time; when this artefact is not on
 ;; the classpath those queries return nil / empty / false and the

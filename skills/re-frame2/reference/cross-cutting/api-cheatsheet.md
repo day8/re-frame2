@@ -104,7 +104,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch` | `(frame-id epoch-id)` → bool |
-| `rf/register-epoch-cb` / `rf/remove-epoch-cb` | per-drain-settle listener |
+| `rf/register-epoch-cb!` / `rf/remove-epoch-cb!` | per-drain-settle listener |
 | `rf/reset-frame-db!` | `(frame-id new-db)` → bool — dev/pair-tool write |
 
 ## Interceptors, boot, introspection
