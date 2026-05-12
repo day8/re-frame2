@@ -690,6 +690,22 @@
   ([variant-id]       (decorators/resolve-decorators variant-id))
   ([variant-id opts]  (decorators/resolve-decorators variant-id opts)))
 
+;; ---- rf2-8wgpm: static-mode? probe --------------------------------------
+
+(defn static-mode?
+  "Per tools/story/spec/013-Static-Build.md — return true iff Story is
+  running in static-export mode (the bundle was built via the
+  `story:build` invocation with `:closure-defines
+  {re-frame.story.config/static-mode? true}`).
+
+  Consumers don't normally need to consult this directly; the shell
+  itself flips its dev-time affordances (hot-reload poll, first-visit
+  help overlay auto-open) off when the flag is true. Surfaced here as
+  a public probe for tooling / examples that want to render a
+  'this is a published static site' badge or hide a dev-only link."
+  []
+  config/static-mode?)
+
 (def stage
   "Sentinel that names which Stage's surface is loaded.
 

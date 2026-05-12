@@ -33,7 +33,8 @@
 
   Production builds with `re-frame.story.config/enabled?` false never
   reach this ns; Closure DCE drops the lot."
-  (:require [reagent.core :as r]))
+  (:require [reagent.core :as r]
+            [re-frame.story.config :as config]))
 
 ;; ---- localStorage flag --------------------------------------------------
 
@@ -308,7 +309,14 @@
        ;; Auto-open on first visit. Guarded so reseting / re-mounting
        ;; the shell mid-session (e.g. via hot-reload) doesn't pop the
        ;; modal again — only fires when no flag is persisted.
-       (when-not (seen?)
+       ;;
+       ;; Per rf2-8wgpm (static-build): suppress the auto-open in
+       ;; static-export mode. A visitor landing on a published docs
+       ;; site already arrived with intent; the dev-time onboarding
+       ;; overlay just gets in their way. The manual ? chip is still
+       ;; rendered so on-demand help remains reachable.
+       (when (and (not config/static-mode?)
+                  (not (seen?)))
          (reset! open? true)))
      :reagent-render
      (fn []

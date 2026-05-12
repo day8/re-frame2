@@ -45,6 +45,43 @@
            `:advanced`."
            true))
 
+;; ---- the static-export flag (rf2-8wgpm) ---------------------------------
+;;
+;; A second goog-define that flips Story's chrome into "static export"
+;; mode — the bundle is intended to be served as a publishable HTML
+;; playground (Storybook 8 / Histoire / Ladle's `story build` equivalent)
+;; rather than mounted under a live `shadow-cljs watch` dev session.
+;;
+;; In static mode the shell:
+;;   - Does NOT start the registrar-fingerprint hot-reload poll (no
+;;     dev-time registrations will land, so the 500ms setInterval is
+;;     wasted work and emits a periodic ratom-write that thrashes the
+;;     React tree).
+;;   - Suppresses the first-visit help overlay by default (visitors
+;;     arriving at a published docs site already know what they're
+;;     looking at; the overlay is a dev-time onboarding affordance).
+;;
+;; Causa preloads are already absent from `shadow-cljs release` builds
+;; (per shadow-cljs's docs on the :devtools key, `:preloads` is
+;; honoured by `watch`/`compile` but NOT by `release`), so no flag-side
+;; gate is required there.
+;;
+;; The flag is a CLJS-side `goog-define` defaulting to false; on the
+;; JVM it's a plain `def` because the JVM has no notion of a static
+;; export — JVM tests always see `static-mode?` as false.
+
+#?(:cljs (goog-define ^boolean static-mode?
+           ;; @define {boolean}
+           ;; Defaults to `false`. The `story:build` invocation (per
+           ;; tools/story/spec/013-Static-Build.md) sets this to true
+           ;; via :closure-defines so the shell drops its dev-time
+           ;; affordances.
+           false)
+   :clj  (def ^:const static-mode?
+           "JVM-side: never in static mode. JVM consumers always operate
+           in the development-flavoured branch."
+           false))
+
 ;; ---- macro-side access ---------------------------------------------------
 ;;
 ;; Macros emit code that checks the flag *at compile time* so the

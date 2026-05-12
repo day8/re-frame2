@@ -29,6 +29,19 @@
   (testing "Story is enabled in this CLJS test build"
     (is (true? config/enabled?))))
 
+;; ---- static-mode? (rf2-8wgpm) -------------------------------------------
+
+(deftest static-mode-flag-defaults-false-in-cljs-test-build
+  (testing "re-frame.story.config/static-mode? defaults to false in the CLJS test build"
+    ;; Per tools/story/spec/013-Static-Build.md the goog-define defaults
+    ;; to false; only the `story:build` invocation (or a custom
+    ;; downstream build mirroring its :closure-defines) flips it true.
+    ;; The node-test build under shadow-cljs runs without overriding
+    ;; the define, so we expect the default-false branch here.
+    (is (false? config/static-mode?)))
+  (testing "the public probe (re-frame.story/static-mode?) reflects the flag"
+    (is (false? (story/static-mode?)))))
+
 ;; ---- macros emit working code -------------------------------------------
 
 (deftest cljs-smoke-reg-story-and-variant
