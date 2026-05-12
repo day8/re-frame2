@@ -361,6 +361,31 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 
 **Adapter test matrix policy.** Reagent is the **canonical adapter**: the full re-frame2 test suite (every `clojure -M:test` run, every `node-test` build, every `:browser-test` run, every `examples` run, every conformance fixture) executes against the Reagent adapter. The UIx ([rf2-3yij](#)) and Helix ([rf2-2qit](#)) adapters are **smoke-tested** via a representative subset — counter + login per Decision 7 of each adapter's locked-decision set (realworld is skipped for both UIx and Helix; deferred until a substrate user wants it). Full per-adapter-matrix conformance — every test, every fixture, every example, against every shipped adapter — remains a per-adapter responsibility, not a re-frame2-core responsibility. The policy is a deliberate concentration of the test budget on the substrate the spec was authored against; the substrate contract (Spec 006 §The reactive-substrate adapter contract) is what the smoke pair confirms each non-canonical adapter has implemented correctly.
 
+## Per-port conventions
+
+Conventions that exist only because of a host-language constraint live here. Each entry names the constraint, the port(s) it applies to, and the convention the spec adopts in response.
+
+### CLJS — `goog.provide` collision: dash-form sub-namespaces of facade namespaces
+
+ClojureScript compiles each namespace to a `goog.provide` call, which unconditionally **overwrites the parent object** on the host. The consequence: a host cannot carry both `re-frame.core` AND `re-frame.core.flows` as namespaces — loading `re-frame.core` wipes the `re_frame.core` object and with it every `re_frame.core.<sub>` previously defined under it. The canonical write-up is [clojurescript.org/about/differences](https://clojurescript.org/about/differences) (search "goog.provide"). This is structural to the CLJS compilation model, not a bug; the JVM does not share the constraint.
+
+For sub-namespaces of a facade namespace (the canonical case is `re-frame.core` — the user-facing API surface — but the same applies to any other facade a port chooses to ship), the CLJS reference adopts a **dash-form** naming convention: substitute a hyphen for the dot between the facade name and the sub-name.
+
+| Wrong (collides) | Right (dash form) |
+|---|---|
+| `re-frame.core.flows` | `re-frame.core-flows` |
+| `re-frame.core.machines` | `re-frame.core-machines` |
+| `re-frame.core.routing` | `re-frame.core-routing` |
+| `re-frame.core.schemas` | `re-frame.core-schemas` |
+| `re-frame.core.ssr` | `re-frame.core-ssr` |
+| `re-frame.core.epoch` | `re-frame.core-epoch` |
+| `re-frame.core.http` | `re-frame.core-http` |
+| `re-frame.core.legacy` | `re-frame.core-legacy` |
+
+The user-facing alias `(:require [re-frame.core :as rf])` still resolves the documented symbols — `rf/reg-flow`, `rf/reg-machine`, etc. — via re-exports inside `re-frame.core` itself. The sub-namespace's existence is an implementation detail of the per-feature artefact (per [§Packaging conventions](#packaging-conventions)); the dash-form name is what makes the artefact loadable alongside core on the CLJS host.
+
+The convention applies wherever a port targets a host with the `goog.provide`-style "parent object" model. Ports whose host language does not share the constraint (the JVM port, ports using flat module systems) MAY use dot-form sub-namespaces — but the dash-form is portable and the spec recommends it uniformly for symmetry across ports.
+
 ## Cross-references
 
 - [000-Vision.md](000-Vision.md) — goals, constraints, the pattern's minimal core.
