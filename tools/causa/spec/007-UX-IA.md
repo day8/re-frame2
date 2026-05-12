@@ -420,8 +420,10 @@ Three modal surfaces float over the chrome:
 2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
    shortcut.
 3. **Settings** (`,`) — 640×480px modal: Theme · Density ·
-   Keybindings · AI provider · Buffer depths · Frame defaults ·
-   Telemetry (always off; statement of why we don't ship any).
+   Keybindings · AI provider (includes co-pilot redaction toggles per
+   [`009-AI-CoPilot.md`](./009-AI-CoPilot.md) §Redaction defaults) ·
+   Buffer depths · Frame defaults · Telemetry (always off; statement
+   of why we don't ship any).
 
 ## Discoverability
 
