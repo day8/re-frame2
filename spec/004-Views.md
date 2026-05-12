@@ -440,6 +440,65 @@ Reusable-component concerns are addressed by:
 1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
 2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — [002's `frame-provider`](002-Frames.md#what-frame-provider-is-cljs-reference) plus user-defined React contexts for non-frame state.
 
+## View antipatterns
+
+Views are pure functions of state to a render-tree. The following are normative prohibitions — call sites that violate them lose the frame-explicit contract that the rest of the spec assumes.
+
+### Views MUST NOT dispatch from their render bodies
+
+A view's render body computes hiccup; it does not advance state. Dispatching during render couples reads to writes and (in Reagent's reactive case) loops the render — the dispatch invalidates a sub the view just deref'd, the view re-renders, dispatches again. Setup work that needs to fire once per mount belongs in a frame-level `:on-create` event ([§Form-1](#form-1-canonical--simple-render-fn)) or, for per-mount setup that genuinely depends on props, in a Form-2 outer fn ([§Form-2](#form-2-closure--supported-prefer-form-1--explicit-setup-event)) — both of which name the dispatch site so the trace stream and tooling see it.
+
+### Views MUST NOT attach native DOM event listeners from render bodies
+
+Hiccup attrs like `:on-click`, `:on-change`, `:on-input` are the **substrate's synthetic-event surface**: the substrate adapter wraps each fn-valued attr at render time so the eventual callback closes over the frame in scope. This is what gives `(dispatch [:inc])` inside an `:on-click` lambda its frame-correctness (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)).
+
+Native imperative attach — `(.addEventListener el "click" ...)`, `(js/setTimeout ...)`, raw `requestAnimationFrame` — bypasses that wrapper. The callback fires on a fresh stack with no `*current-frame*` binding and no React-context resolution path; a bare `(rf/dispatch [...])` from inside it **silently routes to `:rf/default`** (per [002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body): "Async callbacks escape the binding. … bare `(rf/dispatch [:child])` from inside the callback falls through to `:rf/default`. This is a fundamental property of dynamic scope — not a bug.").
+
+The right shapes:
+
+- **For DOM events the substrate already wraps** (`click`, `change`, `keydown`, drag/drop, pointer/touch, focus/blur), attach via the hiccup attr surface. The adapter handles the framing for you.
+- **For host primitives the substrate does not wrap** (`setTimeout`, `Promise.then`, `fetch`, `requestAnimationFrame`, WebSocket / SSE listeners, `IntersectionObserver`, `MutationObserver`, `ResizeObserver`, `animationend` / `transitionend` listeners attached to specific elements), model the work as a **registered fx** (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)). The fx captures the frame in a closure at registration ([002 §Async fx capture the frame in a closure](002-Frames.md)); the per-tick / per-event reply is a registered event the fx dispatches with `{:frame frame-id}` already resolved.
+
+### Views MUST NOT own imperative library lifecycles directly
+
+When a view wraps a stateful JS library that owns its own DOM subtree (D3 charts, Mapbox, CodeMirror, Three.js, Framer Motion, React-Spring, GSAP, AutoAnimate), the imperative attach / detach belongs in the substrate's Form-3-equivalent lifecycle hook — **not** in the render body. Per-adapter spelling:
+
+| Adapter | Escape-hatch surface |
+|---|---|
+| Reagent / Reagent-slim | `reagent.core/create-class` Form-3 via `reg-view*` ([§Form-3](#form-3-class--out-of-scope-for-the-macro)) |
+| UIx | `uix.core/use-effect` inside a `defui` |
+| Helix | `helix.hooks/use-effect` inside a `defnc` |
+
+The lifecycle hook runs after commit; cleanup is mandatory (the returned teardown fn). Inside the hook, the dispatcher closure was already built during render — calls to `(rf/dispatcher)` / `(rf/subscriber)` from the hook body close over `*current-frame*` at mount time and carry the frame correctly through any subsequent imperative callbacks the library registers.
+
+## Animations
+
+Animation is a view-layer concern, but views are derivative — they compute hiccup from state. The portable principle: **state is the truth; the view animates the transition; animation completion is silent unless explicitly modelled in state via fx-paced timing.** Three regimes cover the space; the regime is chosen by what the state actually needs to know.
+
+### Regime A — Transition animations (the 95% case)
+
+State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. **No completion dispatch is needed** — by the time the animation kicks off, `app-db` has already moved on; the visual is catching up.
+
+Examples: opacity fades, slide-in / slide-out, accordion expand, list reorder, button press-down, modal scrim, route transitions. The state-shaped truth is "this card is :open"; the view renders `{:class (when open? "open")}`; CSS `transition` interpolates the property.
+
+Sequencing belongs in CSS (`animation-delay`, `:nth-child` selectors, parallel keyframes) or in a small `:dispatch-later` chain that advances a `:phase` key in state at known intervals. Either way, the visual catches up to state — the view never blocks on `transitionend`.
+
+### Regime B — Continuous animations (RAF loops, physics, games)
+
+Per-frame state mutation IS the truth. The right shape is a registered `reg-fx` (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md) + [002 §Async fx capture the frame in a closure](002-Frames.md)); the event handler updates state; the view renders the new state. Cancellation is a sibling fx that cancels the RAF handle.
+
+This is Pattern-AsyncEffect with `requestAnimationFrame` substituted for HTTP — same six-step shape, same frame-capture discipline, same `:dispatch` reply contract. Particle systems, infinite-scroll inertia, physics simulations, game loops all fit.
+
+### Regime C — Library-bridged animations (Framer Motion, React-Spring, GSAP, AutoAnimate)
+
+The animation library is component-shaped — it owns its own imperative timing inside its own component tree. The wrapping pattern is the **outer/inner split**: the outer is a registered view that reads subs and produces props; the inner is a Form-3 / `use-effect` wrapper that hands the library the state-derived props. The view layer never imperatively dispatches; the library's internal callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary using the same lifecycle-hook discipline as [§Views MUST NOT own imperative library lifecycles directly](#views-must-not-own-imperative-library-lifecycles-directly).
+
+This regime subsumes into the general outer/inner pattern for wrapping stateful JS components (D3, Mapbox, CodeMirror also fit) — animation libraries are not a special case.
+
+### Choosing a regime
+
+Most animations are Regime A. Reach for B only when the state genuinely advances per-frame (games, physics, scroll-momentum). Reach for C only when a third-party library owns the timing. Genuine "completion-sensing" cases — "the state must wait for an exact `animationend`" — are rare, and usually signal that Regime A's "state is truth, visual catches up" approach was not fully exploited. When the case is genuine, the lifecycle hook (Form-3 / `use-effect`) is the escape hatch: it attaches `addEventListener "animationend"` after commit, cleans up on unmount, and carries the frame correctly because the dispatcher closure was built during render.
+
 ## Open questions
 
 The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and is out of scope for v1; it is deferred to the substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md).
