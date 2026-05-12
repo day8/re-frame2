@@ -22,10 +22,6 @@ Here's the file, in full, with the surrounding ceremony removed:
             [re-frame.core            :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
-;; Frame
-(rf/reg-frame :rf/default
-  {:on-create [:counter/initialise]})
-
 ;; Events
 (rf/reg-event-db :counter/initialise
   (fn [_db _event] {:count 5}))
@@ -52,26 +48,29 @@ Here's the file, in full, with the surrounding ceremony removed:
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)   ;; wire the Reagent substrate
+  (rf/init! reagent-adapter/adapter)        ;; wire the Reagent substrate
+  (rf/dispatch-sync [:counter/initialise])  ;; seed app-db before first render
   (rdc/render root [counter]))
 ```
 
 That's everything. Copy-paste-runnable. Let's take it apart.
 
-## The frame
+## Initialisation
 
 ```clojure
-(rf/reg-frame :rf/default
-  {:on-create [:counter/initialise]})
+(defn ^:export run []
+  (rf/init! reagent-adapter/adapter)
+  (rf/dispatch-sync [:counter/initialise])
+  (rdc/render root [counter]))
 ```
 
-A **frame** is the boundary that holds the app's state. In re-frame2, every app has at least one frame; here we're using the *default* frame, which the runtime ships with. A frame has its own `app-db` (a single immutable map — see [01a — app-db](01a-app-db.md) if you haven't yet), its own event queue, and its own subscription cache.
+Two things have to happen before the view can render: the runtime needs an adapter installed (so subscriptions know how to track reactivity), and `app-db` needs an initial value (so the first read of `@(subscribe [:count])` returns something sensible). The `run` function does both.
 
-The `:on-create` line says: when this frame comes to life, dispatch `[:counter/initialise]`. That event will set the initial state.
+`(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` event **synchronously**, in-line, before `run` returns. By the time `rdc/render` mounts the view on the next line, `app-db` is `{:count 5}` and the first render shows `5`.
 
-You can think of `reg-frame` as "make me a fresh runtime with this initialisation step." For multi-frame apps (story tools, server-side rendering, devcards, isolated widgets) you'd register multiple frames with different ids. For an app that never thinks about isolation, the default frame is enough.
+Why `dispatch-sync` rather than plain `dispatch`? Plain `dispatch` puts the event on the queue and returns immediately — the handler runs on the next animation frame. If the view tried to render against an empty `app-db` on the way there, it would either show nothing or pop briefly before the seeded value arrived. `dispatch-sync` is the right hammer for *seed-before-render*: drain this one event right now, treat the result as part of mount.
 
-> **A note on globals.** This chapter registers the frame at the top level for brevity — fine for a counter demo. In a real app, frames aren't usually globals. They're typically created **per test** (e.g. inside `(rf/with-frame [f ...] ...)`, scoped to one test and destroyed on exit), or **attached to a view** (created once when a parent mounts, accessed by all child views via the `*current-frame*` dynamic binding — see ch.04 and Pattern-MultiFrame). The top-level `reg-frame` here is a minimal-mount shortcut, not the idiom you ship.
+You'll only reach for `dispatch-sync` in two places, both at app boundaries: at mount, like this, and inside tests where you want to assert on the post-handler state without yielding to the queue. Everywhere else, `dispatch` is what you want — fire-and-forget, the runtime handles ordering.
 
 ## Events
 
@@ -181,21 +180,22 @@ There's a tradeoff: plain Reagent functions also work, but they don't get frame-
   (rdc/create-root (js/document.getElementById "app")))
 
 (defn ^:export run []
-  (rf/init! reagent-adapter/adapter)   ;; wire the Reagent substrate
+  (rf/init! reagent-adapter/adapter)        ;; wire the Reagent substrate
+  (rf/dispatch-sync [:counter/initialise])  ;; seed app-db before first render
   (rdc/render root [counter]))
 ```
 
-Three things happen here.
+Four things happen here.
 
 `defonce root` creates the React root once. The `defonce` matters: if the file is hot-reloaded, we want the existing root to survive so React can patch it in place rather than re-mount from scratch.
 
 `(rf/init! reagent-adapter/adapter)` wires re-frame2 to the Reagent substrate. The runtime needs to know which view library it's driving (Reagent vs UIx vs Helix vs SSR), and `init!` is where that binding happens. We require `re-frame.adapter.reagent :as reagent-adapter` at the top of the file and pass its exported `adapter` Var. The call is **idempotent** — calling it twice is a no-op — so hot-reload is safe.
 
+`(rf/dispatch-sync [:counter/initialise])` runs the initialiser inline — by the time the next line runs, `app-db` is `{:count 5}`. The role of this call is covered above in [Initialisation](#initialisation); we list it here for completeness because, in source order, it's part of `run`.
+
 `(rdc/render root [counter])` is the React/Reagent runtime asking "render this hiccup at this root." `[counter]` is hiccup referencing the Var that `reg-view` defed.
 
 Why is `init!` essential? Without it, the runtime has no adapter installed and the first `subscribe` / `dispatch` from a view would not know how to wire its reactivity to React. The next section unpacks why the call shape is the way it is.
-
-You may notice there's no `dispatch-sync [:counter/initialise]` call — we don't need one because the frame's `:on-create [:counter/initialise]` fires that event synchronously at `reg-frame` time. `dispatch-sync` is the alternative when you'd rather seed `app-db` at mount time than at frame-creation time; either works.
 
 ### `init!` and how the adapter gets wired
 
@@ -218,9 +218,9 @@ Calling `(rf/init!)` with no args (or with a keyword like `:reagent`, or with `n
 
 When the page loads, here's what runs:
 
-1. `reg-frame :rf/default` registers (and creates) the default frame. The `:on-create` event `[:counter/initialise]` fires synchronously. The handler returns `{:count 5}`. The frame's `app-db` is now `{:count 5}`.
+1. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate adapter into the runtime.
 
-2. `run` is called. `(rf/init! reagent-adapter/adapter)` installs the Reagent substrate adapter into the runtime. Then `rdc/render` mounts the `counter` view at the root.
+2. `(rf/dispatch-sync [:counter/initialise])` runs the `:counter/initialise` handler synchronously. The handler returns `{:count 5}`. `app-db` is now `{:count 5}`. Then `rdc/render` mounts the `counter` view at the root.
 
 3. The view's body runs. `@(subscribe [:count])` returns `5`. The hiccup tree is `[:div [:button "-"] [:span 5] [:button "+"]]`. Reagent renders that as DOM.
 

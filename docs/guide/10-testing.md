@@ -344,6 +344,8 @@ The override is a **redirect**, not a mock. The same dispatch shape the real fx 
 
 After running a test sequence, `@recorded` carries the events that fired, in order. Useful for verifying control flow without checking every state transition.
 
+The `->interceptor` primitive used above, the sandwich shape, and the per-frame `:interceptors` slot are all covered in [chapter 04a — Interceptors](04a-interceptors.md). If `:interceptors` on a frame is unfamiliar, read that first.
+
 ### Disabling a logging interceptor
 
 ```clojure

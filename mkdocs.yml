@@ -57,6 +57,7 @@ nav:
     - "02 — Your first app": guide/02-your-first-app.md
     - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
     - "04 — Views and frames": guide/04-views-and-frames.md
+    - "04a — Interceptors": guide/04a-interceptors.md
     - "05 — State machines": guide/05-state-machines.md
     - "05a — Forms": guide/05a-forms.md
     - "06 — Doing HTTP requests": guide/06-doing-http-requests.md

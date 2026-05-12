@@ -81,11 +81,13 @@
           (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            ;; The macro syntax-quotes 'reg-machine at expansion site,
-            ;; so the symbol stamped onto :where is namespace-qualified
-            ;; against `re-frame.core` (the macro's home ns).
-            (is (= 're-frame.core/reg-machine (:where data))
-                "ex-data carries :where = 're-frame.core/reg-machine (macro form)")
+            ;; Per rf2-hoiu the throw lives in
+            ;; `re-frame.core-machines/reg-machine` — the sibling-namespace
+            ;; fn-form delegate the macro routes through — so `:where`
+            ;; is the bare unqualified symbol of the user-facing surface
+            ;; (`rf/reg-machine`).
+            (is (= 'reg-machine (:where data))
+                "ex-data carries :where = 'reg-machine")
             (is (= :probe/macro-machine (:machine-id data))
                 "ex-data carries :machine-id from the call site")
             (is (= :no-recovery (:recovery data))

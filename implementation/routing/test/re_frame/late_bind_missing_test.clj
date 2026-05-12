@@ -88,11 +88,12 @@
           (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            ;; The macro syntax-quotes 'reg-route at expansion site, so
-            ;; the symbol stamped onto :where is namespace-qualified
-            ;; against `re-frame.core` (the macro's home ns).
-            (is (= 're-frame.core/reg-route (:where data))
-                "ex-data carries :where = 're-frame.core/reg-route (macro form)")
+            ;; Per rf2-hoiu the throw lives in `re-frame.core-routing/reg-route`
+            ;; — the sibling-namespace fn-form delegate the macro routes
+            ;; through — so `:where` is the bare unqualified symbol of the
+            ;; user-facing surface (`rf/reg-route`).
+            (is (= 'reg-route (:where data))
+                "ex-data carries :where = 'reg-route")
             (is (= :route/probe (:route-id data))
                 "ex-data carries :route-id from the call site")
             (is (= :no-recovery (:recovery data))

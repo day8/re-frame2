@@ -204,7 +204,8 @@
   surfaces emit the same expansion."
   {:arglists '([sym args body+] [sym docstring args body+])}
   [sym & more]
-  ;; Construct a fresh metadata-free symbol; see re-frame.core/reg-view for
-  ;; the rationale (CLJS macro context leaks :doc metadata via the ns-name
-  ;; symbol, which defeats production elision).
+  ;; Metadata-free ns-symbol per the rf2-xnym rationale; see
+  ;; `re-frame.core` top-of-registration-section block comment (the
+  ;; ns-name symbol can carry :doc metadata under CLJS macro context,
+  ;; which defeats production elision).
   (expand-reg-view (meta &form) (symbol (str (ns-name *ns*))) *file* sym more))

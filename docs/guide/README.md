@@ -12,6 +12,8 @@ The guide is in two parts. The **core path** (chapters 01-07) builds the mental 
 
 Chapter **05a — Forms** sits between 05 and 06 as a side-track: not load-bearing for the mental model the way 05 is, but standard enough that most readers will want it before they reach 06. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
 
+Chapter **04a — Interceptors** is a similar side-track between 04 and 05: a deep-dive on the wrapping primitive every `:interceptors` slot in the guide bottoms out on. Most readers can skip it on a first pass — the core path doesn't require writing a custom interceptor. Pick it up the first time you want to wrap a handler (a logger, an undo interceptor, a recorder for tests).
+
 ### Core path
 
 Read these in order. Each chapter assumes the previous one.
@@ -23,6 +25,7 @@ Read these in order. Each chapter assumes the previous one.
 | 02 | [Your first app](02-your-first-app.md) | The counter, walked through in narrative. |
 | 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
 | 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
+| 04a | [Interceptors](04a-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
 | 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |
 | 05a | [Forms](05a-forms.md) | The standard form slice, seven-event lifecycle, error-visibility rule. |
 | 06 | [Doing HTTP requests](06-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
