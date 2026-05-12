@@ -793,6 +793,12 @@ The distinction is documentary and conceptual, not technical. One dispatch pipel
    :drain-depth 100})       ;; default and runtime-overridable
 ```
 
+### Single-drainer invariant (concurrent hosts)
+
+The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning. Per rf2-ynk7.
+
+On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
+
 ### What is and isn't drained
 
 - **Synchronous re-dispatches (machine-to-machine messages)** are drained.
