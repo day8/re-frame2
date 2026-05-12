@@ -167,6 +167,61 @@ What Causa owns:
 - **Live updates** from the trace bus / epoch history, scoped by the
   `:scope` prop.
 
+## State isolation (Option-C frame-provider)
+
+Causa's panels mount **inside the host's React tree** so embedding is
+zero-config — drop a `[Panel ...]` into Story / your own layout and it
+renders. But Causa's *state* must never bleed into the host's app-db,
+its subs, or its dispatch queue. That isolation is achieved by an
+internal frame-provider wrapper; see [`011-Launch-Modes.md`](./011-Launch-Modes.md)
+for the in-app overlay context and [`007-UX-IA.md`](./007-UX-IA.md)
+for shell layout. The mechanism, locked under rf2-tijr (2026-05-12):
+
+### Frame-provider wraps every panel
+
+Each public `Panel` component opens with an internal
+`[rf/frame-provider {:frame :rf/causa} ...]`. Descendant subscriptions
+and dispatches re-anchor to the `:rf/causa` frame, *not* the host's
+`:rf/default` (or whatever frame the host's tree is providing).
+Consequences:
+
+- **App-db isolated.** `:rf.causa/buffer-cleared` writes touch
+  `:rf/causa`'s db; the host app-db is untouched.
+- **Subs isolated.** A panel sub like `:rf.causa/trace-buffer` reads
+  `:rf/causa`'s db.
+- **Dispatches isolated.** Events fired from inside the panel run on
+  `:rf/causa`'s event queue and interceptor chain.
+- **Machines isolated.** Causa's machines live in `:rf/causa` and
+  don't share state with host machines.
+
+Host code never sees `:rf/causa`; the wrapper is an implementation
+detail of `Panel`. Story (and any other host) embeds Causa with no
+awareness of the frame split.
+
+### Registry-key isolation via `:rf.causa/*` prefix
+
+The registrar is **process-global** — frames isolate state but share
+the registrar's `{kind id}` keyspace. Causa avoids collisions by
+namespacing every event-id, sub-id, fx-id, and cofx-id under
+`:rf.causa/*`. A host registering `:user/login` and Causa registering
+`:rf.causa/select-panel` cannot stamp on each other; the prefix is the
+contract.
+
+The convention is enforced by code review and by the registry
+namespace docstring (see `tools/causa/src/day8/re_frame2_causa/registry.cljs`).
+
+### Adapter resolution
+
+Causa renders pure hiccup; all four supported substrates (Reagent,
+Reagent-slim, UIx, Helix) accept the same hiccup shape, so the
+component code itself is substrate-agnostic. Where Causa needs an
+imperative escape hatch (canvas refs, mount-lifecycle hooks for large
+list virtualisation, etc.) it resolves the active adapter via
+`re-frame.substrate.adapter/current-adapter` and dispatches on the
+returned keyword. These escape-hatch sites are bounded — roughly five
+of them across the codebase — and each lives next to the component
+that needs it, not in a central shim layer.
+
 ## What this doesn't do
 
 - **No two-way binding.** The host doesn't push state into Causa
