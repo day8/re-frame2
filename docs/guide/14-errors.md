@@ -62,7 +62,9 @@ The framework emits errors from a fixed-and-additive set of categories. The full
 | Source | Category | When it fires |
 |---|---|---|
 | Event handler | `:rf.error/handler-exception` | A registered handler threw. |
-| Event handler | `:rf.error/no-such-handler` | A dispatch arrived for an unregistered id. |
+| Event handler | `:rf.error/no-such-handler` (`:kind :event`) | A dispatch arrived for an unregistered event id. |
+| Frame registrar | `:rf.error/no-such-handler` (`:kind :frame`) | A Tool-Pair surface (`restore-epoch`, `reset-frame-db!`) addressed an unregistered frame-id. |
+| Routing | `:rf.error/no-such-handler` (`:kind :route`) | `:rf.route/handle-url-change` saw a URL that matched no registered route. |
 | Event handler | `:rf.error/effect-map-shape` | A `reg-event-fx` returned a top-level effect-map key other than `:db` / `:fx`. |
 | Event handler | `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside a handler (use `:fx [[:dispatch event]]`). |
 | Subscription | `:rf.error/sub-exception` | A subscription body threw. |

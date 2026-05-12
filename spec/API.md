@@ -402,7 +402,7 @@ Pattern-level error categories:
 | `:rf.error/no-such-sub` | A subscription's `:<-` input refers to an unregistered sub |
 | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed validation |
 | `:rf.error/drain-depth-exceeded` | Run-to-completion drain hit its depth limit |
-| `:rf.error/no-such-handler` | Dispatch arrived with no registered handler |
+| `:rf.error/no-such-handler` | A registrar-shaped lookup missed — discriminated by the `:kind` tag: `:event` (dispatch with no registered event handler), `:frame` (Tool-Pair surface addressed an unregistered frame-id), or `:route` (`handle-url-change` saw an unmatched URL). See [009 §Error categories — `:rf.error/no-such-handler`](009-Instrumentation.md#error-categories-initial-set) for the per-`:kind` tag schemas |
 | `:rf.error/dispatch-sync-in-handler` | `dispatch-sync` was called from inside a running event handler (use `:fx [[:dispatch event]]`) |
 | `:rf.error/machine-action-wrote-db` | A machine action's effect map contained `:db` |
 | `:rf.error/machine-raise-depth-exceeded` | A machine event's `:raise` cascade exceeded its depth limit |
