@@ -22,7 +22,10 @@ The map can have whatever shape you want — `:user`, `:cart`, `:routing`, `:aut
  :ui        {:active-panel :cart :modal nil}}
 ```
 
-It is not a database in the storage sense. It's not Datomic. It's not IndexedDB. It's a value, in memory, that your app reads from and (via events) replaces. The name is a holdover from re-frame v1 — sticky enough that it stayed.
+It is not a database in the storage sense — not Datomic, not IndexedDB, no disk. But think of it as **an in-memory database**, not "a map in an atom". You will put structured data into it. You will query it. You will transact on it atomically. The name `app-db` was chosen, back in v1, to make exactly this point: the data lying around in your app deserves the same care you'd give data in PostgreSQL.
+
+> *Well-formed data at rest is as close to perfection in programming as it gets.*
+> — [Fogus](https://twitter.com/fogus/status/454582953067438080)
 
 A re-frame2 app at any instant is *defined* by the value of its app-db. Two app-dbs with equal values are, observably, the same app at that instant.
 
@@ -30,17 +33,21 @@ A re-frame2 app at any instant is *defined* by the value of its app-db. Two app-
 
 Most SPA frameworks let state live anywhere. React: in any component's `useState`, in any `useReducer`, in `useContext` providers, in refs, in external stores, in URL params, in `localStorage`. Each of those is a place state can hide.
 
-re-frame2 makes a different choice: **all of your application's state goes in one place**, and the only thing that changes it is an event handler. Five things follow from that.
+re-frame2 makes a different choice: **all of your application's state goes in one place**, and the only thing that changes it is an event handler. Four big consequences follow:
 
-1. **You can `pprint` it.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it. No "but where else might the relevant state be?" Tools (re-frame-10x, re-frame-pair2) show it to you live.
+1. **Single source of truth → no sync code.** Because there is one place for the data, there is no code that synchronises state between two places. An entire class of bug — "these two views disagree because their copies drifted" — simply cannot occur. You write less code and reason about less.
 
-2. **You can `diff` two app-dbs.** Before and after an event, before and after a refactor, before and after a bug. The diff is the whole story.
+2. **State changes are transactional.** Each event handler returns a single new value of app-db, and the runtime swaps the reference atomically. There is an instant in which the app is in the old state, then an instant in which it is in the new state, and *nothing in between*. No half-applied updates, no intermediate inconsistency for a subscription to read.
 
-3. **Validation is one check, not many.** A Malli schema over the app-db is the schema for the whole app's state. It runs in one place, after every event. (Per [Spec 010](../../spec/010-Schemas.md).)
+3. **One schema validates the whole app.** A [Malli](https://github.com/metosin/malli) schema over app-db is the schema for the entire application's state, and it runs in one place — after every event. A good schema gives more leverage than static types because it can talk about the relationships *between* values, not just the shape of each value alone. (Per [Spec 010](../../spec/010-Schemas.md).)
 
-4. **Time-travel is free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. The framework records snapshots between events; you can replay them, rewind to them, inspect them. re-frame-10x's epoch buffer (per [Spec 009](../../spec/009-Instrumentation.md)) is exactly this.
+4. **Undo/redo and time-travel come for free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. Thanks to structural sharing, keeping a ring buffer of the last few hundred app-db values costs almost nothing. Undo/redo becomes a matter of swapping the reference back; time-travel debugging is the same mechanism with a UI on top. re-frame-10x's epoch buffer (per [Spec 009](../../spec/009-Instrumentation.md)) is exactly this.
 
-5. **There's no question of "where does this state go?"** The answer is always: somewhere in app-db, at a path your feature owns. When you add a `:cart`-feature, its state goes under `:cart`. When you add `:auth`, under `:auth`. The convention is the path.
+Two smaller-but-useful affordances ride along on the same idea:
+
+- **You can `pprint` it; you can `diff` two app-dbs.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it; before and after an event, before and after a refactor, before and after a bug, the diff is the whole story. Tools (re-frame-10x, re-frame-pair2) show it to you live.
+
+- **No question of "where does this state go?"** The answer is always: somewhere in app-db, at a path your feature owns. When you add a `:cart`-feature, its state goes under `:cart`. When you add `:auth`, under `:auth`. The convention is the path.
 
 ## Why immutable
 
