@@ -1,6 +1,8 @@
 # re-frame-pair-improver2
 
-`re-frame-pair-improver2` is a Claude ***meta-skill*** for [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
+`re-frame-pair-improver2` is a Claude ***meta-skill*** for [`re-frame-pair2`](../re-frame-pair2/). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
 
 It is the re-frame2 sibling of [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver), which targets the v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair) tool against [`re-frame`](https://github.com/day8/re-frame) v1.
 

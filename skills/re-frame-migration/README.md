@@ -1,8 +1,10 @@
 # re-frame-migration
 
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
 A `Skill` that helps `Claude Code` **migrate an existing re-frame v1.x ClojureScript codebase to [re-frame2](https://github.com/day8/re-frame2)** — from `re-frame/re-frame` deps to `day8/re-frame2`, mechanical rewrites applied automatically, judgment-call call sites flagged for human review.
 
-This is the **migration** companion to the main [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) skill (which writes new application code) and [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) (which bootstraps a fresh re-frame2 project). The three skills cover the three orthogonal v2 authoring situations:
+This is the **migration** companion to the main [`re-frame2`](../re-frame2/) skill (which writes new application code) and [`re-frame2-setup`](../re-frame2-setup/) (which bootstraps a fresh re-frame2 project). The three skills cover the three orthogonal v2 authoring situations:
 
 - **Greenfield** — `re-frame2-setup`.
 - **Already on v2; writing application code** — `re-frame2`.
