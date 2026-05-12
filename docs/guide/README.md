@@ -8,13 +8,13 @@ If you're an AI agent or implementor, you want the [specification](../../spec/RE
 
 ## Chapters
 
-The guide is in two parts. The **core path** (chapters 01-07) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 08-12) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
+The guide is in two parts. The **core path** (chapters 01-11) builds the mental model in sequence — read these in order, end to end, and you have re-frame2. The **optional deep dives** (chapters 12-20) are *à la carte*: read them when the topic comes up, not as the next-link in the linear sequence.
 
-Chapter **05a — Forms** sits between 05 and 06 as a side-track: not load-bearing for the mental model the way 05 is, but standard enough that most readers will want it before they reach 06. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
+Chapter **09 — Forms** sits between 08 and 10 as a side-track: not load-bearing for the mental model the way 08 is, but standard enough that most readers will want it before they reach 10. Skip it on a first read if you like; pick it up the first time you hit a non-trivial form.
 
-Chapter **04a — Interceptors** is a similar side-track between 04 and 05: a deep-dive on the wrapping primitive every `:interceptors` slot in the guide bottoms out on. Most readers can skip it on a first pass — the core path doesn't require writing a custom interceptor. Pick it up the first time you want to wrap a handler (a logger, an undo interceptor, a recorder for tests).
+Chapter **07 — Interceptors** is a similar side-track between 06 and 08: a deep-dive on the wrapping primitive every `:interceptors` slot in the guide bottoms out on. Most readers can skip it on a first pass — the core path doesn't require writing a custom interceptor. Pick it up the first time you want to wrap a handler (a logger, an undo interceptor, a recorder for tests).
 
-Chapter **03a — Coeffects** is the matching side-track between 03 and 04: the *inputs* half of the handler's contract (`:db`, `:event`, and anything else `inject-cofx` injects). Skip it on a first read if your handlers only need `:db` and the event vector; pick it up the first time you hit `(inject-cofx :now)` in someone else's code, or want to test a handler that depends on the current time / a fresh UUID / a value from `localStorage`.
+Chapter **05 — Coeffects** is the matching side-track between 04 and 06: the *inputs* half of the handler's contract (`:db`, `:event`, and anything else `inject-cofx` injects). Skip it on a first read if your handlers only need `:db` and the event vector; pick it up the first time you hit `(inject-cofx :now)` in someone else's code, or want to test a handler that depends on the current time / a fresh UUID / a value from `localStorage`.
 
 ### Core path
 
@@ -23,18 +23,18 @@ Read these in order. Each chapter assumes the previous one.
 | # | Chapter | What it covers |
 |---|---|---|
 | 01 | [Why re-frame2](01-why-re-frame2.md) | The argument. What problem this solves. Why it works. |
-| 01a | [app-db](01a-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
-| 02 | [Your first app](02-your-first-app.md) | The counter, walked through in narrative. |
-| 03 | [Events, state, and the cycle](03-events-state-cycle.md) | The core loop, with side-effects-as-data. |
-| 03a | [Coeffects](03a-coeffects.md) | The matching *inputs* half — `reg-cofx`, `inject-cofx`, the side-causes (current time, GUIDs, localStorage). Optional side-track. |
-| 04 | [Views and frames](04-views-and-frames.md) | What you put on the screen, and how you isolate state. |
-| 04a | [Interceptors](04a-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
-| 05 | [State machines](05-state-machines.md) | When the answer to a flow is a finite state machine. |
-| 05a | [Forms](05a-forms.md) | The standard form slice, seven-event lifecycle, error-visibility rule. |
-| 06 | [Doing HTTP requests](06-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
-| 07 | [The server side](07-server-side.md) | SSR and hydration without losing your mind. |
+| 02 | [app-db](02-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
+| 03 | [Your first app](03-your-first-app.md) | The counter, walked through in narrative. |
+| 04 | [Events, state, and the cycle](04-events-state-cycle.md) | The core loop, with side-effects-as-data. |
+| 05 | [Coeffects](05-coeffects.md) | The matching *inputs* half — `reg-cofx`, `inject-cofx`, the side-causes (current time, GUIDs, localStorage). Optional side-track. |
+| 06 | [Views and frames](06-views-and-frames.md) | What you put on the screen, and how you isolate state. |
+| 07 | [Interceptors](07-interceptors.md) | The sandwich, the context map, custom `:before` / `:after`. Optional deep-dive. |
+| 08 | [State machines](08-state-machines.md) | When the answer to a flow is a finite state machine. |
+| 09 | [Forms](09-forms.md) | The standard form slice, seven-event lifecycle, error-visibility rule. |
+| 10 | [Doing HTTP requests](10-doing-http-requests.md) | `:rf.http/managed` — the canonical request fx, end-to-end. |
+| 11 | [The server side](11-server-side.md) | SSR and hydration without losing your mind. |
 
-If you're impatient, read [01](01-why-re-frame2.md) and skip to [02](02-your-first-app.md). If you're skeptical, [01](01-why-re-frame2.md) is where the argument lives.
+If you're impatient, read [01](01-why-re-frame2.md) and skip to [03](03-your-first-app.md). If you're skeptical, [01](01-why-re-frame2.md) is where the argument lives.
 
 ### Optional deep dives
 
@@ -42,20 +42,20 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 
 | # | Chapter | When to read it |
 |---|---|---|
-| 08 | [From re-frame v1](08-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. |
-| 09 | [The dynamic-model story](09-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
-| 10 | [Testing](10-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
-| 10a | [Errors and how to handle them](10a-errors.md) | The `:rf.error/*` taxonomy, the trace-listener surface, `:on-error` policy per frame, recovery semantics, error projectors, and testing error paths. |
-| 11 | [Tooling](11-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-10x` v2). |
-| 11a | [Performance](11a-performance.md) | Your page feels slow — the four shapes of slowness (big props, deep `=`, inline callbacks, expensive subs), the framework's answers, and the `rf:` User Timing surface. |
-| 12 | [Routing](12-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
-| 14 | [Stories](14-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
+| 12 | [From re-frame v1](12-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. |
+| 13 | [The dynamic-model story](13-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
+| 14 | [Testing](14-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
+| 15 | [Errors and how to handle them](15-errors.md) | The `:rf.error/*` taxonomy, the trace-listener surface, `:on-error` policy per frame, recovery semantics, error projectors, and testing error paths. |
+| 16 | [Tooling](16-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-10x` v2). |
+| 17 | [Performance](17-performance.md) | Your page feels slow — the four shapes of slowness (big props, deep `=`, inline callbacks, expensive subs), the framework's answers, and the `rf:` User Timing surface. |
+| 18 | [Routing](18-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
+| 20 | [Stories](20-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
 
 ### Close-out
 
 | # | Chapter | What it covers |
 |---|---|---|
-| 13 | [Where to go next](13-where-next.md) | A one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. Read this when you finish the chapters and want to know "now what?" |
+| 19 | [Where to go next](19-where-next.md) | A one-screen exit pointer — examples, pattern docs, the API ref, the runtime companion docs, the spec. Read this when you finish the chapters and want to know "now what?" |
 
 ### Worked examples
 
@@ -88,7 +88,7 @@ The specification ships a family of **Pattern docs** — convention, not Spec, n
 
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard 5-key lifecycle slice.
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [05a — Forms](05a-forms.md).)
+- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [09 — Forms](09-forms.md).)
 - [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init with progress UI and fail-fatal points.
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.

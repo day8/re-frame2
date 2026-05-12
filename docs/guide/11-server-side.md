@@ -1,4 +1,4 @@
-# 07 — The server side
+# 11 — The server side
 
 For most of the SPA era, "server-side rendering" has been an awkward retrofit. You built your client app with React, then later — when SEO mattered, or first-paint was too slow, or social-media link previews didn't render — you bolted on Next.js or its equivalent. The server-rendered code path was different from the client-rendered one. Subtle bugs lived in the seam.
 
@@ -34,7 +34,7 @@ It works because the architecture has been *structurally* SSR-friendly from the 
 
 **Render-tree as serialisable data.** Hiccup is just nested vectors and maps. There's a pure function — `(rf/render-to-string hiccup-tree)` — that turns any hiccup into a string. No React. No DOM. No JavaScript runtime. It's a function from data to string, and it runs on the JVM.
 
-These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 09](09-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
+These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 13](13-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
 
 ## The hydration handshake
 
@@ -223,7 +223,7 @@ A server handling concurrent requests can't have one global frame — each reque
 ;; the per-frame caches.
 ```
 
-The pattern from [chapter 04](04-views-and-frames.md) — frames as isolated runtime boundaries — is what makes this clean. Each request lives in its own frame; the frames don't share state. Concurrent requests don't pollute each other.
+The pattern from [chapter 06](06-views-and-frames.md) — frames as isolated runtime boundaries — is what makes this clean. Each request lives in its own frame; the frames don't share state. Concurrent requests don't pollute each other.
 
 The `:on-create` event for the per-request frame typically dispatches setup via something like:
 
@@ -245,7 +245,7 @@ This is why run-to-completion drain matters for SSR: the server can't render hal
 
 ## Routing and SSR
 
-Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 04](04-views-and-frames.md) and [Spec 012](../../spec/012-Routing.md)). The same handler runs server-side, fed the request URL.
+Routing on the server is the same as routing on the client. The route slice in `app-db` is set by `:rf.route/handle-url-change` (per [chapter 06](06-views-and-frames.md) and [Spec 012](../../spec/012-Routing.md)). The same handler runs server-side, fed the request URL.
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
@@ -305,4 +305,4 @@ For non-Clojure hosts entirely (a TypeScript port of re-frame2), the exact same 
 
 ## Next
 
-- [08 — From re-frame v1](08-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.
+- [12 — From re-frame v1](12-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.

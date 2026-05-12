@@ -44,7 +44,7 @@
 
 (deftest state-machine-walkthrough-runs-headless
   (testing "examples/reagent/state-machine-walkthrough/core.cljc — every code block in
-            ch.05 § Headless testing runs and matches the chapter's claims."
+            ch.08 § Headless testing runs and matches the chapter's claims."
     (require 'state-machine-walkthrough.core :reload)
     (let [result (@(resolve 'state-machine-walkthrough.core/smoke-tests))]
       (is (= :ok result)

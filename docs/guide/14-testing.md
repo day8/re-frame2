@@ -1,4 +1,4 @@
-# 10 — Testing
+# 14 — Testing
 
 re-frame2's pattern is shaped to be tested. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values. There's nothing in the runtime that requires a browser, a network, or a clock to evaluate.
 
@@ -344,7 +344,7 @@ The override is a **redirect**, not a mock. The same dispatch shape the real fx 
 
 After running a test sequence, `@recorded` carries the events that fired, in order. Useful for verifying control flow without checking every state transition.
 
-The `->interceptor` primitive used above, the sandwich shape, and the per-frame `:interceptors` slot are all covered in [chapter 04a — Interceptors](04a-interceptors.md). If `:interceptors` on a frame is unfamiliar, read that first.
+The `->interceptor` primitive used above, the sandwich shape, and the per-frame `:interceptors` slot are all covered in [chapter 07 — Interceptors](07-interceptors.md). If `:interceptors` on a frame is unfamiliar, read that first.
 
 ### Disabling a logging interceptor
 
@@ -371,7 +371,7 @@ A handler that depends on the outside world via `inject-cofx` becomes determinis
              (-> (rf/get-frame-db f) :todos first val :created-at))))))
 ```
 
-`with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 03a — Coeffects](03a-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
+`with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 05 — Coeffects](05-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
 
 ## Conformance fixtures
 
@@ -443,6 +443,6 @@ The split is the inverse of what most React-side test suites accumulate over tim
 
 ## Next
 
-- [10a — Errors and how to handle them](10a-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
-- [11 — Tooling](11-devtools-and-pair-tools.md) — the trace bus, epochs, time-travel, source-coords, and the tools that attach to them.
+- [15 — Errors and how to handle them](15-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
+- [16 — Tooling](16-devtools-and-pair-tools.md) — the trace bus, epochs, time-travel, source-coords, and the tools that attach to them.
 - [Spec 008 — Testing](../../spec/008-Testing.md) — the full normative surface, JVM/CLJS boundary, and adapter notes.

@@ -1,11 +1,11 @@
-# 01a — app-db
+# 02 — app-db
 
 > *Programs must be written for people to read, and only incidentally for machines to execute.*
 > — Abelson & Sussman
 
 Chapter [01](01-why-re-frame2.md) made the argument that re-frame2's dynamic model is the load-bearing thing. This short chapter introduces the single most important *noun* in that model: **app-db**.
 
-The next chapter — [02 — Your first app](02-your-first-app.md) — uses app-db throughout. Read this first; ten minutes here saves an afternoon of wondering "but where does the data actually *live*?"
+The next chapter — [03 — Your first app](03-your-first-app.md) — uses app-db throughout. Read this first; ten minutes here saves an afternoon of wondering "but where does the data actually *live*?"
 
 ## What app-db is
 
@@ -64,11 +64,11 @@ The old `db` still exists, unchanged, after the handler returns. The new map sha
 
 This buys you three things:
 
-- **Pure handlers.** Because `db` is just a value, not a mutable cell, a handler is a *function* of `(old-state, event) → new-state`. You can test it as a function — pass in any old-state, assert on the new-state. No mocking, no setup. (Chapter [02](02-your-first-app.md) shows the test.)
+- **Pure handlers.** Because `db` is just a value, not a mutable cell, a handler is a *function* of `(old-state, event) → new-state`. You can test it as a function — pass in any old-state, assert on the new-state. No mocking, no setup. (Chapter [03](03-your-first-app.md) shows the test.)
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
-- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](11-devtools-and-pair-tools.md) and [re-frame-10x](11-devtools-and-pair-tools.md) to read.
+- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](16-devtools-and-pair-tools.md) and [re-frame-10x](16-devtools-and-pair-tools.md) to read.
 
 The lost flexibility — you can't sneak a mutation in from a corner of the app — is the point. Less flexibility, more inspectability.
 
@@ -100,7 +100,7 @@ A **frame** (per [Spec 002](../../spec/002-Frames.md)) is an isolated runtime bo
 
 The reason for the change is composition. Multi-instance scenarios — devcards on a documentation page, a story-tool playground with twenty variants on screen, server-side rendering where each request gets its own frame, isolated widgets embedded in a host page — all need *independent* app-dbs. v1 papered over this with explicit reset patterns; v2 names the boundary.
 
-For everyday code, this changes very little: there's still one app-db you read from and write to. You just don't have to invent the isolation when you finally need it. Chapter [04 — Views and frames](04-views-and-frames.md) walks the multi-frame story end to end. Until then, mentally substitute "app-db" with "the default frame's app-db" and you'll be right every time.
+For everyday code, this changes very little: there's still one app-db you read from and write to. You just don't have to invent the isolation when you finally need it. Chapter [06 — Views and frames](06-views-and-frames.md) walks the multi-frame story end to end. Until then, mentally substitute "app-db" with "the default frame's app-db" and you'll be right every time.
 
 The minimal API for reading the value of a frame's app-db at the REPL or in a test:
 
@@ -123,13 +123,13 @@ A question new readers ask early: "Where does X go in app-db?"
 
 The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, shaped how your domain shapes it. But the framework has opinions about *certain recurring shapes*, and those are documented as **Pattern docs** in the spec:
 
-- **HTTP request lifecycle data** — Use [Pattern-RemoteData](../../spec/Pattern-RemoteData.md): a standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [06 — Doing HTTP requests](06-doing-http-requests.md) walks the full story.
+- **HTTP request lifecycle data** — Use [Pattern-RemoteData](../../spec/Pattern-RemoteData.md): a standard five-key slice (`:status`, `:data`, `:error`, `:in-flight?`, `:last-fetched-at`) lives under `[:remote-data <feature> <id>]`. Chapter [10 — Doing HTTP requests](10-doing-http-requests.md) walks the full story.
 
-- **Form state** — Use [Pattern-Forms](../../spec/Pattern-Forms.md): `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [05a — Forms](05a-forms.md) walks the lifecycle.
+- **Form state** — Use [Pattern-Forms](../../spec/Pattern-Forms.md): `:draft`, `:submitted`, `:status`, per-field errors live under `[:forms <form-id>]`. Chapter [09 — Forms](09-forms.md) walks the lifecycle.
 
-- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [05 — State machines](05-state-machines.md) covers this.
+- **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [08 — State machines](08-state-machines.md) covers this.
 
-- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [12 — Routing](12-routing.md) walks routing.
+- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [18 — Routing](18-routing.md) walks routing.
 
 A handful of root keys at the top of app-db are **runtime-managed** (per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys)) — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`. Don't write to these directly; they're internals the framework maintains for you. Everything else is yours.
 
@@ -164,8 +164,8 @@ That's app-db.
 
 ## What comes next
 
-Chapter [02 — Your first app](02-your-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
+Chapter [03 — Your first app](03-your-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
 
 If you want the precise contract — what runtime slots are reserved, what the schema-validation surface looks like, how presets shape the per-frame defaults — [Spec 002 — Frames](../../spec/002-Frames.md) is the normative reference.
 
-If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [08 — From re-frame v1](08-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.
+If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [12 — From re-frame v1](12-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.

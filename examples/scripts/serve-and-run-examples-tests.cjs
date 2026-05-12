@@ -186,7 +186,7 @@ const EXAMPLES = [
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'boot', 'index.html'),
     outDir: path.join(OUT_ROOT, 'boot'),
   },
-  // Runnable companion to docs/guide/05-state-machines.md.
+  // Runnable companion to docs/guide/08-state-machines.md.
   {
     build: 'examples/state-machine-walkthrough',
     htmlSrc: path.join(REPO_ROOT, 'examples', 'reagent', 'state_machine_walkthrough', 'index.html'),

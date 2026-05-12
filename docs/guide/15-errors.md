@@ -1,4 +1,4 @@
-# 10a — Errors and how to handle them
+# 15 — Errors and how to handle them
 
 > *Errors should never pass silently. Unless explicitly silenced.*
 > — The Zen of Python
@@ -436,7 +436,7 @@ For a test fixture that resets per-frame error listeners across tests, see the `
 
 ## What you'll see in re-frame-10x and re-frame-pair2
 
-The dev tools — re-frame-10x v2 (per [11 — Tooling](11-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
+The dev tools — re-frame-10x v2 (per [16 — Tooling](16-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
 re-frame-10x's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
 
@@ -445,9 +445,9 @@ re-frame-10x's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instru
 - **[Spec 009 — Instrumentation](../../spec/009-Instrumentation.md)** — the authoritative reference for the trace surface, the error categories, the per-category recovery defaults, and the `:on-error` policy contract.
 - **[Spec 011 — SSR §Server error projection](../../spec/011-SSR.md#server-error-projection)** — the full story on `reg-error-projector`, the `:rf/public-error` shape, and the server-vs-client error boundary.
 - **[Spec-Schemas](../../spec/Spec-Schemas.md)** — the Malli schema for every trace event (`:rf/trace-event`), including the per-category `:tags` schemas.
-- **[10 — Testing](10-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
-- **[11 — Tooling](11-devtools-and-pair-tools.md)** — what re-frame-10x v2 and re-frame-pair2 do with the trace stream, including the errors panel.
+- **[14 — Testing](14-testing.md)** — the broader testing surface; the trace-listener test pattern in this chapter is one of the recipes there.
+- **[16 — Tooling](16-devtools-and-pair-tools.md)** — what re-frame-10x v2 and re-frame-pair2 do with the trace stream, including the errors panel.
 
 ## Next
 
-- [11 — Tooling](11-devtools-and-pair-tools.md) — the third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them.
+- [16 — Tooling](16-devtools-and-pair-tools.md) — the third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them.

@@ -1,16 +1,16 @@
-# 03a — Coeffects
+# 05 — Coeffects
 
-Chapter 03 set up the symmetry that re-frame2 leans on: a handler is a pure function from inputs to outputs. The outputs are an **effect map** — `:db`, `:fx`, and friends — describing what the runtime should do next. This chapter is about the matching half on the way in: the **coeffects map**.
+Chapter 04 set up the symmetry that re-frame2 leans on: a handler is a pure function from inputs to outputs. The outputs are an **effect map** — `:db`, `:fx`, and friends — describing what the runtime should do next. This chapter is about the matching half on the way in: the **coeffects map**.
 
 Coeffects are the *side-causes*. They're the data a handler reads from the world that isn't `app-db` — the current wall-clock time, a freshly-generated UUID, a value retrieved from `localStorage`, the browser's preferred language. Just as effects keep the handler from *performing* side-effects, coeffects keep the handler from *causing* them — no `(js/Date.)` in the handler body, no `(.getItem js/localStorage ...)`, no `(random-uuid)`. Inputs arrive in the coeffects map; the handler stays a function.
 
 You'll meet this surface the moment an event needs to stamp something with the current time, persist with a new id, or seed itself from a previously-saved value. If you've already seen `(inject-cofx :now)` or `(inject-cofx :todo.storage/todos)` in someone else's code and wondered what it was doing, this chapter is the answer.
 
-It's optional like 04a and 05a — a side-track between 03 and 04. The core path doesn't require writing your own coeffect; `:db` and `:event` are wired in automatically. Pick this up the first time you want a handler to read something the runtime hasn't already put under its nose.
+It's optional like 07 and 09 — a side-track between 04 and 06. The core path doesn't require writing your own coeffect; `:db` and `:event` are wired in automatically. Pick this up the first time you want a handler to read something the runtime hasn't already put under its nose.
 
 ## The side-cause
 
-Re-read the `reg-event-fx` shape from chapter 03 and the first argument changes meaning:
+Re-read the `reg-event-fx` shape from chapter 04 and the first argument changes meaning:
 
 ```clojure
 (rf/reg-event-fx :counter/inc
@@ -18,7 +18,7 @@ Re-read the `reg-event-fx` shape from chapter 03 and the first argument changes 
     {:db (update db :count inc)}))
 ```
 
-The handler destructures `:db` out of its first argument. That first argument *is* the coeffects map. Chapter 03 didn't dwell on it because every handler so far has only needed `:db` and `:event`, both of which the runtime stages automatically:
+The handler destructures `:db` out of its first argument. That first argument *is* the coeffects map. Chapter 04 didn't dwell on it because every handler so far has only needed `:db` and `:event`, both of which the runtime stages automatically:
 
 | Coeffect | What it is | Set by |
 |---|---|---|
@@ -52,11 +52,11 @@ The easy thing — and the wrong thing — is to call `(js/Date.)` directly in t
       (assoc-in db [:todos id] {:id id :title title :created-at now}))))
 ```
 
-Three things are wrong with it, and they're the same three things that were wrong with calling `js/fetch` from a handler in chapter 03:
+Three things are wrong with it, and they're the same three things that were wrong with calling `js/fetch` from a handler in chapter 04:
 
 **The handler isn't pure.** Same inputs no longer produce the same outputs. Calling the handler twice with `({} [:todo/add "buy milk"])` gives a different `:created-at` and a different `:id` each time. The test framework can't pin a value down without monkey-patching `js/Date` and `random-uuid` globally.
 
-**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 10](10-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
+**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 14](14-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
 
 **There's no override surface.** You can't, for one event, ask "what does the handler do if the time is fixed at noon on January 1st, 2026?" without reaching into `js/Date` itself — every other handler in the same test run gets the same redefinition, and tearing it back down is fiddly.
 
@@ -83,7 +83,7 @@ The handler is back to being a pure function. The two impure calls (`js/Date.`, 
 
 ## `reg-cofx` — registering an input
 
-A cofx handler is a function from context to context. It receives the full context map (the same one interceptors thread, per [chapter 04a](04a-interceptors.md)) and returns a new context with the cofx value `assoc-in`'d under `[:coeffects <id>]`:
+A cofx handler is a function from context to context. It receives the full context map (the same one interceptors thread, per [chapter 07](07-interceptors.md)) and returns a new context with the cofx value `assoc-in`'d under `[:coeffects <id>]`:
 
 ```clojure
 (rf/reg-cofx :now
@@ -123,7 +123,7 @@ A cofx is registered once and used many times. The use-site is `inject-cofx`, th
 
 ```clojure
 (rf/reg-event-fx :todo/add
-  [(rf/inject-cofx :now)]       ;; ← the interceptors slot from ch.03
+  [(rf/inject-cofx :now)]       ;; ← the interceptors slot from ch.04
   (fn [{:keys [db now]} [_ title]]
     ...))
 ```
@@ -248,7 +248,7 @@ Three things to notice:
 
 **The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. Per-frame and per-call overrides go further still — [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) covers `:interceptor-overrides` for stubbing the *interceptor itself* (e.g. swapping `:rf/inject-cofx-now` for one frame's events), useful when you want the stub scoped to one frame rather than to the whole test registry.
 
-**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 10 §Registrar isolation](10-testing.md#registrar-isolation-with-fresh-registrar).
+**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 14 §Registrar isolation](14-testing.md#registrar-isolation-with-fresh-registrar).
 
 **The handler-under-test never knew it was being tested.** It dispatched against a frame, asked for `:now` through `inject-cofx`, got back a fixed instant. No conditional in the handler body. No `if-test?` flag. The handler is the same shape in production and in the test; only the injected value changed.
 
@@ -258,12 +258,12 @@ This idiom generalises: any handler that depends on the outside world via cofx c
 
 A short orientation map for everything cofx-related you'll see in re-frame2 code:
 
-- **The cofx fn shape.** `(fn [ctx])` or `(fn [ctx value])`, returning the ctx with `[:coeffects <id>]` assoc'd. The handler runs as an interceptor's `:before`; the [interceptor chapter](04a-interceptors.md) is the deep-dive on why that machinery exists.
+- **The cofx fn shape.** `(fn [ctx])` or `(fn [ctx value])`, returning the ctx with `[:coeffects <id>]` assoc'd. The handler runs as an interceptor's `:before`; the [interceptor chapter](07-interceptors.md) is the deep-dive on why that machinery exists.
 - **The handler's view.** `reg-event-fx`'s first argument is the coeffects map. Destructure `:db`, `:event`, and any injected cofx keys you registered.
 - **`reg-event-db` is unaffected.** `:db` and the event vector only; injected cofxes aren't visible. Promote to `reg-event-fx` if you need them.
 - **`reg-event-ctx`** is the rare third surface — handler receives the full context map (both `:coeffects` and `:effects`). Most cofx-using code doesn't need it; reach for it when you genuinely want to reshape the context itself.
 
-The forward link from [chapter 04a's table](04a-interceptors.md#the-context-map) points here: the `:coeffects` half of the context map is where every input lives, and `inject-cofx` is the canonical way to put something new in it.
+The forward link from [chapter 07's table](07-interceptors.md#the-context-map) points here: the `:coeffects` half of the context map is where every input lives, and `inject-cofx` is the canonical way to put something new in it.
 
 ## What we covered
 
@@ -276,7 +276,7 @@ The forward link from [chapter 04a's table](04a-interceptors.md#the-context-map)
 
 ## Next
 
-- [04 — Views and frames](04-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
-- [04a — Interceptors](04a-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
-- [10 — Testing](10-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
+- [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
+- [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
+- [14 — Testing](14-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
 - [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the normative surface for `:interceptor-overrides`, including the `:rf/inject-cofx-now` override pattern.

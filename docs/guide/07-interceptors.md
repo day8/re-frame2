@@ -1,6 +1,6 @@
-# 04a — Interceptors
+# 07 — Interceptors
 
-You'll see `:interceptors` in `reg-frame`, the positional middle slot of `reg-event-*`, the `event-recorder` test pattern in [chapter 10](10-testing.md), the auth guard in [chapter 12](12-routing.md). All of it bottoms out on one concept this chapter teaches.
+You'll see `:interceptors` in `reg-frame`, the positional middle slot of `reg-event-*`, the `event-recorder` test pattern in [chapter 14](14-testing.md), the auth guard in [chapter 18](18-routing.md). All of it bottoms out on one concept this chapter teaches.
 
 This is a deep-dive. The core path doesn't need it — every counter, form, and HTTP request you've seen so far works without you writing a single interceptor. But the moment you want to *wrap* a handler — capture every event for a recorder, snapshot `app-db` for undo, validate input on the way in, log timing on the way out — interceptors are the surface for it.
 
@@ -69,7 +69,7 @@ You'll occasionally see two more keys on the context — `:rf/skip-handler?` (se
 
 Both `:before` and `:after` receive the context map and return a (possibly modified) context map. If a slot returns `nil`, the runtime treats it as "return the context unchanged" — so a `:before` that's purely for side-effects (a log line, a metric emission) doesn't need a trailing `ctx`.
 
-`:id` is conventionally a namespaced keyword. It's the handle for two things: trace events name your interceptor by id, and per-frame `:interceptor-overrides` substitute by id (see [chapter 10 §Disabling a logging interceptor](10-testing.md#disabling-a-logging-interceptor)). An anonymous interceptor (no `:id`) works but can't be overridden — tooling can't find it.
+`:id` is conventionally a namespaced keyword. It's the handle for two things: trace events name your interceptor by id, and per-frame `:interceptor-overrides` substitute by id (see [chapter 14 §Disabling a logging interceptor](14-testing.md#disabling-a-logging-interceptor)). An anonymous interceptor (no `:id`) works but can't be overridden — tooling can't find it.
 
 The whole construct is data. You can `pprint` it. You can compose it. You can store interceptors in a registry and look them up. v1 shipped a fistful of helpers (`debug`, `trim-v`, `enrich`, `after`, `on-changes`) that each wrapped `->interceptor` for one specific shape; v2 drops them. The principle: keep helpers that do non-trivial work (`path`, `unwrap`, `inject-cofx`); drop those that are just `(->interceptor :before f)` with a different name. Write custom `:before`/`:after` work using `->interceptor` directly — it's three lines.
 
@@ -139,7 +139,7 @@ When `:counter/inc` fires, you see the log entry on the way in, the handler runs
 
 ## A second worked example — the event recorder
 
-This is the pattern [chapter 10](10-testing.md#recording-dispatched-events-without-firing-them) uses for tests. An atom collects every event that fires; afterward the test asserts on the sequence.
+This is the pattern [chapter 14](14-testing.md#recording-dispatched-events-without-firing-them) uses for tests. An atom collects every event that fires; afterward the test asserts on the sequence.
 
 ```clojure
 (def recorded (atom []))
@@ -238,24 +238,24 @@ The per-frame chain is **prepended** to the per-handler chain. So an event with 
 
 The framework's three retained helpers — `path`, `unwrap`, `inject-cofx` — are good examples of what `:before` and `:after` can do.
 
-**Adding a coeffect.** [`inject-cofx`](03a-coeffects.md) is the canonical shape: a `:before` that runs a registered cofx fn and merges its result into `:coeffects`. The handler then reads the new value from its cofx map — `reg-event-fx` and `reg-event-ctx` see the full `:coeffects` map as their first argument; `reg-event-db` only sees `db` and the event vector, so it can't read injected cofx values directly (use `reg-event-fx` for any handler that needs them). [Chapter 03a — Coeffects](03a-coeffects.md) is the deep-dive on the cofx surface itself; this section just locates it inside the interceptor model.
+**Adding a coeffect.** [`inject-cofx`](05-coeffects.md) is the canonical shape: a `:before` that runs a registered cofx fn and merges its result into `:coeffects`. The handler then reads the new value from its cofx map — `reg-event-fx` and `reg-event-ctx` see the full `:coeffects` map as their first argument; `reg-event-db` only sees `db` and the event vector, so it can't read injected cofx values directly (use `reg-event-fx` for any handler that needs them). [Chapter 05 — Coeffects](05-coeffects.md) is the deep-dive on the cofx surface itself; this section just locates it inside the interceptor model.
 
 **Modifying an effect.** An `:after` that walks `[:effects :db]` and applies a transformation lets you write event-handler-agnostic state-shape policy. The `undoable` example above is exactly this: an `:after` that conditionally writes to `[:effects :db :drawer :undo]` after every change.
 
 **Short-circuiting the handler.** Setting `:rf/skip-handler?` to truthy on the context from a `:before` causes the handler-interceptor (and any downstream `:before` stages it would have wrapped) to be a no-op. The downstream `:after` stages still run — they get the chance to clean up. The schema-validation interceptor uses this on a validation failure ([Spec 010 §Validation order](../../spec/010-Schemas.md)); a custom auth gate could do the same.
 
-**Adding a follow-up dispatch.** An `:after` can `update-in [:effects :fx]` to append a `[:dispatch ...]` row. The event will be queued behind whatever the handler itself returned, in source order. This is how the auth guard in [chapter 12](12-routing.md) redirects unauthorised navigations — the `:before` mutates the event coeffect to point at `:route/login` instead.
+**Adding a follow-up dispatch.** An `:after` can `update-in [:effects :fx]` to append a `[:dispatch ...]` row. The event will be queued behind whatever the handler itself returned, in source order. This is how the auth guard in [chapter 18](18-routing.md) redirects unauthorised navigations — the `:before` mutates the event coeffect to point at `:route/login` instead.
 
 What an interceptor *should not* do:
 
-- **Don't perform side-effects directly.** That's what effects are for. An interceptor that writes to `js/localStorage` is just an effect handler in disguise — register it with `reg-fx` instead. The runtime trace will be clearer, tests will be cleaner, the override-by-id surface from [chapter 10](10-testing.md) will apply.
+- **Don't perform side-effects directly.** That's what effects are for. An interceptor that writes to `js/localStorage` is just an effect handler in disguise — register it with `reg-fx` instead. The runtime trace will be clearer, tests will be cleaner, the override-by-id surface from [chapter 14](14-testing.md) will apply.
 - **Don't depend on chain position.** A well-behaved interceptor is composable: it works whether it's first in the chain or last. If your interceptor only works when wrapped by another specific interceptor, you're encoding a chain ordering as a precondition; that's fragile.
 
 ## When the chain throws
 
 Each `:before` and `:after` is invoked inside a try/catch. If a slot throws, the exception is captured on the context under `:rf/interceptor-error` with the failing interceptor's `:id` and the phase (`:before` or `:after`). The chain *keeps running* — subsequent stages get the chance to do their cleanup with the error-bearing context.
 
-After the chain completes, the runtime checks for `:rf/interceptor-error` and emits `:rf.error/handler-exception` with the failing interceptor's id (not the event's). [Chapter 10a §Scenario 5 — unhandled exception in an interceptor](10a-errors.md#scenario-5--unhandled-exception-in-an-interceptor) walks through the full recovery semantics — a `:before` throw aborts the handler; an `:after` throw halts the cascade so the effects don't fire.
+After the chain completes, the runtime checks for `:rf/interceptor-error` and emits `:rf.error/handler-exception` with the failing interceptor's id (not the event's). [Chapter 15 §Scenario 5 — unhandled exception in an interceptor](15-errors.md#scenario-5-unhandled-exception-in-an-interceptor) walks through the full recovery semantics — a `:before` throw aborts the handler; an `:after` throw halts the cascade so the effects don't fire.
 
 The takeaway for the chapter: write your `:before` and `:after` to be defensive — the context they receive may carry an error from a prior stage. If your `:after` is cleaning up resources, check for the error and clean up anyway.
 
@@ -280,8 +280,8 @@ If you need a fourth rule, you're probably overthinking it. Interceptors are del
 
 ## Next
 
-- [05 — State machines](05-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
-- [11a — Performance](11a-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
+- [08 — State machines](08-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
+- [17 — Performance](17-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
 - [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the full normative surface for `:interceptors`, `:interceptor-overrides`, and `:fx-overrides`.
-- [Chapter 10 §Stubbing fxs, recording events, replacing interceptors](10-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
-- [Chapter 12 §Route guards](12-routing.md) — an auth interceptor wired on `:rf.route/navigate`.
+- [Chapter 14 §Stubbing fxs, recording events, replacing interceptors](14-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
+- [Chapter 18 §Route guards](18-routing.md) — an auth interceptor wired on `:rf.route/navigate`.

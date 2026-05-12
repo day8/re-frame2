@@ -1,4 +1,4 @@
-# 13 — Where to go next
+# 19 — Where to go next
 
 You've now seen the shape of re-frame2 from twelve angles — the argument, the cycle, views and frames, machines, HTTP, the server side, the v1 migration story, the dynamic-model essay, testing, devtools, and routing. The mental model is in place. A few directions from here.
 
@@ -12,7 +12,7 @@ The fastest way to make the pattern stick is to write code in it. The [worked ex
 
 Every example ships with a Playwright smoke spec (`<name>.spec.cjs`) — the spec is the executable acceptance test for "this example still works." Use them as templates when you write your own.
 
-If you'd like a **frame-aware component playground** alongside the live app — Storybook-flavoured but built on re-frame2's primitives — chapter [14 — Stories](14-stories.md) walks the surface, and [`examples/reagent/counter_with_stories/`](../../examples/reagent/counter_with_stories/) is the worked example.
+If you'd like a **frame-aware component playground** alongside the live app — Storybook-flavoured but built on re-frame2's primitives — chapter [20 — Stories](20-stories.md) walks the surface, and [`examples/reagent/counter_with_stories/`](../../examples/reagent/counter_with_stories/) is the worked example.
 
 ## Look up a pattern by name
 
@@ -20,7 +20,7 @@ When you hit a recurring shape — async work, websockets, forms, remote data, b
 
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — async work as data, not callbacks. The generic post-work-await-reply shape.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — the standard 5-key lifecycle slice for HTTP requests (idle / loading / loaded / error / stale).
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [05a — Forms](05a-forms.md).)
+- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [09 — Forms](09-forms.md).)
 - [Pattern-Boot](../../spec/Pattern-Boot.md) — chained app initialisation with progress UI and fail-fatal points.
 - [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
 - [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
@@ -44,7 +44,7 @@ Both are written precisely (so the AI track can use them) but readably (so this 
 
 ## Migrate from v1
 
-If you have an existing re-frame v1 app to bring across, [chapter 08](08-from-re-frame-v1.md) is the narrative version of the story. The mechanical version is [spec/MIGRATION.md](../../spec/MIGRATION.md) — an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 08 first to know what's coming; reach for MIGRATION when you're ready to drive the actual port.
+If you have an existing re-frame v1 app to bring across, [chapter 12](12-from-re-frame-v1.md) is the narrative version of the story. The mechanical version is [spec/MIGRATION.md](../../spec/MIGRATION.md) — an AI-driven migration prompt, currently 40+ rules, designed to be fed to an agent that does the rewrite. Read 12 first to know what's coming; reach for MIGRATION when you're ready to drive the actual port.
 
 ## Read the spec
 

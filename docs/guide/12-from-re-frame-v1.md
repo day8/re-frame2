@@ -1,4 +1,4 @@
-# 08 — From re-frame v1
+# 12 — From re-frame v1
 
 If you've been writing re-frame for a while — say, since 2015, when re-frame v0.something was already a real thing — most of re-frame2 will feel familiar. The dominoes are still six. `app-db` is still one atom. `reg-event-db` and `reg-event-fx` still take an id and a handler. `subscribe` and `dispatch` still do what they always did.
 
@@ -12,7 +12,7 @@ Most of re-frame2 is re-frame v1 with cleaner edges. The unchanged parts:
 - **The six dominoes.** Event dispatch → event handler → effect handling → query → view → DOM. Same pipeline, same semantics.
 - **Pure handlers.** `reg-event-db` and `reg-event-fx` still take pure functions. The argument shapes are unchanged.
 - **Subscriptions, including `:<-` chained subs.** The signal-graph composition rules are the same.
-- **Effects-as-data.** The effect map keeps the `:db` slot and the `:fx` slot. v1's top-level `:dispatch`/`:dispatch-later`/`:dispatch-n` shorthands fold into `:fx` — see M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md). The `:fx` shape `[[fx-id args] ...]` is unchanged. The HTTP fx becomes the framework-shipped `:rf.http/managed` (see [chapter 06](06-doing-http-requests.md)); apps that hand-rolled their own `:http` keep working but should adopt managed for the closed-set failure shapes, retry, and reply addressing.
+- **Effects-as-data.** The effect map keeps the `:db` slot and the `:fx` slot. v1's top-level `:dispatch`/`:dispatch-later`/`:dispatch-n` shorthands fold into `:fx` — see M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md). The `:fx` shape `[[fx-id args] ...]` is unchanged. The HTTP fx becomes the framework-shipped `:rf.http/managed` (see [chapter 10](10-doing-http-requests.md)); apps that hand-rolled their own `:http` keep working but should adopt managed for the closed-set failure shapes, retry, and reply addressing.
 - **Reagent for the view layer.** Hiccup is hiccup. Form-1, Form-2, and Form-3 components all still work.
 - **The event queue and run-to-completion semantics.** The drain still runs to completion before the view re-renders.
 - **`re-frame-10x`, `re-frame-test`, `re-frame-undo`, and friends** — they still work. The trace API they consume is preserved.
@@ -144,7 +144,7 @@ These are the load-bearing additions. They're optional — single-frame apps tha
 
 ### Frames
 
-Multi-instance state, with shared handlers. See [chapter 04](04-views-and-frames.md). If you're a single-frame app, you'll mostly just notice that the default frame is now called `:rf/default` and `app-db` lives inside it.
+Multi-instance state, with shared handlers. See [chapter 06](06-views-and-frames.md). If you're a single-frame app, you'll mostly just notice that the default frame is now called `:rf/default` and `app-db` lives inside it.
 
 In v1, there was effectively one frame, but it wasn't a first-class concept; `app-db` was a top-level Reagent atom. In re-frame2, `app-db` is a property of a frame. For most apps this is a relabelling; for apps that wanted multi-instance behaviour, it's a structural enabler.
 
@@ -152,7 +152,7 @@ The migration agent handles the renamings. Your code that does `@rf/app-db` is u
 
 ### Registered views
 
-`reg-view` is new. It's the canonical way to declare a view in re-frame2. See [chapter 04](04-views-and-frames.md).
+`reg-view` is new. It's the canonical way to declare a view in re-frame2. See [chapter 06](06-views-and-frames.md).
 
 Plain Reagent functions still work. They get a runtime warning if rendered inside a non-default frame's subtree (because their `dispatch`/`subscribe` will silently target the default frame, which is rarely what you want). For single-frame apps, the warning never fires.
 
@@ -160,11 +160,11 @@ The migration agent doesn't convert plain Reagent fns to `reg-view`; that's a st
 
 ### State machines
 
-The xstate-flavoured pattern in [chapter 05](05-state-machines.md). Entirely opt-in. No existing code is affected.
+The xstate-flavoured pattern in [chapter 08](08-state-machines.md). Entirely opt-in. No existing code is affected.
 
 ### Server-side rendering
 
-[Chapter 07](07-server-side.md). Also entirely opt-in for clients-only apps; the architecture changes that make SSR possible are present whether or not you use SSR. If you don't, you don't notice them.
+[Chapter 11](11-server-side.md). Also entirely opt-in for clients-only apps; the architecture changes that make SSR possible are present whether or not you use SSR. If you don't, you don't notice them.
 
 ### Schemas everywhere (CLJS reference)
 
@@ -188,7 +188,7 @@ If you used v1's `on-changes` interceptor — "when these in-paths change, compu
 
 A flow is what `on-changes` always pointed at — but as a first-class registered concept rather than an interceptor wired into a specific event's chain. Toggle it on with `[:rf.fx/reg-flow {...}]` from any event handler; toggle it off with `[:rf.fx/clear-flow id]`. Wizard steps that need a derivation only when active, feature gates that turn computations on for some users, advanced-mode-only state — all the cases `on-changes` couldn't reach because interceptors are statically wired.
 
-Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 04 §Computed values as state](04-views-and-frames.md#computed-values-as-state-the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../../spec/013-Flows.md).
+Flows are explicitly a **niche convenience** — not a sub replacement, not a new dataflow paradigm. Most derived values stay subs; flows are the "I need this in `app-db`" escape hatch (per [chapter 06 §Computed values as state](06-views-and-frames.md#computed-values-as-state-the-flow-escape-hatch)). v1's `on-changes` migrates to `reg-flow` mechanically (M-21 in the migration rules); apps without `on-changes` are unaffected. Full contract: [Spec 013](../../spec/013-Flows.md).
 
 ### Three v1 surfaces removed (plus a few interceptors)
 

@@ -1,4 +1,4 @@
-# 05 — State machines
+# 08 — State machines
 
 Some flows are naturally a sequence of states.
 
@@ -225,7 +225,7 @@ For HTTP / async callbacks, the convention "build a 2-element template, conj the
 ;; sees [:auth.login/success {:kind :success :value v}].
 ```
 
-This "extras-fold" makes the standard fx-callback convention work without ceremony — every async callback ships a value into the machine the same way. (The reply-payload shape — `{:kind :success :value v}` / `{:kind :failure :failure m}` — is the canonical envelope `:rf.http/managed` produces; see [chapter 06 — Doing HTTP requests](06-doing-http-requests.md).)
+This "extras-fold" makes the standard fx-callback convention work without ceremony — every async callback ships a value into the machine the same way. (The reply-payload shape — `{:kind :success :value v}` / `{:kind :failure :failure m}` — is the canonical envelope `:rf.http/managed` produces; see [chapter 10 — Doing HTTP requests](10-doing-http-requests.md).)
 
 ## Guards and actions
 
@@ -400,7 +400,7 @@ The v1 CLJS reference claims all of the above. A port that doesn't claim a given
 
 ## Patterns that bottom out in machines
 
-Three recurring shapes from [chapter 03](03-events-state-cycle.md) are state machines underneath. All three are pattern docs (convention), not Specs (contract). The shape is worth knowing in outline even if you don't write one today — the moment you reach for `setTimeout`-driven reconnect logic, an `:app/init` event that does six things, or a `for` loop that locks the UI for two seconds, you'll recognise it.
+Three recurring shapes from [chapter 04](04-events-state-cycle.md) are state machines underneath. All three are pattern docs (convention), not Specs (contract). The shape is worth knowing in outline even if you don't write one today — the moment you reach for `setTimeout`-driven reconnect logic, an `:app/init` event that does six things, or a `for` loop that locks the UI for two seconds, you'll recognise it.
 
 ### Pattern-WebSocket — a connection as a machine
 
@@ -588,7 +588,7 @@ A few traps the pattern doc calls out explicitly:
 - **Input changing mid-process.** The machine's `:data` holds the input vector that `:start-scan` snapshotted. If the source data changes while the scan runs, the machine keeps processing the original snapshot — which is usually what you want. If it isn't, `:reset` and re-start.
 - **Forgetting cancel.** Long jobs need a cancel path. The state-machine shape makes this trivial; ad-hoc self-redispatch loops make it painful.
 
-The v1 idiom for this — `^:flush-dom` event metadata, or self-redispatching `{:dispatch [...]}` "tail call" loops — is gone. The replacement is this machine: explicit states, named transitions, encapsulated `:data`, cancellation as a transition, progress as a snapshot field. Full walkthrough including the `:dispatch-later {:ms 0}` "yield once before one big block" variant: [`spec/Pattern-LongRunningWork.md`](../../spec/Pattern-LongRunningWork.md). For where this pattern sits among the other shapes of performance work in re-frame2 — and the worker-offload alternative — see [11a — Performance](11a-performance.md#when-to-reach-for-the-chunked-work-machine).
+The v1 idiom for this — `^:flush-dom` event metadata, or self-redispatching `{:dispatch [...]}` "tail call" loops — is gone. The replacement is this machine: explicit states, named transitions, encapsulated `:data`, cancellation as a transition, progress as a snapshot field. Full walkthrough including the `:dispatch-later {:ms 0}` "yield once before one big block" variant: [`spec/Pattern-LongRunningWork.md`](../../spec/Pattern-LongRunningWork.md). For where this pattern sits among the other shapes of performance work in re-frame2 — and the worker-offload alternative — see [17 — Performance](17-performance.md#when-to-reach-for-the-chunked-work-machine).
 
 ## When to reach for a machine, and when not to
 
@@ -880,7 +880,7 @@ The complete login flow from this chapter — including the runnable smoke tests
 
 ## The deeper claim
 
-State machines are a small example of the broader thesis [chapter 09](09-the-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**.
+State machines are a small example of the broader thesis [chapter 13](13-the-dynamic-model.md) makes: **constrained execution models are easier to reason about than free-form ones**.
 
 A finite state machine has, by construction, a small set of reachable states. You can enumerate them. You can prove things about transitions. You can render the whole flow as a diagram. You can ask "from this state, what can happen?" and the answer is bounded.
 
@@ -892,6 +892,6 @@ When the flow has the shape of a machine, write a machine.
 
 ## Next
 
-- [05a — Forms](05a-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
-- [06 — Doing HTTP requests](06-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
-- [07 — The server side](07-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.
+- [09 — Forms](09-forms.md) — the standard form-slice convention; the login flow's machine sits on top of a form slice underneath.
+- [10 — Doing HTTP requests](10-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end.
+- [11 — The server side](11-server-side.md) — server-side rendering, hydration, and the `:platforms` story for fx that should only run in one place.

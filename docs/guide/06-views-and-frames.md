@@ -1,4 +1,4 @@
-# 04 — Views and frames
+# 06 — Views and frames
 
 Two questions matter for the screen:
 
@@ -124,7 +124,7 @@ The view holds the `sort-by`, holds the price-formatting. Two responsibilities; 
 
 The view is now a thin shaping function over already-shaped data. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
 
-The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [11a — Performance](11a-performance.md).
+The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [17 — Performance](17-performance.md).
 
 ### `<sub` and `>evt` — the LIN aliases
 
@@ -260,7 +260,7 @@ Two instances of the same registered view, different frames. Each subtree's `dis
 
 One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 11 §Click-to-source](11-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 16 §Click-to-source](16-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
 
 ## Computed values as state — the flow escape hatch
 
@@ -280,7 +280,7 @@ Flows are deliberately a **niche convenience**, not a sub replacement — a typi
 
 ## Routing as state
 
-Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 12](12-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
+Routing is just another slice of `app-db`. The current route lives at `:route` (a `{:id :params :query :fragment :transition :nav-token}` map); navigation is an event; the active route is a sub. There's no separate routing runtime — it's data that happens to be reflected in the address bar. The full story (deterministic ranking, navigation tokens, `:can-leave` guards, multi-frame routing) is in [chapter 18](18-routing.md) and [Spec 012](../../spec/012-Routing.md). For this chapter, the load-bearing fact is that routing doesn't break the one-app-db model.
 
 ## Making the common UI states explicit — Pattern-NineStates
 
@@ -352,4 +352,4 @@ A useful test: if two instances might want to share state under any circumstance
 
 ## Next
 
-- [05 — State machines](05-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
+- [08 — State machines](08-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.

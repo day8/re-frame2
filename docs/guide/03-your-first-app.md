@@ -1,4 +1,4 @@
-# 02 — Your first app
+# 03 — Your first app
 
 The smallest interesting program is a counter: a number, two buttons, the number changes. Let's build it.
 
@@ -259,10 +259,10 @@ We touched every load-bearing primitive at least once:
 
 What we didn't cover yet:
 
-- **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [03 — Events, state, and the cycle](03-events-state-cycle.md).
-- **Multiple frames** — you only need them when you need them. Coming in [04 — Views and frames](04-views-and-frames.md).
-- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [05 — State machines](05-state-machines.md).
-- **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [06 — Doing HTTP requests](06-doing-http-requests.md).
+- **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [04 — Events, state, and the cycle](04-events-state-cycle.md).
+- **Multiple frames** — you only need them when you need them. Coming in [06 — Views and frames](06-views-and-frames.md).
+- **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [08 — State machines](08-state-machines.md).
+- **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [10 — Doing HTTP requests](10-doing-http-requests.md).
 
 ## A small extension
 
@@ -331,4 +331,4 @@ For apps where bundle size matters, `re-frame.adapter.reagent-slim` wires re-fra
 
 ## Next
 
-- [03 — Events, state, and the cycle](03-events-state-cycle.md) — what the dynamic story looks like when handlers also produce side-effects, not just state changes.
+- [04 — Events, state, and the cycle](04-events-state-cycle.md) — what the dynamic story looks like when handlers also produce side-effects, not just state changes.
