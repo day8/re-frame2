@@ -18,7 +18,9 @@ You'll know:
 
 ## Errors are structured trace events
 
-Every error re-frame2 emits is a map with a known shape:
+Every error you've ever caught with `console.error("something broke", e)` has lost half its information. The half that matters. You kept the message string and the stack trace; you threw away *which event was in flight, which frame owned it, which handler-id was on the hook, which cofx had been injected, what the cascade had already done before this throw landed*. Then you went hunting for that information by hand — reading source, re-running, sprinkling `println`s, asking the user "what were you doing right before this?"
+
+re-frame2's stance: that information should never have left. If the runtime knows it, the error event carries it. **Every error re-frame2 emits is a map with a known shape**, and the shape is fat by design:
 
 ```clojure
 {:id        42                                ;; unique trace id
@@ -232,6 +234,8 @@ A walk through the six failure modes you'll meet most often. Each is JVM-runnabl
 
 ### Scenario 1 — malformed event vector
 
+*You renamed `:cart/add` to `:cart/add-item` last sprint. You updated every call site you knew about. One survived in a deeply-nested view your demo path doesn't hit. A user clicks it. The dispatch goes nowhere — and you find out only because someone in support pings you on Slack.*
+
 ```clojure
 (rf/dispatch [])              ;; empty vector — no event-id
 (rf/dispatch [:nope])         ;; well-shaped, but :nope isn't registered
@@ -254,6 +258,8 @@ The first call is a programming error caught at the router (the event id is `nil
 The runtime emits the trace and moves on — the dispatch is a no-op. The app keeps running.
 
 ### Scenario 2 — a handler throws
+
+*The user came in on a deep link that bypassed your `:app/init` event. `:cart` was never seeded. The first interaction walks `update-in` into a `nil` and the whole cascade folds.*
 
 ```clojure
 (rf/reg-event-db :cart/add-item
@@ -285,6 +291,8 @@ If `(:cart db)` is nil and you dispatch `[:cart/add-item {...}]`, `update-in` wa
 ```
 
 ### Scenario 3 — missing fx or cofx
+
+*You moved an fx-id behind a feature module. The module's load order changed. Now an event fires before the fx is registered — silently. In v1 you'd notice when the side-effect just… didn't happen. In re-frame2 the trace tells you exactly which fx-id went missing and which event was carrying it.*
 
 ```clojure
 (rf/reg-event-fx :order/submit
@@ -322,6 +330,8 @@ A missing **cofx** behaves similarly. If `inject-cofx` references an unregistere
 
 ### Scenario 4 — schema validation at the boundary
 
+*A view layer that should have produced a uuid produced a string. The handler downstream "worked" — until two screens later, when an `=` comparison against the database row silently returned `false` and the user's edit appeared to vanish. A schema at the event boundary catches the type confusion at the point of dispatch, not three steps downstream.*
+
 If you've attached schemas to events (per [Spec 010](../../spec/010-Schemas.md)) and a malformed event arrives:
 
 ```clojure
@@ -354,11 +364,15 @@ The handler doesn't run; the cascade halts. In dev this surfaces the bug fast; i
 
 ### Scenario 5 — unhandled exception in an interceptor
 
+*Your logging interceptor calls into a tracing library you upgraded last week. The library's API changed in a minor version. Now every dispatch in the app throws — not in the handler you'd suspect, but in the `:after` you forgot you'd written. Without the interceptor-id pinned in the trace, this is the bug that takes an afternoon to find.*
+
 Interceptors run before and after the handler. A `:before` fn that throws halts the chain in the same shape as a handler exception — the runtime catches and emits `:rf.error/handler-exception` with `:failing-id` set to the interceptor's id, not the event's. (HTTP middleware has its own narrower category — `:rf.error/http-interceptor-failed` — per [014](../../spec/014-HTTPRequests.md).)
 
 A `:after` fn that throws is the trickier case: by then the handler has produced effects, and the runtime needs to decide whether to let those effects fire. The framework's choice is "halt the cascade" — the snapshot is not committed, the `:fx` queue for this dispatch is not processed. The error event carries enough information (the event vector, the interceptor's id, the partial ctx) for the dev to reconstruct.
 
 ### Scenario 6 — frame destroyed mid-dispatch
+
+*The user navigated away. The route teardown destroyed the per-route frame. Then the HTTP reply for the search they kicked off three seconds ago arrived, with an `:on-success` carrying a dispatch into the frame that no longer exists. In v1, this manifested as a mystery "subscribe returned stale data after navigation" bug. In re-frame2, the trace tells you exactly which frame the dispatch tried to land in and that the runtime rejected it.*
 
 A subtle one: a dispatch arrives against a frame whose `(:lifecycle frame-record)` carries `:destroyed? true`. This happens in real apps when:
 
@@ -439,6 +453,18 @@ For a test fixture that resets per-frame error listeners across tests, see the `
 The dev tools — re-frame-10x v2 (per [15 — Tooling](15-devtools-and-pair-tools.md)) and re-frame-pair2 (per [Spec Tool-Pair](../../spec/Tool-Pair.md)) — consume the same trace stream you'd consume with `register-trace-cb!`. The tools subscribe, filter on `:op-type :error`, and render an "errors" panel. There's nothing the tools see that you couldn't see from a listener — the channel is the contract; the tools just paint it.
 
 re-frame-10x's epoch buffer (per [Spec 009 §Epoch buffer](../../spec/009-Instrumentation.md)) groups trace events by dispatch cascade. When a cascade errors, the panel surfaces "this dispatch produced this error" with the full cascade tree — useful for the "but where did that fx come from?" debugging step.
+
+## What structured errors buy you
+
+Stand back from the schema and the tables and look at what's actually changed.
+
+A `try`/`catch` gives you an exception object and the stack that produced it. A `console.error` gives you a string in a log. Both of those are *terminal* — once the error has happened, you've lost the context that produced it, and recovering that context is a manual exercise the next time it happens.
+
+A structured trace event is *substrate*. The same map your dev panel renders is the map your monitoring bridge ships to Sentry, is the map your test asserts on, is the map your SSR projector sanitises for the wire, is the map re-frame-10x's epoch buffer groups by dispatch cascade so you can see "this event produced this error" with the full causal tree around it. Nothing has to be reconstructed; everything has already been recorded in the shape downstream consumers need.
+
+That's the part `try`/`catch` could never give you. Not because exceptions are wrong — they aren't — but because exceptions are *narrow*: they carry what threw, not what the system was doing when it threw. The trace event carries both. And because the trace event is data — namespaced keywords, plain maps, additive-only schema — every tool that touches it speaks the same language: the dev panel, the monitoring bridge, the test, the projector, the AI in your editor when you paste it in and ask "what does this mean?"
+
+Errors stop being incidents to recover from and start being signals you can route. The seam vanishes — between dev and prod, between client and server, between "what the runtime saw" and "what the human reads."
 
 ## Where to read next
 
