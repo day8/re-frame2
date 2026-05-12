@@ -1,9 +1,11 @@
 (ns day8.re-frame2-causa.shell
   "The Causa shell — empty-pane layout per tools/causa/spec/007-UX-IA.md.
 
-  Phase 1 ships the *structure* without the panels. Each panel slot
-  renders a 'Coming soon — rf2-xxx' stub; the live panel views land in
-  subsequent beads under rf2-5aw5v.
+  Phase 1 (rf2-n6x4q) shipped the *structure* without the panels; per
+  Phase 2 (rf2-op3bz) the hero `:event-detail` panel is now live. The
+  remaining sidebar slots still render the 'Coming soon — rf2-xxx'
+  stub; their live panel views land in subsequent beads under
+  rf2-5aw5v.
 
   ## Layout
 
@@ -34,7 +36,9 @@
   Per rf2-tijr the view code is pure hiccup. The substrate adapter's
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.panels.event-detail :as event-detail]
+            [day8.re-frame2-causa.registry :as registry]))
 
 ;; ---- design tokens (dark theme per spec/007-UX-IA.md) --------------------
 
@@ -54,6 +58,27 @@
    :text-tertiary "#6B7080"
    :accent-violet "#7C5CFF"
    :magenta       "#E879F9"})
+
+;; ---- sidebar items -------------------------------------------------------
+
+(def ^:private sidebar-items
+  "The sidebar's panel list. Per spec/007-UX-IA.md §Sidebar groups —
+  three groups, divider-separated. Phase 2 (rf2-op3bz) lights up
+  `:event-detail`; remaining items still render the Phase 1 stub when
+  selected (see `panel-view-for`)."
+  [{:id :event-detail :label "Event detail" :bead "rf2-op3bz" :live? true}
+   {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
+   {:id :causality    :label "Causality"     :bead "rf2-xxx"}
+   {:id :subs         :label "Subscriptions" :bead "rf2-xxx"}
+   {:id :fx           :label "Effects"       :bead "rf2-xxx"}
+   {:id :trace        :label "Trace"         :bead "rf2-xxx"}
+   {:id :machines     :label "Machines"      :bead "rf2-xxx"}
+   {:id :flows        :label "Flows"         :bead "rf2-xxx"}
+   {:id :performance  :label "Performance"   :bead "rf2-xxx"}
+   {:id :issues       :label "Issues"        :bead "rf2-xxx"}
+   {:id :schemas      :label "Schemas"       :bead "rf2-xxx"}
+   {:id :hydration    :label "Hydration"     :bead "rf2-xxx"}
+   {:id :copilot      :label "Co-pilot"      :bead "rf2-xxx"}])
 
 ;; ---- regions -------------------------------------------------------------
 
@@ -83,34 +108,52 @@
     [:span {:style {:color       (:text-tertiary tokens)
                     :font-size   "12px"
                     :font-weight 400}}
-     "Phase 1 (rf2-n6x4q)"]]
+     "Phase 2 (rf2-op3bz)"]]
    [:div {:style {:display "flex" :align-items "center" :gap "12px"
                   :color    (:text-secondary tokens)
                   :font-size "12px"
                   :font-weight 400}}
     [:span "Ctrl+Shift+C to toggle"]]])
 
+(defn- sidebar-item
+  "Render one sidebar item. Clicking the row fires
+  `:rf.causa/select-panel`; the live row highlights based on the
+  `:rf.causa/selected-panel` sub the parent reads."
+  [{:keys [id label live?]} active?]
+  [:li {:data-testid (str "rf-causa-sidebar-item-" (name id))
+        :on-click    #(rf/dispatch [:rf.causa/select-panel id])
+        :style       {:padding         "6px 16px"
+                      :cursor          "pointer"
+                      :background      (if active? (:bg-active tokens) "transparent")
+                      :color           (cond
+                                         active? (:text-primary tokens)
+                                         live?   (:text-secondary tokens)
+                                         :else   (:text-tertiary tokens))
+                      :font-weight     (if active? 600 400)}}
+   [:span {:style {:margin-right "8px"
+                   :color        (if active?
+                                   (:accent-violet tokens)
+                                   (:text-tertiary tokens))}}
+    (if active? "◉" "○")]
+   label
+   (when (and (not active?) live?)
+     [:span {:style {:margin-left "8px"
+                     :color       (:accent-violet tokens)
+                     :font-size   "10px"
+                     :text-transform "uppercase"
+                     :letter-spacing "0.5px"}}
+      "live"])])
+
 (defn- sidebar
   "Sidebar (192px) — panel navigation + density toggle. Per spec/007-
   UX-IA.md §Sidebar groups three groups (events/app-db/causality/...,
   conditional-with-activity, dormant) divider-separated.
 
-  Phase 1 stub: panel labels with 'Coming soon — rf2-xxx' annotation.
-  The hero panel (`:event-detail`, lock #7) is highlighted as active."
+  Phase 2: the active panel is driven by `:rf.causa/selected-panel`.
+  Clicking a row dispatches `:rf.causa/select-panel`."
   []
-  (let [items [{:id :events       :label "Events"        :active? true  :bead "rf2-xxx"}
-               {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
-               {:id :causality    :label "Causality"     :bead "rf2-xxx"}
-               {:id :subs         :label "Subscriptions" :bead "rf2-xxx"}
-               {:id :fx           :label "Effects"       :bead "rf2-xxx"}
-               {:id :trace        :label "Trace"         :bead "rf2-xxx"}
-               {:id :machines     :label "Machines"      :bead "rf2-xxx"}
-               {:id :flows        :label "Flows"         :bead "rf2-xxx"}
-               {:id :performance  :label "Performance"   :bead "rf2-xxx"}
-               {:id :issues       :label "Issues"        :bead "rf2-xxx"}
-               {:id :schemas      :label "Schemas"       :bead "rf2-xxx"}
-               {:id :hydration    :label "Hydration"     :bead "rf2-xxx"}
-               {:id :copilot      :label "Co-pilot"      :bead "rf2-xxx"}]]
+  (let [active (or @(rf/subscribe [:rf.causa/selected-panel])
+                   registry/default-panel-id)]
     [:nav {:style {:width            "192px"
                    :flex-shrink      0
                    :background       (:bg-1 tokens)
@@ -122,30 +165,14 @@
      (into [:ul {:style {:list-style    "none"
                          :margin        0
                          :padding       "8px 0"}}]
-           (for [{:keys [id label active?]} items]
+           (for [{:keys [id] :as item} sidebar-items]
              ^{:key id}
-             [:li {:style {:padding         "6px 16px"
-                           :cursor          "default"
-                           :background      (if active? (:bg-active tokens) "transparent")
-                           :color           (if active?
-                                              (:text-primary tokens)
-                                              (:text-secondary tokens))
-                           :font-weight     (if active? 600 400)}}
-              [:span {:style {:margin-right "8px"
-                              :color        (if active?
-                                              (:accent-violet tokens)
-                                              (:text-tertiary tokens))}}
-               (if active? "◉" "○")]
-              label]))]))
+             [sidebar-item item (= id active)]))]))
 
-(defn- canvas
-  "Canvas — the active panel's content. Per spec/007-UX-IA.md §The
-  default landing view: Events (event-detail hero, lock #7) is the
-  default landing.
-
-  Phase 1 stub: the canvas renders the 'Coming soon' message for the
-  hero panel slot."
-  []
+(defn- stub-panel
+  "Phase 1 'Coming soon' placeholder still used by every non-hero
+  sidebar item until its own bead lands."
+  [{:keys [label bead]}]
   [:main {:style {:flex             1
                   :overflow         "auto"
                   :padding          "24px"
@@ -155,37 +182,33 @@
    [:div {:style {:max-width "640px"}}
     [:h1 {:style {:font-size "16px" :font-weight 600 :margin "0 0 12px 0"
                   :color     (:text-primary tokens)}}
-     "Event detail (hero)"]
+     label]
     [:p {:style {:font-size "14px" :line-height 1.5
                  :color     (:text-secondary tokens)
                  :margin    "0 0 16px 0"}}
-     "Coming soon — the event-detail panel is Phase 2 work."
-     " Per "
+     "Coming soon — this panel ships under "
      [:code {:style {:font-family "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"
                      :font-size   "13px"
                      :color       (:accent-violet tokens)}}
-      "tools/causa/spec/000-Vision.md"]
-     ", this panel lands the event vector, the db-diff, the inline"
-     " mini-graph, fx fired, subs recomputed, renders, duration."]
-    [:p {:style {:font-size "13px" :line-height 1.5
-                 :color     (:text-tertiary tokens)
-                 :margin    "0 0 16px 0"}}
-     "Frame: "
-     [:code {:style {:color       (:accent-violet tokens)
-                     :font-family "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"}}
-      ":rf/causa"]
-     " (host's "
-     [:code {:style {:color       (:text-tertiary tokens)
-                     :font-family "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"}}
-      ":rf/default"]
-     " is unaffected)."]
-    (let [buf-count (count @(rf/subscribe [:rf.causa/trace-buffer]))]
-      [:p {:style {:font-size "13px"
-                   :color     (:text-tertiary tokens)
-                   :margin    0}}
-       "Trace buffer: "
-       [:span {:style {:color (:accent-violet tokens)}} buf-count]
-       " events collected."])]])
+      bead]
+     " of the rf2-5aw5v Causa epic."]]])
+
+(defn- canvas
+  "Canvas — renders the active panel's content. Phase 2 mounts the
+  live `:event-detail` panel; every other slot still renders the
+  Phase 1 'Coming soon' stub.
+
+  The match is on `:rf.causa/selected-panel`. When a row dispatches
+  `:rf.causa/select-panel <id>` the registry sets `:selected-panel`
+  on the `:rf/causa` frame's app-db and this canvas recomputes."
+  []
+  (let [selected (or @(rf/subscribe [:rf.causa/selected-panel])
+                     registry/default-panel-id)
+        item     (some #(when (= (:id %) selected) %) sidebar-items)]
+    (case selected
+      :event-detail [event-detail/event-detail-view]
+      [stub-panel (or item {:label "Unknown panel"
+                            :bead  "rf2-xxx"})])))
 
 (defn- bottom-rail
   "Bottom rail (40px) — time-travel scrubber + frame info + issues
