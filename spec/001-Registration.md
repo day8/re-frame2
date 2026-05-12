@@ -100,6 +100,8 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 
 > Machine guards and actions are **NOT** a registry kind — they are **machine-scoped**, declared in each machine's `:guards` / `:actions` maps inside the `create-machine-handler` spec. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler).
 
+> **Downstream tools needing kind-shaped registration own their own side-tables.** The framework registrar's `kinds` set stays closed; tools like Story (`tools/story/`) maintain their own internal registries (e.g. `tools.story.registry/*`) and expose query surfaces via bridge fns. The closed-kinds discipline keeps the framework boundary stable; per-tool side-tables stay scoped to the tool that owns them.
+
 ## The handler function
 
 A named function is preferred.

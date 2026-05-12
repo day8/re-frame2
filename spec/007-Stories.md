@@ -442,9 +442,9 @@ The stories library's tool surface is **extensible by registering panels**. A pa
    :render    :a11y/inspector-view})        ;; id of a reg-view
 ```
 
-Panels are registered against the story-tool's own registry; the tool reads `(rf/handlers :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
+Panels are registered against the story-tool's own registry; the tool reads `(story/handlers :story-panel)` and lays them out. Same shape as everything else in re-frame2 — registry + metadata.
 
-The framework registrar already supports new kinds via the existing reg- machinery (per [001-Registration.md](001-Registration.md)); panels do not require a new framework primitive.
+Story maintains its kind-shaped registrations in a tool-owned side-table at `tools.story.registry/*`. This is internal to the `tools/story/` artefact and stays out of production bundles. The bridge fn `story/handlers` exposes the §Public-query-surfaces parity (e.g. `(story/handlers :story)` enumerates the side-table). The framework registrar's closed-kinds discipline ([001-Registration.md](001-Registration.md)) is preserved — Story does not register with `re-frame.registrar`.
 
 ## What the framework supplies vs. what the library adds
 
