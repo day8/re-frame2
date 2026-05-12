@@ -161,21 +161,105 @@
       value)
     value))
 
+(defn- validate-and-trace
+  "Run the user's sub body fn once and project the result through the
+  trace + performance + validate + error-recovery layer. Called by the
+  memo wrapper (`make-memoised-body`) on a true recompute — the memo
+  path skips this entire function when input is `=` to last-seen.
+
+  Concerns folded in here, in order:
+
+  1. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
+     The memo-hit path does NOT emit (per Spec 006 §No-op via value
+     equality).
+  2. Spec 009 §Performance instrumentation (rf2-du3i) — bracket the
+     body call in performance marks so prod builds with the perf flag
+     enabled produce a `rf:sub:<sub-id>` measure entry. Default-off;
+     under `:advanced` + `re-frame.performance/enabled?=false` the
+     bracket DCEs.
+  3. Spec 010 §Validation order step 6 (rf2-wcam) — validate the body's
+     return value against the sub's `:spec` meta. Failures emit
+     :rf.error/schema-validation-failure and yield nil (recovery
+     :replaced-with-default).
+  4. Spec 009 §Error contract — `try/catch` around (1)+(2)+(3). On
+     exception emit :rf.error/sub-exception and yield nil (recovery
+     :replaced-with-default)."
+  [body-fn in-vals query-id query-v frame-id input-signals sub-meta]
+  (trace/emit! :sub/run :sub/run
+               {:sub-id  query-id
+                :query-v query-v
+                :frame   frame-id})
+  (try
+    (let [computed (performance/mark-and-measure :sub query-id
+                    (if (empty? input-signals)
+                      (body-fn (first in-vals) query-v)
+                      ;; Layer-2+: deliver inputs as a coll if many,
+                      ;; or singleton when only one chain entry.
+                      (if (= 1 (count input-signals))
+                        (body-fn (first in-vals) query-v)
+                        (body-fn (vec in-vals) query-v))))]
+      (maybe-validate-sub-return! computed query-v query-id sub-meta))
+    (catch #?(:clj Throwable :cljs :default) e
+      (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
+        (trace/emit-error!
+          :rf.error/sub-exception
+          {:failing-id        query-id
+           :sub-id            query-id
+           :sub-query         query-v
+           :exception         e
+           :exception-message msg
+           :reason            (str "Subscription `" query-id
+                                   "` threw while computing: "
+                                   msg ". Returning nil.")
+           :recovery          :replaced-with-default}))
+      nil)))
+
+(defn- make-memoised-body
+  "Build the compute fn passed to `adapter/make-derived-value` — a
+  closure over a `volatile!` sentinel pair that enforces the Spec 006
+  §No-op via value equality (rf2-719e) discipline.
+
+  Reagent's auto-run reaction unconditionally invokes the compute fn
+  on any source-watch fire, then dedups *downstream notification* by
+  `=`. That's one level too late for the spec — the body fn itself
+  must NOT re-run when the resolved input value is `=` to the
+  last-seen. This wrapper compares `in-vals` against the previous
+  invocation and short-circuits to the memoised return value when
+  equal. Reagent's dependency tracking still observes every `deref`
+  because the wrapper *is* the compute fn — only the user's body
+  (and the trace+validate+perf+recovery layer that brackets it) is
+  suppressed.
+
+  Returns a `(fn [& in-vals])`. When `body-fn` is nil (the unknown-sub
+  path — see `compute-and-cache!`) the wrapper yields nil on every
+  call without touching the memo cells."
+  [body-fn query-id query-v frame-id input-signals sub-meta]
+  (let [last-in-vals (volatile! ::unset)
+        last-result  (volatile! nil)]
+    (fn [& in-vals]
+      (when body-fn
+        (if (= @last-in-vals in-vals)
+          @last-result
+          (let [computed (validate-and-trace
+                           body-fn in-vals query-id query-v
+                           frame-id input-signals sub-meta)]
+            (vreset! last-in-vals in-vals)
+            (vreset! last-result computed)
+            computed))))))
+
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve :<- chain, build the reaction, attach
   on-dispose to evict the cache slot.
 
-  Per Spec 006 §No-op via value equality (rf2-719e): the user's body fn
-  is wrapped in a value-equality memoization layer. Reagent's auto-run
-  reaction unconditionally invokes the compute fn on any source-watch
-  fire, then dedups *downstream notification* by `=`. That's one level
-  too late for the spec — the body fn itself must NOT re-run when the
-  resolved input value is `=` to the last-seen. The wrapper compares
-  `in-vals` against the previous invocation and short-circuits to the
-  cached return value when equal. Reagent's dependency tracking still
-  observes every `deref` because the wrapper *is* the compute fn — only
-  the user's body is suppressed.
+  The compute fn handed to the substrate adapter is built in two
+  layers, each named:
+
+    - `make-memoised-body` — Spec 006 §No-op via value equality
+      (rf2-719e). Wraps the user's body in a `=`-skipping memo.
+    - `validate-and-trace`  — Spec 009 :sub/run trace emit, Spec 009
+      perf bracket (rf2-du3i), Spec 010 step 6 validation (rf2-wcam),
+      and Spec 009 error contract (`:replaced-with-default` on throw).
 
   Per Spec 006 §What happens when a sub references an unknown sub
   (rf2-l9u5): when the registrar lookup misses, emit
@@ -186,88 +270,28 @@
   semantic by virtue of not caching the nil path; v2 preserves it
   by branching here on nil meta."
   [frame-id query-v]
-  (let [query-id     (first query-v)
-        meta         (registrar/lookup :sub query-id)
-        _            (when (nil? meta)
-                       (trace/emit-error! :rf.error/no-such-sub
-                                          {:query-v query-v :frame frame-id}))
-        body-fn      (:handler-fn meta)
-        input-signals (:input-signals meta)
+  (let [query-id      (first query-v)
+        sub-meta      (registrar/lookup :sub query-id)
+        _             (when (nil? sub-meta)
+                        (trace/emit-error! :rf.error/no-such-sub
+                                           {:query-v query-v :frame frame-id}))
+        body-fn       (:handler-fn sub-meta)
+        input-signals (:input-signals sub-meta)
         ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive subs.
-        inputs (if (empty? input-signals)
-                 [(frame/get-frame-db frame-id)]
-                 (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
-        ;; Per Spec 006 §No-op via value equality (rf2-719e): memoize the
-        ;; body call against the last-seen in-vals. The sentinel ensures
-        ;; the first invocation always runs.
-        last-in-vals (volatile! ::unset)
-        last-result  (volatile! nil)
-        reaction (adapter/make-derived-value
-                   inputs
-                   (fn [& in-vals]
-                     (when body-fn
-                       (if (= @last-in-vals in-vals)
-                         @last-result
-                         (let [;; Per Spec 009 §:op-type vocabulary: :sub/run
-                               ;; marks subscription recompute — emitted each
-                               ;; time the body actually runs against fresh
-                               ;; inputs. The memo path above does NOT count
-                               ;; as a re-run per Spec 006 §No-op via value
-                               ;; equality.
-                               _ (trace/emit! :sub/run :sub/run
-                                              {:sub-id  query-id
-                                               :query-v query-v
-                                               :frame   frame-id})
-                               ;; Per Spec 009 §Performance instrumentation
-                               ;; (rf2-du3i): bracket the sub recompute in
-                               ;; performance marks so prod builds with the
-                               ;; perf flag enabled produce a
-                               ;; `rf:sub:<sub-id>` measure entry. Default-
-                               ;; off; under `:advanced` +
-                               ;; `re-frame.performance/enabled?=false` the
-                               ;; bracket DCEs.
-                               v (try
-                                   (let [v (performance/mark-and-measure :sub query-id
-                                             (if (empty? input-signals)
-                                               (body-fn (first in-vals) query-v)
-                                               ;; Layer-2+: deliver inputs as a coll if many,
-                                               ;; or singleton when only one chain entry.
-                                               (if (= 1 (count input-signals))
-                                                 (body-fn (first in-vals) query-v)
-                                                 (body-fn (vec in-vals) query-v))))]
-                                     ;; Per Spec 010 §step 6: validate sub-return
-                                     ;; post-compute against the sub's :spec.
-                                     ;; Failures emit :rf.error/schema-validation-failure
-                                     ;; and the sub yields nil (recovery
-                                     ;; :replaced-with-default).
-                                     (maybe-validate-sub-return! v query-v query-id meta))
-                                   (catch #?(:clj Throwable :cljs :default) e
-                                     (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
-                                       (trace/emit-error!
-                                         :rf.error/sub-exception
-                                         {:failing-id        query-id
-                                          :sub-id            query-id
-                                          :sub-query         query-v
-                                          :exception         e
-                                          :exception-message msg
-                                          :reason            (str "Subscription `" query-id
-                                                                  "` threw while computing: "
-                                                                  msg ". Returning nil.")
-                                          :recovery          :replaced-with-default}))
-                                     ;; Per Spec 009 §Error contract: replaced-with-default
-                                     ;; means return nil.
-                                     nil))]
-                           (vreset! last-in-vals in-vals)
-                           (vreset! last-result v)
-                           v)))))
-        cache (:sub-cache (frame/frame frame-id))
-        k     (cache-key query-v)]
+        inputs        (if (empty? input-signals)
+                        [(frame/get-frame-db frame-id)]
+                        (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
+        memoised-body (make-memoised-body
+                        body-fn query-id query-v frame-id input-signals sub-meta)
+        reaction      (adapter/make-derived-value inputs memoised-body)
+        cache         (:sub-cache (frame/frame frame-id))
+        k             (cache-key query-v)]
     ;; Skip caching the no-such-sub miss — see the rf2-l9u5 note in the
     ;; docstring. The reaction is built so callers that hold a reference
     ;; deref to nil (per Spec 009 §Error contract recovery
     ;; :replaced-with-default), but the cache slot stays empty so a later
     ;; registration is observed by the next subscribe.
-    (when (and cache meta)
+    (when (and cache sub-meta)
       (swap! cache assoc k {:reaction        reaction
                             :inputs          input-signals
                             :ref-count       1
