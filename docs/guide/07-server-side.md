@@ -119,6 +119,12 @@ When the runtime is in server-platform mode and a handler returns an effect map 
 
 This means **the same event handler works in both contexts**. A login flow's `:auth/login-success` handler dispatches `[:auth.session/store {:token ...}]`, which fires `[:localstorage/set ...]` as an fx, which gets silently skipped on the server. The server doesn't have a localStorage; the skip is the right behaviour. The handler stays single-purpose, no branching, no runtime checks.
 
+---
+
+## Reference and advanced topics
+
+The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. The server-response fxs enumerate the HTTP-response surface the substrate owns. Head/meta is data derived from app-db, like the body. Server errors are sanitised before they reach the response. Per-request frames isolate concurrent requests; routing on the server is the same code as on the client. The constraints section, streaming-SSR scope note, and hosting note close the chapter.
+
 ## The server response is more than HTML
 
 A real HTTP response is HTML *plus* a status code, plus headers, plus cookies, plus the occasional redirect. Treating SSR as "render a string" misses everything except the body. re-frame2's SSR substrate owns the whole response: the runtime carries a per-request response accumulator, and event handlers populate it with first-class effects.
@@ -140,7 +146,15 @@ A real HTTP response is HTML *plus* a status code, plus headers, plus cookies, p
             [:rf.server/set-header {:name "Cache-Control" :value "no-store"}]]})))
 ```
 
-The standard server fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/append-header`, `:rf.server/set-cookie`, `:rf.server/redirect`) are all `:platforms #{:server}` and write to a structured accumulator the host adapter consumes. Cookies are structured maps, not raw strings — the adapter does the wire serialisation, so you never write `Set-Cookie:` by hand and you never trip on per-attribute quoting bugs. Redirects short-circuit the render — a `302` skips body rendering and the hydration-payload serialisation; the host adapter sees `{:redirect {:status 302 :location ...}}` and emits the right wire response. Multiple `set-status` calls? The runtime takes the last write and emits a `:rf.warning/multiple-status-set` trace event so tooling can find the conflict.
+The standard server fxs all carry `:platforms #{:server}` and write to a structured accumulator the host adapter consumes:
+
+| fx-id | semantics | platforms | notes |
+|---|---|---|---|
+| `:rf.server/set-status` | Set the HTTP response status code. | `#{:server}` | Multiple writes: last write wins; runtime emits a `:rf.warning/multiple-status-set` trace event so tooling can find the conflict. |
+| `:rf.server/set-header` | Set a response header (replacing any prior value for that name). | `#{:server}` | Header name is a string; value is a string. |
+| `:rf.server/append-header` | Append a value to a response header (for multi-value headers like `Set-Cookie`, `Vary`). | `#{:server}` | Preserves prior values; use this when accumulating rather than replacing. |
+| `:rf.server/set-cookie` | Set a cookie via a structured map. | `#{:server}` | Cookies are structured maps, not raw strings — the adapter does the wire serialisation, so you never write `Set-Cookie:` by hand and you never trip on per-attribute quoting bugs. |
+| `:rf.server/redirect` | Short-circuit the render with a redirect response. | `#{:server}` | A `302` skips body rendering and the hydration-payload serialisation; the host adapter sees `{:redirect {:status 302 :location ...}}` and emits the right wire response. |
 
 The full contract — every fx, every default, the full request-handler return shape — lives in [Spec 011 §HTTP response contract](../../spec/011-SSR.md#http-response-contract).
 
