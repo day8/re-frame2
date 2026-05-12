@@ -723,6 +723,9 @@ All error trace events are open maps with these required keys:
    {:kind         #{:event :sub :fx :cofx :view}
     :id           keyword
     :source-coord {:ns sym? :file string? :line int? :column int?}}
+ :rf.trace/call-site                             ;; (when present) invocation coord stamped by the
+   {:ns sym? :file string?                       ;; macro form (rf2-ts1a). Dev-only — elided under
+    :line int? :column int?}                     ;; :advanced + goog.DEBUG=false.
  :tags      {:category    :rf.error/<category>   ;; same as :operation, for consumer convenience
              :failing-id  any                    ;; the registered id that failed (event id, fx id, sub id, view id, etc.)
              :reason      string                 ;; one-sentence human description
@@ -759,6 +762,44 @@ The `:source-coord` payload is whatever the registrar slot's metadata holds. Mac
 Production elision: the slot is **NOT separately elided**. The trace surface as a whole is gated by `re-frame.interop/debug-enabled?` per [§Production builds](#production-builds-zero-overhead-zero-code) — when a trace event is emitted at all, the trigger-handler field rides along on it when bound. There is no second gate that selectively drops the field while keeping the rest of the event. Apps that keep the trace surface in production (rare; opt in by setting `goog.DEBUG=true` on the `:advanced` build) get the trigger-handler coord along with every emitted event. Apps using the default `goog.DEBUG=false` `:advanced` build get neither the field nor the surrounding trace surface — the entire `(when interop/debug-enabled? ...)` branch DCEs.
 
 Consumer access: read `(:rf.trace/trigger-handler event)` for the map, `(get-in event [:rf.trace/trigger-handler :source-coord])` for the coord, `(get-in event [:rf.trace/trigger-handler :id])` for the handler's id. No new namespace is required to read the slot.
+
+#### `:rf.trace/call-site` — naming the invocation line (rf2-ts1a)
+
+The optional top-level `:rf.trace/call-site` slot is a **sibling** of `:rf.trace/trigger-handler` (not nested) and names the **invocation line** of the user-facing surface that triggered the trace event — the `(rf/dispatch [:bad-event])` line, the `(rf/subscribe [:bad-sub])` line, the `(rf/inject-cofx :missing)` line, the `(rf/dispatch-sync [:throws])` line. Where trigger-handler answers *"where is the failing handler defined?"*, call-site answers *"where is the failing handler called?"* Tools render two clickable links per error: registration-site jump (trigger-handler) and invocation-site jump (call-site).
+
+Shape (flat map, mirrors `:source-coord` under `:rf.trace/trigger-handler`):
+
+```clojure
+{:ns     <sym>     ;; the calling namespace
+ :file   <string>  ;; the source file, per rf2-mdjp `:file` resolution
+ :line   <int>     ;; the line of the macro form
+ :column <int>}    ;; optional refinement
+```
+
+The macro forms of four user-facing surfaces stamp the call-site at compile time; their `*`-suffix fn counterparts (per [Conventions §`*`-suffix naming](Conventions.md#-suffix-naming-for-fn-versions-of-macros)) do not stamp:
+
+| Surface | Macro (stamps) | Fn-form (no stamp) |
+|---|---|---|
+| Dispatch (queued) | `dispatch` | `dispatch*` |
+| Dispatch (sync)   | `dispatch-sync` | `dispatch-sync*` |
+| Subscribe         | `subscribe` | `subscribe*` |
+| Inject cofx       | `inject-cofx` | `inject-cofx*` |
+
+For `dispatch` / `dispatch-sync`, the call-site rides through the dispatch envelope and is bound around `process-event!` so errors emitted **inside the handler chain** (handler exception, no-such-cofx, no-such-fx, schema validation failures) attach the call-site of the dispatch that triggered the cascade — the user lands on the line they wrote, not somewhere deep in framework code. For `subscribe`, the macro binds the Var around the synchronous miss path so `:rf.error/no-such-sub` and `:rf.error/frame-destroyed` carry the invocation coord. For `inject-cofx`, the macro stamps into the interceptor's closure so the `:before` body's emits carry the original `(rf/inject-cofx :id)` line — the interceptor itself may run later in the cascade, but the captured coord still points at the user's code.
+
+Coverage:
+
+| Reached through                  | `:rf.trace/call-site` present? |
+|---|---|
+| Macro form (`dispatch`, `subscribe`, `inject-cofx`, `dispatch-sync`) | Yes |
+| Fn form (`dispatch*`, `subscribe*`, `inject-cofx*`, `dispatch-sync*`) | No |
+| Higher-order use (`(map dispatch* xs)`) — fn form required | No |
+| View-render injected `dispatch` / `subscribe` locals (per `reg-view`) | No — the wrapper delegates through `dispatch*` / `subs/subscribe` |
+| Captured dispatcher / subscriber (`(rf/dispatcher)`, `(rf/bound-dispatcher)`) | No — the returned closure delegates through `dispatch*` |
+
+Production elision (Q3=B): **dev-only**. Each macro expands to `(if interop/debug-enabled? <stamping-branch> <no-stamping-branch>)`; under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to false and the entire stamping branch DCE's — the literal `{:rf.trace/call-site {...}}` map vanishes from the bundle. Apps using `goog.DEBUG=true` builds (or any JVM build) get the field; the default `:advanced` + `goog.DEBUG=false` production build does not — the elision-probe (per [§Production builds](#production-builds-zero-overhead-zero-code)) asserts the `"rf.trace/call-site"` string fragment is absent from the production bundle. The trace surface itself is still gated; this is an additional compile-time gate that strips the call-site machinery even when the trace surface is kept live.
+
+The mechanism is "compile-time map + dynamic-var bind + emit-error read." The macro produces a literal map at compile time; the runtime binds `re-frame.trace/*current-call-site*` around the underlying `*`-fn call (or threads the value through the dispatch envelope so `process-event!` binds it for the handler chain); `emit-error!` reads the Var and hoists it onto the emitted event when bound. No new namespace or registry; consumer access is `(:rf.trace/call-site event)`.
 
 ### Error namespace convention — five prefix shapes
 

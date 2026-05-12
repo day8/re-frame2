@@ -60,10 +60,24 @@
     :dispatch-id        process-monotonic id allocated here per
                         Spec 009 §Dispatch correlation
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
-                        emitted from inside another event's processing"
+                        emitted from inside another event's processing
+    :call-site          compile-time-captured invocation coord stamped by
+                        the `dispatch` / `dispatch-sync` macro (rf2-ts1a).
+                        nil for the fn-form path (`dispatch*` etc.) and
+                        under `goog.DEBUG=false` advanced builds."
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when interop/debug-enabled? trace/*current-dispatch-id*)
+        ;; Per rf2-ts1a: read the macro-stamped `:rf.trace/call-site`
+        ;; only when interop/debug-enabled?. Wrap the read itself in
+        ;; the gate so the closure compiler can DCE the keyword
+        ;; reference under `:advanced` + `goog.DEBUG=false`. Without
+        ;; this gate the `(:rf.trace/call-site opts)` keyword-as-fn
+        ;; call survives even when the consuming `cond->` predicate
+        ;; is dead, because the keyword's interned-string slot is
+        ;; referenced syntactically.
+        call-site          (when interop/debug-enabled?
+                             (:rf.trace/call-site opts))
         ;; Per rf2-d4sf consult the `:adapter/current-frame` late-bind
         ;; hook on CLJS so dispatch picks up the React-context tier of
         ;; the resolution chain. Adapters publish the hook at ns-load
@@ -97,6 +111,13 @@
              :source                 (:source opts :ui)
              :origin                 (:origin opts :app)
              :dispatched-at          (interop/now-ms)}
+      ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
+      ;; stamps an `:rf.trace/call-site` on the opts map. The read in
+      ;; `call-site` above is gated on interop/debug-enabled? so this
+      ;; branch and its keyword literal DCE under :advanced +
+      ;; goog.DEBUG=false. fn-form callers (`dispatch*`) supply nil
+      ;; and the key is omitted.
+      call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
       fallthrough?       (assoc :fell-through-to-default? true))))
@@ -403,10 +424,18 @@
       a fresh stack with no dynamic binding. Use `(rf/bound-dispatcher)`
       (capture-at-call-time), `:fx [[:dispatch ...]]` (fx-walker
       threads the frame), or `:dispatch-later` (frame captured in
-      closure) for those paths. Per rf2-l5q3."
+      closure) for those paths. Per rf2-l5q3.
+
+   3. `trace/*current-call-site*` — bound to the envelope's `:call-site`
+      (when supplied by the `dispatch` / `dispatch-sync` macro per
+      rf2-ts1a). Errors emitted while the handler chain runs (handler
+      exception, no-such-cofx, no-such-fx, schema validation failure,
+      ...) read the Var and attach the call-site to the event as
+      `:rf.trace/call-site`. nil for fn-form dispatch (`dispatch*`)."
   [envelope]
   (binding [trace/*current-dispatch-id*  (:dispatch-id envelope)
-            frame/*current-frame*        (:frame envelope)]
+            frame/*current-frame*        (:frame envelope)
+            trace/*current-call-site*    (:call-site envelope)]
     (process-event* envelope)))
 
 (def ^:private drain-depth-default 100)
@@ -628,15 +657,26 @@
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:
   FIFO at the runtime layer; no reordering, no priority lanes. The drain
-  loop picks it up in this same drain cycle (run-to-completion)."
+  loop picks it up in this same drain cycle (run-to-completion).
+
+  Per rf2-ts1a: the runtime-callable fn form (`re-frame.core/dispatch*`
+  in public API terms). The macro form `re-frame.core/dispatch` stamps
+  an `:rf.trace/call-site` onto `opts` at compile time; from there it
+  rides the envelope and gets bound around the handler chain's
+  invocation in `process-event!`."
   ([event] (dispatch! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
          frame-record (frame/frame (:frame envelope))]
      (cond
        (nil? frame-record)
-       (trace/emit-error! :rf.error/frame-destroyed
-                          {:frame (:frame envelope) :event event})
+       ;; The frame-destroyed emit fires synchronously — bind the
+       ;; envelope's call-site so the error event carries it. Reading
+       ;; the call-site through the envelope (already gated) avoids a
+       ;; second `(:rf.trace/call-site opts)` keyword reference here.
+       (binding [trace/*current-call-site* (:call-site envelope)]
+         (trace/emit-error! :rf.error/frame-destroyed
+                            {:frame (:frame envelope) :event event}))
 
        :else
        (let [router (:router frame-record)]
@@ -726,16 +766,24 @@
   drains to settled before the caller's drain resumes); per Spec 002
   §Rules rule 1 this is intentional (frames are independent state
   machines) but rarely the caller's intent, so the warning surfaces the
-  pattern for observability tools without refusing the call."
+  pattern for observability tools without refusing the call.
+
+  Per rf2-ts1a: runtime-callable fn form for `dispatch-sync` (the macro
+  form stamps an `:rf.trace/call-site` onto `opts` at compile time)."
   ([event] (dispatch-sync! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
-         frame-record (frame/frame (:frame envelope))]
+         frame-record (frame/frame (:frame envelope))
+         ;; Read the call-site from the envelope (already gated in
+         ;; build-envelope) so the synchronous error emits below can
+         ;; carry it without referencing the keyword a second time.
+         call-site    (:call-site envelope)]
      (cond
        (nil? frame-record)
-       (trace/emit-error! :rf.error/frame-destroyed
-                          {:frame (:frame envelope) :event event
-                           :recovery :no-recovery})
+       (binding [trace/*current-call-site* call-site]
+         (trace/emit-error! :rf.error/frame-destroyed
+                            {:frame (:frame envelope) :event event
+                             :recovery :no-recovery}))
 
        (let [r @(:router frame-record)
              ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
@@ -753,11 +801,12 @@
        ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
        ;; SAME frame's running drain (sync or async) is an error — the
        ;; event would interleave with the outer handler's run-to-completion.
-       (trace/emit-error! :rf.error/dispatch-sync-in-handler
-                          {:frame    (:frame envelope)
-                           :event    event
-                           :reason   "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
-                           :recovery :no-recovery})
+       (binding [trace/*current-call-site* call-site]
+         (trace/emit-error! :rf.error/dispatch-sync-in-handler
+                            {:frame    (:frame envelope)
+                             :event    event
+                             :reason   "dispatch-sync called from inside a running drain. Use dispatch (the queued form) instead so the event runs after the current drain settles."
+                             :recovery :no-recovery}))
 
        :else
        (let [router (:router frame-record)]

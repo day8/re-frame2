@@ -357,7 +357,14 @@
   non-default-frame-once` fires once per (component-id, frame-id)
   pair. The check is late-bound through re-frame.views (CLJS-only) so
   the JVM build never loads it; production (`:advanced` +
-  `goog.DEBUG=false`) elides via `interop/debug-enabled?`."
+  `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
+
+  Per rf2-ts1a: this is the runtime-callable fn form. The macro form
+  `re-frame.core/subscribe` captures `(meta &form)` and delegates here
+  through `re-frame.core/subscribe*`, binding `trace/*current-call-site*`
+  for the duration so any error emitted inside the synchronous miss
+  path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
+  the invocation coord."
   ([query-v]
    #?(:cljs
       (let [frame-id (resolve-current-frame)]
