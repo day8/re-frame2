@@ -180,6 +180,70 @@ This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise
 
 Conformant implementations need a structural-sharing persistent collection library for `app-db` and frame state. CLJS gets this free; other in-scope JS-cross-compile-language ports pick a host-idiomatic library (Immer or Immutable.js for TypeScript / Squint; im.kt or `kotlinx.collections.immutable` for Kotlin/JS; native PDS from the source language for Fable (F#) / Scala.js / PureScript / Melange / ReScript / Reason). For the per-host options, why this is pattern-required, and how it composes with [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility), see [000-Vision §Host-profile matrix — Note on persistent data structures](000-Vision.md#note-on-persistent-data-structures).
 
+## Naming: when does a surface carry `!`?
+
+The bang (`!`) suffix on a public surface marks **process-level state mutation that the registrar abstraction does not already own**. The rule is principled, not stylistic, and slots every framework surface into one of four buckets. New surfaces pick their bucket by mechanism, not by feel.
+
+### 1. Registry-shaped registrations — **no bang**
+
+`reg-*` and `clear-*` mutate the registrar, but the registrar IS the side-effect abstraction. Calling `reg-event-db` to install a handler is no more "imperative" than calling `defn` — the verb's whole purpose is to extend a registry. Adding a bang would tag every registration in the framework, which is the opposite of useful signal.
+
+- `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `reg-view*`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`
+- `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-http-interceptor`, `reset-frame`, `destroy-frame`
+
+```clojure
+(rf/reg-event-db :cart.item/add  (fn [db [_ item]] ...))   ;; no bang
+(rf/clear-event  :cart.item/add)                            ;; no bang
+```
+
+### 2. Listener registrations — **bang**
+
+The caller hands a fn to a global hook the framework will invoke from arbitrary call sites. This is **not** a registrar-shaped operation — the listener table is a process-level mutable slot the surface mutates directly — so the bang earns its keep.
+
+- `register-trace-cb!`, `remove-trace-cb!`, `clear-trace-cbs!`
+- `register-epoch-cb!`, `remove-epoch-cb!`
+
+```clojure
+(rf/register-trace-cb! ::audit  (fn [event] ...))           ;; bang — hooks a global
+(rf/remove-trace-cb!   ::audit)
+```
+
+### 3. Adapter / platform installation — **bang**
+
+Process-level state mutation outside the registrar — installing or tearing down the runtime's substrate adapter, swapping in a different schema validator, dropping the subscription cache. These surfaces touch implementation-defined slots that have nothing to do with the per-frame registries.
+
+- `install-adapter!`, `dispose-adapter!`
+- `set-schema-validator!`, `set-schema-explainer!`
+- `clear-subscription-cache!`
+
+```clojure
+(rf/install-adapter!     reagent-adapter/adapter)           ;; bang — installs runtime
+(rf/set-schema-validator! my-validator-fn)                  ;; bang — swaps a global
+```
+
+### 4. Dispatch and subscribe — **no bang**
+
+`dispatch` / `subscribe` are frame-relative side-effects, but the side-effect IS the program's normal mode of operation. Banging them would noise every domino call site in every event handler and every view. This is the "IO is the program" exemption — the same reason `defn` doesn't end in `!` despite being a top-level effect.
+
+- `dispatch`, `dispatch-sync`, `dispatch-later`
+- `subscribe`, `unsubscribe`
+
+```clojure
+(rf/dispatch  [:cart.item/add {...}])                       ;; no bang
+@(rf/subscribe [:cart/items])                               ;; no bang
+```
+
+### How to slot a new surface
+
+When adding a public surface, ask in order:
+
+1. Does it extend a registry by id? → bucket 1 (no bang).
+2. Does it install a fn into a global listener slot? → bucket 2 (bang).
+3. Does it mutate process-level state outside the registrar? → bucket 3 (bang).
+4. Is it a domino-shaped side-effect — dispatch, subscribe, drain? → bucket 4 (no bang).
+
+The four buckets are exhaustive for the surfaces in [API.md](API.md). The `register-trace-cb!` rename rationale (no-bang → bang once the listener-registration shape was recognised) is recorded at [API.md §Removed / not shipped](API.md#removed--not-shipped). Surfaces that genuinely don't fit are evidence of a missing bucket — file a bead against this section rather than coining a fifth shape.
+
 ## `*`-suffix naming for fn-versions of macros
 
 When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
