@@ -668,6 +668,61 @@ module.exports = {
       .waitFor({ state: 'visible', timeout: 5000 });
 
     // ====================================================================
+    // 10b. Actions panel — captures the dispatch chronologically (rf2-5yriz)
+    // ====================================================================
+    //
+    // The Actions panel filters the same per-variant trace buffer the
+    // six-domino trace panel reads, projecting it down to the
+    // user-action subset (`:event/dispatched` + dispatch-shaped
+    // `:rf.fx/handled` emits). After the `:counter/inc` click at
+    // section 10 the buffer carries the dispatch; the Actions panel
+    // must render at least one row whose `data-event-id` matches the
+    // dispatched event-id `:counter/inc`.
+    const actionsPanel = aside.locator('[data-test="story-actions-panel"]');
+    await actionsPanel.waitFor({ state: 'visible', timeout: 5000 });
+
+    // The panel renders one row per action-emit trace event.  By this
+    // point in the spec the variant's seed events (`:counter/initialise`,
+    // play-sequence dispatches, lifecycle-machine dispatches) have
+    // already streamed into the trace buffer through the various
+    // workspace + variant-switch + run-variant cycles in §§5-9.
+    //
+    // Surface assertion: the panel renders at least one row (the
+    // buffer is non-empty for the active variant — proving the panel
+    // is wired to the same trace bus the six-domino panel reads).
+    // We don't pin a specific event-id because re-runs from §§5-9 may
+    // have evicted earlier `:counter/inc` rows from the 200-entry
+    // ring buffer.
+    const rowLocator = actionsPanel.locator('[data-test="story-actions-row"]');
+    {
+      const start = Date.now();
+      let rowCount = 0;
+      while (Date.now() - start < 5000) {
+        rowCount = await rowLocator.count();
+        if (rowCount >= 1) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (rowCount < 1) {
+        throw new Error(
+          `expected the Actions panel to render >= 1 row for the active variant, got ${rowCount}`,
+        );
+      }
+    }
+
+    // Header carries the pause + clear buttons.  Surface assertion:
+    // both render with the canonical `data-test` attributes so the
+    // panel exposes the documented interaction shape.  The deep
+    // pause / clear semantics (snapshot capture, idempotent toggle,
+    // ratom cleanup) live in the CLJS-test layer at
+    // `tools/story/test/re_frame/story/ui/actions_cljs_test.cljc`;
+    // exercising them inline here would mutate trace + paused state
+    // mid-spec and confuse the downstream time-travel assertion.
+    const pauseBtn = actionsPanel.locator('[data-test="story-actions-pause"]');
+    await pauseBtn.waitFor({ state: 'visible', timeout: 2000 });
+    const clearBtn = actionsPanel.locator('[data-test="story-actions-clear"]');
+    await clearBtn.waitFor({ state: 'visible', timeout: 2000 });
+
+    // ====================================================================
     // 11. Time-travel panel — slider scrub reverts state
     // ====================================================================
     //
