@@ -78,6 +78,78 @@ The runtime is what actually *does* the HTTP request. It looks at the effect map
 
 This shape makes the dynamic story tractable again. You can trace the counter-fetch flow by reading three handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
 
+## Walking one event through every domino
+
+Chapter 02 left the counter mounted: `app-db` is `{:count 5}`, the view shows `5`, the user is staring at `[-] 5 [+]`. They click `[+]`. Six things happen, in order. Each has a name. Each is observable. Each is testable in isolation.
+
+This is the *single-trace*, single-page view of the cycle. Read it once; refer back when something feels mysterious later.
+
+### Domino 1 — Event dispatched
+
+The button's `on-click` fires:
+
+```clojure
+[:button {:on-click #(dispatch [:counter/inc])} "+"]
+```
+
+`dispatch` puts the event vector `[:counter/inc]` onto the frame's queue and returns immediately. No handler has run yet. The click handler is done. The browser's event loop can move on.
+
+The event is *data*: a vector with a keyword id and (optionally) more args. Nothing more.
+
+### Domino 2 — Event handler runs
+
+The runtime pops `[:counter/inc]` off the queue, looks up its registered handler:
+
+```clojure
+(rf/reg-event-db :counter/inc
+  (fn [db _event] (update db :count inc)))
+```
+
+`reg-event-db` is the simplest registration shape: take the current `db`, return the new `db`. The handler is a pure function — same `db` and event in, same `db` out, no side-effects, no I/O. Tested with one line: `(handler {:count 5} [:counter/inc]) ;=> {:count 6}`.
+
+### Domino 3 — Effects produced
+
+The handler returned `{:count 6}`. The runtime wraps that into an effect map:
+
+```clojure
+{:db {:count 6}}
+```
+
+That's the entire effect map for this event. No `:fx` vector — no HTTP, no localStorage, no follow-up dispatch. Just "replace `app-db` with this value." `reg-event-db` is sugar for `reg-event-fx` where the handler's return is automatically wrapped as `{:db ...}`; the runtime sees the same shape either way.
+
+### Domino 4 — Effects executed
+
+The runtime walks the effect map. It sees `:db` and resets the frame's `app-db` to `{:count 6}` as a single atomic swap. No intermediate state is visible. If there were an `:fx` vector, the runtime would walk it next, looking up each registered fx by id and invoking it with its args; for this event there is none.
+
+The queue is now empty. The cycle proceeds to subscriptions.
+
+### Domino 5 — Subscriptions recompute
+
+`app-db` changed. The `:count` subscription is watching:
+
+```clojure
+(rf/reg-sub :count
+  (fn [db _query] (:count db)))
+```
+
+It re-runs against the new `db`, gets `6`, and — because `6` differs from its previous value `5` — marks itself dirty. Any view that derefs this sub is now queued to re-render.
+
+### Domino 6 — Views re-render
+
+The `counter-buttons` view derefs `:count`:
+
+```clojure
+(reg-view counter-buttons []
+  [:div
+   [:button {:on-click #(dispatch [:counter/dec])} "-"]
+   [:span {:style {:margin "0 1em"}} @(subscribe [:count])]
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
+```
+
+Reagent re-runs the function body. `@(subscribe [:count])` now returns `6`. The new hiccup tree is `[:div [:button "-"] [:span 6] [:button "+"]]`. Reagent diffs against the previous tree, sees that only the `<span>`'s text content changed, and patches the DOM.
+
+And the view re-renders. One event, six dominoes, frame stays consistent.
+
 ## The standard effect map
 
 The shape an `reg-event-fx` handler returns is intentionally narrow: two top-level keys.
