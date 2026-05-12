@@ -397,3 +397,119 @@
             "one :rf.error/effect-map-shape trace per offending top-level key")
         (is (= #{:dispatch :http} offending)
             "both legacy keys are flagged")))))
+
+;; ---- 7. :fx-overrides function-value branch -------------------------------
+;;
+;; Per Spec 002 §`:fx-overrides` §Pattern-level contract vs CLJS reference:
+;; the CLJS reference accepts function-valued overrides — `(fn [m args] ...)` —
+;; as a one-off lambda affordance for tests and story fixtures. The signature
+;; matches the registered-fx handler shape, so a user can either point at
+;; another registered fx (id-redirect) or hand a lambda in-line. The pattern-
+;; level contract narrows to id-only for SSR-portability; the CLJS reference
+;; (this code; `.cljc` so JVM tests run too) supports both.
+;;
+;; Spec/002's conceptual resolution sketch (§1080-1088):
+;;   (nil? override)        → no override
+;;   (keyword? override)    → id-redirect via registrar
+;;   (fn? override)         → run the fn in place of the original fx
+;;
+;; The three sub-tests pin the contract:
+;;   1. fn-value runs in place of the original; the original does NOT fire.
+;;   2. id-redirect form (regression: existing pattern-level path still works).
+;;   3. nil-value (or missing key) → no override active; original fires.
+
+(deftest fx-overrides-fn-value-branch
+  (testing "function-value override fires in place of the registered fx"
+    (let [original-fired (atom 0)
+          override-args  (atom nil)
+          override-ctx   (atom nil)]
+      (rf/reg-fx :fx-test/http
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! original-fired inc)))
+      (rf/reg-event-fx :fx-test/issue-request
+        (fn [_ _] {:fx [[:fx-test/http {:method :get :url "/me"}]]}))
+      (rf/dispatch-sync
+        [:fx-test/issue-request]
+        {:fx-overrides {:fx-test/http (fn [m args]
+                                        (reset! override-ctx m)
+                                        (reset! override-args args)
+                                        {:status 200 :body {:user/id 42}})}})
+      (is (= 0 @original-fired)
+          "the registered :fx-test/http MUST NOT fire when overridden by a fn")
+      (is (= {:method :get :url "/me"} @override-args)
+          "the fn override receives the same args the registered fx would")
+      (is (= :rf/default (:frame @override-ctx))
+          "the fn override receives the standard ctx map (frame, optional :event)")))
+
+  (testing "id-redirect form (regression: pattern-level pathway still works)"
+    (let [fired (atom [])]
+      (rf/reg-fx :fx-test/http-redir
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! fired conj :original)))
+      (rf/reg-fx :fx-test/http-redir-stub
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! fired conj :stub)))
+      (rf/reg-event-fx :fx-test/issue-redir
+        (fn [_ _] {:fx [[:fx-test/http-redir {}]]}))
+      (rf/dispatch-sync
+        [:fx-test/issue-redir]
+        {:fx-overrides {:fx-test/http-redir :fx-test/http-redir-stub}})
+      (is (= [:stub] @fired)
+          "the id-redirect form still resolves to the stub fx; the original is not invoked")))
+
+  (testing "nil-valued override falls through to the original fx"
+    ;; Per spec/002 §`:fx-overrides`: a `nil`-or-missing value is treated
+    ;; as "no override active" — `(get overrides id)` returns nil in both
+    ;; cases. The original registered fx fires.
+    (let [fired (atom 0)]
+      (rf/reg-fx :fx-test/http-nil-override
+                 {:platforms #{:client :server}}
+                 (fn [_ _] (swap! fired inc)))
+      (rf/reg-event-fx :fx-test/issue-nil-override
+        (fn [_ _] {:fx [[:fx-test/http-nil-override {}]]}))
+      (rf/dispatch-sync
+        [:fx-test/issue-nil-override]
+        {:fx-overrides {:fx-test/http-nil-override nil}})
+      (is (= 1 @fired)
+          "a nil-valued override is a no-op; the original registered fx fires"))))
+
+(deftest fx-overrides-fn-value-emits-applied-trace
+  (testing "fn-value override emits :rf.fx/override-applied (per spec/009)"
+    (let [traces (collect-traces! ::fn-override-trace)]
+      (rf/reg-fx :fx-test/http-traced
+                 {:platforms #{:client :server}}
+                 (fn [_ _] nil))
+      (rf/reg-event-fx :fx-test/issue-traced
+        (fn [_ _] {:fx [[:fx-test/http-traced {}]]}))
+      (rf/dispatch-sync
+        [:fx-test/issue-traced]
+        {:fx-overrides {:fx-test/http-traced (fn [_ _] :ok)}})
+      (rf/remove-trace-cb! ::fn-override-trace)
+      (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
+        (is (= 1 (count applied))
+            "exactly one :rf.fx/override-applied trace for the fn-value override")
+        (let [t (first applied)]
+          (is (= :fx-test/http-traced (get-in t [:tags :from]))
+              ":from carries the original fx-id"))))))
+
+(deftest fx-overrides-fn-value-receives-origin-event
+  (testing "fn-value override receives :event in ctx when the dispatch carries one"
+    ;; Per Spec 014 §Reply addressing the originating event is threaded
+    ;; through to fx handlers as `:event` on their ctx; the fn-value
+    ;; override branch follows the same code path, so the ctx shape is
+    ;; identical to a registered-fx handler.
+    (let [captured-ctx (atom nil)]
+      (rf/reg-fx :fx-test/http-with-event
+                 {:platforms #{:client :server}}
+                 (fn [_ _] nil))
+      (rf/reg-event-fx :fx-test/issue-with-event
+        (fn [_ _] {:fx [[:fx-test/http-with-event {:url "/x"}]]}))
+      (rf/dispatch-sync
+        [:fx-test/issue-with-event :payload-1]
+        {:fx-overrides {:fx-test/http-with-event
+                        (fn [m _] (reset! captured-ctx m))}})
+      (is (= :rf/default (:frame @captured-ctx))
+          "ctx :frame is present")
+      (is (= [:fx-test/issue-with-event :payload-1]
+             (:event @captured-ctx))
+          "ctx :event is the originating event vector"))))
