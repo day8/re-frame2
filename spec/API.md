@@ -9,11 +9,11 @@
   - Base values: `v1` (ships in v1), `v1 (preserved)` (exists in current re-frame; preserved unchanged), `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour), `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
   - Qualifier: `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
   - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
-  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support`, `re-frame.views-macros`).
+  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exception: `re-frame.test-support`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
-- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`, `re-frame.views-macros`).
+- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`).
 
 ---
 
@@ -84,7 +84,7 @@
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
 
-`bound-fn` lives in `re-frame.views-macros`, one of the documented per-namespace exceptions to "all APIs live in `re-frame.core`" (see [Conventions](#conventions)). Users `:require-macros [re-frame.views-macros :refer [bound-fn]]`.
+`bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`.
 
 ---
 

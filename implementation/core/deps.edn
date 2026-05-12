@@ -58,7 +58,7 @@
   ;; http_managed_test.clj / interceptor_test.clj /
   ;; pattern_smoke_test.clj / smoke_test.clj / source_coords_test.clj /
   ;; sub_cache_test.clj / test_support_test.clj / trace_buffer_test.clj
-  ;; / trace_listener_test.clj / trace_test.clj / views_macros_test.clj
+  ;; / trace_listener_test.clj / trace_test.clj / reg_view_test.clj
   ;; exercise re-frame.flows; conformance_test.clj / examples_test.clj /
   ;; elision_probe.cljs require re-frame.http-managed; conformance_test.clj
   ;; / examples_test.clj / smoke_test.clj exercise re-frame.ssr surfaces;

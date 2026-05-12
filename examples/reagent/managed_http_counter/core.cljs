@@ -34,7 +34,7 @@
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- App-db shape ------------------------------------------------------------
 ;;

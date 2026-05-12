@@ -11,7 +11,7 @@
   (:require [re-frame.core :as rf]
             [realworld.tags]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn tag-query-test []
   (with-frame [f (rf/make-frame {:on-create [:app/initialise]})]

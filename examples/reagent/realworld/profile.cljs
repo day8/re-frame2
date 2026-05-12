@@ -35,7 +35,7 @@
             [realworld.http :as rh]
             [realworld.routing :as routing]
             [realworld.articles :as articles])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})

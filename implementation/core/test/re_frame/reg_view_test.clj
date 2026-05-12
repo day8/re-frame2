@@ -1,20 +1,21 @@
-(ns re-frame.views-macros-test
+(ns re-frame.reg-view-test
   "Per Spec 004 §reg-view: the defn-shape macro, the auto-id derivation
   rule, the `^{:rf/id ...}` metadata override, the lexical
   `dispatch`/`subscribe` injection, the Form-2 closure case, and the
   compile-error contract for non-defn-shape bodies. Per rf2-d0pi.
 
   These tests run on the JVM. CLJS-specific Reagent rendering lives in
-  the runtime / hot-reload CLJS test files; the macro logic here is
-  shared via re-frame.views-macros which is JVM-loadable."
+  the runtime / hot-reload CLJS test files; the macro logic here lives
+  in re-frame.core (JVM-loadable). Per rf2-4lc9o the legacy
+  `re-frame.views-macros` import path was cut; the expander helpers
+  moved to `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.views-macros :as vm]))
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -45,10 +46,10 @@
           "the Var holds a callable render fn"))
     ;; And the registry slot is populated under the auto-derived id.
     ;; The id is taken from (ns-name *ns*) at macro-expansion time,
-    ;; which for this test file is `re-frame.views-macros-test` —
+    ;; which for this test file is `re-frame.reg-view-test` —
     ;; matched literally here rather than via runtime *ns* (the test
     ;; runner's *ns* is the test-runner ns, not the test file's ns).
-    (is (some? (rf/view :re-frame.views-macros-test/widget-a))
+    (is (some? (rf/view :re-frame.reg-view-test/widget-a))
         "the view is registered under (keyword 'this-ns' 'sym)")))
 
 ;; ---- auto-id derivation --------------------------------------------------
@@ -57,7 +58,7 @@
   (testing "the registered id is (keyword (str *ns*) (str sym)) when no
             metadata override is present"
     (rf/reg-view widget-b [_n] [:p "b"])
-    (is (some? (rf/view :re-frame.views-macros-test/widget-b))
+    (is (some? (rf/view :re-frame.reg-view-test/widget-b))
         "the registered id matches (keyword *ns* sym)")))
 
 ;; ---- ^{:rf/id ...} metadata override -------------------------------------
@@ -67,7 +68,7 @@
     (rf/reg-view ^{:rf/id :explicit/widget} widget-c [_n] [:p "c"])
     (is (some? (rf/view :explicit/widget))
         "the registered id is the metadata override")
-    (is (nil? (rf/view :re-frame.views-macros-test/widget-c))
+    (is (nil? (rf/view :re-frame.reg-view-test/widget-c))
         "the auto-derived id is NOT registered when the override is present")))
 
 ;; ---- compile-error contract ----------------------------------------------
@@ -157,7 +158,7 @@
 (deftest reg-view-returns-auto-derived-id
   (testing "(reg-view sym [args] body) returns the auto-derived id"
     (let [ret (rf/reg-view ret-auto [n] [:p n])]
-      (is (= :re-frame.views-macros-test/ret-auto ret)
+      (is (= :re-frame.reg-view-test/ret-auto ret)
           "the macro returns (keyword *ns* sym), not the auto-defed Var"))))
 
 (deftest reg-view-returns-metadata-override-id
@@ -172,38 +173,16 @@
   (testing "(reg-view sym \"doc\" [args] body) returns the id (docstring
             does not change the return value)"
     (let [ret (rf/reg-view ret-doc "the doc" [n] [:p n])]
-      (is (= :re-frame.views-macros-test/ret-doc ret)))))
-
-;; ---- expansion under the legacy import path ------------------------------
-;;
-;; Existing examples use `(:require-macros [re-frame.views-macros :refer
-;; [reg-view]])`. That surface forwards to the canonical expander; the
-;; expansion shape and behaviour are identical. Cover the legacy path here
-;; so we don't lose it without noticing.
-
-(deftest reg-view-via-views-macros-import
-  (testing "(re-frame.views-macros/reg-view sym [args] body) emits the same
-            expansion shape as re-frame.core/reg-view"
-    (let [exp-core (macroexpand `(rf/reg-view ~'expand-test [] [:p]))
-          exp-vm   (macroexpand `(re-frame.views-macros/reg-view
-                                   ~'expand-test [] [:p]))]
-      ;; Both expansions share their structural skeleton.
-      (is (= 'do (first exp-core)))
-      (is (= 'do (first exp-vm)))
-      ;; Per rf2-hzos: the terminal expression is the id (matches the
-      ;; reg-* return-value contract). The penultimate form is the
-      ;; auto-def of the Var.
-      (is (= 'def (first (last (butlast exp-core)))))
-      (is (= 'def (first (last (butlast exp-vm))))))))
+      (is (= :re-frame.reg-view-test/ret-doc ret)))))
 
 ;; ---- expander helpers expose stable shape --------------------------------
 
 (deftest expand-reg-view-helper-shape
-  (testing "vm/expand-reg-view returns a (do binding+def+id) form. Per
+  (testing "rf/expand-reg-view returns a (do binding+def+id) form. Per
             rf2-hzos: the terminal expression is the id (so the macro's
             return value is the id, matching the reg-* return-value
             contract). The penultimate form is the auto-def of the Var."
-    (let [exp     (vm/expand-reg-view {:line 1 :column 1}
+    (let [exp     (rf/expand-reg-view {:line 1 :column 1}
                                       'my.ns "my_ns.cljc" 'my-widget '([] [:p]))
           def-form (last (butlast exp))]
       (is (= 'do (first exp)))
@@ -226,11 +205,11 @@
                 (coll? form)
                 (apply + (map count-defs form))
                 :else 0))]
-      (let [exp-plain   (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+      (let [exp-plain   (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
                                             'plain-view '([] [:p]))
-            exp-doc     (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+            exp-doc     (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
                                             'docced-view '("a doc" [] [:p]))
-            exp-id-meta (vm/expand-reg-view {} 'my.ns "my_ns.cljc"
+            exp-id-meta (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
                                             (with-meta 'meta-view
                                               {:rf/id :explicit/id})
                                             '([] [:p]))]
@@ -241,14 +220,14 @@
         (is (= 1 (count-defs exp-id-meta))
             "(reg-view ^{:rf/id ...} sym [args] body) emits exactly one def"))))
 
-  (testing "vm/parse-reg-view-args parses the three accepted shapes"
+  (testing "rf/parse-reg-view-args parses the three accepted shapes"
     (is (= {:docstring nil :args '[] :body nil}
-           (vm/parse-reg-view-args '([]))))
+           (rf/parse-reg-view-args '([]))))
     (is (= {:docstring "doc" :args '[a] :body '([:p a])}
-           (vm/parse-reg-view-args '("doc" [a] [:p a]))))
-    (is (nil? (vm/parse-reg-view-args '(some-symbol)))
+           (rf/parse-reg-view-args '("doc" [a] [:p a]))))
+    (is (nil? (rf/parse-reg-view-args '(some-symbol)))
         "a single non-vector arg is invalid")
-    (is (nil? (vm/parse-reg-view-args '((reagent.core/create-class {}))))
+    (is (nil? (rf/parse-reg-view-args '((reagent.core/create-class {}))))
         "a list where the args vector should be is invalid")))
 
 ;; ---- compile-time component-shape fold (rf2-yfbx, Stage 4-C, rf2-6hyy) ---
@@ -273,7 +252,7 @@
     ;; expansion stamps no :reagent2/form meta.
     (rf/reg-view fold-no-rs [n] [:p n])
     (let [slot-meta (registrar/lookup :view
-                      :re-frame.views-macros-test/fold-no-rs)]
+                      :re-frame.reg-view-test/fold-no-rs)]
       (is (some? slot-meta) "the view is registered")
       (is (nil? (:reagent2/form slot-meta))
           "no form tag stamped — UIx/Helix-only build path"))))

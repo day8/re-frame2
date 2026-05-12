@@ -52,7 +52,7 @@
             ;; (used below) would fail with :rf.error/no-such-fx.
             [re-frame.http-managed]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; SCHEMAS  (CP-8)

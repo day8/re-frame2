@@ -21,7 +21,7 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
             [re-frame.core            :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- mount point ------------------------------------------------------------
 
@@ -84,7 +84,7 @@ In a tiny app, all of this fits in `your-app/core.cljs` above the mount point:
 - **Events** — `(rf/reg-event-db ...)`, `(rf/reg-event-fx ...)`
 - **Subscriptions** — `(rf/reg-sub ...)`
 - **Effects** — `(rf/reg-fx ...)` (per-app fx)
-- **Views** — `(reg-view <name> [...] <body>)` (via the `reg-view` macro from `re-frame.views-macros`)
+- **Views** — `(reg-view <name> [...] <body>)` (via the `reg-view` macro from `re-frame.core`)
 - **`(rf/dispatch-sync [:your-app/initialise])`** in `run` — the initial seed event
 
 For anything beyond the first counter, split:

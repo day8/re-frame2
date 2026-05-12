@@ -79,7 +79,7 @@ Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opt
   (is (= :stories (rf/current-frame))))
 ```
 
-On CLJS the macro is in `re-frame.views-macros`; require with `:require-macros [re-frame.views-macros :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
+On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
 
 ## Asserting state: `assert-state` and `get-frame-db`
 

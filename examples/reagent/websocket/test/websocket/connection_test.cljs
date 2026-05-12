@@ -33,7 +33,7 @@
             [websocket.core]
             [websocket.messages :as messages]
             [websocket.connection])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; HELPERS

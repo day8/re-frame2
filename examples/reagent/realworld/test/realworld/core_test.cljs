@@ -10,7 +10,7 @@
   (:require [re-frame.core :as rf]
             [realworld.core]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; A generic success stub: every :rf.http/managed call resolves :success
 ;; with an empty map. Tests register a richer canned response when they

@@ -22,7 +22,7 @@
 
   No CLJ-side runtime code lives here; only the compile-time helpers
   consumed by CLJS build sites via `:require-macros`. The classification
-  logic is pure-data; both helpers are usable from `re-frame.views-macros`
+  logic is pure-data; both helpers are usable from `re-frame.core`
   (or any other macro that wants to amortise the runtime detection)."
   (:refer-clojure :exclude [fn?]))
 
