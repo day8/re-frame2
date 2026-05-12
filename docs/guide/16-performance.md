@@ -190,91 +190,6 @@ The chunked machine has a canonical shape covered in detail in [chapter 08 §Pat
 
 The v1 idiom for this work — `^:flush-dom` event metadata, self-redispatching `{:dispatch [...]}` tail-call loops — is gone. The chunked machine is the v2 substitute. Reach for it whenever you're tempted to write a `for` loop that holds the thread for more than ~16 ms.
 
-## The `rf:` Performance API surface
-
-The trace bus from [chapter 15](15-devtools-and-pair-tools.md#what-you-get-for-free) is dev-only. For production timing — APM dashboards, in-house perf overlays, "is this page slower in production than in dev?" investigations — re-frame2 ships a second observation channel through the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
-
-When the channel is on, the runtime brackets four hot-path call sites with `performance.mark` / `performance.measure` entries, all stably named under the `rf:` prefix:
-
-| Bucket | Where | Entry name |
-|---|---|---|
-| `:event`  | Event handler invocation (the interceptor chain) | `rf:event:<event-id>` |
-| `:sub`    | Subscription recompute | `rf:sub:<sub-id>` |
-| `:fx`     | Per-fx walk-step (one entry per registered fx that fires) | `rf:fx:<fx-id>` |
-| `:render` | Per-`reg-view` render | `rf:render:<view-id>` |
-
-Keyword namespaces are preserved on the wire:
-
-```
-rf:event:auth/login
-rf:sub:cart/total
-rf:fx:rf.http/managed
-rf:render:my.app/page-header
-```
-
-### Turning it on
-
-The channel is gated on a `goog-define`d boolean — `re-frame.performance/enabled?` — that defaults to `false`. Production builds that don't ask for timing carry zero User-Timing bytes; Closure DCE elides every emit site, every entry-name string, every bracket call.
-
-To flip it on for a build, set the goog-define in your shadow-cljs:
-
-```edn
-{:builds
- {:app
-  {:target           :browser
-   :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
-```
-
-`:advanced` constant-folds the flag at compile time, the gated branch survives, and the brackets become live measurements.
-
-The flag is *independent* of `goog.DEBUG`. The two compose: a dev build can run with trace on (`goog.DEBUG=true`) and perf off (default), a production build can run with trace off (`goog.DEBUG=false`) and perf on, and the four combinations correspond to four sensibly-sized bundles. The perf flag exists precisely so production telemetry doesn't drag in the dev trace surface.
-
-### Reading the entries
-
-Three consumers, in increasing order of how much work you put in:
-
-**Chrome DevTools Performance panel.** Open it, hit record, drive the app, stop. The `rf:` measures render as named bars alongside React renders, network, paint, and layout. The bar's width is its duration; the bar's name is the entry id. No custom UI required — you get a profiler view of "what re-frame2 did and how long it took" for free.
-
-**Ad-hoc inspection in DevTools console.**
-
-```javascript
-performance.getEntriesByType('measure')
-  .filter(e => e.name.startsWith('rf:'))
-  .sort((a, b) => b.duration - a.duration)
-  .slice(0, 20);
-```
-
-That returns the twenty slowest re-frame2 measurements from the most recent profile. The shape of each entry is `{name, startTime, duration, ...}` — standard `PerformanceMeasure` records. Group by `:event` / `:sub` / `:fx` / `:render` (split on the second `:`) to see which buckets are hottest.
-
-**Programmatic, streaming.** Attach a `PerformanceObserver` and forward to your APM:
-
-```javascript
-new PerformanceObserver((list) => {
-  for (const e of list.getEntriesByType('measure')) {
-    if (e.name.startsWith('rf:')) {
-      sendToAPM(e);   // { name, startTime, duration, ... }
-    }
-  }
-}).observe({ type: 'measure', buffered: true });
-```
-
-The `buffered: true` flag delivers entries that fired before the observer was attached — useful for SPAs where the observer mounts after the first cascade has already happened.
-
-### A practical workflow
-
-1. **Don't profile dev builds.** Dev builds run with `goog.DEBUG=true`, which keeps the trace surface live; the trace work itself shows up in the profile and is *not* representative of production. Build with `:advanced` plus the perf flag on, serve the result, profile that.
-2. **Record a representative interaction.** Open DevTools' Performance panel, click record, do the thing that feels slow, stop. The `rf:` measures appear under their own track.
-3. **Find the wide bars first.** The slowest individual measurement is usually where the problem lives. If it's a `rf:render:<view-id>`, the view is too expensive — look at its props (shape #1 above), its sub usage (shape #4), its callbacks (shape #3). If it's a `rf:sub:<sub-id>`, the sub body is doing real work and either its cache is missing or the work itself should chunk.
-4. **Count the narrow bars second.** A single fast bar is fine; a *cloud* of fast bars repeated 200 times is a re-render storm. Filter by event id and count occurrences — if `rf:render:my.app/todo-item` fires 200 times per drain, every drain, that's shape #1.
-
-The Chrome User-Timing entry buffer is bounded (default ~10000 entries). Long-running pages that want every entry should attach the observer and offload to durable storage rather than rely on `getEntriesByType` after the fact.
-
-### What the surface is, and isn't
-
-The `rf:` channel is a *timing* channel. It tells you how long each call took. It does *not* tell you why — the trace bus does that. The two compose: in dev, you run with both on, and you cross-reference a wide `rf:render:foo` bar against the trace event for the dispatch that triggered it. In prod, you run with just `rf:` on, and you let your APM aggregate "render of `foo` is at p99 = 80 ms across last hour."
-
-The perf channel is **CLJS-only**. JVM artefacts (SSR, headless tests, server-side jobs using re-frame2 for state) emit no User-Timing entries — the API is browser-only. JVM profiling uses host profilers (clj-async-profiler, JFR).
-
 ## A worked example — the laggy checklist
 
 A small app: a list of 200 todo items, each with a checkbox. Click a checkbox, the item toggles. With one careless implementation, every click hitches; with three small refactors, the same UI feels instant. The story walks the three shapes from the taxonomy above and shows the cure for each.
@@ -410,6 +325,97 @@ Three refactors, in increasing order of how clever they are:
 3. **Expensive and rare.** Stable callbacks. Apply this only when a profiler proves the renders themselves are the bottleneck and the children are complex enough to feel it.
 
 Climb the ladder in order. Most apps stop on rung one.
+
+---
+
+## Reference and advanced topics
+
+The section that follows is per-topic reference material. Reach for it when the topic comes up. The `rf:` Performance API surface is the prod-friendly timing channel — gated, isolated from the dev trace surface, consumed by Chrome DevTools or a `PerformanceObserver`. Skim it; come back when you're standing up production telemetry.
+
+## The `rf:` Performance API surface
+
+The trace bus from [chapter 15](15-devtools-and-pair-tools.md#what-you-get-for-free) is dev-only. For production timing — APM dashboards, in-house perf overlays, "is this page slower in production than in dev?" investigations — re-frame2 ships a second observation channel through the browser's [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing).
+
+When the channel is on, the runtime brackets four hot-path call sites with `performance.mark` / `performance.measure` entries, all stably named under the `rf:` prefix:
+
+| Bucket | Where | Entry name |
+|---|---|---|
+| `:event`  | Event handler invocation (the interceptor chain) | `rf:event:<event-id>` |
+| `:sub`    | Subscription recompute | `rf:sub:<sub-id>` |
+| `:fx`     | Per-fx walk-step (one entry per registered fx that fires) | `rf:fx:<fx-id>` |
+| `:render` | Per-`reg-view` render | `rf:render:<view-id>` |
+
+Keyword namespaces are preserved on the wire:
+
+```
+rf:event:auth/login
+rf:sub:cart/total
+rf:fx:rf.http/managed
+rf:render:my.app/page-header
+```
+
+### Turning it on
+
+The channel is gated on a `goog-define`d boolean — `re-frame.performance/enabled?` — that defaults to `false`. Production builds that don't ask for timing carry zero User-Timing bytes; Closure DCE elides every emit site, every entry-name string, every bracket call.
+
+To flip it on for a build, set the goog-define in your shadow-cljs:
+
+```edn
+{:builds
+ {:app
+  {:target           :browser
+   :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
+```
+
+`:advanced` constant-folds the flag at compile time, the gated branch survives, and the brackets become live measurements.
+
+The flag is *independent* of `goog.DEBUG`. The two compose: a dev build can run with trace on (`goog.DEBUG=true`) and perf off (default), a production build can run with trace off (`goog.DEBUG=false`) and perf on, and the four combinations correspond to four sensibly-sized bundles. The perf flag exists precisely so production telemetry doesn't drag in the dev trace surface.
+
+### Reading the entries
+
+Three consumers, in increasing order of how much work you put in:
+
+**Chrome DevTools Performance panel.** Open it, hit record, drive the app, stop. The `rf:` measures render as named bars alongside React renders, network, paint, and layout. The bar's width is its duration; the bar's name is the entry id. No custom UI required — you get a profiler view of "what re-frame2 did and how long it took" for free.
+
+**Ad-hoc inspection in DevTools console.**
+
+```javascript
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'))
+  .sort((a, b) => b.duration - a.duration)
+  .slice(0, 20);
+```
+
+That returns the twenty slowest re-frame2 measurements from the most recent profile. The shape of each entry is `{name, startTime, duration, ...}` — standard `PerformanceMeasure` records. Group by `:event` / `:sub` / `:fx` / `:render` (split on the second `:`) to see which buckets are hottest.
+
+**Programmatic, streaming.** Attach a `PerformanceObserver` and forward to your APM:
+
+```javascript
+new PerformanceObserver((list) => {
+  for (const e of list.getEntriesByType('measure')) {
+    if (e.name.startsWith('rf:')) {
+      sendToAPM(e);   // { name, startTime, duration, ... }
+    }
+  }
+}).observe({ type: 'measure', buffered: true });
+```
+
+The `buffered: true` flag delivers entries that fired before the observer was attached — useful for SPAs where the observer mounts after the first cascade has already happened.
+
+### A practical workflow
+
+1. **Don't profile dev builds.** Dev builds run with `goog.DEBUG=true`, which keeps the trace surface live; the trace work itself shows up in the profile and is *not* representative of production. Build with `:advanced` plus the perf flag on, serve the result, profile that.
+2. **Record a representative interaction.** Open DevTools' Performance panel, click record, do the thing that feels slow, stop. The `rf:` measures appear under their own track.
+3. **Find the wide bars first.** The slowest individual measurement is usually where the problem lives. If it's a `rf:render:<view-id>`, the view is too expensive — look at its props (shape #1 above), its sub usage (shape #4), its callbacks (shape #3). If it's a `rf:sub:<sub-id>`, the sub body is doing real work and either its cache is missing or the work itself should chunk.
+4. **Count the narrow bars second.** A single fast bar is fine; a *cloud* of fast bars repeated 200 times is a re-render storm. Filter by event id and count occurrences — if `rf:render:my.app/todo-item` fires 200 times per drain, every drain, that's shape #1.
+
+The Chrome User-Timing entry buffer is bounded (default ~10000 entries). Long-running pages that want every entry should attach the observer and offload to durable storage rather than rely on `getEntriesByType` after the fact.
+
+### What the surface is, and isn't
+
+The `rf:` channel is a *timing* channel. It tells you how long each call took. It does *not* tell you why — the trace bus does that. The two compose: in dev, you run with both on, and you cross-reference a wide `rf:render:foo` bar against the trace event for the dispatch that triggered it. In prod, you run with just `rf:` on, and you let your APM aggregate "render of `foo` is at p99 = 80 ms across last hour."
+
+The perf channel is **CLJS-only**. JVM artefacts (SSR, headless tests, server-side jobs using re-frame2 for state) emit no User-Timing entries — the API is browser-only. JVM profiling uses host profilers (clj-async-profiler, JFR).
 
 ## What's not here
 
