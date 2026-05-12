@@ -17,7 +17,7 @@ Load when the task is **writing or editing re-frame2 application source** (`.clj
 |---|---|
 | Inspect, debug, or modify a running re-frame2 app | `skills/re-frame-pair2/` |
 | Set up a new re-frame2 project from scratch (deps.edn, shadow-cljs, boot scaffolding) | `skills/re-frame2-setup/` |
-| Migrate an existing re-frame v1 app to v2 | `SKILL-REDIRECT.md` → *Migration from re-frame v1* |
+| Migrate an existing re-frame v1 app to v2 | `skills/re-frame-migration/` |
 | Understand how the registrar / machine compiler / reactive substrate is implemented | `SKILL-REDIRECT.md` → EP design entries |
 | Read the full API reference, EP rationale, or pattern spec | `SKILL-REDIRECT.md` |
 
@@ -146,7 +146,7 @@ A short checklist that applies regardless of which leaf you load.
 
 ## How re-frame2 differs from re-frame v1
 
-A one-line redirect for v1-trained context: the migration guide and v1→v2 deltas live at `SKILL-REDIRECT.md` → *Migration from re-frame v1*. Do not re-derive v1 mappings from training memory — the v1→v2 surface drift is large enough that confident recall is unreliable.
+A one-line redirect for v1-trained context: the migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is `spec/MIGRATION.md` (linked from `SKILL-REDIRECT.md` → *Migration from re-frame v1*). Do not re-derive v1 mappings from training memory — the v1→v2 surface drift is large enough that confident recall is unreliable.
 
 ## Background reading (optional)
 
@@ -172,4 +172,4 @@ The user runs the test suite, the compiler, and the app. This skill does not run
 
 ---
 
-*This skill targets re-frame2 (the v2 line). For the v1 line, see [re-frame](https://github.com/day8/re-frame). For live-app inspection, see `skills/re-frame-pair2/`. For greenfield bootstrap, see `skills/re-frame2-setup/`. All deep-dive links route through `SKILL-REDIRECT.md` at the repo root.*
+*This skill targets re-frame2 (the v2 line). For the v1 line, see [re-frame](https://github.com/day8/re-frame). For live-app inspection, see `skills/re-frame-pair2/`. For greenfield bootstrap, see `skills/re-frame2-setup/`. For migrating a v1 codebase to v2, see `skills/re-frame-migration/`. All deep-dive links route through `SKILL-REDIRECT.md` at the repo root.*

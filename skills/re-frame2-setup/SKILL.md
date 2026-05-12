@@ -37,7 +37,7 @@ Switch to a different skill when:
 
 - The author has a working re-frame2 project and wants to **write application code** — events, subs, machines, schemas, views, fx. → Use the **`re-frame2`** skill.
 - The author has a running re-frame2 app and wants to **inspect / debug / pair with it live** — dispatch from the REPL, walk app-db, trace events, time-travel. → Use the **`re-frame-pair2`** skill.
-- The author is **migrating from re-frame v1 to v2**. → See [`MIGRATION`](SKILL-REDIRECT.md) (one of the entries in `SKILL-REDIRECT.md` at the repo root).
+- The author is **migrating from re-frame v1 to v2**. → Use the [`re-frame-migration`](../re-frame-migration/) skill.
 
 If the author asks anything beyond greenfield setup (any re-frame2 API question, any design question, any migration question), say so and point them at the right skill.
 
@@ -163,7 +163,7 @@ Setup-out-of-scope questions to re-route:
 | "How do I write a sub that depends on another sub?" | **`re-frame2`** skill |
 | "How do I add a state machine?" | **`re-frame2`** skill |
 | "How do I structure my events folder?" | **`re-frame2`** skill |
-| "I'm migrating from re-frame v1." | `SKILL-REDIRECT.md` → MIGRATION |
+| "I'm migrating from re-frame v1." | **`re-frame-migration`** skill |
 | "Can I inspect app-db from the REPL?" | **`re-frame-pair2`** skill |
 | "Help me debug why my view isn't re-rendering." | **`re-frame-pair2`** skill |
 | "Are there worked examples I can study?" | `SKILL-REDIRECT.md` → Examples directory |
