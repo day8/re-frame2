@@ -55,7 +55,7 @@ Here's the file, in full, with the surrounding ceremony removed:
 
 That's everything. Copy-paste-runnable. Let's take it apart.
 
-> **Chapter vs the runnable file.** The listing above is the teaching shape: one view, `reg-event-db` for the initialiser, the smallest thing that runs. The runnable in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs) is intentionally a little richer — it splits the UI into two views (`counter-buttons` + `counter-app`) and widens `:counter/initialise` to `reg-event-fx` with a `:fx` walk so the perf-instrumented build can exercise the `rf:fx:*` perf bucket on init. Both shapes are equivalent for the counter's behaviour. Likewise, seeding `app-db` via `dispatch-sync [:counter/initialise]` at mount (as the chapter does) and seeding it via `make-frame {:on-create [:counter/initialise]}` (as the test below does) are equivalent ways to land the initial state before the first read — pick whichever fits the call site.
+> **Chapter vs the runnable file.** The listing above is the teaching shape: one view, `reg-event-db` for the initialiser, the smallest thing that runs. The runnable in [`examples/reagent/counter/core.cljs`](../../examples/reagent/counter/core.cljs) is intentionally a little richer — it splits the UI into two views (`counter-buttons` + `counter-app`) and widens `:counter/initialise` to `reg-event-fx` with a `:fx` walk so the perf-instrumented build can exercise the `rf:fx:*` perf bucket on init. Both shapes are equivalent for the counter's behaviour.
 
 ## Initialisation
 
@@ -219,16 +219,16 @@ That's the entire dynamic story. Five steps, all named, no surprises.
 
 ```clojure
 (deftest counter-flow
-  (rf/with-frame [f (rf/make-frame {:on-create [:counter/initialise]})]
-    (is (= 5 (rf/compute-sub [:count] (rf/get-frame-db f))))
-    (rf/dispatch-sync [:counter/inc] {:frame f})
-    (is (= 6 (rf/compute-sub [:count] (rf/get-frame-db f))))
-    (rf/dispatch-sync [:counter/dec] {:frame f})
-    (rf/dispatch-sync [:counter/dec] {:frame f})
-    (is (= 4 (rf/compute-sub [:count] (rf/get-frame-db f))))))
+  (rf/dispatch-sync [:counter/initialise])
+  (is (= 5 (:count (rf/get-frame-db :rf/default))))
+  (rf/dispatch-sync [:counter/inc])
+  (is (= 6 (:count (rf/get-frame-db :rf/default))))
+  (rf/dispatch-sync [:counter/dec])
+  (rf/dispatch-sync [:counter/dec])
+  (is (= 4 (:count (rf/get-frame-db :rf/default)))))
 ```
 
-That test runs on the JVM. There's no browser. There's no React. The `with-frame` block binds `f` to the freshly-made frame's id and pins `*current-frame*` to it for the body; `make-frame` returns the gensym'd id keyword and the runtime fires `:on-create` synchronously. `get-frame-db` returns the current `app-db` *value* (not a deref-able container) — `compute-sub` runs the registered `:count` sub against that value. Tests like this run in milliseconds and you can have thousands of them. Per-test cleanup is handled by your test fixture — typically a `use-fixtures` that calls `destroy-frame!` between tests; [chapter 13 — Testing](13-testing.md) walks the testing helpers end to end.
+That test runs on the JVM. There's no browser. There's no React. It's the same two calls you saw at mount — `dispatch-sync` to run an event synchronously, plus `get-frame-db` to read the resulting `app-db` *value* off the default frame — with `is` assertions threaded between them. The test reads as the production code does. Tests like this run in milliseconds and you can have thousands of them. [Chapter 13 — Testing](13-testing.md) covers the richer testing primitives (isolated frames, sub computation without dispatch, fixtures) for when the shape above isn't enough.
 
 ## What the example covered
 
