@@ -32,7 +32,7 @@
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [clojure.set]
             [clojure.string :as str])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def COLS 26)
 (def ROWS 100)

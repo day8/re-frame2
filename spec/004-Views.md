@@ -318,7 +318,7 @@ For any plain Reagent fn that may render under a non-default frame, replace with
 (rf/reg-view ^{:doc "..."} my-summary [label] ...)
 ```
 
-The CLJS reference's `re-frame.core-legacy` namespace continues to allow plain fns indefinitely; the warning is a *quality-of-life* signal, not a deprecation.
+Plain fns are allowed indefinitely; the warning is a *quality-of-life* signal, not a deprecation.
 
 A future re-frame2.x or v2 may make `reg-view` mandatory if the ecosystem follows. Not in v1.
 

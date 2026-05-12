@@ -19,6 +19,11 @@
          lilactown/helix           {:mvn/version "0.2.2"}}
 
  :aliases
- {:shadow
-  {:extra-deps {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}
-   :main-opts  ["-m" "shadow.cljs.devtools.cli"]}}}
+ {;; `:extra-paths ["test"]` puts the emitted unit-test tree on
+  ;; shadow's classpath under this alias — shadow-cljs reads
+  ;; :paths/:extra-paths out of deps.edn (the :source-paths key in
+  ;; shadow-cljs.edn is ignored when :deps is active).
+  :shadow
+  {:extra-paths ["test"]
+   :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}

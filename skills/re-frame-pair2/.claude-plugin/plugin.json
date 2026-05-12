@@ -30,13 +30,12 @@
   "scripts": [
     "./scripts/discover-app.sh",
     "./scripts/eval-cljs.sh",
-    "./scripts/inject-runtime.sh",
     "./scripts/dispatch.sh",
     "./scripts/trace-window.sh",
     "./scripts/watch-epochs.sh",
     "./scripts/tail-build.sh",
     "./scripts/ops.clj",
-    "./scripts/runtime.cljs"
+    "./preload/re_frame_pair2/runtime.cljs"
   ],
   "requirements": {
     "babashka": ">=1.3.0"

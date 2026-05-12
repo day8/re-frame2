@@ -22,7 +22,7 @@
             [re-frame.views]
             [websocket.messages]
             [websocket.connection])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; STATUS — the machine's connection state, rendered

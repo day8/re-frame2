@@ -16,7 +16,7 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [state-machine-walkthrough.core])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; VIEWS

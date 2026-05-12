@@ -578,11 +578,10 @@
 
 ;; ---- SSR emitter ----------------------------------------------------------
 
-(deftest views-macros-load-cleanly
-  (testing "the views-macros ns loads on the JVM and macros expand"
-    (require 're-frame.views-macros)
+(deftest view-macros-load-cleanly
+  (testing "the view macros from re-frame.core load on the JVM and expand"
     ;; with-frame expands into binding *current-frame*.
-    (let [exp (macroexpand-1 `(re-frame.views-macros/with-frame :foo :body))]
+    (let [exp (macroexpand-1 `(re-frame.core/with-frame :foo :body))]
       (is (some #(= 're-frame.frame/*current-frame* %)
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
@@ -591,7 +590,7 @@
     ;; expansion is (do (binding [...] (reg-view* ...)) (def sym (view ...)) id)
     ;; — the terminal id makes the macro return its primary id (matching
     ;; the reg-* return-value contract pinned in spec/Conventions.md).
-    (let [exp (macroexpand `(re-frame.views-macros/reg-view
+    (let [exp (macroexpand `(re-frame.core/reg-view
                               ~'my-widget [] :body))]
       (is (= 'do (first exp))
           "reg-view expansion starts with do (binding + def + id)")

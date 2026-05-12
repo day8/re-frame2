@@ -33,8 +33,9 @@ Two beads consume the primitive:
 A third bead — rf2-p0mv — specifies the chrome-level toolbar that
 consumes `reg-mode` tuples (theme / viewport / locale chips). The
 mode-tabs primitive and the toolbar are independent UX axes: tabs
-switch the variant's render mode, the toolbar overrides global
-options inside the canvas pane.
+switch the variant's render mode, the toolbar overrides global args
+chrome-wide. See [`010-Toolbar.md`](010-Toolbar.md) for the toolbar
+surface contract.
 
 ## The three canonical mode-tabs
 

@@ -198,8 +198,16 @@ Body:
 
 ```clojure
 {:doc  "..."
+ :axis <axis-keyword>                           ; optional — toolbar grouping
  :args {<arg-key> <value>}}                     ; the saved-tuple
 ```
+
+The optional `:axis` slot groups modes for the chrome-level toolbar
+([`010-Toolbar.md`](010-Toolbar.md) §Optional grouping). Modes sharing
+an axis (e.g. `:theme`) are mutually exclusive in the toolbar's
+single-select UX; un-axis-tagged modes are toolbar-multi-select.
+`:axis` does not affect the `:args` deep-merge — it is purely a
+toolbar grouping hint.
 
 Example:
 

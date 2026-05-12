@@ -36,11 +36,9 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 
 Error and warning ids follow `:rf.error/<kebab-id>` and `:rf.warning/<kebab-id>` — a single-segment kebab-case category under the reserved sub-namespace. The `:rf.error/*` and `:rf.warning/*` table rows above reserve the namespaces; the per-category vocabulary (the closed set of `<category>` values, what each one means, and which trace `:operation` it maps to) is enumerated in [009 §Error namespace convention](009-Instrumentation.md#error-namespace-convention--five-prefix-shapes). The same `:rf.<prefix>/<category>` shape applies to `:rf.fx/*` advisories, `:rf.ssr/*` advisories, and `:rf.epoch/*` operations — Conventions reserves the prefixes; 009 owns the per-prefix grammar.
 
-### v1-compat alias
+### v1 `:re-frame/*` namespace
 
-| Compat namespace | Status |
-|---|---|
-| `:re-frame/*` | **Legacy alias.** v1 codebases reference `:rf/default`, `:rf/db-change`, etc. v2 accepts these as aliases for their `:rf/*` counterparts during migration; the migration agent rewrites mechanically (per [MIGRATION §M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)). Direct authoring of `:re-frame/*` ids in new code is deprecated; the linter nudges. |
+The v1 framework prefix `:re-frame/*` is **not** a runtime-resolved alias in v2. The runtime does not coerce `:re-frame/<x>` to `:rf/<x>`; direct authoring of `:re-frame/*` ids does not resolve. The v1→v2 path is the mechanical rewrite owned by the migration agent (per [MIGRATION §M-20](MIGRATION.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) — every `:re-frame/<x>` reference is rewritten to `:rf/<x>` (or to the per-rule replacement when the id names a v1 feature removed in v2) at migration time. Pre-alpha re-frame2 carries no in-flight v1 codebases that would benefit from a runtime coercion shim, so the prefix is not reserved here.
 
 ### `re-frame.alpha` is dissolved
 

@@ -6,14 +6,20 @@
 ;;;;
 ;;;; Subcommands:
 ;;;;   discover     — locate shadow-cljs nREPL, verify prerequisites,
-;;;;                  inject runtime, report {:ok? ...}
+;;;;                  probe for the preloaded re-frame-pair2.runtime
+;;;;                  namespace, report {:ok? ...}
 ;;;;   eval         — cljs-eval a form, return edn result
-;;;;   inject       — (re-)inject re-frame-pair2.runtime
 ;;;;   dispatch     — fire an event with :origin :pair; --sync / --trace
 ;;;;                  variants, --frame / --fx-override flags
 ;;;;   trace-recent — epochs added in the last N ms (operating frame)
 ;;;;   watch        — pull-mode live streaming of matching epochs
 ;;;;   tail-build   — wait for hot-reload to land; probe-form gated
+;;;;
+;;;; The runtime is no longer injected at first connect — it ships into
+;;;; the consumer app via shadow-cljs's `:devtools :preloads` mechanism.
+;;;; See `skills/re-frame-pair2/SKILL.md` (§Setup) for the one-line
+;;;; preload entry. `discover` refuses with `:reason :runtime-not-preloaded`
+;;;; when the namespace isn't present.
 ;;;;
 ;;;; All ops return edn on stdout. Shells capture and forward.
 
@@ -141,9 +147,6 @@
                   (Integer/parseInt (str/trim (slurp f))))))
             port-file-candidates)))
 
-(defn- runtime-cljs-path []
-  (.getPath (io/file (.getParent (io/file *file*)) "runtime.cljs")))
-
 ;; ---------------------------------------------------------------------------
 ;; Output helpers
 ;; ---------------------------------------------------------------------------
@@ -233,28 +236,39 @@
         (when idx
           (some-> (nth args (inc idx) nil) edn/read-string)))))
 
-(defn- runtime-already-injected?
-  "Fast-path check: if the session sentinel var exists, the runtime is
-   already injected in this browser runtime."
+(def ^:private preload-missing-hint
+  (str "re-frame-pair2.runtime is not loaded into this build. Add the "
+       "preload entry to your shadow-cljs.edn: "
+       ":builds {:app {:devtools {:preloads [re-frame-pair2.runtime]}}}, "
+       "and make sure the directory containing re_frame_pair2/runtime.cljs "
+       "is on :source-paths. See skills/re-frame-pair2/SKILL.md (§Setup)."))
+
+(defn- runtime-preloaded?
+  "Probe `js/globalThis.__re_frame_pair2_runtime` — the load-time
+   sentinel set by the preloaded re-frame-pair2.runtime namespace.
+   One round-trip, no CLJS compile."
   [build-id]
   (try
-    (let [v (cljs-eval-value build-id "re-frame-pair2.runtime/session-id")]
-      (and (string? v) (seq v)))
+    (let [v (cljs-eval-value
+              build-id
+              "(some? (and (exists? js/globalThis) (.-__re_frame_pair2_runtime js/globalThis)))")]
+      (true? v))
     (catch Exception _ false)))
 
-(defn- inject-runtime!
-  "Ensure scripts/runtime.cljs is loaded in the connected runtime."
+(defn- runtime-health!
+  "Call `(re-frame-pair2.runtime/health)`. Caller must have already
+   confirmed the preload landed via `runtime-preloaded?` — this is the
+   second round-trip, returning the structured health summary."
   [build-id]
-  (when-not (runtime-already-injected? build-id)
-    (let [source (slurp (runtime-cljs-path))]
-      (cljs-eval build-id source)))
   (cljs-eval-value build-id "(re-frame-pair2.runtime/health)"))
 
 (defn- discover [args]
   (ensure-port!)
   (let [build-id (build-id-from-args args)]
     (try
-      (let [health (inject-runtime! build-id)]
+      (if-not (runtime-preloaded? build-id)
+        (emit {:ok? false :reason :runtime-not-preloaded :hint preload-missing-hint})
+        (let [health (runtime-health! build-id)]
         (cond
           (not (:ok? health))
           (emit health)
@@ -287,7 +301,7 @@
                                          "or use re-com with :src (at).")))
 
           :else
-          (emit (assoc health :ok? true :build-id build-id))))
+          (emit (assoc health :ok? true :build-id build-id)))))
       (catch Exception e
         (emit {:ok? false
                :reason (or (:reason (ex-data e)) :unknown)
@@ -309,28 +323,6 @@
                :reason (or (:reason (ex-data e)) :eval-error)
                :message (.getMessage e)
                :data (dissoc (ex-data e) :reason)})))))
-
-;; ---------------------------------------------------------------------------
-;; Subcommand: inject
-;; ---------------------------------------------------------------------------
-
-(defn- inject-runtime-force!
-  "Like inject-runtime! but *always* re-ships scripts/runtime.cljs."
-  [build-id]
-  (let [source (slurp (runtime-cljs-path))]
-    (cljs-eval build-id source))
-  (cljs-eval-value build-id "(re-frame-pair2.runtime/health)"))
-
-(defn- inject-op [args]
-  (ensure-port!)
-  (let [build-id (build-id-from-args args)]
-    (try
-      (emit (assoc (inject-runtime-force! build-id)
-                   :build-id build-id
-                   :forced? true
-                   :note "Source re-shipped regardless of sentinel. Use this after editing scripts/runtime.cljs."))
-      (catch Exception e
-        (emit {:ok? false :reason :inject-failed :message (.getMessage e)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Subcommand: dispatch
@@ -599,12 +591,11 @@
   (case (first args)
     "discover"     (discover (rest args))
     "eval"         (eval-op (rest args))
-    "inject"       (inject-op (rest args))
     "dispatch"     (dispatch-op (rest args))
     "trace-recent" (trace-recent-op (rest args))
     "watch"        (watch-op (rest args))
     "tail-build"   (tail-build-op (rest args))
     (die :unknown-subcommand :arg (first args)
-         :valid #{"discover" "eval" "inject" "dispatch" "trace-recent" "watch" "tail-build"})))
+         :valid #{"discover" "eval" "dispatch" "trace-recent" "watch" "tail-build"})))
 
 (apply -main *command-line-args*)

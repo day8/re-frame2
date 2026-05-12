@@ -1,13 +1,13 @@
 ;;;; tests/runtime/parse_rf2_coord_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of `parse-rf2-coord` from
-;;;; `scripts/runtime.cljs`.
+;;;; `preload/re_frame_pair2/runtime.cljs`.
 ;;;;
 ;;;; Why a parallel implementation lives here:
 ;;;;
-;;;;   `scripts/runtime.cljs` is a CLJS-only file injected into the
-;;;;   browser app over nREPL. It uses `js/parseInt`, so it can't run
-;;;;   under bb directly. The real shadow-cljs test build (planned per
+;;;;   `preload/re_frame_pair2/runtime.cljs` is a CLJS-only file loaded
+;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It
+;;;;   uses `js/parseInt`, so it can't run under bb directly. The real shadow-cljs test build (planned per
 ;;;;   `docs/TESTING.md` §1) will exercise the `.cljs` source in place
 ;;;;   under Node — that's the canonical home for these tests once the
 ;;;;   build is wired up.
@@ -27,9 +27,9 @@
             [clojure.test :refer [deftest is run-tests testing]]))
 
 ;; ---------------------------------------------------------------------------
-;; Mirror of scripts/runtime.cljs `parse-rf2-coord`.
+;; Mirror of preload/re_frame_pair2/runtime.cljs `parse-rf2-coord`.
 ;;
-;; KEEP IN SYNC WITH scripts/runtime.cljs. Logic is identical except
+;; KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs. Logic is identical except
 ;; for `js/parseInt` -> `Long/parseLong` (bb runtime). The regex,
 ;; segment count, and shape are the contract under test.
 ;; ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@
     (Long/parseLong s)))
 
 (defn parse-rf2-coord
-  "See scripts/runtime.cljs for the canonical version.
+  "See preload/re_frame_pair2/runtime.cljs for the canonical version.
    Returns {:ns :handler-id :line :col} or nil."
   [attr-val]
   (when (and (string? attr-val) (seq attr-val))

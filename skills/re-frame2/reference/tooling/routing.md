@@ -57,7 +57,7 @@ Distilled from `examples/reagent/routing/core.cljs`.
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing])              ;; load-time hook + reg-sub registrations
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (rf/reg-route :route/home
   {:doc "Landing." :path "/"})

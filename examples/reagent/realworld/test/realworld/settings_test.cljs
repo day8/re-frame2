@@ -14,7 +14,7 @@
   (:require [re-frame.core :as rf]
             [realworld.settings]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn- snapshot [db]
   (get-in db [:rf/machines :settings/form]))

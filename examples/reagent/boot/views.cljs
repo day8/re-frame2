@@ -31,7 +31,7 @@
    the Pattern-Boot shape, not a polished UI."
   (:require [re-frame.core :as rf]
             [boot.boot])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (reg-view ^{:doc "Pre-ready screen — visible while the boot machine
                   is in any non-terminal state."}

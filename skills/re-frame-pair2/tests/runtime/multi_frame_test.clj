@@ -1,14 +1,14 @@
 ;;;; tests/runtime/multi_frame_test.clj
 ;;;;
 ;;;; Babashka-runnable verification of the multi-frame operating-frame
-;;;; semantics in `scripts/runtime.cljs` — `current-frame` ambiguity
+;;;; semantics in `preload/re_frame_pair2/runtime.cljs` — `current-frame` ambiguity
 ;;;; resolution, the `:ambiguous-frame` refusal path used by
 ;;;; `pair-dispatch-sync!`, and `subs-sample` frame-threading.
 ;;;;
 ;;;; Why a parallel implementation lives here:
 ;;;;
-;;;;   `scripts/runtime.cljs` is a CLJS-only file injected into the
-;;;;   browser app over nREPL. It depends on the live re-frame2 frame
+;;;;   `preload/re_frame_pair2/runtime.cljs` is a CLJS-only file loaded
+;;;;   into the consumer app via shadow-cljs `:devtools :preloads`. It depends on the live re-frame2 frame
 ;;;;   registry (`re-frame.core/frame-ids`, `register-epoch-cb`, ...)
 ;;;;   so it can't run under bb directly. The real shadow-cljs test
 ;;;;   build (planned per `docs/TESTING.md` §1) will exercise the
@@ -19,7 +19,7 @@
 ;;;;   threading, and the dispatch-sync refusal path with stub frame
 ;;;;   APIs and asserts behaviour against the contracts at
 ;;;;   `SKILL.md:76`, `docs/initial-spec.md:205`, and
-;;;;   `docs/capabilities.md:88`. KEEP IN SYNC WITH scripts/runtime.cljs.
+;;;;   `docs/capabilities.md:88`. KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs.
 ;;;;
 ;;;; Run:    bb tests/runtime/multi_frame_test.clj
 ;;;; Exit:   0 = pass, non-zero = fail.
@@ -73,10 +73,10 @@
       (atom (get-in @container query-v)))))
 
 ;; ---------------------------------------------------------------------------
-;; Mirror of scripts/runtime.cljs `selected-frame`, `select-frame!`,
+;; Mirror of preload/re_frame_pair2/runtime.cljs `selected-frame`, `select-frame!`,
 ;; and `current-frame`.
 ;;
-;; KEEP IN SYNC WITH scripts/runtime.cljs lines 60-86. Logic must be
+;; KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs lines 60-86. Logic must be
 ;; identical to the CLJS version: explicit override -> session pin ->
 ;; sole registered frame -> nil (ambiguous).
 ;; ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@
 ;; Mirror of `subs-sample` — threads the resolved frame through
 ;; `subscribe` and refuses on :ambiguous-frame.
 ;;
-;; KEEP IN SYNC WITH scripts/runtime.cljs lines 194-218.
+;; KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs lines 194-218.
 ;; ---------------------------------------------------------------------------
 
 (defn subs-sample
@@ -123,7 +123,7 @@
 ;; which is the contract under test (mutating ops refuse on ambiguous
 ;; frame).
 ;;
-;; KEEP IN SYNC WITH scripts/runtime.cljs lines 443-479.
+;; KEEP IN SYNC WITH preload/re_frame_pair2/runtime.cljs lines 443-479.
 ;; ---------------------------------------------------------------------------
 
 (defn pair-dispatch-sync!

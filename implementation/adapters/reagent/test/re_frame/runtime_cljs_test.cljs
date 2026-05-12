@@ -1,7 +1,7 @@
 (ns re-frame.runtime-cljs-test
   "CLJS-side smoke tests. Verifies the JVM-shared API (events, subs,
   dispatch, registry) works under the Reagent reactive substrate AND
-  exercises the CLJS-only macros from re-frame.views-macros."
+  exercises the CLJS-only macros from re-frame.core."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -27,7 +27,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views])
-  (:require-macros [re-frame.views-macros :refer [with-frame bound-fn reg-view]]))
+  (:require-macros [re-frame.core :refer [with-frame bound-fn reg-view]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework

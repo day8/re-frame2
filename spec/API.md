@@ -9,11 +9,11 @@
   - Base values: `v1` (ships in v1), `v1 (preserved)` (exists in current re-frame; preserved unchanged), `v1 (preserved + extended)` (exists today; v1 adds new arity or behaviour), `post-v1 lib` (design spec in v1 Specs but ships in a post-v1 library).
   - Qualifier: `dev-only` (elided in production builds — the macro emit site or runtime body, depending on the API).
   - Examples: `v1`, `v1 (preserved)`, `v1 (dev-only)`, `v1 (preserved, dev-only)`, `post-v1 lib`.
-  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions: `re-frame.test-support`, `re-frame.views-macros`).
+  - The `re-frame.alpha` namespace is dissolved (rf2-7cb2 / rf2-s9dn) — no APIs in this reference live outside `re-frame.core` (with the documented per-namespace exception: `re-frame.test-support`).
 - **Macro/Fn:** marked `M` (macro) or `Fn`.
 - **Spec column** — names exactly the **canonical owning Spec** (the per-Spec doc whose contract this API implements). Migration rules and other cross-references are NOT in the Spec column; they appear in the Notes column when relevant.
 - **Configure keys** — runtime configuration is uniformly via `(rf/configure <key> <opts>)`. Every `<key>` is enumerated in [§Configure keys](#configure-keys) below; per-area tables call out which keys their APIs read but do not redefine the key's vocabulary.
-- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`, `re-frame.views-macros`).
+- All APIs live in `re-frame.core` unless otherwise noted (`re-frame.test-support`).
 
 ---
 
@@ -84,7 +84,7 @@
 
 `with-frame`'s two shapes (bare keyword vs let-binding) are documented in [002 §with-frame](002-Frames.md#with-frame).
 
-`bound-fn` lives in `re-frame.views-macros`, one of the documented per-namespace exceptions to "all APIs live in `re-frame.core`" (see [Conventions](#conventions)). Users `:require-macros [re-frame.views-macros :refer [bound-fn]]`.
+`bound-fn` is a CLJS-only macro; CLJS users either reach it via `rf/bound-fn` (after `(:require [re-frame.core :as rf])`) or `:require-macros [re-frame.core :refer [bound-fn]]`.
 
 ---
 
@@ -130,9 +130,10 @@ The shared React Context that backs `frame-provider` lives in `re-frame.adapter.
 
 ## Routing (Spec 012)
 
+`reg-route` is rowed canonically in [§Registration](#registration).
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `reg-route` | M | `(reg-route id metadata)` | v1 | 012 |
 | `match-url` | Fn | `(match-url url)` → `{:route-id :params :query :validation-failed?}` or `nil` | v1 | 012 |
 | `route-url` | Fn | `(route-url route-id path-params)` / `(route-url route-id path-params query-params)` → URL string | v1 | 012 |
 | `route-link` | Fn (registered view at `:route/link`) | `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..." & html-attrs} & children]` | v1 | 012 |
@@ -180,13 +181,13 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 
 ## SSR (Spec 011)
 
+`reg-head` and `reg-error-projector` are rowed canonically in [§Registration](#registration). The head-fn signature is `(fn [db route] head-model)`; the projector-fn signature is `(fn [trace-event] :rf/public-error)`.
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
 | `render-to-string` | Fn | `(render-to-string view-or-hiccup opts)` → HTML string | v1 | 011 |
-| `reg-head` | M | `(reg-head id ?metadata head-fn)` — head-fn signature `(fn [db route] head-model)` | v1 (deferred — see rf2-gr0n) | 011 |
 | `render-head` | Fn | `(render-head head-id opts)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
 | `active-head` | Fn | `(active-head)` / `(active-head frame-id)` → `:rf/head-model` | v1 (deferred — see rf2-gr0n) | 011 |
-| `reg-error-projector` | M | `(reg-error-projector id ?metadata projector-fn)` — projector-fn signature `(fn [trace-event] :rf/public-error)` | v1 | 011 |
 
 Standard SSR-related events:
 
@@ -328,9 +329,10 @@ For tooling, agents, story tools, 10x.
 
 ## Schemas
 
+`reg-app-schema` is rowed canonically in [§Registration](#registration).
+
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `reg-app-schema` | M | `(reg-app-schema path schema)` | v1 | 010 |
 | `app-schemas` | Fn | `(app-schemas)` / `(app-schemas {:frame frame-id})` | v1 | 010 |
 | `app-schema-at` | Fn | `(app-schema-at path)` / `(app-schema-at path {:frame frame-id})` | v1 | 010 |
 | `app-schemas-digest` | Fn | `(app-schemas-digest)` / `(app-schemas-digest {:frame frame-id})` → string | v1 | 010 |
@@ -510,9 +512,10 @@ Removed in v2 (see [MIGRATION §M-21](MIGRATION.md#m-21-drop-debug-trim-v-on-cha
 
 ### `reg-flow` / `clear-flow` (Spec 013)
 
+`reg-flow` is rowed canonically in [§Registration](#registration); required flow-map keys are `:id`, `:inputs`, `:output`, `:path`.
+
 | Name | Kind | Signature | Status |
 |---|---|---|---|
-| `reg-flow` | Fn | `(reg-flow flow-map)` — required keys `:id`, `:inputs`, `:output`, `:path` | v2 |
 | `clear-flow` | Fn | `(clear-flow id)` — deregister; `dissoc-in` on `:path` | v2 |
 | `:rf.fx/reg-flow` | Reserved fx-id | `[:rf.fx/reg-flow flow-map]` — register a flow at runtime via `:fx` | v2 |
 | `:rf.fx/clear-flow` | Reserved fx-id | `[:rf.fx/clear-flow id]` — clear a registered flow via `:fx` | v2 |

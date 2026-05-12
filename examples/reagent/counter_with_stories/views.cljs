@@ -18,7 +18,7 @@
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.views])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---- Form-1: pure render -------------------------------------------------
 ;;
