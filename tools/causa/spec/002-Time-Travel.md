@@ -101,19 +101,151 @@ spec.
 
 ## Pinned snapshots
 
-At any epoch, the user can pin a labelled snapshot via `*` or the pin
-icon. Pinned snapshots appear as labelled chips on the scrubber:
+At any epoch, the user can **pin a snapshot** — a named reference to
+that point in history — via `*` (per [`007-UX-IA.md`](./007-UX-IA.md)
+§Scrubber) or the pin icon on the scrubber. Pins are how the
+programmer marks "here is the point I want to come back to": before a
+login flow, immediately after a checkout submits, the epoch the bug
+first reproduces, the cascade I want to re-run from.
+
+This affordance is peer-landscape minimum-table-stakes: Reactime's
+snapshot graph and fulcro-inspect's named snapshots both ship it.
+Causa's version stays inside Lock #4 (no session export — see below).
+
+### What a pin captures
+
+A pin is the **4-tuple** `(epoch-id × frame-db-value × dispatch-id × user-label)`:
+
+| Slot | Source | Why it's pinned |
+|---|---|---|
+| `:epoch-id` | `:rf/epoch-record :epoch-id` ([Spec-Schemas §`:rf/epoch-record`](../../../spec/Spec-Schemas.md#rfepoch-record)) | The opaque history key the scrubber and `restore-epoch` both address. |
+| `:frame-db` | `:rf/epoch-record :db-after` | A direct handle to the value the user marked — survives if `epoch-history` ages the slot out of the ring buffer. |
+| `:dispatch-id` | `:rf/epoch-record`'s cascade root (`:tags :dispatch-id` on the trigger event, per [Spec 009 §Dispatch correlation](../../../spec/009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)) | Links the pin to the cascade that produced the epoch, so "Open in Causality graph" stays correct after deeper history scrolls past. |
+| `:label` | User-supplied string (the prompt that opens when `*` fires) | What the programmer reads on the scrubber. Defaults to `pin-<n>` (incrementing per session) if the user dismisses the prompt. |
+
+The capture is **eager**: pinning copies the four slots into Causa's
+in-memory pin store at pin time. Pins survive the ring-buffer
+ageing-out the underlying epoch — the pin retains
+`:frame-db` so "Reset to pinned" still works after the epoch itself
+has dropped off the scrubber.
+
+The `:frame-db` snapshot is the same `app-db` value the framework
+already retained for `:db-after`; pinning takes a fresh reference,
+not a copy. Cost is one map entry plus a string per pin.
+
+### Pins on the scrubber
+
+Pinned snapshots appear as labelled chips on the scrubber:
 
 ```
 ◀◀ ──[before-login]─────[cart-full]──●──── ▶▶
 ```
 
-Click a pin → view rebases to that epoch. Right-click → "Rewind to
-this pin" or "Remove pin."
+If the underlying epoch has aged out of `epoch-history`, the chip
+renders **detached** (no tick mark on the track):
 
-Pins are **session-local**. They live in Causa's in-memory state, not
-in localStorage, not in `app-db`. Reload clears them. (See lock #4
-in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).)
+```
+◀◀ ──[before-login]·         [cart-full]──●──── ▶▶
+       (aged-out)
+```
+
+The detached chip is still clickable; the pin's `:frame-db` is still
+restorable via "Reset to pinned" (below). The detached marker is the
+visible signal that the pin out-lives the ring buffer.
+
+### Pin actions
+
+- **Click a pin chip** → the **view** rebases to that pin's epoch.
+  Passive — per §The passive-scrubbing rule, the live `app-db`
+  does not move. The detail panel, App-DB Diff panel, and Causality
+  graph all rebase to the pin's `:epoch-id`.
+- **Right-click a pin chip** → action menu:
+  - **Reset to pinned** — confirmed rewind. Calls
+    `(rf/reset-frame-db! frame-id pin.frame-db)` (per [Tool-Pair
+    §Pair-tool writes — state
+    injection](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection);
+    schema-validates against the **current** schema set). The pin's
+    label is included in the confirmation modal so the user reads
+    "Reset to `before-login`?" — not a bare hash.
+  - **Rename pin** — inline edit of the label. The 4-tuple's other
+    slots are immutable; rename rewrites only `:label`.
+  - **Remove pin** — drops the pin from the in-memory store. No undo
+    (pins are cheap to recreate).
+  - **Copy pin reference** — copies the 4-tuple as edn to the
+    clipboard, for pasting into a `bd` bead or co-pilot question.
+
+`Reset to pinned` is the **only** pin action that writes to `app-db`.
+Click-and-right-click `Reset to this pin` is intentionally a
+two-action affordance — per [`Principles.md`](./Principles.md)
+§Read-only by default, mutate by confirmation. Single-click on a pin
+is the inspection mode; the destructive action requires the
+right-click → menu path.
+
+### Why `reset-frame-db!` not `restore-epoch`
+
+"Reset to pinned" calls `reset-frame-db!`, not `restore-epoch`,
+because the pin's `:frame-db` is **value-direct**: there is no
+epoch-id lookup against `epoch-history` that could miss (the pin
+holds the value directly, so it works even after age-out).
+`reset-frame-db!` bypasses the cascade, schema-validates against
+the current schemas, and records a synthetic epoch ([Tool-Pair
+§Pair-tool writes — state
+injection](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection))
+so subsequent scrubbing distinguishes the pin-reset from a regular
+cascade.
+
+`restore-epoch` is the right call for the **arrow-key / `r`** path,
+where the user is rewinding to an epoch the ring buffer still
+holds; that path replays through the framework's epoch-lookup machinery
+and surfaces all six restore failure modes (per §Restore failure
+modes). The pin path skips that machinery deliberately — pins are
+"the value I marked, fetched from my memory of the run, not from
+the ring buffer."
+
+A schema-mismatch on `reset-frame-db!` surfaces as a structured
+error trace the same way; the failure modes are the
+`reset-frame-db!`-side modes (per [Tool-Pair §Pair-tool writes — state injection](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection)),
+not the `restore-epoch` six. The modal cites the operation kind so
+the user can search the spec.
+
+### Session-scoped — pins do not survive reload
+
+Pins are **session-local**. They live in Causa's in-memory pin
+store, **not** in localStorage, **not** in `app-db`, **not** on
+disk. Reload clears them.
+
+This is intentional and load-bearing — Lock #4 in
+[`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md): **Sessions are
+session-scoped. No export, no import.** Persisting pins across
+reloads would be a partial session-export — and partial-export is
+the worst kind: the snapshot reference survives but the
+machine-registry, the active flows, the trace buffer do not.
+"Reset to pinned" against a stale registry produces a corrupted
+runtime; refusing to persist sidesteps the corruption surface.
+
+The pin store is per **Causa instance** — pop-out windows
+([`011-Launch-Modes.md`](./011-Launch-Modes.md)) share the
+parent's pin store; standalone-via-MCP attachments are a separate
+instance with their own pin store.
+
+When the user reloads, the scrubber renders without pin chips and
+the pin store starts empty. The empty-state hint on the scrubber's
+first frame after reload reads "Pins are session-local; press `*`
+to pin the current epoch."
+
+### Pin store capacity
+
+Bounded at **32 pins per frame**, configurable via Settings →
+`pin-store-capacity`. Adding a 33rd pin drops the oldest pin with a
+toast notification ("Pin 'before-login' aged out — pin store
+full"). 32 was chosen empirically — sessions with more than ~10
+pins surface a UI density problem; 32 is the cliff at which we say
+"the user is using pins as session-export, which Lock #4 says
+**no**."
+
+Per-frame, not global: each frame's scrubber has its own pin
+store. Switching frames switches the pin set (consistent with the
+scrubber's per-frame binding — per §Cross-frame scrubbing below).
 
 ## Buffer fill indicator
 
