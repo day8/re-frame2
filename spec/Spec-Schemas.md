@@ -209,7 +209,6 @@ The single-form rule lets the runtime walk one ordered list of effects, and fits
 Note the schema is **closed** — unlike most spec-internal shapes which are open maps. The effect map is a contract between handler and runtime; novel keys would be silently ignored, which is exactly the kind of footgun the closed shape rules out.
 
 **Normative ordering and atomicity.** Beyond the shape, the effect map carries a runtime-ordering contract that conformant implementations must produce: `:db` is the first side effect (when present, committed atomically before any `:fx` entry); `:fx` entries are processed in source order, serially (entry N's fx-handler returns before entry N+1's begins); subscriptions observe the post-`:db` state from the first `:fx` entry onwards; if an fx-handler throws, subsequent `:fx` entries continue to run and each error is traced as `:rf.error/fx-handler-exception`. See [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) for the full rules and rationale.
-```
 
 ### `:rf/trace-event`
 
@@ -1246,7 +1245,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
   [:or :keyword fn?])
 ```
 
-The recursive `::state-node` ref is registered under the spec id `:rf/state-node` so individual nodes (and slices of a transition table) can be validated in isolation. The `TransitionTarget` schema is registered as `:rf/transition-target`. **Compound states without `:initial`** are a registration error — emits `:rf.error/machine-compound-state-missing-initial` per [005 §Initial-state cascading](005-StateMachines.md#initial-state-cascading).
+<a id="rfstate-node"></a>
+The recursive `::state-node` ref is registered under the spec id `:rf/state-node` so individual nodes (and slices of a transition table) can be validated in isolation — cross-references target `#rfstate-node` directly. The `TransitionTarget` schema is registered as `:rf/transition-target`. **Compound states without `:initial`** are a registration error — emits `:rf.error/machine-compound-state-missing-initial` per [005 §Initial-state cascading](005-StateMachines.md#initial-state-cascading).
 
 **Guard / action reference resolution.** A `GuardRef` / `ActionRef` keyword is **machine-local** — it resolves to `(get-in spec [:guards <id>])` / `(get-in spec [:actions <id>])`, where `spec` is the root `::state-node` of the transition table. Resolution is performed at registration time: `create-machine-handler` walks the table (in `:on`, `:always`, `:entry`, `:exit` slots) and verifies each keyword reference resolves to a fn in the spec's `:guards` / `:actions` map. Unresolved references fail registration with `:rf.error/machine-unresolved-guard` (with `:tags {:guard-id <id> :machine-id <id>}`) or `:rf.error/machine-unresolved-action` (with `:tags {:action-id <id> :machine-id <id>}`). There is **no global guard/action registry** — each machine has its own `:guards` / `:actions` namespace. Cross-machine reuse is via Clojure vars referenced from each machine's map.
 
