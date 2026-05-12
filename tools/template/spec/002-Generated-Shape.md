@@ -15,16 +15,24 @@ my-app/
 ├── package.json              react + react-dom + shadow-cljs
 ├── README.md                 "run shadow-cljs watch app; open localhost:8280"
 ├── .gitignore
+├── .editorconfig             2-space, LF, trim trailing, final newline
+├── .clj-kondo/
+│   └── config.edn            empty default; lint rules slot in here
 ├── resources/public/
-│   └── index.html            host page; loads /js/main.js
+│   ├── index.html            host page; loads /js/main.js + /css/app.css
+│   └── css/app.css           three-rule plain stylesheet
 ├── src/my_app/
 │   ├── core.cljs             entry point — mounts the view
 │   ├── events.cljs           :counter/initialise, :counter/increment
 │   ├── subs.cljs             :counter/value
 │   └── views.cljs            the counter view
-└── test/my_app/
-    └── events_test.cljs      cljs.test deftest hitting the events ns
-                              under the plain-atom adapter
+├── test/my_app/
+│   └── events_test.cljs      cljs.test deftest hitting the events ns
+│                             under the plain-atom adapter
+└── dev/
+    ├── user.clj              JVM-side (user/refresh) workflow entry
+    └── scratch.cljs          REPL scratch ns for (rf/dispatch …)
+                              experiments against the running app
 ```
 
 `shadow-cljs.edn` ships `:source-paths ["src" "test"]` so the `:test`
@@ -68,11 +76,18 @@ tools/template/
     └── re_frame2/                        ; resource tree (Mustache templates)
         ├── shared/                       ; substrate-agnostic files
         │   ├── README.md
-        │   ├── gitignore
+        │   ├── gitignore                 ; emitted as .gitignore
+        │   ├── editorconfig              ; emitted as .editorconfig
+        │   ├── clj-kondo/
+        │   │   └── config.edn            ; emitted under .clj-kondo/
         │   ├── events.cljs
         │   ├── events_test.cljs
         │   ├── subs.cljs
-        │   └── index.html
+        │   ├── index.html
+        │   ├── dev/
+        │   │   ├── user.clj
+        │   │   └── scratch.cljs
+        │   └── resources/public/css/app.css
         ├── reagent/                      ; Reagent-specific
         │   ├── deps.edn
         │   ├── shadow-cljs.edn

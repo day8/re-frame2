@@ -18,6 +18,28 @@ The first build does take a moment — shadow-cljs is downloading
 dependencies and compiling the ClojureScript. Subsequent rebuilds (on
 file save) are fast.
 
+## Hot reload
+
+`shadow-cljs watch` rebuilds on every file save and re-invokes
+`{{namespace}}.core/init` (the `:devtools/after-load` hook in
+`shadow-cljs.edn`). The entry fn is **idempotent**: re-frame2's
+`rf/init!` accepts being called repeatedly, the registrar
+re-registers in place, and `dispatch-sync [:counter/initialise]`
+re-seeds app-db.
+
+Under the hood re-frame2 guarantees a **per-frame re-init contract**:
+each call to `init!` on a frame snapshots the registrar, re-installs
+the adapter, and resets the frame's app-db to a known state — your
+handlers and subs come back wired to the new code without leaking
+state from the previous build. Add new `reg-event-db` / `reg-sub` /
+`reg-view` forms and they show up live; rename or remove a handler
+and the next reload drops the old registration.
+
+Stack traces in dev get click-to-source via the `:rf.trace/trigger-handler`
+preload (auto-wired when the re-frame-causa preload is on the
+classpath) — clicking a frame in the dev console jumps straight to
+the offending form.
+
 ## Build for release
 
 ```sh
@@ -26,6 +48,42 @@ npx shadow-cljs release app
 
 Production output lands in `resources/public/js/`. Serve `resources/public/`
 from any static host.
+
+## Production builds
+
+`shadow-cljs release` already sets `:closure-defines {goog.DEBUG false}` —
+asserts compile away, dev-only branches drop, the bundle shrinks. If
+you want to verify or override it, the explicit form is:
+
+```clojure
+;; shadow-cljs.edn :builds :app
+:release {:compiler-options {:closure-defines {goog.DEBUG false}}}
+```
+
+For production timing data, flip re-frame2's performance instrumentation
+on at compile time. Add this block alongside `:closure-defines` (it's
+off by default — turning it on costs a few cycles per dispatch):
+
+```clojure
+;; :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
+```
+
+## REPL workflow
+
+Once `npx shadow-cljs watch app` is running, connect your editor to
+the shadow-cljs nREPL:
+
+- **Calva (VS Code):** `Calva: Connect to a Running REPL` →
+  `shadow-cljs` → pick the `:app` build.
+- **CIDER (Emacs):** `M-x cider-jack-in-cljs` → `shadow-cljs` →
+  `:app`.
+- **Cursive (IntelliJ):** add a `Clojure REPL → Remote` config
+  pointing at the nREPL port shadow-cljs prints on startup.
+
+shadow-cljs prints the nREPL port on its first line of output
+(default 7002 if you set `:nrepl {:port 7002}` in `shadow-cljs.edn`,
+or a randomly-assigned port otherwise). Once connected, evaluate
+forms in `dev/scratch.cljs` to drive the running app from the REPL.
 
 ## Run tests
 
@@ -51,15 +109,22 @@ alongside it as your app grows.
 ├── package.json             ; npm deps (react, react-dom, shadow-cljs runtime)
 ├── README.md                ; this file
 ├── .gitignore               ; CLJS standard
+├── .editorconfig            ; 2-space indent, LF, trim trailing whitespace
+├── .clj-kondo/
+│   └── config.edn           ; linter config (empty by default)
 ├── resources/public/
-│   └── index.html           ; host page; loads shadow-cljs's compiled output
+│   ├── index.html           ; host page; loads shadow-cljs's compiled output
+│   └── css/app.css          ; minimal plain CSS — body / button / h1
 ├── src/{{nested-dirs}}/
 │   ├── core.cljs            ; entry point — mounts the root view
 │   ├── events.cljs          ; `:counter/initialise`, `:counter/increment` handlers
 │   ├── subs.cljs            ; `:counter/value` subscription
 │   └── views.cljs           ; the counter view ({{substrate}})
-└── test/{{nested-dirs}}/
-    └── events_test.cljs     ; substrate-agnostic event-handler tests
+├── test/{{nested-dirs}}/
+│   └── events_test.cljs     ; substrate-agnostic event-handler tests
+└── dev/
+    ├── user.clj             ; JVM-side `(user/refresh)` entry
+    └── scratch.cljs         ; REPL scratch namespace for `(rf/dispatch …)` experiments
 ```
 
 ## What's in the scaffold

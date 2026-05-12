@@ -45,7 +45,9 @@
 ;; src/clj/new/re_frame2/<substrate>/ for substrate-specific files (the
 ;; views ns + the deps.edn / shadow-cljs.edn / package.json) and shares
 ;; the substrate-agnostic shell (events.cljs, subs.cljs, README.md,
-;; .gitignore, resources/public/index.html) from .../shared/.
+;; .gitignore, .editorconfig, .clj-kondo/config.edn, dev/user.clj,
+;; dev/scratch.cljs, resources/public/index.html,
+;; resources/public/css/app.css) from .../shared/.
 
 (def ^:private valid-substrates #{:reagent :uix :helix})
 
@@ -133,6 +135,14 @@
              ["package.json"    (sub-render (str substrate-name "/package.json"))]
              ["README.md"       (sub-render "shared/README.md")]
              [".gitignore"      (sub-raw    "shared/gitignore")]
+             ;; -- dev ergonomics (rf2-r2jqo) --
+             ;;
+             ;; Dotfile sources live without their leading dot on the
+             ;; classpath (clj-new's resource lookup chokes on hidden
+             ;; resources); we re-attach the dot on the output side.
+             [".editorconfig"   (sub-raw    "shared/editorconfig")]
+             [".clj-kondo/config.edn"
+              (sub-render "shared/clj-kondo/config.edn")]
              ;; -- src tree --
              ["src/{{nested-dirs}}/core.cljs"
               (sub-render (str substrate-name "/core.cljs"))]
@@ -152,6 +162,19 @@
              ;; also emits.
              ["test/{{nested-dirs}}/events_test.cljs"
               (sub-render "shared/events_test.cljs")]
-             ;; -- host HTML --
+             ;; -- dev tree (Q8 lock) --
+             ;;
+             ;; `dev/user.clj` — JVM-side `(user/refresh)` entry.
+             ;; `dev/scratch.cljs` — REPL scratch ns for firing
+             ;; (rf/dispatch …) against the running app. The `:shadow`
+             ;; alias in deps.edn puts `dev` on the classpath so both
+             ;; files are reachable from `clojure -M:shadow` and
+             ;; shadow's nREPL.
+             ["dev/user.clj"    (sub-render "shared/dev/user.clj")]
+             ["dev/scratch.cljs"
+              (sub-render "shared/dev/scratch.cljs")]
+             ;; -- host HTML + stylesheet --
              ["resources/public/index.html"
-              (sub-render "shared/index.html")])))
+              (sub-render "shared/index.html")]
+             ["resources/public/css/app.css"
+              (sub-raw    "shared/resources/public/css/app.css")])))

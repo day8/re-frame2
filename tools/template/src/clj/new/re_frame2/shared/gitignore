@@ -13,9 +13,12 @@ yarn-error.log
 /.idea/
 /.vscode/
 /.lsp/
-/.clj-kondo/
 /.cpcache/
 *.iml
+
+# clj-kondo cache (the config file itself is committed)
+/.clj-kondo/.cache/
+/.clj-kondo/.cache-version
 
 # OS
 .DS_Store
