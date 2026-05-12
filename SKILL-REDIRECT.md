@@ -1,117 +1,93 @@
 # Skill Redirects
 
-This file is a canonical pointer table for AI skills working in this repo.
-Skills like `re-frame2`, `re-frame2-setup`, and `re-frame-pair2` redirect AI
-agents here when the agent needs deep-dive content beyond the skill's
-recipes: the full API table, EP design rationale, the migration guide, the
-construction-prompt templates, etc.
+Canonical pointer table for AI skills. Skills stay free of hardcoded URLs;
+this file owns them. Update once when a URL changes.
 
-Skills stay free of hardcoded URLs; this file owns them. If a URL changes,
-update it here once and every skill keeps working.
+## Skill index — what to scan for
 
-## How to route
+Find your skill, scan the audience section for lines tagged with it.
 
-Two audiences land here. Pick a section in 5 seconds:
-
-- **Building a CLJS app with the re-frame2 reference implementation?** Go to
-  [Section 1](#section-1--building-with-the-reference-implementation). Your
-  primary surface is the API reference, the narrative Guide, the MIGRATION
-  guide (if porting v1 code), and the runnable examples. The spec corpus is
-  there when you need to confirm a normative claim — not your daily driver.
-- **Implementing the re-frame2 spec from scratch** in a different host
-  language or substrate? Go to
-  [Section 2](#section-2--implementing-the-spec). The spec corpus is your
-  daily driver — read it in numeric order. `API.md` is the contract your
-  implementation must expose. The conformance corpus is how you check your
-  work.
+| Skill | Audience | Tag |
+|---|---|---|
+| `re-frame2` | Building CLJS apps on the reference impl | `[app]` |
+| `re-frame2-setup` | Greenfield bootstrap on the reference impl | `[setup]` |
+| `re-frame-migration` | Porting a v1 codebase to v2 | `[mig]` |
+| `re-frame-pair2` | Live-runtime pair-programming | `[pair]` |
+| `re-frame-pair-improver2` | Pair-session retrospective (no URL deps) | — |
+| `re-frame2-implementor` | Building a new impl in another host language | `[impl]` |
 
 ## Section 1 — Building with the reference implementation
 
-If you're building with re-frame2, start here. The API reference is the
-contract surface you call against; the Guide is the narrative; MIGRATION
-covers the port from v1; Examples show shape.
+Audience: `[app]` / `[setup]` / `[mig]` / `[pair]`. API + Guide + MIGRATION + Examples.
 
-- **Definitive API reference** → https://day8.github.io/re-frame2/spec/API/
-- **Migration from re-frame v1** → https://day8.github.io/re-frame2/spec/MIGRATION/
-- **Narrative guide (overview)** → https://day8.github.io/re-frame2/guide/README/
-- **Guide — Your first app** → https://day8.github.io/re-frame2/guide/02-your-first-app/
-- **Guide — State machines** → https://day8.github.io/re-frame2/guide/05-state-machines/
-- **Guide — Stories** → https://day8.github.io/re-frame2/guide/14-stories/
-- **Guide — From re-frame v1** → https://day8.github.io/re-frame2/guide/08-from-re-frame-v1/
-- **Guide — Testing** → https://day8.github.io/re-frame2/guide/10-testing/
-- **Guide — Tooling (devtools and pair tools)** → https://day8.github.io/re-frame2/guide/11-devtools-and-pair-tools/
-- **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples/reagent
-- **Spec corpus (overview & index)** → https://day8.github.io/re-frame2/spec/ — consult when you need to look up a normative claim
+- **Definitive API reference** → https://day8.github.io/re-frame2/spec/API/ `[app]` `[setup]` `[impl]`
+- **Migration from re-frame v1** → https://day8.github.io/re-frame2/spec/MIGRATION/ `[app]` `[setup]` `[mig]`
+- **Narrative guide (overview)** → https://day8.github.io/re-frame2/guide/README/ `[setup]`
+- **Guide — Stories** → https://day8.github.io/re-frame2/guide/20-stories/ `[app]`
+- **Examples directory (worked apps)** → https://github.com/day8/re-frame2/tree/main/examples/reagent `[app]` `[setup]` `[impl]`
+- **VERSION (next release string)** → https://github.com/day8/re-frame2/blob/main/VERSION `[setup]` `[mig]`
+- **CHANGELOG** → https://github.com/day8/re-frame2/blob/main/CHANGELOG.md `[setup]` `[mig]`
+- **GitHub releases** → https://github.com/day8/re-frame2/releases `[setup]` `[mig]`
 
 ## Section 2 — Implementing the spec
 
-If you're implementing the spec, here's the corpus — read in order, contract
-is mandatory. Conformance fixtures validate your work; construction prompts
-are AI-shaped templates for one-shot generation.
+Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric order; `API.md` is the contract.
 
 ### Spec corpus (read in order)
 
-- **EP — Vision (000)** → https://day8.github.io/re-frame2/spec/000-Vision/
-- **EP — Registration (001)** → https://day8.github.io/re-frame2/spec/001-Registration/
-- **EP — Frames (002)** → https://day8.github.io/re-frame2/spec/002-Frames/
-- **EP — Views (004)** → https://day8.github.io/re-frame2/spec/004-Views/
-- **EP — State machines (005)** → https://day8.github.io/re-frame2/spec/005-StateMachines/
-- **EP — Reactive substrate (006)** → https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/
-- **EP — Stories (007)** → https://day8.github.io/re-frame2/spec/007-Stories/
-- **EP — Testing (008)** → https://day8.github.io/re-frame2/spec/008-Testing/
-- **EP — Instrumentation (009)** → https://day8.github.io/re-frame2/spec/009-Instrumentation/
-- **EP — Schemas (010)** → https://day8.github.io/re-frame2/spec/010-Schemas/
-- **EP — SSR (011)** → https://day8.github.io/re-frame2/spec/011-SSR/
-- **EP — Routing (012)** → https://day8.github.io/re-frame2/spec/012-Routing/
-- **EP — Flows (013)** → https://day8.github.io/re-frame2/spec/013-Flows/
-- **EP — HTTP requests (014)** → https://day8.github.io/re-frame2/spec/014-HTTPRequests/
+- **EP — Vision (000)** → https://day8.github.io/re-frame2/spec/000-Vision/ `[impl]`
+- **EP — Registration (001)** → https://day8.github.io/re-frame2/spec/001-Registration/ `[impl]`
+- **EP — Frames (002)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
+- **EP — Views (004)** → https://day8.github.io/re-frame2/spec/004-Views/ `[impl]`
+- **EP — State machines (005)** → https://day8.github.io/re-frame2/spec/005-StateMachines/ `[app]` `[impl]`
+- **EP — Reactive substrate (006)** → https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/ `[app]` `[pair]` `[impl]`
+- **EP — Stories (007)** → https://day8.github.io/re-frame2/spec/007-Stories/ `[app]` `[impl]`
+- **EP — Testing (008)** → https://day8.github.io/re-frame2/spec/008-Testing/ `[impl]`
+- **EP — Instrumentation (009)** → https://day8.github.io/re-frame2/spec/009-Instrumentation/ `[app]` `[pair]` `[impl]`
+- **EP — Schemas (010)** → https://day8.github.io/re-frame2/spec/010-Schemas/ `[app]` `[impl]`
+- **EP — SSR (011)** → https://day8.github.io/re-frame2/spec/011-SSR/ `[app]` `[impl]`
+- **EP — Routing (012)** → https://day8.github.io/re-frame2/spec/012-Routing/ `[app]` `[impl]`
+- **EP — Flows (013)** → https://day8.github.io/re-frame2/spec/013-Flows/ `[app]` `[impl]`
+- **EP — HTTP requests (014)** → https://day8.github.io/re-frame2/spec/014-HTTPRequests/ `[app]` `[impl]`
 
 ### Contract & cross-cutting normative docs
 
-- **API contract (must expose)** → https://day8.github.io/re-frame2/spec/API/
-- **Conventions** → https://day8.github.io/re-frame2/spec/Conventions/
-- **Spec schemas** → https://day8.github.io/re-frame2/spec/Spec-Schemas/
-- **Principles** → https://day8.github.io/re-frame2/spec/Principles/
-- **Cross-spec interactions** → https://day8.github.io/re-frame2/spec/Cross-Spec-Interactions/
-- **Tool-Pair contract (live inspection)** → https://day8.github.io/re-frame2/spec/Tool-Pair/
+- **API contract (must expose)** → https://day8.github.io/re-frame2/spec/API/ `[app]` `[impl]`
+- **Conventions** → https://day8.github.io/re-frame2/spec/Conventions/ `[app]` `[impl]`
+- **Spec schemas** → https://day8.github.io/re-frame2/spec/Spec-Schemas/ `[app]` `[impl]`
+- **Principles** → https://day8.github.io/re-frame2/spec/Principles/ `[app]` `[impl]`
+- **Cross-spec interactions** → https://day8.github.io/re-frame2/spec/Cross-Spec-Interactions/ `[impl]`
+- **Tool-Pair contract (live inspection)** → https://day8.github.io/re-frame2/spec/Tool-Pair/ `[app]` `[pair]` `[impl]`
 
 ### Patterns (normative pattern specs)
 
-- **Pattern — Async effect** → https://day8.github.io/re-frame2/spec/Pattern-AsyncEffect/
-- **Pattern — Boot** → https://day8.github.io/re-frame2/spec/Pattern-Boot/
-- **Pattern — Forms** → https://day8.github.io/re-frame2/spec/Pattern-Forms/
-- **Pattern — Long-running work** → https://day8.github.io/re-frame2/spec/Pattern-LongRunningWork/
-- **Pattern — Nine states** → https://day8.github.io/re-frame2/spec/Pattern-NineStates/
-- **Pattern — Remote data** → https://day8.github.io/re-frame2/spec/Pattern-RemoteData/
-- **Pattern — Stale detection** → https://day8.github.io/re-frame2/spec/Pattern-StaleDetection/
-- **Pattern — WebSocket** → https://day8.github.io/re-frame2/spec/Pattern-WebSocket/
+- **Pattern — Async effect** → https://day8.github.io/re-frame2/spec/Pattern-AsyncEffect/ `[app]` `[impl]`
+- **Pattern — Boot** → https://day8.github.io/re-frame2/spec/Pattern-Boot/ `[app]` `[impl]`
+- **Pattern — Forms** → https://day8.github.io/re-frame2/spec/Pattern-Forms/ `[app]` `[impl]`
+- **Pattern — Long-running work** → https://day8.github.io/re-frame2/spec/Pattern-LongRunningWork/ `[app]` `[impl]`
+- **Pattern — Nine states** → https://day8.github.io/re-frame2/spec/Pattern-NineStates/ `[app]` `[impl]`
+- **Pattern — Remote data** → https://day8.github.io/re-frame2/spec/Pattern-RemoteData/ `[app]` `[impl]`
+- **Pattern — Stale detection** → https://day8.github.io/re-frame2/spec/Pattern-StaleDetection/ `[app]` `[impl]`
+- **Pattern — WebSocket** → https://day8.github.io/re-frame2/spec/Pattern-WebSocket/ `[app]` `[impl]`
 
 ### Construction & validation
 
-- **Construction prompts (AI-shaped templates)** → https://day8.github.io/re-frame2/spec/Construction-Prompts/
-- **CP-5 — Machine guide** → https://day8.github.io/re-frame2/spec/CP-5-MachineGuide/
-- **Conformance corpus** → https://day8.github.io/re-frame2/spec/conformance/
-
-### Reference for what NOT to recreate
-
-- **Migration from re-frame v1** → https://day8.github.io/re-frame2/spec/MIGRATION/ — lists v1 surfaces the spec deliberately drops; useful for spec implementers as a "don't carry this forward" inventory
+- **Construction prompts (AI-shaped templates)** → https://day8.github.io/re-frame2/spec/Construction-Prompts/ `[app]` `[impl]`
+- **CP-5 — Machine guide** → https://day8.github.io/re-frame2/spec/CP-5-MachineGuide/ `[impl]`
+- **Conformance corpus** → https://day8.github.io/re-frame2/spec/conformance/ `[impl]`
+- **Implementor checklist** → https://day8.github.io/re-frame2/spec/Implementor-Checklist/ `[impl]`
 
 ## Other
 
-Cross-cutting material that supports both audiences (implementor sanity
-checks, runtime topology, ownership boundaries, audit guidance, source
-links).
+Cross-cutting material.
 
-- **Implementor checklist** → https://day8.github.io/re-frame2/spec/Implementor-Checklist/
-- **Runtime architecture** → https://day8.github.io/re-frame2/spec/Runtime-Architecture/
-- **Ownership model** → https://day8.github.io/re-frame2/spec/Ownership/
-- **AI audit guidance** → https://day8.github.io/re-frame2/spec/AI-Audit/
-- **re-frame-pair2 skill (live inspection)** → https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2
-- **Source code** → https://github.com/day8/re-frame2
+- **Runtime architecture** → https://day8.github.io/re-frame2/spec/Runtime-Architecture/ `[app]` `[impl]`
+- **Ownership model** → https://day8.github.io/re-frame2/spec/Ownership/ `[impl]`
+- **AI audit guidance** → https://day8.github.io/re-frame2/spec/AI-Audit/ `[impl]`
+- **Source code** → https://github.com/day8/re-frame2 (all skills)
 
 ## Format
 
-- Bullet list with `→` separator
-- Grouped by audience and (within Section 2) by role
-- Easy for an AI to scan; easy for a human to read
-- Update when a URL changes or a new skill is added
+- Bullet list with `→` separator and `[skill-tag]` suffix.
+- Audience-shaped sections; per-skill consumers tagged.
+- Update when a URL changes, a skill is added, or a skill's consumption pattern shifts.
