@@ -45,7 +45,7 @@
                :font-family   "monospace"
                :font-size     "11px"
                :color         "#cccccc"}
-   :url-label {:color "#888"
+   :url-label {:color "#b0b0b0"
                :margin-bottom "4px"
                :text-transform "uppercase"
                :font-size "9px"

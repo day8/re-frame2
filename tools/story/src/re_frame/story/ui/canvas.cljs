@@ -77,7 +77,7 @@
               :border "1px solid #3c3c3c"
               :border-radius "4px"
               :padding "12px"}
-   :empty    {:color "#666"
+   :empty    {:color "#9a9a9a"
               :font-style "italic"
               :text-align "center"
               :padding "32px"}
@@ -228,10 +228,10 @@
      [:div {:style (:title styles)}
       [:span (str (pr-str variant-id))]
       (when view-id
-        [:span {:style {:color "#666" :margin-left "8px"}}
+        [:span {:style {:color "#9a9a9a" :margin-left "8px"}}
          (str "→ " (pr-str view-id))])
       (when multi?
-        [:span {:style {:color "#888" :margin-left "8px"
+        [:span {:style {:color "#b0b0b0" :margin-left "8px"
                         :font-size "10px" :font-weight "normal"}}
          (str " (substrates: "
               (str/join ", " (map name (sort-by name substrates)))

@@ -200,14 +200,14 @@
                   :overflow "hidden"
                   :text-overflow "ellipsis"
                   :white-space "nowrap"}
-   :header       {:font-weight "bold" :color "#888"}
+   :header       {:font-weight "bold" :color "#b0b0b0"}
    :event-cell   {:color "#dcdcaa"}
    :handler-cell {:color "#4ec9b0"}
    :fx-cell      {:color "#ce9178"}
    :effect-cell  {:color "#ce9178"}
    :sub-cell     {:color "#b5cea8"}
    :render-cell  {:color "#c586c0"}
-   :empty        {:color "#666" :font-style "italic"}})
+   :empty        {:color "#9a9a9a" :font-style "italic"}})
 
 ;; ---- view ----------------------------------------------------------------
 

@@ -44,7 +44,7 @@
                   :margin-bottom "4px"}
    :section      {:padding "12px 0 4px 12px"
                   :font-weight "bold"
-                  :color "#888"
+                  :color "#b0b0b0"
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"}
@@ -70,7 +70,7 @@
                   :cursor "pointer"
                   :color "#cccccc"}
    :variant-row-active {:background "#094771" :color "white"}
-   :empty        {:color "#666"
+   :empty        {:color "#9a9a9a"
                   :font-style "italic"
                   :padding "8px 12px"}})
 

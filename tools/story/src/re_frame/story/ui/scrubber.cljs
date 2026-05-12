@@ -93,7 +93,7 @@
                  :gap "8px"}
    :slider      {:flex "1"}
    :label       {:min-width "80px"
-                 :color "#888"}
+                 :color "#b0b0b0"}
    :chip-row    {:display "flex"
                  :flex-wrap "wrap"
                  :gap "4px"
@@ -111,7 +111,7 @@
                  :border-radius "3px"
                  :cursor "pointer"
                  :font-size "10px"}
-   :empty       {:color "#666" :font-style "italic"}})
+   :empty       {:color "#9a9a9a" :font-style "italic"}})
 
 ;; ---- public component ----------------------------------------------------
 

@@ -77,7 +77,7 @@
                :font-size "11px"}
    :tab       {:padding "6px 12px"
                :cursor "pointer"
-               :color "#888"
+               :color "#b0b0b0"
                :border-right "1px solid #444"}
    :tab-active {:color "white"
                 :background "#1e1e1e"
@@ -270,7 +270,7 @@
        variant-id [canvas/canvas]
        :else
        [:div {:style {:padding "32px"
-                      :color "#666"
+                      :color "#9a9a9a"
                       :font-style "italic"
                       :text-align "center"}}
         "Select a variant or workspace from the sidebar."])

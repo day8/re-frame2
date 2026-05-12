@@ -41,7 +41,7 @@
                  :border-top "1px solid #444"}
    :section     {:margin-bottom "12px"}
    :section-h   {:font-weight "bold"
-                 :color "#888"
+                 :color "#b0b0b0"
                  :text-transform "uppercase"
                  :font-size "10px"
                  :letter-spacing "0.5px"
@@ -79,7 +79,7 @@
                  :cursor "pointer"
                  :font-size "10px"
                  :margin-top "8px"}
-   :empty       {:color "#666" :font-style "italic"}})
+   :empty       {:color "#9a9a9a" :font-style "italic"}})
 
 ;; ---- pure: argtype inference --------------------------------------------
 

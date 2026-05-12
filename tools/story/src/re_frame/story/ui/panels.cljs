@@ -69,7 +69,7 @@
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"}
-   :stub-body    {:color "#888"
+   :stub-body    {:color "#b0b0b0"
                   :line-height "1.5"}
    :stub-code    {:padding "8px"
                   :background "#1e1e1e"
@@ -85,7 +85,7 @@
                   :font-size "11px"
                   :border-top "1px solid #444"}
    :layout-title {:font-weight "bold"
-                  :color "#888"
+                  :color "#b0b0b0"
                   :text-transform "uppercase"
                   :font-size "10px"
                   :letter-spacing "0.5px"
@@ -97,7 +97,7 @@
                   :cursor "pointer"
                   :user-select "none"}
    :decor-id     {:color "#9cdcfe"}
-   :hint         {:color "#666"
+   :hint         {:color "#9a9a9a"
                   :font-style "italic"
                   :font-size "10px"
                   :margin-top "6px"}})
@@ -244,7 +244,7 @@
                  :padding "4px 10px"
                  :background "#2d2d30"
                  :border-bottom "1px solid #444"
-                 :color "#888"
+                 :color "#b0b0b0"
                  :font-family "monospace"
                  :font-size "10px"
                  :text-transform "uppercase"
@@ -281,7 +281,7 @@
          [:div
           [:div {:style (:panel-head host-styles)}
            [:span (:title body)]
-           [:span {:style {:color "#666"}} (str pid)]]
+           [:span {:style {:color "#9a9a9a"}} (str pid)]]
           (if view-fn
             ;; rf2-zme7: scope the panel view's subscribe / dispatch to
             ;; the active variant's frame. The namespace-preserving
@@ -290,7 +290,7 @@
             ;; context boundary (rf2-c5jz).
             [canvas/frame-provider-ns-safe {:frame variant-id}
              [view-fn variant-id]]
-            [:div {:style {:padding "8px" :color "#888"
+            [:div {:style {:padding "8px" :color "#b0b0b0"
                            :font-style "italic" :font-size "10px"}}
              (str "panel " (pr-str pid)
                   " has no registered :render view (" (pr-str view-id) ")")])]))]))
