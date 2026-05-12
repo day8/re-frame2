@@ -582,6 +582,8 @@ Split between the v1 machine-as-event-handler foundation and the post-v1 `re-fra
 | `:rf.machine/spawn` (fx) | — | Canonical actor-lifecycle fx (registered globally by `re-frame.machines`). Args per `:rf.fx/spawn-args`. | v1 | 005 |
 | `:rf.machine/destroy` (fx) | — | Canonical actor-destroy fx (registered globally by `re-frame.machines`). Args: an actor id. | v1 | 005 |
 | `:raise` (fx) | — | Reserved fx-id inside a machine action's `:fx` (machine-internal, routed pre-commit). Args: an event vector. | v1 | 005 |
+| `:final?` / `:output-key` (state-node keys) | — | `:final?` marks a leaf state as terminal — entering it auto-destroys the machine. `:output-key` (requires `:final?`) designates the child's `:data` slot reported back via the parent's `:on-done`. Capability axis `:fsm/final-states`. Per rf2-gn80; see [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). | v1 | 005 |
+| `:on-done` (`:invoke` spec key) | — | `(fn [data result] new-data)` on the parent's `:invoke` map. Fires synchronously when the spawned child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). Per rf2-gn80. | v1 | 005 |
 | `:child-machine` (transition-table key) | — | Declarative state-scoped child-machine binding. | post-v1 lib | 005 |
 | `machine->xstate-json` | Fn | `(machine->xstate-json definition)` → JSON | post-v1 lib | 005 |
 | `machine->mermaid` | Fn | `(machine->mermaid definition)` → string | post-v1 lib | 005 |

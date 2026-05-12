@@ -26,33 +26,72 @@ Spec 005 §Declarative `:invoke` §Worked example (verbatim shape). While the pa
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one |
 | `:data` | initial data for the child — literal map or `(fn [snapshot event] data)` | optional |
 | `:on-spawn` | `(fn [data spawned-id] new-data)` — advisory; record the child id in the parent's `:data` if you want | optional |
+| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states---onDone--output-key) below. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:invoke-id` | explicit id instead of gensym (per-state singleton) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
 
 Verbatim from Spec 005 §Spec-spec keys (`spec/005-StateMachines.md:1821`). The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/invoke-id` (the absolute prefix-path of the `:invoke`-bearing state node) onto the spawn args so the destroy fx can locate the actor on exit.
 
-## Terminal contract — re-frame2 has no `onDone`
+## Final states — `:final?` / `:on-done` / `:output-key`
 
-A child reaching a "done" state does **not** automatically signal the parent. There is no `final?: true` marker, no `onDone` callback. The child explicitly dispatches back:
+Per rf2-gn80, re-frame2 ships first-class final-state-with-parent-notification — the xstate `onDone` shape. A leaf state declares `:final? true`; the parent's `:invoke` declares `:on-done`.
 
 ```clojure
-;; Inside the child's terminal-state action:
+;; Child machine — declares its terminal state with :final? + :output-key.
 (rf/reg-machine :auth-flow
   {:initial :running
+   :data    {}
    :states
-   {:running
-    {:on {:server-ok {:target :done
-                      :action (fn [data _]
-                                {:fx [[:dispatch
-                                       [(:rf/parent-id data)
-                                        [:succeeded (:user-token data)]]]]})}}}
-    :done {}}})
+   {:running {:on {:server-ok {:target :done
+                               :action (fn [data ev]
+                                         {:data (assoc data :token (second ev))})}}}
+    :done    {:final?     true
+              :output-key :token}}})
+
+;; Parent machine — :on-done reads the child's reported result.
+(rf/reg-machine :login
+  {:initial :idle
+   :states
+   {:idle
+    {:on {:submit :authenticating}}
+
+    :authenticating
+    {:invoke {:machine-id :auth-flow
+              :on-done    (fn [data result] (assoc data :token result))}
+     :on    {:auth/cancelled :idle}}}})
 ```
 
-The parent's `:rf/parent-id` is stamped onto the child's `:data` at spawn time (`machines.cljc:2278`, Spec 005 §Runtime stamps on the spawned actor's `:data`). The child reads it and dispatches `[<parent-id> [:succeeded ...]]`; the parent's `:on :succeeded :authenticated` transition fires.
+When `:auth-flow` enters `:done`, the runtime synchronously:
 
-Per Spec 005 §Deliberate omissions vs xstate (`spec/005-StateMachines.md:1922`): the parent reads `(:rf/parent-id data)`; the child dispatches back via the standard `:dispatch` fx. No new mechanism. Same shape as the `:rf.http/managed` wrapper's terminal `:succeeded` / `:failed` events.
+1. Reads the child's `:data` at `:output-key :token` — call it `result`.
+2. Runs the parent's `:on-done` against the parent's `:data` with `result`.
+3. Emits `:rf.machine/done` (`:machine-id` / `:output` / `:parent-id`).
+4. Tears down the child via the existing destroy path with `:reason :rf.machine/finished` on the `:rf.machine/destroyed` trace.
+5. Clears the child's `[:rf/system-ids <sid>]` reverse-index entry (after `:on-done`).
+
+`:output-key` is optional — when absent, `:on-done` receives `nil`. `:on-done` is optional — when absent, the auto-destroy still fires.
+
+### Singleton symmetry — "final means final"
+
+A **singleton** machine (registered top-level, no parent `:invoke`) that reaches `:final?` **also auto-destroys**. If you want a persistent terminal state, simply **omit `:final?`** and use an ordinary leaf state. This is intentional (D7) — `:final?` means final, not "the machine is in a stable state."
+
+```clojure
+;; If you write this, the singleton self-destructs once `:end` fires:
+(rf/reg-machine :ephemeral
+  {:initial :running
+   :states  {:running {:on {:end :stopped}}
+             :stopped {:final? true}}})    ;; <- machine handler unregisters on :end
+```
+
+### `:final?` constraints
+
+- **Leaf-only.** A `:final?` state MUST NOT declare `:states` / `:initial` (registration rejects with `:rf.error/machine-final-state-compound`).
+- **No transitions out.** A `:final?` state MUST NOT declare `:on`, `:always`, `:after`, `:invoke`, or `:invoke-all` (`:rf.error/machine-final-state-has-transitions`). `:entry` and `:exit` actions ARE permitted.
+- **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`).
+- **Parallel regions.** A leaf in one region may be `:final?`; that region halts. The parent machine auto-destroys only when **every** region's active leaf is `:final?`.
+
+Per Spec 005 §Final states (`spec/005-StateMachines.md`) for the full sub-decision matrix (D1-D10) and trace-ordering contract.
 
 ## Composition with explicit `:entry` / `:exit`
 

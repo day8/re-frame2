@@ -1,0 +1,55 @@
+;; Conformance fixture: machine/final-state-child-fires-on-done
+;;
+;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
+;; and rf2-gn80. A child machine spawned by a parent's `:invoke` declares
+;; a leaf with `:final? true`. When the child enters that leaf:
+;;
+;;   1. The runtime extracts `result` from the child's `:data` slot
+;;      named by the final state's `:output-key`.
+;;   2. The parent's `:invoke :on-done (fn [data result] new-data)`
+;;      fires synchronously against the parent's `:data`.
+;;   3. The child is auto-destroyed (snapshot + handler + spawn-registry
+;;      slot + system-id reverse-index all cleared).
+;;   4. Trace events `:rf.machine/done` (with :machine-id / :output /
+;;      :parent-id) and `:rf.machine/destroyed` (with :reason
+;;      :rf.machine/finished) are emitted in that order, before the
+;;      registrar `unregister!`.
+;;
+;; The pure machine-transition surface this fixture exercises returns
+;; the child's post-transition `{:state :data}` snapshot — the lifecycle
+;; orchestration (on-done firing, destroy cascade, trace emission) is a
+;; concern of the live runtime, not of the pure-call surface. Hosts
+;; whose harness simulates the live spawn / destroy can verify (2-4) by
+;; running an extended scenario; the pure-call assertions below verify
+;; that the child's transition produces a snapshot landing on the
+;; `:final?` leaf with the `:output-key` slot populated as expected.
+
+{:fixture/id           :machine/final-state-child-fires-on-done
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/final-states :actor/invoke}
+ :fixture/doc          "A child machine entering :final? produces a snapshot whose :state is the terminal leaf and whose :data contains the :output-key slot value the parent's :on-done callback reads. The pure surface verifies the snapshot shape; live runtimes additionally observe the parent's :on-done firing, the auto-destroy, and the `:rf.machine/done` + `:rf.machine/destroyed :reason :rf.machine/finished` traces."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; (1) The child machine's transition into :done. The child's :data
+  ;; carries :token at the :output-key slot the parent's :on-done reads.
+  ;; The fixture exercises the child's view of the transition; the
+  ;; live runtime additionally drives the parent's :on-done call from
+  ;; this same step (NOT visible in the pure-call expectation).
+  {:call         :machine-transition
+   :definition
+   {:initial :running
+    :data    {:token :auth/pending}
+    :states
+    {:running {:on {:finish :done}}
+     :done    {:final?     true
+               :output-key :token}}}
+   :snapshot     {:state :running :data {:token :auth/pending}}
+   :event        [:finish]
+   :expect-next-snapshot {:state :done :data {:token :auth/pending}}
+   :expect-effects       []}]}
