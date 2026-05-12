@@ -547,6 +547,8 @@ Alongside the underlying `reg-event-fx + create-machine-handler` form (per [§Re
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
+Both forms return `machine-id` per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
 - `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(handlers :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.

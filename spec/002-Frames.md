@@ -87,7 +87,7 @@ Three observations:
 ;; dispatch-syncs :todo/initialise into it, returns the keyword.
 ```
 
-Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states.
+Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states. The return value (the registered frame keyword) follows the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 
 This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--anonymous-make-frame) — refer to the keys defined here; they do not re-define them.
 

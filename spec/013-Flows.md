@@ -70,6 +70,8 @@ Optional keys (per the [001-Registration §Registration grammar](001-Registratio
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. (A map-keyed alternative was considered — see [§Open questions](#open-questions).)
 
+`reg-flow` returns the flow's `:id` — the primary id under which the flow registers in the `:flow` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). The id is carried by the flow-map rather than as a separate positional arg, but the return-value contract is the same as the rest of the `reg-*` family.
+
 `reg-flow` accepts an optional second argument carrying a `:frame` opt — the frame the flow registers against. Default is `(current-frame)` (per [002 §How `:frame` gets attached](002-Frames.md#how-frame-gets-attached), usually `:rf/default` unless the call sits inside a `with-frame` form or under a frame-providing context):
 
 ```clojure

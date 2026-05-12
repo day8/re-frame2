@@ -14,7 +14,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 ### Registration
 
-- **`reg-route`** — registers a route. Reserved metadata keys: `:doc`, `:path` (required), `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave`. See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`.
+- **`reg-route`** — registers a route. Reserved metadata keys: `:doc`, `:path` (required), `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:scroll`, `:can-leave`. See [§Reserved route-metadata keys](#reserved-route-metadata-keys) and [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) for `:can-leave`. Returns its `id` argument per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
 - **Path-pattern grammar** — five productions (literal, named param, optional segment group, splat, root). See [§Path-pattern grammar](#path-pattern-grammar-canonical).
 - **Route ranking** — six-rule cascade for resolving overlapping matches. See [§Route ranking algorithm](#route-ranking-algorithm).
 

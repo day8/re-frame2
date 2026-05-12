@@ -46,6 +46,10 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 
 For `reg-event-*`, the **interceptor chain is positional** (a separate vector argument between the metadata-map and the handler), NOT a metadata-map key. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) for the rationale and the warning the runtime emits when `:interceptors` is mis-placed inside the metadata-map.
 
+### Return value
+
+Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. The contract is uniform across the family per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Per-kind surfaces (Specs 002 / 004 / 005 / 010 / 011 / 012 / 013) inherit this without restating it.
+
 Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs. Notably `reg-frame`'s metadata-map *does* recognise `:interceptors` (frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)).
 
 ### Allowed forms of the middle slot

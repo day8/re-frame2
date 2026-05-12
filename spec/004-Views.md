@@ -210,6 +210,8 @@ Inside a `reg-view*` body the user must capture the frame explicitly via `(rf/di
 
 The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callable surface beneath a macro (`let` / `let*`, `fn` / `fn*`). Per [Conventions §`*`-suffix naming](Conventions.md), this convention applies wherever a macro has a fn partner; `reg-view` / `reg-view*` is the only such pair in v1.
 
+Both `reg-view` and `reg-view*` return the registered **id** per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). For `reg-view`, the macro also defs the supplied symbol as a side effect (per §The canonical form below) — that's an additional behaviour, not a substitute for the return value. Programmatic callers that need both the id and the Var have the id via the return value and the Var via the auto-def.
+
 **Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from the surrounding frame** — the injected closures resolve to whatever frame the surrounding `frame-provider` puts in scope. The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
 
 The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
