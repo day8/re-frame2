@@ -879,6 +879,15 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:reason       :string]
    [:source-coord {:optional true} :any]])           ;; optional — `dispatch` is not macro-stamped, so the call-site coord may be absent
 
+(def CrossFrameDispatchSyncDuringDrainTags
+  [:map
+   [:category     [:= :rf.warning/cross-frame-dispatch-sync-during-drain]]
+   [:caller-frame :keyword]                          ;; `*current-frame*` at the call site, or `:rf/none` when unbound
+   [:target-frame :keyword]                          ;; the `dispatch-sync!`'s `:frame` opt (or resolved default)
+   [:other-frame  :keyword]                          ;; an arbitrary mid-drain sibling — typically the caller's frame
+   [:event        [:vector :any]]
+   [:reason       :string]])
+
 (def DecodeDefaultedTags
   [:map
    [:category         :keyword]

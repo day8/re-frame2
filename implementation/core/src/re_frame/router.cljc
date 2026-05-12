@@ -555,6 +555,65 @@
          (ensure-drain-scheduled! (:frame envelope) router)))
      nil)))
 
+(defn- other-frame-mid-drain
+  "Per rf2-fp97 — Spec 002 §dispatch-sync cross-frame note. Return the
+  frame-id of any registered, non-destroyed frame OTHER than `target-id`
+  whose router currently shows `:in-sync-drain?` or `:in-drain?` true.
+  Returns nil when no such frame exists.
+
+  Used by `dispatch-sync!` to detect the cross-frame cascade pattern
+  (frame A mid-drain, a handler calls `(rf/dispatch-sync! [...] {:frame :b})`).
+  The same-frame case is already an error; the cross-frame case is
+  intentional but surprising, so we surface it as
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` rather than
+  refuse. Frames are independent state machines (per Spec 002 §Rules
+  rule 1) and frame B's drain doesn't violate frame A's contract.
+
+  Dev-only — the caller gates on `interop/debug-enabled?` to skip the
+  registry walk in production."
+  [target-id]
+  (some (fn [id]
+          (when (not= id target-id)
+            (when-let [fr (frame/frame id)]
+              (let [r @(:router fr)]
+                (when (or (:in-sync-drain? r) (:in-drain? r))
+                  id)))))
+        (frame/frame-ids)))
+
+(defn- emit-cross-frame-warning!
+  "Per rf2-fp97: emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
+  when `dispatch-sync!` lands on frame `target-id` while a different
+  frame (`other-id`) is mid-drain. The caller frame is read from
+  `frame/*current-frame*`; when unbound (no frame context — e.g. a
+  process-level REPL caller threading the dispatch through some unusual
+  path) the field is `:rf/none`.
+
+  Per Mike's 2026-05-13 Option B decision: warn, do not refuse.
+  Continues with the dispatch."
+  [target-id other-id event]
+  (let [caller-id (or frame/*current-frame* :rf/none)
+        reason    (str "dispatch-sync! against `" target-id "` while frame `"
+                       other-id "` is mid-drain. The two cascades will "
+                       "interleave: `" target-id "`'s drain runs to settled "
+                       "while `" other-id "` is still in flight, then `"
+                       other-id "` continues. Frames are independent state "
+                       "machines so this does not violate either frame's "
+                       "contract (per Spec 002 §Run-to-completion §Rules "
+                       "rule 1 — no cross-frame drain), but the interleaved "
+                       "ordering is rarely the caller's intent. If the goal "
+                       "is fire-and-forget cross-frame coordination, prefer "
+                       "the async form `(rf/dispatch event {:frame other})` "
+                       "— it queues on the target frame's router and drains "
+                       "on a later cycle, after the caller's cascade settles.")]
+    (trace/emit! :warning
+                 :rf.warning/cross-frame-dispatch-sync-during-drain
+                 {:caller-frame caller-id
+                  :target-frame target-id
+                  :other-frame  other-id
+                  :event        event
+                  :reason       reason
+                  :recovery     :no-recovery})))
+
 (defn dispatch-sync!
   "Bypass the queue scheduler and process this single event end-to-end
   immediately, then drain any synchronously-enqueued events to fixed
@@ -568,7 +627,16 @@
   true before draining, any dispatch! calls inside the seed handler's
   :fx vector enqueue without scheduling an async drain — the sync drain
   picks them up. Counting the seed event as drain depth 0 keeps drain-
-  depth limits behaving uniformly across sync and async dispatch."
+  depth limits behaving uniformly across sync and async dispatch.
+
+  Per rf2-fp97: when the same-frame reentry check passes but ANOTHER
+  frame is currently mid-drain, the runtime emits
+  `:rf.warning/cross-frame-dispatch-sync-during-drain` and continues
+  with the dispatch. The cross-frame cascade interleaves (target frame
+  drains to settled before the caller's drain resumes); per Spec 002
+  §Rules rule 1 this is intentional (frames are independent state
+  machines) but rarely the caller's intent, so the warning surfaces the
+  pattern for observability tools without refusing the call."
   ([event] (dispatch-sync! event {}))
   ([event opts]
    (let [envelope     (build-envelope event opts)
@@ -581,9 +649,9 @@
 
        (let [r @(:router frame-record)]
          (or (:in-sync-drain? r) (:in-drain? r)))
-       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside ANY
-       ;; running drain (sync or async) is an error — the event would
-       ;; interleave with the outer handler's run-to-completion.
+       ;; Per Spec 002 §dispatch-sync: nesting dispatch-sync inside the
+       ;; SAME frame's running drain (sync or async) is an error — the
+       ;; event would interleave with the outer handler's run-to-completion.
        (trace/emit-error! :rf.error/dispatch-sync-in-handler
                           {:frame    (:frame envelope)
                            :event    event
@@ -592,6 +660,15 @@
 
        :else
        (let [router (:router frame-record)]
+         ;; Per rf2-fp97 (Mike's 2026-05-13 Option B decision): the
+         ;; same-frame reentry check passed; now check whether any OTHER
+         ;; frame is mid-drain. If so, the dispatch will interleave with
+         ;; that frame's cascade — warn but proceed. Dev-only: gated on
+         ;; `interop/debug-enabled?` so production skips the registry
+         ;; walk.
+         (when interop/debug-enabled?
+           (when-let [other-id (other-frame-mid-drain (:frame envelope))]
+             (emit-cross-frame-warning! (:frame envelope) other-id event)))
          (emit-dispatched-trace! envelope true)
          ;; Put the seed at the front and mark scheduled to suppress async.
          ;; :in-sync-drain? lets a nested dispatch-sync detect the unsafe
