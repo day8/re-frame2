@@ -48,6 +48,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.performance :as performance :include-macros true]
             [re-frame.registrar :as registrar]
+            [re-frame.trace :as trace]
             [re-frame.views.provider :as provider]
             [re-frame.views.source-coord-annotation :as source-coord]
             [re-frame.views.warn-once :as warn-once]))
@@ -205,11 +206,20 @@
         render-fn          (if wrap-applied? wrapped-by-adapter render-fn)
         coord-attr (when (and interop/debug-enabled? (not wrap-applied?))
                      (source-coord/format-source-coord id metadata))
+        ;; Per rf2-3nn8: capture the view's `:rf.trace/trigger-handler`
+        ;; value once at registration time (the registrar `metadata` map
+        ;; carries the source-coord stamp) so each render binds it via
+        ;; the dynamic Var around the user render-fn invocation. Errors
+        ;; emitted during render (subscribe-miss against this frame,
+        ;; sub exception during a render-time deref, etc.) inherit the
+        ;; view's coord as the in-scope trigger handler.
+        view-trigger-handler (trace/trigger-handler-from-meta :view id metadata)
         wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (let [tok        (provider/reagent-component-token)
                           render-key [id tok]]
-                      (binding [*render-key* render-key]
+                      (binding [*render-key* render-key
+                                trace/*current-trigger-handler* view-trigger-handler]
                         (emit-render-trace! render-key)
                         ;; Per Spec 009 §Performance instrumentation
                         ;; (rf2-du3i): every render of a registered view

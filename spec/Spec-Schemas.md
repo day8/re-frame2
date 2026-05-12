@@ -285,6 +285,15 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
    [:time      :any]                            ;; emit timestamp (host clock)
    [:source    {:optional true} :keyword]
    [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]
+   [:rf.trace/trigger-handler {:optional true}
+                              [:map
+                               [:kind         [:enum :event :sub :fx :cofx :view]]
+                               [:id           :keyword]
+                               [:source-coord [:map
+                                               [:ns     {:optional true} :symbol]
+                                               [:file   {:optional true} :string]
+                                               [:line   {:optional true} :int]
+                                               [:column {:optional true} :int]]]]]
    [:tags      [:map
                 [:category    :keyword]         ;; same value as :operation, for consumer convenience
                 [:failing-id  {:optional true} :any]
@@ -293,6 +302,8 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
 ```
 
 The `:op-type` discriminates severity: `:error` halts or recovers a specific operation; `:warning` is an advisory the runtime emitted alongside continuing default behaviour. Consumers branch on `:op-type` for severity routing and on `:operation` for category-specific handling.
+
+The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. Not elided in production — `:rf.error/*` traces are not elided (unlike `:rf.assert/*`) and this slot rides along with them.
 
 The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing categories cannot be renamed or removed; new categories are added by extending the operation namespace. The current set is enumerated in [009 §Error categories](009-Instrumentation.md#error-categories-initial-set) and reproduced in [API.md §Error contract](API.md#error-contract). Reserved operation namespaces:
 

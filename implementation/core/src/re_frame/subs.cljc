@@ -189,30 +189,37 @@
                {:sub-id  query-id
                 :query-v query-v
                 :frame   frame-id})
-  (try
-    (let [computed (performance/mark-and-measure :sub query-id
-                    (if (empty? input-signals)
-                      (body-fn (first in-vals) query-v)
-                      ;; Layer-2+: deliver inputs as a coll if many,
-                      ;; or singleton when only one chain entry.
-                      (if (= 1 (count input-signals))
+  ;; Per rf2-3nn8: bind `*current-trigger-handler*` to the sub's own
+  ;; source-coord for the body-fn invocation + the validation step so
+  ;; any error trace fired during the recompute (the `:rf.error/sub-
+  ;; exception` catch below, schema-validation failures, transitive
+  ;; sub misses) carries the in-flight sub's coord.
+  (binding [trace/*current-trigger-handler*
+            (trace/trigger-handler-from-meta :sub query-id sub-meta)]
+    (try
+      (let [computed (performance/mark-and-measure :sub query-id
+                      (if (empty? input-signals)
                         (body-fn (first in-vals) query-v)
-                        (body-fn (vec in-vals) query-v))))]
-      (maybe-validate-sub-return! computed query-v query-id sub-meta))
-    (catch #?(:clj Throwable :cljs :default) e
-      (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
-        (trace/emit-error!
-          :rf.error/sub-exception
-          {:failing-id        query-id
-           :sub-id            query-id
-           :sub-query         query-v
-           :exception         e
-           :exception-message msg
-           :reason            (str "Subscription `" query-id
-                                   "` threw while computing: "
-                                   msg ". Returning nil.")
-           :recovery          :replaced-with-default}))
-      nil)))
+                        ;; Layer-2+: deliver inputs as a coll if many,
+                        ;; or singleton when only one chain entry.
+                        (if (= 1 (count input-signals))
+                          (body-fn (first in-vals) query-v)
+                          (body-fn (vec in-vals) query-v))))]
+        (maybe-validate-sub-return! computed query-v query-id sub-meta))
+      (catch #?(:clj Throwable :cljs :default) e
+        (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
+          (trace/emit-error!
+            :rf.error/sub-exception
+            {:failing-id        query-id
+             :sub-id            query-id
+             :sub-query         query-v
+             :exception         e
+             :exception-message msg
+             :reason            (str "Subscription `" query-id
+                                     "` threw while computing: "
+                                     msg ". Returning nil.")
+             :recovery          :replaced-with-default}))
+        nil))))
 
 (defn- make-memoised-body
   "Build the compute fn passed to `adapter/make-derived-value` — a

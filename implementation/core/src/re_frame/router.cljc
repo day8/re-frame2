@@ -226,43 +226,53 @@
                               :recovery :replaced-with-default})
 
           :else
-          (let [_            (trace/emit! :event :event
-                                          {:event-id event-id
-                                           :event    event
-                                           :frame    frame
-                                           :source   (:source envelope)
-                                           :trace-id (:trace-id envelope)
-                                           :phase    :run-start})
-                event-ok?    (validate-event! event-id event handler-meta)
-                {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
-                full-chain   (vec (concat extra-interceptors (:interceptors handler-meta)))
-                initial-ctx  (assemble-initial-ctx envelope frame frame-record fx-overrides)
-                ;; Per Spec 010 §Per-step recovery step 1: when event-payload
-                ;; validation failed the handler is not invoked; the
-                ;; downstream queue continues.
-                ;;
-                ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
-                ;; bracket the handler invocation in performance marks so
-                ;; prod builds with the perf flag enabled produce a
-                ;; `rf:event:<event-id>` measure entry. Default-off; under
-                ;; `:advanced` + `re-frame.performance/enabled?=false` the
-                ;; bracket DCEs and the call collapses to the chain run.
-                final-ctx    (if event-ok?
-                               (performance/mark-and-measure :event event-id
-                                 (interceptor/execute-chain full-chain initial-ctx))
-                               initial-ctx)
-                effects      (:effects final-ctx)
-                error        (:rf/interceptor-error final-ctx)]
-            (when error
-              (emit-handler-exception! error event-id event frame))
-            (commit-db-effect! effects event-id event frame)
-            (run-flows! frame event)
-            (run-fx-effects! effects frame frame-record fx-overrides event)
-            (trace/emit! :event :event
-                         {:event-id event-id
-                          :event    event
-                          :frame    frame
-                          :phase    :run-end})))))))
+          ;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
+          ;; duration of this event's interceptor chain + post-chain
+          ;; phases (db commit, flows, fx walk) so every error trace
+          ;; emitted within the scope carries the triggering handler's
+          ;; source-coord. The trace/trigger-handler-from-meta helper
+          ;; returns nil when no source-coord was stamped (programmatic
+          ;; registration / REPL eval); the binding is then nil and
+          ;; the field is omitted from any emitted error event.
+          (binding [trace/*current-trigger-handler*
+                    (trace/trigger-handler-from-meta :event event-id handler-meta)]
+            (let [_            (trace/emit! :event :event
+                                            {:event-id event-id
+                                             :event    event
+                                             :frame    frame
+                                             :source   (:source envelope)
+                                             :trace-id (:trace-id envelope)
+                                             :phase    :run-start})
+                  event-ok?    (validate-event! event-id event handler-meta)
+                  {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
+                  full-chain   (vec (concat extra-interceptors (:interceptors handler-meta)))
+                  initial-ctx  (assemble-initial-ctx envelope frame frame-record fx-overrides)
+                  ;; Per Spec 010 §Per-step recovery step 1: when event-payload
+                  ;; validation failed the handler is not invoked; the
+                  ;; downstream queue continues.
+                  ;;
+                  ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
+                  ;; bracket the handler invocation in performance marks so
+                  ;; prod builds with the perf flag enabled produce a
+                  ;; `rf:event:<event-id>` measure entry. Default-off; under
+                  ;; `:advanced` + `re-frame.performance/enabled?=false` the
+                  ;; bracket DCEs and the call collapses to the chain run.
+                  final-ctx    (if event-ok?
+                                 (performance/mark-and-measure :event event-id
+                                   (interceptor/execute-chain full-chain initial-ctx))
+                                 initial-ctx)
+                  effects      (:effects final-ctx)
+                  error        (:rf/interceptor-error final-ctx)]
+              (when error
+                (emit-handler-exception! error event-id event frame))
+              (commit-db-effect! effects event-id event frame)
+              (run-flows! frame event)
+              (run-fx-effects! effects frame frame-record fx-overrides event)
+              (trace/emit! :event :event
+                           {:event-id event-id
+                            :event    event
+                            :frame    frame
+                            :phase    :run-end}))))))))
 
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:

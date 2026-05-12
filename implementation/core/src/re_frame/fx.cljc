@@ -168,23 +168,31 @@
     ;; Default: user-registered fx.
     (if-let [meta (registrar/lookup :fx fx-id)]
       (if (fx-runs-on-platform? meta active-platform)
-        (let [ok? (try
-                    ((:handler-fn meta) (cond-> {:frame frame-id}
-                                          origin-event (assoc :event origin-event))
-                                        args)
-                    true
-                    (catch #?(:clj Throwable :cljs :default) e
-                      (let [msg (#?(:clj .getMessage :cljs .-message) e)]
-                        (trace/emit-error! :rf.error/fx-handler-exception
-                                           {:failing-id        fx-id
-                                            :fx-id             fx-id
-                                            :fx-args           args
-                                            :frame             frame-id
-                                            :exception         e
-                                            :exception-message msg
-                                            :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
-                                            :recovery          :no-recovery}))
-                      false))]
+        (let [;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
+              ;; duration of the fx handler's invocation (including the
+              ;; exception path) so error traces emitted from inside
+              ;; the fx body — `:rf.error/fx-handler-exception` here and
+              ;; anything the body itself surfaces — carry the fx
+              ;; handler's source-coord.
+              ok? (binding [trace/*current-trigger-handler*
+                            (trace/trigger-handler-from-meta :fx fx-id meta)]
+                    (try
+                      ((:handler-fn meta) (cond-> {:frame frame-id}
+                                            origin-event (assoc :event origin-event))
+                                          args)
+                      true
+                      (catch #?(:clj Throwable :cljs :default) e
+                        (let [msg (#?(:clj .getMessage :cljs .-message) e)]
+                          (trace/emit-error! :rf.error/fx-handler-exception
+                                             {:failing-id        fx-id
+                                              :fx-id             fx-id
+                                              :fx-args           args
+                                              :frame             frame-id
+                                              :exception         e
+                                              :exception-message msg
+                                              :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
+                                              :recovery          :no-recovery}))
+                        false)))]
           (when ok?
             (emit-handled! fx-id args frame-id)))
         (trace/emit! :warning :rf.fx/skipped-on-platform
