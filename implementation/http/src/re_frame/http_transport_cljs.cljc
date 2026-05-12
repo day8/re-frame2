@@ -124,23 +124,31 @@
 
 #?(:cljs
    (defn- finalise-failure!
-     "Final-failure dispatch (after retries exhausted or non-retriable)."
+     "Final-failure dispatch (after retries exhausted or non-retriable).
+
+     Per rf2-lxd3: when a fresh request supersedes a prior one with the
+     same `:request-id`, the prior request's `:on-failure` reply is NOT
+     dispatched (the supersede semantic = the new request replaces the
+     old one — the original `:on-failure` would race the new request's
+     outcome and corrupt debounce-search patterns). The supersede event
+     still emits to the trace bus (`:rf.http/aborted` with
+     `:reason :request-id-superseded`); consumers wanting abort telemetry
+     subscribe via `register-trace-cb!`."
      [ctx failure]
      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-     (when (and interop/debug-enabled?
-                (= :rf.http/aborted (:kind failure)))
-       ;; Aborted is its own category — the trace is a single error event.
-       nil)
      (when interop/debug-enabled?
        (trace/emit-error! (:kind failure)
                           (assoc failure
                                  :request-id (:request-id ctx)
                                  :url        (:url ctx)
                                  :recovery   :no-recovery)))
-     (dispatch-reply! (assoc ctx
-                             :kind          :failure
-                             :reply-payload {:kind    :failure
-                                             :failure failure}))))
+     (let [superseded? (and (= :rf.http/aborted (:kind failure))
+                            (= :request-id-superseded (:reason failure)))]
+       (when-not superseded?
+         (dispatch-reply! (assoc ctx
+                                 :kind          :failure
+                                 :reply-payload {:kind    :failure
+                                                 :failure failure}))))))
 
 #?(:cljs
    (defn- maybe-retry!
