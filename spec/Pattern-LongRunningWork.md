@@ -167,6 +167,7 @@ The `:dispatch-later {:ms 0}` schedules through the host clock primitive (via `r
 - **Forgetting cancellation.** Long jobs need a cancel path. The state-machine pattern makes this trivial; ad-hoc loops make it painful.
 - **`:always` cycles without `:after 0` between batches.** A pure `:always` chain hits the `:rf.error/machine-always-depth-exceeded` cap (default 16). The `:yielding` state's `:after 0` resets the depth and yields to the browser.
 - **Trying to make subscriptions "incremental"** instead of computing in events. Subs are read-only projections; chunked work is a write operation that should produce data the subs then read.
+- **Input changing mid-process.** The machine's `:data` holds the input the start-action snapshotted. If the source data changes while the job runs, the machine keeps processing the original snapshot — which is usually what you want. If it isn't, send `:reset` and restart.
 
 ## When to choose worker offload instead
 
