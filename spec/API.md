@@ -246,8 +246,17 @@ Standard cofx (server-only):
 | `uninstall-managed-request-stubs!` | Fn | `(uninstall-managed-request-stubs!)` — drop any installed stubs and restore real-request routing. Idempotent. Per [014 §Testing](014-HTTPRequests.md#testing). | v1 (optional capability, dev/test) | 014 |
 | `reg-http-interceptor` | Fn | `(reg-http-interceptor {:frame ... :id ... :before (fn [ctx] ctx')})` — register a request-side interceptor on a frame's `:rf.http/managed` middleware chain (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). `:before` receives a ctx `{:request :args :frame :event}` and returns a (possibly-modified) ctx. | v1 (optional capability) | 014 |
 | `clear-http-interceptor` | Fn | `(clear-http-interceptor id)` / `(clear-http-interceptor frame id)` — unregister an interceptor by id (per [014 §Middleware](014-HTTPRequests.md#middleware), rf2-6y3q). Single-arity targets `:rf/default`. | v1 (optional capability) | 014 |
+| `re-frame.http/get`     | Fn | `(rf.http/get url)` / `(rf.http/get url args)` — build a `[:rf.http/managed {:request {:method :get :url url} ...}]` fx vector (per [014 §Call-site helpers](014-HTTPRequests.md#call-site-helpers), rf2-pf4k). | v1 (optional capability) | 014 |
+| `re-frame.http/post`    | Fn | `(rf.http/post url)` / `(rf.http/post url args)` — POST helper; same shape as `get`. | v1 (optional capability) | 014 |
+| `re-frame.http/put`     | Fn | `(rf.http/put url)` / `(rf.http/put url args)` — PUT helper. | v1 (optional capability) | 014 |
+| `re-frame.http/delete`  | Fn | `(rf.http/delete url)` / `(rf.http/delete url args)` — DELETE helper. | v1 (optional capability) | 014 |
+| `re-frame.http/patch`   | Fn | `(rf.http/patch url)` / `(rf.http/patch url args)` — PATCH helper. | v1 (optional capability) | 014 |
+| `re-frame.http/head`    | Fn | `(rf.http/head url)` / `(rf.http/head url args)` — HEAD helper. | v1 (optional capability) | 014 |
+| `re-frame.http/options` | Fn | `(rf.http/options url)` / `(rf.http/options url args)` — OPTIONS helper. | v1 (optional capability) | 014 |
 
 Public API surface in `re-frame.core` for ports that ship Spec 014. Ports that omit it MUST NOT register `:rf.http/*` for any other purpose (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+
+The verb helpers (`get` / `post` / `put` / `delete` / `patch` / `head` / `options`) live in `re-frame.http` — users `(:require [re-frame.http :as rf.http])` alongside `re-frame.core`. They're pure synthesis fns that produce the canonical `[:rf.http/managed args-map]` fx vector; the namespace ships in `day8/re-frame2-http` (same artefact as the fx they reference) so loading the helpers and the fx are a single dep decision.
 
 ### Reply-payload shape
 
