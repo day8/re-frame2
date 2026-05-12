@@ -91,10 +91,13 @@ The fix isn't to write better `cond` clauses. The fix is to step back and notice
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    (fn [data [_ err]]
+    ;; The reply lands folded into the inner event by managed-HTTP's
+    ;; extras-fold — see §"Dispatching to a machine" below for the
+    ;; {:kind :failure :failure <reply>} envelope shape.
+    (fn [data [_ {:keys [failure]}]]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message err) "Login failed.")))})
+                 (assoc :error (or (:message failure) "Login failed.")))})
 
     :lock-account
     (fn [_ _]
@@ -193,6 +196,8 @@ This is exactly `(reg-event-fx machine-id (create-machine-handler machine))` —
 
 In day-to-day code you will not see the coord index unless you go looking for it. `(rf/machine-meta :auth.login/flow)` returns it under the `:rf.machine/source-coords` key.
 
+**Initial-state `:entry` fires on machine birth.** When a singleton machine first receives an event, or when an actor is brought into being by `:rf.machine/spawn` / declarative `:invoke`, the runtime cascades into the `:initial` state and runs that state's `:entry` action as part of birth — no self-targeting `:on :rf.machine/spawned` ceremony needed. For compound initial states, every state along the initial cascade fires its `:entry` shallowest-first. So if you want one-shot setup work to run when a machine wakes up — seed `:data`, kick off an HTTP request, register a subscription — put it in the initial state's `:entry`. Earlier drafts of the spec required a workaround for this; the workaround is gone.
+
 ## Dispatching to a machine
 
 Sub-events route via the machine's id and an inner event vector:
@@ -239,10 +244,14 @@ Actions are functions that produce data updates and / or effects. They live in `
 ```clojure
 :actions
 {:record-error
- (fn [data [_ err]]
+ (fn [data [_ {:keys [failure]}]]
+   ;; The inner event vector arrives folded by managed-HTTP's extras-fold
+   ;; as [<event-id> {:kind :failure :failure <reply-map>}] — see
+   ;; §"Dispatching to a machine" above. Destructure on :failure to reach
+   ;; the reply payload itself.
    {:data (-> data
               (update :attempts inc)
-              (assoc :error (or (:message err) "Login failed.")))})
+              (assoc :error (or (:message failure) "Login failed.")))})
 
  :issue-request
  (fn [_data [_ creds]]
@@ -377,6 +386,17 @@ The shape above — flat states, plain `:on` transitions, `:entry` / `:exit` act
 - **Declarative `:invoke`.** A state can spawn a child machine on entry and destroy it on exit, declared as data rather than as `:entry [:rf.machine/spawn ...]` / `:exit [:rf.machine/destroy ...]`. The child's lifecycle is bound to the parent state.
 
 Each of these is opt-in — implementations declare which capabilities they support, and the conformance corpus grades against the claimed set. The full grammar is in [Spec 005](../../spec/005-StateMachines.md). The point of mentioning them here is that the model scales: when your machine grows, the substrate has well-named answers ready, and you don't end up smuggling state-machine logic into ordinary event handlers.
+
+### Capability matrix cross-reference
+
+For advanced readers: the substrate features above each have a **capability-flag** name that ports claim against. The full matrix lives at [Spec 005 §Capability matrix](../../spec/005-StateMachines.md#capability-matrix); the ones this chapter has touched on are:
+
+- `:fsm/parallel-regions` — `:type :parallel` + the `:regions` map (the [Parallel regions](#parallel-regions) section below).
+- `:fsm/tags` — the `:tags` slot on a state node and its tag-union projection on the snapshot.
+- `:fsm/final-states` — `:final?` + `:on-done` + `:output-key`, for states that signal completion.
+- `:fsm/hierarchy`, `:fsm/always`, `:fsm/after`, `:fsm/invoke`, `:actor/spawn-and-join` — compound states, eventless transitions, delayed transitions, child-machine `:invoke`, and `:invoke-all`.
+
+The v1 CLJS reference claims all of the above. A port that doesn't claim a given capability raises `:rf.error/machine-grammar-not-in-v1` on the corresponding key at registration time, rather than silently accepting it.
 
 ## Patterns that bottom out in machines
 
