@@ -41,8 +41,6 @@
 
 (def ^:dynamic ^:private *current-dispatch-id* nil)
 
-;; ---- envelope construction ------------------------------------------------
-
 (defn- build-envelope
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
   The envelope carries:
@@ -83,8 +81,6 @@
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id))))
 
-;; ---- per-event drain ------------------------------------------------------
-
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
 
@@ -102,14 +98,113 @@
      :interceptor-overrides  (merge per-frame-interceptors per-call-interceptors)
      :extra-interceptors     (vec (concat (:interceptors frame-cfg [])))}))
 
-(defn- process-event*
-  "Per-event drain body. Resolve handler, run interceptor chain, apply :db,
-  walk :fx in source order. Per Spec 002 §Drain-loop pseudocode.
+(defn- validate-event!
+  "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
+  dispatched event vector against the handler's :spec BEFORE the
+  handler's interceptor chain runs. Failures emit
+  :rf.error/schema-validation-failure with :where :event and skip the
+  handler (recovery :no-recovery; downstream queue continues).
 
-  This is the inner of `process-event!`; the outer wraps it in a binding of
-  *current-dispatch-id* so child dispatches issued from within fx handlers
-  inherit the in-flight dispatch's id as their :parent-dispatch-id (Spec
-  009 §Dispatch correlation)."
+  Returns truthy when the handler should run, falsy when it should be
+  skipped. Defaults to true when the schemas namespace hasn't been
+  loaded."
+  [event-id event handler-meta]
+  (if-let [validate! (late-bind/get-fn :schemas/validate-event!)]
+    (try (validate! event-id event handler-meta)
+         (catch #?(:clj Throwable :cljs :default) _ true))
+    true))
+
+(defn- assemble-initial-ctx
+  "Build the initial interceptor context per the standard shape. Envelope
+  keys (:source :trace-id) are surfaced as cofx entries so handler bodies
+  can read them. Per Spec 002 §Routing — the dispatch envelope."
+  [envelope frame frame-record fx-overrides]
+  (let [event     (:event envelope)
+        db-value  (frame/frame-app-db-value frame)]
+    {:coeffects (cond-> {:db    db-value
+                         :event event
+                         :frame frame}
+                  (:source envelope)   (assoc :source (:source envelope))
+                  (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
+     :effects {}
+     :rf/fx-overrides fx-overrides}))
+
+(defn- emit-handler-exception!
+  "Surface an interceptor-chain exception as :rf.error/handler-exception
+  trace. The chain captures the exception into `:rf/interceptor-error`
+  rather than re-throwing (the drain must not abort); this helper
+  translates that into the trace surface."
+  [error event-id event frame]
+  (let [e (:exception error)
+        msg #?(:clj (.getMessage e) :cljs (.-message e))]
+    (trace/emit-error! :rf.error/handler-exception
+                       {:event-id          event-id
+                        :event             event
+                        :frame             frame
+                        :failing-id        event-id
+                        :handler-id        event-id
+                        :phase             (:phase error)
+                        :exception         e
+                        :exception-message msg
+                        :reason            "Event handler threw."
+                        :recovery          :no-recovery})))
+
+(defn- run-post-commit-validation!
+  "Per Spec 010: validate app-db against registered schemas after each
+  commit. Failures emit :rf.error/schema-validation-failure but don't
+  roll back (recovery is :no-recovery by default).
+
+  Per Spec 010 §Per-frame schemas the validation walks the schemas
+  registered against THIS dispatch's frame only — sibling frames'
+  schemas don't fire here."
+  [db-after event-id frame]
+  (when-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
+    (try
+      (validate db-after event-id frame)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn- commit-db-effect!
+  "Apply :db atomically: replace the app-db container, emit the
+  :event/db-changed trace, then run post-commit schema validation."
+  [effects event-id event frame]
+  (when (contains? effects :db)
+    (let [container (frame/get-frame-db frame)]
+      (adapter/replace-container! container (:db effects)))
+    (trace/emit! :event :event/db-changed
+                 {:event-id event-id :event event :frame frame})
+    (run-post-commit-validation! (:db effects) event-id frame)))
+
+(defn- run-flows!
+  "Per Spec 013 §Drain integration: run flows after :db commits and
+  before :fx walks. Flow evaluation exceptions surface as
+  :rf.error/flow-eval-exception traces; the drain continues."
+  [frame event]
+  (when-let [flows-fn (late-bind/get-fn :flows/run-flows!)]
+    (try
+      (flows-fn frame)
+      (catch #?(:clj Throwable :cljs :default) e
+        (trace/emit-error! :rf.error/flow-eval-exception
+                           {:frame frame :event event :exception e})))))
+
+(defn- run-fx-effects!
+  "Walk :fx in source order, threading fx-overrides through so per-frame
+  / per-call overrides take effect. Per-frame :platform overrides
+  interop/platform when set."
+  [effects frame frame-record fx-overrides event]
+  (when-let [fx-vec (:fx effects)]
+    (let [active-platform (or (get-in frame-record [:config :platform])
+                              interop/platform)]
+      (fx/do-fx frame fx-vec active-platform fx-overrides event))))
+
+(defn- process-event*
+  "Per-event drain body. Resolve handler, validate the event vector, run
+  the interceptor chain, then commit :db, run flows, and walk :fx in
+  source order. Per Spec 002 §Drain-loop pseudocode.
+
+  This is the inner of `process-event!`; the outer wraps it in a binding
+  of *current-dispatch-id* so child dispatches issued from within fx
+  handlers inherit the in-flight dispatch's id as their
+  :parent-dispatch-id (Spec 009 §Dispatch correlation)."
   [envelope]
   (let [{:keys [event frame]} envelope
         event-id              (first event)
@@ -131,43 +226,20 @@
                               :recovery :replaced-with-default})
 
           :else
-          (let [_ (trace/emit! :event :event
-                               {:event-id event-id
-                                :event    event
-                                :frame    frame
-                                :source   (:source envelope)
-                                :trace-id (:trace-id envelope)
-                                :phase    :run-start})
-                ;; Per Spec 010 §Validation order step 1: validate the
-                ;; dispatched event vector against the handler's :spec
-                ;; BEFORE the handler's interceptor chain runs. Failures
-                ;; emit :rf.error/schema-validation-failure with
-                ;; :where :event and skip the handler (recovery
-                ;; :no-recovery; downstream queue continues). Tracked
-                ;; as rf2-jwm4.
-                event-ok?
-                (if-let [validate-event! (late-bind/get-fn :schemas/validate-event!)]
-                  (try (validate-event! event-id event handler-meta)
-                       (catch #?(:clj Throwable :cljs :default) _ true))
-                  true)
+          (let [_            (trace/emit! :event :event
+                                          {:event-id event-id
+                                           :event    event
+                                           :frame    frame
+                                           :source   (:source envelope)
+                                           :trace-id (:trace-id envelope)
+                                           :phase    :run-start})
+                event-ok?    (validate-event! event-id event handler-meta)
                 {:keys [extra-interceptors fx-overrides]} (apply-overrides envelope frame-record)
-                base-chain   (:interceptors handler-meta)
-                full-chain   (vec (concat extra-interceptors base-chain))
-                ;; Build the initial context per the standard shape.
-                ;; Envelope keys (:source :trace-id) are surfaced as cofx
-                ;; entries so handler bodies can read them. Per Spec 002
-                ;; §Routing — the dispatch envelope.
-                db-value     (frame/frame-app-db-value frame)
-                initial-ctx  {:coeffects (cond-> {:db    db-value
-                                                  :event event
-                                                  :frame frame}
-                                          (:source envelope)   (assoc :source (:source envelope))
-                                          (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
-                              :effects {}
-                              :rf/fx-overrides fx-overrides}
-                ;; If event-payload validation failed, skip the handler
-                ;; entirely. Per Spec 010 §Per-step recovery step 1:
-                ;; "Handler is not invoked"; downstream queue continues.
+                full-chain   (vec (concat extra-interceptors (:interceptors handler-meta)))
+                initial-ctx  (assemble-initial-ctx envelope frame frame-record fx-overrides)
+                ;; Per Spec 010 §Per-step recovery step 1: when event-payload
+                ;; validation failed the handler is not invoked; the
+                ;; downstream queue continues.
                 ;;
                 ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
                 ;; bracket the handler invocation in performance marks so
@@ -182,54 +254,10 @@
                 effects      (:effects final-ctx)
                 error        (:rf/interceptor-error final-ctx)]
             (when error
-              (let [e (:exception error)
-                    msg #?(:clj (.getMessage e) :cljs (.-message e))]
-                (trace/emit-error! :rf.error/handler-exception
-                                   {:event-id          event-id
-                                    :event             event
-                                    :frame             frame
-                                    :failing-id        event-id
-                                    :handler-id        event-id
-                                    :phase             (:phase error)
-                                    :exception         e
-                                    :exception-message msg
-                                    :reason            "Event handler threw."
-                                    :recovery          :no-recovery})))
-            ;; Apply :db atomically.
-            (when (contains? effects :db)
-              (let [container (frame/get-frame-db frame)]
-                (adapter/replace-container! container (:db effects)))
-              (trace/emit! :event :event/db-changed
-                           {:event-id event-id :event event :frame frame})
-              ;; Per Spec 010: validate app-db against registered schemas
-              ;; after each commit. Failures emit
-              ;; :rf.error/schema-validation-failure but don't roll back
-              ;; (recovery is :no-recovery by default).
-              ;;
-              ;; Per Spec 010 §Per-frame schemas the validation walks
-              ;; the schemas registered against THIS dispatch's frame
-              ;; only — sibling frames' schemas don't fire here.
-              (when-let [validate (late-bind/get-fn :schemas/validate-app-db!)]
-                (try
-                  (validate (:db effects) event-id frame)
-                  (catch #?(:clj Throwable :cljs :default) _ nil))))
-            ;; Run flows (per Spec 013 §Drain integration: after :db
-            ;; commits and before :fx walks).
-            (when-let [run-flows! (late-bind/get-fn :flows/run-flows!)]
-              (try
-                (run-flows! frame)
-                (catch #?(:clj Throwable :cljs :default) e
-                  (trace/emit-error! :rf.error/flow-eval-exception
-                                     {:frame frame :event event :exception e}))))
-            ;; Walk :fx in source order, threading fx-overrides through so
-            ;; per-frame / per-call overrides take effect. Per-frame
-            ;; :platform overrides interop/platform when set.
-            (when-let [fx-vec (:fx effects)]
-              (let [active-platform (or (get-in frame-record [:config :platform])
-                                        interop/platform)]
-                (fx/do-fx frame fx-vec active-platform
-                          (or (:rf/fx-overrides initial-ctx) {})
-                          event)))
+              (emit-handler-exception! error event-id event frame))
+            (commit-db-effect! effects event-id event frame)
+            (run-flows! frame event)
+            (run-fx-effects! effects frame frame-record fx-overrides event)
             (trace/emit! :event :event
                          {:event-id event-id
                           :event    event
@@ -265,9 +293,43 @@
             frame/*current-frame*  (:frame envelope)]
     (process-event* envelope)))
 
-;; ---- outer drain ----------------------------------------------------------
-
 (def ^:private drain-depth-default 100)
+
+(defn- handle-depth-exceeded!
+  "Tail-path for the depth-limit branch of `drain!`. Atomic rollback per
+  Spec 002 §Run-to-completion §Rules rule 3: restore the pre-drain
+  `:db` BEFORE emitting the error so any trace listener that reads
+  app-db sees the rolled-back value, not a misleading partial cascade.
+
+  Per Tool-Pair §Time-travel: a depth-exceeded drain is a *partial*
+  drain — discard the in-flight capture buffer rather than emit a
+  misleading epoch record."
+  [frame-id router db-before depth last-event]
+  (let [{:keys [queue]} @router
+        container (frame/get-frame-db frame-id)]
+    (when container
+      (adapter/replace-container! container db-before))
+    (trace/emit-error! :rf.error/drain-depth-exceeded
+                       {:frame      frame-id
+                        :depth      depth
+                        :queue-size (count queue)
+                        :last-event last-event
+                        :rollback?  true
+                        :recovery   :no-recovery})
+    (swap! router assoc :queue interop/empty-queue :scheduled? false)
+    (when-let [discard! (late-bind/get-fn :epoch/discard-buffer!)]
+      (discard! frame-id))))
+
+(defn- handle-drain-settled!
+  "Tail-path for the empty-queue branch of `drain!`. Clear `:scheduled?`
+  and, if at least one event was processed, commit the epoch record
+  per Tool-Pair §Time-travel."
+  [frame-id router db-before depth]
+  (swap! router assoc :scheduled? false)
+  (when (pos? depth)
+    (when-let [settle! (late-bind/get-fn :epoch/settle!)]
+      (let [db-after (frame/frame-app-db-value frame-id)]
+        (settle! frame-id db-before db-after)))))
 
 (defn- drain!
   "Outer drain loop for a single frame. Repeatedly dequeue and process
@@ -279,23 +341,23 @@
   refuses (regardless of whether the outer drain came from
   dispatch-sync or async dispatch).
 
-  When the depth limit is hit, restore `app-db` to the pre-drain
-  snapshot (atomic rollback per Spec 002 §Run-to-completion §Rules
-  rule 3), then emit :rf.error/drain-depth-exceeded with :depth,
-  :queue-size, and :last-event tags, then halt (the remaining queued
-  events are discarded). Rationale: re-frame's general 'events are
-  atomic' principle extends to the drain — a depth-exceeded drain
-  composes many events whose collective effect on `:db` is a partial
-  cascade; preserving that partial cascade leaves callers observing a
-  state no single event produced. Rolling back to `db-before` is the
-  same discipline applied to the partial-drain boundary.
+  Two tail-paths are extracted as named helpers:
 
-  Per Tool-Pair §Time-travel: every drain-settle (queue empty) appends
-  an `:rf/epoch-record` to the frame's epoch history. Atomic — partial
-  drains (e.g. depth-exceeded) discard the in-flight capture buffer
-  rather than commit a misleading record. The settle! / discard-buffer!
-  hooks are looked up through late-bind so this namespace stays free of
-  a require on re-frame.epoch."
+    `handle-depth-exceeded!` — when the depth limit is hit, restore
+    `app-db` to the pre-drain snapshot (atomic rollback per Spec 002
+    §Run-to-completion §Rules rule 3), then emit
+    :rf.error/drain-depth-exceeded, then halt (the remaining queued
+    events are discarded). Rationale: re-frame's general 'events are
+    atomic' principle extends to the drain — a depth-exceeded drain
+    composes many events whose collective effect on `:db` is a partial
+    cascade; preserving that partial cascade leaves callers observing
+    a state no single event produced. Rolling back to `db-before` is
+    the same discipline applied to the partial-drain boundary.
+
+    `handle-drain-settled!` — when the queue empties, clear `:scheduled?`
+    and commit the epoch record per Tool-Pair §Time-travel. The settle!
+    / discard-buffer! hooks are looked up through late-bind so this
+    namespace stays free of a require on re-frame.epoch."
   [frame-id]
   (let [frame-record (frame/frame frame-id)]
     (when frame-record
@@ -314,40 +376,12 @@
                  last-event nil]
             (cond
               (>= depth drain-depth)
-              (let [{:keys [queue]} @router]
-                ;; Atomic rollback: restore the pre-drain `:db` BEFORE
-                ;; emitting the error so any trace listener that reads
-                ;; app-db sees the rolled-back value, not a misleading
-                ;; partial cascade. Per Spec 002 §Run-to-completion
-                ;; §Rules rule 3.
-                (let [container (frame/get-frame-db frame-id)]
-                  (when container
-                    (adapter/replace-container! container db-before)))
-                (trace/emit-error! :rf.error/drain-depth-exceeded
-                                   {:frame      frame-id
-                                    :depth      depth
-                                    :queue-size (count queue)
-                                    :last-event last-event
-                                    :rollback?  true
-                                    :recovery   :no-recovery})
-                (swap! router assoc :queue interop/empty-queue :scheduled? false)
-                ;; Per Tool-Pair §Time-travel: a depth-exceeded drain is
-                ;; a *partial* drain — discard the in-flight capture
-                ;; buffer rather than emit a misleading epoch record.
-                (when-let [discard! (late-bind/get-fn :epoch/discard-buffer!)]
-                  (discard! frame-id)))
+              (handle-depth-exceeded! frame-id router db-before depth last-event)
 
               :else
               (let [{:keys [queue]} @router]
                 (if (empty? queue)
-                  (do
-                    (swap! router assoc :scheduled? false)
-                    ;; Drain settle: queue is empty after at least one
-                    ;; processed event. Commit the epoch record.
-                    (when (pos? depth)
-                      (when-let [settle! (late-bind/get-fn :epoch/settle!)]
-                        (let [db-after (frame/frame-app-db-value frame-id)]
-                          (settle! frame-id db-before db-after)))))
+                  (handle-drain-settled! frame-id router db-before depth)
                   (let [envelope (peek queue)]
                     (swap! router update :queue pop)
                     (process-event! envelope)
@@ -366,8 +400,6 @@
                   true))))]
     (when should-schedule?
       (interop/next-tick (fn [] (drain! frame-id))))))
-
-;; ---- public dispatch ------------------------------------------------------
 
 (defn- emit-dispatched-trace!
   "Emit the :event :event/dispatched trace event for this envelope. Per
