@@ -147,24 +147,6 @@ The `:decode` key takes:
 - **A function** `(fn [body-text headers] decoded)` — full control. Throwing on a 2xx classifies as `:rf.http/decode-failure`.
 - **`:auto`** (the default): sniff the response Content-Type. `application/json*` → JSON. `text/*` → text. Otherwise blob. Whenever `:auto` resolves and the user did NOT explicitly supply `:decode`, the runtime emits a single `:rf.warning/decode-defaulted` trace per request — informational, not an error, just visible in tooling so you can choose to be explicit.
 
-### Schema reflection
-
-Pair tools and AI generators want to know which schemas a handler expects from the wire — without invoking the handler. Declare them at registration time via the `:rf.http/decode-schemas` metadata key:
-
-```clojure
-(rf/reg-event-fx :counter/load
-  {:doc                    "Load the persisted counter."
-   :rf.http/decode-schemas [CounterResponse]}     ;; declared up-front for tooling
-  (fn [{:keys [db]} [_ {:as msg}]]
-    (if-let [reply (:rf/reply msg)]
-      ...
-      {:fx [[:rf.http/managed
-             {:request {:url "/api/counter"}
-              :decode  CounterResponse}]]})))     ;; same schema at the call site
-```
-
-Then `(rf/handler-meta :event :counter/load)` returns metadata carrying `:rf.http/decode-schemas [CounterResponse]`, which tools introspect. **Optional, never enforced** — the runtime does not cross-check that the call-site `:decode` matches the declared schemas. The metadata is reflective sugar; runtime enforcement would want a `defmanaged-event-fx` macro that DRYs the declaration, which is out of v1 scope.
-
 ## Retry and backoff
 
 ```clojure
@@ -275,33 +257,9 @@ The canned-stub fxs gate on `interop/debug-enabled?` — they elide in productio
 
 ## The standard request-lifecycle slice
 
-`:rf.http/managed` gives you the *mechanics* of a request — fire it, decode the reply, retry, abort. It doesn't give you the *shape* of the slice you write that reply into. Across every feature that loads remote data, the same five-key shape recurs:
+`:rf.http/managed` gives you the *mechanics* of a request — fire it, decode the reply, retry, abort. It doesn't dictate the *shape* of the slice you write the reply into. Across every feature that loads remote data, the same five-key `:status` / `:data` / `:error` / `:loaded-at` / `:attempt` shape recurs — with the load-bearing `:loading` (first fetch) vs `:fetching` (revalidating over existing `:data`) split so revalidation doesn't flash a spinner over loaded content.
 
-```clojure
-{:status     :idle | :loading | :fetching | :loaded | :error
- :data       <result-or-nil>
- :error      <error-or-nil>
- :loaded-at  <timestamp-or-nil>
- :attempt    <int>}                 ;; bumps on every fetch; 0 means "never fetched"
-```
-
-This is **Pattern-RemoteData** — convention, not Spec. Every team that builds a non-trivial app converges on something like it; the pattern doc just names a canonical shape so codebases (and AI scaffolds) don't each invent a slightly different one.
-
-The load-bearing piece is the **`:loading` vs `:fetching` split**:
-
-| Status | Meaning | Typical UI | Has `:data`? |
-|---|---|---|---|
-| `:idle` | Never fetched. | Empty state / call-to-action. | No. |
-| `:loading` | First fetch in flight. No `:data` yet. | Spinner / skeleton. | No. |
-| `:fetching` | Re-fetch in flight while we already have `:data` (revalidation, polling, retry-with-data). | Subtle progress indicator at most; **never blank the page**. | Yes (the previous `:data`). |
-| `:loaded` | Fetch completed. `:data` is fresh. | Render `:data`. | Yes. |
-| `:error` | The most recent fetch failed. Prior `:data` may still be present. | Error UI; offer retry; still render stale `:data` if appropriate. | Maybe. |
-
-The split exists because the UI for an empty page mid-load is a spinner, but the UI for a page that already has data and is refreshing isn't — without the split, every revalidation flashes a spinner over loaded content.
-
-Four standard events shape the slice, namespaced per feature (`:articles/load`, `:articles/loaded`, `:articles/load-failed`, optionally `:articles/reset`). The `:load` handler picks `:loading` vs `:fetching` based on whether `:data` is currently `nil`; `:loaded` sets `:data` and `:loaded-at`; `:load-failed` records the error but keeps any prior `:data` so the view can still render staleness rather than blank. Convenience subs like `:loading?` (truly empty + in-flight) and `:fetching?` (any in-flight) drive views without per-feature gymnastics.
-
-For the full slice schema, the four-event walkthrough, optimistic-update rollback, and the `:loaded-at` / `:stale-after-ms` freshness story, see [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md). The RealWorld example exercises the full shape across `articles`, `feed`, `profile`, and `comments` slices.
+That's **Pattern-RemoteData** — convention, not Spec. See [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) for the full slice schema, the four-event lifecycle (`/load`, `/loaded`, `/load-failed`, optionally `/reset`), convenience subs (`:loading?` / `:fetching?`), optimistic-update rollback, and the `:loaded-at` / `:stale-after-ms` freshness story. The RealWorld example exercises the full shape across `articles`, `feed`, `profile`, and `comments` slices.
 
 ## Worked example — `examples/reagent/managed_http_counter/`
 
@@ -347,6 +305,28 @@ If you're coming from a re-frame v1 codebase that registered its own `:http` fx 
 5. (Optional) Convert per-call success handlers to default reply addressing if the pre-request and post-reply logic naturally co-locate.
 
 The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../spec/MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2-rf2-s9dn) for callers that depended on the alpha namespace's now-removed query/registration shape, and the per-fx migration is mechanical (Type A) for the standard cases.
+
+## Reference and tooling
+
+The pieces below are opt-in. A first-pass reader can skip this section; come back when wiring 10x panels, pair tools, or AI scaffolds against the managed-HTTP surface.
+
+### Schema reflection — `:rf.http/decode-schemas`
+
+Pair tools and AI generators want to know which schemas a handler expects from the wire — without invoking the handler. Declare them at registration time via the `:rf.http/decode-schemas` metadata key:
+
+```clojure
+(rf/reg-event-fx :counter/load
+  {:doc                    "Load the persisted counter."
+   :rf.http/decode-schemas [CounterResponse]}     ;; declared up-front for tooling
+  (fn [{:keys [db]} [_ {:as msg}]]
+    (if-let [reply (:rf/reply msg)]
+      ...
+      {:fx [[:rf.http/managed
+             {:request {:url "/api/counter"}
+              :decode  CounterResponse}]]})))     ;; same schema at the call site
+```
+
+Then `(rf/handler-meta :event :counter/load)` returns metadata carrying `:rf.http/decode-schemas [CounterResponse]`, which tools introspect. **Optional, never enforced** — the runtime does not cross-check that the call-site `:decode` matches the declared schemas. The metadata is reflective sugar; runtime enforcement would want a `defmanaged-event-fx` macro that DRYs the declaration, which is out of v1 scope.
 
 ## Cross-references
 
