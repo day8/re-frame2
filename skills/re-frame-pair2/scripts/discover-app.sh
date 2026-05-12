@@ -2,6 +2,9 @@
 # discover-app.sh — locate shadow-cljs nREPL, verify prerequisites,
 # inject re-frame-pair2.runtime. Prints a structured edn result.
 #
+# DEPRECATED: prefer the MCP tool `discover-app` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). Kept for back-compat.
+#
 # Usage:
 #   scripts/discover-app.sh [--build=:app]
 set -euo pipefail

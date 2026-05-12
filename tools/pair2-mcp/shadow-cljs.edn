@@ -1,0 +1,21 @@
+;; tools/pair2-mcp — re-frame-pair2 MCP server (production build).
+;;
+;; Compiles to a single Node script (`out/server.js`) shipped via npm.
+;; End users install Node only; the compiled JS is plain.
+;;
+;; Two builds:
+;;   :server      — the MCP server (stdio JSON-RPC ↔ persistent nREPL).
+;;   :server-test — node-test build for the unit tests.
+;;
+;; Source for the pilot lives under pilot/ (kept for reference and as
+;; an end-to-end smoke harness). Production source lives under src/.
+{:source-paths ["src" "test"]
+ :dependencies [[applied-science/js-interop "0.4.2"]]
+ :builds {:server      {:target :node-script
+                        :output-to "out/server.js"
+                        :main re-frame-pair2-mcp.server/main
+                        :compiler-options {:optimizations :simple}}
+          :server-test {:target :node-test
+                        :output-to "out/server-test.js"
+                        :ns-regexp "-test$"
+                        :autorun true}}}

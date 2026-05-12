@@ -2,6 +2,12 @@
 # eval-cljs.sh — evaluate a ClojureScript form in the connected browser
 # runtime via shadow-cljs's cljs-eval. Prints edn on stdout.
 #
+# DEPRECATED: prefer the MCP tool `eval-cljs` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). The MCP server holds
+# one persistent nREPL connection per session and drops per-op latency
+# from ~700ms to ~5-50ms. This bash shim is kept for back-compat with
+# sessions where the MCP server isn't configured.
+#
 # Usage:
 #   scripts/eval-cljs.sh '(+ 1 2)' [--build=:app]
 #   scripts/eval-cljs.sh '(re-frame-pair2.runtime/snapshot)'

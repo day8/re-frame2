@@ -3,6 +3,9 @@
 # browser runtime. Returns the health map from
 # `re-frame-pair2.runtime/health`.
 #
+# DEPRECATED: prefer the MCP tool `inject-runtime` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). Kept for back-compat.
+#
 # Usage:
 #   scripts/inject-runtime.sh [--build=:app]
 set -euo pipefail
