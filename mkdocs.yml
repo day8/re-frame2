@@ -53,6 +53,7 @@ nav:
   - Guide:
     - Overview: guide/README.md
     - "01 — Why re-frame2": guide/01-why-re-frame2.md
+    - "01a — app-db": guide/01a-app-db.md
     - "02 — Your first app": guide/02-your-first-app.md
     - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
     - "04 — Views and frames": guide/04-views-and-frames.md
@@ -63,6 +64,7 @@ nav:
     - "08 — From re-frame v1": guide/08-from-re-frame-v1.md
     - "09 — The dynamic model": guide/09-the-dynamic-model.md
     - "10 — Testing": guide/10-testing.md
+    - "10a — Errors": guide/10a-errors.md
     - "11 — Tooling": guide/11-devtools-and-pair-tools.md
     - "12 — Routing": guide/12-routing.md
     - "14 — Stories": guide/14-stories.md

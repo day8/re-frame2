@@ -65,7 +65,7 @@ That's everything. Copy-paste-runnable. Let's take it apart.
   {:on-create [:counter/initialise]})
 ```
 
-A **frame** is the boundary that holds the app's state. In re-frame2, every app has at least one frame; here we're using the *default* frame, which the runtime ships with. A frame has its own `app-db` (a single immutable map), its own event queue, and its own subscription cache.
+A **frame** is the boundary that holds the app's state. In re-frame2, every app has at least one frame; here we're using the *default* frame, which the runtime ships with. A frame has its own `app-db` (a single immutable map — see [01a — app-db](01a-app-db.md) if you haven't yet), its own event queue, and its own subscription cache.
 
 The `:on-create` line says: when this frame comes to life, dispatch `[:counter/initialise]`. That event will set the initial state.
 
