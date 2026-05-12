@@ -128,6 +128,45 @@ And we're back where we started: *all this view does is render the product list*
 
 Keep views as simple as possible. Don't give them knowledge or tasks outside their remit. If it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule. The performance angle — what compute-in-views actually costs, and the other three shapes of slowness it composes with — is in [16 — Performance](16-performance.md).
 
+### A note on what views don't do
+
+> **Views are derivative.** They're pure functions of state to hiccup. They don't dispatch from their render bodies, they don't attach native DOM listeners (`addEventListener`, `setTimeout`, raw `requestAnimationFrame`), and they don't own imperative library lifecycles. Each of those would lose the frame context that the substrate adapter is keeping for you while render is running.
+
+The mechanism, briefly: when you write `:on-click #(dispatch [:inc])` in hiccup, the substrate adapter wraps that lambda at render time so the eventual callback closes over the surrounding frame. That's what makes `dispatch` inside a `:on-click` frame-correct without you ever writing `:frame` explicitly. The same wrapper covers `:on-change`, `:on-key-down`, `:on-animation-end`, `:on-transition-end`, and every other React-synthetic event prop.
+
+What's *not* wrapped is anything attached imperatively from inside the render body — `(.addEventListener el "animationend" ...)`, `(js/setTimeout ...)`, raw `requestAnimationFrame`. Those fire on a fresh stack with no frame in scope; a bare `(rf/dispatch [...])` from inside them silently routes to `:rf/default`. The view "works" in a single-frame app and breaks the first time it lands inside a `frame-provider`.
+
+```clojure
+;; WRONG — dispatch fires from a callback attached outside render;
+;; loses frame; silently routes to :rf/default.
+(rf/reg-view tile [props]
+  [:div {:ref (fn [el]
+                (when el
+                  (.addEventListener el "animationend"
+                    #(dispatch [:tile/finished]))))}])
+```
+
+```clojure
+;; RIGHT — :on-animation-end is a React-synthetic prop; the adapter
+;; wraps it; the dispatch closes over the surrounding frame.
+(rf/reg-view tile [props]
+  [:div {:on-animation-end #(dispatch [:tile/finished])}])
+```
+
+If there is no synthetic-event surface for what you need — `setTimeout`, `fetch`, `requestAnimationFrame`, `IntersectionObserver`, a WebSocket — the right shape is a **registered fx** ([Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md), and [chapter 10](10-doing-http-requests.md) walks through the HTTP instance). The fx captures the frame at registration; the per-event reply is a registered event the fx dispatches with the frame already resolved. For mount-time imperative attach to a specific DOM node (a third-party library, a chart, a map), the substrate's lifecycle hook is the escape hatch — `reagent.core/create-class` via `reg-view*` in Reagent, `use-effect` in UIx / Helix.
+
+### Animations
+
+Animation is a view-layer concern, but it follows the same rule the rest of this chapter has been making: **state is the truth; the view animates the transition; animation completion is silent unless explicitly modelled in state.** Three regimes cover the space; the regime is chosen by what state actually needs to know.
+
+> **Transitions — the 95% case.** State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. No completion event needed — by the time the animation kicks off, `app-db` has already moved on; the visual is catching up. Opacity fades, slide-in / slide-out, accordion expand, list reorder, modal scrim, route transitions all fit. The view binds `:class` / `:style` from a sub; CSS does the interpolation.
+
+> **Continuous loops — physics, games, scroll inertia.** Per-frame state mutation IS the truth. The right shape is a registered fx (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration; the event handler updates state; the view renders. Cancellation is a sibling fx that cancels the RAF handle. This is [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) with `requestAnimationFrame` substituted for HTTP — same six-step shape, same frame-capture discipline.
+
+> **Library bridges — Framer Motion, React-Spring, GSAP, AutoAnimate.** The library is component-shaped — it owns its own imperative timing inside its own component tree. The wrapping shape is **outer/inner**: the outer is a registered view that reads subs and produces props; the inner is a `reagent.core/create-class` Form-3 (via `reg-view*`) or a `use-effect` wrapper that hands the library the state-derived props. The view layer never imperatively dispatches; the library's internal completion callbacks bridge at the inner boundary using the same lifecycle-hook discipline.
+
+Most animations are Regime A. Reach for B only when state genuinely advances per-frame. Reach for C only when a third-party library owns the timing. Genuine "the state must wait for an exact `animationend`" cases are rare, and usually signal that "state is truth, visual catches up" wasn't fully exploited. When the case is genuine, the lifecycle hook is the escape hatch — it attaches the listener after commit, cleans up on unmount, and carries the frame correctly because the dispatcher closure was built during render. Full normative contract: [Spec 004 §Animations](../../spec/004-Views.md#animations).
+
 ### The Signal Graph
 
 A UI is just derived data. The screen is a function of `app-db`; the question worth asking is the one that makes the rest of this chapter snap into focus:
