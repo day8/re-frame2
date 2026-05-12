@@ -182,7 +182,7 @@ live. Subsequent tool calls reuse the same socket.
 ## Skill-driven calls
 
 With the pair2 skill loaded (see
-[`../../skills/re-frame-pair2/SKILL.md`](../../skills/re-frame-pair2/SKILL.md)),
+[`../../../skills/re-frame-pair2/SKILL.md`](../../../skills/re-frame-pair2/SKILL.md)),
 agents describe the task in plain language and the skill's
 `SKILL.md` teaches the model which tool to call. The MCP server is
 the transport; the skill is the playbook.
