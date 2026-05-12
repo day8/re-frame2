@@ -173,13 +173,20 @@
                         (let [~'dispatch  (re-frame.core/dispatcher)
                               ~'subscribe (re-frame.core/subscriber)]
                           ~@body)))]
+      ;; Per Conventions §`reg-*` return-value convention: every `reg-*`
+      ;; macro returns its primary id. The auto-def is a side effect; the
+      ;; macro's terminal value is `id`. (Without the trailing `id` the
+      ;; `def` would be the last form and the macro would return the Var,
+      ;; not the id — breaking the uniform return-value contract.)
+      ;; Per rf2-hzos.
       `(do
          (binding [re-frame.source-coords/*pending-coords*
                    ~(source-coords/coords-form form-meta current-file current-ns-sym)]
            (re-frame.core/reg-view* ~id
              ~full-slot-meta
              ~fn-form))
-         ~def-form))))
+         ~def-form
+         ~id))))
 
 (defmacro reg-view
   "Register a view as a defn-shape macro. Per Spec 004 §reg-view.

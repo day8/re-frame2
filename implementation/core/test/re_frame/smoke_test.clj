@@ -587,16 +587,23 @@
                 (tree-seq coll? seq exp))
           "with-frame expansion references *current-frame*"))
     ;; reg-view (defn-shape per Spec 004 §reg-view) defs the symbol and
-    ;; registers under (keyword (str *ns*) (str sym)). The expansion is
-    ;; (do (binding [...] (reg-view* ...)) (def sym (view ...))).
+    ;; registers under (keyword (str *ns*) (str sym)). Per rf2-hzos the
+    ;; expansion is (do (binding [...] (reg-view* ...)) (def sym (view ...)) id)
+    ;; — the terminal id makes the macro return its primary id (matching
+    ;; the reg-* return-value contract pinned in spec/Conventions.md).
     (let [exp (macroexpand `(re-frame.views-macros/reg-view
                               ~'my-widget [] :body))]
       (is (= 'do (first exp))
-          "reg-view expansion starts with do (binding + def)")
-      (let [forms (rest exp)
-            def-form (last forms)]
+          "reg-view expansion starts with do (binding + def + id)")
+      (let [forms    (rest exp)
+            ;; The trailing form is the id (terminal expression). The
+            ;; def is the penultimate form.
+            id-form  (last forms)
+            def-form (last (butlast forms))]
+        (is (keyword? id-form)
+            "the trailing form in the expansion is the registered id (a keyword)")
         (is (= 'def (first def-form))
-            "the trailing form in the expansion is a def")
+            "the penultimate form is the auto-def of the Var")
         (is (= 'my-widget (second def-form))
             "the def binds the symbol the user supplied")))))
 
