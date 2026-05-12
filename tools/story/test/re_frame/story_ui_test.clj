@@ -121,6 +121,50 @@
           s1 (state/toggle-panel s :trace)]
       (is (= false (get-in s1 [:panel-visibility :trace]))))))
 
+;; ---- mode-tabs (rf2-9hc8) ------------------------------------------------
+
+(deftest mode-tabs-canonical-set
+  (testing "the three canonical mode tabs ship in stable order"
+    (is (= [:dev :docs :test] state/mode-tabs)))
+  (testing "every mode-tab has a human label"
+    (doseq [t state/mode-tabs]
+      (is (string? (get state/mode-tab-labels t))
+          (str "missing label for " t)))))
+
+(deftest mode-tab-default-is-dev
+  (testing "the default mode-tab is :dev (Story v1 canvas)"
+    (is (= :dev state/default-mode-tab)))
+  (testing "active-mode-tab falls back to :dev for unknown variants"
+    (is (= :dev (state/active-mode-tab state/default-shell-state :no/such-variant)))))
+
+(deftest valid-mode-tab?-rejects-noise
+  (is (state/valid-mode-tab? :dev))
+  (is (state/valid-mode-tab? :docs))
+  (is (state/valid-mode-tab? :test))
+  (is (not (state/valid-mode-tab? :canvas)))
+  (is (not (state/valid-mode-tab? :nonsense)))
+  (is (not (state/valid-mode-tab? nil)))
+  (is (not (state/valid-mode-tab? "test"))))
+
+(deftest set-active-mode-tab-roundtrip
+  (testing "set-active-mode-tab records the per-variant selection"
+    (let [s  state/default-shell-state
+          s1 (state/set-active-mode-tab s :story.x/a :docs)]
+      (is (= :docs (state/active-mode-tab s1 :story.x/a)))
+      (is (= :dev  (state/active-mode-tab s1 :story.x/b))
+          "other variants keep the default")))
+  (testing "selections are independent per variant"
+    (let [s  state/default-shell-state
+          s1 (-> s
+                 (state/set-active-mode-tab :story.x/a :docs)
+                 (state/set-active-mode-tab :story.x/b :test))]
+      (is (= :docs (state/active-mode-tab s1 :story.x/a)))
+      (is (= :test (state/active-mode-tab s1 :story.x/b)))))
+  (testing "an invalid tab leaves state untouched"
+    (let [s  state/default-shell-state
+          s1 (state/set-active-mode-tab s :story.x/a :nonsense)]
+      (is (= s s1)))))
+
 ;; ---- pure filter + grouping ---------------------------------------------
 
 (deftest filter-variants-empty-filter
