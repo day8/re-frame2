@@ -6,9 +6,9 @@
 
   - `:dev`  — Canvas. The interactive variant render (Story v1 default).
   - `:docs` — Docs. The read-only AutoDocs-equivalent: prose + args
-              table + decorator stack + parameters + tags. The full
-              implementation lands with rf2-rodx; this primitive ships
-              the placeholder.
+              table + decorator stack + parameters + tags. Implemented
+              in `re-frame.story.ui.docs` (rf2-rodx); this primitive
+              owns the chip strip only.
   - `:test` — Tests. The in-canvas aggregated pass/fail summary for the
               variant's interactions / assertions. The full
               implementation lands with rf2-qmjo; this primitive ships
@@ -29,7 +29,7 @@
   to decide which pane renders below the strip:
 
   - `:dev`  → existing canvas / workspace path (unchanged).
-  - `:docs` → `docs-placeholder` (rf2-rodx will replace this).
+  - `:docs` → `re-frame.story.ui.docs/docs-view` (rf2-rodx).
   - `:test` → `tests-placeholder` (rf2-qmjo will replace this).
 
   ## Visual style
@@ -184,21 +184,10 @@
 
 ;; ---- placeholder panes ---------------------------------------------------
 ;;
-;; rf2-rodx (Docs) and rf2-qmjo (Tests) replace these. Until then the
-;; chrome surfaces the contract so users know the mode exists and that
-;; the dedicated view is on the roadmap.
-
-(defn docs-placeholder
-  "Stub for the `:docs` mode pane. Replaced by rf2-rodx."
-  [variant-id]
-  [:div {:style     (:placeholder styles)
-         :data-test "story-docs-placeholder"}
-   [:div {:style {:font-weight "bold" :margin-bottom "8px"}}
-    "Docs view"]
-   [:div "AutoDocs-equivalent (prose + args table + decorator stack + "
-    "parameters + tags) for "
-    [:code (str variant-id)]
-    " coming in rf2-rodx."]])
+;; rf2-rodx (Docs) is now implemented in `re-frame.story.ui.docs`. The
+;; `:test` placeholder remains until rf2-qmjo lands — the chrome
+;; surfaces the contract so users know the mode exists and that the
+;; dedicated view is on the roadmap.
 
 (defn tests-placeholder
   "Stub for the `:test` mode pane. Replaced by rf2-qmjo."

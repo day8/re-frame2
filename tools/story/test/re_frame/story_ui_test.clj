@@ -22,6 +22,7 @@
             [re-frame.story.config    :as config]
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.registrar :as story-registrar]
+            [re-frame.story.ui.docs   :as docs]
             [re-frame.story.ui.state  :as state]
             [re-frame.story.ui.workspace :as workspace]))
 
@@ -266,3 +267,132 @@
 (deftest unknown-layout-empty
   (testing "unknown layouts degrade gracefully"
     (is (= [] (workspace/resolve-layout :Workspace.x/y {:layout :weird})))))
+
+;; ---- docs mode (rf2-rodx) -----------------------------------------------
+
+(deftest docs-parent-story-id
+  (testing "parent-story-id mirrors args/parent-story-id"
+    (is (= :story.foo (docs/parent-story-id :story.foo/bar)))
+    (is (nil? (docs/parent-story-id :no-namespace)))
+    (is (nil? (docs/parent-story-id nil)))))
+
+(deftest docs-variant-tags-falls-back-to-story
+  (testing "variant-tags reads variant :tags first"
+    (story/reg-story :story.t1
+      {:doc "parent" :tags #{:dev :docs}})
+    (story/reg-variant :story.t1/a
+      {:tags #{:dev :test} :events []})
+    (is (= [:dev :test] (docs/variant-tags :story.t1/a))))
+  (testing "variant-tags falls back to the parent story when the variant has none"
+    (story/reg-story :story.t2
+      {:doc "parent" :tags #{:dev :docs}})
+    (story/reg-variant :story.t2/a {:events []})
+    (is (= [:dev :docs] (docs/variant-tags :story.t2/a)))))
+
+(deftest docs-args-rows-pulls-doc-from-argtypes
+  (testing "args-rows surfaces :doc from the variant's :argtypes entry"
+    (story/reg-variant :story.a/x
+      {:args     {:label "Total" :count 0}
+       :argtypes {:label {:doc "The cell label"}}
+       :events   []})
+    (let [rows  (docs/args-rows :story.a/x {:label "Total" :count 0})
+          by-k  (into {} (map (juxt :key identity)) rows)]
+      (is (= 2 (count rows)))
+      (is (= "The cell label" (:doc (get by-k :label))))
+      (is (nil? (:doc (get by-k :count))))
+      (is (= "Total" (:value (get by-k :label))))))
+  (testing "args-rows accepts the Storybook-compat :description key"
+    (story/reg-variant :story.a/desc
+      {:argtypes {:label {:description "Story-compat description slot"}}
+       :events   []})
+    (let [[row] (docs/args-rows :story.a/desc {:label "foo"})]
+      (is (= "Story-compat description slot" (:doc row)))))
+  (testing "args-rows accepts a bare-string :argtypes value"
+    (story/reg-variant :story.a/bare
+      {:argtypes {:label "Short doc"}
+       :events   []})
+    (let [[row] (docs/args-rows :story.a/bare {:label "foo"})]
+      (is (= "Short doc" (:doc row)))))
+  (testing "args-rows merges parent-story :argtypes under variant :argtypes"
+    (story/reg-story :story.p
+      {:argtypes {:label {:doc "from story"}
+                  :count {:doc "from story"}}})
+    (story/reg-variant :story.p/x
+      {:argtypes {:label {:doc "from variant"}}
+       :events   []})
+    (let [rows  (docs/args-rows :story.p/x {:label "L" :count 0})
+          by-k  (into {} (map (juxt :key identity)) rows)]
+      (is (= "from variant" (:doc (get by-k :label))))
+      (is (= "from story"   (:doc (get by-k :count)))))))
+
+(deftest docs-decorator-rows-classifies-by-section
+  (testing "decorator-rows splits the pack into hiccup / frame-setup / fx-override / error rows"
+    (let [pack {:hiccup       [{:id :dec/h1 :body {:kind :hiccup :doc "outer"}}
+                               {:id :dec/h2 :body {:kind :hiccup}}]
+                :frame-setup  [{:id :dec/fs :body {:kind :frame-setup :doc "init"}}]
+                :fx-override  [{:id :dec/fx :body {:kind :fx-override}}]
+                :errors       [{:id :dec/bad :reason "unknown :kind"}]
+                :fingerprints {}}
+          rows (docs/decorator-rows pack)]
+      (is (= 5 (count rows)))
+      (is (= [:hiccup :hiccup :frame-setup :fx-override :error]
+             (mapv :section rows)))
+      (is (= "outer" (-> rows (nth 0) :doc)))
+      (is (= "unknown :kind" (-> rows (nth 4) :doc))))))
+
+(deftest docs-parameter-rows-pulls-three-slots
+  (testing "parameter-rows emits :modes / :substrates / :platforms only when non-empty"
+    (story/reg-variant :story.p1/x
+      {:substrates #{:reagent}
+       :platforms  #{:client}
+       :events     []})
+    (let [rows  (docs/parameter-rows :story.p1/x)
+          by-k  (into {} (map (juxt :key identity)) rows)]
+      (is (= 2 (count rows)))
+      (is (contains? by-k :substrates))
+      (is (contains? by-k :platforms))
+      (is (not (contains? by-k :modes)))))
+  (testing "parameter-rows falls back to the parent story's slots"
+    (story/reg-story :story.p2
+      {:substrates #{:reagent :uix}
+       :platforms  #{:client}})
+    (story/reg-variant :story.p2/x {:events []})
+    (let [rows (docs/parameter-rows :story.p2/x)
+          by-k (into {} (map (juxt :key identity)) rows)]
+      (is (= #{:reagent :uix} (:value (get by-k :substrates))))
+      (is (= #{:client}       (:value (get by-k :platforms)))))))
+
+(deftest docs-prose-for-variant
+  (testing "prose-for-variant returns workspace prose blocks that reference the variant"
+    (story/reg-variant :story.d/x {:events []})
+    (story/reg-variant :story.d/y {:events []})
+    (story/reg-workspace :Workspace.d/intro
+      {:layout  :prose
+       :content [{:type :prose   :body "## How it works"}
+                 {:type :variant :id   :story.d/x}
+                 {:type :prose   :body "Footer note."}]})
+    (let [blocks (docs/prose-for-variant :story.d/x)]
+      (is (= 2 (count blocks)))
+      (is (= "## How it works" (-> blocks first :body)))
+      (is (= :Workspace.d/intro (-> blocks first :workspace-id))))
+    (testing "a variant the workspace doesn't reference picks up nothing"
+      (is (= [] (docs/prose-for-variant :story.d/y)))))
+  (testing "non-prose layouts are ignored entirely"
+    (story/reg-variant :story.dg/x {:events []})
+    (story/reg-workspace :Workspace.dg/grid
+      {:layout :grid :variants [:story.dg/x]})
+    (is (= [] (docs/prose-for-variant :story.dg/x))))
+  (testing "prose blocks ride through in source order across multiple workspaces"
+    (story/reg-variant :story.dm/x {:events []})
+    (story/reg-workspace :Workspace.dm/a
+      {:layout  :prose
+       :content [{:type :prose   :body "alpha"}
+                 {:type :variant :id   :story.dm/x}]})
+    (story/reg-workspace :Workspace.dm/b
+      {:layout  :prose
+       :content [{:type :variant :id   :story.dm/x}
+                 {:type :prose   :body "beta"}]})
+    (let [bodies (mapv :body (docs/prose-for-variant :story.dm/x))]
+      ;; Sorted by workspace id (alphabetic) then content order — :a/a
+      ;; before :b/b.
+      (is (= ["alpha" "beta"] bodies)))))
