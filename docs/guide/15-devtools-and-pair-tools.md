@@ -166,7 +166,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
 
 That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-causa`'s timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
 
-The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
+The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb!`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
 ## Performance: the prod-friendly channel
 
@@ -276,7 +276,7 @@ Default depth is per-implementation. The buffer is dev-only and elides under pro
 `register-trace-cb!` is the **raw** stream. For tools that route diagnostics off "what just happened in this drain?", a complementary listener fires once per **drain-settle**, with the cascade's structured projections already computed:
 
 ```clojure
-(rf/register-epoch-cb
+(rf/register-epoch-cb!
   :my-tool/dashboard
   (fn [{:keys [frame event-id epoch-id sub-runs renders effects] :as record}]
     (record-recomputes! frame event-id (count sub-runs))
@@ -300,7 +300,7 @@ The record (per [Spec-Schemas §`:rf/epoch-record`](../../spec/Spec-Schemas.md#r
 Two listener shapes coexist by design:
 
 - **`register-trace-cb!`** is the raw stream — used by tools that need per-emit detail (custom recorders, error-monitor forwarders, timing aggregators).
-- **`register-epoch-cb`** is the assembled stream — one fully-shaped record per drain-settle, used by tools that route diagnostics off "what happened in this cascade" rather than re-folding the raw stream each time.
+- **`register-epoch-cb!`** is the assembled stream — one fully-shaped record per drain-settle, used by tools that route diagnostics off "what happened in this cascade" rather than re-folding the raw stream each time.
 
 Most pair-shaped tools prefer the assembled stream and reach for the raw stream only when they need detail the projection drops.
 
@@ -432,11 +432,11 @@ The runtime commits to a **closed contract** for these races so a tool can route
 | `(rf/get-frame-db frame-id)` | read | Returns `nil`. Consumers consult `(rf/frame-meta frame-id)` for destroyed-vs-unknown. |
 | `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
 | `(rf/reset-frame-db! frame-id new-db)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
-| Pre-registered `register-epoch-cb` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame-id, cb-id)` pair, with `:tags {:frame-id <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
+| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame-id, cb-id)` pair, with `:tags {:frame-id <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
 
 The pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when ...)` is sufficient); **mutating-shaped surfaces raise structurally** (so a tool that intended a write learns the write did not happen); **listener fan-out emits a one-shot trace** when a previously-registered callback is silenced because its observed frame was destroyed.
 
-Why "silencing" is a trace and not a return value: the `register-epoch-cb` callback never sees a record from a destroyed frame — the runtime stops producing records the moment the destroy walks. A tool that didn't know its observed frame was destroyed would see a callback that simply *stopped firing*, with no signal to route off. The silencing trace closes that gap.
+Why "silencing" is a trace and not a return value: the `register-epoch-cb!` callback never sees a record from a destroyed frame — the runtime stops producing records the moment the destroy walks. A tool that didn't know its observed frame was destroyed would see a callback that simply *stopped firing*, with no signal to route off. The silencing trace closes that gap.
 
 The full contract is in [Tool-Pair §Surface behaviour against destroyed frames](../../spec/Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 

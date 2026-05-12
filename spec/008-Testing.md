@@ -19,7 +19,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Per-test frame fixture | `(rf/make-frame opts)` / `(rf/destroy-frame f)` |
 | Scoped REPL/test block | `(rf/with-frame :frame-id body...)` *or* `(rf/with-frame [sym expr] body...)` — see [§`with-frame` call shapes](#with-frame-call-shapes) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
-| Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:http stub-fn}})` |
+| Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:my-app/http stub-fn}})` |
 | Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
 | Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
@@ -149,22 +149,24 @@ For testing state machine transitions, skip the frame entirely:
 
 ## Per-test stubbing patterns
 
-### Stubbing `:http` for an entire frame
+### Stubbing an HTTP fx for an entire frame
+
+(`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md). The stubbing mechanism is identical regardless of which fx-id is being overridden.)
 
 ```clojure
 (rf/reg-frame :test/auth-flow
   {:on-create   [:auth/init-idle]
-   :fx-overrides {:http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
+   :fx-overrides {:my-app/http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
 
-;; every event handled in :test/auth-flow uses the stub :http
+;; every event handled in :test/auth-flow uses the stub :my-app/http
 ```
 
-### Stubbing `:http` for a single dispatch
+### Stubbing an HTTP fx for a single dispatch
 
 ```clojure
 (rf/dispatch-sync [:auth/load-user]
                   {:frame :test/auth-flow
-                   :fx-overrides {:http (fn [_m _args] {:status 401 :body "unauthorised"})}})
+                   :fx-overrides {:my-app/http (fn [_m _args] {:status 401 :body "unauthorised"})}})
 ;; only this dispatch sees the 401 stub; subsequent events use the frame's default
 ```
 

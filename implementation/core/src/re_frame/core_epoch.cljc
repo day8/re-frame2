@@ -48,9 +48,9 @@
     (f frame-id epoch-id)
     false))
 
-(defn register-epoch-cb
+(defn register-epoch-cb!
   "Register a callback fired once per drain-settle with the assembled
-  `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb`. Same-id
+  `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb!`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
   id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
   not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
@@ -58,7 +58,7 @@
   (when-let [g (late-bind/get-fn :epoch/register-epoch-cb)]
     (g id f)))
 
-(defn remove-epoch-cb
+(defn remove-epoch-cb!
   "Remove the listener registered under id. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
   via `:epoch/remove-epoch-cb`."
