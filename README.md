@@ -40,8 +40,9 @@ re-frame rejects that. Instead, events update centralised state. Subscriptions d
 > — Me, being snarky about the direction of the JS/TS frameworks
 
 
-> Beware of the Turing tar-pit in which everything is possible but nothing of interest is easy.
-> -- Alan Perlis, apparently equally furious
+> *Beware of the Turing tar-pit in which everything is possible but nothing of interest is easy.*
+> 
+> — Alan Perlis, apparently equally furious
 
 **3. Tooling is first-class.** 
 
