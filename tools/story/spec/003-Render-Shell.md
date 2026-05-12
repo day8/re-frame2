@@ -153,9 +153,9 @@ no parallel mounting protocol. Five rules govern panel hosting:
    (e.g. Causa's epoch view, future statechart-viz panels) registers
    from its own boot.
 
-5. **The 10x embed.** The built-in `:rf.story.panel/epoch` panel
+5. **The Causa embed.** The built-in `:rf.story.panel/epoch` panel
    registers against a STUB view. The Causa library
-   ([`tools/10x/`](../../10x/)) registers the live view under the
+   ([`tools/causa/`](../../causa/)) registers the live view under the
    same `:rf.story.panel/epoch-view` id when present; the shell's
    late-bind `rf/view` lookup picks Causa's view automatically. If
    Causa is absent the stub renders documenting the contract.

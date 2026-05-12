@@ -1,4 +1,4 @@
-# tools/10x/
+# tools/causa/
 
 `day8/re-frame2-causa` — **Causa**, the re-frame2 devtools panel.
 *The cascade you can see.*
@@ -23,7 +23,7 @@ bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The 16 panels are
 *presentation* of an already-structured runtime.
 
-A separate jar `tools/10x-mcp/` exposes Causa's surfaces as MCP tools
+A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP tools
 for AI agents — same architecture as `tools/pair2-mcp/`, different tool
 catalogue.
 
@@ -110,7 +110,7 @@ that the tool could be one-shotted from it.
 | [`spec/007-UX-IA.md`](./spec/007-UX-IA.md) | Layout, interaction, visual language (typography, colour, motion). |
 | [`spec/008-Embedding-Contract.md`](./spec/008-Embedding-Contract.md) | Story-embed contract; the `Panel` component shape. |
 | [`spec/009-AI-CoPilot.md`](./spec/009-AI-CoPilot.md) | Pull-only Q&A; slash commands; ephemeral conversation. |
-| [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md) | `tools/10x-mcp/`; the Causa MCP tool catalogue. |
+| [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md) | `tools/causa-mcp/`; the Causa MCP tool catalogue. |
 | [`spec/011-Launch-Modes.md`](./spec/011-Launch-Modes.md) | In-app overlay + standalone-via-MCP for remote-attach. |
 | [`spec/Principles.md`](./spec/Principles.md) | Load-bearing principles (read-only, observation-only, etc.). |
 | [`spec/API.md`](./spec/API.md) | User-facing surface (`init!`, panel mount, MCP tool list). |
@@ -120,7 +120,7 @@ that the tool could be one-shotted from it.
 ## File layout
 
 ```
-tools/10x/
+tools/causa/
 ├── README.md                                  ; this file
 ├── deps.edn                                   ; declares day8/re-frame2-causa
 ├── shadow-cljs.edn                            ; build config

@@ -163,7 +163,7 @@ reference:
 ## MCP API
 
 Per [`010-MCP-Server.md`](./010-MCP-Server.md). The MCP server lives
-at `tools/10x-mcp/` and exposes 12 tools:
+at `tools/causa-mcp/` and exposes 12 tools:
 
 | Tool | Kind |
 |---|---|

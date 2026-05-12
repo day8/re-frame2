@@ -11,7 +11,7 @@ Causa embeds it.
 dependency arrow:
 
 ```
-tools/10x/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
+tools/causa/  ─requires→  tools/machines-viz/  ─requires→  implementation/machines/
 ```
 
 Same direction as Story → Causa (per

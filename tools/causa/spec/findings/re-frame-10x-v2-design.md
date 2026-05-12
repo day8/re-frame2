@@ -473,7 +473,7 @@ re-frame-pair2 is AI-driven (an LLM integration via nREPL). Causa is human-drive
 
 ### MCP surface
 
-**10x v2 ships `tools/10x-mcp/`** (a separate jar, mirroring `tools/story-mcp/`). The MCP server exposes:
+**Causa ships `tools/causa-mcp/`** (a separate jar, mirroring `tools/story-mcp/`). The MCP server exposes:
 
 - `get-trace-buffer` — slice of the trace stream by filter.
 - `get-epoch-history` — per-frame epoch history.

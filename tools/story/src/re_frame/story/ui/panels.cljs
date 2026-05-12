@@ -31,8 +31,8 @@
   ## 10x epoch panel — STUB
 
   Per IMPL-SPEC §2.7 + §2.8.9 the 10x epoch panel ships in v1.0 as a
-  `reg-story-panel` registration. The actual 10x v2 (working name
-  Causa — `tools/10x/`, bd rf2-buor) is in design. Stage 6 ships a
+  `reg-story-panel` registration. The actual successor
+  (Causa — `tools/causa/`, bd rf2-buor) is in design. Stage 6 ships a
   stub view that documents the contract; the live embed lands when
   Causa publishes its panel-render view id.
 
@@ -118,7 +118,7 @@
 (defn epoch-stub-view
   "STUB view for the 10x epoch panel. Per IMPL-SPEC §2.7 + Stage 6
   (rf2-zhwd) — displays a contract description until Causa
-  (`tools/10x/`, rf2-buor) ships its panel view.
+  (`tools/causa/`, rf2-buor) ships its panel view.
 
   The stub registration is the deliverable for Stage 6; the live view
   replaces the same registered view id when Causa publishes."

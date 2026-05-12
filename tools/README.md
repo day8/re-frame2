@@ -147,9 +147,11 @@ implementation work begins; empty scaffolding is not created up-front.
   a separate MCP surface for machine viz, mirroring the story / story-mcp
   split. Confirmed separation pending the first cut.
 
-- **`tools/10x/`** — `day8/re-frame2-10x`. re-frame-10x v2 — the interactive
-  devtools panel for the runtime. This entry partially answers
-  [`rf2-tijr`](../.beads/) (the repo-placement question): 10x v2 lives here.
+- **`tools/causa/`** — `day8/re-frame2-causa`. Causa — the interactive
+  devtools panel for the runtime; the structural successor to
+  re-frame-10x (renamed per `tools/causa/spec/DESIGN-RATIONALE.md`
+  Lock #1). This entry partially answers
+  [`rf2-tijr`](../.beads/) (the repo-placement question): Causa lives here.
   The vendoring-replaced-by-multi-frame-isolation work tracked by that bead
   remains open.
 
