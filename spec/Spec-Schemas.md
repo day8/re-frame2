@@ -247,7 +247,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:event` | Top-level event handler invocation | 009 |
 | `:event/do-fx` | Effect-resolution pass after handler returns | 009 |
 | `:frame/created`, `:frame/destroyed` | Frame lifecycle | 002 |
-| `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :event` (lifecycle, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
+| `:rf.frame/drain-interrupted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :frame` (frame-lifecycle family, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:rf.machine/transition` | State-machine transition | 005 |
 | `:rf.machine.microstep/transition` | State-machine `:always` per-microstep transition | 005 |
 | `:rf.machine/done` | State machine entered a `:final?` state; the runtime fired the parent's `:on-done` (if any) and is about to auto-destroy the actor. `:tags {:machine-id <finishing-actor-id> :output <value-or-nil> :parent-id <parent-registration-id-or-nil>}`. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key) and rf2-gn80. | 005 |
@@ -270,14 +270,14 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:fx` | An effect substrate event (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 009 |
 | `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`) | 009 / 014 |
 | `:registry` | Registrar mutation events (handler-registered/cleared/replaced) | 001 / 009 |
-| `:machine` | Machine-substrate events (transitions, lifecycle, timers). Carries the `:operation :rf.machine/destroyed-on-frame-exit` event emitted per active machine snapshot during `destroy-frame!` — the *reason* event in the frame-exit dual emit (see [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). | 005 |
-| `:rf.machine.lifecycle/created`, `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — uniform create/destroy emit shape used by lifecycle observers (one op-type per direction; the operation is identical to the op-type). `-destroyed` fires on every actor instance going away, including each per-machine emit during a frame's destroy cascade (the lifecycle leg of the dual emit; see [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). | 005 / 009 |
+| `:machine` | Machine-substrate events (transitions, lifecycle, timers). Carries `:operation :rf.machine/destroyed` emits from `lifecycle_fx.cljc` for the non-frame-exit destroy causes (`:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade`). | 005 |
+| `:rf.machine.lifecycle/created`, `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — uniform create/destroy emit shape used by lifecycle observers (one op-type per direction; the operation is identical to the op-type). `-destroyed` fires on every actor instance going away; during a frame's destroy cascade `frame.cljc` emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)). | 005 / 009 |
 | `:rf.epoch` | Epoch-history events (snapshotted, restored, db-replaced) | Tool-Pair |
 | `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
 
 The error category schemas in [009 §Error contract](009-Instrumentation.md#error-contract) are *refinements* of TraceEvent for `:op-type :error` events. The unified error/warning envelope is captured by `:rf/error-event` (below).
 
-**Non-error refinements.** A small set of TraceEvent refinements describe `:op-type :event` lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-aborted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainAbortedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-aborted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-aborted` to filter; the `:op-type :event` discriminator places it alongside ordinary event traces rather than the error/warning channel. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
+**Non-error refinements.** A small set of TraceEvent refinements describe frame-lifecycle traces that ride the trace stream alongside the error/warning channel. The single one v1 ships is `:rf.frame/drain-interrupted` — emitted when a frame's drain loop detects the frame was destroyed mid-cycle and drops remaining queued events. The `:tags` schema is `DrainInterruptedTags` (per [§Per-category `:tags` schemas](#per-category-tags-schemas) below), shape `{:category :rf.frame/drain-interrupted, :frame <keyword>, :dropped-count <int>}`. Consumers branch on `:operation = :rf.frame/drain-interrupted` to filter; the `:op-type :frame` discriminator places it alongside the rest of the `:frame/*` lifecycle family (`:frame/created`, `:frame/destroyed`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary).
 
 ### `:rf/error-event`
 
@@ -333,7 +333,7 @@ The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing
 | `:rf.epoch/*` | `:error` | Epoch-history restore failures (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) |
 | `:rf.http/*` | `:warning` / `:info` | Managed-HTTP advisories (key-ignored-on-jvm, retry-attempt) per [014](014-HTTPRequests.md) |
 | `:route.nav-token/*` | `:error` | Stale-result-suppression on async navigation (per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)) |
-| `:rf.frame/<operation>` | `:event` | Frame-lifecycle trace operations emitted by the router and frame lifecycle (e.g. `:rf.frame/drain-aborted`, `:rf.frame/destroyed`) per [002](002-Frames.md). |
+| `:rf.frame/<operation>` | `:frame` | Frame-lifecycle trace operations emitted by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`) per [002](002-Frames.md). |
 | `:rf.frame/<gensym>` | n/a | Identifier namespace, NOT a trace-operation prefix — anonymous frame ids minted by `make-frame` (e.g. `:rf.frame/123`). Carried as the value of the `:frame` key on trace events, never as the `:operation`. Listed here so consumers parsing operation namespaces don't mis-route a gensym'd frame id as an operation. |
 
 ### Per-category `:tags` schemas
@@ -825,15 +825,15 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def EpochCbSilencedOnFrameDestroyTags
   ;; :rf.epoch.cb/silenced-on-frame-destroy — emitted once per
-  ;; (frame-id, cb-id) pair when a frame previously observed by a
+  ;; (frame, cb-id) pair when a frame previously observed by a
   ;; register-epoch-cb! callback is destroyed. :op-type :rf.epoch.cb (not
   ;; :error). One-shot; subsequent destroys of the same frame do not
   ;; re-emit. The callback registration remains in place; eviction is
   ;; the consumer's call. Per Tool-Pair §Surface behaviour against
   ;; destroyed frames.
   [:map
-   [:frame-id :keyword]
-   [:cb-id    [:or :keyword :string]]])
+   [:frame :keyword]
+   [:cb-id [:or :keyword :string]]])
 
 ;; --- warnings: SSR / authoring-time advisories ---
 
@@ -993,11 +993,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:fx-args  :any]
    [:frame    {:optional true} :keyword]])
 
-;; --- frame-lifecycle event (op-type :event, not error/warning) ---
+;; --- frame-lifecycle event (op-type :frame, not error/warning) ---
 
-(def DrainAbortedTags
+(def DrainInterruptedTags
   [:map
-   [:category      [:= :rf.frame/drain-aborted]]
+   [:category      [:= :rf.frame/drain-interrupted]]
    [:frame         :keyword]
    [:dropped-count :int]])
 ```

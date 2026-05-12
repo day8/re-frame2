@@ -80,7 +80,7 @@ The runtime contract for time-travel:
 
 | Failure | `:operation` | When it fires | `:tags` |
 |---|---|---|---|
-| **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame-id <id>}` |
+| **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame <id>}` |
 | **Unknown epoch** | `:rf.epoch/restore-unknown-epoch` | `epoch-id` is not in the frame's current epoch history (either never recorded or aged out by `:depth`). | `{:frame <id>, :epoch-id <id>, :history-size <n>}` |
 | **Schema mismatch** | `:rf.epoch/restore-schema-mismatch` | The recorded `:db-after` no longer validates against the currently-registered `app-schemas` set (a schema was added, tightened, or replaced since the snapshot was taken). | `{:frame <id>, :epoch-id <id>, :schema-digest-recorded <s>, :schema-digest-current <s>, :failing-paths [<path> ...]}` |
 | **Missing handler** | `:rf.epoch/restore-missing-handler` | The recorded `app-db` references a registered-id (e.g. an active machine at `[:rf/machines <id>]`, a registered route currently in `:rf/route`) that is no longer present in the registrar. Restoring would leave the frame referencing dangling ids. | `{:frame <id>, :epoch-id <id>, :missing [{:kind <kind>, :id <id>} ...]}` |
@@ -163,7 +163,7 @@ The committed surface is `(rf/reset-frame-db! frame-id new-db)`. It bypasses the
 
 | Failure | `:operation` | When it fires | `:tags` |
 |---|---|---|---|
-| **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame-id <id>}` |
+| **Unknown frame** | `:rf.error/no-such-handler` (kind `:frame`) | `frame-id` does not name a registered frame. | `{:kind :frame, :frame <id>}` |
 | **Drain in flight** | `:rf.epoch/reset-frame-db-during-drain` | `reset-frame-db!` was called while the frame's run-to-completion drain is still running (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). The injection is rejected; the caller retries after settle. | `{:frame <id>}` |
 | **Schema mismatch** | `:rf.epoch/reset-frame-db-schema-mismatch` | `new-db` fails the frame's currently-registered `app-schema` set (per [Spec 010 §Per-frame schemas](010-Schemas.md#per-frame-schemas)). When no schemas are registered the validation is a no-op — every `new-db` is accepted. | `{:frame <id>, :failing-paths [<path> ...]}` |
 
@@ -207,10 +207,10 @@ Pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when .
 |---|---|---|
 | `(rf/epoch-history frame-id)` | read | Returns `[]` (empty vector). Identical to "no epochs yet recorded" — consumers that want to distinguish a destroyed frame from a fresh one must consult `(rf/frame-meta frame-id)` or `(rf/frame-ids)` separately. |
 | `(rf/get-frame-db frame-id)` | read | Returns `nil`. Consumers that want a destroyed-vs-unknown distinction consult `(rf/frame-meta frame-id)`. |
-| `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`, tags `{:kind :frame, :frame-id <id>}`) and returns `false`. Same trace shape as any other registry-lookup miss — already enumerated as the **Unknown frame** row of [§Time-travel](#time-travel-epoch-snapshots-and-undo)'s restore-failure table. |
+| `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`, tags `{:kind :frame, :frame <id>}`) and returns `false`. Same trace shape as any other registry-lookup miss — already enumerated as the **Unknown frame** row of [§Time-travel](#time-travel-epoch-snapshots-and-undo)'s restore-failure table. |
 | `(rf/reset-frame-db! frame-id new-db)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. Identical wording to `restore-epoch`'s frame-miss row — pair-tool writers can match on a single category for both surfaces. |
 | `(rf/register-epoch-cb! id callback)` (process-global) | register | The current API is process-global and does not bind a callback to a specific frame; this row therefore does not apply to the existing signature. A future opts-form (`{:frame frame-id}`) would raise `:rf.error/no-such-handler` (kind `:frame`) at registration time when its target is absent — the same shape registration-against-an-absent-target uses elsewhere. The framework reserves the spelling. |
-| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | The runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` (`:op-type :rf.epoch.cb`) **once per `(frame-id, cb-id)` pair**, with `:tags {:frame-id <id>, :cb-id <id>}`, on the destroy-cascade boundary. Subsequent destroys of the same frame do not re-emit. The callback registration remains in place — eviction is the consumer's call (per [009 §`register-epoch-cb!` invocation rules](009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). |
+| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | The runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` (`:op-type :rf.epoch.cb`) **once per `(frame, cb-id)` pair**, with `:tags {:frame <id>, :cb-id <id>}`, on the destroy-cascade boundary. Subsequent destroys of the same frame do not re-emit. The callback registration remains in place — eviction is the consumer's call (per [009 §`register-epoch-cb!` invocation rules](009-Instrumentation.md#register-epoch-cb--assembled-epoch-listener)). |
 
 The trace event is enumerated in [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary); its `:tags` schema is canonicalised in [Spec-Schemas](Spec-Schemas.md#per-category-tags-schemas).
 

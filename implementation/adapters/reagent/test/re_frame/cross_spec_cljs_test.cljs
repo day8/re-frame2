@@ -89,7 +89,8 @@
 
 (deftest frame-destroy-with-active-machines
   "#1 Frame disposal with active machine instances —
-   destroy-frame emits :rf.machine/destroyed-on-frame-exit per active machine."
+   destroy-frame emits one :rf.machine.lifecycle/destroyed per active
+   machine, carrying :reason :parent-frame-destroyed."
   (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
   (rf/reg-event-db :seed
     (fn [db _]
@@ -99,7 +100,7 @@
   (let [traces (collect-traces ::xspec-1)]
     (rf/destroy-frame :tenant-x)
     (stop-traces ::xspec-1)
-    (let [machine-traces (filter #(= :rf.machine/destroyed-on-frame-exit
+    (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                       (:operation %))
                                  @traces)]
       (is (= 2 (count machine-traces))
@@ -109,6 +110,8 @@
       (is (= #{:authed :pending}
              (set (map #(:last-state (:tags %)) machine-traces)))
           "each trace records the machine's last state")
+      (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
+          "each trace carries :reason :parent-frame-destroyed")
       (is (some #(= :frame/destroyed (:operation %)) @traces)
           ":frame/destroyed fires after the per-machine traces"))))
 

@@ -398,7 +398,7 @@ Trace events emitted by epoch-history machinery:
 | `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
 | `:rf.epoch/reset-frame-db-during-drain` | `:frame` |
 | `:rf.epoch/reset-frame-db-schema-mismatch` | `:frame`, `:failing-paths` |
-| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame-id`, `:cb-id` |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
 
 ### DOM source-coord annotations (mandatory; rf2-z7f7 / rf2-z9n1)
 

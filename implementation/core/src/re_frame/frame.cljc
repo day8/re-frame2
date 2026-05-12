@@ -247,13 +247,16 @@
     2a. Fire the rf2-wvkn HTTP abort hook (Spec 005 §Cancellation
         cascade — frame-destroy is a documented destroy trigger).
         Late-bound; nil when the http artefact is absent. Runs BEFORE
-        the trace events so observers see abort-then-destroy ordering.
-    2.  Emit :rf.machine/destroyed-on-frame-exit (the observer-facing
-        lifecycle signal — telemetry, logging, hand-written cleanup
-        hooks).
-        Then emit :rf.machine.lifecycle/destroyed per Spec 009
-        §:op-type vocabulary, pairing with :rf.machine.lifecycle/created
-        emitted at reg-machine.
+        the trace event so observers see abort-then-destroy ordering.
+    2.  Emit ONE :rf.machine.lifecycle/destroyed trace per actor
+        snapshot, carrying :reason :parent-frame-destroyed under :tags.
+        Pairs with :rf.machine.lifecycle/created emitted at reg-machine
+        so lifecycle observers see one consistent op-type for create
+        AND destroy across every cause and code path. The :reason tag
+        discriminates why the actor went away — frame-exit emits
+        :parent-frame-destroyed; the fx-substrate's :rf.machine/destroyed
+        emit-site (lifecycle_fx.cljc) carries the other reasons
+        (:rf.machine/finished, :explicit, :parent-unmount-cascade).
 
   Full automatic exit-cascade would require storing every machine def
   in a registry, which is out of scope for the v1 closed kind set."
@@ -266,14 +269,11 @@
       (when abort-http
         (try (abort-http machine-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
-      (trace/emit! :machine :rf.machine/destroyed-on-frame-exit
-                   {:frame      id
-                    :machine-id machine-id
-                    :last-state (:state snapshot)})
       (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                    {:frame      id
                     :machine-id machine-id
-                    :last-state (:state snapshot)}))))
+                    :last-state (:state snapshot)
+                    :reason     :parent-frame-destroyed}))))
 
 (defn- mark-frame-destroyed!
   "Step 3. Flip :lifecycle :destroyed? so subsequent dispatch / subscribe
@@ -333,10 +333,10 @@
                                       while the frame is still alive.
     2. notify-machine-destruction!  — for each active machine snapshot:
                                       (2a) fire the rf2-wvkn HTTP abort
-                                      hook, then emit the
-                                      :rf.machine/destroyed-on-frame-exit
-                                      and :rf.machine.lifecycle/destroyed
-                                      traces.
+                                      hook, then emit the unified
+                                      :rf.machine.lifecycle/destroyed
+                                      trace (one per snapshot) carrying
+                                      :reason :parent-frame-destroyed.
     3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
     4. tear-down-sub-cache!         — dispose every cached reaction.
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed.

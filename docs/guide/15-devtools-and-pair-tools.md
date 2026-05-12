@@ -432,7 +432,7 @@ The runtime commits to a **closed contract** for these races so a tool can route
 | `(rf/get-frame-db frame-id)` | read | Returns `nil`. Consumers consult `(rf/frame-meta frame-id)` for destroyed-vs-unknown. |
 | `(rf/restore-epoch frame-id epoch-id)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
 | `(rf/reset-frame-db! frame-id new-db)` | mutate | Emits `:rf.error/no-such-handler` (kind `:frame`) and returns `false`. |
-| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame-id, cb-id)` pair, with `:tags {:frame-id <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
+| Pre-registered `register-epoch-cb!` callback whose observed frame is later destroyed | listener silencing | Runtime emits `:rf.epoch.cb/silenced-on-frame-destroy` once per `(frame, cb-id)` pair, with `:tags {:frame <id>, :cb-id <id>}`. The callback registration stays in place — eviction is the consumer's call. |
 
 The pattern: **read-shaped surfaces return an empty shape** (so a defensive `(when ...)` is sufficient); **mutating-shaped surfaces raise structurally** (so a tool that intended a write learns the write did not happen); **listener fan-out emits a one-shot trace** when a previously-registered callback is silenced because its observed frame was destroyed.
 
