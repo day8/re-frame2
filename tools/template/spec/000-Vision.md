@@ -25,6 +25,19 @@ substrate-adapter wired against re-frame2, a host HTML page, a
 shadow-cljs build, and a worked counter mirroring
 [`examples/<substrate>/counter*/`](../../../examples/).
 
+The **canonical emit set** also includes the 2026-standard dev
+ergonomics:
+[`.editorconfig`](../src/clj/new/re_frame2/shared/editorconfig),
+a stub [`.clj-kondo/config.edn`](../src/clj/new/re_frame2/shared/clj-kondo/config.edn),
+a `dev/` tree
+([`dev/user.clj`](../src/clj/new/re_frame2/shared/dev/user.clj) for the JVM-side
+`(user/refresh)` workflow and
+[`dev/scratch.cljs`](../src/clj/new/re_frame2/shared/dev/scratch.cljs) for REPL-driven
+`(rf/dispatch …)` experiments), and a minimal plain stylesheet at
+[`resources/public/css/app.css`](../src/clj/new/re_frame2/shared/resources/public/css/app.css).
+Rationale: see
+[ai/findings re-frame2-template-design §6](../../../ai/findings/) (Mike-locked SHIP 2026-05-12).
+
 ## Lineage
 
 v1's `day8/re-frame-template` was a lein-template — the same posture,

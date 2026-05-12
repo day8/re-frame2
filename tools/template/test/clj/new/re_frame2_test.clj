@@ -98,7 +98,13 @@
    "package.json"
    "README.md"
    ".gitignore"
-   "resources/public/index.html"])
+   ;; Dev ergonomics bundle (rf2-r2jqo).
+   ".editorconfig"
+   ".clj-kondo/config.edn"
+   "dev/user.clj"
+   "dev/scratch.cljs"
+   "resources/public/index.html"
+   "resources/public/css/app.css"])
 
 (def ^:private per-substrate-sources
   ;; Generated under src/<nested-dirs>/ and test/<nested-dirs>/. For

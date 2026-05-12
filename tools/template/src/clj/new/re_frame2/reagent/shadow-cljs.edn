@@ -6,7 +6,7 @@
 ;;   :test — node-side test runner. Picks up any *_test.cljs file under
 ;;           test/ and runs it via cljs.test.
 {:deps   {:aliases [:shadow]}
- :source-paths ["src" "test"]
+ :source-paths ["src" "test" "dev"]
 
  :dev-http {8280 "resources/public"}
 
