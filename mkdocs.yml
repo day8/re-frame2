@@ -10,17 +10,17 @@ copyright: Copyright &copy; 2014-2026 Michael Thompson
 
 # All published markdown lives under docs/ at build time. The narrative
 # guide already lives under docs/guide/. The normative spec lives at the
-# repo root in spec/ (rf2-9hft) — `bb stage-docs` (or the docs.yml CI
-# step) copies spec/ into docs/spec/ before `mkdocs build` runs. The
-# staged copies are ignored by git (see .gitignore).
+# repo root in spec/ — `bb stage-docs` (or the docs.yml CI step) copies
+# spec/ into docs/spec/ before `mkdocs build` runs. The staged copies are
+# ignored by git (see .gitignore).
 docs_dir: docs
 site_dir: site
 
 # Build-time hooks. mkdocs_hooks.py rewrites guide/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
 # lives at the repo root) to ../spec/ (correct for the staged docs tree
-# this build sees, where spec/ has been copied to docs/spec/). See
-# rf2-qvlf and the comment block at the top of mkdocs_hooks.py.
+# this build sees, where spec/ has been copied to docs/spec/). See the
+# comment block at the top of mkdocs_hooks.py.
 hooks:
   - mkdocs_hooks.py
 

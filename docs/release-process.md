@@ -2,19 +2,19 @@
 
 > **Type:** Operational doc.
 > **Audience:** maintainers cutting a re-frame2 release.
-> **Authority:** decisions in [rf2-w05l](#) (CI/CD strategy) and the implementation in [rf2-ace2](#) ([.github/workflows/release.yml](../.github/workflows/release.yml)).
+> **Authority:** the [release workflow](../.github/workflows/release.yml) is the source of truth; this doc is its narrative companion.
 
 re-frame2 ships as a coordinated set of Maven artefacts, all driven from a single repo-root [`VERSION`](../VERSION) file. This doc is the operational guide for how a release flows through CI, what gates exist, and how to recover when something goes wrong mid-deploy.
 
 ## Policy
 
-The release pipeline reflects a small set of decisions Mike made up front (rf2-r382). They are recorded here so future contributors don't have to re-derive them from the workflow.
+The release pipeline reflects a small set of decisions Mike made up front. They are recorded here so future contributors don't have to re-derive them from the workflow.
 
 1. **Mechanism — tag-triggered CD, modeled on re-frame v1.** Push a tag matching the [tag glob](#tag-format); the [`release` workflow](../.github/workflows/release.yml) runs end-to-end. Same shape as [re-frame v1's `continuous-deployment-workflow.yml`](https://github.com/day8/re-frame/blob/master/.github/workflows/continuous-deployment-workflow.yml): tag-push trigger, gated test job, `clojure -M:clein deploy`, `softprops/action-gh-release` for the GitHub Release. The differences are structural — re-frame v1 ships one artefact, re-frame2 ships ten — and are documented in [§Topological deploy DAG](#topological-deploy-dag).
 2. **Channel gating — pre-1.0 = alpha/beta, post-1.0 = stable.** Pre-1.0 releases tag as `v0.0.1.alpha` (and `v0.0.1.alpha-N` / `v0.0.2.alpha` etc. for subsequent alphas; the same pattern with `.beta` once we promote). Post-1.0 releases tag as `vX.Y.Z` per Semantic Versioning. The release workflow flags any tag containing `beta`, `alpha`, or `rc` as a GitHub `prerelease` automatically.
 3. **First publish — manual cut, all artefacts together.** Mike triggers the first `v0.0.1.alpha` deploy by hand once the policy text and the workflow have been reviewed against an actual tag. After the first cut, subsequent releases run automatically on tag push. The first cut ships the **full ten-artefact set** (core + schemas + reagent + uix + machines + routing + flows + http + ssr + epoch); no artefact "comes later" — they all ship together at every release per the lockstep contract below.
 4. **Atomic rollback — NOT POLICY.** Clojars does not support yanking a published version, and re-frame2 does not invest in machinery that would make it look like it does. If a deploy fails part-way through, recovery is **bump VERSION + re-tag + re-run** (see [§Recovery from a partial deploy](#recovery-from-a-partial-deploy) for the procedure). The partial-release artefacts from a failed run remain on Clojars, tombstoned-by-supersession; consumers pin the bumped version and pull a coherent set. Manual recovery is acceptable; we do not build atomic-rollback or partial-deploy-replay machinery.
-5. **Artefact set ships together at lockstep VERSION.** All 10 artefacts ship at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract (rf2-w05l) is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh). Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep.
+5. **Artefact set ships together at lockstep VERSION.** All 10 artefacts ship at every release at the same VERSION, sourced from the repo-root [`VERSION`](../VERSION) file. The lockstep contract is enforced before any deploy by [`./.github/scripts/verify-version-lockstep.sh`](../.github/scripts/verify-version-lockstep.sh). Independent versioning is revisited post-1.0; until then, every published Maven coord moves in lockstep.
 
 ## Tag format
 
@@ -40,7 +40,7 @@ There is no `workflow_dispatch` trigger by design: a release commit always carri
 
 ## Topological deploy DAG
 
-Per rf2-w05l's lockstep-versioning decision, all artefacts ship at the same version each release. The DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame2` (core); cross-feature references at runtime are wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule).
+Per the lockstep-versioning policy (every artefact ships at the same version each release), the DAG reflects the **published-pom** dependency graph (which is much narrower than the in-repo test-classpath graph): every per-feature artefact's published `:deps` declares only `day8/re-frame2` (core); cross-feature references at runtime are wired through `re-frame.late-bind` per [Conventions §Packaging conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
 ```mermaid
 graph TD
@@ -85,7 +85,7 @@ verify-version-lockstep ──► test ──► deploy-core
                                         github-release
 ```
 
-**Why fan-out (not strict serial).** The decision text describes a topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`); the deps-graph data is wider — every leaf has core as its only re-frame2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is now closed at seven (schemas, machines, routing, flows, http, ssr, epoch — per [rf2-5vjj](#) Strategy B); the adapter set is two (reagent default, uix per [rf2-3yij](#)); a future Helix adapter ([rf2-2qit](#)) slots in as another leaf when it ships.
+**Why fan-out (not strict serial).** A strict topological linearization (`core → schemas → reagent → machines → routing → flows → http → ssr → epoch → uix`) would suffice; the deps-graph data is wider — every leaf has core as its only re-frame2 dependency. The CI graph realises a valid topological sort that exploits the parallelism: leaves run concurrently after core, cutting wall-clock at the cost of a marginally wider failure surface (see Recovery below). The per-feature split set is closed at seven (schemas, machines, routing, flows, http, ssr, epoch); the adapter set is two (reagent default, uix); a future Helix adapter slots in as another leaf when it ships.
 
 ## Pre-flight checklist
 
@@ -93,7 +93,7 @@ Before tagging:
 
 - [ ] All checks green on `main` (the `tests` workflow + any required reviews).
 - [ ] [`VERSION`](../VERSION) file updated to the target version. Single line, no trailing whitespace.
-- [ ] [`spec/MIGRATION.md`](../spec/MIGRATION.md) carries a fresh `M-NN` entry if the release contains a breaking change. (Per rf2-w05l, MIGRATION stays flat through 1.0; numbering is monotonic.)
+- [ ] [`spec/MIGRATION.md`](../spec/MIGRATION.md) carries a fresh `M-NN` entry if the release contains a breaking change. (MIGRATION stays flat through 1.0; numbering is monotonic.)
 - [ ] [`CHANGELOG.md`](../CHANGELOG.md) updated for the release. The GitHub Release body links to it, so it is the canonical narrative.
 - [ ] The tag's commit is the same commit that updates VERSION + MIGRATION + CHANGELOG (one release commit).
 - [ ] Locally green: `./.github/scripts/verify-version-lockstep.sh` passes. (The CI gate runs the same script; running locally first surfaces drift in seconds.)
@@ -160,7 +160,7 @@ Run locally any time:
 
 ## Lockstep versioning policy through 1.0
 
-Per [rf2-w05l](#) §Decision §1: every artefact ships at the same VERSION pre-1.0. Independent versioning is revisited post-1.0. The mechanism:
+Through 1.0, every artefact ships at the same VERSION. Independent versioning is revisited post-1.0. The mechanism:
 
 - single root [`VERSION`](../VERSION) file;
 - every artefact's `:clein/build :version` is the relative path `"../../VERSION"`;
@@ -170,8 +170,6 @@ There is intentionally no per-artefact version override. Adding one would break 
 
 ## Cross-references
 
-- [rf2-w05l](#) — CI/CD strategy decision (parent).
-- [rf2-ace2](#) — implementation bead (this doc + workflow restructure).
 - [.github/workflows/release.yml](../.github/workflows/release.yml) — the release pipeline.
 - [.github/workflows/test.yml](../.github/workflows/test.yml) — PR-time tests including lockstep drift detection.
 - [.github/scripts/verify-version-lockstep.sh](../.github/scripts/verify-version-lockstep.sh) — the lockstep contract script.

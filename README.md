@@ -179,38 +179,35 @@ spec/                          Full specification (AI-targeted; the primary arte
   conformance/                 EDN fixture corpus
 docs/
   guide/                       Human-facing guide (marketing voice)
-  release-process.md           Operational doc — multi-artefact release pipeline (rf2-w05l / rf2-ace2)
+  release-process.md           Operational doc — multi-artefact release pipeline
 examples/                      Worked examples
 implementation/                CLJS reference implementation — split into per-artefact subdirs
-                               (per Conventions §Packaging conventions; tier rollout per rf2-0hxm
-                               for the substrate split, rf2-5vjj for the per-feature splits).
+                               (per Conventions §Packaging conventions).
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace; today still carries machines, flows, routing,
                                http, ssr, schemas, epoch (per-feature splits pending — see
                                Ownership.md "Artefact" column for the per-surface bead).
-  adapters/                    Substrate adapters (rf2-zha9; renamed from substrates/ per
-                               rf2-0imy). Per-feature artefacts (schemas, machines, ...) stay
-                               flat under implementation/ alongside core.
+  adapters/                    Substrate adapters. Per-feature artefacts (schemas, machines, ...)
+                               stay flat under implementation/ alongside core.
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
-    uix/                       day8/re-frame2-uix — the UIx adapter (rf2-3yij)
-    helix/                     day8/re-frame2-helix — the Helix adapter (rf2-2qit)
+    uix/                       day8/re-frame2-uix — the UIx adapter
+    helix/                     day8/re-frame2-helix — the Helix adapter
   shadow-cljs.edn              top-level build coordinator: pulls all artefacts onto one classpath
                                for the browser/elision/examples builds
   deps.edn                     top-level build coordinator (clojure-tools): :local/root deps for all
 tools/                         CLJS dev/inspection tools that consume re-frame2's instrumentation
                                API (Spec 009, Tool-Pair). Sibling of implementation/, not part of
-                               it — bundle-isolated from production builds (rf2-e6g9).
-  template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2 apps
-                               (rf2-lrtc); the v1 re-frame-template's v2 successor. Build-time scaffold.
+                               it — bundle-isolated from production builds.
+  template/                    day8/clj-template.re-frame2 — clj-new template for new re-frame2
+                               apps; the v1 re-frame-template's v2 successor. Build-time scaffold.
   story/                       day8/re-frame2-story — Storybook-flavoured playground (in design)
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate
-                               jar per rf2-m6tu §6.1 (in design)
+                               jar (in design)
   machines-viz/                day8/re-frame2-machines-viz — XState-style state-chart visualisation
                                (in design)
   machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP surface for machines-viz;
                                likely separate jar (in design)
-  10x/                         day8/re-frame2-10x — re-frame-10x v2 (in design; partial answer to
-                               rf2-tijr's repo-placement question)
+  10x/                         day8/re-frame2-10x — re-frame-10x v2 (in design)
 skills/                        Claude skills (planned; pair-improver and friends)
 ```
 
