@@ -242,6 +242,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.frame/drain-aborted` | A frame's drain loop detected `(:destroyed? (:lifecycle frame))` mid-cycle; remaining queued events are dropped. `:op-type :event` (lifecycle, not error). `:tags {:frame <id> :dropped-count <int>}`. Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:rf.machine/transition` | State-machine transition | 005 |
 | `:rf.machine.microstep/transition` | State-machine `:always` per-microstep transition | 005 |
+| `:rf.machine/done` | State machine entered a `:final?` state; the runtime fired the parent's `:on-done` (if any) and is about to auto-destroy the actor. `:tags {:machine-id <finishing-actor-id> :output <value-or-nil> :parent-id <parent-registration-id-or-nil>}`. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key) and rf2-gn80. | 005 |
 | `:rf.machine.timer/scheduled` | State-machine `:after` timer scheduled at state entry (or re-scheduled on subscription-driven re-resolution per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)). `:tags` carries `:delay-source <:literal | :sub | :fn>` and `:sub-id` (when source = `:sub`). | 005 |
 | `:rf.machine.timer/fired` | State-machine `:after` timer fired (live; epoch matched). `:tags` carries `:fired? <bool>` indicating whether the guard passed (false ⇒ suppressed, no transition; sibling timers continue). | 005 |
 | `:rf.machine.timer/stale-after` | State-machine `:after` timer fired with mismatched epoch (state was exited before the timer expired) and was silently ignored | 005 |
@@ -1061,6 +1062,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
                                 [:meta   {:optional true} :map]]]]]
                         [:on      {:optional true} EventMap]                ;; event → transition
                         [:tags    {:optional true} [:set :keyword]]         ;; runtime-projected onto snapshot's :tags — see [005 §State tags](005-StateMachines.md#state-tags); union of active-configuration tag sets is stamped at [:rf/machines <id> :tags] on every transition commit. Reserved framework namespace (`:rf/*`, `:rf.*/*`) per Conventions.md §Reserved namespaces. Per rf2-ee0d.
+                        [:final?  {:optional true} :boolean]                ;; leaf-only — entering this state terminates the machine. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key). A `:final?` state MUST NOT declare `:states`, `:initial`, `:on`, `:always`, `:after`, `:invoke`, or `:invoke-all` (`:entry` / `:exit` are permitted). For an `:invoke`d child: the runtime invokes the parent's `:invoke :on-done` with the child's `:data` slot named by `:output-key` (or `nil`), then auto-destroys synchronously. For a singleton: auto-destroys synchronously (singleton symmetry, D7).
+                        [:output-key {:optional true} :keyword]             ;; designates which `:data` key is reported back via the parent's `:on-done`. Requires `:final? true` (registration rejects `:output-key` on non-final states with `:rf.error/machine-output-key-without-final`). Per rf2-gn80.
                         [:meta    {:optional true} :map]]}}
    [:ref ::state-node]])
 
@@ -1077,6 +1080,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:data       {:optional true} [:or :map fn?]]                            ;; literal initial data, OR (fn [snap event] data) computed at entry time
    [:id-prefix  {:optional true} :keyword]                                  ;; defaults to :machine-id; base for the gensym'd actor id
    [:on-spawn   {:optional true} fn?]                                       ;; (fn [data spawned-id] new-data) — how the parent records the child id
+   [:on-done    {:optional true} fn?]                                       ;; (fn [data result] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Per rf2-gn80 and [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
    [:invoke-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf/system-ids <sid>] in the spawning frame

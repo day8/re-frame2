@@ -1,0 +1,49 @@
+;; Conformance fixture: machine/final-state-singleton-auto-destroys
+;;
+;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
+;; and rf2-gn80 (Final states). A leaf state declares `:final? true`;
+;; entering it terminates the machine. For a SINGLETON (non-spawned,
+;; non-invoked) machine, the auto-destroy fires synchronously per D7
+;; ("final means final"). Footgun note for skill docs: apps wanting a
+;; persistent terminal state simply OMIT `:final?`.
+;;
+;; This fixture exercises the pure-call surface: `machine-transition`
+;; returns the post-transition `{:state :data}` snapshot. The pure
+;; surface deliberately does NOT carry runtime-only metadata
+;; (`:rf/finished?` etc.) — the lifecycle handler recomputes the
+;; finality flag at the boundary. Hosts that exercise live spawn/
+;; destroy semantics observe the auto-destroy via the surrounding
+;; runtime; the pure call here verifies the transition's state-shape.
+;;
+;; Per rf2-gn80 D1: `:final?` is a first-class state-node key (NOT
+;; stashed under `:meta`). Per D3: `:output-key` is a designated `:data`
+;; slot, optional — when absent the parent's `:on-done` receives nil.
+
+{:fixture/id           :machine/final-state-singleton-auto-destroys
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/final-states}
+ :fixture/doc          "A singleton machine entering :final? produces a post-transition snapshot whose :state is the terminal leaf. Live hosts auto-destroy synchronously on entry per D4; the pure surface here verifies the state-shape resolution. The :output-key slot is verified separately in final-state-child-fires-on-done."
+
+ :fixture/registry
+ {}
+
+ :fixture/handlers
+ {}
+
+ :fixture/calls
+ [;; (1) Transition into a :final? leaf. The post-transition snapshot's
+  ;; :state IS the terminal leaf — verifies that the transition target
+  ;; resolution respects `:final?` (which constrains the state-node's
+  ;; shape — no :states / :initial / :on / :after / :always / :invoke).
+  {:call         :machine-transition
+   :definition
+   {:initial :running
+    :data    {:phase :idle}
+    :states
+    {:running {:on {:finish :done}}
+     :done    {:final?     true
+               :output-key :phase}}}
+   :snapshot     {:state :running :data {:phase :working}}
+   :event        [:finish]
+   :expect-next-snapshot {:state :done :data {:phase :working}}
+   :expect-effects       []}]}

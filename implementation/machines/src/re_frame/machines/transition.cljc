@@ -730,6 +730,29 @@
                  children')]
         [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))]))))
 
+(defn final-state-node?
+  "Per Spec 005 §Final states (rf2-gn80): true iff the state-node declares
+  `:final? true`. The marker is a first-class state-spec key (D1) — NOT
+  stashed under `:meta` — so authors and AI agents see it at the state
+  level."
+  [node]
+  (true? (:final? node)))
+
+(defn final-on-leaf?
+  "Per Spec 005 §Final states (rf2-gn80): true iff the state at the LEAF
+  of `path` declares `:final? true`. Used by `apply-transition-once` to
+  tag the resulting snapshot with `:rf/finished?` so the orchestrating
+  lifecycle handler can fire `:on-done` + auto-destroy.
+
+  Note: parallel-region machines compose finality across regions — the
+  parent is `:final?` only when EVERY region's active leaf is `:final?`.
+  This fn answers the per-state question; the parallel-region union is
+  computed by the orchestrator (`re-frame.machines.parallel` /
+  `re-frame.machines.lifecycle-fx`)."
+  [machine state]
+  (let [node (node-at machine (state-path state))]
+    (final-state-node? node)))
+
 (defn apply-transition-once
   "Apply one transition (exit cascade → action → entry cascade → state
   change). Returns [new-snapshot fx-vec].
@@ -747,6 +770,11 @@
   advances :data.:rf/after-epoch (so any in-flight timer captured before
   the change becomes stale). A target leaf that declares :after schedules
   a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
+
+  Per Spec 005 §Final states (rf2-gn80): when the target leaf carries
+  `:final? true`, the returned snapshot is tagged with `:rf/finished? true`
+  so the orchestrating lifecycle handler can fire the parent's `:on-done`
+  callback and auto-destroy the actor synchronously.
 
   `transition` is the transition map with a synthetic :decl-path key
   recording where in the state-path tree the transition was declared."
@@ -855,6 +883,14 @@
                                     (or destroy-fx [])
                                     spawn-fx
                                     (or after-fx [])))]
+            ;; Per Spec 005 §Final states (rf2-gn80): we deliberately do
+            ;; NOT tag the snapshot with `:rf/finished?` here. The flag
+            ;; is recomputed at the lifecycle-handler boundary (using
+            ;; `final-on-leaf?` against the post-transition snapshot)
+            ;; so the pure-call surface (the conformance corpus and
+            ;; JVM pure-fn tests) stays free of transient runtime
+            ;; metadata. The pure function returns the canonical
+            ;; `{:state :data}` shape regardless of finality.
             [snap-after-spawns all-fx]))))))
 
 (defn- pick-always-transition

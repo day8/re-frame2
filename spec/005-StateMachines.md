@@ -159,9 +159,11 @@ Every state in `:states` is a map. The complete state-node grammar — every key
  :exit    <fn-or-keyword>                    ;; ran on exiting this state; keyword resolves into :actions map
  :invoke  <invoke-spec>                      ;; spawn child on entry; destroy on exit (see §Declarative :invoke)
  :invoke-all <invoke-all-spec>               ;; spawn N children in parallel and join (see §Spawn-and-join via :invoke-all)
+ :final?  true                               ;; leaf-only — entering this state terminates the machine (see §Final states)
+ :output-key <keyword>                       ;; iff `:final?` — designate which `:data` key is reported back via parent's `:on-done`
  :initial <fsm-keyword>                      ;; required IFF the state is itself compound (declares :states)
  :states  {<fsm-keyword> <state-node>, ...}  ;; nested substates — makes this a compound state
- :meta    {<user-keys> ...}}                 ;; e.g. {:terminal? true}
+ :meta    {<user-keys> ...}}                 ;; user-defined meta (NOT used for terminal marking — see §Final states)
 ```
 
 All keys are optional except `:initial` (which is required when `:states` is present — see [§Hierarchical compound states](#hierarchical-compound-states)). Capability-gating: `:always`, `:after`, `:tags`, `:invoke`, `:invoke-all`, and `:states` / `:initial` are claimed-capability features per [§Capability matrix](#capability-matrix) — a port that doesn't claim a capability may reject the corresponding keys at registration time with `:rf.error/machine-grammar-not-in-v1`.
@@ -1852,6 +1854,7 @@ The map under `:invoke` accepts the following keys:
 | `:data` | initial data for the child — literal map or `(fn [snapshot event] data)` | optional |
 | `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
 | `:on-spawn` | `(fn [data spawned-id] new-data)` — how the parent records the child id in its own `:data` | optional but typically wanted |
+| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key) | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:invoke-id` | explicit id instead of gensym (useful for tests / per-state singleton actors) | optional |
 
@@ -1953,7 +1956,7 @@ xstate's `invoke` admits several features re-frame2 deliberately omits. Each has
 
 | xstate feature | re-frame2 substitute |
 |---|---|
-| **`onDone`** — fire a callback when the child reaches a final state | The leaf state explicitly `:raise`s an event back to the parent (or `:fx [[:dispatch [parent-id [:done ...]]]]`). re-frame2 does not ship final-state-with-onDone runtime machinery; "done" is just an event the leaf chooses to emit. |
+| **`onDone`** — fire a callback when the child reaches a final state | re-frame2 ships first-class final states with parent notification — see [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key). A leaf state declares `:final? true` (and optionally `:output-key`); the parent's `:invoke` declares `:on-done (fn [data result] new-data)`. The runtime invokes `:on-done` synchronously when the child enters its final state, then auto-destroys the child. Per rf2-gn80. |
 | **`onError`** — child error callback | Errors flow through the standard `:rf.error/*` machinery and are visible in trace events. The parent observes via the existing error envelope, not an `:invoke`-specific hook. |
 | **Multiple `:invoke` per state** (xstate admits a vector) | One `:invoke` per state. Multiple actors per state suggests refactoring into a compound state where each substate invokes one of the actors. |
 | **`autoForward`** — forward all parent events to the child | Users forward explicitly via `:fx [[:dispatch [child-id ev]]]` from the relevant transitions. Implicit forwarding is invisible at the call site; explicit forwarding is what visualisers and AIs read. |
@@ -2003,6 +2006,96 @@ Per [rf2-ijm7](#), the framework's `:rf.http/managed` ships as **both** an fx AN
 See [Spec 014 §Machine-shape wrapper](014-HTTPRequests.md#machine-shape-wrapper) for the wrapper's contract; the wrapper's terminal `:succeeded` / `:failed` events arrive at the parent exactly as the hand-rolled HTTP child machine would emit them.
 
 Cross-references: [§Spawning](#spawning--dynamic-actors) for the imperative-spawn surface that `:invoke` desugars to; [§Composition with explicit `:entry` / `:exit`](#composition-with-explicit-entry--exit) for the auto+manual ordering rule; [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) for the `:invoke` schema. [Pattern-WebSocket](Pattern-WebSocket.md) is the canonical worked example exercising hierarchical states, `:after`, `:always`, machine-scoped `:guards` / `:actions`, and `:invoke` together — the connection-lifecycle state machine for long-lived sockets. [Pattern-LongRunningWork](Pattern-LongRunningWork.md) is the canonical worked example for chunked CPU-intensive work — `:always` for batch progression, `:after 0` for browser yielding between chunks, machine-scoped guards for completion / cancellation.
+
+## Final states (`:final?` / `:on-done` / `:output-key`)
+
+Per rf2-gn80, re-frame2 ships first-class **final states** with parent notification — the xstate-style "child reaches `done`; parent sees `onDone`" pattern. The earlier post-v1 note ("user code can dispatch on entry to a terminal state in v1") is **superseded**.
+
+### The grammar
+
+A leaf state may declare `:final? true`. Entering that state **terminates the machine**:
+
+- If the machine was spawned by a parent's `:invoke`, the parent's `:invoke :on-done (fn [data result] new-data)` fires (with `result` = the child's `:data` slot named by the final state's `:output-key`, or `nil` when `:output-key` is absent). The child is then **auto-destroyed**.
+- If the machine is a **singleton** (registered top-level, no parent `:invoke`), the machine still auto-destroys on entry to `:final?` — "final means final" (D7 below). Apps wanting a persistent terminal state simply **omit `:final?`** and use an ordinary leaf state.
+
+```clojure
+;; Child machine — declares its terminal state with :final? + :output-key.
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :states
+   {:running {:on {:server-ok {:target :done
+                               :action (fn [data ev]
+                                         {:data (assoc data :token (second ev))})}}}
+    :done    {:final?     true
+              :output-key :token}}})
+
+;; Parent machine — :on-done reads the child's reported result.
+(rf/reg-machine :login
+  {:initial :idle
+   :states
+   {:idle
+    {:on {:submit :authenticating}}
+
+    :authenticating
+    {:invoke {:machine-id :auth-flow
+              :on-done    (fn [data result] (assoc data :token result))}
+     :on    {:auth/cancelled :idle}}}})
+```
+
+When `:auth-flow` enters `:done`, the runtime:
+
+1. Reads the child's `:data` at `:output-key :token` — call it `result`.
+2. Looks up the parent's `:invoke` at the `:rf/invoke-id` recorded on the child's `:data` (stamped at spawn time per rf2-ijm7).
+3. Runs the parent's `:on-done` against the parent's `:data` with `result` — the returned map replaces the parent's `:data` slot.
+4. Emits `:rf.machine/done` (per [§Trace events](#trace-events)) with `:machine-id` (the child), `:output result`, `:parent-id`.
+5. Tears down the child via the existing destroy path with `:reason :rf.machine/finished` enriched onto the `:rf.machine/destroyed` trace.
+6. Clears the child's `[:rf/system-ids <sid>]` reverse-index entry (if it had one) **after** step 3 — so `:on-done` can still read the binding.
+
+### Sub-decisions (locked per rf2-gn80)
+
+| # | Decision |
+|---|---|
+| D1 | **`:final?` is a first-class key on the state node**, not stashed under `:meta`. Visibility wins — `:final?` is a strong runtime signal and authors / AI agents see it at the state level. |
+| D2 | The parent-notification hook is **`:on-done` on the parent's `:invoke` map** (mirrors `:on-spawn`). Signature `(fn [data result] new-data)` — uniform with other machine callbacks (operates on `:data`, returns the new `:data` map). |
+| D3 | Output is sourced via **`:output-key` on the child's final state** — a designated key into the child's `:data`. There is **no `:output-fn` escape hatch**; one explicit primitive, not two. Apps wanting computed output write a `:action` on the transition INTO the final state that stashes the computed value at `:output-key`. |
+| D4 | **Auto-destroy is synchronous** and happens on the same tick the machine entered `:final?`. The standard destroy path runs (in-flight HTTP aborts, registrar unregister, `[:rf/spawned ...]` slot clear, `[:rf/machines <id>]` snapshot dissoc). |
+| D5 | A dispatch arriving at the now-destroyed actor address is handled by the **existing destroyed-frame trace path** — `:rf.error/no-such-handler` (or the per-runtime equivalent). No new `:rf.machine/dispatched-while-done` half-state is introduced. |
+| D6 | **New trace event `:rf.machine/done`** carries `:machine-id`, `:output`, `:parent-id` (the parent's registration id, or `nil` for singletons). The existing `:rf.machine/destroyed` trace is **enriched** with a `:reason` tag — one of `:rf.machine/finished`, `:explicit`, or `:parent-unmount-cascade`. |
+| D7 | **Singleton symmetry** — a singleton (non-spawned, non-invoked) machine reaching `:final?` ALSO auto-destroys. Footgun note for skill docs: *if you want a persistent terminal state, omit `:final?`*. |
+| D8 | **`:system-id` interaction** — the runtime auto-clears `[:rf/system-ids <system-id>]` reverse-index entry on done. The clear runs **after `:on-done` fires** so the hook can still read the binding. |
+| D9 | Specified and implemented in one delivery (no post-v1 deferral). |
+| D10 | Capability-matrix axis: **`:fsm/final-states`** (naming consistent with `:fsm/parallel-regions`, `:fsm/tags`). Conformance fixtures `final-state-singleton-auto-destroys` and `final-state-child-fires-on-done` exercise the contract. |
+
+### `:final?` constraints
+
+- **Leaf-only.** A state declaring `:final? true` MUST NOT declare `:states` (or `:initial`). Compound states cannot themselves be final — their finality is expressed by a leaf inside them. `create-machine-handler` rejects compound `:final?` declarations at registration with `:rf.error/machine-final-state-compound`.
+- **No `:on`, `:always`, `:after`, `:invoke`, `:invoke-all` on a `:final?` state.** Final means final — no further transitions. `create-machine-handler` rejects these combinations at registration with `:rf.error/machine-final-state-has-transitions`. `:entry` and `:exit` actions ARE permitted (the final-state's `:entry` runs as part of the entering cascade; `:exit` runs from the auto-destroy teardown).
+- **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`). On a final state, `:output-key` is optional — when absent, the `result` passed to `:on-done` is `nil`.
+- **Parallel regions and `:final?`.** A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts (no further transitions accepted for it; sibling regions continue). The parent machine as a whole is `:final?` only when EVERY region's active state is `:final?` — at which point the auto-destroy and `:on-done` cascade fires as usual. (This composability uses the existing parallel-region routing; no new primitive.)
+
+### Composition with `:entry` / `:exit`
+
+A final state's `:entry` action runs as part of the entering cascade (before the auto-destroy fires). A final state's `:exit` action runs from the auto-destroy teardown — same ordering convention as the user-supplied `:exit` running before the auto-destroy for ordinary `:invoke`-bearing states. The user's `:exit` therefore gets to read the final snapshot (including `:data`'s `:output-key`-designated slot) before auto-destroy clears it.
+
+### Trace events fired on done
+
+Synchronous ordering (per D4):
+
+1. `:rf.machine/done` — emitted with `:machine-id` (the finishing actor), `:output` (the value read at `:output-key`, or `nil`), `:parent-id` (the parent's registration id, or `nil` for singletons).
+2. `:rf.machine/destroyed` — enriched with `:reason :rf.machine/finished` (the discriminator that distinguishes "the actor finished naturally" from "the parent cascade destroyed it").
+3. `:rf.machine/system-id-released` — when the actor was `:system-id`-bound. Fires AFTER `:on-done` ran (so `:on-done` could still look up the binding).
+
+Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:reason` tag additively — no breaking change.
+
+### Cross-references
+
+- [§Spec-spec keys](#spec-spec-keys) — `:on-done` is listed alongside `:on-spawn` on the parent's `:invoke` map.
+- [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row now records that re-frame2 DOES ship final-state-with-on-done.
+- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?` and `:output-key`.
+- [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration.
+- Conformance fixtures: `final-state-singleton-auto-destroys.edn`, `final-state-child-fires-on-done.edn`.
+- rf2-gn80 — the bead that locked these decisions.
 
 ## Wall-clock timeouts on `:invoke` — use parent state's `:after`
 
@@ -2717,7 +2810,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **State tags** — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union | Prose: [§State tags](#state-tags); Schema: `:rf/state-node` extended for `:tags`, `:rf/machine-snapshot` extended for `:tags` (see [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rfstate-node) and [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `tags-flat-machine`, `tags-compound-active-path-union`, `tags-empty-when-no-declaration`, `tags-round-trip-pr-str` | ✓ claimed (specified) | Strictly additive — the snapshot's `:tags` slot is elided when the union is empty. Framework sub `:rf/machine-has-tag?` plus the `(rf/has-tag? id tag)` sugar covers the predicate query. Composes with hierarchical compound states (union along the active path) and — per Stage 2 (rf2-l67o) — will compose with parallel regions (union across every active region). Per rf2-ee0d (Nine States Stage 1). |
 | **Parallel regions** — `:type :parallel` with multiple concurrent regions | Prose: [§Parallel regions](#parallel-regions); Schema: `:rf/transition-table` extended for `:type` + `:regions`, `:rf/state-node` extended for the parallel-region body, `:rf/machine-snapshot`'s `:state` widened to the third arm (see [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) and [§`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)); Fixtures: `parallel-flat-two-regions`, `parallel-compound-region`, `parallel-tags-union-across-regions`, `parallel-broadcast-event-both-regions`, `parallel-invoke-scoped-to-region`, `parallel-after-scoped-to-region`, `parallel-always-cascade-per-region`, `parallel-initial-state-per-region`, `parallel-snapshot-round-trip`, `parallel-ssr-hydration` | ✓ claimed (specified) | The third `:state` arm — a map of region-name → keyword-or-vector-path. Shared `:data` across regions per rf2-l67o §9.4 (per-region encapsulation is a signal to use the N-machine substitute pattern from [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features)). Composes with `:fsm/tags` (union across every active state in every region) and with `:fsm/eventless-always` / `:fsm/delayed-after` / `:actor/invoke` (per-region scoping; one region's `:after` timer doesn't fire transitions in sibling regions). Per rf2-l67o (Nine States Stage 2). |
 | **History states** — `:type :history` re-entering a compound's last-active substate | Out of pattern scope; substitute documented in [§Substitutes for skipped features](#substitutes-for-skipped-features) | ✗ not claimed | Substitute: snapshot-as-value capture using the existing `[:rf/machines <id>]` snapshot. |
-| **Final states with `onDone` parent notification** | Prose: brief; Schema: extended for `:meta {:terminal? true :on-done <event-vec>}`; Fixtures: final-state-emits-on-done | Post-v1 | User code can dispatch on entry to a terminal state in v1. |
+| **Final states** — `:final?` on a leaf state terminates the machine; an `:invoke`d child's `:final?` fires the parent's `:on-done` with the child's `:output-key`-designated `:data` slot, then auto-destroys the child | Prose: [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key); Schema: `:rf/state-node` extended for `:final?` + `:output-key`; `:rf/invoke-spec` extended for `:on-done`; Fixtures: `final-state-singleton-auto-destroys`, `final-state-child-fires-on-done` | ✓ claimed (specified) | First-class `:final?` flag (loud, not `:meta`-buried). Auto-destroy is synchronous on entry to the final state. Singleton symmetry: a standalone machine reaching `:final?` also auto-destroys ("final means final"). Per rf2-gn80. |
 
 ### Actor-model axis
 
@@ -2744,6 +2837,7 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :fsm/delayed-after
                  :fsm/tags
                  :fsm/parallel-regions
+                 :fsm/final-states                    ;; rf2-gn80 — :final? + :on-done + :output-key
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
@@ -2907,7 +3001,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 Richer scaffolding on top of the v1 foundation. None of the items below add a new substrate — each desugars into the v1 surface:
 
-- **Advanced grammar:** parallel state nodes, history states, final states with `onDone`. (Hierarchical state nodes, `:always`, `:after`, and `:invoke` are v1; see the v1 ship list above.)
+- **Advanced grammar:** history states. (Hierarchical state nodes, `:always`, `:after`, `:invoke`, parallel state nodes, and **final states with `:on-done`** are v1; see the v1 ship list above. Final states landed in v1 per rf2-gn80.)
 - **Sugar in transition tables:** `:child-machine` declarative state-scoped child binding (desugars to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy`).
 - **Stately.ai compatibility:** `(machine->xstate-json definition)` converter, paste-and-render parity, Stately-Inspector wire-format mapping.
 - **Visualisation tooling:** `machine->mermaid`, `machine->d2`, `machine->xstate-json` exporters.
