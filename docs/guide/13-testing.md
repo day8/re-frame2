@@ -1,6 +1,8 @@
 # 13 — Testing
 
-re-frame2's pattern is shaped to be tested. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values. There's nothing in the runtime that requires a browser, a network, or a clock to evaluate.
+Tests in a stateful React codebase are painful. You spin up JSDOM, you mock fetch, you wrestle with timers, you reach for `act()`, you write a setup helper, you write a teardown helper, and after all that you've tested that *a button exists*. The tests run slowly. They flake. You write fewer of them than you'd like. After a while you stop, and the codebase starts carrying logic that nothing exercises.
+
+re-frame2's pattern is shaped to make that go away. Pure event handlers, pure machine transitions, sub bodies that compute against an `app-db` value, an effect map that's just data — every load-bearing piece is a function from values to values. There's nothing in the runtime that requires a browser, a network, or a clock to evaluate. You can test the whole dynamic story of your app on the JVM, in milliseconds per case.
 
 This chapter is about how you write that down as test code: the `re-frame.test-support` artefact, the per-test fixture patterns, the JVM-vs-CLJS boundary, and the conformance harness that grades implementations against the same fixtures used by the framework's own tests.
 
@@ -286,6 +288,22 @@ The split is clean: every business-logic test runs on the JVM. View **content** 
 
 In practice, a typical re-frame2 codebase ends up with hundreds of JVM tests for handlers/fxs/subs/machines, and a small handful of CLJS-or-Playwright tests for actual click-through-DOM behaviour. The proportion is opposite to what most React codebases get used to.
 
+### When even a view test isn't worth writing
+
+`render-to-string` makes view-content testing cheap. That doesn't mean every view should have one. Here's the honest answer about where I still don't write them.
+
+If the view is form-1 and renders pure data — a label, a list, a status pill — the hiccup is the test. Reading the function tells you what it produces. A test that asserts "the label contains `'Submitting...'` when state is `:submitting`" is restating the function body in another language. It will go out of date with the function; it won't catch the bugs that actually ship.
+
+The bugs that actually ship in views are about *interaction*: the click handler that doesn't fire on the second mount, the focus that lands on the wrong field, the scroll position that resets after a re-render, the keyboard-shortcut that conflicts with another component, the modal that traps Tab in the wrong direction. `render-to-string` gives you the markup; it doesn't give you any of those. The answer for those is Playwright (or your CLJS-mounted equivalent), running against the real app — slower, fewer, focused.
+
+So the rule I use:
+
+- **Logic the view contains** — a derivation, a formatter, a non-trivial conditional — lift it out into a fn or a sub, and test *that*. The sub test runs on the JVM; the view becomes a thin shaping function over the result.
+- **Content the view emits** — straightforward hiccup from inputs — let the function body speak for itself. Don't double-write it as an assertion.
+- **Behaviour the view embodies** — clicks, focus, keyboard, scroll, mount lifecycle — Playwright. Few of these. They earn their slowness.
+
+The point isn't that view tests are bad. It's that every test is a ball-and-chain you drag forward forever, and the cheap headless hiccup test is the one most likely to ratchet up over years without catching a single real bug. Write the ones that pay.
+
 ### Per-artefact `clojure -M:test`
 
 Each per-feature artefact in re-frame2's Strategy B layout — core, machines, routing, flows, http, ssr, schemas, epoch — has its own test alias:
@@ -462,14 +480,13 @@ For machines specifically, the `machine-transition` purity opens a path to `@xst
 
 ## What you should expect
 
-A re-frame2 codebase that's been built with the patterns in this guide tends to acquire a particular testing shape:
+Here's the change you can actually feel.
 
-- **Many small JVM unit tests.** Hundreds of them. Each runs in milliseconds. Together they cover almost all business logic.
-- **A handful of CLJS browser tests.** Click-through interaction, focus management, the parts that genuinely need a real DOM. Slow, fewer, focused.
-- **Conformance grading**, if you're maintaining a port. Read fixtures, replay, assert.
-- **Property-based runs**, if your domain has invariants worth asserting structurally.
+Tests stop being a tax. You write more of them, because each one is three lines and runs in milliseconds. You write them as you go, not three sprints later under duress. The setup is `with-frame`; the act is `dispatch-sync`; the assert is a `get-in` against the resulting `app-db`. There's no JSDOM to configure, no fetch to mock, no `act()` to wrap, no timer to advance. The whole dynamic story of your app — every event, every state transition, every machine path, every sub computation — becomes assertable, line by line, in the language the app was written in.
 
-The split is the inverse of what most React-side test suites accumulate over time. The reason is structural: re-frame2's primitives are functions, and functions test cheaply.
+The suite stays fast. A thousand JVM tests run in a couple of seconds. You leave the watcher on. Failures show up while the change is still in your head. The CLJS-and-Playwright tier — the parts that genuinely need a real DOM — stays small and stays focused, because almost nothing actually needs it.
+
+The split is the inverse of what most React-side test suites accumulate over time, and the reason is structural: re-frame2's primitives are functions, and functions test cheaply. The cost of getting it right was paid once, in the design. Every test you write afterwards collects the interest.
 
 ## Next
 
