@@ -44,10 +44,6 @@ re-frame2 chose less flexibility on purpose.
 
 ## Less powerful by design
 
-There's a quote in the original re-frame docs:
-
-> Just because you can, doesn't mean you should.
-
 This is the philosophical centre of re-frame2. The pattern is **deliberately less powerful** than the host language it sits inside. You can't write an event handler that suspends mid-flight. You can't have two handlers touch state simultaneously. Side-effects are not free: every effect goes through a registered, named, queryable interpreter. State changes are not free either: every change goes through an event, which has a name, a registration, and (optionally) a schema describing its shape.
 
 When you give up power, you gain something specific in return: **an execution model you can fully model in your head**. The host language is Turing complete, but the library is not — and that's the point. No dependency-array decisions, no escape hatches. Every higher-order concept (state machines[^machines], async effects, SSR) inherits the same shape rather than escaping it.
