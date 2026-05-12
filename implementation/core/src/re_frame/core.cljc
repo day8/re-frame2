@@ -6,7 +6,31 @@
   contract.
 
   This namespace re-exports the canonical surface; per-namespace docs
-  carry the design rationale."
+  carry the design rationale.
+
+  ;; ---- ns-load topology -----
+  ;;
+  ;; Per rf2-hoiu, each optional-artefact wrapper (flows, routing,
+  ;; schemas, machines, ssr, epoch, http) lives in its own
+  ;; `re-frame.core-X` sibling namespace; the re-exports below preserve
+  ;; the single-import contract — apps still write `rf/reg-flow` etc.
+  ;; after `(:require [re-frame.core :as rf])`. The sibling namespaces
+  ;; are accessible (they're not under `.impl.`) but `rf/` is the
+  ;; documented entry point.
+  ;;
+  ;; Per rf2-2vbm the file naming uses `core_X` rather than `core/X`
+  ;; because CLJS goog.provide for `re-frame.core` overwrites its parent
+  ;; object, which would wipe a previously-loaded `re-frame.core.X` —
+  ;; the dash-form is the flat alternative that compiles under both
+  ;; targets.
+  ;;
+  ;; Each optional-artefact wrapper looks up its target fn through the
+  ;; late-bind hook table at call time (per rf2-tfw3, rf2-k682,
+  ;; rf2-p7va, rf2-xbtj, rf2-uo7v, rf2-lt4e, rf2-5kpd) so this
+  ;; namespace does NOT statically `:require` the producing
+  ;; namespaces. The producing artefacts ship as separate Maven
+  ;; artefacts and populate the hook table from their own ns-load.
+  ;; Apps that omit a feature do not pay its bundle weight."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.router :as router]
@@ -16,111 +40,23 @@
             [re-frame.subs :as subs]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
-            ;; re-frame.spec (Spec 010 §Production builds, rf2-r2uh)
-            ;; — schema-related interceptors. The boundary-validation
-            ;; interceptor lives here and reaches the optional schemas
-            ;; artefact via the `:schemas/validate-with-registered-fn`
-            ;; late-bind hook, so this require does NOT drag the
-            ;; schemas artefact onto core's classpath.
             [re-frame.spec :as spec]
-            ;; re-frame.schemas (Spec 010) ships as a separate Maven
-            ;; artefact (day8/re-frame2-schemas, rf2-p7va). The core
-            ;; artefact MUST NOT `:require [re-frame.schemas]` — that
-            ;; would pull schemas (and its Malli dep) onto every
-            ;; consumer's classpath even when no schema is registered.
-            ;; The re-export wrappers below look the schemas API up
-            ;; through the late-bind hook table at call time, which the
-            ;; schemas artefact populates from its own ns-load.
             [re-frame.late-bind :as late-bind]
-            ;; re-frame.flows (Spec 013) ships as a separate Maven
-            ;; artefact (day8/re-frame2-flows, rf2-tfw3). The core
-            ;; artefact MUST NOT `:require [re-frame.flows]` — that
-            ;; would pull the namespace, the per-frame flow registry,
-            ;; the topological-sort engine, and the dirty-check
-            ;; `last-inputs` map onto every consumer's classpath even
-            ;; when no flow is registered. The re-export wrappers below
-            ;; look the flows API up through the late-bind hook table
-            ;; at call time, which the flows artefact populates from
-            ;; its own ns-load.
-            ;;
-            ;; re-frame.machines (Spec 005) ships as a separate Maven
-            ;; artefact (day8/re-frame2-machines, rf2-xbtj). The core
-            ;; artefact MUST NOT `:require [re-frame.machines]` — that
-            ;; would pull the machines namespace and its `:rf/machine`
-            ;; sub registration onto every consumer's classpath even
-            ;; when no machine is registered. The re-export wrappers
-            ;; below look the machines API up through the late-bind
-            ;; hook table at call time, which the machines artefact
-            ;; populates from its own ns-load.
-            ;;
-            ;; re-frame.routing (Spec 012) ships as a separate Maven
-            ;; artefact (day8/re-frame2-routing, rf2-k682). The core
-            ;; artefact MUST NOT `:require [re-frame.routing]` — that
-            ;; would pull the namespace, the route-rank / pattern-compile
-            ;; / nav-token machinery, the `:rf/route` reg-sub family,
-            ;; and every `:rf.route/*` / `:rf.nav/*` keyword string onto
-            ;; every consumer's classpath even when no route is
-            ;; registered. The re-export wrappers below look the routing
-            ;; API up through the late-bind hook table at call time,
-            ;; which the routing artefact populates from its own ns-load.
-            ;;
-            ;; re-frame.http-managed (Spec 014) ships as a separate Maven
-            ;; artefact (day8/re-frame2-http, rf2-5kpd). The core
-            ;; artefact MUST NOT `:require [re-frame.http-managed]` —
-            ;; that would pull the namespace, the in-flight request
-            ;; registry, the Fetch / `java.net.http.HttpClient`
-            ;; transport adapters, the encode / decode pipeline, the
-            ;; retry-with-backoff machinery, the eight-category
-            ;; `:rf.http/*` failure taxonomy, and every `:rf.http/*`
-            ;; keyword string onto every consumer's classpath even when
-            ;; no managed-HTTP request is issued. The re-export wrappers
-            ;; below look the http test-helper API up through the
-            ;; late-bind hook table at call time, which the http
-            ;; artefact populates from its own ns-load.
-            ;;
-            ;; re-frame.ssr (Spec 011) ships as a separate Maven artefact
-            ;; (day8/re-frame2-ssr, rf2-uo7v). The core artefact MUST
-            ;; NOT `:require [re-frame.ssr]` — that would pull the pure
-            ;; hiccup → HTML emitter, the FNV-1a render-tree-hash
-            ;; machinery, the per-request `[:rf/response]` accumulator,
-            ;; the six `:rf.server/*` server-only fxs, the
-            ;; `reg-error-projector` registry kind plus its built-in
-            ;; default, the SSR error-projection trace listener, the
-            ;; `:rf/hydrate` event, and every `:rf.ssr/*` / `:rf.server/*`
-            ;; keyword string onto every consumer's classpath even when
-            ;; no server-side rendering is performed. The re-export
-            ;; wrappers (`render-to-string`, `render-tree-hash`,
-            ;; `reg-error-projector`, `project-error`) below look the
-            ;; ssr API up through the late-bind hook table at call
-            ;; time, which the ssr artefact populates from its own
-            ;; ns-load.
-            ;;
-            ;; re-frame.epoch (Tool-Pair §Time-travel) ships as a
-            ;; separate Maven artefact (day8/re-frame2-epoch,
-            ;; rf2-lt4e — the seventh and final per-feature split per
-            ;; rf2-5vjj Strategy B). The core artefact MUST NOT
-            ;; `:require [re-frame.epoch]` — that would pull the
-            ;; per-frame `:rf/epoch-record` ring buffer, the per-cascade
-            ;; trace-capture path, the `:sub-runs` / `:renders` /
-            ;; `:effects` projection walker, the schema-validate /
-            ;; machine-version / missing-reference predicates, and
-            ;; every `:rf.epoch/*` keyword string onto every consumer's
-            ;; classpath even when the pair-tool surface is unused.
-            ;; The re-export wrappers (`epoch-history`, `restore-epoch`,
-            ;; `register-epoch-cb`, `remove-epoch-cb`) and the
-            ;; `(rf/configure :epoch-history ...)` knob below look the
-            ;; epoch API up through the late-bind hook table at call
-            ;; time, which the epoch artefact populates from its own
-            ;; ns-load. Per Tool-Pair §Time-travel §Production elision
-            ;; the entire epoch surface is gated on
-            ;; `interop/debug-enabled?` whether or not the artefact is
-            ;; on the classpath; the wrappers degrade silently (empty
-            ;; vector / false / no-op) when it's absent so a release
-            ;; build that omits the artefact does not raise.
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
             [re-frame.substrate.adapter :as adapter]
+            ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
+            ;; per-feature Maven artefact and looks the producing fns
+            ;; up via the late-bind hook table; pulling the wrapper
+            ;; namespaces does NOT pull the feature artefacts.
+            [re-frame.core-flows    :as rf-flows]
+            [re-frame.core-routing  :as rf-routing]
+            [re-frame.core-schemas  :as rf-schemas]
+            [re-frame.core-machines :as rf-machines]
+            [re-frame.core-ssr      :as rf-ssr]
+            [re-frame.core-epoch    :as rf-epoch]
+            [re-frame.core-http     :as rf-http]
             ;; re-frame.substrate.plain-atom — kept as a require so the
             ;; symbol resolves for the `plain-atom/adapter` re-export
             ;; below. Per rf2-agql there is no default-adapter registry
@@ -162,6 +98,29 @@
 ;; CLJS callers functioning. Tooling that consumes :ns / :line /
 ;; :file via the JVM side (server-rendering, JVM tests, REPL
 ;; introspection) is unaffected.
+;;
+;; rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
+;; than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
+;; carry the consumer namespace's :doc metadata, which would then get
+;; serialised into the bundle and defeat production elision. Every
+;; reg-* macro below routes its (meta &form) / *file* / *ns* capture
+;; through `with-coords-form` so the rationale lives in one place.
+
+#?(:clj
+   (defn ^:private with-coords-form
+     "Wrap `body-form` in a binding of `source-coords/*pending-coords*`
+     to the compile-time coord map for `form-meta` / `file` / `ns-sym`.
+     Caller passes `(meta &form)`, `*file*`, and the metadata-free
+     ns-symbol (per the rationale above). Returns a syntax-quote-safe
+     form suitable for a reg-* defmacro to emit.
+
+     The rf2-52gw helper: centralises the (binding [...] (target ...))
+     skeleton that every reg-* macro emits, so each defmacro becomes a
+     one-line delegation rather than a 12-line repetition."
+     [form-meta file ns-sym body-form]
+     `(binding [source-coords/*pending-coords*
+                ~(source-coords/coords-form form-meta file ns-sym)]
+        ~body-form)))
 
 #?(:clj
    (defmacro reg-event-db
@@ -169,16 +128,8 @@
      metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (events/reg-event-db ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(events/reg-event-db ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-fx
@@ -186,16 +137,8 @@
      the metadata stamped onto the registry slot includes :ns / :line /
      :file captured at this call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (events/reg-event-fx ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(events/reg-event-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-ctx
@@ -203,16 +146,8 @@
      onto the registry slot includes :ns / :line / :file captured at
      this call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (events/reg-event-ctx ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(events/reg-event-ctx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-sub
@@ -220,16 +155,8 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (subs/reg-sub ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(subs/reg-sub ~id ~@args))))
 
 #?(:clj
    (defmacro reg-fx
@@ -237,16 +164,8 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (fx/reg-fx ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(fx/reg-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-cofx
@@ -254,16 +173,8 @@
      onto the registry slot includes :ns / :line / :file captured at
      this call site."
      [id & args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (cofx/reg-cofx ~id ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(cofx/reg-cofx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-frame
@@ -271,16 +182,8 @@
      registry slot includes :ns / :line / :file captured at this call
      site."
      [id metadata]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (frame/reg-frame ~id ~metadata)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(frame/reg-frame ~id ~metadata))))
 
 ;; CLJS side keeps the fn-aliases. Source-coord capture on CLJS will
 ;; ride a future re-frame.core-macros companion ns (per the existing
@@ -359,10 +262,8 @@
      ;; Delegates to the shared expander in re-frame.views-macros so
      ;; both this surface and the legacy
      ;; `:require-macros [re-frame.views-macros :refer [reg-view]]`
-     ;; emit identical expansions.
-     ;; Construct a fresh metadata-free symbol; (ns-name *ns*) carries the
-     ;; consumer namespace's :doc metadata in CLJS macro context, which
-     ;; would otherwise serialise into the bundle and defeat elision.
+     ;; emit identical expansions. See rf2-xnym rationale at the top
+     ;; of the registration section for the metadata-free ns-symbol.
      ((requiring-resolve 're-frame.views-macros/expand-reg-view)
       (meta &form) (symbol (str (ns-name *ns*))) *file* sym more)))
 
@@ -379,61 +280,31 @@
   (when-let [meta (registrar/lookup :view id)]
     (:handler-fn meta)))
 
-;; render-to-string / render-tree-hash are late-bound via the hook table
-;; so core does not statically require re-frame.ssr (rf2-uo7v — ssr
-;; ships in day8/re-frame2-ssr). When the ssr artefact is not on the
-;; classpath the lookups return nil and the wrappers raise
-;; :rf.error/ssr-artefact-missing.
-(defn render-to-string
-  "Render a hiccup tree to an HTML string. Per Spec 011 §The render-tree
-  → HTML emitter. Delegates to the installed substrate adapter's
-  :render-to-string slot — for the plain-atom adapter (JVM/SSR) that
-  routes through re-frame.ssr; for Reagent it can route through
-  reagent.dom.server. opts may carry :doctype? to prepend '<!DOCTYPE html>'
-  and :emit-hash? to inject data-rf-render-hash on the root element.
-  Late-bound via :ssr/render-to-string."
-  ([render-tree] (render-to-string render-tree {}))
-  ([render-tree opts]
-   (if-let [f (late-bind/get-fn :ssr/render-to-string)]
-     (f render-tree opts)
-     (throw (ex-info ":rf.error/ssr-artefact-missing"
-                     {:where    'render-to-string
-                      :recovery :no-recovery
-                      :reason   "rf/render-to-string requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+;; ---- SSR re-exports (Spec 011, rf2-uo7v) ---------------------------------
+;;
+;; The fn-form wrappers live in re-frame.core-ssr; this namespace
+;; re-exports them so users still write `rf/render-to-string` etc. The
+;; `reg-error-projector` defmacro is below in the frame-management
+;; section because it shares the source-coord-capture pattern.
 
-(defn render-tree-hash
-  "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
-  hex). Identical output on JVM and CLJS for the same canonical-EDN
-  representation. Per Spec 011 §Hydration-mismatch detection. Late-bound
-  via :ssr/render-tree-hash."
-  [render-tree]
-  (if-let [f (late-bind/get-fn :ssr/render-tree-hash)]
-    (f render-tree)
-    (throw (ex-info ":rf.error/ssr-artefact-missing"
-                    {:where    'render-tree-hash
-                     :recovery :no-recovery
-                     :reason   "rf/render-tree-hash requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+(def render-to-string rf-ssr/render-to-string)
+(def render-tree-hash rf-ssr/render-tree-hash)
+(def project-error    rf-ssr/project-error)
+
+;; ---- frame management ----------------------------------------------------
+
 (def make-frame      frame/make-frame)
 (def reset-frame     frame/reset-frame!)
 (def destroy-frame   frame/destroy-frame!)
 
-;; reg-flow / clear-flow are late-bound via the hook table so core does
-;; not statically require re-frame.flows (rf2-tfw3 — flows ships in
-;; day8/re-frame2-flows). When the flows artefact is not on the
-;; classpath the lookups return nil and the wrappers raise
-;; :rf.error/flows-artefact-missing.
-(defn clear-flow
-  "Per Spec 013 §Lifecycle: clear a flow from a frame's registry and
-  vacate its output path. Late-bound via :flows/clear-flow."
-  ([id] (clear-flow id {}))
-  ([id opts]
-   (if-let [f (late-bind/get-fn :flows/clear-flow)]
-     (f id opts)
-     (throw (ex-info ":rf.error/flows-artefact-missing"
-                     {:where    'clear-flow
-                      :flow-id  id
-                      :recovery :no-recovery
-                      :reason   "rf/clear-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
+;; ---- flows / routing / schemas / machines: reg-* macros ------------------
+;;
+;; Each macro below uses `with-coords-form` to bind source-coords and
+;; then delegates to the fn-form wrapper in the matching
+;; `re-frame.core.X` sub-namespace (which performs the late-bind
+;; lookup). This pattern keeps the source-coord capture site in
+;; `re-frame.core` (so `(meta &form)` is the user's call site) and
+;; the late-bind glue in the sub-namespace.
 
 #?(:clj
    (defmacro reg-flow
@@ -449,21 +320,8 @@
      `re-frame.flows` at app boot; without it, the lookup returns nil
      and the call throws a clear error."
      [& args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (if-let [f# (late-bind/get-fn :flows/reg-flow)]
-            (apply f# (list ~@args))
-            (throw (ex-info ":rf.error/flows-artefact-missing"
-                            {:where    'reg-flow
-                             :recovery :no-recovery
-                             :reason   "rf/reg-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(rf-flows/reg-flow ~@args))))
 
 #?(:clj
    (defmacro reg-route
@@ -479,22 +337,8 @@
      `re-frame.routing` at app boot; without it, the lookup returns
      nil and the call throws a clear error."
      [id metadata]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (if-let [f# (late-bind/get-fn :routing/reg-route)]
-            (f# ~id ~metadata)
-            (throw (ex-info ":rf.error/routing-artefact-missing"
-                            {:where    'reg-route
-                             :route-id ~id
-                             :recovery :no-recovery
-                             :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(rf-routing/reg-route ~id ~metadata))))
 
 #?(:clj
    (defmacro reg-app-schema
@@ -515,90 +359,9 @@
      returns `nil` and the call throws a clear error."
      {:arglists '([path schema] [path schema opts])}
      [path schema & [opts]]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*)
-           ;; returns the ns-symbol but in CLJS macro context that
-           ;; symbol may carry the consumer namespace's :doc metadata,
-           ;; which would then get serialised into the bundle and
-           ;; defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*
-           opts'   (or opts {})]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (if-let [f# (late-bind/get-fn :schemas/reg-app-schema)]
-            (f# ~path ~schema ~opts')
-            (throw (ex-info ":rf.error/schemas-artefact-missing"
-                            {:where    'reg-app-schema
-                             :path     ~path
-                             :recovery :no-recovery
-                             :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))))
-
-;; Schema introspection — pure fn re-exports (no source-coord capture
-;; needed, these are read-only public queries). Late-bound through the
-;; hook table so core does not statically require re-frame.schemas
-;; (rf2-p7va).
-(defn app-schema-at
-  "Return the registered schema for a path in a frame, or nil. Per Spec
-  010 §Schemas as a tooling and agent surface. Returns nil when the
-  schemas artefact is not on the classpath."
-  ([path] (app-schema-at path {}))
-  ([path opts]
-   (when-let [f (late-bind/get-fn :schemas/app-schema-at)]
-     (f path opts))))
-
-(defn app-schemas
-  "Return every registered `app-schema-at` declaration for a frame as a
-  `{path → schema}` map. Per Spec 010 §Per-frame schemas. Returns `{}`
-  when the schemas artefact is not on the classpath."
-  ([] (app-schemas {}))
-  ([opts-or-frame-id]
-   (if-let [f (late-bind/get-fn :schemas/app-schemas)]
-     (f opts-or-frame-id)
-     {})))
-
-(defn app-schemas-digest
-  "Return a stable digest of the registered schemas for a frame. Per
-  Spec 010 §Digest algorithm. Returns `nil` when the schemas artefact
-  is not on the classpath."
-  ([] (app-schemas-digest {}))
-  ([opts-or-frame-id]
-   (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
-     (f opts-or-frame-id))))
-
-(defn set-schema-validator!
-  "Register the validator fn that every dev-time schema-validation site
-  routes through. Per Spec 010 §Non-Malli validators (rf2-froe) the
-  seam is the substitute-Malli extension point — apps that want to
-  drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle audit) swap
-  in their own validator at boot.
-
-  Argument shapes:
-
-    (rf/set-schema-validator! validate-fn)
-      validate-fn :: (fn [schema value] truthy?)
-                   | nil   ;; disables validation entirely
-
-    (rf/set-schema-validator! {:validate validate-fn :explain explain-fn})
-      Atomic swap of both fns at once.
-
-  Default behaviour ships Malli's validate / explain pair; calling
-  this fn replaces them. Returns nil when the schemas artefact is
-  not on the classpath (apps that don't want schemas don't need to
-  pull `day8/re-frame2-schemas`)."
-  [validate-fn-or-map]
-  (when-let [f (late-bind/get-fn :schemas/set-schema-validator!)]
-    (f validate-fn-or-map)))
-
-(defn set-schema-explainer!
-  "Register the explainer fn — `(fn [schema value] explanation)` — used
-  to enrich schema-validation-failure traces' `:explain` key. Per
-  Spec 010 §Non-Malli validators (rf2-froe). See
-  `set-schema-validator!` for the validator companion. Returns nil
-  when the schemas artefact is not on the classpath."
-  [explain-fn]
-  (when-let [f (late-bind/get-fn :schemas/set-schema-explainer!)]
-    (f explain-fn)))
+     (let [opts' (or opts {})]
+       (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                         `(rf-schemas/reg-app-schema ~path ~schema ~opts')))))
 
 #?(:clj
    (defmacro reg-machine
@@ -629,12 +392,7 @@
      For runtime registration (computed ids, code-gen pipelines, REPL),
      use `reg-machine*` — the plain-fn surface beneath this macro."
      [machine-id machine]
-     (let [m              (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym         (symbol (str (ns-name *ns*)))
+     (let [ns-sym         (symbol (str (ns-name *ns*)))
            file           *file*
            ;; Walk the literal spec form at compile time. When `machine`
            ;; is a non-map (a symbol bound to a value at runtime) the
@@ -661,127 +419,41 @@
        ;; registered spec with an empty `:rf.machine/source-coords` key
        ;; that user code might compare against.
        (if (empty? per-el-coords)
-         `(binding [source-coords/*pending-coords*
-                    ~(source-coords/coords-form m file ns-sym)]
-            (if-let [f# (late-bind/get-fn :machines/reg-machine)]
-              (f# ~machine-id ~machine)
-              (throw (ex-info ":rf.error/machines-artefact-missing"
-                              {:where      'reg-machine
-                               :machine-id ~machine-id
-                               :recovery   :no-recovery
-                               :reason     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
-         `(binding [source-coords/*pending-coords*
-                    ~(source-coords/coords-form m file ns-sym)]
-            (let [~machine-sym ~machine
-                  ;; Per-element source-coord stamping (rf2-8bp3). The literal
-                  ;; index is reachable only inside this `interop/debug-enabled?`
-                  ;; gate; under :advanced + goog.DEBUG=false the closure compiler
-                  ;; folds the gate to false and the entire literal DCE's.
-                  stamped# (if interop/debug-enabled?
-                             (assoc ~machine-sym
-                                    :rf.machine/source-coords
-                                    ~per-el-form)
-                             ~machine-sym)]
-              (if-let [f# (late-bind/get-fn :machines/reg-machine)]
-                (f# ~machine-id stamped#)
-                (throw (ex-info ":rf.error/machines-artefact-missing"
-                                {:where      'reg-machine
-                                 :machine-id ~machine-id
-                                 :recovery   :no-recovery
-                                 :reason     "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))))))
+         (with-coords-form (meta &form) file ns-sym
+                           `(rf-machines/reg-machine ~machine-id ~machine))
+         (with-coords-form (meta &form) file ns-sym
+                           `(let [~machine-sym ~machine
+                                  ;; Per-element source-coord stamping (rf2-8bp3). The literal
+                                  ;; index is reachable only inside this `interop/debug-enabled?`
+                                  ;; gate; under :advanced + goog.DEBUG=false the closure compiler
+                                  ;; folds the gate to false and the entire literal DCE's.
+                                  stamped# (if interop/debug-enabled?
+                                             (assoc ~machine-sym
+                                                    :rf.machine/source-coords
+                                                    ~per-el-form)
+                                             ~machine-sym)]
+                              (rf-machines/reg-machine ~machine-id stamped#)))))))
 
 #?(:cljs
    (do
-     ;; reg-flow is late-bound via the hook table so core does not
-     ;; statically require re-frame.flows (rf2-tfw3 — flows ships in
-     ;; day8/re-frame2-flows).
-     (defn reg-flow
-       ([flow] (reg-flow flow {}))
-       ([flow opts]
-        (if-let [f (late-bind/get-fn :flows/reg-flow)]
-          (f flow opts)
-          (throw (ex-info ":rf.error/flows-artefact-missing"
-                          {:where    'reg-flow
-                           :recovery :no-recovery
-                           :reason   "rf/reg-flow requires day8/re-frame2-flows on the classpath; add it to deps and require re-frame.flows at app boot."})))))
-     ;; reg-route is late-bound via the hook table so core does not
-     ;; statically require re-frame.routing (rf2-k682 — routing ships in
-     ;; day8/re-frame2-routing).
-     (defn reg-route
-       [id metadata]
-       (if-let [f (late-bind/get-fn :routing/reg-route)]
-         (f id metadata)
-         (throw (ex-info ":rf.error/routing-artefact-missing"
-                         {:where    'reg-route
-                          :route-id id
-                          :recovery :no-recovery
-                          :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
-     ;; reg-app-schema is late-bound via the hook table so core does not
-     ;; statically require re-frame.schemas (rf2-p7va — schemas ships
-     ;; in day8/re-frame2-schemas).
-     (defn reg-app-schema
-       ([path schema] (reg-app-schema path schema {}))
-       ([path schema opts]
-        (if-let [f (late-bind/get-fn :schemas/reg-app-schema)]
-          (f path schema opts)
-          (throw (ex-info ":rf.error/schemas-artefact-missing"
-                          {:where    'reg-app-schema
-                           :path     path
-                           :recovery :no-recovery
-                           :reason   "rf/reg-app-schema requires day8/re-frame2-schemas on the classpath; add it to deps and require re-frame.schemas at app boot."})))))
-     ;; reg-machine* is late-bound via the hook table so core does not
-     ;; statically require re-frame.machines (rf2-xbtj — machines ships
-     ;; in day8/re-frame2-machines). Per Spec 005 §reg-machine vs
-     ;; reg-machine* (rf2-8bp3) this is the plain-fn surface — used by
-     ;; the `reg-machine` macro's emitted form, by code-gen pipelines
-     ;; that already carry a stamped spec, and by REPL workflows that
-     ;; bypass the macro path. Programmatic callers see no per-element
-     ;; source-coord index (only the macro can walk the literal spec at
-     ;; expansion time).
-     (defn reg-machine*
-       [machine-id machine]
-       (if-let [f (late-bind/get-fn :machines/reg-machine)]
-         (f machine-id machine)
-         (throw (ex-info ":rf.error/machines-artefact-missing"
-                         {:where      'reg-machine*
-                          :machine-id machine-id
-                          :recovery   :no-recovery
-                          :reason     "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))))
+     (def reg-flow       rf-flows/reg-flow)
+     (def reg-route      rf-routing/reg-route)
+     (def reg-app-schema rf-schemas/reg-app-schema)
+     (def reg-machine*   rf-machines/reg-machine*)))
 
 ;; Plain-fn surface for the JVM. Used by code-gen pipelines and the
 ;; conformance corpus when registering machines without a literal spec
 ;; form. Per Spec 005 §reg-machine vs reg-machine* (rf2-8bp3).
 #?(:clj
-   (defn reg-machine*
-     [machine-id machine]
-     (if-let [f (late-bind/get-fn :machines/reg-machine)]
-       (f machine-id machine)
-       (throw (ex-info ":rf.error/machines-artefact-missing"
-                       {:where      'reg-machine*
-                        :machine-id machine-id
-                        :recovery   :no-recovery
-                        :reason     "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."})))))
+   (def reg-machine* rf-machines/reg-machine*))
 
 ;; reg-error-projector lives in re-frame.ssr so the registry kind ships
 ;; with its default :rf.ssr/default-error-projector. Per rf2-uo7v ssr
 ;; ships in day8/re-frame2-ssr; the producing fn is looked up through
 ;; the late-bind hook table so core never statically requires
-;; re-frame.ssr. When the ssr artefact is not on the classpath the
-;; lookup returns nil and the call raises :rf.error/ssr-artefact-missing.
-(defn -reg-error-projector
-  "Internal helper — prefer `reg-error-projector` from public callers.
-  This is the fn-form delegate the public macro / CLJS alias forward to.
-  Late-bound via :ssr/reg-error-projector."
-  ([id projector-fn]
-   (-reg-error-projector id {} projector-fn))
-  ([id metadata projector-fn]
-   (if-let [f (late-bind/get-fn :ssr/reg-error-projector)]
-     (f id metadata projector-fn)
-     (throw (ex-info ":rf.error/ssr-artefact-missing"
-                     {:where    'reg-error-projector
-                      :id       id
-                      :recovery :no-recovery
-                      :reason   "rf/reg-error-projector requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
+;; re-frame.ssr. The fn-form delegate is `rf-ssr/-reg-error-projector`.
+
+(def -reg-error-projector rf-ssr/-reg-error-projector)
 
 #?(:clj
    (defmacro reg-error-projector
@@ -796,32 +468,21 @@
      the registry slot includes :ns / :line / :file captured at this
      call site."
      [& args]
-     (let [m       (meta &form)
-           ;; Construct a fresh, metadata-free symbol. (ns-name *ns*) returns
-           ;; the ns-symbol but in CLJS macro context that symbol may carry
-           ;; the consumer namespace's :doc metadata, which would then get
-           ;; serialised into the bundle and defeat production elision.
-           ns-sym  (symbol (str (ns-name *ns*)))
-           file    *file*]
-       `(binding [source-coords/*pending-coords*
-                  ~(source-coords/coords-form m file ns-sym)]
-          (-reg-error-projector ~@args)))))
+     (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
+                       `(-reg-error-projector ~@args))))
 
 #?(:cljs
    (def reg-error-projector -reg-error-projector))
 
-(defn project-error
-  "Apply the active error projector for frame-id to the trace event.
-  Returns a :rf/public-error map. Per Spec 011 §Server error projection.
-  Late-bound via :ssr/project-error."
-  [frame-id trace-event]
-  (if-let [f (late-bind/get-fn :ssr/project-error)]
-    (f frame-id trace-event)
-    (throw (ex-info ":rf.error/ssr-artefact-missing"
-                    {:where    'project-error
-                     :frame    frame-id
-                     :recovery :no-recovery
-                     :reason   "rf/project-error requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
+;; ---- flows / schemas — plain-fn re-exports -------------------------------
+
+(def clear-flow             rf-flows/clear-flow)
+
+(def app-schema-at          rf-schemas/app-schema-at)
+(def app-schemas            rf-schemas/app-schemas)
+(def app-schemas-digest     rf-schemas/app-schemas-digest)
+(def set-schema-validator!  rf-schemas/set-schema-validator!)
+(def set-schema-explainer!  rf-schemas/set-schema-explainer!)
 
 ;; ---- clearing -------------------------------------------------------------
 
@@ -975,142 +636,20 @@
 #?(:cljs (def frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
-;;
-;; Per rf2-k682 the routing surface lives in the
-;; `day8/re-frame2-routing` artefact. The re-exports below late-bind
-;; through the hook table so core does not statically require
-;; re-frame.routing. When the routing artefact is not on the classpath
-;; the lookups return nil and the wrappers raise
-;; :rf.error/routing-artefact-missing.
 
-(defn match-url
-  "Per Spec 012 §Bidirectional URL ↔ params. Match a URL against
-  registered routes; return `{:route-id :params :query
-  :validation-failed?}` for the first match, or `nil` if no route
-  matches. Late-bound via :routing/match-url."
-  [url]
-  (if-let [f (late-bind/get-fn :routing/match-url)]
-    (f url)
-    (throw (ex-info ":rf.error/routing-artefact-missing"
-                    {:where    'match-url
-                     :recovery :no-recovery
-                     :reason   "rf/match-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
-
-(defn route-url
-  "Per Spec 012 §Bidirectional URL ↔ params. Inverse of `match-url` —
-  build a URL string from a route-id + path-params (and optional
-  query-params). Late-bound via :routing/route-url."
-  ([route-id path-params] (route-url route-id path-params {}))
-  ([route-id path-params query-params]
-   (if-let [f (late-bind/get-fn :routing/route-url)]
-     (f route-id path-params query-params)
-     (throw (ex-info ":rf.error/routing-artefact-missing"
-                     {:where    'route-url
-                      :route-id route-id
-                      :recovery :no-recovery
-                      :reason   "rf/route-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))
+(def match-url rf-routing/match-url)
+(def route-url rf-routing/route-url)
 
 ;; ---- machine helpers ------------------------------------------------------
-;;
-;; Per rf2-xbtj the machines surface lives in the
-;; `day8/re-frame2-machines` artefact. The re-exports below late-bind
-;; through the hook table so core does not statically require
-;; re-frame.machines. When the machines artefact is not on the
-;; classpath the lookups return nil and the wrappers raise
-;; :rf.error/machines-artefact-missing (for active surfaces) or return
-;; safe defaults (for read-only queries).
 
-(defn create-machine-handler
-  "Build an event-fx handler from a machine spec. Per Spec 005
-  §Registration. Late-bound via :machines/create-machine-handler."
-  [machine]
-  (if-let [f (late-bind/get-fn :machines/create-machine-handler)]
-    (f machine)
-    (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'create-machine-handler
-                     :recovery :no-recovery
-                     :reason   "rf/create-machine-handler requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
-
-(defn machine-transition
-  "Pure (machine, snapshot, event) -> [snapshot fx]. Per Spec 005
-  §Drain semantics §Level 3. Late-bound via :machines/machine-transition."
-  [machine snapshot event]
-  (if-let [f (late-bind/get-fn :machines/machine-transition)]
-    (f machine snapshot event)
-    (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'machine-transition
-                     :recovery :no-recovery
-                     :reason   "rf/machine-transition requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
-
-(defn machines
-  "Return a sequence of registered machine ids. Per Spec 005
-  §Querying machines. Returns `[]` when the machines artefact is not
-  on the classpath."
-  []
-  (if-let [f (late-bind/get-fn :machines/machines)]
-    (f)
-    []))
-
-(defn machine-meta
-  "Return the registered machine spec map for machine-id, or nil. Per
-  Spec 005 §Querying machines. Returns nil when the machines artefact
-  is not on the classpath."
-  [machine-id]
-  (when-let [f (late-bind/get-fn :machines/machine-meta)]
-    (f machine-id)))
-
-(defn machine-by-system-id
-  "Look up the spawned-machine id currently bound to `system-id` in the
-  active frame's `[:rf/system-ids]` reverse index, or nil. The optional
-  `frame-id` arg targets an explicit frame; without it, resolution uses
-  the current frame (per `with-frame` / frame-provider, defaulting to
-  `:rf/default`).
-
-  Per Spec 005 §Named addressing via :system-id. Returns nil when the
-  machines artefact is not on the classpath."
-  ([system-id]
-   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
-     (f system-id)))
-  ([system-id frame-id]
-   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
-     (f system-id frame-id))))
-
-(defn dispatch-to-system
-  "Sugar: dispatch `event` to the spawned-machine bound to `system-id`
-  in the active frame. Equivalent to
-  `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`,
-  with a no-op fall-through when the system-id is unbound. Per Spec 005
-  §Cross-machine messaging by name."
-  ([system-id event]
-   (when-let [machine-id (machine-by-system-id system-id)]
-     (dispatch [machine-id event])))
-  ([system-id event frame-id]
-   (when-let [machine-id (machine-by-system-id system-id frame-id)]
-     (dispatch [machine-id event] {:frame frame-id}))))
-
-(defn sub-machine
-  "Subscribe to a machine's snapshot. Sugar over (subscribe [:rf/machine
-  machine-id]). Returns a reaction whose value is the snapshot
-  {:state <kw> :data <map>} or nil if the machine is not yet
-  initialised. Per Spec 005 §Subscribing to machines via sub-machine."
-  [machine-id]
-  (subscribe [:rf/machine machine-id]))
-
-(defn has-tag?
-  "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar
-  over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Returns a
-  reaction whose value is `true` iff the machine's current
-  snapshot's `:tags` set contains `tag` — `false` for an unknown or
-  not-yet-initialised machine.
-
-  Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1).
-
-  Composable with the rest of the sub graph (a Layer-3 sub may chain
-  off this one) and elides on production builds the same way every
-  framework sub does — the underlying registration is a standard
-  `reg-sub`, no new registry."
-  [machine-id tag]
-  (subscribe [:rf/machine-has-tag? machine-id tag]))
+(def create-machine-handler rf-machines/create-machine-handler)
+(def machine-transition     rf-machines/machine-transition)
+(def machines               rf-machines/machines)
+(def machine-meta           rf-machines/machine-meta)
+(def machine-by-system-id   rf-machines/machine-by-system-id)
+(def dispatch-to-system     rf-machines/dispatch-to-system)
+(def sub-machine            rf-machines/sub-machine)
+(def has-tag?               rf-machines/has-tag?)
 
 ;; ---- introspection (per Spec 002 §The public registrar query API) -------
 
@@ -1211,146 +750,20 @@
 (def clear-trace-buffer! trace/clear-trace-buffer!)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
-;;
-;; Per Tool-Pair §Time-travel and Spec 009 §`register-epoch-cb`. Every
-;; drain-settle records an `:rf/epoch-record` per frame. The history is
-;; queryable; the listener API mirrors register-trace-cb!; restore-epoch
-;; rewinds the frame's app-db to a recorded epoch's `:db-after`.
-;;
-;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-;; Strategy B), the epoch surface ships in `day8/re-frame2-epoch`; the
-;; four re-exports below late-bind through the hook table so core never
-;; statically requires it. When the epoch artefact is not on the
-;; classpath, the lookups return nil and the wrappers degrade quietly:
-;; `epoch-history` returns the empty vector, `restore-epoch` returns
-;; false, the listener register / remove return nil. The whole surface
-;; is still gated on `interop/debug-enabled?` (per Tool-Pair §Time-travel
-;; §Production elision), so production builds elide regardless of
-;; classpath presence.
 
-(defn epoch-history
-  "Return the vector of `:rf/epoch-record` values for the frame, oldest-
-  first. Empty vector when the frame has no recorded epochs, when the
-  ring buffer's depth is 0 (recording disabled), or when the
-  `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
-  via `:epoch/epoch-history`."
-  [frame-id]
-  (if-let [f (late-bind/get-fn :epoch/epoch-history)]
-    (f frame-id)
-    []))
-
-(defn restore-epoch
-  "Rewind the named frame's `app-db` to the named epoch's `:db-after`.
-  Per Tool-Pair §Time-travel: returns `true` on success, `false` on any
-  of the six documented failure modes (each emits a structured
-  `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath.
-  Late-bound via `:epoch/restore-epoch`."
-  [frame-id epoch-id]
-  (if-let [f (late-bind/get-fn :epoch/restore-epoch)]
-    (f frame-id epoch-id)
-    false))
-
-(defn register-epoch-cb
-  "Register a callback fired once per drain-settle with the assembled
-  `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb`. Same-id
-  registrations replace; listener exceptions are isolated. Returns the
-  id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
-  not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
-  [id f]
-  (when-let [g (late-bind/get-fn :epoch/register-epoch-cb)]
-    (g id f)))
-
-(defn remove-epoch-cb
-  "Remove the listener registered under id. No-op when the
-  `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
-  via `:epoch/remove-epoch-cb`."
-  [id]
-  (when-let [f (late-bind/get-fn :epoch/remove-epoch-cb)]
-    (f id)))
-
-(defn reset-frame-db!
-  "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
-  loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
-
-  The canonical Tool-Pair write surface for state injection — pair
-  tools use it for evolved-state-shape probes after a handler hot-swap,
-  story-tool fixture setup, conformance-harness state seeding, and
-  time-travel from JSON-loaded bug repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch` can rewind the previous state;
-  emits `:rf.epoch/db-replaced` on success.
-
-  Failure modes (each is a no-op on `app-db` and emits a structured
-  error trace):
-
-    :rf.error/no-such-handler                 — frame not registered
-    :rf.epoch/reset-frame-db-during-drain     — drain in flight
-    :rf.epoch/reset-frame-db-schema-mismatch  — `new-db` fails the
-                                                 frame's app-schema set
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds
-  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/reset-frame-db!`; raises `:rf.error/epoch-artefact-missing`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath
-  (the surface records an epoch and so cannot degrade silently — the
-  caller's invariant is 'undo works after this call').
-
-  Returns `true` on success, `false` on any failure."
-  [frame-id new-db]
-  (if-let [f (late-bind/get-fn :epoch/reset-frame-db!)]
-    (f frame-id new-db)
-    (throw (ex-info ":rf.error/epoch-artefact-missing"
-                    {:where    'reset-frame-db!
-                     :recovery :no-recovery
-                     :reason   "rf/reset-frame-db! requires day8/re-frame2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))
+(def epoch-history     rf-epoch/epoch-history)
+(def restore-epoch     rf-epoch/restore-epoch)
+(def register-epoch-cb rf-epoch/register-epoch-cb)
+(def remove-epoch-cb   rf-epoch/remove-epoch-cb)
+(def reset-frame-db!   rf-epoch/reset-frame-db!)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
-;;
-;; Per rf2-5kpd the `:rf.http/managed` family is registered at
-;; re-frame.http-managed ns-load time (per Spec 014 §Implementation
-;; status), but the namespace ships in the day8/re-frame2-http
-;; artefact. The core artefact does NOT `:require [re-frame.http-managed]`
-;; — apps that don't issue managed-HTTP requests don't carry the
-;; transport adapters or the `:rf.http/*` keyword strings on the
-;; classpath. The test-helper wrappers below look the producing fns up
-;; via the late-bind hook table; when the http artefact is not on the
-;; classpath the lookups return nil and the wrappers raise
-;; :rf.error/http-artefact-missing.
 
-(defn install-managed-request-stubs!
-  "Spec 014 §Testing — install per-call fx-overrides for `:rf.http/managed`
-  that synthesise the configured replies. Late-bound via
-  `:http/install-managed-request-stubs!`."
-  [stubs]
-  (if-let [f (late-bind/get-fn :http/install-managed-request-stubs!)]
-    (f stubs)
-    (throw (ex-info ":rf.error/http-artefact-missing"
-                    {:where    'install-managed-request-stubs!
-                     :recovery :no-recovery
-                     :reason   "rf/install-managed-request-stubs! requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
-
-(defn uninstall-managed-request-stubs!
-  "Spec 014 §Testing — remove the per-call fx-override installed by
-  `install-managed-request-stubs!`. Late-bound via
-  `:http/uninstall-managed-request-stubs!`."
-  []
-  (if-let [f (late-bind/get-fn :http/uninstall-managed-request-stubs!)]
-    (f)
-    (throw (ex-info ":rf.error/http-artefact-missing"
-                    {:where    'uninstall-managed-request-stubs!
-                     :recovery :no-recovery
-                     :reason   "rf/uninstall-managed-request-stubs! requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
-
-(defn with-managed-request-stubs*
-  "Function form: install stubs, run thunk, uninstall. Late-bound via
-  `:http/with-managed-request-stubs*`."
-  [stubs thunk]
-  (if-let [f (late-bind/get-fn :http/with-managed-request-stubs*)]
-    (f stubs thunk)
-    (throw (ex-info ":rf.error/http-artefact-missing"
-                    {:where    'with-managed-request-stubs*
-                     :recovery :no-recovery
-                     :reason   "rf/with-managed-request-stubs* requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
+(def install-managed-request-stubs!   rf-http/install-managed-request-stubs!)
+(def uninstall-managed-request-stubs! rf-http/uninstall-managed-request-stubs!)
+(def with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
+(def reg-http-interceptor             rf-http/reg-http-interceptor)
+(def clear-http-interceptor           rf-http/clear-http-interceptor)
 
 #?(:clj
    (defmacro with-managed-request-stubs
@@ -1365,57 +778,7 @@
      `re-frame.http-managed` at app boot; without it, the lookup
      returns nil and the call throws a clear error."
      [stubs & body]
-     `(if-let [f# (late-bind/get-fn :http/with-managed-request-stubs*)]
-        (f# ~stubs (fn [] ~@body))
-        (throw (ex-info ":rf.error/http-artefact-missing"
-                        {:where    'with-managed-request-stubs
-                         :recovery :no-recovery
-                         :reason   "rf/with-managed-request-stubs requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
-
-;; ---- Spec 014 §Middleware — per-frame request interceptors (rf2-6y3q) -----
-;;
-;; Late-bound to the http artefact so core does not statically require it.
-;; When the http artefact is absent the lookup returns nil and the call
-;; raises :rf.error/http-artefact-missing with a clear "add the artefact"
-;; reason — matching the with-managed-request-stubs / install-managed-
-;; request-stubs! pattern.
-
-(defn reg-http-interceptor
-  "Spec 014 §Middleware — register a request-side interceptor on a
-  frame's `:rf.http/managed` middleware chain. The interceptor map
-  shape is `{:frame <frame-id> :id <kw> :before (fn [ctx] ctx')}`.
-
-  The chain runs in registration order before each request fires; each
-  `:before` receives a ctx `{:request :args :frame :event}` and returns
-  a (possibly-modified) ctx. The final `:request` is what the transport
-  ships. A throw inside any `:before` classifies as
-  `:rf.error/http-interceptor-failed`; the request is not dispatched.
-
-  Late-bound via `:http/reg-http-interceptor`. When the http artefact
-  is absent the call raises `:rf.error/http-artefact-missing`."
-  [interceptor]
-  (if-let [f (late-bind/get-fn :http/reg-http-interceptor)]
-    (f interceptor)
-    (throw (ex-info ":rf.error/http-artefact-missing"
-                    {:where    'reg-http-interceptor
-                     :recovery :no-recovery
-                     :reason   "rf/reg-http-interceptor requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."}))))
-
-(defn clear-http-interceptor
-  "Spec 014 §Middleware — clear an HTTP interceptor by id from a frame's
-  chain. Single-arity clears on `:rf/default`; two-arity targets the
-  named frame.
-
-  Late-bound via `:http/clear-http-interceptor`. When the http artefact
-  is absent the call raises `:rf.error/http-artefact-missing`."
-  ([id] (clear-http-interceptor :rf/default id))
-  ([frame id]
-   (if-let [f (late-bind/get-fn :http/clear-http-interceptor)]
-     (f frame id)
-     (throw (ex-info ":rf.error/http-artefact-missing"
-                     {:where    'clear-http-interceptor
-                      :recovery :no-recovery
-                      :reason   "rf/clear-http-interceptor requires day8/re-frame2-http on the classpath; add it to deps and require re-frame.http-managed at app boot."})))))
+     `(with-managed-request-stubs* ~stubs (fn [] ~@body))))
 
 (defn configure
   "Configure a runtime knob. Closed v1 keys (additive across versions
