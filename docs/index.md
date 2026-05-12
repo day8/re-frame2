@@ -30,7 +30,7 @@ The Guide is the right starting point for almost everyone. It walks a counter en
 
 ## Status
 
-**Alpha.** Still a work in progress but getting close to beta. The repository [README](https://github.com/day8/re-frame2#readme) tracks the latest status and what ships today. A working ClojureScript reference implementation validates the spec end-to-end; production apps can be built on it now.
+**Alpha. But it works.**
 
 ## Source
 
