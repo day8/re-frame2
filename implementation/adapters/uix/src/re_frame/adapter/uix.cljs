@@ -432,134 +432,52 @@
    :register-context-provider register-context-provider
    :dispose-adapter!          dispose-adapter!})
 
-;; Per rf2-d4sf: publish the function-component-shape React-context-
-;; aware `current-frame` impl through the late-bind hook so
-;; `re-frame.subs/subscribe` and the dispatch envelope's `:frame`
-;; default consult the React-context tier of the 3-tier resolution
-;; chain (dynamic var → React context → :rf/default). UIx renders
-;; function components — they have no class-component-specific
-;; `(.-context cmp)` slot, so the shared impl in
-;; `re-frame.adapter.context` reads `_currentValue` directly. UIx's
-;; own `use-current-frame` hook is sugar over the same read, so
-;; subscribe / dispatch and `use-context` agree on the active frame.
-;; Reagent registers a different impl (in `re-frame.adapter.reagent`)
-;; that uses `(.-context cmp)` on the in-flight Reagent component.
+;; Each late-bind hook below is routed through `(substrate-adapter/
+;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
+;; (see that fn's docstring for the routing contract). The wrapper runs
+;; this adapter's impl ONLY when the UIx adapter is the (rf/init!)-
+;; installed one; otherwise it chains to the previously-registered
+;; handler.
 ;;
-;; Per rf2-0d35: route `:adapter/current-frame` through the installed
-;; adapter rather than blindly overwriting at ns-load time. In test
-;; bundles that load multiple adapter ns's, a plain `set-fn!` would
-;; mean only the last-loaded adapter's reader survives — and an app
-;; installed via `(rf/init! reagent/adapter)` then silently uses (say)
-;; UIx's `function-component-current-frame` reader, which reads
-;; `_currentValue` directly and breaks the
-;; `plain-fn-under-non-default-frame-once` warning's narrowness
-;; contract for plain Reagent fns. The wrapper consults
-;; `(substrate-adapter/current-adapter)` and runs THIS adapter's
-;; reader only when this adapter is the installed one; otherwise it
-;; chains to the previously-installed reader. The chain terminates
-;; with `frame/current-frame` when no adapter is installed.
-(let [previous (late-bind/get-fn :adapter/current-frame)]
-  (late-bind/set-fn! :adapter/current-frame
-    (fn uix-adapter-current-frame-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (adapter-context/function-component-current-frame)
-        (if previous
-          (previous)
-          (frame/current-frame))))))
-
-;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
-;; `re-frame.interop` through the late-bind hook table. UIx's derived
-;; values (this ns, ~line 121) reify stock `reagent.ratom/IDisposable`
-;; — the cache wiring at `re-frame.subs` calls `interop/add-on-dispose!`
-;; against them and the protocol dispatch finds the reify shape.
-;; Accordingly UIx's hooks delegate to stock Reagent's `r/atom`,
-;; `ratom/make-reaction`, etc. UIx itself ships no reactive-atom
-;; primitive (per the rf2-3yij design), so `interop/make-reaction`
-;; under a UIx-installed app falls back to stock Reagent's
-;; (mostly used by user code paths that interleave Reagent reactions
-;; with UIx components; the UIx adapter's own derived-value impl
-;; never calls back into `interop/make-reaction`).
-;;
-;; Per rf2-0d35: route through the installed adapter, mirroring the
-;; `:adapter/current-frame` pattern above. UIx's impl runs only when
-;; the UIx adapter is the `(rf/init!)`-installed one; otherwise the
-;; hook chains to a previously-registered reader.
-(let [previous (late-bind/get-fn :adapter/ratom)]
-  (late-bind/set-fn! :adapter/ratom
-    (fn uix-adapter-ratom-routed [v]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/atom v)
-        (when previous (previous v))))))
-
-(let [previous (late-bind/get-fn :adapter/ratom?)]
-  (late-bind/set-fn! :adapter/ratom?
-    (fn uix-adapter-ratom?-routed [x]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (satisfies? ratom/IReactiveAtom ^js x)
-        (if previous (previous x) false)))))
-
-(let [previous (late-bind/get-fn :adapter/make-reaction)]
-  (late-bind/set-fn! :adapter/make-reaction
-    (fn uix-adapter-make-reaction-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/make-reaction f)
-        (when previous (previous f))))))
-
-(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
-  (late-bind/set-fn! :adapter/add-on-dispose!
-    (fn uix-adapter-add-on-dispose!-routed [a-ratom f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/add-on-dispose! a-ratom f)
-        (when previous (previous a-ratom f))))))
-
-(let [previous (late-bind/get-fn :adapter/dispose!)]
-  (late-bind/set-fn! :adapter/dispose!
-    (fn uix-adapter-dispose!-routed [a-ratom]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/dispose! a-ratom)
-        (when previous (previous a-ratom))))))
-
-(let [previous (late-bind/get-fn :adapter/reactive?)]
-  (late-bind/set-fn! :adapter/reactive?
-    (fn uix-adapter-reactive?-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/reactive?)
-        (if previous (previous) false)))))
-
-(let [previous (late-bind/get-fn :adapter/after-render)]
-  (late-bind/set-fn! :adapter/after-render
-    (fn uix-adapter-after-render-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/after-render f)
-        (when previous (previous f))))))
-
-;; Per rf2-00li: publish the UIx substrate's `wrap-view` through the
-;; late-bind hook so `re-frame.views/reg-view*` routes registered
-;; render-fns through React.cloneElement-based source-coord injection
-;; instead of the hiccup-shape inline walk (which would mis-classify
-;; React-element output as a non-DOM root). Per rf2-0d35 the impl runs
-;; ONLY when the UIx adapter is the `(rf/init!)`-installed one;
-;; otherwise the hook chains to a previously-registered reader.
-;;
-;; Returns nil when no adapter in the chain is the installed one —
-;; views.cljs reads that as "no substrate-side wrap applied, fall back
-;; to the inline hiccup walk for the Reagent path." This contract
-;; matters when a test bundle loads multiple adapter ns's: every
-;; React-shaped adapter registers a routing closure, but only the
-;; installed one applies its wrap-view; for Reagent (which does NOT
-;; register a wrap-view) the chain bottoms out at nil and the inline
-;; walk runs.
-;;
-;; Production-elision: the inner `wrap-view` body sits inside
-;; `(when interop/debug-enabled? ...)` (per Spec 009 §Production
-;; builds); under :advanced + goog.DEBUG=false the wrapped fn collapses
-;; to the bare user-fn and the cloneElement branch DCEs.
-(let [previous (late-bind/get-fn :adapter/wrap-view)]
-  (late-bind/set-fn! :adapter/wrap-view
-    (fn uix-adapter-wrap-view-routed [id metadata user-fn]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (wrap-view id metadata user-fn)
-        (when previous (previous id metadata user-fn))))))
+;; Hook-specific rationale (UIx-adapter notes):
+;;   :adapter/current-frame  — rf2-d4sf. UIx renders function
+;;     components — they have no class-component (.-context cmp) slot,
+;;     so the shared impl in `re-frame.adapter.context` reads
+;;     `_currentValue` directly. UIx's own `use-current-frame` hook is
+;;     sugar over the same read, so subscribe / dispatch and
+;;     `use-context` agree on the active frame. Chain-bottom fallback
+;;     is `frame/current-frame`.
+;;   :adapter/ratom etc. — rf2-s36l. UIx's derived values reify stock
+;;     reagent.ratom/IDisposable directly, so these hooks delegate to
+;;     stock Reagent's r/atom, ratom/make-reaction, etc. UIx itself
+;;     ships no reactive-atom primitive (per the rf2-3yij design).
+;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord
+;;     injection via React.cloneElement (the inline hiccup-walk in
+;;     views.cljs would mis-classify React-element output as a non-DOM
+;;     root). Production-elision: `wrap-view`'s body sits inside
+;;     `(when interop/debug-enabled? ...)` so closure-folds under
+;;     :advanced + goog.DEBUG=false (per Spec 009 §Production builds).
+(substrate-adapter/route-hook! adapter :adapter/current-frame
+  adapter-context/function-component-current-frame
+  #(frame/current-frame))
+(substrate-adapter/route-hook! adapter :adapter/ratom
+  r/atom)
+(substrate-adapter/route-hook! adapter :adapter/ratom?
+  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom ^js x))
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/make-reaction
+  ratom/make-reaction)
+(substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+  ratom/add-on-dispose!)
+(substrate-adapter/route-hook! adapter :adapter/dispose!
+  ratom/dispose!)
+(substrate-adapter/route-hook! adapter :adapter/reactive?
+  ratom/reactive?
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/after-render
+  r/after-render)
+(substrate-adapter/route-hook! adapter :adapter/wrap-view
+  wrap-view)
 
 ;; Per rf2-4edk: contribute a clear of THIS adapter's `warned-non-dom-roots`
 ;; cache to the chained `:adapter/clear-warn-once-caches!` hook. The hook

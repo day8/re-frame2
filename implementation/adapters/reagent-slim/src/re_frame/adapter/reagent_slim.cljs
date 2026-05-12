@@ -189,116 +189,45 @@
 ;; artefacts are on the classpath.
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
-;; Per rf2-d4sf + IMPL-SPEC §9.6: publish the React-context-aware
-;; current-frame impl through the late-bind hook so subscribe / dispatch
-;; consult the React-context tier of the 3-tier resolution chain. The
-;; rewrite preserves the bridge's class-component context-read shape
-;; (`(.-context cmp)`) per IMPL-SPEC §9.6 — the views.cljs impl works
-;; with reagent-slim's class components without source change.
+;; Each late-bind hook below is routed through `(substrate-adapter/
+;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
+;; (see that fn's docstring for the routing contract). The wrapper runs
+;; this adapter's impl ONLY when this adapter is the (rf/init!)-installed
+;; one; otherwise it chains to the previously-registered handler.
 ;;
-;; Per rf2-0d35: route `:adapter/current-frame` through the installed
-;; adapter (same pattern as the bridge ns; see reagent.cljs for the
-;; full rationale). In test bundles that load multiple adapter ns's
-;; the last-loaded would otherwise silently win at the hook regardless
-;; of which adapter was actually `(rf/init!)`-installed.
-(let [previous (late-bind/get-fn :adapter/current-frame)]
-  (late-bind/set-fn! :adapter/current-frame
-    (fn reagent-slim-adapter-current-frame-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (views/current-frame)
-        (if previous
-          (previous)
-          (frame/current-frame))))))
-
-;; Per rf2-wbnl: publish reagent2's `current-component` through the
-;; late-bind hook so `re-frame.views` reads the in-flight component
-;; from the slim adapter's reactive substrate, not from stock
-;; Reagent's. Before rf2-wbnl, views.cljs statically `:require`d
-;; `reagent.core` and called its `current-component` directly — under
-;; the slim adapter that read returned nil for slim-rendered
-;; components, which silently dropped the React-context tier of the
-;; resolution chain (`subscribe`/`dispatch` under a non-default
-;; `frame-provider` routed to `:rf/default`). The classic bridge
-;; installs the same hook against stock Reagent; consumers that
-;; require exactly one of the two adapter ns's see the matching
-;; reader installed.
-;;
-;; Per rf2-0d35: route through the installed adapter (same pattern as
-;; `:adapter/current-frame` above; see reagent.cljs for the full
-;; rationale). The slim adapter's reader runs only when the slim
-;; adapter is the installed one; otherwise fall through to whatever
-;; reader was previously registered by another adapter ns.
-(let [previous (late-bind/get-fn :adapter/current-component)]
-  (late-bind/set-fn! :adapter/current-component
-    (fn reagent-slim-adapter-current-component-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/current-component)
-        (when previous (previous))))))
-
-;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
-;; `re-frame.interop` through the late-bind hook table. Before rf2-s36l,
-;; `interop.cljs` statically `:require`d stock Reagent and forwarded
-;; every call there — so under the slim adapter the very first
-;; `(interop/add-on-dispose! ...)` (called from the sub-cache's slot
-;; teardown wiring; see Spec 006 §subscription-cache and the rf2-3yij
-;; cross-substrate-cache decision) threw a protocol-dispatch error
-;; because `reagent2.ratom/Reaction` reifies its OWN `IDisposable`
-;; protocol (`reagent2.ratom/IDisposable`), NOT stock Reagent's.
-;; That parked the counter-slim-and-fast Playwright smoke (PR #305,
-;; rf2-5lbx) behind a `skip:` field until this seam landed.
-;;
-;; Per rf2-0d35: route through the installed adapter, mirroring the
-;; `:adapter/current-frame` and `:adapter/current-component` pattern
-;; established for this ns above. The slim adapter's impl runs only
-;; when this adapter is the `(rf/init!)`-installed one; otherwise the
-;; hook chains to the previously-registered reader. This keeps the
-;; stock-Reagent path live in mixed-adapter test bundles even though
-;; both adapter ns's load and call `set-fn!`.
-(let [previous (late-bind/get-fn :adapter/ratom)]
-  (late-bind/set-fn! :adapter/ratom
-    (fn reagent-slim-adapter-ratom-routed [v]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/atom v)
-        (when previous (previous v))))))
-
-(let [previous (late-bind/get-fn :adapter/ratom?)]
-  (late-bind/set-fn! :adapter/ratom?
-    (fn reagent-slim-adapter-ratom?-routed [x]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (satisfies? ratom/IReactiveAtom ^js x)
-        (if previous (previous x) false)))))
-
-(let [previous (late-bind/get-fn :adapter/make-reaction)]
-  (late-bind/set-fn! :adapter/make-reaction
-    (fn reagent-slim-adapter-make-reaction-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/make-reaction f)
-        (when previous (previous f))))))
-
-(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
-  (late-bind/set-fn! :adapter/add-on-dispose!
-    (fn reagent-slim-adapter-add-on-dispose!-routed [a-ratom f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/add-on-dispose! a-ratom f)
-        (when previous (previous a-ratom f))))))
-
-(let [previous (late-bind/get-fn :adapter/dispose!)]
-  (late-bind/set-fn! :adapter/dispose!
-    (fn reagent-slim-adapter-dispose!-routed [a-ratom]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/dispose! a-ratom)
-        (when previous (previous a-ratom))))))
-
-(let [previous (late-bind/get-fn :adapter/reactive?)]
-  (late-bind/set-fn! :adapter/reactive?
-    (fn reagent-slim-adapter-reactive?-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/reactive?)
-        (if previous (previous) false)))))
-
-(let [previous (late-bind/get-fn :adapter/after-render)]
-  (late-bind/set-fn! :adapter/after-render
-    (fn reagent-slim-adapter-after-render-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/after-render f)
-        (when previous (previous f))))))
+;; Hook-specific rationale (slim-adapter notes):
+;;   :adapter/current-frame  — rf2-d4sf + IMPL-SPEC §9.6. The rewrite
+;;     preserves the bridge's class-component (.-context cmp) shape, so
+;;     re-frame.views/current-frame works unchanged with reagent-slim's
+;;     class components. Chain-bottom fallback is frame/current-frame.
+;;   :adapter/current-component — rf2-wbnl. Wires
+;;     reagent2.core/current-component so re-frame.views resolves the
+;;     in-flight component from the slim substrate (stock Reagent's
+;;     reader would return nil for slim-rendered components).
+;;   :adapter/ratom etc. — rf2-s36l. Wires reagent2.* impls so
+;;     re-frame.interop's reactive-substrate calls dispatch onto
+;;     reagent2.ratom/IDisposable / IReactiveAtom — without this seam
+;;     the very first (interop/add-on-dispose! ...) under the slim
+;;     adapter threw because reagent2.ratom/Reaction does NOT reify
+;;     stock Reagent's IDisposable.
+(substrate-adapter/route-hook! adapter :adapter/current-frame
+  views/current-frame
+  #(frame/current-frame))
+(substrate-adapter/route-hook! adapter :adapter/current-component
+  r/current-component)
+(substrate-adapter/route-hook! adapter :adapter/ratom
+  r/atom)
+(substrate-adapter/route-hook! adapter :adapter/ratom?
+  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom ^js x))
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/make-reaction
+  ratom/make-reaction)
+(substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+  ratom/add-on-dispose!)
+(substrate-adapter/route-hook! adapter :adapter/dispose!
+  ratom/dispose!)
+(substrate-adapter/route-hook! adapter :adapter/reactive?
+  ratom/reactive?
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/after-render
+  r/after-render)

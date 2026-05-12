@@ -123,155 +123,48 @@
 ;; §Adapter shipping convention (rf2-0hxm).
 (late-bind/set-fn! :reagent/set-hiccup-emitter! set-hiccup-emitter!)
 
-;; Per rf2-d4sf: publish the Reagent-shape React-context-aware
-;; `current-frame` impl through the late-bind hook so
-;; `re-frame.subs/subscribe` and the dispatch envelope's `:frame`
-;; default consult the React-context tier of the 3-tier resolution
-;; chain (dynamic var → React context → :rf/default). Before rf2-d4sf
-;; those call sites called `re-frame.frame/current-frame` directly,
-;; which only honours tiers 1 and 3 — the React-context tier was
-;; implemented in `re-frame.views/current-frame` but never reached by
-;; subscribe / dispatch, so any subscribe / dispatch under a
-;; non-default `frame-provider` silently routed to `:rf/default`.
+;; Each late-bind hook below is routed through `(substrate-adapter/
+;; current-adapter)` per rf2-0d35 via `substrate-adapter/route-hook!`
+;; (see that fn's docstring for the routing contract). The wrapper runs
+;; this adapter's impl ONLY when this adapter is the (rf/init!)-installed
+;; one; otherwise it chains to the previously-registered handler.
 ;;
-;; The Reagent impl uses `(.-context cmp)` on the in-flight Reagent
-;; component — class-component machinery surfaces context only to
-;; components whose `:contextType` matches the context object, so
-;; `reg-view*`-wrapped components route to the surrounding provider's
-;; frame while plain Reagent fns (without the `:contextType` wiring)
-;; fall through to `:rf/default`. That narrowness is what makes
-;; `:rf.warning/plain-fn-under-non-default-frame-once` (rf2-d3k3) a
-;; meaningful warning — only plain fns route to default, and the
-;; warning targets exactly that footgun. UIx / Helix substrates use
-;; `re-frame.adapter.context/function-component-current-frame` which
-;; reads `_currentValue` directly (function components have no
-;; class-context slot).
-;;
-;; Per rf2-0d35: route `:adapter/current-frame` through the installed
-;; adapter rather than blindly overwriting at ns-load time. In test
-;; bundles that load multiple adapter ns's (e.g. the in-tree shadow-cljs
-;; build, which loads reagent + reagent-slim + uix + helix), each
-;; adapter ns publishes its own impl; a plain `set-fn!` means only the
-;; last-loaded adapter's reader survives — and an app installed via
-;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's
-;; `function-component-current-frame` reader, which reads
-;; `_currentValue` directly and breaks the
-;; `plain-fn-under-non-default-frame-once` warning's narrowness contract
-;; (plain Reagent fns should resolve to `:rf/default`, not the
-;; Provider's frame). The wrapper consults
-;; `(substrate-adapter/current-adapter)` and runs THIS adapter's reader
-;; only when this adapter is the installed one; otherwise it chains to
-;; the previously-installed reader (which itself does the same active-
-;; adapter check for ITS adapter). The chain terminates with
-;; `frame/current-frame` when no adapter is installed, preserving the
-;; pre-rf2-d4sf headless / pre-init shape.
-(let [previous (late-bind/get-fn :adapter/current-frame)]
-  (late-bind/set-fn! :adapter/current-frame
-    (fn reagent-adapter-current-frame-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (views/current-frame)
-        (if previous
-          (previous)
-          (frame/current-frame))))))
-
-;; Per rf2-wbnl: publish stock Reagent's `current-component` through
-;; the late-bind hook so `re-frame.views` can read the in-flight
-;; component without statically `:require`ing `reagent.core`. This is
-;; what lets the slim adapter (which ships its own `reagent2.core`
-;; build) install a different `current-component` reader. The classic
-;; bridge wires the hook to stock Reagent's reader; the slim adapter
-;; wires it to `reagent2.core/current-component`. Without this hook,
-;; views.cljs would always call stock Reagent's reader and miss
-;; slim-adapter components in mixed-mode environments.
-;;
-;; Per rf2-0d35: route through the installed adapter (same pattern as
-;; `:adapter/current-frame` above). In test bundles that load BOTH
-;; adapter ns's a plain `set-fn!` would mean only the last-loaded
-;; adapter's reader survives — and the OTHER adapter's render path
-;; silently misses the React-context tier of the frame resolution
-;; chain. Symptom (Stage 4-E regression, rf2-0d35): cross-spec
-;; `plain-fn-under-non-default-frame` asserted 2 warnings, got 0,
-;; because `(current-component)` was reading the slim adapter's
-;; `*current-component*` (always nil during stock Reagent renders) so
-;; the warning's Condition 1 (some? cmp) failed and no warning fired.
-(let [previous (late-bind/get-fn :adapter/current-component)]
-  (late-bind/set-fn! :adapter/current-component
-    (fn reagent-adapter-current-component-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/current-component)
-        (when previous (previous))))))
-
-;; Per rf2-s36l: publish the reactive-substrate surfaces consumed by
-;; `re-frame.interop` (`ratom`, `ratom?`, `make-reaction`,
-;; `add-on-dispose!`, `dispose!`, `reactive?`, `after-render`) through
-;; the late-bind hook table. Before rf2-s36l, `interop.cljs` statically
-;; `:require`d `reagent.core` / `reagent.ratom` and forwarded every call
-;; to stock Reagent's namespace — which silently misrouted slim-adapter
-;; reactions (`reagent2.ratom/Reaction` doesn't reify stock Reagent's
-;; `IDisposable`) and broke the counter-slim-and-fast smoke at first
-;; `subscribe`. Each adapter ns now publishes its substrate's impls
-;; here; this adapter wires the classic bridge to stock Reagent.
-;;
-;; Per rf2-0d35: route through the installed adapter, mirroring the
-;; pattern used by `:adapter/current-frame` and `:adapter/current-
-;; component` above. In test bundles that load multiple adapter ns's
-;; the last-loaded would otherwise silently win at the hook regardless
-;; of which adapter was actually `(rf/init!)`-installed. Each routed
-;; hook runs THIS adapter's impl only when this adapter is the
-;; installed one; otherwise it chains to the previously-registered
-;; reader (which itself does the same active-adapter check for ITS
-;; adapter). The chain terminates with nil when no adapter is
-;; installed — interop.cljs treats nil cleanly (callers either return
-;; nil/false or no-op).
-;;
-;; UIx and Helix adapters reify stock `reagent.ratom/IDisposable` on
-;; their derived values (uix.cljs:121, helix.cljs:124), so they wire
-;; their hooks to the same stock-Reagent impls below.
-(let [previous (late-bind/get-fn :adapter/ratom)]
-  (late-bind/set-fn! :adapter/ratom
-    (fn reagent-adapter-ratom-routed [v]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/atom v)
-        (when previous (previous v))))))
-
-(let [previous (late-bind/get-fn :adapter/ratom?)]
-  (late-bind/set-fn! :adapter/ratom?
-    (fn reagent-adapter-ratom?-routed [x]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (satisfies? ratom/IReactiveAtom ^js x)
-        (if previous (previous x) false)))))
-
-(let [previous (late-bind/get-fn :adapter/make-reaction)]
-  (late-bind/set-fn! :adapter/make-reaction
-    (fn reagent-adapter-make-reaction-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/make-reaction f)
-        (when previous (previous f))))))
-
-(let [previous (late-bind/get-fn :adapter/add-on-dispose!)]
-  (late-bind/set-fn! :adapter/add-on-dispose!
-    (fn reagent-adapter-add-on-dispose!-routed [a-ratom f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/add-on-dispose! a-ratom f)
-        (when previous (previous a-ratom f))))))
-
-(let [previous (late-bind/get-fn :adapter/dispose!)]
-  (late-bind/set-fn! :adapter/dispose!
-    (fn reagent-adapter-dispose!-routed [a-ratom]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/dispose! a-ratom)
-        (when previous (previous a-ratom))))))
-
-(let [previous (late-bind/get-fn :adapter/reactive?)]
-  (late-bind/set-fn! :adapter/reactive?
-    (fn reagent-adapter-reactive?-routed []
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (ratom/reactive?)
-        (if previous (previous) false)))))
-
-(let [previous (late-bind/get-fn :adapter/after-render)]
-  (late-bind/set-fn! :adapter/after-render
-    (fn reagent-adapter-after-render-routed [f]
-      (if (identical? adapter (substrate-adapter/current-adapter))
-        (r/after-render f)
-        (when previous (previous f))))))
+;; Hook-specific rationale:
+;;   :adapter/current-frame  — rf2-d4sf. React-context tier of the
+;;     3-tier resolution chain. Reagent path uses (.-context cmp) on
+;;     the in-flight Reagent component (class-component machinery), so
+;;     `reg-view*`-wrapped components route to the surrounding
+;;     provider's frame while plain Reagent fns fall through to
+;;     :rf/default — that narrowness makes the
+;;     plain-fn-under-non-default-frame-once warning meaningful.
+;;     Chain-bottom fallback is `frame/current-frame` so headless /
+;;     pre-init shape is preserved.
+;;   :adapter/current-component — rf2-wbnl. Reads stock Reagent's
+;;     in-flight component without hard-binding re-frame.views to
+;;     reagent.core; the slim adapter wires this hook to
+;;     reagent2.core/current-component.
+;;   :adapter/ratom etc. — rf2-s36l. The reactive-substrate surfaces
+;;     consumed by `re-frame.interop`. UIx and Helix adapters reify
+;;     stock reagent.ratom/IDisposable on their derived values, so
+;;     they wire these hooks to the same stock-Reagent impls.
+(substrate-adapter/route-hook! adapter :adapter/current-frame
+  views/current-frame
+  #(frame/current-frame))
+(substrate-adapter/route-hook! adapter :adapter/current-component
+  r/current-component)
+(substrate-adapter/route-hook! adapter :adapter/ratom
+  r/atom)
+(substrate-adapter/route-hook! adapter :adapter/ratom?
+  (fn ratom?-impl [x] (satisfies? ratom/IReactiveAtom ^js x))
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/make-reaction
+  ratom/make-reaction)
+(substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+  ratom/add-on-dispose!)
+(substrate-adapter/route-hook! adapter :adapter/dispose!
+  ratom/dispose!)
+(substrate-adapter/route-hook! adapter :adapter/reactive?
+  ratom/reactive?
+  (constantly false))
+(substrate-adapter/route-hook! adapter :adapter/after-render
+  r/after-render)
