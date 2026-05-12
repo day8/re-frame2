@@ -1,10 +1,10 @@
 # 20 — Stories
 
-> **Optional deep-dive.** This chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](14-testing.md), and [devtools](16-devtools-and-pair-tools.md) chapters. If you haven't yet, come back later — Stories is a layered surface on top of those, not the next link in the linear sequence.
+> **Optional deep-dive.** This chapter assumes you've absorbed the [events](04-events-state-cycle.md), [views](06-views-and-frames.md), [testing](13-testing.md), and [devtools](15-devtools-and-pair-tools.md) chapters. If you haven't yet, come back later — Stories is a layered surface on top of those, not the next link in the linear sequence.
 
-You've seen the runtime in the [events chapter](04-events-state-cycle.md), the views in the [views chapter](06-views-and-frames.md), the test machinery in the [testing chapter](14-testing.md), and the tooling pitch in the [devtools chapter](16-devtools-and-pair-tools.md). This chapter is where they converge.
+You've seen the runtime in the [events chapter](04-events-state-cycle.md), the views in the [views chapter](06-views-and-frames.md), the test machinery in the [testing chapter](13-testing.md), and the tooling pitch in the [devtools chapter](15-devtools-and-pair-tools.md). This chapter is where they converge.
 
-[`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a **frame-aware component playground** — Storybook-flavoured, but built on re-frame2's primitives the whole way down. Each variant of a component runs in its own dedicated frame (chapter 06). Each variant body is plain data, not a function (no `<Counter.story.tsx>` with inline JSX). Args resolve through a three-layer chain. Assertions ride the same `dispatch` pipeline as production events. Time-travel scrubs through `restore-epoch` (chapter 16). When you want to scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` against the same component you're shipping.
+[`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a **frame-aware component playground** — Storybook-flavoured, but built on re-frame2's primitives the whole way down. Each variant of a component runs in its own dedicated frame (chapter 06). Each variant body is plain data, not a function (no `<Counter.story.tsx>` with inline JSX). Args resolve through a three-layer chain. Assertions ride the same `dispatch` pipeline as production events. Time-travel scrubs through `restore-epoch` (chapter 15). When you want to scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` against the same component you're shipping.
 
 You'll know how to:
 
@@ -31,7 +31,7 @@ Three of Story's hard rules are worth knowing up front:
 If you've used Storybook, this will be familiar. The places re-frame2-story differs:
 
 - **Schema-derived controls.** Spec 010's Malli schemas auto-generate the right control type for each arg — strings get text inputs, enums get dropdowns, ranges get sliders. You don't author `argTypes` separately.
-- **Frame-aware time-travel.** The scrubber doesn't replay events — it walks the per-frame epoch buffer (chapter 16) and restores via `restore-epoch`. The same machinery the runtime exposes everywhere.
+- **Frame-aware time-travel.** The scrubber doesn't replay events — it walks the per-frame epoch buffer (chapter 15) and restores via `restore-epoch`. The same machinery the runtime exposes everywhere.
 - **No CSF Factories.** Variant bodies are data; there's no `import { Story } from '@storybook/react'`. The artefact you ship is a clojure map.
 
 ## Authoring a first story
@@ -270,4 +270,4 @@ This is the whole story (no pun intended) about how a tool with this much surfac
 - **The agent surface** — [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md). The MCP server, the sixteen tools, the protocol shape, the write-gate.
 - **Spec 008 — Testing** ([Testing](../../spec/008-Testing.md)). Story's `run-variant` is the runner cljs.test / clojure.test reach for; the shape is locked there.
 
-Story is the most direct expression of the third-pillar pitch from [chapter 16](16-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.
+Story is the most direct expression of the third-pillar pitch from [chapter 15](15-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.

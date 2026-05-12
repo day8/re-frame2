@@ -34,7 +34,7 @@ It works because the architecture has been *structurally* SSR-friendly from the 
 
 **Render-tree as serialisable data.** Hiccup is just nested vectors and maps. There's a pure function — `(rf/render-to-string hiccup-tree)` — that turns any hiccup into a string. No React. No DOM. No JavaScript runtime. It's a function from data to string, and it runs on the JVM.
 
-These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 13](13-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
+These three properties aren't accidents. They're consequences of the broader pattern decisions ([chapter 12](12-the-dynamic-model.md) covers the philosophy). The same constraints that make handlers testable, debuggable, and AI-amenable also make them *runnable on a server without a browser*.
 
 ## The hydration handshake
 
@@ -305,4 +305,4 @@ For non-Clojure hosts entirely (a TypeScript port of re-frame2), the exact same 
 
 ## Next
 
-- [12 — From re-frame v1](12-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.
+- [18 — From re-frame v1](18-from-re-frame-v1.md) — what changes (and what doesn't) if you're already a re-frame user.

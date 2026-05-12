@@ -56,7 +56,7 @@ Three things are wrong with it, and they're the same three things that were wron
 
 **The handler isn't pure.** Same inputs no longer produce the same outputs. Calling the handler twice with `({} [:todo/add "buy milk"])` gives a different `:created-at` and a different `:id` each time. The test framework can't pin a value down without monkey-patching `js/Date` and `random-uuid` globally.
 
-**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 14](14-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
+**The boundary leaks into the body.** `js/Date` exists in the browser; on the JVM (where you want this handler's tests to run, per [chapter 13](13-testing.md)) it doesn't. Now the handler can't be tested without a CLJS runtime, even though the logic it expresses — "stamp this new todo with a creation time" — is host-neutral.
 
 **There's no override surface.** You can't, for one event, ask "what does the handler do if the time is fixed at noon on January 1st, 2026?" without reaching into `js/Date` itself — every other handler in the same test run gets the same redefinition, and tearing it back down is fiddly.
 
@@ -248,7 +248,7 @@ Three things to notice:
 
 **The stubs are re-registrations, not mocks.** They live in the same registry as the production cofx handlers; they're addressed by the same keyword id. `inject-cofx` finds the re-registered version with no special test-mode flag. Per-frame and per-call overrides go further still — [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) covers `:interceptor-overrides` for stubbing the *interceptor itself* (e.g. swapping `:rf/inject-cofx-now` for one frame's events), useful when you want the stub scoped to one frame rather than to the whole test registry.
 
-**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 14 §Registrar isolation](14-testing.md#registrar-isolation-with-fresh-registrar).
+**`with-fresh-registrar` keeps the stubs scoped.** It snapshots the registrar around the body and restores on exit — production `:now` is intact for the next test. Without it, a test that re-registers `:now` leaves a stub in place for whatever runs next, which is the classic "passes alone, fails together" failure mode covered in [chapter 13 §Registrar isolation](13-testing.md#registrar-isolation-with-fresh-registrar).
 
 **The handler-under-test never knew it was being tested.** It dispatched against a frame, asked for `:now` through `inject-cofx`, got back a fixed instant. No conditional in the handler body. No `if-test?` flag. The handler is the same shape in production and in the test; only the injected value changed.
 
@@ -278,5 +278,5 @@ The forward link from [chapter 07's table](07-interceptors.md#the-context-map) p
 
 - [06 — Views and frames](06-views-and-frames.md) — back to the core path: what's on the screen and how to keep different parts of the app isolated.
 - [07 — Interceptors](07-interceptors.md) — the wrapping primitive `inject-cofx` is built on. Read this if you want to write a custom interceptor that's *not* a cofx (a logger, an undo wrapper, a recorder).
-- [14 — Testing](14-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
+- [13 — Testing](13-testing.md) — the registrar-isolation story (`with-fresh-registrar`, `reset-runtime-fixture`) and the per-frame / per-call override surface that complements cofx re-registration.
 - [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the normative surface for `:interceptor-overrides`, including the `:rf/inject-cofx-now` override pattern.

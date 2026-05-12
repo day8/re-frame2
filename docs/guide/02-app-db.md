@@ -68,7 +68,7 @@ This buys you three things:
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
-- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](16-devtools-and-pair-tools.md) and [re-frame-10x](16-devtools-and-pair-tools.md) to read.
+- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](15-devtools-and-pair-tools.md) and [re-frame-10x](15-devtools-and-pair-tools.md) to read.
 
 The lost flexibility — you can't sneak a mutation in from a corner of the app — is the point. Less flexibility, more inspectability.
 
@@ -129,7 +129,7 @@ The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, s
 
 - **State machines** — Each active machine occupies a slot at `[:rf/machines <machine-id>]`. The slot is runtime-managed; you read it via subscriptions, not by reaching into app-db directly. Chapter [08 — State machines](08-state-machines.md) covers this.
 
-- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [18 — Routing](18-routing.md) walks routing.
+- **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [17 — Routing](17-routing.md) walks routing.
 
 A handful of root keys at the top of app-db are **runtime-managed** (per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys)) — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`. Don't write to these directly; they're internals the framework maintains for you. Everything else is yours.
 
@@ -168,4 +168,4 @@ Chapter [03 — Your first app](03-your-first-app.md) walks a counter end-to-end
 
 If you want the precise contract — what runtime slots are reserved, what the schema-validation surface looks like, how presets shape the per-frame defaults — [Spec 002 — Frames](../../spec/002-Frames.md) is the normative reference.
 
-If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [12 — From re-frame v1](12-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.
+If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [18 — From re-frame v1](18-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.

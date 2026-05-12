@@ -1,4 +1,4 @@
-# 16 — Tooling
+# 15 — Tooling
 
 This is the third of the README's three pillars. The first was spec-first; the second was views-derivative. This one is the payoff.
 
@@ -197,7 +197,7 @@ The channel is gated on `re-frame.performance/enabled?` — a `goog-define` bool
 
 The Performance API surface is CLJS-only — JVM artefacts (SSR, headless tests) emit no perf entries; tools running there use the host's profilers.
 
-For *when* to reach for this channel — and the four shapes of slowness the cures address — see the companion deep-dive [17 — Performance](17-performance.md).
+For *when* to reach for this channel — and the four shapes of slowness the cures address — see the companion deep-dive [16 — Performance](16-performance.md).
 
 ## What re-frame2 does not ship
 
@@ -440,8 +440,8 @@ The full contract is in [Tool-Pair §Surface behaviour against destroyed frames]
 
 ## Next
 
-- [17 — Performance](17-performance.md) — when to reach for the `rf:` channel, and the four shapes of slowness the framework has answers for.
-- [18 — Routing](18-routing.md) — the URL ↔ state contract.
+- [16 — Performance](16-performance.md) — when to reach for the `rf:` channel, and the four shapes of slowness the framework has answers for.
+- [17 — Routing](17-routing.md) — the URL ↔ state contract.
 - [Tool-Pair](../../spec/Tool-Pair.md) — the full normative contract for pair-shaped tools.
 - [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the trace stream's full shape and the error contract.
 - [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) — the AI pair-programming skill, today.

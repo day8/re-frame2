@@ -1,4 +1,4 @@
-# 18 — Routing
+# 17 — Routing
 
 Routing in re-frame2 is **state plus events**, not a separate subsystem.
 
