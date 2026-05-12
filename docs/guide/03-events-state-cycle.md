@@ -12,7 +12,28 @@ That sounds bureaucratic. The payoff is enormous. Let's see why.
 
 ## The problem with side-effects in handlers
 
-The counter from chapter 02 only changed `app-db`. The moment the counter wants to reach outside itself — fetch the next increment from a server, persist its value to localStorage, beep — the temptation is to do the obvious thing right there in the handler:
+### Doing vs causing
+
+Consider the counter's increment handler from chapter 02:
+
+```clojure
+(rf/reg-event-db :counter/inc
+  (fn [db _event] (update db :count inc)))
+```
+
+We can proudly claim that this handler is **pure**: `db` and event in, new `db` out. No I/O, no clock, no globals. Tested in one line.
+
+Notice, though, what made the purity *possible*. Somewhere, *something* has to actually mutate `app-db` so the view re-renders with the new count. That `reset!` is a side-effect — somebody has to do it. The handler stays pure only because the runtime took the side-effect upon itself. The handler **caused** the state change; the runtime **did** it.
+
+Et tu, React? The same trade runs through Reagent. You write a view function that returns a hiccup vector — a pure description of UI. You never imperatively `appendChild`, never `setAttribute`. React (via Reagent) takes the hiccup, diffs against the prior tree, and mutates the DOM on your behalf. The view **caused** the rendering; React **did** it. That's why "your view is a pure function of state" is true at all — somebody else volunteered for the impure work.
+
+re-frame2 generalises this trade to *every* side-effect, not just `app-db` and the DOM. Your handler doesn't fetch HTTP; it returns a value that *says* "an HTTP request should happen." Your handler doesn't write localStorage; it returns a value that says "this key should be written." Your handler doesn't navigate; it returns a value that says "the URL should change." In every case the handler causes; the runtime does.
+
+The handler is the cleanest layer in the system. Every function it calls is pure. Every value it touches is immutable. Every test it has runs in a millisecond, without a browser, without a network, without a clock. The price is that "do X" becomes "return a value describing X." That price is paid once, at one boundary, and the rest of the codebase composes by the rules of pure-function composition — [chapter 09](09-the-dynamic-model.md#v-the-banana-issue) makes the deeper case for why that matters.
+
+### What goes wrong if you don't
+
+The moment the counter wants to reach outside itself — fetch the next increment from a server, persist its value to localStorage, beep — the temptation is to do the obvious thing right there in the handler:
 
 ```clojure
 ;; ❌ Don't do this
@@ -33,7 +54,7 @@ There are at least three problems with this.
 
 **The chain of state changes is invisible.** You can't, from reading the handler, predict what the app will look like after this event resolves. You have to trace through the `.then`, see what it dispatches, find that handler, trace its `.then`, and so on. The "dynamic story" we talked about in [chapter 01](01-why-re-frame2.md) gets harder for every async operation.
 
-The solution: **don't let the handler do the side-effect. Have it describe the side-effect as data.**
+The solution falls out of the framing above: **don't let the handler do the side-effect. Have it describe the side-effect as data, and let the runtime do it.**
 
 ## Effects as data
 
