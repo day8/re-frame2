@@ -2,7 +2,7 @@
 
 **Alpha. But it works.**
 
-re-frame2 is a pattern for building Single Page Apps on a virtual-DOM substrate — React, in practice. You build with **Reagent v2**, **Reagent-slim** (a leaner Reagent for ship-size), **UIx**, or **Helix**. Production apps can be built on it today.
+re-frame2 is a pattern for building Single Page Apps on a virtual-DOM substrate — React, in practice. You build with **Reagent v2**, **Reagent-slim** (a Reagent rewrite that knows about re-frame2), **UIx**, or **Helix**. Production apps can be built on it today.
 
 ## What's novel
 
