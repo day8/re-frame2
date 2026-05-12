@@ -10,6 +10,7 @@ Named procedures the user may ask for. When the user asks a matching question, r
 - ["Post-mortem — how did we get here?"](#post-mortem--how-did-we-get-here)
 - ["What effects fired?"](#what-effects-fired)
 - ["What caused this re-render?"](#what-caused-this-re-render)
+- ["Explain this error" / "What caused this error?"](#explain-this-error--what-caused-this-error)
 - ["Where in the code does this come from?"](#where-in-the-code-does-this-come-from)
 - ["Understand this component" / "What is this thing?"](#understand-this-component--what-is-this-thing)
 - ["Fire the button at file:line"](#fire-the-button-at-fileline)
@@ -75,6 +76,13 @@ For cascaded dispatches: follow `:dispatch-id` / `:parent-dispatch-id` (Spec 009
 ## "What caused this re-render?"
 
 Given a component name or render key, find the latest epoch whose `:renders` includes it. Reverse from there: the sub inputs that invalidated its outputs (visible in `:sub-runs`), then the event that invalidated the sub inputs (the `:trigger-event` of that epoch). For machine-driven renders, also check `:rf/machine` reg-sub activity — machine state changes flow through the sub graph like any other.
+
+## "Explain this error" / "What caused this error?"
+
+1. Pull recent error traces: `(rf/trace-buffer {:op-type :error})`. Each entry is an `:rf.error/*` op with `:rf.error/data`.
+2. Read `:rf.trace/trigger-handler` on the error event — `{:kind :event :id :user/save :source-coord {:ns ... :file ... :line ... :column ...}}`. This is the **handler that was executing when the error fired**, not the throw site inside the framework. Report it as `<kind> :<id> at <file>:<line>` so the user can jump straight to the source — works in production builds (the field is not elided like `:rf.assert/*`).
+3. If the error sits inside a known epoch, cross-check `:trigger-event` and walk the cascade via `:parent-dispatch-id` — the upstream event that queued the offending handler is often the real culprit.
+4. If `:rf.trace/trigger-handler` is **absent**, the error fired at dispatch-time before any handler ran (e.g. `:rf.error/no-such-event` because the registered id is misspelt). The `:rf.error/data` payload — the failing id, the lookup map — is then the only handle; offer to `registrar/list` the matching kind to find a near match.
 
 ## "Where in the code does this come from?"
 

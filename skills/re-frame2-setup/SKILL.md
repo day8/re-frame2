@@ -38,6 +38,7 @@ Switch to a different skill when:
 - The author has a working re-frame2 project and wants to **write application code** — events, subs, machines, schemas, views, fx. → Use the **`re-frame2`** skill.
 - The author has a running re-frame2 app and wants to **inspect / debug / pair with it live** — dispatch from the REPL, walk app-db, trace events, time-travel. → Use the **`re-frame-pair2`** skill.
 - The author is **migrating from re-frame v1 to v2**. → Use the [`re-frame-migration`](../re-frame-migration/) skill.
+- The author is **implementing re-frame2 itself** in a different host language or substrate (TypeScript, F#, Kotlin, Python, a non-React renderer). → Use the [`re-frame2-implementor`](../re-frame2-implementor/) skill — that one walks the EP corpus and the conformance contract; this skill assumes the CLJS reference is the target.
 
 If the author asks anything beyond greenfield setup (any re-frame2 API question, any design question, any migration question), say so and point them at the right skill.
 

@@ -173,6 +173,30 @@ For arbitrary fx, override the registered handler from inside the test — the f
   (is (= [{:items [...]}] @calls)))
 ```
 
+### `:fx-overrides` per-call function value
+
+The dispatch-opts `:fx-overrides` map also accepts **function values** — a one-shot lambda that runs in place of the registered fx-handler for this dispatch only. No registry mutation, nothing to roll back. The signature matches `reg-fx`'s binary contract: `(fn [m args] ...)`, where `m` carries `:frame` (and `:event` when the fx ran from an event handler) and `args` is the fx's arg payload.
+
+```clojure
+(let [calls (atom [])]
+  (rf/dispatch-sync [:cart/save]
+    {:fx-overrides {:app/persist (fn [_m args] (swap! calls conj args))}})
+  (is (= [{:items [...]}] @calls)))
+```
+
+For HTTP stubs, the fn form lets the test return a canned response shape without registering a parallel `:rf.http/managed-canned-success` fx:
+
+```clojure
+(rf/dispatch-sync [:user/login {:email "user@example.com"}]
+  {:fx-overrides {:rf.http/managed
+                  (fn [m args]
+                    (when-let [on-success (:on-success args)]
+                      (rf/dispatch (conj on-success {:status 200 :body {:user "u1"}})
+                                   {:frame (:frame m)})))}})
+```
+
+Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
+
 ## v1 compatibility shim: `run-test-sync`
 
 If you are mechanically porting v1 tests, `ts/run-test-sync` is a body wrapper that snapshot/restores the registrar around the body:
