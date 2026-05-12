@@ -105,7 +105,7 @@
                             ;; lockstep with implementation/package.json so
                             ;; the smoke-tested combination is what users
                             ;; get.
-                            :shadow-version    "2.28.20"
+                            :shadow-version    "3.4.10"
                             :react-version     "18.3.1"})
         ;; Each renderer is scoped to its sub-tree, so the per-substrate
         ;; views.cljs / deps.edn / shadow-cljs.edn / package.json live

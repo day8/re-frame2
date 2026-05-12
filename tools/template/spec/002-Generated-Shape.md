@@ -144,7 +144,7 @@ standard set and the template's own additions.
 | `{{uix?}}` | Conditional section flag | `true` / `false` |
 | `{{helix?}}` | Conditional section flag | `true` / `false` |
 | `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |
-| `{{shadow-version}}` | shadow-cljs pin | `2.28.20` |
+| `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
 | `{{react-version}}` | react & react-dom pin | `18.3.1` |
 
 The `?`-suffixed flags exist because Mustache sections key on a
