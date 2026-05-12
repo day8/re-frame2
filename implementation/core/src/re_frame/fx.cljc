@@ -61,31 +61,85 @@
 
 (defn- resolve-fx-with-overrides
   "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.
-  If the override target is registered, use it. If not, emit
-  :rf.error/override-fallthrough and fall back to the original fx-id.
-  Returns the resolved fx-id."
+
+  Three override-value shapes are honoured (per [002 §`:fx-overrides`](spec/002-Frames.md#fx-overrides--replace-fx-handlers)):
+
+    1. **Missing key** — no override; the original fx-id flows through.
+    2. **Keyword value** — id-redirect: the registered fx at the target id
+       runs in place of the original. If the target is not registered,
+       emit `:rf.error/override-fallthrough` and fall back to the original
+       fx-id. This is the **pattern-level**, portable form (SSR-safe).
+    3. **Function value** `(fn [m args] ...)` — CLJS reference convenience
+       for test fixtures and story decorators. The fn runs in place of the
+       registered fx; no registry lookup against the original fx-id is
+       performed. Spec/002 marks this form as a CLJS-reference local
+       affordance (not portable across the wire); the JVM-side reference
+       (this code) supports it too — `.cljc` is single-source.
+
+  Returns the resolved fx-id (keyword); for the fn-value branch, returns
+  the original-fx-id (used only for trace shape — the actual handler
+  invocation goes through `:rf.fx/override-applied` and the synthesised
+  meta returned by `resolved-fx-meta`)."
   [original-fx-id overrides]
-  (if-let [override-target (get overrides original-fx-id)]
-    (if (registrar/lookup :fx override-target)
-      (do
-        (trace/emit! :fx :rf.fx/override-applied
-                     {:from original-fx-id :to override-target})
-        override-target)
-      (do
-        (trace/emit-error! :rf.error/override-fallthrough
-                           {:failing-id     original-fx-id
-                            :overrides-map  overrides
-                            :looked-up-id   override-target
-                            :reason         (str "Override redirected `"
-                                                 original-fx-id
-                                                 "` to `"
-                                                 override-target
-                                                 "`, which is not registered. Using the registered `"
-                                                 original-fx-id
-                                                 "` instead.")
-                            :recovery       :replaced-with-default})
+  (if (contains? overrides original-fx-id)
+    (let [override-target (get overrides original-fx-id)]
+      (cond
+        ;; (3) function value — CLJS-reference convenience.
+        (fn? override-target)
+        (do
+          (trace/emit! :fx :rf.fx/override-applied
+                       {:from original-fx-id :to ::fn-value})
+          original-fx-id)
+
+        ;; (2) id-redirect to a registered fx.
+        (keyword? override-target)
+        (if (registrar/lookup :fx override-target)
+          (do
+            (trace/emit! :fx :rf.fx/override-applied
+                         {:from original-fx-id :to override-target})
+            override-target)
+          (do
+            (trace/emit-error! :rf.error/override-fallthrough
+                               {:failing-id     original-fx-id
+                                :overrides-map  overrides
+                                :looked-up-id   override-target
+                                :reason         (str "Override redirected `"
+                                                     original-fx-id
+                                                     "` to `"
+                                                     override-target
+                                                     "`, which is not registered. Using the registered `"
+                                                     original-fx-id
+                                                     "` instead.")
+                                :recovery       :replaced-with-default})
+            original-fx-id))
+
+        :else
+        ;; Neither fn nor keyword — treat as "no override" and fall
+        ;; through to the original fx. Includes `nil` (documented in
+        ;; spec/002 §`:fx-overrides` as a noop-style placeholder).
         original-fx-id))
     original-fx-id))
+
+(defn- resolved-fx-meta
+  "Return the fx-handler meta to invoke for `original-fx-id` under
+  `overrides`. The fn-value branch synthesises a transient meta that
+  carries the user-supplied lambda as `:handler-fn`; the id-redirect
+  and no-override branches look up the registrar entry under the
+  resolved fx-id.
+
+  Returns `nil` when no handler is resolvable (the caller then emits
+  `:rf.error/no-such-fx`)."
+  [original-fx-id resolved-fx-id overrides]
+  (let [override (get overrides original-fx-id)]
+    (if (and (contains? overrides original-fx-id)
+             (fn? override))
+      ;; Function-value override — synthesise a meta with the user's fn.
+      ;; `:platforms` defaults to both so the fn is callable from JVM and
+      ;; browser tests alike (the override is a test/story affordance —
+      ;; gating it by platform would surprise the test author).
+      {:handler-fn override
+       :platforms  #{:client :server}}
+      (registrar/lookup :fx resolved-fx-id))))
 
 (defn- emit-handled!
   "Emit a `:rf.fx/handled` success trace for a dispatched fx. Per Spec-Schemas
@@ -117,7 +171,8 @@
   `:rf.http/managed` (Spec 014 §Reply addressing) can address replies back
   to the originator without a separate cofx-injection step."
   [frame-id [original-fx-id args] active-platform overrides origin-event]
-  (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)]
+  (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)
+        resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)]
    ;; Per Spec 009 §Performance instrumentation (rf2-du3i): every fx
    ;; invocation — reserved or user-registered — runs inside a perf
    ;; bracket so prod builds with the perf flag enabled produce a
@@ -165,8 +220,13 @@
     ;; by re-frame.machines (day8/re-frame2-machines) via the regular
     ;; reg-fx path and arrive here through the registrar default below.
 
-    ;; Default: user-registered fx.
-    (if-let [meta (registrar/lookup :fx fx-id)]
+    ;; Default: user-registered fx — OR a synthesised meta carrying a
+    ;; function-value override (per `resolved-fx-meta` above; the
+    ;; spec/002 CLJS-reference convenience form). `resolved-meta` was
+    ;; computed once at top of `handle-one-fx` so the case-block fallthrough
+    ;; honours both registry hits and the fn-value override branch without
+    ;; a second lookup.
+    (if-let [meta resolved-meta]
       (if (fx-runs-on-platform? meta active-platform)
         (let [;; Per rf2-3nn8: bind `*current-trigger-handler*` for the
               ;; duration of the fx handler's invocation (including the
