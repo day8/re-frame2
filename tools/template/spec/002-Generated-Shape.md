@@ -17,12 +17,19 @@ my-app/
 ├── .gitignore
 ├── resources/public/
 │   └── index.html            host page; loads /js/main.js
-└── src/my_app/
-    ├── core.cljs             entry point — mounts the view
-    ├── events.cljs           :counter/initialise, :counter/increment
-    ├── subs.cljs             :counter/value
-    └── views.cljs            the counter view
+├── src/my_app/
+│   ├── core.cljs             entry point — mounts the view
+│   ├── events.cljs           :counter/initialise, :counter/increment
+│   ├── subs.cljs             :counter/value
+│   └── views.cljs            the counter view
+└── test/my_app/
+    └── events_test.cljs      cljs.test deftest hitting the events ns
+                              under the plain-atom adapter
 ```
+
+`shadow-cljs.edn` ships `:source-paths ["src" "test"]` so the `:test`
+build (`:target :node-test`, `:ns-regexp "-test$"`) picks the file
+up out of the box.
 
 The UIx and Helix variants follow the same shape; only `core.cljs`,
 `views.cljs`, `deps.edn`, and the substrate-adapter coord change.
@@ -63,6 +70,7 @@ tools/template/
         │   ├── README.md
         │   ├── gitignore
         │   ├── events.cljs
+        │   ├── events_test.cljs
         │   ├── subs.cljs
         │   └── index.html
         ├── reagent/                      ; Reagent-specific

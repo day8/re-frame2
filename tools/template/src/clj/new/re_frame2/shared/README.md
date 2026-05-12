@@ -27,6 +27,21 @@ npx shadow-cljs release app
 Production output lands in `resources/public/js/`. Serve `resources/public/`
 from any static host.
 
+## Run tests
+
+```sh
+npx shadow-cljs compile test
+node out/node-test.js
+```
+
+The `:test` build in `shadow-cljs.edn` is a `:node-test` target that
+picks up every `*_test.cljs` namespace under `test/` and runs it via
+`cljs.test`. The scaffold ships one such file —
+`test/{{nested-dirs}}/events_test.cljs` — exercising
+`:counter/initialise` and `:counter/increment` against the plain-atom
+reactive substrate (no DOM needed). Add more `*_test.cljs` files
+alongside it as your app grows.
+
 ## Project layout
 
 ```
@@ -38,11 +53,13 @@ from any static host.
 ├── .gitignore               ; CLJS standard
 ├── resources/public/
 │   └── index.html           ; host page; loads shadow-cljs's compiled output
-└── src/{{nested-dirs}}/
-    ├── core.cljs            ; entry point — mounts the root view
-    ├── events.cljs          ; `:counter/initialise`, `:counter/increment` handlers
-    ├── subs.cljs            ; `:counter/value` subscription
-    └── views.cljs           ; the counter view ({{substrate}})
+├── src/{{nested-dirs}}/
+│   ├── core.cljs            ; entry point — mounts the root view
+│   ├── events.cljs          ; `:counter/initialise`, `:counter/increment` handlers
+│   ├── subs.cljs            ; `:counter/value` subscription
+│   └── views.cljs           ; the counter view ({{substrate}})
+└── test/{{nested-dirs}}/
+    └── events_test.cljs     ; substrate-agnostic event-handler tests
 ```
 
 ## What's in the scaffold

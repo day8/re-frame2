@@ -23,6 +23,12 @@
  {;; `clojure -M:shadow` runs shadow-cljs in JVM mode via the alias.
   ;; You can also use `npx shadow-cljs ...` (shadow's own node-side CLI).
   ;; Both work; the npm-side route is the canonical workflow.
+  ;;
+  ;; `:extra-paths ["test"]` puts the emitted unit-test tree on
+  ;; shadow's classpath under this alias — shadow-cljs reads
+  ;; :paths/:extra-paths out of deps.edn (the :source-paths key in
+  ;; shadow-cljs.edn is ignored when :deps is active).
   :shadow
-  {:extra-deps {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}
-   :main-opts  ["-m" "shadow.cljs.devtools.cli"]}}}
+  {:extra-paths ["test"]
+   :extra-deps  {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
