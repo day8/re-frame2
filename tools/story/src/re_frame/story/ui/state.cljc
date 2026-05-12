@@ -57,7 +57,13 @@
                            registered :story-panel renders in the chrome.
                            Stage 4 ships a vanilla set of panels (trace /
                            scrubber / controls); Stage 6 will register
-                           more via reg-story-panel."
+                           more via reg-story-panel.
+  - `:active-mode-tab`   — {variant-id → :dev | :docs | :test}. Per-variant
+                           mode-tab selection for the render-shell's top
+                           Canvas | Docs | Tests switcher (rf2-9hc8).
+                           Unspecified → :dev (canvas). Persisted in
+                           localStorage under `re-frame.story/active-
+                           mode-tab/<variant-id>`."
   {:selected-variant   nil
    :selected-workspace nil
    :tag-filter         #{}
@@ -67,7 +73,8 @@
    :hot-reload-tick    0
    :fingerprints       {}
    :pinned-snapshots   {}
-   :panel-visibility   {:trace true :scrubber true :controls true}})
+   :panel-visibility   {:trace true :scrubber true :controls true}
+   :active-mode-tab    {}})
 
 ;; ---- pure transition fns (JVM-testable) ----------------------------------
 
@@ -126,6 +133,49 @@
   "Flip a panel's visibility."
   [state panel-id]
   (update-in state [:panel-visibility panel-id] not))
+
+;; ---- mode-tab (rf2-9hc8) -------------------------------------------------
+
+(def mode-tabs
+  "Ordered vector of canonical render-shell mode tabs. Stable id order
+  drives the chip strip's left-to-right layout. `:dev` is the canvas
+  view (rendered by `re-frame.story.ui.canvas`), `:docs` is the
+  read-only AutoDocs-equivalent (rf2-rodx), `:test` is the
+  in-canvas aggregated pass/fail view (rf2-qmjo)."
+  [:dev :docs :test])
+
+(def mode-tab-labels
+  "Human-readable label per mode-tab id. Used by the chip strip."
+  {:dev  "Canvas"
+   :docs "Docs"
+   :test "Tests"})
+
+(def default-mode-tab
+  "Default mode-tab when no per-variant selection is recorded. `:dev`
+  preserves Story v1's existing behaviour — the variant renders in the
+  canvas as soon as it's selected."
+  :dev)
+
+(defn valid-mode-tab?
+  "Is `tab` one of the canonical mode-tabs?"
+  [tab]
+  (boolean (some #{tab} mode-tabs)))
+
+(defn active-mode-tab
+  "Look up the currently-active mode-tab for `variant-id`. Falls back
+  to `default-mode-tab` when no selection is recorded."
+  [state variant-id]
+  (or (get-in state [:active-mode-tab variant-id])
+      default-mode-tab))
+
+(defn set-active-mode-tab
+  "Record the active mode-tab for `variant-id`. `tab` MUST be one of
+  `mode-tabs`; an unrecognised value is silently ignored so callers
+  can't poison the state."
+  [state variant-id tab]
+  (if (valid-mode-tab? tab)
+    (assoc-in state [:active-mode-tab variant-id] tab)
+    state))
 
 ;; ---- pure derivations ----------------------------------------------------
 

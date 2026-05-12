@@ -45,6 +45,7 @@
             [re-frame.story.ui.canvas :as canvas]
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.help :as help]
+            [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
@@ -262,17 +263,34 @@
 
   Renders as a `<main>` landmark (per rf2-xc65) so the rendered variant
   has a containing landmark and axe-core's `region` /
-  `landmark-one-main` rules pass."
+  `landmark-one-main` rules pass.
+
+  Per rf2-9hc8 a Canvas | Docs | Tests mode-tab strip sits at the top
+  of the pane when a variant is selected; selection is per-variant and
+  persists across reloads in localStorage. The `:docs` and `:test`
+  panes are placeholders for rf2-rodx / rf2-qmjo respectively; `:dev`
+  preserves the existing canvas / workspace behaviour."
   []
   (let [shell      @state/shell-state-atom
         variant-id (:selected-variant shell)
         ws-id      (:selected-workspace shell)
-        vis        (:panel-visibility shell)]
+        vis        (:panel-visibility shell)
+        mode-tab   (when variant-id
+                     (state/active-mode-tab shell variant-id))]
     [:main {:style (:main styles)
             :aria-label "Story canvas"}
+     ;; rf2-9hc8: top-of-shell mode-tab strip — only when a single
+     ;; variant is selected (workspaces enumerate multiple variants and
+     ;; have their own layout switcher; mixing mode-tabs into that pane
+     ;; conflates two unrelated UX axes).
+     (when (and variant-id (not ws-id))
+       [mode-tabs/mode-tabs-strip variant-id])
      (cond
        ws-id    [workspace/workspace-view ws-id]
-       variant-id [canvas/canvas]
+       variant-id (case mode-tab
+                    :docs [mode-tabs/docs-placeholder variant-id]
+                    :test [mode-tabs/tests-placeholder variant-id]
+                    [canvas/canvas])
        :else
        [:div {:style {:padding "32px"
                       :color "#9a9a9a"

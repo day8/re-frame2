@@ -6,6 +6,10 @@
 > `mount-shell!` / `unmount-shell!` / `active-shell` lifecycle. The
 > contract Stage 4 implements.
 
+See [`007-Mode-Tabs.md`](007-Mode-Tabs.md) for the `:dev` / `:docs` /
+`:test` mode-tabs primitive that sits at the top of the canvas pane
+(rf2-9hc8).
+
 ## UI shell substrate
 
 Story's own UI shell (sidebar, control panel, trace ribbon, embedded

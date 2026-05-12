@@ -160,6 +160,125 @@ module.exports = {
     await waitForVariantTitle(page, ':story.counter/loaded');
 
     // ====================================================================
+    // 3b. Mode-tabs strip — Canvas | Docs | Tests (rf2-9hc8)
+    // ====================================================================
+    //
+    // The render shell ships a per-variant mode-tabs strip at the top
+    // of the canvas pane (rf2-9hc8). Three chips: Canvas (:dev, default)
+    // | Docs (:docs, rf2-rodx placeholder) | Tests (:test, rf2-qmjo
+    // placeholder). Selection is per-variant and persists across reload
+    // in localStorage under `re-frame.story/active-mode-tab/<variant-id>`.
+    //
+    // The strip renders inside <main>, carries data-test="story-mode-tabs"
+    // and each chip carries data-mode-tab="<id>". Active chips set
+    // aria-selected="true".
+    const tabsStrip = page.locator('[data-test="story-mode-tabs"]');
+    await tabsStrip.waitFor({ state: 'visible', timeout: 5000 });
+
+    const devChip = tabsStrip.locator('[data-mode-tab="dev"]');
+    const docsChip = tabsStrip.locator('[data-mode-tab="docs"]');
+    const testChip = tabsStrip.locator('[data-mode-tab="test"]');
+
+    // All three chips must render.
+    await devChip.waitFor({ state: 'visible', timeout: 2000 });
+    await docsChip.waitFor({ state: 'visible', timeout: 2000 });
+    await testChip.waitFor({ state: 'visible', timeout: 2000 });
+
+    // Default mode-tab is :dev — the canvas is up. The :dev chip is
+    // active, the other two are not.
+    if ((await devChip.getAttribute('aria-selected')) !== 'true') {
+      throw new Error('expected :dev chip to be aria-selected="true" by default');
+    }
+    if ((await docsChip.getAttribute('aria-selected')) !== 'false') {
+      throw new Error('expected :docs chip to be aria-selected="false" by default');
+    }
+
+    // Click Docs → the docs placeholder appears and the :docs chip
+    // becomes active. The canvas (data-test="count") disappears from
+    // <main> because the docs pane replaces it.
+    await docsChip.click();
+    await page
+      .locator('[data-test="story-docs-placeholder"]')
+      .waitFor({ state: 'visible', timeout: 5000 });
+    if ((await docsChip.getAttribute('aria-selected')) !== 'true') {
+      throw new Error('expected :docs chip to be aria-selected="true" after click');
+    }
+    if ((await devChip.getAttribute('aria-selected')) !== 'false') {
+      throw new Error('expected :dev chip to flip aria-selected="false" after switching');
+    }
+
+    // Click Tests → the tests placeholder appears, :test chip active.
+    await testChip.click();
+    await page
+      .locator('[data-test="story-tests-placeholder"]')
+      .waitFor({ state: 'visible', timeout: 5000 });
+    if ((await testChip.getAttribute('aria-selected')) !== 'true') {
+      throw new Error('expected :test chip to be aria-selected="true" after click');
+    }
+
+    // Verify the persisted localStorage record. The mode-tabs primitive
+    // writes under `re-frame.story/active-mode-tab/:story.counter/loaded`.
+    const persistedTab = await page.evaluate(() =>
+      localStorage.getItem('re-frame.story/active-mode-tab/:story.counter/loaded'),
+    );
+    if (persistedTab !== 'test') {
+      throw new Error(
+        `expected localStorage to persist :test after click, got "${persistedTab}"`,
+      );
+    }
+
+    // Reload — the persisted selection must re-hydrate. Re-prime the
+    // help-overlay dismiss flag first so the reloaded shell doesn't
+    // block on the on-boarding overlay (same rationale as the top-of-
+    // run priming).
+    await page.evaluate(() => {
+      localStorage.setItem('re-frame.story/seen-help-v1', '1');
+    });
+    await page.reload();
+    await page.evaluate(() => {
+      window.location.hash = '#/stories';
+    });
+    // Re-select /loaded — selection is in-memory only, doesn't persist.
+    await clickVariant(page, '/loaded');
+    await waitForVariantTitle(page, ':story.counter/loaded');
+
+    // After reload + re-select, the :test chip should be re-hydrated as
+    // active and the tests placeholder visible. Poll: hydration from
+    // localStorage runs on the first render of the strip for this
+    // variant, which is the tick after `clickVariant` settles.
+    {
+      const start = Date.now();
+      let restored = false;
+      while (Date.now() - start < 5000) {
+        const sel = await page
+          .locator('[data-test="story-mode-tabs"] [data-mode-tab="test"]')
+          .getAttribute('aria-selected')
+          .catch(() => null);
+        if (sel === 'true') {
+          restored = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!restored) {
+        throw new Error(
+          'mode-tabs primitive did not re-hydrate :test from localStorage after reload',
+        );
+      }
+    }
+    await page
+      .locator('[data-test="story-tests-placeholder"]')
+      .waitFor({ state: 'visible', timeout: 5000 });
+
+    // Switch back to Canvas so the remaining sub-tests see the live
+    // variant render (the args editor / trace / scrubber / a11y panel
+    // / layout-debug assertions all need the canvas mounted).
+    await page
+      .locator('[data-test="story-mode-tabs"] [data-mode-tab="dev"]')
+      .click();
+    await waitForVariantTitle(page, ':story.counter/loaded');
+
+    // ====================================================================
     // 4. Mode-tag filter — :dev / :docs / :test chips
     // ====================================================================
     //
