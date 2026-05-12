@@ -108,6 +108,8 @@ All of this is **dev-only**. The trace bus is gated on `re-frame.interop/debug-e
 
 ## Click-to-source: the source-coord story
 
+In practice, this is the surface you reach for when a tester drops a screenshot on your desk and says "the wrong number is showing here." You don't grep. You don't binary-search the view tree. You point `re-frame-causa` (or a Playwright locator, or `re-frame-pair2`) at the rendered element, read the coord off the DOM node, and you're inside the function that produced it.
+
 The second piece of the tooling pitch is **source-coord stamping**. A tool gestures at a button on screen — a click in `re-frame-causa`, a `dom/source-at` call from `re-frame-pair2`, a Playwright locator in an end-to-end test — and asks "where in the code did this come from?" The answer is on the DOM node itself.
 
 ```html
@@ -138,6 +140,8 @@ Like the trace bus, source-coord stamping is **dev-only**. Production builds eli
 
 ## Scrubbing time
 
+In practice, this is the surface you reach for when a user says "I clicked three things and then the page went wrong, but I can't reproduce it." You walk the epoch history backwards, find the cascade that broke the invariant, and rewind the frame to before it ran — same `app-db`, same `view-tree`, debuggable in place. The bug stops being a story the user tells; it's a `:db-after` you can pprint.
+
 `epoch-history` plus `restore-epoch` is the time-travel surface. Per frame, the runtime keeps a ring buffer of the last N epoch records. Each record carries `:db-before`, `:db-after`, the event that triggered it, and structured projections of the cascade (sub-runs, renders, effects). A tool can:
 
 - **Walk backwards through history.** Render a timeline. Show what each event changed.
@@ -165,6 +169,8 @@ That same gesture — under different UI — is what `re-frame-pair2`'s "rewind 
 The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
 ## Performance: the prod-friendly channel
+
+In practice, this is the surface you reach for when a customer says "the app feels slow on the dashboard page" — in *production*, on *their* machine, where the dev-mode trace bus isn't running. The `rf:` User Timing entries land in your APM next to every other browser measurement, named by `event-id`, `sub-id`, `fx-id`, `view-id`, so you can see which event, which sub, which render is the one that's costing milliseconds.
 
 The trace bus is dev-only, but there's a second observation channel that's safe to enable in production: **User Timing API entries**, stable-named under the `rf:` prefix.
 
