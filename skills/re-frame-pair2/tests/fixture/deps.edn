@@ -1,0 +1,19 @@
+;; Pair2 fixture classpath (rf2-cxik).
+;;
+;; Pulls in the local re-frame2 artefacts as :local/root entries so the
+;; fixture builds against the exact tree-of-truth in this repo (rather
+;; than a Maven release). Reagent is on Maven.
+;;
+;; Path math: this file lives at
+;;   skills/re-frame-pair2/tests/fixture/deps.edn
+;; so "../../../../implementation/<artefact>" lands in the right place.
+;;
+;; The fixture needs core + reagent (for the view substrate) + epoch
+;; (otherwise epoch-history is empty and pair2's tests can't observe
+;; dispatch cascades).
+{:paths ["src" "../../preload"]
+ :deps  {day8/re-frame2         {:local/root "../../../../implementation/core"}
+         day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
+         day8/re-frame2-epoch   {:local/root "../../../../implementation/epoch"}
+         reagent/reagent        {:mvn/version "2.0.1"}
+         metosin/malli          {:mvn/version "0.20.1"}}}

@@ -2,11 +2,29 @@
 
 Four surfaces need coverage at different fidelities. See `docs/initial-spec.md` §9 for the architectural split.
 
+The fixture app at `tests/fixture/` (rf2-cxik) backs the shim and e2e
+surfaces — a minimal Reagent + shadow-cljs build that preloads
+`re-frame-pair2.runtime` and renders a counter. See `tests/fixture/README.md`
+for run instructions.
+
 ## 1. Runtime unit tests (`tests/runtime/`)
 
-**Status: not yet written.**
+**Status: partial — pure helpers covered.**
 
-`runtime_test.cljs` (planned) covers pure fns in `preload/re_frame_pair2/runtime.cljs` — `parse-rf2-coord`, `parse-rc-src`, `epoch-matches?`, `current-frame` resolution, `epochs-since` semantics, the session-sentinel shape, time-travel sugar. These can run via `shadow-cljs compile test` + `node out/test.js` without a browser or live re-frame2 app.
+`tests/runtime/*.clj` cover the pure fns in
+`preload/re_frame_pair2/runtime.cljs` via bb-mirrored copies of the
+parser logic:
+
+- `parse_rf2_coord_test.clj` — `parse-rf2-coord`
+- `app_db_reset_test.clj` — `app-db-reset!` failure-mode envelopes
+- `multi_frame_test.clj` — operating-frame resolution
+- `preload_sentinel_test.clj` — session-sentinel shape
+- `snapshot_test.clj` — coarse-grained `snapshot-state` composer
+- `watch_op_modes_test.clj` — watch-op predicate dispatch
+
+The shadow-cljs `node-test` harness (planned) will exercise the `.cljs`
+source in place once wired up. Until then, the bb mirrors are the
+canonical drift-detector.
 
 **To run (once set up):**
 
@@ -22,43 +40,113 @@ Failing points to flag on first run:
 
 ## 2. Bash-shim integration (`tests/shim/`)
 
-**Status: not yet written.**
+**Status: scaffolded — 7 tests, 28 assertions, runs per-push.**
 
-End-to-end against the fixture app. For each shell script in `scripts/*.sh`, assert:
+Per-push integration suite against a **stubbed nREPL**, not the live
+fixture. `tests/shim/stub_nrepl.clj` is a babashka program that accepts
+bencode, writes a port file at `target/shadow-cljs/nrepl.port` (the
+canonical location pair2's `ops.clj` probes), and returns canned
+responses from a small needle → CLJS-value table.
 
-- exit code matches the documented contract
-- stdout is parseable as edn
-- structured result has expected keys
+Test driver `tests/shim/shim_test.clj` invokes `bb ops.clj <subcmd>`
+directly (the `.sh` wrappers are 3-line `exec` shims, so running
+`ops.clj` exercises the same contract on Windows + POSIX without bash).
 
-Recommended approach: [`bats`](https://bats-core.readthedocs.io/) or a simple bash test harness. One `.bats` file per script; the fixture is started/stopped per test suite (not per test).
+Covers: `discover` (healthy + `:runtime-not-preloaded`), `eval`,
+`dispatch --sync`, `trace-recent`, `tail-build` (no-probe soft path),
+unknown-subcommand refusal.
+
+Run:
+
+```bash
+bb tests/shim/shim_test.clj
+```
+
+The live-fixture variant (probe-flips against a real shadow-cljs
+build) lives in `tests/e2e/` — see §3.
 
 ## 3. End-to-end in-browser (`tests/e2e/`)
 
-**Status: not yet written. Blocked on the fixture app.**
+**Status: scaffolded — 3 specs, soft-skip when fixture is down.**
 
-Drives a headless Chrome via [playwright](https://playwright.dev/) against the fixture. Exercises:
+Drives a headless Chromium via [playwright](https://playwright.dev/)
+against the live fixture app (`tests/fixture/`). The runner
+(`tests/e2e/run.cjs`) auto-detects fixture availability via an HTTP
+probe and soft-skips with exit 0 when nothing's running — so the suite
+is safe to wire into per-push CI lanes without false failures.
 
-- `watch-epochs.sh` against the assembled-epoch stream
-- `tail-build.sh` probe-based confirmation after a live source edit
-- `dom/source-at`, `dom/find-by-src`, `dom/fire-click-at-src` against an annotated DOM (`:annotate-dom? true`)
-- `restore-epoch` against each of the six documented failure modes
-- Full page refresh -> re-injection via session-sentinel miss
-- Multi-frame routing: dispatch with `--frame :stories` lands in the right history
+Specs (each a `*.e2e.cjs` exporting `async function run(ctx)`):
 
-This is where uncertainty about `data-rf2-source-coord` format and the `cljs-eval` round-trip gets flushed out.
+- **`connect-discover.e2e.cjs`** — `discover-app` returns `:ok? true`
+  against a live build; verifies preload landed and the lone frame is
+  `:rf/default`.
+- **`dispatch-trace.e2e.cjs`** — `dispatch '[:counter/inc]' --sync`
+  bumps the on-screen value and surfaces the epoch via `trace-recent`.
+- **`hot-reload-probe.e2e.cjs`** — touch-edit `core.cljs`, confirm
+  `tail-build --probe '(registrar-handler-ref :event :counter/inc)'`
+  reports `:ok? true :soft? false`. This is the safety-critical
+  probe-based reload contract from §4.5.
+
+Run:
+
+```bash
+# 1. boot the fixture
+cd tests/fixture && npx shadow-cljs watch app
+
+# 2. run e2e (in a sibling terminal)
+cd skills/re-frame-pair2
+PAIR2_FIXTURE_URL=http://localhost:8030 node tests/e2e/run.cjs
+```
+
+Future specs to add: `dom/source-at` against the annotated DOM,
+`restore-epoch` against the six documented failure modes, full
+page-refresh + re-injection, multi-frame routing. See
+`tests/e2e/README.md` for the scaffolded extension points.
 
 ## 4. Skill-prompt regression (`tests/prompts/`)
 
-**Status: not yet written.**
+**Status: scaffolded — 8 tests, 27 assertions, runs per-push.**
 
-A fixture app plus a harness that feeds representative Claude conversations and asserts the set of `scripts/*` invocations (and optionally the shape of Claude's reply). This catches silent drift in the skill's description and recipes as Claude's behaviour changes.
+Table-driven structural regression against `references/recipes.md`,
+`references/ops.md`, `references/errors.md`,
+`references/hot-reload-protocol.md`, and `SKILL.md`. The canonical-
+prompts table at the top of `tests/prompts/prompt_regression_test.clj`
+binds each representative user prompt to the recipe heading that
+covers it AND the ops the recipe is expected to name.
 
-Candidate prompts:
+The 5 canonical prompts wired so far:
 
-- "What's in `app-db` under `:user/profile`?" -> should call `app-db/get`
-- "Trace `[:cart/apply-coupon "SPRING25"]`" -> should call `dispatch.sh --trace`
-- "Why didn't the header update after `[:profile/save ...]`?" -> should walk `:sub-runs`, identify the equality gate
-- "Iterate on the cart handler until expired coupons are rejected" -> should use the experiment-loop recipe (dispatch-and-collect, restore-epoch, reg-event-fx, repeat)
+1. "What's in `app-db` under `:user/profile`?" → recipe still names
+   an `app-db/snapshot` / `app-db/get` style read.
+2. "Trace `[:cart/apply-coupon "SPRING25"]`" → recipe still names
+   `dispatch-and-collect`, the `:rf/epoch-record` shape, and the
+   `:sub-runs` / `:renders` projections.
+3. "Why didn't the header update after `[:profile/save ...]`?" →
+   recipe still walks `:sub-runs` and names the equality / cache-hit
+   gate.
+4. "Iterate on the cart handler until expired coupons are rejected" →
+   recipe still names `dispatch-and-collect`, `restore-epoch`, and
+   `reg-event-*`.
+5. "Where in the code does this button come from?" → recipe still
+   names `dom/source-at` and `data-rf2-source-coord`.
+
+Each row matches via `clojure.string/includes?` on the section of
+recipes.md under the expected heading; an alternation list lets us
+catch drift when an op is renamed without bricking the test on a
+single phrasing.
+
+Run:
+
+```bash
+bb tests/prompts/prompt_regression_test.clj
+```
+
+**This is v1.** A future bead drives actual Claude conversations
+through the same canonical-prompts table and asserts on the resulting
+tool-invocation sequence. The structural substrate here catches the
+cheapest class of drift first (recipe renamed, op disappeared, leaf
+file moved); the conversation-driving variant layers on top without
+re-deriving the prompts.
 
 ## CI gating
 
@@ -83,9 +171,14 @@ Mitigation until we can run E2E per-push:
 
 ## What's explicitly **not** tested yet
 
-- Connection against a real shadow-cljs build with nREPL enabled
-- Multi-frame routing under real concurrency
-- `restore-epoch` failure-mode traces
-- Hot-reload probe-form selection heuristics
+- Multi-frame routing under real concurrency (the e2e fixture is
+  single-frame on purpose; a multi-frame fixture variant is the next
+  step).
+- `restore-epoch` failure-mode traces against a live runtime (only
+  shape-tested via `tests/runtime/`).
+- Hot-reload probe-form *selection heuristics* (the probe contract
+  itself is exercised by `tests/e2e/hot-reload-probe.e2e.cjs`).
+- Claude-in-the-loop prompt regression (the structural drift detector
+  is in `tests/prompts/`; conversation-driving variant is a follow-up).
 
-These are §8a spike deliverables.
+These remain §8a spike deliverables for the path to beta.

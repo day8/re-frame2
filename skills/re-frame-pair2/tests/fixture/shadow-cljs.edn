@@ -1,0 +1,35 @@
+;; Pair2 fixture build (rf2-cxik).
+;;
+;; A minimal shadow-cljs build that mounts the counter view and preloads
+;; `re-frame-pair2.runtime`. Used by pair2's tests/shim, tests/e2e, and
+;; tests/prompts surfaces.
+;;
+;; The two pair2-specific bits are:
+;;
+;;   1. `../../preload` on :source-paths — the directory containing the
+;;      `re_frame_pair2/runtime.cljs` namespace that ships in the
+;;      `@day8/re-frame-pair2` npm package's `preload/`. Pair2's SKILL.md
+;;      §Setup tells consumers to put `node_modules/@day8/re-frame-pair2/preload`
+;;      on :source-paths; here we point straight at the in-repo source.
+;;
+;;   2. `:devtools :preloads [re-frame-pair2.runtime]` — shadow-cljs's
+;;      standard mechanism for loading the namespace before app code,
+;;      so the load-time sentinel (`js/globalThis.__re_frame_pair2_runtime`)
+;;      is in place by the time `discover-app` probes.
+;;
+;; The nREPL port lands at `target/shadow-cljs/nrepl.port` once
+;; `npx shadow-cljs watch app` is running; pair2's `discover-app`
+;; reads that file directly.
+{:source-paths ["src"
+                "../../preload"]
+ :dependencies [[reagent       "2.0.1"]
+                [metosin/malli "0.20.1"]]
+ :nrepl    {:port 0}  ;; let shadow choose; pair2 reads the port file.
+ :dev-http {8030 "public"}
+ :builds
+ {:app
+  {:target     :browser
+   :output-dir "public/out"
+   :asset-path "/out"
+   :modules    {:main {:init-fn counter.core/run}}
+   :devtools   {:preloads [re-frame-pair2.runtime]}}}}

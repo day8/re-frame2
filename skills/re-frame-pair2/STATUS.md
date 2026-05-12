@@ -2,7 +2,7 @@
 
 A living record of what's actually implemented, what's scaffolded, and what's blocked. Updated per release. See `docs/initial-spec.md` for the design this is measured against.
 
-**Last updated:** 2026-05-09 (initial port from v1)
+**Last updated:** 2026-05-13 (rf2-cxik: fixture app + initial validation envelope)
 
 ---
 
@@ -16,10 +16,16 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | `scripts/ops.clj` + shell shims | Written — babashka dispatches every op |
 | `.claude-plugin/plugin.json` | Written |
 | `package.json` + GH Actions (CI + release) | Written |
-| Fixture app | Not yet — see `docs/initial-spec.md` §8a |
-| End-to-end against a live re-frame2 app | Not done — this is the spike |
+| Fixture app | **Landed (rf2-cxik)** — `tests/fixture/`. Minimal Reagent counter + `re-frame-pair2.runtime` preload. |
+| End-to-end against a live re-frame2 app | **Scaffolded (rf2-cxik)** — three Playwright specs under `tests/e2e/`, soft-skips when no fixture. |
+| Shim integration (per-push) | **Landed (rf2-cxik)** — 7 tests, 28 assertions against a stubbed nREPL. |
+| Prompt regression (per-push) | **Landed (rf2-cxik)** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
 
-**Nothing in this repo has been exercised against a running re-frame2 + shadow-cljs build yet.** Pre-alpha. See *Known unknowns* below.
+**Per-push validation envelope is in place.** Live-runtime e2e is opt-in
+until CI gets a shadow-cljs job. The bb-runnable test surfaces
+(`tests/runtime/`, `tests/shim/`, `tests/prompts/`) run on every push
+without external infra; the live e2e fixture provides ground truth on
+demand. Still pre-alpha — see *Known unknowns* below.
 
 ---
 
@@ -86,11 +92,16 @@ Everything else is structurally correct per the Tool-Pair Spec but not runtime-v
 
 In order:
 
-1. Stand up a fixture re-frame2 app (minimal Reagent v2 + shadow-cljs).
-2. Ground-truth the three items under *Known unknowns*.
-3. Adjust `runtime.cljs` and `ops.clj` to match.
-4. Wire `tests/runtime/` into an actual shadow-cljs test build.
-5. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
+1. ~~Stand up a fixture re-frame2 app (minimal Reagent v2 + shadow-cljs).~~
+   **Done (rf2-cxik)** — `tests/fixture/`.
+2. Ground-truth the three items under *Known unknowns* against the
+   live fixture using the `tests/e2e/` runner.
+3. Adjust `runtime.cljs` and `ops.clj` to match any findings.
+4. Wire `tests/runtime/` into an actual shadow-cljs test build (the bb
+   mirrors are the canonical drift-detector for now).
+5. Wire `tests/shim/` and `tests/prompts/` into per-push CI (currently
+   runnable but not yet wired into `.github/workflows/`).
+6. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
 
 ---
 
