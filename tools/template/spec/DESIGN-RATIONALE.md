@@ -136,8 +136,8 @@ hello-world, not a routing-demo.
 
 **Why.**
 
-- **rf2-2kzw throughline.** [Guide chapter 02 — Your first
-  app](../../../docs/guide/02-your-first-app.md) walks through a
+- **rf2-2kzw throughline.** [Guide chapter 03 — Your first
+  app](../../../docs/guide/03-your-first-app.md) walks through a
   counter. The reference `examples/<substrate>/counter*/` apps
   are counters. The template emits a counter. A developer who
   runs the template and then opens the guide sees the same code

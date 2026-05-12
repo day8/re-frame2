@@ -54,4 +54,4 @@ See:
 
 - [Spec 006 — Reactive substrate](../../spec/006-ReactiveSubstrate.md) for the contract.
 - [Conventions §Packaging conventions](../../spec/Conventions.md) for the multi-artefact model.
-- [Guide chapter 02 — Your first app](../../docs/guide/02-your-first-app.md) for the "choose your adapter" walkthrough.
+- [Guide chapter 03 — Your first app](../../docs/guide/03-your-first-app.md) for the "choose your adapter" walkthrough.

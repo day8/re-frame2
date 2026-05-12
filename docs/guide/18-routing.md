@@ -1,4 +1,4 @@
-# 12 — Routing
+# 18 — Routing
 
 Routing in re-frame2 is **state plus events**, not a separate subsystem.
 
@@ -159,7 +159,7 @@ When the user clicks a link, presses Back/Forward, or arrives via a deep link, t
 (rf/reg-event-fx :rf.route/handle-url-change ...)
 ```
 
-The same handler runs **on the server during SSR** — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire server-side, populating server-rendered data the same way they do client-side. There is **no SSR-specific routing code**. (See [chapter 07](07-server-side.md) for the SSR story.)
+The same handler runs **on the server during SSR** — the request URL is fed in, the route slice is set, the view renders against it. The `:on-match` events also fire server-side, populating server-rendered data the same way they do client-side. There is **no SSR-specific routing code**. (See [chapter 11](11-server-side.md) for the SSR story.)
 
 ### Two URL-change events you'll see
 
@@ -563,7 +563,7 @@ An auth guard (regular interceptor on `:rf.route/navigate`) consults `:tags` and
                   ctx)))))
 ```
 
-Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer. The interceptor primitive (`->interceptor`), the sandwich shape, and how `:before` modifies the context are covered in [chapter 04a — Interceptors](04a-interceptors.md).
+Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer. The interceptor primitive (`->interceptor`), the sandwich shape, and how `:before` modifies the context are covered in [chapter 07 — Interceptors](07-interceptors.md).
 
 The editor's `:can-leave` guard plus a confirmation dialog are wired exactly as described above — the dirty-flag drives the sub; the dialog renders from `:rf/pending-navigation`; user clicks dispatch `:rf.route/continue` or `:rf.route/cancel`.
 
@@ -578,7 +578,7 @@ The same routing setup runs **server-side under SSR** without modification. The 
 
 ## Next
 
-- [13 — Where to go next](13-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
+- [19 — Where to go next](19-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
 - [Spec 012 — Routing](../../spec/012-Routing.md) — the full normative surface, including the path-pattern grammar's productions, the route ranking cascade, scroll restoration, and the SSR integration story in detail.
-- [chapter 07](07-server-side.md) — how routing folds into SSR.
+- [chapter 11](11-server-side.md) — how routing folds into SSR.
 - [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — why nav-tokens are the same shape as `:after`-timer epochs, and the cross-cutting pattern.

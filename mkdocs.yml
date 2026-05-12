@@ -53,25 +53,25 @@ nav:
   - Guide:
     - Overview: guide/README.md
     - "01 — Why re-frame2": guide/01-why-re-frame2.md
-    - "01a — app-db": guide/01a-app-db.md
-    - "02 — Your first app": guide/02-your-first-app.md
-    - "03 — Events, state, the cycle": guide/03-events-state-cycle.md
-    - "03a — Coeffects": guide/03a-coeffects.md
-    - "04 — Views and frames": guide/04-views-and-frames.md
-    - "04a — Interceptors": guide/04a-interceptors.md
-    - "05 — State machines": guide/05-state-machines.md
-    - "05a — Forms": guide/05a-forms.md
-    - "06 — Doing HTTP requests": guide/06-doing-http-requests.md
-    - "07 — The server side": guide/07-server-side.md
-    - "08 — From re-frame v1": guide/08-from-re-frame-v1.md
-    - "09 — The dynamic model": guide/09-the-dynamic-model.md
-    - "10 — Testing": guide/10-testing.md
-    - "10a — Errors": guide/10a-errors.md
-    - "11 — Tooling": guide/11-devtools-and-pair-tools.md
-    - "11a — Performance": guide/11a-performance.md
-    - "12 — Routing": guide/12-routing.md
-    - "14 — Stories": guide/14-stories.md
-    - "13 — Where to go next": guide/13-where-next.md
+    - "02 — app-db": guide/02-app-db.md
+    - "03 — Your first app": guide/03-your-first-app.md
+    - "04 — Events, state, the cycle": guide/04-events-state-cycle.md
+    - "05 — Coeffects": guide/05-coeffects.md
+    - "06 — Views and frames": guide/06-views-and-frames.md
+    - "07 — Interceptors": guide/07-interceptors.md
+    - "08 — State machines": guide/08-state-machines.md
+    - "09 — Forms": guide/09-forms.md
+    - "10 — Doing HTTP requests": guide/10-doing-http-requests.md
+    - "11 — The server side": guide/11-server-side.md
+    - "12 — From re-frame v1": guide/12-from-re-frame-v1.md
+    - "13 — The dynamic model": guide/13-the-dynamic-model.md
+    - "14 — Testing": guide/14-testing.md
+    - "15 — Errors": guide/15-errors.md
+    - "16 — Tooling": guide/16-devtools-and-pair-tools.md
+    - "17 — Performance": guide/17-performance.md
+    - "18 — Routing": guide/18-routing.md
+    - "19 — Where to go next": guide/19-where-next.md
+    - "20 — Stories": guide/20-stories.md
 
   - Spec:
     - Overview: spec/README.md

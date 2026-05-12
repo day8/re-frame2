@@ -90,7 +90,7 @@ across all three variants.
 Every variant emits a working counter. The counter is the same
 shape the developer reads about in:
 
-- [Guide chapter 02 — Your first app](../../../docs/guide/02-your-first-app.md)
+- [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
   — the friendly walkthrough.
 - [`examples/reagent/counter/`](../../../examples/reagent/counter/) —
   the canonical Reagent counter.
@@ -101,7 +101,7 @@ shape the developer reads about in:
 
 What the template emits is what the guide walks through (rf2-2kzw
 throughline). A developer who runs `clojure -X:project/new
-:template re-frame2 ...` and then reads Guide chapter 02 sees the
+:template re-frame2 ...` and then reads Guide chapter 03 sees the
 same code in both places.
 
 ## Future variants

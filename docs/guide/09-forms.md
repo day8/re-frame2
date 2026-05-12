@@ -1,4 +1,4 @@
-# 05a — Forms
+# 09 — Forms
 
 Most apps have at least one form, and most apps' forms are quietly identical underneath. A user types into a field. They tab away. They click submit. The server responds — accepts, rejects with field-level complaints, or fails for a reason that isn't any one field's fault. The user fixes something. The cycle repeats.
 
@@ -8,7 +8,7 @@ re-frame2 doesn't ship a forms library. There's no `<rf-form>` component, no `de
 
 The reason to converge on a convention rather than a library: forms are the kind of feature where *every project's needs are slightly different*, and a one-size component grows tentacles. The convention gives you a recipe that AI scaffolds (and other humans on your team) can produce on autopilot, while leaving the actual code yours to shape.
 
-We'll use the **login form** as the running example — same login flow from [chapter 05](05-state-machines.md), now zoomed in on the *form-slice* underneath the state machine. By the end of the chapter the slice shape, the seven events, the standard subs, and the standard view structure will be in front of you, end to end.
+We'll use the **login form** as the running example — same login flow from [chapter 08](08-state-machines.md), now zoomed in on the *form-slice* underneath the state machine. By the end of the chapter the slice shape, the seven events, the standard subs, and the standard view structure will be in front of you, end to end.
 
 ## The form slice
 
@@ -88,7 +88,7 @@ The form's *value* — the actual shape it's collecting — is a separate schema
 (rf/reg-app-schema [:auth :login :draft] LoginForm)
 ```
 
-Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the schema mechanics in general, see [chapter 03's app-db note](03-events-state-cycle.md) and [`spec/010-Schemas.md`](../../spec/010-Schemas.md).
+Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the schema mechanics in general, see [chapter 04's app-db note](04-events-state-cycle.md) and [`spec/010-Schemas.md`](../../spec/010-Schemas.md).
 
 ## Error visibility — touched OR submit-attempted
 
@@ -356,7 +356,7 @@ Passwords match. End-date is on or after start-date. Either-email-or-phone is re
 
 ### Multi-step forms / wizards
 
-A signup wizard, a checkout flow, a survey with branches. The form slice persists across steps; the *step* state is a small state machine over it. The machine handles "advance to step 3 when step 2's required fields are clean"; the form slice still holds the `:draft` accumulating across all steps. This is the place where [chapter 05](05-state-machines.md) and this chapter compose directly — the machine on top, the form slice underneath.
+A signup wizard, a checkout flow, a survey with branches. The form slice persists across steps; the *step* state is a small state machine over it. The machine handles "advance to step 3 when step 2's required fields are clean"; the form slice still holds the `:draft` accumulating across all steps. This is the place where [chapter 08](08-state-machines.md) and this chapter compose directly — the machine on top, the form slice underneath.
 
 ### Optimistic vs. pessimistic submit
 
@@ -372,7 +372,7 @@ Don't reach for the form slice when:
 
 - **The input is a single boolean toggle or a single numeric stepper.** Adding `:draft`, `:status`, `:errors` to flip a setting is theatre. Just write the value.
 
-- **The "form" is one button.** The counter from chapter 02 isn't a form. The button posts an HTTP request; the reply updates the counter. No drafts, no validation, no `:_form` key. This is the case where forcing the convention onto the feature would obscure rather than clarify.
+- **The "form" is one button.** The counter from chapter 03 isn't a form. The button posts an HTTP request; the reply updates the counter. No drafts, no validation, no `:_form` key. This is the case where forcing the convention onto the feature would obscure rather than clarify.
 
 The discriminator is *intent to commit*. If there's a moment between "user finished editing" and "system accepts the result," with validation work happening at that moment, the form slice fits. If there isn't — if every keystroke is also a commit — it doesn't.
 
@@ -400,10 +400,10 @@ The checklist is identical to the one in [`spec/Pattern-Forms.md`](../../spec/Pa
 - [`spec/Pattern-AsyncEffect.md`](../../spec/Pattern-AsyncEffect.md) — the generic async shape per-field async validation composes with.
 - [`spec/Pattern-StaleDetection.md`](../../spec/Pattern-StaleDetection.md) — epoch-carry for async validation that can be superseded by further typing.
 - [`spec/Pattern-RemoteData.md`](../../spec/Pattern-RemoteData.md) — the request-lifecycle slice the submit step reuses when the server is involved.
-- [chapter 05 — State machines](05-state-machines.md) — multi-step wizards layer a machine on top of the form slice.
+- [chapter 08 — State machines](08-state-machines.md) — multi-step wizards layer a machine on top of the form slice.
 - [`examples/reagent/realworld/auth.cljs`](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld/auth.cljs) — RealWorld's login and register forms exercise the convention end-to-end; `article_editor.cljs` and `comments.cljs` extend it across longer drafts and inline-comment submissions.
 
 ## Next
 
-- [06 — Doing HTTP requests](06-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end. The submit step's network round-trip rides on top of this.
-- [07 — The server side](07-server-side.md) — SSR and hydration; how a form's `:draft` can be seeded from server-supplied initial values via `:rf/hydrate`.
+- [10 — Doing HTTP requests](10-doing-http-requests.md) — `:rf.http/managed`, the canonical request fx, end-to-end. The submit step's network round-trip rides on top of this.
+- [11 — The server side](11-server-side.md) — SSR and hydration; how a form's `:draft` can be seeded from server-supplied initial values via `:rf/hydrate`.

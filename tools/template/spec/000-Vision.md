@@ -54,8 +54,8 @@ and recognises the shape. That continuity is deliberate.
   point (`core.cljs`), the view (`views.cljs`), and the substrate
   adapter coord differ.
 - **Counter as canonical example.** The generated counter is the
-  same shape the developer reads about in [Guide chapter 02
-  — Your first app](../../../docs/guide/02-your-first-app.md)
+  same shape the developer reads about in [Guide chapter 03
+  — Your first app](../../../docs/guide/03-your-first-app.md)
   (rf2-2kzw throughline). What the template emits is what the guide
   walks through.
 - **Lockstep with the reference implementation's pins.** The
@@ -77,7 +77,7 @@ and recognises the shape. That continuity is deliberate.
   ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §No-Story-yet).
 - **Multi-frame scaffolds.** Frames (Spec 002) are a runtime
   concern. The template emits a single-frame app; the user reads
-  Guide chapter 04 to add more.
+  Guide chapter 06 to add more.
 - **Server-side hosting.** No backend; the template is a pure CLJS
   SPA. SSR scaffolding (Spec 011) lands as a separate template
   variant if/when SSR matures.
@@ -93,6 +93,6 @@ and recognises the shape. That continuity is deliberate.
 - [API.md](API.md) — the consolidated public invocation surface.
 - [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) — WHY each major call
   was made.
-- [Guide chapter 02 — Your first app](../../../docs/guide/02-your-first-app.md)
+- [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
   — the worked-example throughline the template's generated counter
   aligns with (rf2-2kzw).

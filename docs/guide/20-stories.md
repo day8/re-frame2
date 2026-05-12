@@ -1,8 +1,8 @@
-# 14 — Stories
+# 20 — Stories
 
-You've seen the runtime in chapter 03, the views in chapter 04, the test machinery in chapter 10, and the tooling pitch in chapter 11. This chapter is where they converge.
+You've seen the runtime in chapter 04, the views in chapter 06, the test machinery in chapter 14, and the tooling pitch in chapter 16. This chapter is where they converge.
 
-[`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a **frame-aware component playground** — Storybook-flavoured, but built on re-frame2's primitives the whole way down. Each variant of a component runs in its own dedicated frame (chapter 04). Each variant body is plain data, not a function (no `<Counter.story.tsx>` with inline JSX). Args resolve through a three-layer chain. Assertions ride the same `dispatch` pipeline as production events. Time-travel scrubs through `restore-epoch` (chapter 11). When you want to scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` against the same component you're shipping.
+[`re-frame2-story`](https://github.com/day8/re-frame2/tree/main/tools/story) is a **frame-aware component playground** — Storybook-flavoured, but built on re-frame2's primitives the whole way down. Each variant of a component runs in its own dedicated frame (chapter 06). Each variant body is plain data, not a function (no `<Counter.story.tsx>` with inline JSX). Args resolve through a three-layer chain. Assertions ride the same `dispatch` pipeline as production events. Time-travel scrubs through `restore-epoch` (chapter 16). When you want to scaffold a new component, you're not reaching for a separate `.stories.tsx` file — you're declaring `reg-story` and `reg-variant` against the same component you're shipping.
 
 You'll know how to:
 
@@ -14,7 +14,7 @@ You'll know how to:
 - Mount the Story shell at a URL and tear it down cleanly.
 - Find the agent-facing MCP surface when you want one.
 
-The worked example throughout is [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories) — the same counter we've been pivoting around since chapter 02, with the seven Story authoring macros wired up end-to-end.
+The worked example throughout is [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories) — the same counter we've been pivoting around since chapter 03, with the seven Story authoring macros wired up end-to-end.
 
 ## What Story is — and when you'd reach for it
 
@@ -29,7 +29,7 @@ Three of Story's hard rules are worth knowing up front:
 If you've used Storybook, this will be familiar. The places re-frame2-story differs:
 
 - **Schema-derived controls.** Spec 010's Malli schemas auto-generate the right control type for each arg — strings get text inputs, enums get dropdowns, ranges get sliders. You don't author `argTypes` separately.
-- **Frame-aware time-travel.** The scrubber doesn't replay events — it walks the per-frame epoch buffer (chapter 11) and restores via `restore-epoch`. The same machinery the runtime exposes everywhere.
+- **Frame-aware time-travel.** The scrubber doesn't replay events — it walks the per-frame epoch buffer (chapter 16) and restores via `restore-epoch`. The same machinery the runtime exposes everywhere.
 - **No CSF Factories.** Variant bodies are data; there's no `import { Story } from '@storybook/react'`. The artefact you ship is a clojure map.
 
 ## Authoring a first story
@@ -268,4 +268,4 @@ This is the whole story (no pun intended) about how a tool with this much surfac
 - **The agent surface** — [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md). The MCP server, the sixteen tools, the protocol shape, the write-gate.
 - **Spec 008 — Testing** ([Testing](../../spec/008-Testing.md)). Story's `run-variant` is the runner cljs.test / clojure.test reach for; the shape is locked there.
 
-Story is the most direct expression of the third-pillar pitch from [chapter 11](11-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.
+Story is the most direct expression of the third-pillar pitch from [chapter 16](16-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.

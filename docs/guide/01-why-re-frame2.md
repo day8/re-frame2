@@ -143,8 +143,8 @@ Almost everything. The same six dominoes. The same opinionated stance on a singl
 
 ## Where to read next
 
-If the argument lands, the next chapter ([01a — app-db](01a-app-db.md)) introduces the single most important *noun* in the model — the immutable map every re-frame2 app pivots around — in ten minutes. After that, [02 — Your first app](02-your-first-app.md) walks through a counter end-to-end. It's the smallest possible re-frame2 program, in narrative form, with the shape of every primitive made visible.
+If the argument lands, the next chapter ([02 — app-db](02-app-db.md)) introduces the single most important *noun* in the model — the immutable map every re-frame2 app pivots around — in ten minutes. After that, [03 — Your first app](03-your-first-app.md) walks through a counter end-to-end. It's the smallest possible re-frame2 program, in narrative form, with the shape of every primitive made visible.
 
-If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [09 — The dynamic-model story](09-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
+If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [13 — The dynamic-model story](13-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
 If you want the precise contracts before the prose, the [specification](../../spec/README.md) is one click away.

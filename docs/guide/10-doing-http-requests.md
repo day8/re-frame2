@@ -1,8 +1,8 @@
-# 06 — Doing HTTP requests
+# 10 — Doing HTTP requests
 
 Most SPAs spend their lives talking to a server. A handler dispatches; a fetch goes out; some milliseconds later a reply lands; the handler integrates the reply; the view re-renders. Repeat a few thousand times per session.
 
-[Chapter 03](03-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. The full normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md); this chapter is the human-track companion.
+[Chapter 04](04-events-state-cycle.md) gave the counter a network reach: `:counter/inc-from-server` issued a managed request, the reply landed back, the count moved. That sketch is the spine of this chapter. We'll keep the counter as the worked example and unpack every contract row `:rf.http/managed` carries — request shape, decode pipeline, retry, abort, frame-aware reply — by extending the counter one feature at a time. The full normative contract lives in [`spec/014-HTTPRequests.md`](../../spec/014-HTTPRequests.md); this chapter is the human-track companion.
 
 ## What `:rf.http/managed` is
 
@@ -30,7 +30,7 @@ This default — co-located request and reply — is the whole reason `:rf.http/
 
 ## Why it exists (vs raw `js/fetch` + ad-hoc effects)
 
-If you're coming from re-frame v1, the obvious thing is to register your own `:http` fx (chapter 03 sketches one), have it call `js/fetch`, and dispatch user-named follow-up events on resolution. That works. It's also what every team using re-frame v1 ended up reinventing, with subtly incompatible answers to:
+If you're coming from re-frame v1, the obvious thing is to register your own `:http` fx (chapter 04 sketches one), have it call `js/fetch`, and dispatch user-named follow-up events on resolution. That works. It's also what every team using re-frame v1 ended up reinventing, with subtly incompatible answers to:
 
 - **Where does the response shape live?** Some teams put `{:status 200 :body ...}`; some unwrap `:body` immediately; some hand the raw `Response` to the success handler.
 - **How are 4xx and 5xx classified?** Some teams treat any non-2xx as failure; some forward 401 specially; some let the success handler branch on status.
@@ -305,7 +305,7 @@ For the full slice schema, the four-event walkthrough, optimistic-update rollbac
 
 ## Worked example — `examples/reagent/managed_http_counter/`
 
-The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's the same counter from chapter 02, extended with HTTP — each button issues a managed request and the reply lands back in app-db. The counter's spine carries through unchanged; HTTP layers on top.
+The runnable demo of every contract above lives in [`examples/reagent/managed_http_counter/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter). It's the same counter from chapter 03, extended with HTTP — each button issues a managed request and the reply lands back in app-db. The counter's spine carries through unchanged; HTTP layers on top.
 
 Five buttons, each exercising a different slice of the contract:
 
@@ -359,4 +359,4 @@ The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../
 
 ## Next
 
-- [07 — The server side](07-server-side.md) — SSR and hydration; the `:platforms` story for fx that should only run in one place; how the per-request frame composes with managed-HTTP for setup fetches.
+- [11 — The server side](11-server-side.md) — SSR and hydration; the `:platforms` story for fx that should only run in one place; how the per-request frame composes with managed-HTTP for setup fetches.

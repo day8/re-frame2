@@ -41,7 +41,7 @@ Every variant emits a working counter:
   an increment button that dispatches `:counter/increment`.
 
 This is the same shape the developer reads about in [Guide chapter
-02 — Your first app](../../../docs/guide/02-your-first-app.md) and
+03 — Your first app](../../../docs/guide/03-your-first-app.md) and
 in the [`examples/<substrate>/counter*/`](../../../examples/)
 trees. The template's generated counter and the guide's worked
 example align (rf2-2kzw throughline).
@@ -178,5 +178,5 @@ template's own version cuts.
 - [API.md](API.md) — the full invocation surface.
 - [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) §clj-new-vs-deps-new
   — why this Mustache-resource shape was chosen.
-- [Guide chapter 02 — Your first app](../../../docs/guide/02-your-first-app.md)
+- [Guide chapter 03 — Your first app](../../../docs/guide/03-your-first-app.md)
   — the counter walkthrough the generated app aligns with.
