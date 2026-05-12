@@ -246,7 +246,15 @@
 
 (defn decorator-list
   "Show the variant's resolved decorator stack. Stage 4 is read-only;
-  Stage 6 adds the disable-by-name routing."
+  Stage 6 adds the disable-by-name routing.
+
+  Per rf2-4t5u: the resolved stack can carry the SAME decorator id more
+  than once — e.g. a story-level decorator and a variant-level
+  decorator may share an id, and `resolve-decorators` concats the
+  `:hiccup` / `:frame-setup` / `:fx-override` packs without
+  de-duping (each pack is a kind-specific layer). React requires
+  unique `key`s in a sibling list, so the row key is the `[index id]`
+  tuple rather than the bare id."
   [variant-id]
   (let [pack  (decorators/resolve-decorators variant-id)
         all   (concat (:hiccup pack) (:frame-setup pack) (:fx-override pack))]
@@ -254,8 +262,8 @@
      [:div {:style (:section-h styles)} "Decorators"]
      (if (empty? all)
        [:div {:style (:empty styles)} "no decorators on this variant"]
-       (for [{:keys [id body]} all]
-         ^{:key id}
+       (for [[i {:keys [id body]}] (map-indexed vector all)]
+         ^{:key [i id]}
          [:div {:style (:row styles)}
           [:span {:style (:label styles)} (str id)]
           [:span (str ":kind " (or (:kind body) "?"))]]))]))

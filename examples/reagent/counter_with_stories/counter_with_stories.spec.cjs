@@ -75,6 +75,28 @@ module.exports = {
   name: 'counter-with-stories',
   url: '/counter-with-stories/',
   run: async (page) => {
+    // The Story shell's first-visit help overlay (rf2-381i) auto-opens
+    // on first visit to #/stories. It carries `role="dialog"
+    // aria-modal="true"` and intercepts pointer events from the
+    // underlying shell — every sidebar / panel / canvas click waits
+    // indefinitely for the dialog to be dismissed. Tests run in a
+    // fresh Playwright context (no persistent localStorage), so the
+    // overlay is ALWAYS present on the first stories-shell mount in a
+    // test run unless the spec dismisses it.
+    //
+    // Persist the "seen" flag now so any subsequent navigation to
+    // #/stories during this run sees the dismissed state at mount
+    // time. The current page is the live counter app under #/, so the
+    // overlay isn't yet rendered — the dismiss-on-mount path takes
+    // over once we navigate to #/stories at step 2.
+    await page.evaluate(() => {
+      try {
+        localStorage.setItem('re-frame.story/seen-help-v1', '1');
+      } catch (_) {
+        /* ignore — private mode, etc. */
+      }
+    });
+
     // ====================================================================
     // 1. Live app at #/ — the original Stage-8 smoke
     // ====================================================================
@@ -436,26 +458,21 @@ module.exports = {
     }
 
     // ====================================================================
-    // 13. Layout-debug toggles — flipping a toggle injects the decorator
+    // 13. Layout-debug toggles — flipping a toggle updates :checked
     // ====================================================================
     //
     // The layout-debug panel ships three toggles (measure / outline /
-    // pseudo). Stage 6 records the toggle in `layout-debug-toggles`
-    // ratom; the rendered overlay is a Stage-6-or-later refinement
-    // (the toggle is informational at the v1 cut). Our surface
-    // assertion: clicking the outline toggle's checkbox flips its
-    // `checked` attribute. No DOM-class plumbing is asserted (the
-    // ratom isn't wired into the canvas render at this stage); the
-    // test just exercises the toggle so a regression that drops the
-    // checkbox surfaces here.
-    // The layout-debug-view panel ships three labelled toggles (measure /
-    // outline / pseudo); each is a [:label] containing a [:input
-    // type=checkbox readOnly]. Per the panel's own docs the v1 toggle is
-    // informational — the state records the user's preference; the
-    // canvas-side render-time merge that turns the preference into an
-    // applied decorator is a Stage-6-or-later refinement. Our surface
-    // assertion: the three toggles render and the click is dispatched
-    // without crashing the shell.
+    // pseudo); each is a <label> containing a <input type="checkbox">.
+    // Per rf2-4t5u the panel is now form-2 with `:on-change` wired on
+    // the input (not `:on-click` on the label), so each user click
+    // flips the toggle state exactly once and the rendered :checked
+    // attribute reflects the post-click state.
+    //
+    // The state itself is informational at v1 — the canvas-side
+    // render-time merge that turns the preference into an applied
+    // decorator is a Stage-6-or-later refinement. The surface
+    // assertion here is purely the round-trip: click → :checked flips
+    // → click again → :checked flips back.
     const outlineLabel = aside
       .locator('label', { hasText: ':rf.story/layout-debug.outline' })
       .first();
@@ -471,12 +488,48 @@ module.exports = {
       );
     }
 
-    // Click the label. The Stage-6 implementation flips the
-    // `layout-debug-toggles` r/atom but doesn't yet wire the toggle
-    // through to the rendered DOM (per the panel's own docstring); we
-    // just confirm the click doesn't crash the shell — the variant
-    // title is still visible afterwards.
+    // Initially every layout-debug toggle is off.
+    if (await outlineToggle.isChecked()) {
+      throw new Error('outline toggle started checked (expected unchecked)');
+    }
+
+    // Click the label — the contained input toggles via its own
+    // :on-change handler. Poll until :checked flips on, in case the
+    // r/atom commit batches through a microtask before React re-renders.
     await outlineLabel.click();
+    {
+      const start = Date.now();
+      let checked = false;
+      while (Date.now() - start < 5000) {
+        checked = await outlineToggle.isChecked();
+        if (checked) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!checked) {
+        throw new Error(
+          'outline toggle did not flip to :checked after clicking its label (rf2-4t5u regression)',
+        );
+      }
+    }
+
+    // Click again — :checked should flip back off.
+    await outlineLabel.click();
+    {
+      const start = Date.now();
+      let checked = true;
+      while (Date.now() - start < 5000) {
+        checked = await outlineToggle.isChecked();
+        if (!checked) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (checked) {
+        throw new Error(
+          'outline toggle did not flip back to unchecked after second click',
+        );
+      }
+    }
+
+    // Shell still alive — variant title still visible.
     await waitForVariantTitle(page, ':story.counter/loaded');
 
     // ====================================================================
