@@ -228,7 +228,7 @@ Universal trace event shape, including error events.
    [:recovery  {:optional true} [:enum :no-recovery :replaced-with-default :retried :skipped :warned-and-replaced :logged-and-skipped :ignored]]])
 ```
 
-The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` / `:parent-dispatch-id` under `:tags` of `:event/dispatched` events (per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id)). Per-event frame attribution rides under `[:tags :frame]`.
+The runtime emits event-at-a-time, not span-shaped: there is no `:start`/`:end`/`:duration` pair and no `:child-of` parent-id. Cascade correlation rides on `:dispatch-id` under `:tags` of **every** trace event emitted inside a cascade; `:parent-dispatch-id` rides under `:tags` of `:event/dispatched` events only (it documents inter-cascade lineage). Per [009 §Dispatch correlation](009-Instrumentation.md#dispatch-correlation-dispatch-id--parent-dispatch-id). Per-event frame attribution rides under `[:tags :frame]`.
 
 The `:op-type` vocabulary is **open** — implementations and tools may add new values additively per [Spec-ulation](Principles.md#spec-ulation). The reserved values used by the framework (in alphabetical order):
 
