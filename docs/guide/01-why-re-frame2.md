@@ -111,23 +111,9 @@ The original re-frame, on which re-frame2 builds, was created over a decade ago 
 
 This isn't an argument by authority. It's an observation that the architectural ideas re-frame2 commits to are well-validated. They're not new. They've shipped real products. They survive contact with reality.
 
-## What re-frame2 adds to the original re-frame
+## What this chapter isn't going to enumerate
 
-If you've used re-frame v1, the pattern above is mostly familiar. What re-frame2 adds:
-
-- **Frames** — multi-instance support. Same handlers, isolated state. Useful for devcards, story tools, server-side rendering, multi-window UIs.
-- **State machines** — adopted from xstate; finite-state, transition-table-driven, headlessly testable. Available when an event handler's logic is naturally a flow.
-- **Flows** — registered, toggleable computed-state declarations. Derived values become named runtime artefacts with explicit inputs, paths, and tooling visibility.
-- **Server-side rendering** — first-class, not a future concession. Views are pure data-producing functions; the render-tree is a serialisable string; hydration is a defined protocol.
-- **Routing as state** — the URL ↔ frame state contract. Routes are registry entries, navigation is an event, `:route` is a sub. The same handler runs server- and client-side.
-- **Schema-attached contracts** — Malli-backed path and payload schemas for events, routes, hydration payloads, and app-db slices. Better runtime diagnostics, migration safety, and stronger AI/tooling guidance.
-- **Deep instrumentation** — every dispatch, render, fx, error, and machine transition emits a structured trace event. Tools (10x, re-frame-pair, AI agents) consume the stream live. Production builds compile it out entirely.
-- **AI-first stance** — every registration carries metadata; the registry is queryable; errors are structured; the spec ships with construction prompts and a conformance corpus an AI can use.
-- **A specification** that's implementable in any language. The pattern stops being "a CLJS thing" and starts being "a thing you can have in TypeScript or Python or Kotlin too." The [Implementor's Checklist](../../spec/Implementor-Checklist.md) is the structured port guide — it walks an implementor through the optional-capability declarations, the host-discretion choices (which PDS library, which scheduler, which trace sink), and the conformance-corpus subset that grades the result.
-
-## What re-frame2 keeps from the original re-frame
-
-Almost everything. The same six dominoes. The same opinionated stance on a single source of truth. The same preference for data over APIs over syntax. The same Clojure-flavoured ethos: open maps, immutable values, stable contracts, late binding. If you've used re-frame v1, you can read re-frame2 code and understand it on the first pass — most of the time without noticing what changed.
+A natural next question is: *what specifically does re-frame2 add on top of v1, and what does it keep?* The honest answer is that the list reads as marketing until you've met the pieces — frames, machines, flows, schema-attached contracts, deep instrumentation, the spec. The guide introduces each in its own chapter. Once you've worked through them, [chapter 19](19-where-next.md) gathers the additions and the inheritances into a single retrospective recap — a sharper read once the names mean something.
 
 > ### Sidebar: where re-frame2 isn't the right fit
 >

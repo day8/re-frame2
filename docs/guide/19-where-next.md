@@ -2,6 +2,26 @@
 
 You've now seen the shape of re-frame2 from twelve angles — the argument, the cycle, views and frames, machines, HTTP, the server side, the v1 migration story, the dynamic-model essay, testing, devtools, and routing. The mental model is in place. A few directions from here.
 
+## What you've now seen
+
+If you came in from re-frame v1, you've now met everything that's new on top of the v1 pattern — and confirmed that almost everything else carries over unchanged. A retrospective tally, now that the names mean something:
+
+**What's new in re-frame2:**
+
+- **Frames** — multi-instance support. Same handlers, isolated state. The substrate for devcards, story tools, SSR, and multi-window UIs.
+- **State machines** — finite-state, transition-table-driven, headlessly testable. Reach for them when an event handler's logic is naturally a flow.
+- **Flows** — registered, toggleable computed-state declarations. Derived values as named runtime artefacts with explicit inputs, paths, and tooling visibility.
+- **Server-side rendering** — first-class. Views are pure data-producing functions; the render-tree is a serialisable string; hydration is a defined protocol.
+- **Routing as state** — URL ↔ frame state. Routes are registry entries, navigation is an event, `:route` is a sub. The same handler runs server- and client-side.
+- **Schema-attached contracts** — Malli-backed path and payload schemas for events, routes, hydration payloads, and app-db slices. Better runtime diagnostics, migration safety, stronger AI guidance.
+- **Deep instrumentation** — every dispatch, render, fx, error, and machine transition emits a structured trace event. Tools consume the stream live; production builds compile it out.
+- **AI-first stance** — every registration carries metadata, the registry is queryable, errors are structured, and the spec ships with construction prompts and a conformance corpus.
+- **A specification** that's implementable in any language. The pattern stops being a CLJS thing and starts being a thing you can have in TypeScript or Python or Kotlin too. The [Implementor's Checklist](../../spec/Implementor-Checklist.md) is the structured port guide.
+
+**What carries over from v1, unchanged:**
+
+Almost everything. The same six dominoes. The same opinionated stance on a single source of truth. The same preference for data over APIs over syntax. The same Clojure-flavoured ethos: open maps, immutable values, stable contracts, late binding. The reason your v1 code reads as v2 code on the first pass — most of the time without you noticing what changed.
+
 ## Build something with it
 
 The fastest way to make the pattern stick is to write code in it. The [worked examples](../../examples/README.md) are a graded sequence — start at the pedagogical end and move toward the benchmarks:
