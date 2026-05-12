@@ -60,7 +60,7 @@ Full panel inventory in [`spec/000-Vision.md`](./spec/000-Vision.md).
 ```
 
 That's it. The preload registers Causa's listeners under
-`register-trace-cb!` and `register-epoch-cb`, mounts a hidden DOM root,
+`register-trace-cb!` and `register-epoch-cb!`, mounts a hidden DOM root,
 and listens for `Ctrl+Shift+C`. No code change in the app itself.
 
 ### Launch

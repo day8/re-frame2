@@ -337,7 +337,7 @@
   routing through there keeps this namespace free of a require on
   re-frame.epoch and ensures `clear-trace-cbs!` (a user-facing API) does
   NOT wipe the internal capture path. Per Tool-Pair §Time-travel and
-  Spec 009 §`register-epoch-cb`."
+  Spec 009 §`register-epoch-cb!`."
   [event]
   (when-let [capture (late-bind/get-fn :epoch/capture-event)]
     (try
