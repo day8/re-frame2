@@ -41,11 +41,11 @@ re-frame2 makes a different choice: **all of your application's state goes in on
 
 3. **One schema validates the whole app.** A [Malli](https://github.com/metosin/malli) schema over app-db is the schema for the entire application's state, and it runs in one place — after every event. A good schema gives more leverage than static types because it can talk about the relationships *between* values, not just the shape of each value alone. (Per [Spec 010](../../spec/010-Schemas.md).)
 
-4. **Undo/redo and time-travel come for free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. Thanks to structural sharing, keeping a ring buffer of the last few hundred app-db values costs almost nothing. Undo/redo becomes a matter of swapping the reference back; time-travel debugging is the same mechanism with a UI on top. re-frame-10x's epoch buffer (per [Spec 009](../../spec/009-Instrumentation.md)) is exactly this.
+4. **Undo/redo and time-travel come for free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. Thanks to structural sharing, keeping a ring buffer of the last few hundred app-db values costs almost nothing. Undo/redo becomes a matter of swapping the reference back; time-travel debugging is the same mechanism with a UI on top. re-frame-causa's epoch buffer (per [Spec 009](../../spec/009-Instrumentation.md)) is exactly this.
 
 Two smaller-but-useful affordances ride along on the same idea:
 
-- **You can `pprint` it; you can `diff` two app-dbs.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it; before and after an event, before and after a refactor, before and after a bug, the diff is the whole story. Tools (re-frame-10x, re-frame-pair2) show it to you live.
+- **You can `pprint` it; you can `diff` two app-dbs.** Whatever's wrong with the app right now, you can dump its entire state to the REPL and read it; before and after an event, before and after a refactor, before and after a bug, the diff is the whole story. Tools (re-frame-causa, re-frame-pair2) show it to you live.
 
 - **No question of "where does this state go?"** The answer is always: somewhere in app-db, at a path your feature owns. When you add a `:cart`-feature, its state goes under `:cart`. When you add `:auth`, under `:auth`. The convention is the path.
 
@@ -68,7 +68,7 @@ This buys you three things:
 
 - **No mutation-bug class.** Half of "what's wrong with my app" in mutable-state systems is "something changed state from somewhere I don't expect." In re-frame2, only event handlers change state, and they do it by returning a new value. There is no `db.cart.push(item)` somewhere in your codebase. There can't be.
 
-- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](15-devtools-and-pair-tools.md) and [re-frame-10x](15-devtools-and-pair-tools.md) to read.
+- **Time-travel debugging that's actually free.** Recording the value of app-db before and after each event is recording two references. The framework keeps a ring buffer of them for the [pair tool](15-devtools-and-pair-tools.md) and [re-frame-causa](15-devtools-and-pair-tools.md) to read.
 
 The lost flexibility — you can't sneak a mutation in from a corner of the app — is the point. Less flexibility, more inspectability.
 

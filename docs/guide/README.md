@@ -45,7 +45,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 12 | [The dynamic-model story](12-the-dynamic-model.md) | You want the long-form essay on *why* less-powerful is more. Skippable for "I just want to write code" readers. |
 | 13 | [Testing](13-testing.md) | You're about to write tests — `re-frame.test-support`, frame fixtures, JVM-vs-CLJS boundary, conformance. |
 | 14 | [Errors and how to handle them](14-errors.md) | The `:rf.error/*` taxonomy, the trace-listener surface, `:on-error` policy per frame, recovery semantics, error projectors, and testing error paths. |
-| 15 | [Tooling](15-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-10x` v2). |
+| 15 | [Tooling](15-devtools-and-pair-tools.md) | The third-pillar pitch: trace bus, epochs, time-travel, source-coords, and the tools that consume them (`re-frame-pair2`, `re-frame2-story`, `re-frame-causa`). |
 | 16 | [Performance](16-performance.md) | Your page feels slow — the four shapes of slowness (big props, deep `=`, inline callbacks, expensive subs), the framework's answers, and the `rf:` User Timing surface. |
 | 17 | [Routing](17-routing.md) | Your app needs URL ↔ state — `reg-route`, navigation tokens, `:can-leave`, multi-frame. |
 | 18 | [From re-frame v1](18-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. The chapter is appendix-shaped — deps to bump, the migration skill to run, and the broad categories of breakage to expect. |
