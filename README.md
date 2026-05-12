@@ -5,7 +5,7 @@
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
 >
 
-re-frame2 is the axe. Same as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
+re-frame2 is the axe as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
 
 ## What is it?
 
@@ -31,17 +31,21 @@ This is the one that bites every React-shaped brain on first contact, so let me 
 
 For about ten years now, the React world has been organised around a particular gravitational centre: the component. Components own state via hooks. Components fetch data. Components route. Components subscribe to stores via a useFoo hook that some library or other plumbed in. Effects are colocated with the view tree because the view tree is what the framework can see, and so the view tree is where everything ends up living. Redux pushed back on this for a while, then everyone slowly migrated the Redux bits back into hooks anyway because the gravity was too strong. MobX tried. Zustand pretended it wasn't going to do this. Recoil, Jotai, signals, server components — every one of them is, at the end of the day, another attempt to attach state to the component tree without admitting that's what's happening.
 
-re-frame rejects that. Instead, events update centralised state. Subscriptions derive values from that state. Views sit at the end of the flow — they're render functions over reactive inputs, and they fire when their inputs change, and that is the entire job they have. There is no useState in a re-frame view. There is no useEffect. There is no "lifting state up" because state was never down there in the first place.
+re-frame rejects that. Instead, events update centralised state. Subscriptions derive values from that state. Views sit at the end of the flow — they're render functions over reactive inputs, and they fire when their inputs change, and that is the entire job they have. There is no useState in a re-frame view. There is no useEffect. There is no "lifting state up" because state was never down there in the first place. Views are not causal, they are derivative.
 
-**A re-frame2 app is, quite literally, a small virtual machine.** Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the program. The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. At the end of that pipeline, views update derivatively, because their reactive inputs changed.
+**A re-frame2 app is, quite literally, a small virtual machine.** Registered handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the instructions (collectively the program). The runtime executes every event through the same six-step pipeline, every time, no exceptions, no escape hatches. We call one iteration an epoch.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 > 
 > — Me, being snarky about the direction of the JS/TS frameworks
 
+
+> Beware of the Turing tar-pit in which everything is possible but nothing of interest is easy.
+> -- Alan Perlis, apparently equally furious
+
 **3. Tooling is first-class.** 
 
-re-frame2's runtime is a predictable computational pipeline with a single, deeply integrated trace bus. Every tool attaches to that bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, a 10x epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Devtools, AI pair-programmers, tests, story panels — they all consume the same surface.
+re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. Every tool attaches to that bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Devtools, AI pair-programmers, tests, story panels — they all consume the same surface.
 
 ### The core
 
