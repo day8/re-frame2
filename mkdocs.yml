@@ -112,6 +112,7 @@ nav:
       - Long-running work: spec/Pattern-LongRunningWork.md
       - Nine states: spec/Pattern-NineStates.md
       - Remote data: spec/Pattern-RemoteData.md
+      - Reusable components: spec/Pattern-ReusableComponents.md
       - Stale detection: spec/Pattern-StaleDetection.md
       - WebSocket: spec/Pattern-WebSocket.md
 
