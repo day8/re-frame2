@@ -544,16 +544,19 @@
       (is (= [child] rest)
           "children follow the frame keyword unchanged")
       ;; Invoke the head with the value + child to verify it produces the
-      ;; React Provider element. The hiccup [:>  ProviderClass {:value :a} child]
-      ;; structure round-trips back through Reagent.
+      ;; React Provider element via `:r>`. The hiccup shape is
+      ;; `[:r> ProviderClass #js {:value :a} child]` — `:r>` bypasses
+      ;; Reagent's `convert-prop-value` so the keyword's namespace
+      ;; survives the React-context round trip.
       (let [provider-tree (apply head value rest)
-            [marker provider-class props & inner] provider-tree]
-        (is (= :> marker)
-            "Reagent's interop marker for native React components")
+            [marker provider-class js-props & inner] provider-tree]
+        (is (= :r> marker)
+            "Reagent's raw-React.createElement marker — bypasses convert-prop-value")
         (is (some? provider-class)
             "the React Context Provider class is in head position")
-        (is (= {:value :a} props)
-            "the Provider's :value carries the frame keyword")
+        ;; The props are a raw JS object — read :value off it.
+        (is (= :a (aget js-props "value"))
+            "the Provider's :value carries the frame keyword unchanged")
         (is (= [child] inner)
             "children pass through unchanged")))))
 
@@ -616,9 +619,11 @@
           unwrap         (fn [tree] (apply (first tree) (rest tree)))
           a              (unwrap wrapper-tree)
           b              substrate-tree]
-      ;; Both produce `[:> Provider {:value :hello} [:span "x"]]`.
-      (is (= (first a) (first b)) "both emit the :> Reagent native marker")
-      (is (= (nth a 2) (nth b 2)) "both emit {:value :hello} as the props")
+      ;; Both produce `[:r> Provider #js {:value :hello} [:span "x"]]`.
+      (is (= (first a) (first b)) "both emit the :r> raw-React.createElement marker")
+      (is (= (aget (nth a 2) "value")
+             (aget (nth b 2) "value"))
+          "both emit the same :value on the raw JS props object")
       (is (= (drop 3 a) (drop 3 b)) "both emit the same children"))))
 
 ;; ---- per-frame sub-cache grace-period (Spec 006, rf2-s9dn) ----------------

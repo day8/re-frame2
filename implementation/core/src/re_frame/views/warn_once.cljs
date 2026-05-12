@@ -130,16 +130,17 @@
   `*current-frame*` is unset (Condition 4), so we want the React-
   context value alone.
 
-  Reagent's `convert-prop-value` (reagent.impl.template) stringifies
-  named values (keywords, symbols) when they are passed as React
-  prop values: `[:> Provider {:value :foo} ...]` reaches React with
-  `value=\"foo\"`, not the keyword. The shared coercion in
-  `re-frame.adapter.context` undoes that conversion so the detection
-  logic sees a keyword regardless of whether the closest Provider was
-  reached via `[:> ...]` interop (stringified) or through a plain-CLJS
-  object path (preserved). The createContext default — `:rf/default`
-  — survives as a keyword because it never passed through Reagent's
-  prop-conversion."
+  The canonical user-facing surface (`rf/frame-provider`) mounts the
+  Provider via Reagent's `:r>` interop head so the props map flows to
+  React as a raw JS object — `convert-prop-value` is bypassed and the
+  keyword reaches React unchanged. A raw-hiccup mount via
+  `[:> (.-Provider frame-context) {:value :foo}]` directly still
+  passes through stock Reagent's `convert-prop-value`, which
+  stringifies the keyword. The keyword/string coercion below tolerates
+  both shapes so the detection logic sees a keyword regardless of how
+  the closest Provider was authored. The createContext default —
+  `:rf/default` — survives as a keyword because it never passed
+  through prop-conversion."
   []
   (let [v (.-_currentValue ^js adapter-context/frame-context)]
     (cond

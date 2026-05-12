@@ -49,25 +49,40 @@
          #js {:value frame-kw}
          children))
 
-;; ---- coercion helper for React-context reads (rf2-d4sf) ------------------
+;; ---- coercion helper for React-context reads ------------------------------
 ;;
-;; Reagent's `convert-prop-value` (reagent.impl.template) stringifies
-;; named values when they are passed as React props: `[:> Provider
-;; {:value :foo} ...]` reaches React with `value=\"foo\"`, not the
-;; keyword. Both Reagent's class-component context-read path
-;; (`(.-context cmp)`) and the function-component `_currentValue` read
-;; observe the same stringified shape, so the coercion is shared. The
-;; createContext default (`:rf/default`) survives as a keyword because
-;; it never passes through Reagent's prop-conversion.
+;; Defensive cover for raw-hiccup Provider mounts. The canonical user-
+;; facing surface (`rf/frame-provider` -> `frame-provider-component`)
+;; mounts the Provider via Reagent's `:r>` interop head, which passes
+;; the props through as a raw JS object — `convert-prop-value` is
+;; bypassed entirely and the `:value` keyword (including its namespace)
+;; survives the React-context round trip.
 ;;
-;; Per Spec 002 §Reading the frame from React context — Reagent
-;; prop-conversion of named values.
+;; A user who writes `[:> (.-Provider frame-context) {:value :foo}]`
+;; directly (raw `:>` interop, not `rf/frame-provider`) still hits
+;; stock Reagent's prop-conversion under the classic adapter
+;; (`day8/re-frame2-reagent`). That path stringifies the keyword:
+;; `:foo` -> `\"foo\"`. The slim adapter (`day8/reagent-slim`)
+;; preserves keywords on non-HTML prop names so the read returns the
+;; keyword directly under that build.
+;;
+;; This helper round-trips the stringified shape back to a keyword so
+;; the resolution chain returns the same shape regardless of which
+;; adapter is loaded and whether the Provider was mounted via the
+;; canonical surface or raw hiccup. Note: stock Reagent's
+;; `(name kw)` is lossy for namespaced keywords — a raw-hiccup mount
+;; under the classic adapter with `{:value :foo/bar}` will reach the
+;; reader as `:bar`, not `:foo/bar`. The canonical surface preserves
+;; namespaces; raw-hiccup mounts that need namespaced frame-ids should
+;; switch to `rf/frame-provider` or to `provider-element` directly.
 
 (defn coerce-context-value
   "Coerce a raw React-context read (from `(.-context cmp)` or
   `_currentValue`) into a frame-id keyword, or nil when the read does
-  not name a frame. Tolerates Reagent's prop-stringified shape per
-  rf2-d4sf."
+  not name a frame. Tolerates a prop-stringified keyword shape that
+  raw-hiccup `[:> Provider {:value :foo}]` mounts produce under the
+  classic Reagent adapter — see the section header above for the
+  namespace-preservation contract."
   [v]
   (cond
     (keyword? v) v
