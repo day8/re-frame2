@@ -65,17 +65,20 @@
 ;; LINK VIEW
 ;; ============================================================================
 
-(reg-view route-link [{:keys [to params]} & children]
+(reg-view route-link [{:keys [to params data-testid]} & children]
   (let [url (rf/route-url to (or params {}))]
-    [:a {:href     url
-         :on-click (fn [e]
-                     (when (and (zero? (.-button e))
-                                (not (.-metaKey e))
-                                (not (.-ctrlKey e))
-                                (not (.-shiftKey e)))
-                       (.preventDefault e)
-                       (dispatch [:rf/url-requested
-                                  {:url url :to to :params (or params {})}])))}
+    [:a (cond-> {:href     url
+                 :on-click (fn [e]
+                             (when (and (zero? (.-button e))
+                                        (not (.-metaKey e))
+                                        (not (.-ctrlKey e))
+                                        (not (.-shiftKey e)))
+                               (.preventDefault e)
+                               (dispatch [:rf/url-requested
+                                          {:url url :to to :params (or params {})}])))}
+          ;; Optional :data-testid hook so Playwright specs can anchor
+          ;; on stable testids rather than visible text (rf2-0gdsb).
+          data-testid (assoc :data-testid data-testid))
      (into [:span] children)]))
 
 ;; ============================================================================
@@ -85,7 +88,9 @@
 (reg-view home-page []
   [:div
    [:h1 "Welcome"]
-   [:p [route-link {:to :route/articles} "See the articles →"]]])
+   [:p [route-link {:to :route/articles
+                    :data-testid "route-link-articles"}
+        "See the articles →"]]])
 
 (reg-view articles-page []
   [:div
@@ -93,7 +98,10 @@
    [:ul
     (for [{:keys [id title]} @(subscribe [:articles])]
       ^{:key id}
-      [:li [route-link {:to :route/article-detail :params {:id id}} title]])]])
+      [:li [route-link {:to :route/article-detail
+                        :params {:id id}
+                        :data-testid (str "route-link-article-" id)}
+            title]])]])
 
 (reg-view article-detail-page []
   (let [id      (:id @(subscribe [:rf.route/params]))
@@ -102,17 +110,23 @@
       [:div
        [:h1 (:title article)]
        [:p (:body article)]
-       [:p [route-link {:to :route/articles} "← Back"]]]
+       [:p [route-link {:to :route/articles
+                        :data-testid "route-link-back-to-articles"}
+            "← Back"]]]
       [:div
        [:p "Article not found."]
-       [:p [route-link {:to :route/articles} "← Back"]]])))
+       [:p [route-link {:to :route/articles
+                        :data-testid "route-link-back-to-articles"}
+            "← Back"]]])))
 
 (reg-view not-found-page []
   (let [url (:url @(subscribe [:rf.route/params]))]
     [:div
      [:h1 "Not found"]
      [:p (str "No route matches: " url)]
-     [:p [route-link {:to :route/home} "Home"]]]))
+     [:p [route-link {:to :route/home
+                      :data-testid "route-link-home"}
+          "Home"]]]))
 
 (reg-view root-view []
   (case @(subscribe [:rf.route/id])

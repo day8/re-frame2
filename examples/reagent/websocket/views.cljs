@@ -32,7 +32,14 @@
                   `:rf/machine-has-tag?` and renders a single status
                   pill. The view's render priority — failed > reconnecting
                   > connected > connecting > disconnected — collapses
-                  the multi-tag union to one visible word."}
+                  the multi-tag union to one visible word.
+
+                  A sibling `:ws-reconnect-attempts` counter surfaces
+                  the machine's `:retries` slot directly — this lets
+                  the Playwright smoke assert the reconnect counter
+                  advanced after a Drop click without relying on
+                  catching the transient RECONNECTING window in the
+                  pill text (rf2-4dfjv)."}
           status-pill []
   (let [connected?     @(subscribe [:ws/connected?])
         reconnecting?  @(subscribe [:ws/reconnecting?])
@@ -51,7 +58,14 @@
        [:span.pill.connecting "CONNECTING"]
        :else           [:span.pill.disconnected "DISCONNECTED"])
      (when err
-       [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])]))
+       [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
+     ;; Always-visible counter (independent of the pill's transient
+     ;; RECONNECTING window). The spec asserts this advances after a
+     ;; Drop click — proves the reconnect machinery actually ran rather
+     ;; than vacuously passing when the cascade resolves too fast for
+     ;; the pill to catch.
+     [:span.reconnect-attempts {:data-testid "ws-reconnect-attempts"}
+      (str retries)]]))
 
 ;; ============================================================================
 ;; LIFECYCLE BUTTONS

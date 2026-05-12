@@ -154,9 +154,11 @@
      [:div.row
       [:label "Filter prefix: "]
       [:input {:type      "text"
+               :data-testid "crud-filter"
                :on-change #(dispatch [:crud/set-filter (.. % -target -value)])}]]
      [:div.row
       [:select.list {:size      6
+                     :data-testid "crud-list"
                      :value     (or selected-id "")
                      :on-change #(dispatch [:crud/select (uuid (.. % -target -value))])}
        (for [{:keys [id name surname]} people]
@@ -167,15 +169,22 @@
        [:div [:label "Name: "]
         [:input {:type      "text"
                  :value     d-name
+                 :data-testid "crud-name"
                  :on-change #(dispatch [:crud/edit-name (.. % -target -value)])}]]
        [:div [:label "Surname: "]
         [:input {:type      "text"
                  :value     d-surname
+                 :data-testid "crud-surname"
                  :on-change #(dispatch [:crud/edit-surname (.. % -target -value)])}]]]]
      [:div.row.buttons
-      [:button {:on-click #(dispatch [:crud/create])} "Create"]
-      [:button {:on-click #(dispatch [:crud/update]) :disabled (not can-update?)} "Update"]
-      [:button {:on-click #(dispatch [:crud/delete]) :disabled (not can-update?)} "Delete"]]]))
+      [:button {:on-click #(dispatch [:crud/create])
+                :data-testid "crud-create"} "Create"]
+      [:button {:on-click #(dispatch [:crud/update])
+                :data-testid "crud-update"
+                :disabled (not can-update?)} "Update"]
+      [:button {:on-click #(dispatch [:crud/delete])
+                :data-testid "crud-delete"
+                :disabled (not can-update?)} "Delete"]]]))
 
 ;; ============================================================================
 ;; HEADLESS TESTS

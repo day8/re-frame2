@@ -18,9 +18,9 @@ module.exports = {
   name: 'temperature (7guis #2)',
   url: '/temperature/',
   run: async (page) => {
-    const inputs = page.locator('input[type="text"]');
-    const celsius = inputs.nth(0);
-    const fahrenheit = inputs.nth(1);
+    // Anchor on data-testid attrs (rf2-0gdsb).
+    const celsius = page.getByTestId('temp-celsius');
+    const fahrenheit = page.getByTestId('temp-fahrenheit');
 
     // Initial render — :temp/initialise sets celsius to 0, typing to "0".
     await expectInputValue(celsius, '0', 10000);

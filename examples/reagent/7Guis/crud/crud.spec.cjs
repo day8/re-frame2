@@ -22,14 +22,16 @@ module.exports = {
   name: 'crud (7guis #5)',
   url: '/crud/',
   run: async (page) => {
-    const selectList = page.locator('select.list');
-    const inputs = page.locator('input[type="text"]');
-    const filterInput = inputs.nth(0);
-    const nameInput = inputs.nth(1);
-    const surnameInput = inputs.nth(2);
-    const createBtn = page.getByRole('button', { name: /create/i });
-    const updateBtn = page.getByRole('button', { name: /update/i });
-    const deleteBtn = page.getByRole('button', { name: /delete/i });
+    // Anchor on data-testid attrs (rf2-0gdsb) — the `inputs.nth(N)`
+    // selectors were brittle against any sibling text-input landing
+    // in the view.
+    const selectList = page.getByTestId('crud-list');
+    const filterInput = page.getByTestId('crud-filter');
+    const nameInput = page.getByTestId('crud-name');
+    const surnameInput = page.getByTestId('crud-surname');
+    const createBtn = page.getByTestId('crud-create');
+    const updateBtn = page.getByTestId('crud-update');
+    const deleteBtn = page.getByTestId('crud-delete');
 
     await expectVisible(selectList, 10000);
 

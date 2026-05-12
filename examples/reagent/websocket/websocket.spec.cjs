@@ -70,15 +70,47 @@ module.exports = {
     // pill flips to RECONNECTING; the :after backoff (base 100ms,
     // 2^retries up to 5000ms) re-enters :active; the cascade lands
     // back at CONNECTED within a few hundred ms.
+    //
+    // Read the reconnect-attempts counter BEFORE the drop so the
+    // assertion below tests that it advanced (rf2-4dfjv). The
+    // counter sources from the machine's :retries slot directly —
+    // it's a load-bearing observable independent of the transient
+    // RECONNECTING pill, which the cascade may resolve through too
+    // fast for the spec to catch.
+    const attemptsCounter = page.locator(
+      '[data-testid="ws-reconnect-attempts"]',
+    );
+    const attemptsBefore = parseInt(
+      (await attemptsCounter.textContent()) || '0',
+      10,
+    );
     await page.locator('[data-testid="ws-drop"]').click();
-    // Either we catch the brief RECONNECTING window, or the cascade
-    // resolved already and we're already back to CONNECTED. Both are
-    // valid evidence the reconnect machinery worked — but the
-    // canonical observable is the final CONNECTED state.
+    // The canonical observable is the final CONNECTED state.
     await expectTextContains(
       page.locator('[data-testid="ws-status"]'),
       'CONNECTED',
       10000,
     );
+    // Load-bearing assertion: the reconnect counter MUST advance.
+    // Polled because the cascade re-enters :active synchronously but
+    // :bump-retry runs as the :ws/closed action — its commit goes
+    // through the dispatch queue.
+    {
+      const start = Date.now();
+      let attemptsAfter = attemptsBefore;
+      while (Date.now() - start < 5000) {
+        attemptsAfter = parseInt(
+          (await attemptsCounter.textContent()) || '0',
+          10,
+        );
+        if (attemptsAfter > attemptsBefore) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!(attemptsAfter > attemptsBefore)) {
+        throw new Error(
+          `expected reconnect-attempts to advance past ${attemptsBefore}, got ${attemptsAfter}`,
+        );
+      }
+    }
   },
 };

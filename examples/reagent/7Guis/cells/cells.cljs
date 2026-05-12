@@ -232,11 +232,13 @@
                      (= value :error/eval)     "#EVAL"
                      (= value :error/div-by-zero) "#DIV/0"
                      :else                     (str value))]
-    [:td.cell {:on-click #(dispatch [:cells/start-editing id])}
+    [:td.cell {:data-cell id
+               :on-click #(dispatch [:cells/start-editing id])}
      (if editing?
        [:input {:type      "text"
                 :auto-focus true
                 :default-value raw
+                :data-cell-input id
                 :on-blur    #(dispatch [:cells/commit id (.. % -target -value)])
                 :on-key-down #(when (= "Enter" (.-key %))
                                 (dispatch [:cells/commit id (.. % -target -value)]))}]

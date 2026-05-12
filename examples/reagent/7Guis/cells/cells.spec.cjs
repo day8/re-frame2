@@ -20,17 +20,15 @@
 
 const { expectVisible } = require('../../../scripts/spec-helpers.cjs');
 
-async function commitCell(page, row, col, value) {
-  // row and col are zero-based, where row 0 is the header row in <thead>.
-  // <tbody> rows start at row 1 (which is row 0 inside tbody). Each row
-  // has one <th> for the row label, then COLS <td> cells. col is the
-  // column index (A=0, B=1, ...) so the cell selector is nth(col) within
-  // that row's <td> selector.
-  const cell = page
-    .locator('tbody tr')
-    .nth(row)
-    .locator('td.cell')
-    .nth(col);
+// Anchor on the per-cell `data-cell` attribute (rf2-0gdsb) — the
+// previous nth(row)/nth(col) DOM-order selector broke whenever any
+// non-cell node landed in the grid.
+function cellLocator(page, id) {
+  return page.locator(`td.cell[data-cell="${id}"]`);
+}
+
+async function commitCell(page, id, value) {
+  const cell = cellLocator(page, id);
   await cell.click();
   const input = cell.locator('input');
   await input.waitFor({ state: 'visible', timeout: 5000 });
@@ -38,13 +36,18 @@ async function commitCell(page, row, col, value) {
   await input.press('Enter');
 }
 
-async function readCell(page, row, col) {
-  const cell = page
-    .locator('tbody tr')
-    .nth(row)
-    .locator('td.cell')
-    .nth(col);
-  return (await cell.textContent()) || '';
+async function waitForCellText(page, id, expected, timeoutMs = 5000) {
+  const cell = cellLocator(page, id);
+  const start = Date.now();
+  let last = '';
+  while (Date.now() - start < timeoutMs) {
+    last = ((await cell.textContent()) || '').trim();
+    if (last === expected) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    `expected cell ${id} to read "${expected}" within ${timeoutMs}ms, got "${last}"`,
+  );
 }
 
 module.exports = {
@@ -53,41 +56,16 @@ module.exports = {
   run: async (page) => {
     await expectVisible(page.locator('table.cells-grid'), 15000);
 
-    // Set A1 = 5  (row 0 is the row containing the cell labelled "1";
-    // tbody's first <tr> has <th>1</th> then 26 cells).
-    await commitCell(page, 0, 0, '5');
-    await page.waitForFunction(
-      () => {
-        const cell = document.querySelectorAll('tbody tr')[0]
-          .querySelectorAll('td.cell')[0];
-        return cell && cell.textContent.trim() === '5';
-      },
-      null,
-      { timeout: 5000 },
-    );
+    // Set A1 = 5.
+    await commitCell(page, 'A1', '5');
+    await waitForCellText(page, 'A1', '5');
 
     // Set B1 = =(+ A1 5)
-    await commitCell(page, 0, 1, '=(+ A1 5)');
-    await page.waitForFunction(
-      () => {
-        const cell = document.querySelectorAll('tbody tr')[0]
-          .querySelectorAll('td.cell')[1];
-        return cell && cell.textContent.trim() === '10';
-      },
-      null,
-      { timeout: 5000 },
-    );
+    await commitCell(page, 'B1', '=(+ A1 5)');
+    await waitForCellText(page, 'B1', '10');
 
     // Update A1 = 100; B1 should propagate to 105.
-    await commitCell(page, 0, 0, '100');
-    await page.waitForFunction(
-      () => {
-        const cell = document.querySelectorAll('tbody tr')[0]
-          .querySelectorAll('td.cell')[1];
-        return cell && cell.textContent.trim() === '105';
-      },
-      null,
-      { timeout: 5000 },
-    );
+    await commitCell(page, 'A1', '100');
+    await waitForCellText(page, 'B1', '105');
   },
 };

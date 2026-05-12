@@ -10,7 +10,7 @@
  * - Reset: elapsed back to "0.0 s".
  */
 
-const { expectTextEquals, expectVisible } = require('../../../scripts/spec-helpers.cjs');
+const { expectVisible } = require('../../../scripts/spec-helpers.cjs');
 
 async function readElapsed(page) {
   // The view renders elapsed seconds inside a <label>, e.g. "1.5 s".
@@ -30,20 +30,28 @@ module.exports = {
     // The bar is visible.
     await expectVisible(page.locator('.bar'), 10000);
 
-    // Wait long enough for at least a couple of ticks (TICK-MS is 100).
-    await page.waitForTimeout(700);
-
-    const elapsed1 = await readElapsed(page);
-    if (elapsed1 == null || elapsed1 <= 0) {
-      throw new Error(`expected elapsed > 0 after 700ms, got ${elapsed1}`);
+    // Wait for the timer to actually advance past zero — poll the
+    // elapsed label rather than sleeping a fixed budget (rf2-u3amn).
+    const start = Date.now();
+    let elapsed1 = 0;
+    while (Date.now() - start < 5000) {
+      const v = await readElapsed(page);
+      if (v != null && v > 0) {
+        elapsed1 = v;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (elapsed1 <= 0) {
+      throw new Error(`expected elapsed > 0 within 5s, got ${elapsed1}`);
     }
 
     // Click Reset; elapsed should return to 0.0.
     await page.getByRole('button', { name: /reset/i }).click();
     // Use a small grace window — the very first reading may be a tiny
     // fraction of a tick if the next tick fired immediately.
-    const start = Date.now();
-    while (Date.now() - start < 2000) {
+    const resetStart = Date.now();
+    while (Date.now() - resetStart < 2000) {
       const e = await readElapsed(page);
       if (e === 0 || e === 0.0) return;
       await new Promise((r) => setTimeout(r, 50));

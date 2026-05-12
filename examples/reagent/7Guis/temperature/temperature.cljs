@@ -132,10 +132,12 @@
     [:div.temperature
      [:input {:type      "text"
               :value     (or c-text "")
+              :data-testid "temp-celsius"
               :on-change #(dispatch [:temp/edit-celsius (.. % -target -value)])}]
      [:label " °C  =  "]
      [:input {:type      "text"
               :value     (or f-text "")
+              :data-testid "temp-fahrenheit"
               :on-change #(dispatch [:temp/edit-fahrenheit (.. % -target -value)])}]
      [:label " °F"]]))
 

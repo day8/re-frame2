@@ -25,7 +25,7 @@
  *   - The canned-stub fx-id resolves under Reagent the same as on the JVM.
  */
 
-const { expectTextEquals, expectVisible } = require('../../scripts/spec-helpers.cjs');
+const { expectTextEquals, expectTextContains, expectVisible } = require('../../scripts/spec-helpers.cjs');
 
 module.exports = {
   name: 'managed-http-counter',
@@ -69,10 +69,17 @@ module.exports = {
 
     // --- Cancel — clicking the Cancel button dispatches the abort fx --------
     // The example uses :rf.http/managed-abort with a :request-id; the live
-    // fx fires the abort handle on the in-flight request. We just assert
-    // the UI returns to :idle (the abort fx itself is a noop for app state
-    // beyond clearing :status; the JVM smoke covers the live abort contract).
+    // fx fires the abort handle on the in-flight request. We assert the
+    // status transitions through :loading BEFORE the cancel click (else
+    // a stub that resolves synchronously would let Cancel pass vacuously
+    // without ever exercising :rf.http/managed-abort) and back to :idle
+    // afterwards (rf2-fv8at).
     await page.getByRole('button', { name: 'Start long' }).click();
+    // Load-bearing assertion: :loading MUST be observed while the
+    // Start-long request is in flight. /api/long doesn't exist on the
+    // static server, so the live fx is still polling for a response
+    // when the spec reaches this point — no fastpath race.
+    await expectTextEquals(status, 'loading');
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expectTextEquals(status, 'idle');
   },

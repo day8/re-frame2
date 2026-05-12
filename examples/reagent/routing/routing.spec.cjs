@@ -23,26 +23,29 @@ module.exports = {
   name: 'routing',
   url: '/routing/',
   run: async (page) => {
+    // Anchor on data-testid attrs (rf2-0gdsb) — visible-text selectors
+    // collide with siblings as the example evolves.
+    //
     // Initial — pathname is /routing/, no matching route, so not-found page.
     await expectTextContains(page.locator('h1'), 'Not found', 10000);
 
     // Navigate to home via the link on not-found.
-    await page.getByText('Home', { exact: true }).click();
+    await page.getByTestId('route-link-home').click();
     await expectTextContains(page.locator('h1'), 'Welcome');
 
     // Click into articles.
-    await page.getByText('See the articles').first().click();
+    await page.getByTestId('route-link-articles').click();
     await expectTextContains(page.locator('h1'), 'Articles');
 
     // Articles list contains the seeded entries.
     await expectTextContains(page.locator('ul'), 'Intro to re-frame2');
 
-    // Click into a detail page.
-    await page.getByText('Intro to re-frame2').click();
+    // Click into the intro detail page.
+    await page.getByTestId('route-link-article-intro').click();
     await expectTextContains(page.locator('h1'), 'Intro to re-frame2');
 
     // Back returns to the list.
-    await page.getByText('Back', { exact: false }).first().click();
+    await page.getByTestId('route-link-back-to-articles').click();
     await expectTextContains(page.locator('h1'), 'Articles');
   },
 };

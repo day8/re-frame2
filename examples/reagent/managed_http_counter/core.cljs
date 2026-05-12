@@ -25,6 +25,7 @@
   and Fetch."
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.views]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; Requiring re-frame.http-managed at app boot is what
@@ -133,12 +134,33 @@
 
 ;; -- Cancel an in-flight request ---------------------------------------------
 ;;
-;; A "long" request is issued to /api/never (a path http-server takes
-;; some non-zero time to 404), and the cancel button aborts by
-;; :request-id. The Spec 014 contract is that the in-flight request
-;; dispatches :rf.http/aborted on cancellation. We use a canned-failure
-;; stub to make the example deterministic — the live fx would also
-;; resolve the same way once the abort fires.
+;; A "long" request is routed through a per-app stub that defers its
+;; reply via js/setTimeout, so the :loading state is observable in a
+;; browser long enough for the cancel UI to interact with it (rf2-fv8at).
+;; The Spec 014 contract is that the in-flight request dispatches
+;; :rf.http/aborted on cancellation; the deferred-stub approach mimics
+;; that contract end-to-end without requiring a real long-running
+;; endpoint.
+
+(rf/reg-fx :rf.http/managed.long-stub
+  {:doc       "Per-app fx that synthesises a delayed :rf.http/managed
+               reply for the :counter/start-long path. The deferred
+               canned-failure reply lands ~750ms after dispatch, leaving
+               the :loading UI state observable long enough for a
+               browser smoke test to assert on it before the Cancel
+               click fires. Used directly by :counter/start-long (no
+               frame-level override), so the +1 / Fail / Retry-recover
+               paths still hit the framework-shipped `:rf.http/managed`."
+   :platforms #{:client :server}}
+  (fn fx-managed-long-stub [frame-ctx args-map]
+    (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+      ;; Demo-only artificial latency — see the fx doc above.
+      (js/setTimeout
+        (fn []
+          (stub frame-ctx (assoc args-map
+                                 :kind :rf.http/transport
+                                 :tags {:message "Demo: long request did not resolve."})))
+        750))))
 
 (rf/reg-event-fx :counter/start-long
   (fn [{:keys [db]} [_ msg]]
@@ -149,13 +171,16 @@
       (some-> msg :rf/reply :kind some?)
       {:db (assoc db :status :idle)}
 
-      ;; rf2-pf4k — `rf.http/get` with `:request-id` for the abort
-      ;; surface; reads the same as the hand-written form.
+      ;; Route through the per-app delayed stub so the :loading UI
+      ;; state is observable. The +1 / Fail / Retry-recover paths
+      ;; above still hit the framework's :rf.http/managed; only this
+      ;; "long-running" demo uses the stub.
       :else
       {:db (assoc db :status :loading :error nil)
-       :fx [(rf.http/get "api/long"
-                         {:request-id :counter/long
-                          :decode     :json})]})))
+       :fx [[:rf.http/managed.long-stub
+             {:request    {:method :get :url "api/long"}
+              :request-id :counter/long
+              :decode     :json}]]})))
 
 (rf/reg-event-fx :counter/cancel
   (fn [{:keys [db]} _]
