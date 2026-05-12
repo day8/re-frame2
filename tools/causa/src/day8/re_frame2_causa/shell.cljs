@@ -34,7 +34,8 @@
   Per rf2-tijr the view code is pure hiccup. The substrate adapter's
   render fn (`rf/render`) handles the substrate-specific mount in
   `mount.cljs`. No per-substrate switches in view code."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
 ;; ---- design tokens (dark theme per spec/007-UX-IA.md) --------------------
 
@@ -179,13 +180,31 @@
                      :font-family "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"}}
       ":rf/default"]
      " is unaffected)."]
-    (let [buf-count (count @(rf/subscribe [:rf.causa/trace-buffer]))]
-      [:p {:style {:font-size "13px"
-                   :color     (:text-tertiary tokens)
-                   :margin    0}}
-       "Trace buffer: "
-       [:span {:style {:color (:accent-violet tokens)}} buf-count]
-       " events collected."])]])
+    (let [buf       @(rf/subscribe [:rf.causa/trace-buffer])
+          buf-count (count buf)
+          last-coord (->> buf reverse (some :source-coord))]
+      [:div
+       [:p {:style {:font-size "13px"
+                    :color     (:text-tertiary tokens)
+                    :margin    "0 0 8px 0"}}
+        "Trace buffer: "
+        [:span {:style {:color (:accent-violet tokens)}} buf-count]
+        " events collected."]
+       ;; rf2-evgf5: demonstrate the 'Open in editor' chip. Phase 1
+       ;; surfaces the last buffered event's source-coord here as a
+       ;; preview; subsequent panel beads (event-detail hero, six-
+       ;; domino cascade, machine inspector) consume the same chip
+       ;; against their own coord slots.
+       (when last-coord
+         [:p {:style {:font-size "13px"
+                      :color     (:text-tertiary tokens)
+                      :margin    0}}
+          "Last event source: "
+          [:span {:style {:color       (:text-secondary tokens)
+                          :font-family "JetBrains Mono, ui-monospace, SF Mono, Menlo, monospace"}}
+           (str (:file last-coord)
+                (when (:line last-coord) (str ":" (:line last-coord))))]
+          (open-in-editor/open-chip last-coord)])])]])
 
 (defn- bottom-rail
   "Bottom rail (40px) — time-travel scrubber + frame info + issues

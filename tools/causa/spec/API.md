@@ -157,8 +157,40 @@ reference:
 | `(rf/sub-cache frame-id)` (CLJS only) | Tool-Pair | The subscription graph. |
 | `:dispatch-id` / `:parent-dispatch-id` (in `:tags`) | Spec 009 | The causality graph edges. |
 | `:origin` (in `:tags`) | Spec 009 | The colour-coding axis. |
-| Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source. |
+| Source-coord metadata (`:ns` / `:line` / `:column` / `:file`) | Spec 001 / 006 | Click-to-source — see `Open in editor` below. |
 | `data-rf2-source-coord` DOM attribute | Spec 006 | DOM-level source-coord (for the rare cases where DOM event → source is needed). |
+
+## Open in editor (rf2-evgf5)
+
+Every panel that surfaces a source-coord (the event-detail hero, the
+causality graph nodes, the machine inspector's state / edge / guard /
+action chips, the hydration debugger's render-tree rows, the trace
+panel's per-event rows, etc.) wraps the coord in a clickable `open`
+chip. Click sets `window.location.href` to a URI-scheme handler the OS
+dispatches to the configured editor:
+
+| Editor (config key) | URI scheme |
+|---|---|
+| `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
+| `:cursor`           | `cursor://file/<path>:<line>:<column>` |
+| `:idea`             | `idea://open?file=<path>&line=<line>&column=<column>` |
+| `{:custom <tpl>}`   | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
+
+Host applications set the preference at boot:
+
+```clojure
+(require '[day8.re-frame2-causa.config :as causa-config])
+(causa-config/configure! {:editor :cursor})
+```
+
+Causa's editor preference is **independent** of Story's
+`:rf.story/editor` (hosts that run both tools can route each tool to a
+different editor). The shared URI builder lives at
+`re-frame.source-coords.editor-uri` (core artefact, CLJC); Causa's
+mirror chip (`day8.re-frame2-causa.open-in-editor/open-chip`) consumes
+it. Unknown editor keywords fall back to `:vscode` so a typo still
+yields a clickable URI rather than a no-op; source-coords without
+`:file` hide the chip entirely.
 
 ## MCP API
 

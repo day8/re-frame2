@@ -412,11 +412,20 @@
 
   `{:global-args {...}}` — replace the global args map.
 
+  `{:editor <kw>}` — 'Open in editor' preference per rf2-evgf5. One of
+  `:vscode` (default) / `:cursor` / `:idea` / `{:custom \"<template>\"}`.
+  Drives the `vscode://` / `cursor://` / `idea://` URI scheme the
+  source-coord open-button affordances emit. See
+  `re-frame.source-coords.editor-uri/editor-uri` for the per-editor URI
+  grammar.
+
   Other keys are accepted for forward compatibility but ignored at
   Stage 3."
-  [{:keys [global-args] :as _opts}]
+  [{:keys [global-args editor] :as _opts}]
   (when (some? global-args)
     (config/set-global-args! global-args))
+  (when (some? editor)
+    (config/set-editor! editor))
   nil)
 
 ;; ---- registry reset (test fixtures) -------------------------------------
