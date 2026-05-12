@@ -265,9 +265,8 @@ This is the whole story (no pun intended) about how a tool with this much surfac
 ## Where to go next
 
 - **The worked example** — [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories). Four variants, two workspaces, every `reg-*` form, and a passing integration test.
-- **The implementation contract** — [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec). What the runtime actually does, decision-by-decision. The [`005-SOTA-Features.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/005-SOTA-Features.md) §Production elision section + [`002-Runtime.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/002-Runtime.md) §Args resolution precedence are the most-referenced parts.
+- **The implementation contract** — [`tools/story/spec/`](../../tools/story/spec/). What the runtime actually does, decision-by-decision. The [`005-SOTA-Features.md`](../../tools/story/spec/005-SOTA-Features.md) §Production elision section + [`002-Runtime.md`](../../tools/story/spec/002-Runtime.md) §Args resolution precedence are the most-referenced parts.
 - **The normative spec** — [`spec/007-Stories.md`](../../spec/007-Stories.md). The id grammar lock, the variant-as-data lock, the seven canonical assertions. When the IMPL-SPEC and Spec 007 disagree, Spec 007 wins.
 - **The agent surface** — [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md). The MCP server, the sixteen tools, the protocol shape, the write-gate.
-- **Spec 008 — Testing** ([Testing](../../spec/008-Testing.md)). Story's `run-variant` is the runner cljs.test / clojure.test reach for; the shape is locked there.
 
 Story is the most direct expression of the third-pillar pitch from [chapter 15](15-devtools-and-pair-tools.md): the runtime is the substrate, the tools are downstream observers, and a project's stories live in the same repo as the components they exercise. Open `#/stories` against your own app and you'll see what it feels like to have the catalogue right there.

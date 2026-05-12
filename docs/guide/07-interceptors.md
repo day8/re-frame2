@@ -52,9 +52,9 @@ A typical context map mid-pipeline looks like this:
 
 `:coeffects` is what the handler reads. `:effects` is what the handler writes. Interceptors live in the gap: their `:before` sees only `:coeffects` (the handler hasn't run yet), their `:after` sees both (the handler has filled in `:effects`).
 
-You'll occasionally see two more keys on the context — `:rf/skip-handler?` (set by validation cofx when a schema check fails; see [Spec 010](../../spec/010-Schemas.md)), and `:rf/interceptor-error` (set by the chain runtime when a `:before` or `:after` throws). These are framework-internal. Your interceptors won't usually touch them; the chain runtime owns them.
+You'll occasionally see two more keys on the context — `:rf/skip-handler?` (set by validation cofx when a schema check fails), and `:rf/interceptor-error` (set by the chain runtime when a `:before` or `:after` throws). These are framework-internal. Your interceptors won't usually touch them; the chain runtime owns them.
 
-> **Note on v1's `:queue` and `:stack`.** Readers coming from re-frame v1 may remember the context map carrying `:queue` (the interceptors still to run) and `:stack` (the interceptors that have run). re-frame2's interceptor runtime executes the chain as a straight forward sweep followed by a reverse sweep over a fixed vector — there's no in-flight queue to consult, no stack to inspect. The interceptors-as-data view is preserved (each interceptor is still a plain map you can construct and inspect), but the chain runtime doesn't expose internal scheduling state on the context. The result: more orthogonal, fewer hidden levers. If you wrote an interceptor in v1 that read `:queue` or popped `:stack`, that interceptor needs rewriting; the migration agent ([MIGRATION.md §M-21](../../spec/MIGRATION.md)) flags it.
+> **Note on v1's `:queue` and `:stack`.** Readers coming from re-frame v1 may remember the context map carrying `:queue` (the interceptors still to run) and `:stack` (the interceptors that have run). re-frame2's interceptor runtime executes the chain as a straight forward sweep followed by a reverse sweep over a fixed vector — there's no in-flight queue to consult, no stack to inspect. The interceptors-as-data view is preserved (each interceptor is still a plain map you can construct and inspect), but the chain runtime doesn't expose internal scheduling state on the context. The result: more orthogonal, fewer hidden levers. If you wrote an interceptor in v1 that read `:queue` or popped `:stack`, that interceptor needs rewriting; the migration agent flags it.
 
 ## `->interceptor` — the primitive
 
@@ -95,7 +95,7 @@ Suppose three interceptors `A`, `B`, `C` wrap a handler `H`. The chain looks lik
 
 The handler runs as the last `:before` on the way in. That's not a quirk — it's how v2 implements "handler" uniformly: the handler is wrapped as an interceptor itself, with its `:before` doing the work. The trip back out (`:after` in reverse) is symmetric with the trip in: the outermost interceptor's `:before` ran first and its `:after` runs last, like a real sandwich's outer slice.
 
-Why reverse on the way out? Because each `:after` is the dual of the corresponding `:before`. If `B:before` sets up some state on the context, `B:after` is the natural place to tear that state down. Putting them in reverse order means `B:after` runs *after* `C:after` has finished — `B` was outside `C` on the way in, so it's outside `C` on the way out. The `path` interceptor (covered below) and the `unwrap` interceptor (in [Spec 002 §Standard interceptors](../../spec/002-Frames.md)) both lean on this symmetry — they stash on the way in, restore on the way out.
+Why reverse on the way out? Because each `:after` is the dual of the corresponding `:before`. If `B:before` sets up some state on the context, `B:after` is the natural place to tear that state down. Putting them in reverse order means `B:after` runs *after* `C:after` has finished — `B` was outside `C` on the way in, so it's outside `C` on the way out. The `path` interceptor (covered below) and the framework-provided `unwrap` interceptor both lean on this symmetry — they stash on the way in, restore on the way out.
 
 > **Forward link — the diagram.** A canonical adaptation of v1's `interceptors.png` (the pipeline visualisation showing one event traversing the sandwich) is in flight. When it lands, it'll sit here.
 
@@ -232,7 +232,7 @@ They fire **for every event handled in this frame**. Use per-frame when the inte
 
 The per-frame chain is **prepended** to the per-handler chain. So an event with three per-handler interceptors handled in a frame with two per-frame interceptors runs a five-deep sandwich: `[frame-1 frame-2 handler-1 handler-2 handler-3 (wrapped-handler)]`, with the `:before` and `:after` sweeps as described above.
 
-**This is new in v2.** v1 had `reg-global-interceptor` for the cross-cutting case — a single process-global list that fired for every event in every frame. v2 doesn't ship that surface ([MIGRATION.md §M-17](../../spec/MIGRATION.md)). For most cases per-frame is the right tool: it gives you the same convenience for the single-frame app (just attach to `:rf/default`), but in a multi-frame app each frame's `:interceptors` is independent. The two interceptor stacks don't bleed across SSR requests, across story variants, across test fixtures. Cross-frame *observation* (audit logging, tracing) goes through the trace bus per [Spec 009](../../spec/009-Instrumentation.md), not through interceptors.
+**This is new in v2.** v1 had `reg-global-interceptor` for the cross-cutting case — a single process-global list that fired for every event in every frame. v2 doesn't ship that surface — the migration agent flags `reg-global-interceptor` and points at per-frame `:interceptors` as the replacement. For most cases per-frame is the right tool: it gives you the same convenience for the single-frame app (just attach to `:rf/default`), but in a multi-frame app each frame's `:interceptors` is independent. The two interceptor stacks don't bleed across SSR requests, across story variants, across test fixtures. Cross-frame *observation* (audit logging, tracing) goes through the trace bus, not through interceptors.
 
 ## What an interceptor can add to the context
 
@@ -242,7 +242,7 @@ The framework's three retained helpers — `path`, `unwrap`, `inject-cofx` — a
 
 **Modifying an effect.** An `:after` that walks `[:effects :db]` and applies a transformation lets you write event-handler-agnostic state-shape policy. The `undoable` example above is exactly this: an `:after` that conditionally writes to `[:effects :db :drawer :undo]` after every change.
 
-**Short-circuiting the handler.** Setting `:rf/skip-handler?` to truthy on the context from a `:before` causes the handler-interceptor (and any downstream `:before` stages it would have wrapped) to be a no-op. The downstream `:after` stages still run — they get the chance to clean up. The schema-validation interceptor uses this on a validation failure ([Spec 010 §Validation order](../../spec/010-Schemas.md)); a custom auth gate could do the same.
+**Short-circuiting the handler.** Setting `:rf/skip-handler?` to truthy on the context from a `:before` causes the handler-interceptor (and any downstream `:before` stages it would have wrapped) to be a no-op. The downstream `:after` stages still run — they get the chance to clean up. The schema-validation interceptor uses this on a validation failure; a custom auth gate could do the same.
 
 **Adding a follow-up dispatch.** An `:after` can `update-in [:effects :fx]` to append a `[:dispatch ...]` row. The event will be queued behind whatever the handler itself returned, in source order. This is how the auth guard in [chapter 17a](17a-routing-reference.md#worked-example--the-realworld-scaffold) redirects unauthorised navigations — the `:before` mutates the event coeffect to point at `:route/login` instead.
 
@@ -282,6 +282,5 @@ If you need a fourth rule, you're probably overthinking it. Interceptors are del
 
 - [08 — State machines](08-state-machines.md) — when an event handler's logic is a flow, model it as a state machine.
 - [16 — Performance](16-performance.md) — the framework's answers to the four common shapes of slowness; the `rf:event` measure bracket lives outside the interceptor chain, around it.
-- [Spec 002 §Per-frame and per-call overrides](../../spec/002-Frames.md#per-frame-and-per-call-overrides) — the full normative surface for `:interceptors`, `:interceptor-overrides`, and `:fx-overrides`.
 - [Chapter 13 §Stubbing fxs, recording events, replacing interceptors](13-testing.md#stubbing-fxs-recording-events-replacing-interceptors) — what overrides interceptors look like in test code.
 - [Chapter 17a §Worked example — the realworld scaffold](17a-routing-reference.md#worked-example--the-realworld-scaffold) — an auth interceptor wired on `:rf.route/navigate`.

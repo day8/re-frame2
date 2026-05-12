@@ -24,7 +24,7 @@ If any event in `:on-match` errors, the runtime:
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
 
-`:on-error` is **route-scoped** error handling, layered over [Spec 009](../../spec/009-Instrumentation.md)'s structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it.
+`:on-error` is **route-scoped** error handling, layered over the framework's structured error contract — it doesn't replace it. The structured error trace event still fires; `:on-error` is the route's response to it.
 
 ## Navigation tokens — stale-result suppression
 
@@ -65,7 +65,7 @@ When the receiving handler runs, the framework-provided `:nav-token` cofx checks
 {:rf/route {:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}}
 ```
 
-Suppression alone fixes the user-visible bug. Hosts that support abortable fetches (`AbortController` in JS, etc.) MAY *additionally* abort in-flight work for superseded tokens to save bandwidth — but the conformance contract only requires suppression, not cancellation. Same shape as the `:after` timer story for state-machines (see [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md)).
+Suppression alone fixes the user-visible bug. Hosts that support abortable fetches (`AbortController` in JS, etc.) MAY *additionally* abort in-flight work for superseded tokens to save bandwidth — but the conformance contract only requires suppression, not cancellation. The nav-token here is the same shape as the `:after`-timer epoch a state-machine uses to suppress late timer callbacks — one cross-cutting "carry an epoch, drop stale replies" idiom.
 
 Two trace events surround the nav-token lifecycle:
 
@@ -103,7 +103,7 @@ The sub returns `true` when the route is OK to leave; `false` to block. Conventi
    - **The URL does not change.** No `pushState`, no `:rf/route` update, no `:on-match`.
    - Dispatch `[:rf.route/navigation-blocked pending-nav]` and emit the trace.
 
-The pending-nav slot's shape (per [Spec-Schemas](../../spec/Spec-Schemas.md#rfpending-navigation)):
+The pending-nav slot's shape:
 
 ```clojure
 {:rf/pending-navigation
@@ -323,4 +323,3 @@ That's the bet the previous chapter was defending: the URL is a sub.
 - [20 — Where to go next](20-where-next.md) — the chapter wrap-up, with pointers to the worked examples, pattern docs, the API ref, and the spec.
 - [Spec 012 — Routing](../../spec/012-Routing.md) — the full normative surface, including the path-pattern grammar's productions, the route ranking cascade, scroll restoration, and the SSR integration story in detail.
 - [chapter 11](11-server-side.md) — how routing folds into SSR.
-- [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — why nav-tokens are the same shape as `:after`-timer epochs, and the cross-cutting pattern.

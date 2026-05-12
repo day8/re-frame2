@@ -51,7 +51,7 @@ Read these when the topic comes up — not as part of the linear sequence. They'
 | 17a | [Routing: reference and advanced topics](17a-routing-reference.md) | The per-topic reference half — `:on-error`, the full nav-token walkthrough, the `:can-leave` protocol, query-string defaults, multi-frame routing, the pure `match-url` / `route-url` helpers, and a RealWorld worked example. Read sections when the topic comes up. |
 | 18 | [From re-frame v1](18-from-re-frame-v1.md) | You're migrating an existing re-frame v1 app. Skip if re-frame2 is your starting point. The chapter is appendix-shaped — deps to bump, the migration skill to run, and the broad categories of breakage to expect. |
 | 19 | [Adapters](19-adapters.md) | You're choosing or wiring a view-layer substrate — Reagent, UIx, or Helix. Covers the substrate-agnostic story, the `init!` call shape, the three adapter packages, and the slim-Reagent option for ship-size builds. |
-| 21 | [Stories](21-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/) and [Spec 007 — Stories](../../spec/007-Stories.md). |
+| 21 | [Stories](21-stories.md) | You want a Storybook-flavoured playground for your components — `reg-story`, `reg-variant`, the four-phase lifecycle, the `:rf.assert/*` vocabulary, and the agent-facing MCP surface. The narrative companion to [`tools/story/`](../../tools/story/). |
 
 ### Close-out
 
@@ -67,8 +67,8 @@ Once you've finished the core path, read the [worked examples](../../examples/RE
 
 The chapters give you the *story*. Two specification companion docs give you the *system* — they're written precisely (so the AI track can use them) but readable (so the human track can use them too). They're the bridge from narrative understanding to system understanding:
 
-- **[Runtime-Architecture](../../spec/Runtime-Architecture.md)** — the bird's-eye view of the runtime as eight components (registrar, frame container, router, drain loop, `do-fx`, sub-cache, substrate adapter, trace bus) plus the interop layer. ASCII data-flow diagram tracing one event from `dispatch` to render. Three lifecycles (boot, per-event drain, teardown). The "what's new vs re-frame v1" table maps every component to inherited-from-v1 or new-in-v2. If the chapters left you wondering "but what's actually running underneath?" — this is the doc that tells you.
-- **[Cross-Spec-Interactions](../../spec/Cross-Spec-Interactions.md)** — twenty edge cases at the boundaries between Specs. Frame disposal with active machines. Machines under SSR. Routing in SSR. Plain Reagent fns under non-default frames. Machine action throws. Hot-reload mid-cascade. Each entry names which Specs meet, the scenario, the decided behaviour, the reason. The doc reads as the "if I do X while Y is happening" reference — useful both when you're learning and when you're debugging.
+- **[Runtime-Architecture](../../spec/Runtime-Architecture.md)** — the runtime as eight components plus the interop layer, with an ASCII data-flow diagram tracing one event from `dispatch` to render.
+- **[Cross-Spec-Interactions](../../spec/Cross-Spec-Interactions.md)** — the "if I do X while Y is happening" reference: twenty edge cases at the boundaries between specs.
 
 These two are the natural next stop after the chapters and the examples. They're in the specification folder because the AI track also needs them, but they're written for both audiences.
 
@@ -80,20 +80,9 @@ If you want neutral coverage of every framework's tradeoffs, this isn't that. Th
 
 ## What's not here
 
-- **API reference.** Look in the [specification](../../spec/README.md) — `API.md` for signatures, the per-Spec docs for context.
-- **Construction prompts.** The AI-facing scaffolding templates live in [`spec/Construction-Prompts.md`](../../spec/Construction-Prompts.md). They generate code that conforms to the same patterns this guide explains.
-- **Migration prompts.** Likewise — [`spec/MIGRATION.md`](../../spec/MIGRATION.md). If you're an AI doing a re-frame v1 → re-frame2 migration, that's the prompt.
+- **API reference.** API signatures and per-feature context live in the specification — reach for it once you finish the chapters; chapter 20 is the portal.
+- **Migration prompts.** [`spec/MIGRATION.md`](../../spec/MIGRATION.md). If you're an AI doing a re-frame v1 → re-frame2 migration, that's the prompt.
 
 ## Pattern docs
 
-The specification ships a family of **Pattern docs** — convention, not Spec, naming the canonical answer for recurring shapes that bottom out on the framework's primitives. They're closer in voice to this guide than to the Specs, and they're the right next stop when you're building a feature whose shape matches one of them:
-
-- [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape.
-- [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard 5-key lifecycle slice.
-- [Pattern-Forms](../../spec/Pattern-Forms.md) — draft / submitted / status / per-field errors as a standard slice. (Guide chapter: [09 — Forms](09-forms.md).)
-- [Pattern-Boot](../../spec/Pattern-Boot.md) — chained init with progress UI and fail-fatal points.
-- [Pattern-WebSocket](../../spec/Pattern-WebSocket.md) — long-lived connection lifecycle modelled as a state machine.
-- [Pattern-LongRunningWork](../../spec/Pattern-LongRunningWork.md) — chunked yielding or worker offload for CPU-heavy work.
-- [Pattern-StaleDetection](../../spec/Pattern-StaleDetection.md) — the epoch idiom for ignoring superseded async results.
-
-The chapters cross-reference pattern docs at the points where the pattern's shape is most natural to introduce. If a chapter mentions a pattern, the pattern doc is where the full story lives.
+The specification ships a family of **Pattern docs** — convention, not Spec, naming the canonical answer for recurring shapes that bottom out on the framework's primitives. They're closer in voice to this guide than to the Specs, and they're the right next stop when you're building a feature whose shape matches one of them. The chapters cross-reference each pattern at the natural introduction point; the full catalogue with one-line summaries lives at [chapter 20 — Where to go next](20-where-next.md#look-up-a-pattern-by-name).

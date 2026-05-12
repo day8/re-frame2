@@ -176,7 +176,7 @@ The shape an `reg-event-fx` handler returns is intentionally narrow: two top-lev
 | `:db` | Replace `app-db` with this value. |
 | `:fx` | A vector of `[fx-id args]` pairs. Every other effect — dispatch, dispatch-later, HTTP, navigation, your own — goes through here. |
 
-That's all. Top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` from re-frame v1 are gone — they fold into `:fx` as `[:dispatch ...]` / `[:dispatch-later {...}]` rows. The single shape across every effect is the load-bearing piece: tooling, tests, and the runtime each see one consistent grammar instead of two parallel ones. (This consolidation is migration rule M-8 in [`spec/MIGRATION.md`](../../spec/MIGRATION.md).)
+That's all. Top-level `:dispatch`, `:dispatch-later`, `:dispatch-n` from re-frame v1 are gone — they fold into `:fx` as `[:dispatch ...]` / `[:dispatch-later {...}]` rows. The single shape across every effect is the load-bearing piece: tooling, tests, and the runtime each see one consistent grammar instead of two parallel ones. If you're migrating a v1 app, the migration agent rewrites the old top-level forms for you.
 
 ```clojure
 {:db (assoc db :counter/saved? true)
@@ -319,7 +319,7 @@ The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, S
 
 ## A note on revertibility
 
-One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. The framework's [Goal 3](../../spec/000-Vision.md#frame-state-revertibility) — *frame state revertibility* — turns this from an implementation detail into a contract: any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
+One consequence of the discipline above worth pausing on: because state lives in one place and updates atomically, **the entire frame's state at any moment is a single value**. That value can be captured, stored, compared, restored. Any prior frame value can be restored as a pointer swap, with no out-of-band state left behind. App-level undo is a thin interceptor. Time-travel debugging records values, not events. SSR ships a value. AI experimentation can try a change, observe, revert, retry without registry pollution. Each of these is a consequence of "state is a value"; the architecture commits to that discipline so the consequences are real.
 
 ## A note on app-db shape
 
@@ -333,7 +333,7 @@ A frame's `app-db` is "your app's state, in one map." There's no required schema
  :ui       {:sidebar-open? true :modal nil}}
 ```
 
-The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, [Spec 010](../../spec/010-Schemas.md) lets you attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 11](11-server-side.md) shows this when SSR enters the picture.
+The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, you can attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 11](11-server-side.md) shows this when SSR enters the picture.
 
 ## A note on naming
 

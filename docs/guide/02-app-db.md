@@ -39,9 +39,9 @@ re-frame2 makes a different choice: **all of your application's state goes in on
 
 2. **State changes are transactional.** Each event handler returns a single new value of app-db, and the runtime swaps the reference atomically. There is an instant in which the app is in the old state, then an instant in which it is in the new state, and *nothing in between*. No half-applied updates, no intermediate inconsistency for a subscription to read.
 
-3. **One schema validates the whole app.** A [Malli](https://github.com/metosin/malli) schema over app-db is the schema for the entire application's state, and it runs in one place — after every event. A good schema gives more leverage than static types because it can talk about the relationships *between* values, not just the shape of each value alone. (Per [Spec 010](../../spec/010-Schemas.md).)
+3. **One schema validates the whole app.** A [Malli](https://github.com/metosin/malli) schema over app-db is the schema for the entire application's state, and it runs in one place — after every event. A good schema gives more leverage than static types because it can talk about the relationships *between* values, not just the shape of each value alone.
 
-4. **Undo/redo and time-travel come for free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. Thanks to structural sharing, keeping a ring buffer of the last few hundred app-db values costs almost nothing. Undo/redo becomes a matter of swapping the reference back; time-travel debugging is the same mechanism with a UI on top. re-frame-causa's epoch buffer (per [Spec 009](../../spec/009-Instrumentation.md)) is exactly this.
+4. **Undo/redo and time-travel come for free.** Because app-db is immutable, taking a snapshot is taking a *reference* — no copy. Thanks to structural sharing, keeping a ring buffer of the last few hundred app-db values costs almost nothing. Undo/redo becomes a matter of swapping the reference back; time-travel debugging is the same mechanism with a UI on top. re-frame-causa's epoch buffer is exactly this.
 
 Two smaller-but-useful affordances ride along on the same idea:
 
@@ -96,7 +96,7 @@ That's the whole picture. There aren't more steps; there aren't different kinds 
 
 A subtle but load-bearing point: in re-frame v1, there was *one* app-db per process — a single global. In re-frame2, app-db is **per-frame**.
 
-A **frame** (per [Spec 002](../../spec/002-Frames.md)) is an isolated runtime boundary — its own app-db, its own event queue, its own subscription cache. Every re-frame2 app has at least one frame; most have exactly one (the implicit `:rf/default`).
+A **frame** is an isolated runtime boundary — its own app-db, its own event queue, its own subscription cache. Every re-frame2 app has at least one frame; most have exactly one (the implicit `:rf/default`).
 
 The reason for the change is composition. Multi-instance scenarios — devcards on a documentation page, a story-tool playground with twenty variants on screen, server-side rendering where each request gets its own frame, isolated widgets embedded in a host page — all need *independent* app-dbs. v1 papered over this with explicit reset patterns; v2 names the boundary.
 
@@ -131,7 +131,7 @@ The honest answer is: re-frame2 doesn't prescribe. app-db is your app's state, s
 
 - **Route state** — URL-bound frames keep their route under `[:rf/route]` (runtime-managed). Chapter [17 — Routing](17-routing.md) walks routing.
 
-A handful of root keys at the top of app-db are **runtime-managed** (per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys)) — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`. Don't write to these directly; they're internals the framework maintains for you. Everything else is yours.
+A handful of root keys at the top of app-db are **runtime-managed** — `:rf/machines`, `:rf/route`, `:rf/system-ids`, `:rf/pending-navigation`. Don't write to these directly; they're internals the framework maintains for you. Everything else is yours.
 
 ## A small, complete picture
 
@@ -165,7 +165,5 @@ That's app-db.
 ## What comes next
 
 Chapter [03 — Your first app](03-your-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
-
-If you want the precise contract — what runtime slots are reserved, what the schema-validation surface looks like, how presets shape the per-frame defaults — [Spec 002 — Frames](../../spec/002-Frames.md) is the normative reference.
 
 If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [18 — From re-frame v1](18-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.

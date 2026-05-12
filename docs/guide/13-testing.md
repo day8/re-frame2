@@ -25,7 +25,7 @@ Testing helpers ship in `re-frame.test-support`, alongside re-exports of the fou
             [re-frame.test-support :as ts]))
 ```
 
-The artefact is dev-only and cleanly separated from the runtime — the testing surface is built entirely from foundation primitives in [Spec 002](../../spec/002-Frames.md). Nothing in `re-frame.test-support` is a special-case mechanism; it's all sugar over `make-frame`/`destroy-frame`/`reset-frame`/`dispatch-sync`/`compute-sub`.
+The artefact is dev-only and cleanly separated from the runtime — the testing surface is built entirely from foundation primitives. Nothing in `re-frame.test-support` is a special-case mechanism; it's all sugar over `make-frame`/`destroy-frame`/`reset-frame`/`dispatch-sync`/`compute-sub`.
 
 ## Fixtures: getting a fresh frame for each test
 
@@ -78,7 +78,7 @@ For a test group sharing setup, register a named test frame once and reset betwe
   (is (= :validating (get-in (rf/get-frame-db :test-fixture) [:auth :state]))))
 ```
 
-`reset-frame` (per [Spec 002](../../spec/002-Frames.md)) clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
+`reset-frame` clears `app-db` to `{}` and re-fires `:on-create`. State is fresh between tests; the registration cost is paid once.
 
 ### Registrar isolation: `with-fresh-registrar`
 
@@ -275,7 +275,7 @@ What's JVM-runnable:
 - ✓ `machine-transition` (pure function)
 - ✓ `compute-sub` (sub computation against an `app-db` value)
 - ✓ Public registrar queries (`handlers`, `frame-meta`, `sub-topology`, etc.)
-- ✓ **Hiccup → HTML emission** via `render-to-string` (per [Spec 011](../../spec/011-SSR.md)) — pure function, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
+- ✓ **Hiccup → HTML emission** via the SSR renderer — pure function, JVM-runnable. Snapshot tests, SSR conformance tests, and visual-regression diffs all run headlessly.
 
 What's CLJS-only:
 
@@ -370,7 +370,7 @@ For test suites that exercise many requests against many endpoints, `with-manage
   (rf/dispatch-sync [:counter/save]))
 ```
 
-Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network. Both canned-stub fxs gate on `interop/debug-enabled?` and elide in production builds — tests pay no production cost. The full contract is in [Spec 014 §Testing](../../spec/014-HTTPRequests.md#testing).
+Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network. Both canned-stub fxs gate on `interop/debug-enabled?` and elide in production builds — tests pay no production cost.
 
 ### Recording dispatched events without firing them
 
@@ -427,7 +427,7 @@ The topics that follow sit outside the day-to-day flow of "write a test for my a
 
 - **Conformance fixtures** — the host-agnostic EDN corpus that grades a port's behaviour against the spec. You don't write these for your own app; they exist to pin contracts and catch drift across implementations. See [`spec/conformance/README.md`](../../spec/conformance/README.md) for the corpus format and [`skills/re-frame2-implementor/`](../../skills/re-frame2-implementor/) for the implementor-facing walkthrough.
 - **Bundle-isolation CI gate** — the framework's PR-time check that core's release build carries zero per-feature namespace markers. The gate runs on the framework, not on your app; it's the reason core's requires stay spartan. The check script lives at [`implementation/scripts/check-bundle-isolation.cjs`](../../implementation/scripts/check-bundle-isolation.cjs).
-- **Property-based testing** — `test.check` composes with `make-frame` + `dispatch-sync` naturally: generators produce event sequences, the property asserts an invariant, thousands of trials run in milliseconds. It isn't the canonical re-frame2 testing shape, but the cheap fixture admits it. [Spec 008 — Testing](../../spec/008-Testing.md) notes generative testing as a natural extension; [§Future](../../spec/008-Testing.md#open-questions) discusses `@xstate/test`-style transition-graph coverage for machines as an open area.
+- **Property-based testing** — `test.check` composes with `make-frame` + `dispatch-sync` naturally: generators produce event sequences, the property asserts an invariant, thousands of trials run in milliseconds. It isn't the canonical re-frame2 testing shape, but the cheap fixture admits it.
 
 ## What you should expect
 
@@ -443,4 +443,3 @@ The split is the inverse of what most React-side test suites accumulate over tim
 
 - [14 — Errors and how to handle them](14-errors.md) — the trace-listener test pattern in this chapter generalises into a full surface for asserting error contracts; that chapter walks the `:rf.error/*` taxonomy end-to-end.
 - [15 — Tooling](15-devtools-and-pair-tools.md) — the trace bus, epochs, time-travel, source-coords, and the tools that attach to them.
-- [Spec 008 — Testing](../../spec/008-Testing.md) — the full normative surface, JVM/CLJS boundary, and adapter notes.
