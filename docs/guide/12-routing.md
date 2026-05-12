@@ -8,7 +8,7 @@ There is no separate routing runtime. There are no route-aware components. There
 
 This chapter walks through the routing surface: registering routes, navigating, reading the route in views, the navigation token that suppresses stale loads, the `:can-leave` protocol for unsaved-changes prompts, and how multi-frame apps handle routes that don't push to the URL.
 
-The chapter has two halves. The **basics** (everything up to the "Reference and advanced topics" divider) get you to a working URL ↔ state ↔ view loop: registering routes, navigating, reading the route, loading data, the not-found route. Read that part top-to-bottom. The **reference half** that follows is per-topic: `:on-error`, `:can-leave`, nav-tokens, query-string knobs, multi-frame routing, the pure helpers, the RealWorld worked example, tooling hooks. Read those sections when the topic comes up, not as the next-link in the linear sequence.
+The chapter has two halves. The **basics** (everything up to the "Reference and advanced topics" divider) get you to a working URL ↔ state ↔ view loop: registering routes, navigating, reading the route, loading data, the nav-token in one paragraph, the not-found route. Read that part top-to-bottom. The **reference half** that follows is per-topic: `:on-error`, `:can-leave`, the full nav-token walkthrough, query-string knobs, multi-frame routing, the pure helpers, the RealWorld worked example, tooling hooks. Read those sections when the topic comes up, not as the next-link in the linear sequence.
 
 You'll know how to:
 
@@ -67,9 +67,33 @@ The grammar is small — five productions. **Literal segment** (`/articles`), **
 
 When two routes can match the same URL, [a six-rule cascade](../../spec/012-Routing.md#route-ranking-algorithm) decides which wins. More static segments beat fewer; longer paths beat shorter; named params beat splats; exact patterns beat optional-group patterns. The cascade is **structural** — the score is computable from each pattern's parsed shape, no URL needed. Implementations pre-compute the score at registration time.
 
+## A first routing loop
+
+Before the full slice, here's the smallest end-to-end example — one route, one navigation, one sub — so the rest of the chapter has something concrete to refer back to:
+
+```clojure
+(ns example.routing
+  (:require [re-frame.core :as rf]))
+
+;; 1. Register a route
+(rf/reg-route :route/cart
+  {:path "/cart"})
+
+;; 2. Navigate to it
+(rf/dispatch [:rf.route/navigate :route/cart])
+
+;; 3. A view reads the active route id and renders accordingly
+(rf/reg-view app-root []
+  (case @(rf/subscribe [:rf.route/id])
+    :route/cart  [:h1 "Cart"]
+    [:h1 "Home"]))
+```
+
+That's the whole loop: a route is data in the registry, navigation is an event, and the view reads `:rf.route/id` through an ordinary subscription. Everything else in this chapter — params, query, `:on-match` loaders, the `:can-leave` guard, nav-tokens — builds on those three moves.
+
 ## The `:rf/route` slice
 
-The runtime maintains a single slice in `app-db`:
+The navigation in the example above leaves a slice in `app-db`. The runtime maintains a single such slice, and it's the source of truth every route-aware sub reads from:
 
 ```clojure
 {:rf/route
@@ -218,6 +242,10 @@ Semantics:
 
 The `:on-match` list is the **enumerable, machine-readable** answer to "what loads when this route is active?"
 
+### Async `:on-match` and stale results — the nav-token in one paragraph
+
+If an `:on-match` event kicks off an async load (HTTP, query, timer) and the user navigates away before it completes, the older load's reply can land *after* the user has moved on and clobber the newer state. Re-frame2's answer is the **navigation token (nav-token)**: each navigation gets a fresh token written into the `:rf/route` slice; an async result is committed only if its carried token still matches the current one. You don't allocate or thread the token by hand — `:on-match` handlers receive it as a cofx, and the runtime drops mismatched results with a `:route.nav-token/stale-suppressed` trace. The mechanism is mostly invisible; you'll meet it when you write an `:on-match` continuation that fetches data. Full walkthrough with a worked example in [§Navigation tokens — stale-result suppression](#navigation-tokens-stale-result-suppression) in the reference half.
+
 ## The `:rf.route/not-found` route
 
 Apps **must** register a `:rf.route/not-found` route. The id is special-cased in one direction: when a URL fails to match any registered route, the runtime sets `:rf/route` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
@@ -247,7 +275,7 @@ URL-validation failures (a route's path matches but its `:params` schema rejects
 
 ## Reference and advanced topics
 
-The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when you have unsaved work. Nav-tokens are the framework's stale-result suppression mechanism (mostly transparent — you'll meet them when you write an async `:on-match` continuation). Query strings, multi-frame routing, the pure `match-url` / `route-url` helpers, and the RealWorld worked example round out the surface. Tooling and AI-amenability close the chapter.
+The sections that follow are per-topic reference material. They're independent of one another — reach for them when the topic comes up. `:on-error` is the route's response to a load failure. `:can-leave` blocks navigation when you have unsaved work. The nav-token section expands the basics-half callout into the full mechanism — cofx shape, the `:rf.route/with-nav-token` wrapper, a step-by-step worked example. Query strings, multi-frame routing, the pure `match-url` / `route-url` helpers, and the RealWorld worked example round out the surface. Tooling and AI-amenability close the chapter.
 
 ## Per-route error handling: `:on-error`
 
