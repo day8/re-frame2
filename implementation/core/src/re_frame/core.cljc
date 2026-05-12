@@ -129,54 +129,96 @@
 
 #?(:clj
    (defmacro reg-event-db
-     "Register a (db, event) -> new-db handler. Per Spec 001 the
-     metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site."
+     "Register a `(fn [db event-vec] new-db)` event handler under `id`.
+     See `re-frame.events/reg-event-db` for the full docstring (handler
+     signature, return shape, middle-slot rules, example).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `reg-event-fx`, `reg-event-ctx`, `dispatch`."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-db ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-fx
-     "Register a (cofx, event) -> effects-map handler. Per Spec 001
-     the metadata stamped onto the registry slot includes :ns / :line /
-     :file captured at this call site."
+     "Register a `(fn [cofx event-vec] effect-map)` event handler under
+     `id`. The effect-map is a **closed** shape: only `:db` and `:fx`
+     are honoured at the top level (per migration M-8). See
+     `re-frame.events/reg-event-fx` for the full docstring (handler
+     signature, effect-map shape, examples).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `reg-event-db`, `reg-fx` (register a custom fx),
+     `inject-cofx` (consume a registered cofx)."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-event-ctx
-     "Register a context-handler. Per Spec 001 the metadata stamped
-     onto the registry slot includes :ns / :line / :file captured at
-     this call site."
+     "Register a `(fn [context] context)` full-context event handler
+     under `id`. **Advanced** — most handlers want `reg-event-db` or
+     `reg-event-fx` instead. See `re-frame.events/reg-event-ctx` for
+     the full docstring (when to reach for it, shapes, examples).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `reg-event-fx`, `->interceptor`, `assoc-coeffect`,
+     `assoc-effect`."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(events/reg-event-ctx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-sub
-     "Register a subscription. Per Spec 001 the metadata stamped onto
-     the registry slot includes :ns / :line / :file captured at this
-     call site."
+     "Register a subscription under `id`. Layer-1 subs read `app-db`
+     directly; layer-2 subs chain off other subs via `:<-`. See
+     `re-frame.subs/reg-sub` for the full docstring (shapes, examples,
+     hot-reload semantics).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `subscribe`, `subscribe-value`, `compute-sub`."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(subs/reg-sub ~id ~@args))))
 
 #?(:clj
    (defmacro reg-fx
-     "Register an fx handler. Per Spec 001 the metadata stamped onto
-     the registry slot includes :ns / :line / :file captured at this
-     call site."
+     "Register an effect handler under `id`. The handler runs when a
+     `reg-event-fx` returns an effect-map carrying `[id args]` inside
+     its `:fx` vector. **Handler signature is `(fn [ctx args] ...)`**
+     — see `re-frame.fx/reg-fx` for the full docstring (ctx shape,
+     metadata keys including `:platforms`, examples).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `reg-cofx` (input-side counterpart), `clear-fx`,
+     `reg-event-fx` (the consumer)."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(fx/reg-fx ~id ~@args))))
 
 #?(:clj
    (defmacro reg-cofx
-     "Register a coeffect handler. Per Spec 001 the metadata stamped
-     onto the registry slot includes :ns / :line / :file captured at
-     this call site."
+     "Register a coeffect handler under `id`. A cofx is a source of
+     input data injected into an event handler's `:coeffects` map
+     via `inject-cofx`. See `re-frame.cofx/reg-cofx` for the full
+     docstring (handler signature, worked example, the standard
+     `:db` / `:event` cofx).
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `inject-cofx` (consumer-side), `reg-fx` (output-side
+     counterpart)."
      [id & args]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(cofx/reg-cofx ~id ~@args))))
@@ -457,17 +499,48 @@
 
 #?(:clj
    (defmacro reg-route
-     "Register a route. Per Spec 001 the metadata stamped onto the
-     registry slot includes :ns / :line / :file captured at this call
-     site.
+     "Register a route under `id`. `metadata` is a map carrying at
+     minimum `:path` (the URL pattern); additional keys are documented
+     in Spec 012.
 
-     Per rf2-k682 the routing implementation lives in the
-     `day8/re-frame2-routing` artefact; the emitted form looks the
-     producing fn up via the late-bind hook table so core never
-     statically requires it. Apps that use `reg-route` MUST add
-     `day8/re-frame2-routing` to their deps and require
-     `re-frame.routing` at app boot; without it, the lookup returns
-     nil and the call throws a clear error."
+     ## Path pattern syntax
+
+     The `:path` string is parsed at registration time into a matcher.
+     Four pattern forms:
+
+       /literal      — literal segment; matches exactly.
+       /:name        — named param; captures `[^/]+` under key `:name`.
+                       Example: `/user/:id` matches `/user/42`,
+                       binding `{:id \"42\"}`.
+       /*name        — splat; captures the rest of the path greedily
+                       (including `/`). Example: `/files/*rest` matches
+                       `/files/a/b/c`, binding `{:rest \"a/b/c\"}`.
+       /{...}?       — optional group; the inner segment(s) match if
+                       present, otherwise default. Example:
+                       `/users{/:id}?` matches both `/users` and
+                       `/users/42`.
+
+     See Spec 012 §Pattern syntax for full grammar (escapes, conflict
+     resolution between literals and params).
+
+     ## Example
+
+         (rf/reg-route :user/profile
+           {:path \"/user/:id\"
+            :params {:id [:int]}})
+
+     ## Artefact split
+
+     Per rf2-k682 the routing implementation ships in
+     `day8/re-frame2-routing`; the emitted form looks the producing fn
+     up via the late-bind hook table. Apps using `reg-route` MUST add
+     `day8/re-frame2-routing` to deps and require `re-frame.routing` at
+     boot; without it, the call raises `:rf.error/routing-artefact-missing`.
+
+     Per Spec 001 the metadata stamped onto the registry slot includes
+     `:ns` / `:line` / `:file` captured at this macro call site.
+
+     See also: `match-url`, `route-url`, `route-link`."
      [id metadata]
      (with-coords-form (meta &form) *file* (symbol (str (ns-name *ns*)))
                        `(rf-routing/reg-route ~id ~metadata))))
@@ -655,7 +728,7 @@
 
 (def clear-event events/clear-event)
 (def clear-sub   subs/clear-sub)
-(def clear-fx    fx/unregister-fx)
+(def clear-fx    fx/clear-fx)
 (def clear-subscription-cache! subs/clear-subscription-cache!)
 
 ;; ---- dispatch and subscribe -----------------------------------------------
@@ -743,14 +816,25 @@
 
 #?(:clj
    (defmacro dispatch
-     "Enqueue `event-vec` on the target frame's router. Per Spec 002
-     §Routing. Per rf2-ts1a: macro form — captures the call site at
-     compile time and threads it through the dispatch envelope so any
-     error trace emitted while the handler chain runs carries the
-     invocation coord as `:rf.trace/call-site`.
+     "Enqueue `event-vec` on the target frame's router. The matching
+     `reg-event-*` handler runs on the next tick — `dispatch` returns
+     immediately, BEFORE the handler runs. The handler's effects
+     (`:db` update, `:fx` side-effects) happen asynchronously.
+
+     Returns nil. Use `dispatch-sync` for synchronous execution in
+     tests, REPL, and bootstrap. Inside an event handler, do NOT call
+     `dispatch` directly — return `{:fx [[:dispatch event] ...]}` so
+     the dispatch rides through the runtime's effect-map walker.
+
+     Per Spec 002 §Routing. Per rf2-ts1a: this macro captures
+     `(meta &form)` at compile time and threads it through the
+     dispatch envelope so any error trace emitted while the handler
+     chain runs carries the invocation coord as `:rf.trace/call-site`.
 
      For higher-order use (`(map dispatch* xs)`) and programmatic
-     callers, use `dispatch*` — the runtime-callable fn form."
+     callers, use `dispatch*` — the runtime-callable fn form.
+
+     See also: `dispatch-sync`, `dispatcher` (captured-frame closure)."
      ([event-vec]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -765,11 +849,27 @@
 
 #?(:clj
    (defmacro dispatch-sync
-     "Run `event-vec` end-to-end synchronously, then drain. Per Spec 002
-     §dispatch-sync. Per rf2-ts1a: macro form — captures the call site
-     and threads it through the dispatch envelope.
+     "Run `event-vec` end-to-end synchronously. The handler runs before
+     this fn returns; the router drains to fixed point (any
+     `[:dispatch event]` effects cascade synchronously too).
 
-     For higher-order use and programmatic callers, use `dispatch-sync*`."
+     **Never call from inside a running event handler.** Doing so
+     raises `:rf.error/dispatch-sync-in-handler` — use
+     `{:fx [[:dispatch event]]}` from the handler instead. The runtime
+     queues the dispatch onto the current cascade rather than re-entering
+     the dispatch loop.
+
+     `dispatch-sync` is for tests, REPL sessions, and bootstrap.
+     Production application code prefers `dispatch` — synchronous
+     re-entrancy is dangerous and the framework polices it.
+
+     Per Spec 002 §dispatch-sync. Per rf2-ts1a: this macro captures
+     `(meta &form)` and threads it through the dispatch envelope.
+
+     For higher-order use and programmatic callers, use `dispatch-sync*`.
+
+     See also: `dispatch`, `:rf.error/dispatch-sync-in-handler`
+     (the in-handler error category)."
      ([event-vec]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -784,13 +884,27 @@
 
 #?(:clj
    (defmacro subscribe
-     "Per Spec 006 §Lookup algorithm. Per rf2-ts1a: macro form —
-     captures the call site and binds `trace/*current-call-site*`
-     around the underlying subscribe so the synchronous miss path
-     (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
-     the invocation coord.
+     "Return a reaction whose value is the registered sub's current
+     output for `query-v`. Deref to read; under Reagent the deref
+     tracks the surrounding component for re-render on change.
 
-     For HoF / programmatic subscribe, use `subscribe*`."
+     `query-v` is `[sub-id & args]` (the sub's `handler-fn` receives
+     it as its second arg). The 2-arity form `(subscribe frame-id
+     query-v)` targets an explicit frame; otherwise the active frame
+     resolves per `current-frame` (dynamic-var → React-context → `:rf/default`).
+
+     Returns nil for an unknown sub and emits `:rf.error/no-such-sub`.
+
+     Use `subscribe-value` for a one-shot read (no reactive tracking).
+     For HoF / programmatic subscribe, use `subscribe*`.
+
+     Per Spec 006 §Lookup algorithm. Per rf2-ts1a: this macro captures
+     `(meta &form)` and binds `trace/*current-call-site*` around the
+     underlying subscribe so the synchronous miss path carries the
+     invocation coord.
+
+     See also: `subscribe-value`, `unsubscribe`, `current-frame`,
+     `reg-sub`."
      ([query-v]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         `(if re-frame.interop/debug-enabled?
@@ -806,13 +920,32 @@
 
 #?(:clj
    (defmacro inject-cofx
-     "Build a `:before`-only interceptor that runs the registered cofx.
-     Per rf2-ts1a: macro form — captures the call site and threads it
-     into the interceptor's closure so errors emitted from inside the
-     cofx body (`:rf.error/no-such-cofx`, schema-validation failures)
-     carry the invocation coord.
+     "Used as an interceptor in the positional interceptor-vector of
+     `reg-event-fx` / `reg-event-db` / `reg-event-ctx`. Builds a
+     `:before`-only interceptor that runs the cofx registered under
+     `cofx-id` and merges its result into the handler's `:coeffects`.
 
-     For HoF / programmatic interceptor construction, use `inject-cofx*`."
+         (rf/reg-cofx :now
+           (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
+
+         (rf/reg-event-fx :foo
+           [(rf/inject-cofx :now)]                  ;; <-- interceptor position
+           (fn [{:keys [now]} _] ...))
+
+     Some cofx accept a per-call value:
+     `(inject-cofx :stub {:status 200})`.
+
+     Per rf2-ts1a: this macro captures `(meta &form)` and threads the
+     call-site into the interceptor's closure so errors emitted from
+     inside the cofx body (`:rf.error/no-such-cofx`, schema-validation
+     failures) carry the invocation coord.
+
+     For HoF / programmatic interceptor construction (computed cofx
+     ids, code-gen pipelines), use `inject-cofx*` — the runtime-callable
+     fn form.
+
+     See also: `reg-cofx`, `re-frame.cofx/inject-cofx` (the underlying
+     fn — full docstring lives there)."
      ([cofx-id]
       (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
         ;; Route through the 3-arity with the `cofx/no-value` sentinel
@@ -1019,6 +1152,14 @@
 ;; and the API.md table); it lives in re-frame.views to keep React/Reagent off
 ;; the JVM load path.
 
+;; User-facing component scoping a frame keyword to its subtree. Wraps
+;; children in the shared frame Context Provider so descendants resolve
+;; to the named frame via `(rf/dispatcher)` / `(rf/subscriber)` /
+;; `reg-view`-registered components. Per Spec 002 §What `frame-provider`
+;; is; per rf2-zde3z the canonical phrasing lives on the Reagent /
+;; UIx / Helix implementations themselves — see
+;; `re-frame.views.provider/frame-provider` for the Reagent variant
+;; documented in full.
 #?(:cljs (def frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
@@ -1211,6 +1352,18 @@
 
 ;; ---- boot -----------------------------------------------------------------
 
+(defn- bad-init-arg!
+  "Raise `:rf.error/no-adapter-specified` with a consistent reason
+  string. Factored out of `init!`'s nil-check and not-map-check to
+  avoid prose drift between the two branches."
+  [received]
+  (throw (ex-info ":rf.error/no-adapter-specified"
+                  (cond-> {:where    'rf/init!
+                           :expected "adapter spec map"
+                           :recovery :no-recovery
+                           :reason   "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}
+                    (some? received) (assoc :received received)))))
+
 (defn init!
   "Idempotent boot. Installs a substrate adapter and ensures the
   `:rf/default` frame is present.
@@ -1224,7 +1377,7 @@
   Each adapter ns exports an `adapter` Var holding the spec map.
   Consumers require the ns and pass that Var:
 
-    (require '[re-frame.adapter.reagent :as reagent])
+    (require '[re-frame.adapter.reagent :as reagent])  ;; or .uix / .helix
     (rf/init! reagent/adapter)
 
   Per rf2-agql (replaces rf2-84po): rf2 ships no default-adapter
@@ -1242,23 +1395,14 @@
   look up. The error message points the consumer at the adapter-ns +
   adapter-Var pattern.
 
-  Per Spec 006 §Adapter selection at boot."
+  Per Spec 006 §Adapter selection at boot.
+
+  See also: `re-frame.adapter.reagent/adapter`,
+  `re-frame.adapter.uix/adapter`, `re-frame.adapter.helix/adapter`."
   [adapter-map]
   (cond
-    (nil? adapter-map)
-    (throw (ex-info ":rf.error/no-adapter-specified"
-                    {:where    'init!
-                     :recovery :no-recovery
-                     :reason   "rf/init! was called with nil. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
-
-    (not (map? adapter-map))
-    (throw (ex-info ":rf.error/no-adapter-specified"
-                    {:where    'init!
-                     :received adapter-map
-                     :expected "adapter spec map"
-                     :recovery :no-recovery
-                     :reason   "rf/init! takes the adapter spec map directly — there is no keyword form and no registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter). Per rf2-agql the default-adapter registry was removed."}))
-
+    (nil? adapter-map)        (bad-init-arg! nil)
+    (not (map? adapter-map))  (bad-init-arg! adapter-map)
     :else
     (do
       (when-not (adapter/current-adapter)

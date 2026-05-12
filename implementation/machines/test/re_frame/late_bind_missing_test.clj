@@ -58,8 +58,8 @@
           (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'reg-machine* (:where data))
-                "ex-data carries :where = 'reg-machine*")
+            (is (= 'rf/reg-machine* (:where data))
+                "ex-data carries :where = 'rf/reg-machine*")
             (is (= :probe/machine (:machine-id data))
                 "ex-data carries :machine-id from the call site")
             (is (= :no-recovery (:recovery data))
@@ -83,11 +83,11 @@
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in
             ;; `re-frame.core-machines/reg-machine` — the sibling-namespace
-            ;; fn-form delegate the macro routes through — so `:where`
-            ;; is the bare unqualified symbol of the user-facing surface
-            ;; (`rf/reg-machine`).
-            (is (= 'reg-machine (:where data))
-                "ex-data carries :where = 'reg-machine")
+            ;; fn-form delegate the macro routes through. Per rf2-j8icl
+            ;; the `:where` symbol is namespace-qualified to the user-
+            ;; facing surface (`rf/reg-machine`).
+            (is (= 'rf/reg-machine (:where data))
+                "ex-data carries :where = 'rf/reg-machine")
             (is (= :probe/macro-machine (:machine-id data))
                 "ex-data carries :machine-id from the call site")
             (is (= :no-recovery (:recovery data))
@@ -106,8 +106,8 @@
           (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'create-machine-handler (:where data))
-                "ex-data carries :where = 'create-machine-handler")
+            (is (= 'rf/create-machine-handler (:where data))
+                "ex-data carries :where = 'rf/create-machine-handler")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 
@@ -126,8 +126,8 @@
           (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'machine-transition (:where data))
-                "ex-data carries :where = 'machine-transition")
+            (is (= 'rf/machine-transition (:where data))
+                "ex-data carries :where = 'rf/machine-transition")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 

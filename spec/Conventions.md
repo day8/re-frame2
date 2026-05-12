@@ -401,6 +401,16 @@ Each per-feature artefact is **independent**. Core MUST NOT transitively `:requi
 
 The independence rule applies to the per-adapter tier too: adapters depend on core; core never depends on an adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
 
+### Optional-artefact wrapper convention
+
+Each optional-artefact wrapper lives in core under `re-frame.core-<feature>` (e.g. `re-frame.core-routing`, `re-frame.core-flows`). The wrapper publishes the public-API fns that consumers reach via `re-frame.core` re-exports, but the **implementation** of each fn lives in a separate Maven artefact (`day8/re-frame2-<feature>`).
+
+Core MUST NOT statically `:require` the producing namespace — that would pull the feature's implementation onto every consumer's classpath even when no feature surface is used. Each wrapper fn instead looks the producing fn up through the [late-bind hook table](#) at call time, which the producing artefact populates from its own ns-load.
+
+The single-import contract is preserved: users continue to write `rf/reg-flow` after `(:require [re-frame.core :as rf])` — the wrapper ns is reached via `re-frame.core`'s re-export. When the producing artefact is absent the wrapper raises a documented `:rf.error/<feature>-artefact-missing` ex-info with `:where 'rf/<surface>`, `:recovery :no-recovery`, and a `:reason` string naming the artefact and the ns to require at boot.
+
+Per [rf2-hoiu](#) the wrappers live in sibling namespaces rather than in `core.cljc` itself so `core.cljc` stays free of optional-artefact glue. Per [rf2-2vbm](#) the file naming uses `core_<feature>` rather than `core/<feature>` because CLJS goog.provide for `re-frame.core` overwrites its parent object.
+
 ### Naming convention
 
 The artefact-naming convention is `re-frame2-<thing>`, where `<thing>` is the feature-id (per Spec topic) or adapter name. The Maven group is `day8` for the CLJS reference's published artefacts.

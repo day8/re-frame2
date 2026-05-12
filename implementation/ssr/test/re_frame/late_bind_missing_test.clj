@@ -50,8 +50,8 @@
           (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'render-to-string (:where data))
-                "ex-data carries :where = 'render-to-string")
+            (is (= 'rf/render-to-string (:where data))
+                "ex-data carries :where = 'rf/render-to-string")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))
@@ -69,8 +69,8 @@
           (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'render-tree-hash (:where data))
-                "ex-data carries :where = 'render-tree-hash")
+            (is (= 'rf/render-tree-hash (:where data))
+                "ex-data carries :where = 'rf/render-tree-hash")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 
@@ -90,13 +90,14 @@
           (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            ;; The :where stamped here is the bare 'reg-error-projector
-            ;; symbol — the macro forwards to the plain-fn delegate
+            ;; Per rf2-j8icl the `:where` symbol is namespace-qualified
+            ;; to the user-facing surface (`rf/reg-error-projector`) so
+            ;; greping for the symbol finds call sites in the user's
+            ;; codebase. The macro forwards to the plain-fn delegate
             ;; `-reg-error-projector`, which is where the late-bind
-            ;; check (and ex-info) lives. The fn does not syntax-quote
-            ;; through a macro layer, so :where is the bare symbol.
-            (is (= 'reg-error-projector (:where data))
-                "ex-data carries :where = 'reg-error-projector")
+            ;; check (and ex-info) lives.
+            (is (= 'rf/reg-error-projector (:where data))
+                "ex-data carries :where = 'rf/reg-error-projector")
             (is (= :probe/projector (:id data))
                 "ex-data carries :id from the call site")
             (is (= :no-recovery (:recovery data))
@@ -114,8 +115,8 @@
           (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'project-error (:where data))
-                "ex-data carries :where = 'project-error")
+            (is (= 'rf/project-error (:where data))
+                "ex-data carries :where = 'rf/project-error")
             (is (= :rf/default (:frame data))
                 "ex-data carries :frame from the call site")
             (is (= :no-recovery (:recovery data))

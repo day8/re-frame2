@@ -172,11 +172,25 @@
 ;; (`:rf.machine/spawned`, `:rf.machine/destroyed`) nor the handler
 ;; symbols on its production-elision bundle.
 
-(fx/reg-fx :rf.machine/spawn             spawn-fx)
-(fx/reg-fx :rf.machine/destroy           destroy-machine-fx)
-(fx/reg-fx :rf.machine/invoke-all-init   invoke-all-init-fx)
-(fx/reg-fx :rf.machine/after-schedule    after-schedule-fx)
-(fx/reg-fx :rf.machine/after-cancel      after-cancel-fx)
+(fx/reg-fx :rf.machine/spawn
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :invoke (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:initial-data`."}
+  spawn-fx)
+
+(fx/reg-fx :rf.machine/destroy
+  {:doc "Destroy a spawned machine instance and clear its `[:rf/machines machine-id]` slot. Per Spec 005 §Declarative :invoke."}
+  destroy-machine-fx)
+
+(fx/reg-fx :rf.machine/invoke-all-init
+  {:doc "Machine-internal: fire `:initial-entry` cascades for every machine spawned at app boot. Per Spec 005 §Initial entry. Not for direct application use."}
+  invoke-all-init-fx)
+
+(fx/reg-fx :rf.machine/after-schedule
+  {:doc "Machine-internal: schedule an `:after` timer event for a machine state. Per Spec 005 §Timed transitions. Not for direct application use."}
+  after-schedule-fx)
+
+(fx/reg-fx :rf.machine/after-cancel
+  {:doc "Machine-internal: cancel a previously-scheduled `:after` timer. Per Spec 005 §Timed transitions. Not for direct application use."}
+  after-cancel-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
@@ -190,6 +204,7 @@
 ;; shallow — a sub registered inside the sub-namespace wouldn't re-fire.
 
 (subs/reg-sub :rf/machine
+  {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via sub-machine."}
   (fn [db [_ machine-id]]
     (get-in db [:rf/machines machine-id])))
 
@@ -203,6 +218,7 @@
 ;; off `:rf/machine` — so a view that only cares about whether a specific
 ;; tag is present re-renders only when the containment-bit flips.
 (subs/reg-sub :rf/machine-has-tag?
+  {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1)."}
   (fn [db [_ machine-id tag]]
     (contains? (get-in db [:rf/machines machine-id :tags]) tag)))
 

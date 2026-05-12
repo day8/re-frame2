@@ -1,22 +1,17 @@
 (ns re-frame.core-routing
   "Public-API wrappers for the optional routing artefact (Spec 012).
+  Implementation ships in `day8/re-frame2-routing`
+  (`re-frame.routing` ns) per rf2-k682.
 
-  Per rf2-k682 the routing implementation ships in the
-  `day8/re-frame2-routing` Maven artefact. The core artefact MUST NOT
-  statically `:require [re-frame.routing]` — that would pull the
-  route-rank / pattern-compile / nav-token machinery, the `:rf/route`
-  reg-sub family, and every `:rf.route/*` / `:rf.nav/*` keyword string
-  onto every consumer's classpath even when no route is registered.
+  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
+  look the producing fns up via the late-bind hook table at call time;
+  consumers reach the surfaces through `re-frame.core` re-exports.
 
-  The fns in this namespace look the routing API up through the
-  late-bind hook table at call time, which the routing artefact
-  populates from its own ns-load.
-
-  Per rf2-hoiu these wrappers live here (and `re-frame.core` re-exports
-  them as `rf/reg-route`, `rf/match-url`, `rf/route-url`) so `core.cljc`
-  is not cluttered with optional-artefact glue. The single-import
-  contract is preserved: users continue to write `rf/reg-route` after
-  `(:require [re-frame.core :as rf])`."
+  Per-feature carve-out (relative to the canonical convention): the
+  routing artefact pulls the route-rank / pattern-compile / nav-token
+  machinery, the `:rf/route` reg-sub family, and every `:rf.route/*` /
+  `:rf.nav/*` keyword string — none of which appear on a consumer's
+  classpath when this wrapper's hooks are unregistered."
   (:require [re-frame.late-bind :as late-bind]))
 
 (defn match-url
@@ -28,7 +23,7 @@
   (if-let [f (late-bind/get-fn :routing/match-url)]
     (f url)
     (throw (ex-info ":rf.error/routing-artefact-missing"
-                    {:where    'match-url
+                    {:where    'rf/match-url
                      :recovery :no-recovery
                      :reason   "rf/match-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
 
@@ -41,7 +36,7 @@
    (if-let [f (late-bind/get-fn :routing/route-url)]
      (f route-id path-params query-params)
      (throw (ex-info ":rf.error/routing-artefact-missing"
-                     {:where    'route-url
+                     {:where    'rf/route-url
                       :route-id route-id
                       :recovery :no-recovery
                       :reason   "rf/route-url requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."})))))
@@ -55,7 +50,7 @@
   (if-let [f (late-bind/get-fn :routing/reg-route)]
     (f id metadata)
     (throw (ex-info ":rf.error/routing-artefact-missing"
-                    {:where    'reg-route
+                    {:where    'rf/reg-route
                      :route-id id
                      :recovery :no-recovery
                      :reason   "rf/reg-route requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))
@@ -84,6 +79,6 @@
   (if-let [f (late-bind/get-fn :routing/route-link)]
     (apply f args)
     (throw (ex-info ":rf.error/routing-artefact-missing"
-                    {:where    'route-link
+                    {:where    'rf/route-link
                      :recovery :no-recovery
                      :reason   "rf/route-link requires day8/re-frame2-routing on the classpath; add it to deps and require re-frame.routing at app boot."}))))

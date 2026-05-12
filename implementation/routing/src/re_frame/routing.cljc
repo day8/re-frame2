@@ -919,12 +919,24 @@ unknown strategies as :preserve (no-op)."}
   [db _query]
   (:rf/route db))
 
-(subs/reg-sub :rf/route route-sub-fn)
-(subs/reg-sub :rf.route/id         :<- [:rf/route] (fn [route _] (:id route)))
-(subs/reg-sub :rf.route/params     :<- [:rf/route] (fn [route _] (:params route)))
-(subs/reg-sub :rf.route/query      :<- [:rf/route] (fn [route _] (:query route)))
-(subs/reg-sub :rf.route/transition :<- [:rf/route] (fn [route _] (:transition route)))
-(subs/reg-sub :rf.route/error      :<- [:rf/route] (fn [route _] (:error route)))
+(subs/reg-sub :rf/route
+  {:doc "Subscribe to the current route map `{:id :params :query :transition :error}`. Layer-1 read of the `:rf/route` slice. Per Spec 012."}
+  route-sub-fn)
+(subs/reg-sub :rf.route/id
+  {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}
+  :<- [:rf/route] (fn [route _] (:id route)))
+(subs/reg-sub :rf.route/params
+  {:doc "Subscribe to the current route's path params map. Per Spec 012."}
+  :<- [:rf/route] (fn [route _] (:params route)))
+(subs/reg-sub :rf.route/query
+  {:doc "Subscribe to the current route's query params map. Per Spec 012."}
+  :<- [:rf/route] (fn [route _] (:query route)))
+(subs/reg-sub :rf.route/transition
+  {:doc "Subscribe to the current route's `:transition` state. Per Spec 012 §Route transitions."}
+  :<- [:rf/route] (fn [route _] (:transition route)))
+(subs/reg-sub :rf.route/error
+  {:doc "Subscribe to the current route's `:error` (nil when no error). Per Spec 012."}
+  :<- [:rf/route] (fn [route _] (:error route)))
 
 ;; ---- route-link registered view ------------------------------------------
 ;;

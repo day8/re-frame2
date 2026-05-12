@@ -92,27 +92,32 @@
   frame-provider-component)
 
 (defn frame-provider
-  "User-facing Reagent component that scopes a frame keyword to its
-  subtree. Inside the subtree, `(rf/dispatcher)` / `(rf/subscriber)`
-  capture the named frame; reg-view-registered descendants resolve to
-  it via React context.
+  "User-facing component scoping `frame-kw` to its subtree. Wraps
+  children in the shared frame Context Provider — inside the subtree,
+  `(rf/dispatcher)` / `(rf/subscriber)` / `reg-view`-registered
+  descendants resolve to the named frame. Per Spec 002 §What
+  `frame-provider` is.
+
+  Reads `:frame` from props. When missing or `nil`, falls through to
+  `:rf/default` (per rf2-sixo — defensive default that matches the
+  no-provider behaviour and avoids breaking tooling-generated trees
+  that elide the prop).
+
+  Reagent call shape:
 
       [rf/frame-provider {:frame :session}
        [header]
        [main-area]
        [footer]]
 
-  `props` is a map carrying `:frame frame-id`. Children render under
-  that frame (variadic — zero, one, or many).
+  Children are variadic (zero, one, or many). Same surface as the UIx
+  and Helix variants, different rendering substrate. The three adapters
+  share one React Context (per rf2-3yij Decision 2) so a subtree under
+  any frame-provider sees the right frame regardless of which substrate
+  rendered the provider.
 
-  When `:frame` is missing or `nil`, falls through to `:rf/default` —
-  matches the no-provider behaviour. This is the defensive default per
-  the rf2-sixo decision; an explicit error would catch typos but would
-  also break tooling-generated trees that elide the prop.
-
-  Per Spec 002 §What `frame-provider` is. `build-frame-provider` is the
-  lower-level substrate hook; this fn is the canonical user-facing
-  surface."
+  `build-frame-provider` is the lower-level substrate hook; this fn is
+  the canonical user-facing surface."
   [props & children]
   (let [frame-kw (or (:frame props) :rf/default)]
     (into [(build-frame-provider) frame-kw] children)))

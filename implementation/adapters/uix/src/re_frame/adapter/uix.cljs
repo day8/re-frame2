@@ -181,17 +181,26 @@
   (uix/use-context adapter-context/frame-context))
 
 (defn frame-provider
-  "User-facing UIx component scoping `frame-kw` to its subtree.
+  "User-facing component scoping `frame-kw` to its subtree. Wraps
+  children in the shared frame Context Provider — inside the subtree,
+  `(rf/dispatcher)` / `(rf/subscriber)` / `reg-view`-registered
+  descendants resolve to the named frame. Per Spec 002 §What
+  `frame-provider` is.
 
-  Returns a React element wrapping `children` in the shared frame
-  Context Provider. Use:
+  Reads `:frame` from props. When missing or `nil`, falls through to
+  `:rf/default` (per rf2-sixo — defensive default that matches the
+  no-provider behaviour and avoids breaking tooling-generated trees
+  that elide the prop).
 
-      ($ frame-provider {:frame :session}
-         ($ header)
-         ($ main))
+  UIx call shape:
 
-  Per Spec 002 §What `frame-provider` is — same surface as the Reagent
-  variant, different rendering substrate."
+      ($ frame-provider {:frame :session
+                         :children [($ header) ($ main)]})
+
+  Same surface as the Reagent and Helix variants, different rendering
+  substrate. The three adapters share one React Context (per rf2-3yij
+  Decision 2) so a subtree under any frame-provider sees the right
+  frame regardless of which substrate rendered the provider."
   [{:keys [frame children]}]
   (let [frame-kw (or frame :rf/default)]
     (apply adapter-context/provider-element frame-kw

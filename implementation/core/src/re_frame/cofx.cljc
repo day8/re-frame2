@@ -51,9 +51,44 @@
     ctx))
 
 (defn reg-cofx
-  "Register a coeffect handler.
-  cofx-handler signature: (fn [context]) → context  OR  (fn [context value]) → context.
-  Returns context with the cofx merged into :coeffects."
+  "Register a coeffect handler under `id`. A coeffect is a source of
+  input data injected into an event handler's `:coeffects` map.
+
+  Handler signatures:
+
+      (fn [context])         → context     ;; no-value form (1-arity)
+      (fn [context value])   → context     ;; value form    (2-arity)
+
+  The handler should `assoc` its result into `(:coeffects context)`
+  under a key — conventionally `id` — and return the updated context.
+  The standard cofx ids are `:db` (the frame's `app-db` value at drain
+  start) and `:event` (the dispatched event vector); both are populated
+  by the runtime before the interceptor chain runs.
+
+  Consumed by event handlers via `inject-cofx` placed in the
+  interceptor-vector slot of `reg-event-{db,fx,ctx}`:
+
+      (rf/reg-cofx :now
+        (fn [ctx]
+          (assoc-in ctx [:coeffects :now] (js/Date.))))
+
+      (rf/reg-event-fx :user/save
+        [(rf/inject-cofx :now)]                       ;; <-- inject here
+        (fn [{:keys [db now]} [_ user]]               ;; <-- read here
+          {:db (assoc db :saved-at now :user user)}))
+
+  Shapes:
+
+      (reg-cofx :id                                (fn [ctx] ...))
+      (reg-cofx :id {:doc \"...\" :spec ...}         (fn [ctx] ...))
+
+  Optional metadata keys: `:doc`, `:spec` (Malli schema for the
+  injected value — validated per Spec 010 §Validation order step 2).
+
+  Returns `id`.
+
+  See also: `inject-cofx` (consumer-side), `reg-fx` (output-side
+  counterpart), the standard `:db` / `:event` cofx registered below."
   [id metadata-or-handler & maybe-handler]
   (let [[meta handler-fn]
         (if (map? metadata-or-handler)
@@ -64,37 +99,53 @@
     id))
 
 (defn inject-cofx
-  "Build a :before-only interceptor that runs the registered cofx and
-  injects its result into the context's :coeffects.
+  "Build a `:before`-only interceptor that runs the cofx registered
+  under `cofx-id` and merges its result into the running event
+  handler's `:coeffects`.
 
-  Three arities:
-    (inject-cofx :id)                  — no value, no call-site
-    (inject-cofx :id value)            — value, no call-site
-    (inject-cofx :id value call-site)  — value + macro-stamped call-site
-                                         (use `cofx/no-value` for the
-                                         no-value path with a call-site)
+  Used in the positional interceptor-vector of `reg-event-{db,fx,ctx}`:
 
-  Per rf2-ts1a: the 3-arity form is what `re-frame.core/inject-cofx`'s
-  macro expands to — it captures `(meta &form)` at the user call site
-  and stamps it into the interceptor's closure. The `:before` body
-  binds `trace/*current-call-site*` to the captured value so error
-  events emitted from inside the body (`:rf.error/no-such-cofx`,
-  schema-validation failures, exceptions thrown by the cofx fn) carry
-  the invocation coord. Pass `nil` for the call-site to opt out of
-  stamping (the 1-/2-arity forms wrap to this with `nil`).
+      (rf/reg-cofx :now
+        (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
 
-  Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
-  fn returns, if the cofx's metadata carries a :spec, validate the
-  injected value. On failure, mark the context with
-  :rf/skip-handler? so subsequent handler interceptors short-circuit
-  (recovery: :no-recovery; downstream queue continues).
+      (rf/reg-event-fx :foo
+        [(rf/inject-cofx :now)]                 ;; <-- interceptor position
+        (fn [{:keys [db now]} _]                ;; <-- read injected value
+          {:db (assoc db :timestamp now)}))
 
-  Per rf2-3nn8: while the cofx fn body runs, the cofx's own
-  source-coord is the in-scope trigger-handler — errors emitted from
-  inside the cofx point at the cofx definition, not the enclosing
-  event handler. The miss path (`:rf.error/no-such-cofx`) inherits
-  the enclosing event handler's binding (set by the router) — the
-  cofx that doesn't exist has no coord to point at."
+  The handler sees the injected value under the conventional `cofx-id`
+  key in its first arg. Some cofx accept a per-call value:
+  `(inject-cofx :stub {:status 200})` — the value is passed to the
+  cofx handler's 2-arity form.
+
+  Errors:
+    `:rf.error/no-such-cofx`               — `cofx-id` is not registered;
+                                              the handler still runs but
+                                              with no injection (recovery
+                                              :no-recovery).
+    `:rf.error/schema-validation-failure`  — cofx carries a `:spec` and
+                                              the injected value fails it;
+                                              the handler is short-circuited
+                                              via `:rf/skip-handler?`.
+
+  Notes
+  -----
+  Three arities exist for plumbing reasons:
+
+      (inject-cofx :id)                   — no value, no call-site
+      (inject-cofx :id value)             — per-call value, no call-site
+      (inject-cofx :id value call-site)   — value + macro-stamped call-site
+                                            (use `cofx/no-value` for the
+                                            no-value path with a call-site)
+
+  The 3-arity form is what the `re-frame.core/inject-cofx` macro expands
+  to (per rf2-ts1a); it captures `(meta &form)` at the user call site
+  so error events emitted from the cofx body carry the invocation
+  coord. The 1-/2-arity forms wrap to the 3-arity with a `nil`
+  call-site.
+
+  See also: `reg-cofx`, `re-frame.core/inject-cofx` (macro form with
+  call-site capture)."
   ([cofx-id]
    (inject-cofx cofx-id no-value nil))
   ([cofx-id value]
@@ -128,6 +179,7 @@
 ;; ---- standard cofx --------------------------------------------------------
 
 (reg-cofx :db
+  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the drain loop before the interceptor chain runs; explicit `(inject-cofx :db)` is rarely needed and is a no-op. Exists for symmetry with `:event` and v1 idioms."}
   (fn [ctx]
     ;; The drain loop has already populated :coeffects :db with the frame's
     ;; current app-db value before invoking the chain — so this cofx is
@@ -135,6 +187,7 @@
     ctx))
 
 (reg-cofx :event
+  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the dispatch envelope before the chain runs; explicit `(inject-cofx :event)` is a no-op."}
   (fn [ctx]
     ;; Same as :db — the dispatch envelope wires the event into :coeffects
     ;; before the chain runs.

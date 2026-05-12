@@ -1,25 +1,19 @@
 (ns re-frame.core-ssr
   "Public-API wrappers for the optional SSR artefact (Spec 011).
+  Implementation ships in `day8/re-frame2-ssr` (`re-frame.ssr` ns)
+  per rf2-uo7v.
 
-  Per rf2-uo7v the SSR implementation ships in the
-  `day8/re-frame2-ssr` Maven artefact. The core artefact MUST NOT
-  statically `:require [re-frame.ssr]` — that would pull the pure
-  hiccup → HTML emitter, the FNV-1a render-tree-hash machinery, the
-  per-request `[:rf/response]` accumulator, the six `:rf.server/*`
-  server-only fxs, the `reg-error-projector` registry kind plus its
-  built-in default, the SSR error-projection trace listener, the
+  Per [Conventions §Optional-artefact wrapper convention](../../../../../spec/Conventions.md#optional-artefact-wrapper-convention) — wrappers
+  look the producing fns up via the late-bind hook table at call time;
+  consumers reach the surfaces through `re-frame.core` re-exports.
+
+  Per-feature carve-out: the SSR artefact pulls the hiccup → HTML
+  emitter, the FNV-1a render-tree-hash machinery, the per-request
+  `[:rf/response]` accumulator, the six `:rf.server/*` fxs, the
+  `reg-error-projector` registry kind plus its default, the
   `:rf/hydrate` event, and every `:rf.ssr/*` / `:rf.server/*` keyword
-  string onto every consumer's classpath even when no server-side
-  rendering is performed.
-
-  The fns in this namespace look the ssr API up through the late-bind
-  hook table at call time, which the ssr artefact populates from its
-  own ns-load.
-
-  Per rf2-hoiu these wrappers live here (and `re-frame.core` re-exports
-  them) so `core.cljc` is not cluttered with optional-artefact glue.
-  The single-import contract is preserved: users continue to write
-  `rf/render-to-string` after `(:require [re-frame.core :as rf])`."
+  string — none of which appear on a consumer's classpath when this
+  wrapper's hooks are unregistered."
   (:require [re-frame.late-bind :as late-bind]))
 
 (defn render-to-string
@@ -35,7 +29,7 @@
    (if-let [f (late-bind/get-fn :ssr/render-to-string)]
      (f render-tree opts)
      (throw (ex-info ":rf.error/ssr-artefact-missing"
-                     {:where    'render-to-string
+                     {:where    'rf/render-to-string
                       :recovery :no-recovery
                       :reason   "rf/render-to-string requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
 
@@ -48,7 +42,7 @@
   (if-let [f (late-bind/get-fn :ssr/render-tree-hash)]
     (f render-tree)
     (throw (ex-info ":rf.error/ssr-artefact-missing"
-                    {:where    'render-tree-hash
+                    {:where    'rf/render-tree-hash
                      :recovery :no-recovery
                      :reason   "rf/render-tree-hash requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))
 
@@ -62,7 +56,7 @@
    (if-let [f (late-bind/get-fn :ssr/reg-error-projector)]
      (f id metadata projector-fn)
      (throw (ex-info ":rf.error/ssr-artefact-missing"
-                     {:where    'reg-error-projector
+                     {:where    'rf/reg-error-projector
                       :id       id
                       :recovery :no-recovery
                       :reason   "rf/reg-error-projector requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."})))))
@@ -75,7 +69,7 @@
   (if-let [f (late-bind/get-fn :ssr/project-error)]
     (f frame-id trace-event)
     (throw (ex-info ":rf.error/ssr-artefact-missing"
-                    {:where    'project-error
+                    {:where    'rf/project-error
                      :frame    frame-id
                      :recovery :no-recovery
                      :reason   "rf/project-error requires day8/re-frame2-ssr on the classpath; add it to deps and require re-frame.ssr at app boot."}))))

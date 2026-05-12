@@ -73,12 +73,52 @@
          :handler-fn    (first remaining)}
 
         :else
-        (throw (ex-info "re-frame2: bad reg-sub args"
-                        {:id id :remaining remaining}))))))
+        (throw (ex-info
+                 "reg-sub: bad args — expected layer-1 (handler-fn), layer-2 single (:<- [:upstream] handler-fn), or layer-2 multi (:<- [:a] :<- [:b] handler-fn)"
+                 {:id id :remaining remaining}))))))
 
 (defn reg-sub
-  "Register a subscription. The only sub-registration form in v2 (per
-  Spec 002 §Subscriptions composing — reg-sub-raw is dropped)."
+  "Register a subscription under `id`. The only sub-registration form
+  in v2 — `reg-sub-raw` is dropped (per Spec 002 §Subscriptions
+  composing).
+
+  Three shapes:
+
+      ;; Layer-1 — reads `app-db` directly.
+      (reg-sub :id
+        (fn [db query-v] ...derived-value...))
+
+      ;; Layer-2, single input — chains off one upstream sub.
+      (reg-sub :id
+        :<- [:upstream-id]
+        (fn [upstream-val query-v] ...derived-value...))
+
+      ;; Layer-2, multi input — chains off N upstream subs.
+      (reg-sub :id
+        :<- [:a-sub]
+        :<- [:b-sub]
+        (fn [[a-val b-val] query-v] ...derived-value...))
+
+  An optional metadata-map may precede the `:<-` chain / handler:
+  `(reg-sub :id {:doc \"...\" :spec ...} ...)`. The `query-v` arg the
+  handler receives is the full `[sub-id & args]` subscription vector
+  the caller passed to `subscribe`.
+
+  Returns `id`. Re-registering an existing `id` replaces the prior
+  registration; cached entries for the affected sub are invalidated
+  (hot-reload-safe).
+
+  Example:
+
+      (rf/reg-sub :user/name (fn [db _] (get-in db [:user :name])))
+
+      (rf/reg-sub :user/initials
+        :<- [:user/name]
+        (fn [name _]
+          (clojure.string/join (map first (clojure.string/split name #\"\\s+\")))))
+
+  See also: `subscribe` (reactive form), `subscribe-value` (one-shot
+  read), `compute-sub` (pure compute against a db value), `clear-sub`."
   [id & args]
   (let [{:keys [meta handler-fn input-signals]} (parse-reg-sub-args id args)]
     (registrar/register! :sub id
@@ -94,6 +134,13 @@
     id))
 
 (defn clear-sub
+  "Unregister a subscription. Zero-arity clears every registered sub
+  in the registrar; one-arity clears the named one. Hot-reload tools
+  and test fixtures call this between rebuilds; production code rarely
+  needs it.
+
+  Returns nil. See also: `reg-sub`, `clear-subscription-cache!`
+  (the runtime-cache counterpart)."
   ([] (registrar/clear-kind! :sub))
   ([id] (registrar/unregister! :sub id)))
 
@@ -415,13 +462,18 @@
            (compute-and-cache! frame-id query-v)))))))
 
 (defn subscribe-value
-  "Subscribe and immediately deref. Useful in handler bodies where a
-  reaction isn't needed — the caller wants the value now.
+  "One-shot read of a sub's current value. Subscribes, derefs, then
+  unsubscribes — does NOT retain a reference on the cache entry and
+  does NOT register the caller for reactive re-render.
 
-  subscribe-value also calls unsubscribe immediately so it does NOT
-  retain a ref on the cache entry — the caller asked a one-shot
-  question. Reactive callers (Reagent views, tools holding the
-  reaction) should use subscribe."
+  Use in tests, REPL sessions, machine-action bodies, SSR builders,
+  or any non-reactive consumer that wants the value right now. For
+  reactive consumers (Reagent views, tools holding the reaction) use
+  `subscribe`. For event handlers prefer `(inject-cofx :sub-as-cofx)`
+  so the read is part of the cofx contract rather than a side-effect
+  inside the handler body.
+
+  See also: `subscribe`, `compute-sub`, `inject-cofx`."
   ([query-v] (subscribe-value (resolve-current-frame) query-v))
   ([frame-id query-v]
    (let [reaction (subscribe frame-id query-v)
@@ -587,10 +639,18 @@
       :installed))
 
 (defn clear-subscription-cache!
-  "Dispose every cached entry and clear the cache. Test fixtures use this.
-  Cancels any pending grace-period timers before disposing — a deferred
-  disposal landing after this fn returned would close over a stale
-  reaction."
+  "Dispose every cached entry in a frame's runtime sub-cache and clear
+  the cache. Cancels any pending grace-period timers before disposing —
+  a deferred disposal landing after this fn returned would close over
+  a stale reaction.
+
+  Test fixtures and REPL-driven reloads call this between scenarios
+  to ensure the cache is empty before re-subscribing. Test code
+  generally prefers `reset-runtime-fixture` (per `test_support`) which
+  bundles cache-clearing with registrar / frame state reset.
+
+  Zero-arity targets `:rf/default`; one-arity targets the named frame.
+  Returns nil. See also: `clear-sub` (registrar-side counterpart)."
   ([] (clear-subscription-cache! :rf/default))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]

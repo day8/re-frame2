@@ -50,8 +50,8 @@
           (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'install-managed-request-stubs! (:where data))
-                "ex-data carries :where = 'install-managed-request-stubs!")
+            (is (= 'rf/install-managed-request-stubs! (:where data))
+                "ex-data carries :where = 'rf/install-managed-request-stubs!")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")
             (is (string? (:reason data))
@@ -69,8 +69,8 @@
           (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'uninstall-managed-request-stubs! (:where data))
-                "ex-data carries :where = 'uninstall-managed-request-stubs!")
+            (is (= 'rf/uninstall-managed-request-stubs! (:where data))
+                "ex-data carries :where = 'rf/uninstall-managed-request-stubs!")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
 
@@ -86,7 +86,7 @@
           (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
               "the documented error category appears in the message")
           (let [data (ex-data thrown)]
-            (is (= 'with-managed-request-stubs* (:where data))
-                "ex-data carries :where = 'with-managed-request-stubs*")
+            (is (= 'rf/with-managed-request-stubs* (:where data))
+                "ex-data carries :where = 'rf/with-managed-request-stubs*")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
