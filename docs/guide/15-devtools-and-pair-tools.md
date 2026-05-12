@@ -9,27 +9,25 @@ This chapter is the human-facing version of that pitch. What you actually get, w
 You'll come away knowing:
 
 - What re-frame2 commits to as a *tooling substrate*, in narrative form.
-- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, `re-frame-10x` v2, machine visualisers).
+- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, `re-frame-causa`, machine visualisers).
 - Why the **trace bus** and **per-cascade epoch records** are the architectural punchline — one observation surface, every tool consumes it.
 - How **source-coord stamping** wires click-to-source from any panel.
 - How to attach your own listener and build a working debug panel in twenty lines.
 - Where to look when you need the contract reference (it's still here, just positioned at the end).
 
-## What you get for free
+## The architectural punchline: one observation surface
 
-A re-frame2 app, in dev mode, is **inspectable by default**. Without you writing a single instrumentation hook, the runtime produces:
+The thing to internalise: **the framework commits to a single observation surface, and every tool consumes it**.
 
-- **A trace event for every meaningful runtime moment.** Dispatches, handler invocations, fx applications, sub computations, errors, machine transitions, registrations, hot-swaps — they all flow through one channel, the trace bus, as structured maps you can filter, route, or record.
-- **An epoch for every drain-to-empty.** Each time the dispatch queue settles, the runtime emits a fully-shaped record with `:db-before`, `:db-after`, and structured projections of the sub-runs, renders, and effects that the cascade produced. Tools route diagnostics off these directly; you don't fold the raw stream yourself.
-- **A ring buffer of the last N epochs per frame.** Scrub backwards. Restore to any prior `:db-after` with one call. Time-travel is not a feature bolted on by a devtools plugin — it's a runtime primitive.
-- **Source coordinates on every registration.** Every event handler, every sub, every view, every fx knows the `{:ns :file :line :column}` of where it was registered. Every rendered DOM element carries `data-rf2-source-coord` pointing back at the view that produced it. Click anywhere on the screen, walk back to the line of code that put it there.
-- **Static topology you can query.** The sub-graph is buildable from the registry without running the app. So is the registered-machine inventory. So is the fx index. Tools render dependency graphs, state-diagram visualisations, "what depends on this sub?" navigation — all off the same source-of-truth registries the runtime itself uses.
+Trace stream. Epoch records. Registrar queries. Source-coord indices. Static topology. That's the surface. There is no privileged tool — every consumer registers as a peer listener on the trace bus, each with its own id, each filtering the stream as it likes. Your in-app debug panel attaches the same way the AI pair-programmer does, in the same call, with the same shape of data arriving. A future tool nobody's built yet — a story-tool panel, an AI-driven test-generator, a conformance recorder for fixture capture — does too.
 
-These surfaces exist for **tools** to consume — not for you to consume by hand, although you can. The framework's job is to keep the data shapes stable and well-named. The tools' job is to present them.
+This is what *first-class tooling* means in re-frame2: not "we shipped a devtools panel," but "the runtime is built around one observation surface and any tool can attach to it." The framework commits to **stable data shapes and query APIs**; tools own **presentation and orchestration**. Multiple tools coexist on the same contract without coordinating with each other or with the framework.
 
-## The tools
+The integration is *deep*, not bolt-on. The trace events aren't a sidecar log file — they're emitted inline from the pipeline that the runtime is already walking. The epoch records aren't a recording made by a plugin — they're the same records the runtime uses internally to drive `restore-epoch`. There's no second substrate, no shadow runtime, no "make sure devtools is installed first." When the framework knows something happened, the trace bus knows. When the trace bus knows, every attached tool knows.
 
-Four tools, at different stages of life. They all share one substrate.
+## The tools — evidence the surface works
+
+Four tools, at different stages of life. They all attach to the one substrate above; none of them reach for a privileged hook. That's the proof the contract works: it already carries multiple consumers with non-overlapping shapes.
 
 ### `re-frame-pair2` — the AI pair-programming companion
 
@@ -43,11 +41,11 @@ A Storybook-flavoured component playground built around re-frame2's frame primit
 
 [Spec 007 — Stories](../../spec/007-Stories.md) carries the design. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
 
-### `re-frame-10x` v2 — interactive devtools *(in design)*
+### `re-frame-causa` — interactive devtools *(in design)*
 
-The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; v2 is being rewritten as a *renderer* of re-frame2's own surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Same panels (events, subs, renders, fxs, app-db diff, time-travel), but the substrate underneath is the framework's own, not 10x's bespoke recording machinery.
+The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; the v2-era successor — renamed to `re-frame-causa` — is being built from scratch as a *renderer* of re-frame2's own surfaces: a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Same panels (events, subs, renders, fxs, app-db diff, time-travel), but the substrate underneath is the framework's own, not 10x's bespoke recording machinery.
 
-The architectural punchline is in this rewrite: **a future 10x v2 and `re-frame-pair2` will coexist as parallel listeners on the same trace bus**, neither depending on the other. The runtime's contract is the integration point.
+The payoff: `re-frame-causa` and `re-frame-pair2` coexist as parallel listeners on the same trace bus, neither depending on the other. The runtime's contract is the integration point.
 
 ### Machine visualisers *(in design)*
 
@@ -55,15 +53,17 @@ Per-machine visualisation tools — a SCXML-style state-diagram panel, a "what g
 
 Where these go is open. The substrate is in place today.
 
-## The architectural punchline: one observation surface
+## What you get for free
 
-The thing to internalise: **every tool above consumes the same data**.
+A re-frame2 app, in dev mode, is **inspectable by default**. Without you writing a single instrumentation hook, the runtime produces:
 
-Trace stream. Epoch records. Registrar queries. Source-coord indices. Static topology. That's the surface. There is no privileged tool — `re-frame-10x` v2 and `re-frame-pair2` register as peer listeners on the trace bus, each with its own id, each filtering the stream as it likes. Your in-app debug panel attaches the same way, in the same call, with the same shape of data arriving. A future tool nobody's built yet — a story-tool panel, an AI-driven test-generator, a conformance recorder for fixture capture — does too.
+- **A trace event for every meaningful runtime moment.** Dispatches, handler invocations, fx applications, sub computations, errors, machine transitions, registrations, hot-swaps — they all flow through one channel, the trace bus, as structured maps you can filter, route, or record.
+- **An epoch for every drain-to-empty.** Each time the dispatch queue settles, the runtime emits a fully-shaped record with `:db-before`, `:db-after`, and structured projections of the sub-runs, renders, and effects that the cascade produced. Tools route diagnostics off these directly; you don't fold the raw stream yourself.
+- **A ring buffer of the last N epochs per frame.** Scrub backwards. Restore to any prior `:db-after` with one call. Time-travel is not a feature bolted on by a devtools plugin — it's a runtime primitive.
+- **Source coordinates on every registration.** Every event handler, every sub, every view, every fx knows the `{:ns :file :line :column}` of where it was registered. Every rendered DOM element carries `data-rf2-source-coord` pointing back at the view that produced it. Click anywhere on the screen, walk back to the line of code that put it there.
+- **Static topology you can query.** The sub-graph is buildable from the registry without running the app. So is the registered-machine inventory. So is the fx index. Tools render dependency graphs, state-diagram visualisations, "what depends on this sub?" navigation — all off the same source-of-truth registries the runtime itself uses.
 
-This is what *first-class tooling* means in re-frame2: not "we shipped a devtools panel," but "the runtime is built around one observation surface and any tool can attach to it." The framework commits to **stable data shapes and query APIs**; tools own **presentation and orchestration**. Multiple tools coexist on the same contract without coordinating with each other or with the framework.
-
-The integration is *deep*, not bolt-on. The trace events aren't a sidecar log file — they're emitted inline from the pipeline that the runtime is already walking. The epoch records aren't a recording made by a plugin — they're the same records the runtime uses internally to drive `restore-epoch`. There's no second substrate, no shadow runtime, no "make sure devtools is installed first." When the framework knows something happened, the trace bus knows. When the trace bus knows, every attached tool knows.
+These surfaces exist for **tools** to consume — not for you to consume by hand, although you can. The framework's job is to keep the data shapes stable and well-named. The tools' job is to present them.
 
 ## Attaching a tool, concretely
 
@@ -95,7 +95,7 @@ Here's a working in-app debug panel that listens to the trace bus, tracks the la
               (str (:event-id ep))]])]]))
 ```
 
-That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and (a future) `re-frame-10x` v2 consume — the difference is that they're richer renderers of the same data.
+That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and (a future) `re-frame-causa` consume — the difference is that they're richer renderers of the same data.
 
 A few things to notice:
 
@@ -108,7 +108,7 @@ All of this is **dev-only**. The trace bus is gated on `re-frame.interop/debug-e
 
 ## Click-to-source: the source-coord story
 
-The second piece of the tooling pitch is **source-coord stamping**. A tool gestures at a button on screen — a click in `re-frame-10x` v2, a `dom/source-at` call from `re-frame-pair2`, a Playwright locator in an end-to-end test — and asks "where in the code did this come from?" The answer is on the DOM node itself.
+The second piece of the tooling pitch is **source-coord stamping**. A tool gestures at a button on screen — a click in `re-frame-causa`, a `dom/source-at` call from `re-frame-pair2`, a Playwright locator in an end-to-end test — and asks "where in the code did this come from?" The answer is on the DOM node itself.
 
 ```html
 <button data-rf2-source-coord="counter.core:counter:48:5" ...>+</button>
@@ -160,7 +160,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
   (rf/restore-epoch :app/main target))
 ```
 
-That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-10x` v2's timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
+That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-causa`'s timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
 
 The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
@@ -205,11 +205,13 @@ The contract above is sized to the framework's responsibility. Things that are *
 
 - **The Claude integration in `re-frame-pair2`** — prompts, retrieval, model selection. Lives in the skill.
 - **The nREPL middleware** that bridges agent-to-runtime. Specific to the host stack.
-- **The 10x v2 devtools UI.** It will be a separate artefact, consuming the same trace bus you've already met.
+- **The `re-frame-causa` devtools UI.** It will be a separate artefact, consuming the same trace bus you've already met.
 - **DOM-to-source helpers** (`source-at`, `find-by-src`, `fire-click-at-src`). Tool-side; depends on host-specific DOM access.
 - **Skill-shaped retrospective analysis** of pair sessions — `re-frame-pair-improver2` is a separate Claude skill that reviews sessions and proposes improvements to the pair tool itself.
 
 The split is deliberate: the framework commits to **stable data shapes and query APIs**; tools own **presentation, orchestration, and host integration**. Without that split, the framework would own every consumer's roadmap — and would lock out every consumer it didn't already know about.
+
+The narrative is above; the reference below is for tool authors and edge-case investigators — read top-down for the story, jump to the bottom when you need exact shapes.
 
 ---
 
