@@ -71,6 +71,8 @@ The `:on-create` line says: when this frame comes to life, dispatch `[:counter/i
 
 You can think of `reg-frame` as "make me a fresh runtime with this initialisation step." For multi-frame apps (story tools, server-side rendering, devcards, isolated widgets) you'd register multiple frames with different ids. For an app that never thinks about isolation, the default frame is enough.
 
+> **A note on globals.** This chapter registers the frame at the top level for brevity — fine for a counter demo. In a real app, frames aren't usually globals. They're typically created **per test** (e.g. inside `(rf/with-frame [f ...] ...)`, scoped to one test and destroyed on exit), or **attached to a view** (created once when a parent mounts, accessed by all child views via the `*current-frame*` dynamic binding — see ch.04 and Pattern-MultiFrame). The top-level `reg-frame` here is a minimal-mount shortcut, not the idiom you ship.
+
 ## Events
 
 ```clojure
