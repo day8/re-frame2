@@ -2,7 +2,7 @@
 
 Type B walkthroughs: the judgment-call rewrites. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
-For Type A patterns, see `reference/automated-transforms.md`. For full rule rationale, see `spec/MIGRATION.md`.
+For Type A patterns, see `reference/automated-transforms.md`. For full rule rationale, see [`MIGRATION.md`](../../../spec/MIGRATION.md).
 
 ## Contents
 

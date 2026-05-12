@@ -28,7 +28,7 @@ Migration and deep-dive content are deliberately outside this skill — they liv
 
 These hold across every leaf in this skill.
 
-1. **Implementation is ground truth.** When the spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`, not against `spec/`. Spec is *why*; impl is *what*.
+1. **Implementation is ground truth.** When the spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/reagent/**`, not against [`spec/`](../../spec/). Spec is *why*; impl is *what*.
 2. **Recipes over explanations.** Reach for a canonical shape; do not derive from first principles. If a pattern leaf exists, use the shape it gives; do not invent a parallel one.
 3. **Distinguish orchestration from state.** Use **state machines** (`reg-machine`) when the answer to "what can the system do next" depends on the current mode (connecting / connected / disconnected; idle / submitting / submitted; loading / loaded / error). Use **slices** (a key in `app-db` driven by `reg-event-db`) when state is a field, not a mode. See `decision-trees/slice-or-machine.md`.
 4. **Schemas at boundaries, not everywhere.** Register `reg-app-schema` for the paths that cross trust boundaries (incoming HTTP payloads, persisted state on restore, machine snapshot restores). Do not schema-fence every internal key.
@@ -147,7 +147,7 @@ A short checklist that applies regardless of which leaf you load.
 
 ## How re-frame2 differs from re-frame v1
 
-A one-line redirect for v1-trained context: the migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is `spec/MIGRATION.md` (linked from `SKILL-REDIRECT.md` → *Migration from re-frame v1*). Do not re-derive v1 mappings from training memory — the v1→v2 surface drift is large enough that confident recall is unreliable.
+A one-line redirect for v1-trained context: the migration workflow + breaking-change rule index lives in `skills/re-frame-migration/`; the authoritative rule corpus is [`MIGRATION.md`](../../spec/MIGRATION.md) (linked from `SKILL-REDIRECT.md` → *Migration from re-frame v1*). Do not re-derive v1 mappings from training memory — the v1→v2 surface drift is large enough that confident recall is unreliable.
 
 ## Background reading (optional)
 

@@ -2,7 +2,7 @@
 
 Type A patterns: the unambiguous mechanical rewrites the agent applies without asking. Each entry gives the **search shape**, the **rewrite shape**, the **rule id** (so the report cites it correctly), and any **edge case** that promotes a sub-case to Type B.
 
-For the *why* of each rule, see `spec/MIGRATION.md`. This leaf is a shape catalogue, not a rationale.
+For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). This leaf is a shape catalogue, not a rationale.
 
 ## Contents
 
@@ -208,7 +208,7 @@ Closed mechanical rename table. Apply across all source files.
 :route/<framework-id>        → :rf.route/<framework-id>
 ```
 
-**Framework `:route/*` ids are the closed list** in `spec/MIGRATION.md` M-20 (`:route/navigate`, `:route/url-changed`, `:route/handle-url-change`, `:route/not-found`, `:route/navigation-blocked`, `:route/continue`, `:route/cancel`, `:route/error`, `:route/transition`, `:route/resolved`, `:route/auth-guard`, `:route/equal`, `:route/chain`).
+**Framework `:route/*` ids are the closed list** in [`MIGRATION.md`](../../../spec/MIGRATION.md) M-20 (`:route/navigate`, `:route/url-changed`, `:route/handle-url-change`, `:route/not-found`, `:route/navigation-blocked`, `:route/continue`, `:route/cancel`, `:route/error`, `:route/transition`, `:route/resolved`, `:route/auth-guard`, `:route/equal`, `:route/chain`).
 
 **User `:route/<name>` ids** are user-defined and left alone (mechanical) or rewritten to a feature prefix (suggested, Type B). The closed framework list is the discriminator.
 
@@ -359,7 +359,7 @@ The `:require` is what triggers the artefact's load-time hook registrations. Wit
 ## What this leaf is NOT
 
 - It is not a complete migration script. Type B rules live in `reference/guided-checklist.md`.
-- It is not a substitute for `spec/MIGRATION.md`'s per-rule rationale — when you apply a rewrite, you cite the rule id; you don't quote the rule's text inline.
+- It is not a substitute for [`MIGRATION.md`](../../../spec/MIGRATION.md)'s per-rule rationale — when you apply a rewrite, you cite the rule id; you don't quote the rule's text inline.
 - It is not exhaustive. The shapes here are the most common Type A trigger patterns. If a call site matches the *intent* of a Type A rule but not the *shape* here, apply the rewrite — the shapes are illustrative.
 
-When the rewrite shape doesn't fit a real call site exactly, **stop and consult the full rule in `spec/MIGRATION.md`**. Don't improvise.
+When the rewrite shape doesn't fit a real call site exactly, **stop and consult the full rule in [`MIGRATION.md`](../../../spec/MIGRATION.md)**. Don't improvise.
