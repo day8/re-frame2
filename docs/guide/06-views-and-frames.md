@@ -305,7 +305,7 @@ Most frames you'll register fall into one of four shapes: a normal client app, a
 (rf/reg-frame :app/main               {:preset :default})  ;; same as omitting :preset
 ```
 
-Each preset expands at registration time into a fixed bundle — `:test` redirects `:rf.http/managed` to the canned-success stub (so HTTP fx don't reach the network in tests) and stamps `:drain-depth 100`; `:story` does the same redirect and tightens `:drain-depth` to 16 so runaway dispatch cascades fail fast under a story; `:ssr-server` sets `:platform :server` and wires the server-projection error path. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets-capability-bundles-for-common-configurations).
+Each preset expands at registration time into a fixed bundle — `:test` redirects `:rf.http/managed` to the canned-success stub (so HTTP fx don't reach the network in tests) and stamps `:drain-depth 100`; `:story` does the same redirect and tightens `:drain-depth` to 16 so runaway dispatch cascades fail fast under a story; `:ssr-server` sets `:platform :server` and wires the server-projection error path. User-supplied keys override the expansion (so you can opt out of any one default), but the preset's name stays in the metadata and is queryable. The expansions are locked — every `:test` frame is configured the same way, every `:story` frame is configured the same way. Adding a fifth preset would be a Spec-change. The full grammar lives in [Spec 002 §Frame presets](../../spec/002-Frames.md#frame-presets--capability-bundles-for-common-configurations).
 
 This matters because the call site now declares its intent — "this is a test frame" — and tooling (test runners, story runners, SSR adapters) reads that declaration without inferring it from the surrounding code.
 
@@ -344,7 +344,7 @@ Two instances of the same registered view, different frames. Each subtree's `dis
 
 One small detail to recognise when you see it in the inspector: every `reg-view`-rendered DOM element carries a `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute pointing back to the registration that produced it. It's how pair tools and devtools resolve a clicked DOM node back to the source line. The annotation is dev-only — production builds elide it via DCE.
 
-You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7-rf2-z9n1).
+You don't need to do anything to get it. `reg-view` does it. The full story — format, recovery to file path, exemptions, machine-spec equivalents — is in [chapter 15 §Click-to-source](15-devtools-and-pair-tools.md#click-to-source-the-source-coord-story). The contract is specified in [Spec 006 §source-coord-annotation](../../spec/006-ReactiveSubstrate.md#source-coord-annotation-mandatory-rf2-z7f7--rf2-z9n1).
 
 ## Computed values as state — the flow escape hatch
 
