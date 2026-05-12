@@ -13,8 +13,6 @@ You'll know how to:
 - Test state machines as pure transitions, no frame required.
 - Use `dispatch-sequence` and `assert-state` to keep test bodies short.
 - Decide what runs on the JVM and what needs CLJS.
-- Use the host-agnostic conformance fixtures.
-- Understand what the bundle-isolation CI gate enforces.
 
 ## The artefact
 
@@ -421,62 +419,15 @@ A handler that depends on the outside world via `inject-cofx` becomes determinis
 
 `with-fresh-registrar` scopes the stub to the test body — the production `:now` is intact for the next test. The full cofx surface (`reg-cofx`, `inject-cofx`, common cofxes, the registration shape) is covered in [chapter 05 — Coeffects](05-coeffects.md); this entry locates the testing idiom within the broader stubbing story.
 
-## Conformance fixtures
+---
 
-The framework ships a **conformance corpus** — host-agnostic EDN fixtures under `spec/conformance/` — that grades implementations against a single source of truth. Each fixture describes a scenario as data: registrations, an event sequence, expected `app-db` shape, expected trace events. A conformance harness reads the fixture, replays it against an implementation, and asserts the results.
+## Reference and advanced topics
 
-You don't typically write conformance fixtures. They exist to:
+The topics that follow sit outside the day-to-day flow of "write a test for my app" and have homes elsewhere. Conformance fixtures are an implementor concern — they grade new-host ports against the framework's spec. Bundle-isolation is a framework-internal CI gate that polices core's requires. Property-based testing is one further extension of the cheap-fixture story; the foundation primitives admit it, but it isn't the canonical shape.
 
-- **Pin a contract.** Ranked-route precedence, machine spawn/destroy lifecycle, schema validation failure modes — every behaviour the spec calls "the answer" has a fixture asserting that answer.
-- **Grade ports.** A new-language port (TypeScript, Python, Kotlin) doesn't need to re-derive what's correct — it runs the conformance corpus against its own implementation and gets a pass/fail per behaviour.
-- **Catch drift.** A spec change that says one thing but an implementation that does another fails conformance — the test surface is structural, not implementation-specific.
-
-When you'd reach for a conformance fixture in your own codebase: when you have a behaviour you want **multiple implementations** to agree on. Most app-side tests are not conformance tests; they verify your app's logic, not the framework's contract. The fixtures are framework infrastructure.
-
-If you want to know what your implementation supports, look at the `:capabilities` declaration in the implementation's manifest and cross-reference against `spec/conformance/README.md`. Each fixture lists the capabilities it exercises; the harness skips fixtures whose capabilities the implementation hasn't claimed.
-
-## Bundle-isolation: the gate that keeps core clean
-
-A subtle but load-bearing testing concern: re-frame2's Strategy B layout puts every optional feature in its own artefact. **Core does not require any per-feature artefact.** That's the whole point of feature opt-in — apps that don't use machines don't bundle machine code; apps that don't use routing don't bundle routing code.
-
-The risk is silent regression: a future change to core that accidentally `(:require [re-frame.machines])` for a default-fallback path would silently re-include the machines artefact in every consumer's bundle. The change wouldn't fail any existing test; it'd just balloon production bundle size by the per-feature payload.
-
-The framework's CI runs a **bundle-isolation gate** on every PR:
-
-1. `shadow-cljs release` the **counter** example (the canonical no-feature app).
-2. Grep the produced `main.js` for each per-feature artefact's namespace markers.
-3. Assert **0 hits** per artefact (or a stable allow-list of consumer-side preset-map keywords).
-
-If a future PR re-imports a split-out namespace into core, the counter bundle suddenly carries `re-frame.machines`-shaped strings, and the gate fails. The contract is enforced at PR time, not discovered three releases later.
-
-You don't write bundle-isolation tests for your own app. The gate runs on the framework. The mention here is to explain *why* core is so spartan in its requires — the absence is the contract.
-
-## Property-based testing
-
-`test.check` fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants:
-
-```clojure
-(require '[clojure.test.check :as tc]
-         '[clojure.test.check.generators :as gen]
-         '[clojure.test.check.properties :as prop])
-
-(def counter-never-negative
-  (prop/for-all [evs (gen/vector (gen/elements [[:counter/inc] [:counter/dec]]) 0 50)]
-    (rf/with-frame [f (rf/make-frame {:on-create [:counter/initialise]})]
-      (doseq [ev evs] (rf/dispatch-sync ev))
-      (let [{:keys [count]} (rf/get-frame-db f)]
-        (or (>= count 0)
-            ;; design choice: maybe negative IS allowed; the property is whatever
-            ;; we want to assert. The cheap fixture lets us assert it across
-            ;; thousands of generated sequences.
-            true)))))
-
-(tc/quick-check 1000 counter-never-negative)
-```
-
-The cheap fixture is the load-bearing piece — `make-frame` plus `dispatch-sync` lets a property exercise hundreds of full event cascades per second. Generators produce the event sequences; the property asserts whatever invariant matters; a thousand-trial run takes milliseconds. This shape is documented in [Spec 008](../../spec/008-Testing.md) as one of the natural extensions of the foundation primitives.
-
-For machines specifically, the `machine-transition` purity opens a path to `@xstate/test`-style coverage: enumerate paths through the transition graph, generate event sequences that visit every transition, run them as test cases. That's library territory rather than framework, and out of scope for this guide; the spec's [§Future](../../spec/008-Testing.md#open-questions) notes it as an open area.
+- **Conformance fixtures** — the host-agnostic EDN corpus that grades a port's behaviour against the spec. You don't write these for your own app; they exist to pin contracts and catch drift across implementations. See [`spec/conformance/README.md`](../../spec/conformance/README.md) for the corpus format and [`skills/re-frame2-implementor/`](../../skills/re-frame2-implementor/) for the implementor-facing walkthrough.
+- **Bundle-isolation CI gate** — the framework's PR-time check that core's release build carries zero per-feature namespace markers. The gate runs on the framework, not on your app; it's the reason core's requires stay spartan. The check script lives at [`implementation/scripts/check-bundle-isolation.cjs`](../../implementation/scripts/check-bundle-isolation.cjs).
+- **Property-based testing** — `test.check` composes with `make-frame` + `dispatch-sync` naturally: generators produce event sequences, the property asserts an invariant, thousands of trials run in milliseconds. It isn't the canonical re-frame2 testing shape, but the cheap fixture admits it. [Spec 008 — Testing](../../spec/008-Testing.md) notes generative testing as a natural extension; [§Future](../../spec/008-Testing.md#open-questions) discusses `@xstate/test`-style transition-graph coverage for machines as an open area.
 
 ## What you should expect
 
