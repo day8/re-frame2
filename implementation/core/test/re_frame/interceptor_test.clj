@@ -336,4 +336,95 @@
       (is (some #(= [:after :c] %) @trail)
           ":after stages downstream of the failing one (in reverse order:
            those reached BEFORE the throw — i.e. :handler's and :c's :after)
-           did execute"))))
+           did execute")))
+
+  (testing "multiple interceptors failing record ALL errors but
+            :rf/interceptor-error remains the FIRST.
+
+            Per rf2-mm2a: prior to the fix, the second `assoc` would
+            clobber the first — the original cause was lost. The fix
+            keeps `:rf/interceptor-error` pinned to the FIRST error
+            (existing tracing reads the root cause) and appends every
+            error in occurrence order to `:rf/interceptor-errors`."
+    (let [;; A :before that throws (interceptor :before-bad), then an
+          ;; :after that throws on the way back out (interceptor :after-bad).
+          ;; The short-circuit means :before-bad's :before fires, but
+          ;; subsequent :before stages are skipped. All :after stages
+          ;; run (teardown contract), so :after-bad's :after will fire.
+          before-bad (interceptor/->interceptor
+                       :id :before-bad
+                       :before (fn [_ctx]
+                                 (throw (ex-info "before blew up"
+                                                 {:src :before-bad}))))
+          after-bad  (interceptor/->interceptor
+                       :id :after-bad
+                       :after  (fn [_ctx]
+                                 (throw (ex-info "after blew up"
+                                                 {:src :after-bad}))))
+          ;; Order: after-bad first so its :after runs LAST (reverse order)
+          ;; AFTER before-bad's :before failure has already stamped the
+          ;; context. That way we exercise the "later error doesn't
+          ;; overwrite earlier" guarantee.
+          chain [after-bad before-bad]
+          final (interceptor/execute-chain chain {:coeffects {} :effects {}})
+          errs  (:rf/interceptor-errors final)
+          first-err (:rf/interceptor-error final)]
+      (is (vector? errs)
+          ":rf/interceptor-errors is a vector")
+      (is (= 2 (count errs))
+          "both errors were recorded — neither was overwritten")
+      (is (= :before (:phase first-err))
+          ":rf/interceptor-error retains the FIRST error (the :before failure)")
+      (is (= :before-bad (:id first-err))
+          ":rf/interceptor-error identifies the FIRST failing interceptor")
+      (is (= [:before :after] (mapv :phase errs))
+          "errors appear in the vector in occurrence order")
+      (is (= [:before-bad :after-bad] (mapv :id errs))
+          "both failing interceptor ids are preserved in order")
+      (is (= first-err (first errs))
+          ":rf/interceptor-error equals the first element of :rf/interceptor-errors")))
+
+  (testing "a failing :before short-circuits subsequent :before stages
+            but :after stages still run (teardown contract).
+
+            Per rf2-mm2a: with the short-circuit, downstream :before
+            stages don't see partial context. The :after pass is
+            unconditional so interceptors can clean up resources their
+            :before claimed."
+    (let [trail (atom [])
+          mk-good (fn [tag]
+                    (interceptor/->interceptor
+                      :id     tag
+                      :before (fn [ctx]
+                                (swap! trail conj [:before tag])
+                                ctx)
+                      :after  (fn [ctx]
+                                (swap! trail conj [:after tag])
+                                ctx)))
+          boom    (interceptor/->interceptor
+                    :id     :boom
+                    :before (fn [_ctx]
+                              (swap! trail conj [:before :boom])
+                              (throw (ex-info "before blew up"
+                                              {:src :boom})))
+                    :after  (fn [ctx]
+                              (swap! trail conj [:after :boom])
+                              ctx))
+          ;; a's :before runs, boom's :before throws, c's :before MUST
+          ;; be skipped (short-circuit). All :after stages run.
+          chain   [(mk-good :a) boom (mk-good :c)]
+          final   (interceptor/execute-chain chain {:coeffects {} :effects {}})]
+      (is (= [[:before :a]
+              [:before :boom]
+              ;; NO [:before :c] — short-circuited.
+              [:after :c]
+              [:after :boom]
+              [:after :a]]
+             @trail)
+          "subsequent :before stages skipped after the failure;
+           every :after still ran in reverse order")
+      (is (= :boom (get-in final [:rf/interceptor-error :id]))
+          "the original :before failure is recorded")
+      (is (= 1 (count (:rf/interceptor-errors final)))
+          "only the one (uncaught) :before error is in the vector —
+           skipped :before stages don't synthesize errors"))))

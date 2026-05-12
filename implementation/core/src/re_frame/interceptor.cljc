@@ -43,22 +43,40 @@
 
 ;; ---- chain execution ------------------------------------------------------
 
+(defn- record-error
+  "Append `err` to `:rf/interceptor-errors` (preserving prior errors) and
+  set `:rf/interceptor-error` to the FIRST error only. The singleton key
+  is the original cause — tracing code that reads it gets the root failure
+  without surprise. The vector key carries every error in the order they
+  occurred so downstream tooling can surface the full chain of failures."
+  [context err]
+  (let [existing-first (:rf/interceptor-error context)]
+    (cond-> (update context :rf/interceptor-errors (fnil conj []) err)
+      (nil? existing-first) (assoc :rf/interceptor-error err))))
+
 (defn- invoke-before [context interceptor]
-  (if-let [f (:before interceptor)]
-    (try
-      (or (f context) context)
-      (catch #?(:clj Throwable :cljs :default) e
-        (assoc context :rf/interceptor-error
-               {:phase :before :id (:id interceptor) :exception e})))
-    context))
+  ;; Short-circuit: once any :before has failed, skip downstream :before
+  ;; stages. This mirrors the :rf/skip-handler? pattern (events.cljc /
+  ;; cofx.cljc) — partial context shouldn't be propagated to handlers or
+  ;; subsequent validation. The :after pass still runs in execute-chain
+  ;; so interceptors can perform teardown.
+  (if (:rf/interceptor-error context)
+    context
+    (if-let [f (:before interceptor)]
+      (try
+        (or (f context) context)
+        (catch #?(:clj Throwable :cljs :default) e
+          (record-error context
+                        {:phase :before :id (:id interceptor) :exception e})))
+      context)))
 
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
     (try
       (or (f context) context)
       (catch #?(:clj Throwable :cljs :default) e
-        (assoc context :rf/interceptor-error
-               {:phase :after :id (:id interceptor) :exception e})))
+        (record-error context
+                      {:phase :after :id (:id interceptor) :exception e})))
     context))
 
 (defn execute-chain
@@ -70,13 +88,21 @@
        the kind-specific factory; see events.cljc / subs.cljc).
     3. :after of each interceptor in REVERSE declaration order.
 
-  Failures during :before or :after are captured in the context under
-  :rf/interceptor-error and the chain continues — so :after stages can
-  do their cleanup. The drain loop reads :rf/interceptor-error after
-  the chain ends and emits :rf.error/handler-exception (or similar)."
+  Failures during :before or :after are captured in the context:
+    - `:rf/interceptor-error`  — the FIRST error (original cause; what
+                                 tracing code reads).
+    - `:rf/interceptor-errors` — vector of ALL errors in order of
+                                 occurrence (preserves later errors that
+                                 would otherwise be overwritten).
+
+  Once a :before fails, subsequent :before stages are short-circuited
+  (the partial context would be invalid input). The :after pass still
+  runs in full so interceptors can do their cleanup. The drain loop
+  reads :rf/interceptor-error after the chain ends and emits
+  :rf.error/handler-exception (or similar)."
   [interceptors initial-context]
-  (let [;; Apply :before stages in order.
+  (let [;; Apply :before stages in order (short-circuits on first error).
         ctx-after-befores (reduce invoke-before initial-context interceptors)
-        ;; Apply :after stages in reverse order.
+        ;; Apply :after stages in reverse order (always runs for teardown).
         ctx-after-afters  (reduce invoke-after ctx-after-befores (reverse interceptors))]
     ctx-after-afters))
