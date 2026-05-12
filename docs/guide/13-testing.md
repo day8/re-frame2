@@ -92,7 +92,7 @@ The patterns above isolate `app-db`. They don't isolate the **registrar** — th
     (ts/with-fresh-registrar (test-fn))))
 ```
 
-The companion fn `reset-runtime-fixture` is the same shape extended to per-process state — frames, flows, schemas, trace listeners — and is the standard `:each` fixture for re-frame2 test suites. Use `with-fresh-registrar` when only the registrar might change; use `reset-runtime-fixture` when tests touch trace listeners, schemas, or other process-wide state.
+The companion fn `reset-runtime-fixture` is the same shape extended to per-process state — frames, flows, schemas, trace listeners — and is the standard `:each` fixture for re-frame2 test suites. Use `with-fresh-registrar` when only the registrar might change; use `reset-runtime-fixture` when tests also touch trace listeners, schemas, or other process-wide state.
 
 ## What you actually test
 
