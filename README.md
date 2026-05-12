@@ -5,7 +5,7 @@
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
 >
 
-re-frame2 is the axe as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
+re-frame2 is the same axe as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
 
 ## What is it?
 
