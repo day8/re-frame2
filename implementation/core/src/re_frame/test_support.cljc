@@ -155,7 +155,9 @@
        unaffected).
     3. Disposes the currently-installed substrate adapter.
     4. Resets the machines spawn-counter.
-    5. Clears trace listeners.
+    5. Clears trace listeners and adapter warn-once caches
+       (`warned-non-dom-roots` across re-frame.views and the helix /
+       uix adapters; per rf2-4edk).
     6. If an `:adapter` was supplied, installs it and ensures the
        `:rf/default` frame. Otherwise leaves adapter installation to
        the test (or to a separate fixture).
@@ -268,6 +270,17 @@
            (clear-history!))
          (when-let [clear-epoch-cbs! (late-bind/get-fn :epoch/clear-epoch-cbs!)]
            (clear-epoch-cbs!))
+         ;; Per rf2-4edk: clear the per-adapter `warned-non-dom-roots`
+         ;; warn-once caches so a sibling test's first-encounter warning
+         ;; cannot silently swallow a later test's same-id warning. The
+         ;; hook is chained: re-frame.views, re-frame.adapter.helix and
+         ;; re-frame.adapter.uix each register a clear-step at ns-load
+         ;; and the chained closure runs all of them. When none of these
+         ;; CLJS-only namespaces are on the classpath (JVM tests) the
+         ;; lookup returns nil and this is a no-op (correct: there is no
+         ;; cache state to clear under .clj).
+         (when-let [clear-warn-once! (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+           (clear-warn-once!))
          (trace/clear-trace-cbs!)
          (when adapter
            (adapter/install-adapter! adapter)
