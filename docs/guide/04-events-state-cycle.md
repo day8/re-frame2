@@ -65,21 +65,21 @@ Here's the same counter-fetch event in re-frame2 idiom:
   (fn [{:keys [db]} _event]
     {:db (assoc db :counter/loading? true)
      :fx [[:rf.http/managed
-           {:request    {:method :get
-                         :url    "/api/inc.json"}
-            :on-success [:counter/inc-loaded]
-            :on-failure [:counter/inc-error]}]]}))
+           {:request    {:url "/api/inc.json"}
+            :on-success [:counter/inc-loaded]}]]}))
 ```
 
 Three things changed:
 
 1. The registration is `reg-event-fx`, not `reg-event-db`. The "fx" stands for "effects" — this handler returns a map of effects, not a new db.
 2. The handler is **still pure**. It returns a Clojure map. Every value in that map is just data — strings, keywords, vectors. No `js/fetch`, no callbacks, no promises.
-3. The map describes everything: "set the db to this; *also*, fire a managed HTTP request with these args, and on success dispatch this event, on failure dispatch this one."
+3. The map describes everything: "set the db to this; *also*, fire a managed HTTP request to this URL, and on success dispatch this event."
+
+The shape above is the minimum needed to make the point. `:rf.http/managed` accepts more — `:method`, `:on-failure`, `:body`, retry policy, schema-driven decode — and [chapter 10](10-doing-http-requests.md) covers the full surface. For this chapter, "URL in, event out" is enough.
 
 The handler's first argument — `{:keys [db]}` — is the **coeffects map**, the symmetric twin of the effect map on the way out. `:db` is the standard input every handler gets for free; the matching surface for handlers that need *other* inputs (the current time, a freshly-minted UUID, a value from `localStorage`) is `inject-cofx`, covered in [chapter 05](05-coeffects.md). The core path doesn't need cofx yet — the chapters that follow only destructure `:db` and the event — but the side-track is there the moment a handler wants to read something the runtime hasn't already put under its nose.
 
-Then there are two follow-up handlers, each pure:
+Then there's the follow-up handler, pure:
 
 ```clojure
 (rf/reg-event-db :counter/inc-loaded
@@ -87,19 +87,13 @@ Then there are two follow-up handlers, each pure:
     (-> db
         (assoc :counter/loading? false)
         (update :count + (:delta value)))))
-
-(rf/reg-event-db :counter/inc-error
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc :counter/loading? false)
-        (assoc :counter/error failure))))
 ```
 
-The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:counter/inc-loaded {:kind :success :value v}]` or `[:counter/inc-error {:kind :failure :failure m}]`. Those events go through the queue exactly like any other event. The cycle runs.
+The runtime is what actually *does* the HTTP request. It looks at the effect map, sees `[:rf.http/managed {...}]`, looks up the registered fx, and hands it the args. When the request resolves, the fx dispatches `[:counter/inc-loaded {:kind :success :value v}]`. That event goes through the queue exactly like any other event. The cycle runs.
 
-`:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, schema-driven decode, frame-aware reply addressing — and it's covered in detail in [chapter 10 — Doing HTTP requests](10-doing-http-requests.md). This chapter uses it to make the effects-as-data shape concrete; the full surface lives there.
+`:rf.http/managed` is the canonical HTTP fx — managed decoding, retry-with-backoff, abort, frame-aware reply addressing. This chapter uses it to make the effects-as-data shape concrete; the full surface lives in [chapter 10](10-doing-http-requests.md).
 
-This shape makes the dynamic story tractable again. You can trace the counter-fetch flow by reading three handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
+This shape makes the dynamic story tractable again. You can trace the counter-fetch flow by reading two handlers, in order, top to bottom. There are no callbacks. There are no `.then` chains. There's data going in, data going out, data going in again.
 
 ## Walking one event through every domino
 
@@ -220,13 +214,37 @@ You'll register a handful of effects in any non-trivial app: `:localstorage/get`
 
 For HTTP, the framework already ships `:rf.http/managed` — managed decoding, retry-with-backoff, abort, frame-aware reply addressing, schema-driven decode. You don't write your own HTTP fx; you use that one. [Chapter 10 — Doing HTTP requests](10-doing-http-requests.md) walks through it end-to-end.
 
+### How does that work?
+
+A handler returns a map. Some entries in that map fire HTTP requests, write to localStorage, push history entries. *Why does that work?* What turns a Clojure map into "go do these things"?
+
+Every `reg-event-fx` handler runs inside a chain, and the runtime silently inserts a built-in interceptor — `do-fx` — at the front of that chain. After your handler returns, `do-fx` walks the effect map and, for each entry, looks up the registered fx handler by id and invokes it. `:db`, `:fx`, `:dispatch`, `:rf.http/managed`, your `:localstorage/set` — they're all entries in the same registry, executed by the same loop. That's why registering a new fx is enough to make every event handler in the app able to use it: there's one dispatcher, looking at the registry, calling whatever it finds.
+
+[Chapter 07 — Interceptors](07-interceptors.md) covers the chain in full — how `do-fx` is just one interceptor among others, how you can insert your own, and how the chain replaces the "middleware" you might expect from other frameworks.
+
+### Gotcha: registrations don't fire if the namespace isn't required
+
+`reg-event-fx`, `reg-event-db`, `reg-fx`, `reg-sub` are all top-level forms with side-effects: they write entries into the runtime registry when the namespace loads. If no reachable namespace `(:require)`s your `events.cljs`, the Closure dep tracker never loads it, the top-level forms never run, and the registrations silently don't happen. Your handler isn't broken — it just doesn't exist. Your dispatch goes to `:counter/inc` and nothing answers.
+
+The fix is a one-liner. Have your mount-point namespace (`core.cljs`, or whatever boots the app) require every namespace that registers anything:
+
+```clojure
+(ns my-app.core
+  (:require [my-app.events]
+            [my-app.subs]
+            [my-app.views]
+            [re-frame.core :as rf]))
+```
+
+The `:require`s look unused — there's no symbol from `my-app.events` referenced in `core`. They aren't. They anchor the graph: requiring the namespace forces it to load, which runs its top-level `reg-*` forms.
+
 ## Why effects-as-data is worth the verbosity
 
-It is more verbose. The fetch-an-increment flow in idiomatic React is one async function with `await`. In re-frame2 it's three handlers + a registered fx. Six places where you'd have one.
+It is more verbose. The fetch-an-increment flow in idiomatic React is one async function with `await`. In re-frame2 it's two handlers (one to fire the request, one to fold the result back in) plus a registered fx. Several places where you'd have one.
 
 The benefits:
 
-**Tests don't need a network.** The handler that produces the effect map can be tested as a pure function. The success/error handlers similarly. The fx itself can be tested by stubbing the HTTP call. None of these tests need React, JSDOM, or a running server.
+**Tests don't need a network.** The handler that produces the effect map can be tested as a pure function. The success and error handlers similarly. The fx itself can be tested by stubbing the HTTP call. None of these tests need React, JSDOM, or a running server.
 
 **You can swap the implementation.** A test wants `:rf.http/managed` to return a canned response? Override it for that test:
 
