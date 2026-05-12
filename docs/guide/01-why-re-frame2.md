@@ -15,6 +15,16 @@ This chapter is the argument for re-frame2's dynamic model.
 
 ## The story
 
+> **Derived data, flowing.**
+
+<!-- TODO: water-cycle image when rf2-0epn lands -->
+
+Picture the water cycle. Water moves around a loop — sea to cloud to rain to river to sea — propelled by gravity, evaporation, and convection. Two phases, two directions, one cycle. Nothing in the loop has to decide *that* it moves; the forces handle that. What changes between turns of the cycle is only *what* is moving and *where*.
+
+A re-frame2 app is shaped the same way. Data flows around a loop, and re-frame2 supplies the conveyance — the equivalent of gravity, evaporation, and convection. You don't write the loop. You hang pure functions on it: a function that turns an event into a state change, a function that derives a view from state, a function that turns a state slice into a side-effect. The runtime moves the data between them.
+
+That's the shape. Here are the stages.
+
 In re-frame2, the only way state changes is this:
 
 1. **Something happens** — a click, a server response, a timer tick. It becomes an *event*: a piece of data describing what happened.
