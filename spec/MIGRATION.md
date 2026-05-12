@@ -1320,9 +1320,9 @@ Per [rf2-ljw6](#) the v2 spec corpus had drifted between two phrasings for the r
 
 **Type A — note only** (no codebase rewrite needed; Maven artefact names are unchanged).
 
-Per [rf2-zha9](#) the three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` under rf2-zha9 and renamed to `adapters/` under [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §reactive-substrate adapter contract](006-ReactiveSubstrate.md#the-reactive-substrate-adapter-contract); per-feature artefacts plug in via [`re-frame.late-bind`](Conventions.md#independence-rule).
+Per [rf2-zha9](#) the three adapters now live under a single `implementation/adapters/` directory: `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/` (the directory was first introduced as `substrates/` under rf2-zha9 and renamed to `adapters/` under [rf2-0imy](#) — the [§Adapter-canonical naming](#) decision). Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The reorg surfaces the substrate-vs-per-feature distinction in the directory layout — adapters implement the [Spec 006 §adapter API contract](006-ReactiveSubstrate.md#the-adapter-api-contract); per-feature artefacts plug in via [`re-frame.late-bind`](Conventions.md#independence-rule).
 
-**No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstratename--re-frameadaptername).
+**No user-side migration.** Maven artefact names (`day8/re-frame2-reagent`, `day8/re-frame2-uix`, `day8/re-frame2-helix`) are published from the new paths but the coordinates a consumer's `deps.edn` declares are unchanged. The on-disk move is a re-frame2 *repository* concern; consumers of the published jars are unaffected by the directory layout. The companion CLJS namespace rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) is documented separately as [M-38](#m-38-cljs-namespace-rename--re-framesubstrate--re-frameadapter).
 
 ---
 
@@ -1642,7 +1642,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), state-machine declarati
 
 ### M-49. Snapshot `:state` widens to a third arm — map of region-name → state (additive; readers that pattern-match on `:state` may widen)
 
-Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
+Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state` slot has a new third arm — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
 
 **Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `(rf/sub-machine id)` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
 
@@ -1654,7 +1654,7 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 
-**Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state) above for the registration-side change.
+**Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive) above for the registration-side change.
 
 ---
 
@@ -1964,7 +1964,7 @@ Apply only when the user wants the modernisation. Hand-rolled spawn-and-join con
 
 A non-exhaustive list of public API surface that is **preserved unchanged** in re-frame2. If your code uses any of these, leave it alone.
 
-- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx`.** Same names, same call shapes (vector-of-interceptors form preserved via overload). See M-5 for the one edge case (higher-order use). `reg-sub-raw` is **not** preserved — see M-18; `reg-event-error-handler` is **not** preserved — see [M-13](#m-13-reg-event-error-handler-is-dropped-error-policy-is-per-frame-on-error) and [M-26](#m-26-drift-sweep-drops-v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).
+- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx`.** Same names, same call shapes (vector-of-interceptors form preserved via overload). See M-5 for the one edge case (higher-order use). `reg-sub-raw` is **not** preserved — see M-18; `reg-event-error-handler` is **not** preserved — see [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).
 - **Handler signatures.** `(fn [db [_ args]] ...)` for `reg-event-db`; `(fn [ctx event] ...)` or `(fn [m] ...)` for `reg-event-fx`; `(fn [context] ...)` for `reg-event-ctx`. Unchanged. Existing handlers continue to work; new keys appear additively in the cofx-context map.
 - **`dispatch` and `dispatch-sync`.** Same names; the optional second `opts` arg is a new addition that doesn't affect single-arg calls.
 - **`subscribe`.** Same. Optional second `opts` arg.

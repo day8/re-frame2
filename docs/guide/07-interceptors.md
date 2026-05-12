@@ -255,7 +255,7 @@ What an interceptor *should not* do:
 
 Each `:before` and `:after` is invoked inside a try/catch. If a slot throws, the exception is captured on the context under `:rf/interceptor-error` with the failing interceptor's `:id` and the phase (`:before` or `:after`). The chain *keeps running* — subsequent stages get the chance to do their cleanup with the error-bearing context.
 
-After the chain completes, the runtime checks for `:rf/interceptor-error` and emits `:rf.error/handler-exception` with the failing interceptor's id (not the event's). [Chapter 14 §Scenario 5 — unhandled exception in an interceptor](14-errors.md#scenario-5-unhandled-exception-in-an-interceptor) walks through the full recovery semantics — a `:before` throw aborts the handler; an `:after` throw halts the cascade so the effects don't fire.
+After the chain completes, the runtime checks for `:rf/interceptor-error` and emits `:rf.error/handler-exception` with the failing interceptor's id (not the event's). [Chapter 14 §Scenario 5 — unhandled exception in an interceptor](14-errors.md#scenario-5--unhandled-exception-in-an-interceptor) walks through the full recovery semantics — a `:before` throw aborts the handler; an `:after` throw halts the cascade so the effects don't fire.
 
 The takeaway for the chapter: write your `:before` and `:after` to be defensive — the context they receive may carry an error from a prior stage. If your `:after` is cleaning up resources, check for the error and clean up anyway.
 
