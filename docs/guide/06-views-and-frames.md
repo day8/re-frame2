@@ -159,6 +159,8 @@ If there is no synthetic-event surface for what you need — `setTimeout`, `fetc
 
 Animation is a view-layer concern, but it follows the same rule the rest of this chapter has been making: **state is the truth; the view animates the transition; animation completion is silent unless explicitly modelled in state.** Three regimes cover the space; the regime is chosen by what state actually needs to know.
 
+> **Skim on first read** — animations split into three regimes; come back when you reach for one.
+
 > **Transitions — the 95% case.** State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. No completion event needed — by the time the animation kicks off, `app-db` has already moved on; the visual is catching up. Opacity fades, slide-in / slide-out, accordion expand, list reorder, modal scrim, route transitions all fit. The view binds `:class` / `:style` from a sub; CSS does the interpolation.
 
 > **Continuous loops — physics, games, scroll inertia.** Per-frame state mutation IS the truth. The right shape is a registered fx (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration; the event handler updates state; the view renders. Cancellation is a sibling fx that cancels the RAF handle. This is [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) with `requestAnimationFrame` substituted for HTTP — same six-step shape, same frame-capture discipline.

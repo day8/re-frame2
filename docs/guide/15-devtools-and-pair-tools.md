@@ -207,23 +207,17 @@ For *when* to reach for this channel — and the four shapes of slowness the cur
 
 ## What re-frame2 does not ship
 
-The contract above is sized to the framework's responsibility. Things that are **not** part of re-frame2 itself:
+The framework commits to stable data shapes and query APIs; tools own presentation, orchestration, and host integration. Outside the framework, in separate artefacts:
 
-- **The Claude integration in `re-frame-pair2`** — prompts, retrieval, model selection. Lives in the skill.
-- **The nREPL middleware** that bridges agent-to-runtime. Specific to the host stack.
-- **The `re-frame-causa` devtools UI.** It will be a separate artefact, consuming the same trace bus you've already met.
-- **DOM-to-source helpers** (`source-at`, `find-by-src`, `fire-click-at-src`). Tool-side; depends on host-specific DOM access.
-- **Skill-shaped retrospective analysis** of pair sessions — `re-frame-pair-improver2` is a separate Claude skill that reviews sessions and proposes improvements to the pair tool itself.
-
-The split is deliberate: the framework commits to **stable data shapes and query APIs**; tools own **presentation, orchestration, and host integration**. Without that split, the framework would own every consumer's roadmap — and would lock out every consumer it didn't already know about.
-
-The narrative is above; the reference below is for tool authors and edge-case investigators — read top-down for the story, jump to the bottom when you need exact shapes.
+- Claude prompts and nREPL middleware in `re-frame-pair2`.
+- The `re-frame-causa` devtools UI, consuming the same trace bus.
+- DOM-to-source helpers and the `re-frame-pair-improver2` skill.
 
 ---
 
-## Reference
+## Reference and advanced topics
 
-The rest of this chapter is the contract: surface shapes, error tables, behaviour against destroyed frames, the failure-mode enumeration for `restore-epoch` and `reset-frame-db!`. Read top-down if you're implementing a tool. Skip past if you're not — the pitch above is the part you need to internalise.
+The sections that follow are per-topic reference material. Reach for them when the topic comes up. The trace-stream, retain-N buffer, epoch records, `restore-epoch` / `reset-frame-db!` failure modes, source-coord attribute format, machine source-coord index, static sub-graph, and behaviour against destroyed frames make up the contract. Read top-down if you're implementing a tool; skip past if you're not — the pitch above is the part you need to internalise.
 
 ### Reference: the trace stream
 

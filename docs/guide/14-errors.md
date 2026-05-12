@@ -87,6 +87,8 @@ Two naming conventions worth knowing:
 
 The convention is **stable** and **additive**: new categories adopt one of the five existing prefixes; existing names are never renamed or repurposed.
 
+> **Skim on first read** — the six §Common scenarios are reference for when you hit them; on a linear read, glance at the table and head to §Testing error paths.
+
 ## Listening for errors at runtime
 
 The trace stream is the canonical surface. To attach a listener:
@@ -235,6 +237,12 @@ The projector is the **canonical surface** for mapping raw errors to user-facing
 Full details — when the projector runs, what `:rf/public-error` requires, server-side error events, sanitisation guarantees — live in [Spec 011 §Server error projection](../../spec/011-SSR.md#server-error-projection).
 
 Client-side UX mapping doesn't go through the projector. For client-side error UX — "show a toast when a handler exception fires," "show an inline error on a form when a schema validation fails" — you observe the trace stream (via `register-trace-cb!`) and dispatch an event that updates app-db, the same way you'd react to any other signal.
+
+---
+
+## Reference and advanced topics
+
+The sections that follow are per-topic reference material. Reach for them when the topic comes up. §Common scenarios walks six failure modes end-to-end — read each when you meet it, skim on a first pass. §Testing error paths shows how to assert errors fire in tests. The 10x / pair tooling and "what structured errors buy you" close the chapter.
 
 ## Common scenarios
 
