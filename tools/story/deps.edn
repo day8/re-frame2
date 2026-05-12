@@ -41,7 +41,7 @@
          ;; pin matches implementation/shadow-cljs.edn's :dependencies
          ;; entry so the top-level CLJS test build (`npm run test:cljs`)
          ;; resolves a single Malli on the classpath.
-         metosin/malli           {:mvn/version "0.13.0"}}
+         metosin/malli           {:mvn/version "0.20.1"}}
 
  :aliases
  {:test {:extra-paths ["test"]

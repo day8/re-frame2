@@ -25,7 +25,7 @@
 ;; entry points at ns-load time; core looks them up at call time.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}
-         metosin/malli   {:mvn/version "0.13.0"}}
+         metosin/malli   {:mvn/version "0.20.1"}}
 
  :aliases
  {:test {:extra-paths ["test"]
