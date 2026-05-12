@@ -262,7 +262,8 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:fx` | An effect substrate event (e.g. `:rf.fx/handled`, `:rf.fx/override-applied`) — the universal discriminator for fx outcomes when not error/warning-shaped | 009 |
 | `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`) | 009 / 014 |
 | `:registry` | Registrar mutation events (handler-registered/cleared/replaced) | 001 / 009 |
-| `:machine` | Machine-substrate events (transitions, lifecycle, timers) | 005 |
+| `:machine` | Machine-substrate events (transitions, lifecycle, timers). Carries the `:operation :rf.machine/destroyed-on-frame-exit` event emitted per active machine snapshot during `destroy-frame!` — the *reason* event in the frame-exit dual emit (see [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). | 005 |
+| `:rf.machine.lifecycle/created`, `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — uniform create/destroy emit shape used by lifecycle observers (one op-type per direction; the operation is identical to the op-type). `-destroyed` fires on every actor instance going away, including each per-machine emit during a frame's destroy cascade (the lifecycle leg of the dual emit; see [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). | 005 / 009 |
 | `:rf.epoch` | Epoch-history events (snapshotted, restored, db-replaced) | Tool-Pair |
 | `:frame` | Frame-lifecycle events (created, re-registered, destroyed) | 002 |
 
