@@ -44,7 +44,7 @@
 ;; sources are .cljs and need a CLJS compiler.
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
-         org.clojure/clojurescript {:mvn/version "1.11.132"}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}
          applied-science/js-interop {:mvn/version "0.4.2"}
          thheller/shadow-cljs      {:mvn/version "3.4.10"}}
 

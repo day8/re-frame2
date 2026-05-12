@@ -37,7 +37,7 @@
 ;; schemas artefact (which carries Malli) alongside core.
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
-         org.clojure/clojurescript {:mvn/version "1.11.132"}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}
          reagent/reagent           {:mvn/version "2.0.1"}}
 
  :aliases
