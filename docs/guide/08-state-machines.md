@@ -274,18 +274,7 @@ An action sees `(fn [data event] effects)` and returns either:
 
 Just like ordinary `reg-event-fx` returns. The contract is consistent.
 
-> **Why `:data` is the parameter, not a destructure key.** Most guards and actions only care about the machine's own data — not about its discrete state, not about its meta. Passing `:data` directly keeps the 99% case monomorphic and stops `(fn [{:keys [data]} _] ...)` boilerplate from spreading through your codebase. The body reads `(:attempts data)`, not `(get-in snapshot [:data :attempts])`.
-
-### When a guard or action needs the discrete state
-
-The 3-arity escape hatch — `(fn [data event {:keys [state meta]}] ...)` — is opt-in. Declaring a third parameter signals to the runtime that this fn wants the introspection slot. `state` is the snapshot's discrete state; `meta` is any user `:meta`.
-
-```clojure
-(fn capture-browsing-position [_data _event {:keys [state]}]
-  {:data {:last-browsing-state state}})        ;; the FSM keyword
-```
-
-Unless your guard or action needs to branch on the current state name (genuinely rare), stay with 2-arity. The 3-arity is the explicit signal "I'm doing introspection." The runtime arity-detects on the fn itself — no metadata, no flag.
+If a guard or action genuinely needs to branch on the current state name — rare — there's an opt-in 3-arity overload that exposes the snapshot's `:state` and `:meta` slots. Stay with 2-arity unless you need it; see [Spec 005 §3-arity escape hatch](../../spec/005-StateMachines.md#3-arity-escape-hatch--state--meta-introspection) for the design rationale and the variadic-fn caveat.
 
 ## Reading a machine: `sub-machine`
 
@@ -873,8 +862,6 @@ The standard cross-machine pattern still works — `[:fx [[:dispatch [<other-id>
 ```
 
 This is **opt-in** and **orthogonal** to gensym'd ids. Most spawns won't need it. Reach for `:system-id` when you have a stable role (one auth flow, one primary request, one wizard) that other parts of the frame need to talk to by name.
-
-A note on the 3-arity escape hatch covered earlier: the runtime detects "this fn declared three positional parameters" by inspecting the fn's arglist. **Variadic fns** like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity. If you actually want the introspection slot, write a real 3-arity fn rather than reaching for a variadic shorthand — the variadic case is a footgun, not a clever shortcut.
 
 ## A runnable example
 
