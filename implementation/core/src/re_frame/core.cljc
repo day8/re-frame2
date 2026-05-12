@@ -45,6 +45,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]
+            [re-frame.trace.projection :as trace-projection]
             [re-frame.substrate.adapter :as adapter]
             ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
             ;; per-feature Maven artefact and looks the producing fns
@@ -68,13 +69,16 @@
             ;; (with React-context wiring). On JVM the registrar registration
             ;; is sufficient.
             #?@(:cljs [[re-frame.views :as views]]))
-  ;; The reg-view macro is defined in the #?(:clj ...) block below. Make
-  ;; it visible to CLJS callers under the `re-frame.core` alias by
-  ;; self-referring `:require-macros`. Per Spec 004 §reg-view, the macro
-  ;; lives in re-frame.core; CLJS users can write `rf/reg-view` after
-  ;; `(:require [re-frame.core :as rf])` without an explicit
-  ;; `:require-macros` clause at the call site.
-  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame]])))
+  ;; `bound-fn` shadows clojure.core/bound-fn — the v2 surface deliberately
+  ;; reuses the name (per Spec 002 §bound-fn) for the frame-capturing form.
+  (:refer-clojure :exclude [bound-fn])
+  ;; The reg-view / with-frame / bound-fn macros are defined in the
+  ;; #?(:clj ...) blocks below. Make them visible to CLJS callers under
+  ;; the `re-frame.core` alias by self-referring `:require-macros`. Per
+  ;; Spec 004 §reg-view, the macros live in re-frame.core; CLJS users
+  ;; can write `rf/reg-view` after `(:require [re-frame.core :as rf])`
+  ;; without an explicit `:require-macros` clause at the call site.
+  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame bound-fn]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -93,11 +97,10 @@
 ;; directly rather than the macro layer.
 ;;
 ;; CLJS side: keep the existing fn-alias form. The macro path is a
-;; future addition (a re-frame.core-macros companion ns following
-;; the re-frame.views-macros pattern); the ALIAS path keeps current
-;; CLJS callers functioning. Tooling that consumes :ns / :line /
-;; :file via the JVM side (server-rendering, JVM tests, REPL
-;; introspection) is unaffected.
+;; future addition (a re-frame.core-macros companion ns); the ALIAS
+;; path keeps current CLJS callers functioning. Tooling that consumes
+;; :ns / :line / :file via the JVM side (server-rendering, JVM tests,
+;; REPL introspection) is unaffected.
 ;;
 ;; rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
 ;; than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
@@ -186,10 +189,10 @@
                        `(frame/reg-frame ~id ~metadata))))
 
 ;; CLJS side keeps the fn-aliases. Source-coord capture on CLJS will
-;; ride a future re-frame.core-macros companion ns (per the existing
-;; re-frame.views-macros pattern). The fns themselves (events/reg-*,
-;; subs/reg-sub, etc.) honour `*pending-coords*` either way — the
-;; macros above are the *capture* path; the merge path is in the fns.
+;; ride a future re-frame.core-macros companion ns. The fns themselves
+;; (events/reg-*, subs/reg-sub, etc.) honour `*pending-coords*` either
+;; way — the macros above are the *capture* path; the merge path is
+;; in the fns.
 #?(:cljs
    (do
      (def reg-event-db    events/reg-event-db)
@@ -231,6 +234,137 @@
                                            :handler-fn render-fn)))
    id))
 
+;; ---- reg-view expansion helpers (JVM-only) -------------------------------
+;;
+;; Per Spec 004 §reg-view: defn-shape macro. The expander lives here as
+;; plain CLJ helpers so the defmacro stays a one-line delegation and
+;; CLJS test files can also exercise the helpers JVM-side. Per rf2-4lc9o
+;; the helpers were consolidated here when the legacy
+;; `re-frame.views-macros` import path was cut.
+
+#?(:clj
+   (defn parse-reg-view-args
+     "Per Spec 004 §reg-view defn-shape. Parses (sym docstring? args body+)
+     into {:sym :docstring :args :body}. Returns nil when shape is invalid."
+     [more]
+     (let [[a & rest1] more]
+       (cond
+         (vector? a)
+         {:docstring nil :args a :body rest1}
+         (and (string? a) (vector? (first rest1)))
+         {:docstring a :args (first rest1) :body (next rest1)}
+         :else nil))))
+
+#?(:clj
+   (defn describe-reg-view-bad-second-arg
+     "Human-readable description of an invalid second-arg to reg-view, for
+     the compile-error message. Per Spec 004 §reg-view compile-error
+     contract: the rejected cases are Var-ref symbol, create-class call,
+     and computed-fn call."
+     [x]
+     (cond
+       (symbol? x)
+       (str "a Var reference (" x ")")
+       (and (seq? x) (symbol? (first x)) (= "create-class" (name (first x))))
+       (str "a (" (first x) " …) call")
+       (seq? x)
+       (str "a (" (first x) " …) call")
+       (nil? x)
+       "nothing"
+       :else
+       (str "a " (some-> x type .getSimpleName) " — " (pr-str x)))))
+
+#?(:clj
+   (defn- reagent-slim-form-tag
+     "Classify the user's body shape (Form-1 / Form-2) at compile time, when
+     `day8/reagent-slim` is on the classpath. Returns a keyword form-tag or
+     nil when the helper isn't available (other adapter, JVM-only build,
+     etc.). Per rf2-yfbx the compile-time fold sits in the canonical
+     `reg-view` macro — there is no separate `defview` macro. The runtime
+     detection in `reagent2.impl.component/wrap-render` is the load-bearing
+     correctness path; this tag is an additive optimisation that lets
+     `wrap-render` short-circuit the classification cond on the hot path.
+
+     Lookup goes through `requiring-resolve` so core does not statically
+     depend on reagent-slim. UIx- or Helix-only builds resolve to nil
+     here and emit the body untagged."
+     [body]
+     (when-let [classifier (try (requiring-resolve
+                                  'reagent2.impl.component/classify-form-body)
+                                (catch Exception _ nil))]
+       (classifier body))))
+
+#?(:clj
+   (defn expand-reg-view
+     "Build the expansion form for a reg-view macro call. `form-meta` is
+     `(meta &form)` from the calling macro; `current-ns-sym` is
+     `(ns-name *ns*)` at expansion time; `current-file` is `*file*` at
+     expansion time. Both are captured in the expansion as literals so
+     the emitted form does not reference `*ns*` / `*file*` at runtime —
+     necessary for the CLJS path, where `cljs.core/*ns*` is nil at
+     runtime.
+
+     Per rf2-yfbx (folded into reg-view, not a separate `defview`): when
+     reagent-slim is on the classpath, the body is structurally classified
+     (Form-1 / Form-2) at expansion time and the wrapper fn is stamped
+     with `^{:reagent2/form ...}` meta. The reagent-slim runtime path
+     (`reagent2.impl.component/wrap-render`) reads this tag to skip the
+     Form-1/2 cond on the hot path. The runtime detection remains
+     load-bearing for correctness; this is an additive perf hint."
+     [form-meta current-ns-sym current-file sym more]
+     (let [parsed   (parse-reg-view-args more)
+           sym-meta (or (meta sym) {})
+           id-meta  (:rf/id sym-meta)
+           id       (or id-meta (keyword (str current-ns-sym) (str sym)))
+           ;; Anything on the symbol other than :rf/id is treated as slot
+           ;; metadata (matches Clojure's defn idiom: ^{:doc "..."} sym).
+           slot-meta (dissoc sym-meta :rf/id)]
+       (when (nil? parsed)
+         (throw (ex-info
+                  (str "reg-view second argument must be an args vector "
+                       "(defn-shape: (reg-view sym [args] body)). Got "
+                       (describe-reg-view-bad-second-arg (first more))
+                       ". For runtime registration, use "
+                       "(re-frame.core/reg-view* :id render-fn).")
+                  {:sym sym :got (first more) :args-after-sym (vec more)})))
+       (let [{:keys [docstring args body]} parsed
+             form-tag (reagent-slim-form-tag body)
+             def-form (if docstring
+                        `(def ~sym ~docstring (re-frame.core/view ~id))
+                        `(def ~sym (re-frame.core/view ~id)))
+             full-slot-meta (cond-> slot-meta
+                              docstring (assoc :doc docstring)
+                              form-tag  (assoc :reagent2/form form-tag))
+             ;; The wrapper fn carries the form-tag as its own meta too, so
+             ;; renderers that take the fn alone (e.g. directly via
+             ;; (rf/view :id)) can still read it without round-tripping
+             ;; through the registry slot.
+             fn-form  (if form-tag
+                        (with-meta
+                          `(fn ~sym ~args
+                             (let [~'dispatch  (re-frame.core/dispatcher)
+                                   ~'subscribe (re-frame.core/subscriber)]
+                               ~@body))
+                          {:reagent2/form form-tag})
+                        `(fn ~sym ~args
+                           (let [~'dispatch  (re-frame.core/dispatcher)
+                                 ~'subscribe (re-frame.core/subscriber)]
+                             ~@body)))]
+         ;; Per Conventions §`reg-*` return-value convention: every `reg-*`
+         ;; macro returns its primary id. The auto-def is a side effect; the
+         ;; macro's terminal value is `id`. (Without the trailing `id` the
+         ;; `def` would be the last form and the macro would return the Var,
+         ;; not the id — breaking the uniform return-value contract.)
+         ;; Per rf2-hzos.
+         `(do
+            (binding [re-frame.source-coords/*pending-coords*
+                      ~(source-coords/coords-form form-meta current-file current-ns-sym)]
+              (re-frame.core/reg-view* ~id
+                ~full-slot-meta
+                ~fn-form))
+            ~def-form
+            ~id)))))
+
 #?(:clj
    (defmacro reg-view
      "Register a view as a defn-shape macro. Per Spec 004 §reg-view.
@@ -259,13 +393,9 @@
      the registry slot includes :ns / :line / :file captured here."
      {:arglists '([sym args body+] [sym docstring args body+])}
      [sym & more]
-     ;; Delegates to the shared expander in re-frame.views-macros so
-     ;; both this surface and the legacy
-     ;; `:require-macros [re-frame.views-macros :refer [reg-view]]`
-     ;; emit identical expansions. See rf2-xnym rationale at the top
-     ;; of the registration section for the metadata-free ns-symbol.
-     ((requiring-resolve 're-frame.views-macros/expand-reg-view)
-      (meta &form) (symbol (str (ns-name *ns*))) *file* sym more)))
+     ;; See rf2-xnym rationale at the top of the registration section for
+     ;; the metadata-free ns-symbol.
+     (expand-reg-view (meta &form) (symbol (str (ns-name *ns*))) *file* sym more)))
 
 (defn view
   "Runtime-lookup handle for a registered view. Returns the registered
@@ -622,12 +752,25 @@
   []
   (subscriber))
 
+;; `bound-fn` is the macro-form of `bound-dispatcher`/`bound-subscriber`:
+;; captures `*current-frame*` at definition time, restores it at call
+;; time. Useful for closures called from async boundaries (timers,
+;; http-handlers, promises) where dynamic-var binding has been lost.
+;; Per Spec 002 §bound-fn.
+
+#?(:clj
+   (defmacro bound-fn
+     "Return a fn that captures the current frame and re-binds
+     `*current-frame*` inside its body. Per Spec 002 §bound-fn."
+     [argv & body]
+     (let [frame-sym (gensym "frame__")]
+       `(let [~frame-sym (re-frame.core/current-frame)]
+          (fn ~argv
+            (binding [re-frame.frame/*current-frame* ~frame-sym]
+              ~@body))))))
+
 ;; ---- view ergonomics (CLJS only) ------------------------------------------
 ;; reg-view (the macro) lives above as a JVM/CLJS-shared `#?(:clj defmacro)`.
-;; The legacy import path `re-frame.views-macros` continues to provide
-;; `reg-view` and `with-frame` shims that emit the same expansion shape,
-;; so existing examples keep working without an across-the-board sweep
-;; of `:require-macros` imports.
 ;; frame-provider is a Reagent component re-exported here so `rf/frame-provider`
 ;; is the canonical user-facing surface (per Spec 002 §What `frame-provider` is
 ;; and the API.md table); it lives in re-frame.views to keep React/Reagent off
@@ -749,6 +892,13 @@
 (def emit-trace!         trace/emit!)
 (def trace-buffer        trace/trace-buffer)
 (def clear-trace-buffer! trace/clear-trace-buffer!)
+
+;; Per rf2-wvzgd: cascade projection. Pure-data fn lifted from Story's
+;; trace panel; consumed by Story (`tools/story/src/re_frame/story/ui/
+;; trace.cljs`), and (when impl lands) Causa (rf2-5aw5v) and pair2's
+;; `cascade-of`. CLJC for JVM-side testability.
+(def group-cascades      trace-projection/group-cascades)
+(def domino-bucket       trace-projection/domino-bucket)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
 

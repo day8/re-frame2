@@ -20,7 +20,7 @@
             ;; rf/reg-route below throws :rf.error/routing-artefact-missing.
             [re-frame.routing]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 ;; ============================================================================
 ;; ROUTES

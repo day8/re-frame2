@@ -46,19 +46,23 @@ The server auto-discovers the nREPL port from (in order):
 |-----------------------------------|----------------|------------|
 | `scripts/discover-app.sh`         | `discover-app` | yes (optional `build`) |
 | `scripts/eval-cljs.sh '<form>'`   | `eval-cljs`    | pass form as `{form: "..."}` |
-| `scripts/inject-runtime.sh`       | `inject-runtime` | yes |
 | `scripts/dispatch.sh '<event>' --sync --frame :foo` | `dispatch` | `{event: "...", sync: true, frame: ":foo"}` |
 | `scripts/trace-window.sh 1000`    | `trace-window` | `{ms: 1000}` |
 | `scripts/watch-epochs.sh --event-id-prefix :cart` | `watch-epochs` | `{pred: {"event-id-prefix": ":cart"}}` (pull-mode — call repeatedly with `since-id`) |
 | `scripts/tail-build.sh --probe '<form>'` | `tail-build` | `{probe: "..."}` |
 
-## Sentinel-based reconnect
+(`inject-runtime` is gone — the runtime ships into the app via
+shadow-cljs `:devtools :preloads`. See `SKILL.md` §Setup.)
 
-Both transports handle this the same way: every op that needs the
-in-browser runtime first probes `re-frame-pair2.runtime/session-id`.
-If that var is gone (typical after a full page reload), `runtime.cljs`
-is re-shipped before the actual op runs. You don't need to manage
-this by hand.
+## Preload probe (no inject step)
+
+Both transports handle preload verification the same way: every op
+that needs the in-browser runtime first probes
+`js/globalThis.__re_frame_pair2_runtime` — the load-time marker the
+preload installs. If the marker is missing the op refuses with
+`{:ok? false :reason :runtime-not-preloaded :hint "..."}`. A full
+page refresh drops the runtime, but the preload re-installs it on
+the next bundle load; no manual reconnect step.
 
 ## When the MCP server is degraded
 

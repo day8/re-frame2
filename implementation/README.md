@@ -59,7 +59,6 @@ implementation/
       test_support.cljc      Test fixtures, dispatch-sync helpers, reset-runtime (Spec 008).
       conformance.cljc       DSL interpreter for fixture handler bodies.
       views.cljs             reg-view*, React frame-context bridge (CLJS-only).
-      views_macros.clj       reg-view, with-frame, bound-fn macros.
       adapter/
         context.cljs         The shared React frame Context object every React-shaped
                              adapter consumes (rf2-3yij Decision 2).

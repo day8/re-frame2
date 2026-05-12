@@ -1,7 +1,7 @@
 ;;;; tests/runtime/app_db_reset_test.clj
 ;;;;
 ;;;; Babashka-runnable structural verification of `app-db-reset!` from
-;;;; `scripts/runtime.cljs`.
+;;;; `preload/re_frame_pair2/runtime.cljs`.
 ;;;;
 ;;;; Why this test exists (rf2-mzn7):
 ;;;;
@@ -14,8 +14,9 @@
 ;;;;
 ;;;; Why a structural test rather than a runtime test:
 ;;;;
-;;;;   `scripts/runtime.cljs` is CLJS-only — injected into the browser
-;;;;   app over nREPL — so it can't run under bb. The semantic contract
+;;;;   `preload/re_frame_pair2/runtime.cljs` is CLJS-only — loaded into
+;;;;   the consumer app via shadow-cljs `:devtools :preloads` — so it
+;;;;   can't run under bb directly. The semantic contract
 ;;;;   of `rf/reset-frame-db!` (mutates app-db, appends a synthetic
 ;;;;   `:rf.epoch/db-replaced` epoch, schema-validates, drain-checks,
 ;;;;   emits trace, fires listeners) is already covered by the JVM
@@ -32,7 +33,7 @@
 ;;;;
 ;;;;   What we MUST verify here is that pair2's `app-db-reset!` actually
 ;;;;   delegates to that surface — not to some other API that won't
-;;;;   record the epoch. This file parses `scripts/runtime.cljs`,
+;;;;   record the epoch. This file parses `preload/re_frame_pair2/runtime.cljs`,
 ;;;;   locates the `app-db-reset!` defn form, and asserts the structural
 ;;;;   contract:
 ;;;;
@@ -57,19 +58,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Locate runtime.cljs relative to this test file. Test runs from the
-;; skill root, so the path is scripts/runtime.cljs. We try a couple of
+;; skill root, so the path is preload/re_frame_pair2/runtime.cljs. We try a couple of
 ;; likely paths to stay robust to where bb is invoked from.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private runtime-cljs-path
   (some (fn [p] (when (.exists (io/file p)) p))
-        ["scripts/runtime.cljs"
-         "skills/re-frame-pair2/scripts/runtime.cljs"
-         "../scripts/runtime.cljs"]))
+        ["preload/re_frame_pair2/runtime.cljs"
+         "skills/re-frame-pair2/preload/re_frame_pair2/runtime.cljs"
+         "../preload/re_frame_pair2/runtime.cljs"]))
 
 (when-not runtime-cljs-path
   (binding [*out* *err*]
-    (println "ERROR: cannot locate scripts/runtime.cljs from" (System/getProperty "user.dir")))
+    (println "ERROR: cannot locate preload/re_frame_pair2/runtime.cljs from"
+             (System/getProperty "user.dir")))
   (System/exit 2))
 
 ;; ---------------------------------------------------------------------------
@@ -123,7 +125,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest app-db-reset-form-is-defined
-  (testing "scripts/runtime.cljs defines app-db-reset!"
+  (testing "preload/re_frame_pair2/runtime.cljs defines app-db-reset!"
     (is (some? app-db-reset-form)
         "the defn form is present in the source")))
 

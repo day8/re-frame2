@@ -98,15 +98,23 @@
    "package.json"
    "README.md"
    ".gitignore"
-   "resources/public/index.html"])
+   ;; Dev ergonomics bundle (rf2-r2jqo).
+   ".editorconfig"
+   ".clj-kondo/config.edn"
+   "dev/user.clj"
+   "dev/scratch.cljs"
+   "resources/public/index.html"
+   "resources/public/css/app.css"])
 
 (def ^:private per-substrate-sources
-  ;; Generated under src/<nested-dirs>/. For project-name "acme/my-app"
-  ;; clj-new produces namespace "acme.my-app" → nested-dirs "acme/my_app".
+  ;; Generated under src/<nested-dirs>/ and test/<nested-dirs>/. For
+  ;; project-name "acme/my-app" clj-new produces namespace
+  ;; "acme.my-app" → nested-dirs "acme/my_app".
   ["src/acme/my_app/core.cljs"
    "src/acme/my_app/events.cljs"
    "src/acme/my_app/subs.cljs"
-   "src/acme/my_app/views.cljs"])
+   "src/acme/my_app/views.cljs"
+   "test/acme/my_app/events_test.cljs"])
 
 (def ^:private substrate-coord
   {:reagent 'day8/re-frame2-reagent
@@ -139,12 +147,17 @@
 
         ;; -- shadow-cljs.edn structure --
         (let [scs  (read-edn (io/file root "shadow-cljs.edn"))
-              app  (get-in scs [:builds :app])]
+              app  (get-in scs [:builds :app])
+              tst  (get-in scs [:builds :test])]
           (is (= :browser (:target app))
               "shadow-cljs :app build targets :browser")
           (is (= 'acme.my-app.core/init
                  (get-in app [:modules :main :init-fn]))
-              "init-fn matches generated namespace"))
+              "init-fn matches generated namespace")
+          (is (some #{"test"} (:source-paths scs))
+              "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
+          (is (= :node-test (:target tst))
+              "shadow-cljs :test build targets :node-test"))
 
         ;; -- package.json sanity --
         (let [pj-text (slurp (io/file root "package.json"))]

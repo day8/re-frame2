@@ -21,7 +21,7 @@
   (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [boot.boot])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ============================================================================
 ;; PER-URL CANNED STUBS

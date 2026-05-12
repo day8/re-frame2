@@ -29,21 +29,23 @@ bencode@4+ is ESM-only and breaks shadow-cljs's CommonJS shim
 
 A full page reload in the browser destroys the CLJS runtime in the
 browser tab but leaves the JVM-side nREPL socket intact. The
-**runtime sentinel** is the var
-`re-frame-pair2.runtime/session-id` — set on inject, gone after a
-reload.
+**runtime sentinel** is the load-time marker
+`js/globalThis.__re_frame_pair2_runtime`, installed by the
+preloaded `re-frame-pair2.runtime` namespace — gone after a reload,
+re-installed automatically when shadow-cljs re-runs the consumer's
+`:devtools :preloads` on the next bundle load.
 
 Every tool that needs the runtime calls `ensure-runtime!`:
 
-1. `cljs-eval` the form `re-frame-pair2.runtime/session-id`.
-2. If a non-blank string comes back, the runtime is live; proceed.
-3. Otherwise, slurp the canonical `runtime.cljs` from
-   `skills/re-frame-pair2/scripts/runtime.cljs` (or
-   `$PAIR2_RUNTIME_PATH`) and ship it through `cljs-eval`. Then
-   proceed.
+1. `cljs-eval` the probe
+   `(some? (and (exists? js/globalThis) (.-__re_frame_pair2_runtime js/globalThis)))`.
+2. If `true` comes back, the runtime is live; proceed.
+3. Otherwise, reject with
+   `{:reason :runtime-not-preloaded :hint <setup-message>}`.
 
-This is the same check the bash-shim chain implemented in
-`runtime-already-injected?` (see `skills/re-frame-pair2/scripts/ops.clj`).
+There is no cljs-eval inject fallback (rf2-7dvg cut it). The consumer
+adds the preload entry to their shadow-cljs build per
+`skills/re-frame-pair2/SKILL.md` §Setup.
 
 ## Port discovery
 

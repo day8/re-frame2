@@ -1,0 +1,9 @@
+/* {{name}} — minimal stylesheet.
+ *
+ * Three rules. Plain CSS — no Tailwind, no garden, no spade. Replace
+ * or extend as your app grows; or swap to Tailwind via :css :tailwind
+ * when that template flag lands. */
+
+body { font: 16px/1.4 system-ui, sans-serif; margin: 2em; }
+button { padding: 0.4em 0.8em; }
+h1 { margin: 0 0 1em; }

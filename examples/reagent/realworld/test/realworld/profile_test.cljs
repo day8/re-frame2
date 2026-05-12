@@ -6,7 +6,7 @@
             [re-frame.core :as rf]
             [realworld.profile]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn profile-load-test []
   (th/reg-canned-success-by-url! :rf.http/managed.canned-profile

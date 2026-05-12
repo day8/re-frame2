@@ -50,23 +50,24 @@ The runtime emits each trace event at the *moment of interest* with the host clo
 
 ### Dispatch correlation: `:dispatch-id` / `:parent-dispatch-id`
 
-Pair-shaped tools and per-event diagnostics need to correlate the *cascade* a dispatch belongs to — "this `:event/dispatched` was emitted by an effect that ran inside the cascade started by *that* dispatch." The runtime stamps two fields onto every `:event/dispatched` trace event under the top-level `:tags`:
+Pair-shaped tools and per-event diagnostics need to correlate the *cascade* a dispatch belongs to — "this trace event fired inside the cascade started by *that* dispatch." The runtime maintains two distinct correlation channels:
 
 ```clojure
-{:tags {:dispatch-id        <uuid-or-counter>   ;; this dispatch's identity
-        :parent-dispatch-id <uuid-or-counter>}  ;; the dispatch that caused this one (if any)
+{:tags {:dispatch-id        <uuid-or-counter>   ;; the cascade this event belongs to
+        :parent-dispatch-id <uuid-or-counter>}  ;; on :event/dispatched only — the cascade
+                                                ;; that caused THIS dispatch
  ...}
 ```
 
 Semantics:
 
-- **`:dispatch-id`** is allocated by the runtime when a dispatch is enqueued, before routing. Implementations may use a process-monotonic counter, a UUID, or any opaque value with the same uniqueness contract: distinct within a single process for the lifetime of the trace surface. Tools treat it as opaque.
-- **`:parent-dispatch-id`** is set when the dispatch was emitted as a side-effect of another event's processing — typically inside an `fx` handler. Concretely: when an `fx` handler running inside the do-fx phase of dispatch *D₁* invokes `(rf/dispatch ...)`, the runtime records the new dispatch's `:parent-dispatch-id` as *D₁*'s `:dispatch-id`. If the dispatch was initiated outside any in-flight event (a timer, a UI handler, the REPL, the SSR boot path), `:parent-dispatch-id` is absent.
-- **Top-level dispatch.** A dispatch with no `:parent-dispatch-id` is a *root* of a cascade. Pair-shaped tools draw cascade trees by following `:parent-dispatch-id` upward.
-- **The cascade-correlation primitive.** Because the runtime emits event-at-a-time (no `:child-of` span field), `:dispatch-id` / `:parent-dispatch-id` is the only cascade-correlation channel: events queued through the router carry the chain. Tools that want to group raw spans by cascade key off `:dispatch-id` from the relevant `:event/dispatched` event and correlate sibling traces via the `:rf/epoch-record` projections (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)).
-- **Production elision.** Both fields ride the trace stream and are elided in production with the rest of the trace surface.
+- **`:dispatch-id` is cascade-wide.** It is allocated by the runtime when a dispatch is enqueued (before routing) and rides on **every** trace event emitted *inside* that dispatch's run-to-completion drain — `:event/dispatched` itself, `:event/db-changed`, `:rf.fx/handled`, `:sub/run`, `:rf.machine/transition`, `:rf.flow/*`, every `:rf.error/*`, and any future op-type the runtime adds. Consumers (Story `group-cascades`, Causa's causality graph, pair2's `cascade-of`, schema-timeline correlation) group raw trace events by `:dispatch-id` directly — no inference from sequence required. The runtime carries the in-flight cascade's id through the dynamic Var `re-frame.trace/*current-dispatch-id*`, bound by `router.cljc` around each event's processing; `emit!` reads the Var and merges it into the event's `:tags` when bound and not already present. Implementations may use a process-monotonic counter, a UUID, or any opaque value with the same uniqueness contract: distinct within a single process for the lifetime of the trace surface. Tools treat it as opaque. Trace events emitted **outside** any in-flight cascade (frame creation at boot, handler registration before any dispatch, REPL evals that don't dispatch) carry no `:dispatch-id`.
+- **`:parent-dispatch-id` is scoped to `:event/dispatched` only.** It documents *cascade-from-cascade lineage* — "this dispatch was emitted as a side-effect of another event's processing" — which is a per-event-dispatch fact, not a per-trace-event fact. Concretely: when an `fx` handler running inside the do-fx phase of dispatch *D₁* invokes `(rf/dispatch ...)`, the runtime records the new dispatch's `:parent-dispatch-id` as *D₁*'s `:dispatch-id` on the new dispatch's `:event/dispatched` event. If the dispatch was initiated outside any in-flight event (a timer, a UI handler, the REPL, the SSR boot path), `:parent-dispatch-id` is absent from `:event/dispatched`. Non-`:event/dispatched` trace events never carry `:parent-dispatch-id` — they belong to a single cascade (their `:dispatch-id`) and the inter-cascade lineage hangs off the cascade root.
+- **Top-level dispatch.** An `:event/dispatched` event with no `:parent-dispatch-id` is a *root* of a cascade. Pair-shaped tools draw cascade trees by walking `:parent-dispatch-id` upward across `:event/dispatched` events; the per-cascade body (every other trace event in that cascade) is the slice of the trace stream sharing the cascade's `:dispatch-id`.
+- **The cascade-correlation primitive.** Because the runtime emits event-at-a-time (no `:child-of` span field), `:dispatch-id` is the only intra-cascade correlation channel and `:parent-dispatch-id` is the only inter-cascade correlation channel. The pair lets tools both (a) group raw spans by cascade and (b) walk lineage between cascades, without consulting the `:rf/epoch-record` projection. Tools that prefer structured per-cascade slices read the assembled `:rf/epoch-record` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel)) — the raw `:dispatch-id` channel is the lower-level primitive.
+- **Production elision.** Both fields ride the trace stream and are elided in production with the rest of the trace surface. The dispatch-id allocation counter and the `*current-dispatch-id*` Var read sit inside the `interop/debug-enabled?` gate in `emit!`, so the whole machinery compiles out.
 
-Tools consume these two fields to build dispatch-cascade views: "show me all dispatches descended from `[:user/login ...]`" is a transitive walk over `:parent-dispatch-id`.
+Tools consume these two channels to build cascade views: "show me every fx that ran in this cascade" is a filter on `:dispatch-id` over the raw stream; "show me all dispatches descended from `[:user/login ...]`" is a transitive walk over `:parent-dispatch-id` across `:event/dispatched` events.
 
 ### Origin tagging: `:origin`
 
@@ -243,6 +244,32 @@ Alongside the raw trace stream, the framework exposes a parallel **assembled-epo
 
 The two listener APIs are independent: tools may register either, both, or neither. They share the production-elision gate but have separate listener registries; no listener of one kind can interfere with the other.
 
+### Cascade projection (`group-cascades` / `domino-bucket`)
+
+The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel, the planned Causa event-detail panel, re-frame-pair2's `cascade-of`) all want the **six-domino slice** of the stream — one record per cascade with the event vector, handler emit, fx-map emit, effects, sub-runs, and renders already split into named slots. The framework ships that projection as a pure-data function in `re-frame.trace.projection`, re-exported from `re-frame.core`:
+
+```clojure
+(rf/group-cascades trace-events)
+;; -> [{:dispatch-id <id-or-:ungrouped>
+;;      :event       <event-vector | nil>   ;; from :event/dispatched
+;;      :handler     <trace-event | nil>    ;; the :op-type :event / :operation :event emit
+;;      :fx          <trace-event | nil>    ;; :event/do-fx
+;;      :effects     [<trace-event> ...]    ;; :op-type :fx — :rf.fx/handled, override-applied, …
+;;      :subs        [<trace-event> ...]    ;; :sub/run + :sub/create
+;;      :renders     [<trace-event> ...]    ;; :op-type :view / :operation :view/render
+;;      :other       [<trace-event> ...]}   ;; errors, warnings, machines, frames, flows,
+;;                                          ;;   registry, anything outside the six dominoes
+;;     ...]
+```
+
+Events without a `:dispatch-id` (registry-time emits, frame lifecycle, REPL evals outside a drain) collect under `:dispatch-id :ungrouped`. The returned vector is sorted by the lowest `:id` in each cascade so consumers render cascades in emission order. The projection is **pure data** — JVM and CLJS run the same code; tools wiring up post-mortem renders against `(rf/trace-buffer)` get the same output shape as live consumers reading from a `register-trace-cb!` listener.
+
+`(rf/domino-bucket trace-event)` is the underlying classifier — returns one of `#{:event :handler :fx :effect :sub :render :other}`. Tools that want custom rollups can call it directly per event and skip `group-cascades`.
+
+Per rf2-g6ih4 (cascade-wide `:dispatch-id`) the projection is robust against errors, fx, sub-runs, and renders that fire *inside* a drain even though they aren't `:event/dispatched` — every such event carries `:tags :dispatch-id` so they group into the cascade record automatically.
+
+The projection is additive: new `:op-type` values that don't fit a domino slot flow through `:other` without breaking existing consumers.
+
 ### Listener invocation rules
 
 - **Synchronous, event-at-a-time.** Every registered listener is invoked once per emitted trace event, on the runtime's emit call stack. There is no batching, debounce window, or background delivery loop. Listeners SHOULD return quickly; expensive work belongs on a tool-owned timer or rAF.
@@ -260,9 +287,31 @@ Contract:
 | API | Signature | Notes |
 |---|---|---|
 | `(rf/trace-buffer)` | `() → vector` | Returns the buffer's current contents, oldest-first. Empty when no events have been recorded. |
-| `(rf/trace-buffer opts)` | `(opts) → vector` | Optional filter: `{:operation kw}`, `{:op-type kw}`, `{:since trace-id}`, `{:frame frame-id}`. Filters compose. |
+| `(rf/trace-buffer opts)` | `(opts) → vector` | Optional filter map (see [§Filter vocabulary](#filter-vocabulary) below). Filters compose AND-wise; absent key = no constraint on that axis. |
 | `(rf/clear-trace-buffer!)` | `() → nil` | Empties the buffer. Tooling uses this between sessions. |
 | `(rf/configure :trace-buffer {:depth N})` | `(N) → nil` | Configure depth; default 200 events. `0` disables the ring buffer (synchronous delivery still works). |
+
+#### Filter vocabulary
+
+`(rf/trace-buffer opts)` recognises the following filter keys. All compose AND-wise; an absent key means "no constraint on that axis." Unrecognised keys are ignored (forward-compat: tools may probe new axes; missing support degrades to "no filter").
+
+| Key | Type | Semantics |
+|---|---|---|
+| `:operation` | keyword | Match exact `:operation` value (e.g. `:event/dispatched`, `:rf.fx/handled`). |
+| `:op-type` | keyword | Match exact `:op-type` discriminator (e.g. `:event`, `:fx`, `:error`). |
+| `:since` | number | Keep events whose `:id` is strictly greater than this. Cursor-based polling — read the last event's `:id`, pass on next call. |
+| `:frame` | keyword | Match `:tags :frame` (or top-level `:frame` fallback). |
+| `:severity` | `:error` / `:warning` / `:info` | Synonym for `:op-type` restricted to the three severity tiers. Use this when filtering for the issues feed. |
+| `:event-id` | keyword | Match `:tags :event-id` — the first element of the dispatched event vector (e.g. `:user/login`). Present on `:event/*`, `:rf.error/handler-exception`, `:event/db-changed`, and other event-scoped emits. |
+| `:handler-id` | keyword | Match `:tags :handler-id` — the registered handler's id. Present on handler-error emits. |
+| `:source` | `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration` | Match the top-level `:source` slot (hoisted from `:tags :source` by `emit!`). Identifies the trigger origin. |
+| `:origin` | `:app` / `:pair` / `:story` / `:test` / ... | Match `:tags :origin` per [Spec 002 §Dispatch origin tagging](002-Frames.md). Lets tools filter "only my dispatches." |
+| `:dispatch-id` | number | Match `:tags :dispatch-id` — the cascade-wide correlation key. Post rf2-g6ih4, every emit inside a drain carries the in-flight cascade's id, so this filter narrows the buffer to one cascade. |
+| `:since-ms` | number | Keep events whose `:time` (host-clock ms) is strictly greater than this. Pair with the scrubber's "drag time-range" gesture. |
+| `:between` | `[t0 t1]` | Two-element vector — keep events whose `:time` falls in `[t0, t1]` inclusive. |
+| `:pred` | `(fn [ev] → truthy)` | Arbitrary predicate. Receives the full event map. Returning truthy keeps the event. Escape hatch for filters not yet promoted to named keys. |
+
+Filters compose AND-wise — supplying both `:op-type :error` and `:frame :tb/scope` keeps only error events on that frame.
 
 Semantics:
 
@@ -1011,7 +1060,7 @@ Multiple listeners may register concurrently. **Listener-invocation order is not
 
 ### Trace correlation across the cascade
 
-Use the `:dispatch-id` / `:parent-dispatch-id` fields under `:tags` on `:event/dispatched` events (per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id)). Tools that need cascade trees walk `:parent-dispatch-id` upward. Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)).
+Use the `:dispatch-id` field under `:tags` on **every** trace event emitted inside a cascade (per [§Dispatch correlation](#dispatch-correlation-dispatch-id--parent-dispatch-id)). Grouping raw trace events by cascade is a single-key filter — `(filter #(= cascade-id (get-in % [:tags :dispatch-id])) events)`. Tools that need cascade *trees* walk `:parent-dispatch-id` upward across `:event/dispatched` events (the inter-cascade lineage channel). Per-cascade structured projection lives in the assembled `:rf/epoch-record` (per [Spec-Schemas](Spec-Schemas.md#rfepoch-record)) — the raw `:dispatch-id` channel is the lower-level primitive.
 
 ### Trace event for app-db changes
 

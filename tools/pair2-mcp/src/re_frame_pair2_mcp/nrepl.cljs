@@ -17,12 +17,16 @@
   A full page reload in the browser destroys the shadow-cljs CLJS
   runtime but leaves the nREPL socket on the JVM side intact. So the
   socket usually stays usable — what we lose is the *runtime sentinel*
-  (`re-frame-pair2.runtime/session-id`), which lives in the CLJS heap.
+  (`re-frame-pair2.runtime/session-id` and its mirror at
+  `js/globalThis.__re_frame_pair2_runtime`), which lives in the CLJS
+  heap.
 
-  The bash-shim chain used `runtime-already-injected?` to detect this
-  and re-ship `runtime.cljs`. We port the same check: every call that
-  needs the runtime first probes the sentinel, and if it's gone we
-  re-inject before proceeding.
+  shadow-cljs re-runs the consumer's `:devtools :preloads` as part of
+  the next bundle load, so the runtime ns and its global marker
+  reappear automatically. Every tool that needs the runtime probes
+  the marker via `tools/ensure-runtime!`; missing marker surfaces a
+  structured `:reason :runtime-not-preloaded` error. No cljs-eval
+  inject fallback (rf2-7dvg).
 
   ## Concurrency
 

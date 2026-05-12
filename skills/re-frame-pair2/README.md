@@ -18,7 +18,7 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-**Pre-alpha — code is written, but not yet exercised against a running re-frame2 app.** The repository contains the SKILL.md, the `scripts/runtime.cljs` injection payload, a babashka-based ops dispatcher (`scripts/ops.clj`) behind thin shell shims, the plugin manifest, the npm package manifest, and a GitHub Actions workflow that publishes to npm on tag.
+**Pre-alpha — code is written, but not yet exercised against a running re-frame2 app.** The repository contains the SKILL.md, the `preload/re_frame_pair2/runtime.cljs` helper namespace (shipped into consumer apps via shadow-cljs `:devtools :preloads`), a babashka-based ops dispatcher (`scripts/ops.clj`) behind thin shell shims, the plugin manifest, the npm package manifest, and a GitHub Actions workflow that publishes to npm on tag.
 
 What's **not** done: a fixture app and end-to-end exercise. See [`STATUS.md`](STATUS.md) and [`docs/initial-spec.md`](docs/initial-spec.md) §8a for the per-phase implementation state and the spike deliverables.
 
@@ -148,7 +148,7 @@ Here's the kinds of conversations you can have with Claude.
 
 `re-frame-pair2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair2/`.
 
-`re-frame-pair2` adds nothing to the host project beyond what re-frame2 already requires. On first connect, the skill injects its runtime helpers into your app over the REPL — no extra deps, no extra preloads, no extra closure-defines attributable to `re-frame-pair2`.
+`re-frame-pair2` needs one shadow-cljs `:devtools :preloads` entry in your dev build (`[re-frame-pair2.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory. No extra deps, no closure-defines. The preload only loads in dev — production builds are untouched. See `SKILL.md` §Setup for the two-line snippet.
 
 ### Install the skill in Claude Code
 
@@ -181,13 +181,15 @@ git add .claude/skills/re-frame-pair2
 
 ### How the connection works
 
+The `re-frame-pair2.runtime` namespace ships into the consumer app via shadow-cljs's standard `:devtools :preloads` mechanism (see `SKILL.md` §Setup). The preload registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`) at bundle-load time, and installs a load-time marker (`js/globalThis.__re_frame_pair2_runtime`) the skill probes on first use.
+
 On first use in a session:
 
 1. The skill locates your shadow-cljs nREPL port.
-2. It sends a handful of ClojureScript forms over nREPL to create a `re-frame-pair2.runtime` namespace in your app, populated with helpers and convenience wrappers around re-frame2's public Tool-Pair surfaces. The runtime also calls `(rf/register-trace-cb :re-frame-pair2 ...)` and `(rf/register-epoch-cb! :re-frame-pair2-epoch ...)` so live-watch ops have a push-style stream.
+2. `discover-app` probes the load-time marker to confirm the preload landed. If the marker is missing, the op refuses with a structured `:reason :runtime-not-preloaded` and a hint pointing at the two-line setup. No per-session inject step.
 3. Live-watch ops (`watch/*`) consume the assembled-epoch stream by tracking the last seen `:epoch-id` per frame and asking for everything since (see [`docs/initial-spec.md`](docs/initial-spec.md) §4.4). Hot-reload confirmation is probe-based: after an edit, the skill polls a short CLJS form (typically against `(rf/handler-meta ...)`) that changes when the new code has landed in the browser. The script is named `tail-build.sh` for historical reasons — it does not actually tail the shadow-cljs server log.
 
-On full page refresh, the skill detects that its session sentinel is gone and re-injects automatically.
+On full page refresh, the preload re-runs as part of the next bundle load — the marker reappears automatically; no manual reconnect step.
 
 ## Invoking it in Claude
 
@@ -224,17 +226,16 @@ The skill's first op in a session is `discover-app.sh`, which:
 1. Finds the running shadow-cljs nREPL (from `target/shadow-cljs/nrepl.port`, falling back to `.shadow-cljs/nrepl.port` or the `SHADOW_CLJS_NREPL_PORT` env var — the exact location depends on shadow-cljs version and config).
 2. Verifies a browser runtime is attached to that build.
 3. Checks that `re-frame.core` is loaded and `re-frame.interop/debug-enabled?` is true.
-4. Reports `connected` or names the single failing check with a one-line fix suggestion.
-
-Once verified, the skill injects its runtime namespace (`re-frame-pair2.runtime`) into the app over nREPL. All subsequent ops reuse that connection.
+4. Probes the `re-frame-pair2.runtime` preload marker; refuses with `:reason :runtime-not-preloaded` and a setup hint when absent.
+5. Reports `connected` or names the single failing check with a one-line fix suggestion.
 
 ## How it works
 
 The pieces (design; see *Status* above):
 
-1. `discover-app.sh` finds the running shadow-cljs build and its nREPL port, switches the session into `:cljs` mode for that build, and verifies re-frame2 + `debug-enabled?`.
+1. `discover-app.sh` finds the running shadow-cljs build and its nREPL port, switches the session into `:cljs` mode for that build, and verifies re-frame2 + `debug-enabled?` + the preload marker.
 2. `eval-cljs.sh` sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
-3. `inject-runtime.sh` creates the `re-frame-pair2.runtime` namespace in the app on connect, populating it with helpers over re-frame2's public Tool-Pair surfaces. The session sentinel (a UUID) is interned here so full-page-refresh detection is a simple lookup. The injection also registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`).
+3. `preload/re_frame_pair2/runtime.cljs` is the `re-frame-pair2.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame-pair2`) and one epoch listener (`:re-frame-pair2-epoch`), and installs the `js/globalThis.__re_frame_pair2_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
 5. All trace and epoch reads come from re-frame2's own surfaces — `register-trace-cb`, `trace-buffer`, `register-epoch-cb!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
 

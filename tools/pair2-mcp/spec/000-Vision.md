@@ -25,10 +25,11 @@ the seven canonical pair2 ops are exposed as MCP tools.
 ## What it isn't
 
 - **Not** a new pair2 contract. The op vocabulary is identical to the
-  bash-shim catalogue; the only thing that changes is the transport.
-- **Not** a re-frame2 runtime extension. It calls into the existing
-  `re-frame-pair2.runtime` namespace via `cljs-eval`; nothing new is
-  registered against the framework.
+  bash-shim catalogue minus `inject-runtime` (rf2-7dvg cut the
+  inject step in favour of a shadow-cljs `:preloads` entry).
+- **Not** a re-frame2 runtime extension. It calls into the
+  `re-frame-pair2.runtime` namespace the consumer app preloads via
+  shadow-cljs; nothing new is registered against the framework.
 - **Not** part of any production bundle. Per `tools/README.md`, the
   dependency arrow flows tool → implementation; this artefact lives
   on a separate npm classpath and is invisible to consumer apps.

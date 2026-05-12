@@ -15,7 +15,6 @@ allowed-tools:
   # MCP transport (preferred — single persistent nREPL connection per session)
   - mcp__re-frame-pair2__discover-app
   - mcp__re-frame-pair2__eval-cljs
-  - mcp__re-frame-pair2__inject-runtime
   - mcp__re-frame-pair2__dispatch
   - mcp__re-frame-pair2__trace-window
   - mcp__re-frame-pair2__watch-epochs
@@ -24,7 +23,6 @@ allowed-tools:
   # where the MCP server isn't installed yet)
   - Bash(scripts/discover-app.sh *)
   - Bash(scripts/eval-cljs.sh *)
-  - Bash(scripts/inject-runtime.sh *)
   - Bash(scripts/dispatch.sh *)
   - Bash(scripts/trace-window.sh *)
   - Bash(scripts/watch-epochs.sh *)
@@ -50,7 +48,37 @@ Your agency runs through three coupled primitives, all part of re-frame2's own [
 2. **The trace stream** — `(rf/register-trace-cb id cb)` for live trace events; `(rf/trace-buffer opts)` for the retain-N ring of recent events. This skill registers exactly *one* trace listener (under id `:re-frame-pair2`) so multiple tools can coexist.
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying the cascade's `:db-before`, `:db-after`, `:trace-events`, and the structured `:sub-runs` / `:renders` / `:effects` projections. `(rf/register-epoch-cb! id cb)` is the assembled-stream listener.
 
-Every operation eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper function in the `re-frame-pair2.runtime` namespace that the skill injects on connect.
+Every operation eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper function in the `re-frame-pair2.runtime` namespace that the consumer app preloads (see §Setup below).
+
+---
+
+## Setup — preload `re-frame-pair2.runtime`
+
+The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism — exactly the same convention re-frame v1 + re-frame-10x and 10x's Causa successor use. **The preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
+
+Two-line setup. In `shadow-cljs.edn`:
+
+```clojure
+{:source-paths ["src"
+                "node_modules/@day8/re-frame-pair2/preload"]  ;; add this
+ :builds
+ {:app {:devtools {:preloads [re-frame-pair2.runtime]}}}}     ;; …and this
+```
+
+Where the runtime lives:
+
+- **Source of truth**: `skills/re-frame-pair2/preload/re_frame_pair2/runtime.cljs` in this repo. The path layout matches the CLJS namespace `re-frame-pair2.runtime` so shadow-cljs picks it up on `:source-paths`.
+- **npm consumers**: the `@day8/re-frame-pair2` package ships the `preload/` directory; the source-path entry above points there.
+- **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame-pair2/preload/` for the `node_modules/...` entry.
+
+Verification — run `discover-app` (the MCP tool, or `scripts/discover-app.sh`). The success result includes `:ok? true :session-id "..." :build-id :app`. If the preload is missing you get back:
+
+```edn
+{:ok? false :reason :runtime-not-preloaded
+ :hint "re-frame-pair2.runtime is not loaded into this build. Add the preload entry to your shadow-cljs.edn: ..."}
+```
+
+Report the hint to the user verbatim — they can fix it in seconds without re-cloning anything.
 
 ---
 
@@ -75,11 +103,11 @@ discover-app
 When the MCP server isn't configured for this session, fall back to
 the legacy bash shim: `scripts/discover-app.sh`.)
 
-This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and injects the runtime namespace.
+This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame-pair2.runtime` namespace was loaded by the consumer's `:devtools :preloads` (see §Setup above).
 
-If any precondition fails, the script returns a structured edn error like `{:ok? false :missing :re-frame2}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
+If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 
-Between user turns, the nREPL session persists, but a full page refresh in the browser drops the injected namespace. Every op checks the **session sentinel** (`re-frame-pair2.runtime/session-id`) and re-injects if it's gone. You don't usually need to do this by hand.
+Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame_pair2_runtime`) before proceeding; if it's missing the op refuses with the structured `:runtime-not-preloaded` hint above.
 
 ---
 

@@ -36,7 +36,7 @@
             [re-frame.core                      :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent-slim      :as reagent-slim-adapter])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 

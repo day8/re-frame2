@@ -1,17 +1,26 @@
 # 003-Tool-Catalogue
 
-The seven MCP tools, mirroring the bash-shim catalogue.
+The six MCP tools.
 
 ## discover-app
 
-Verify the shadow-cljs nREPL is reachable, inject the pair2 runtime,
-and return a health summary. Run first every session.
+Verify the shadow-cljs nREPL is reachable, confirm the
+`re-frame-pair2.runtime` namespace was loaded by the consumer's
+shadow-cljs `:devtools :preloads`, and return a health summary. Run
+first every session.
 
 **Args**: `build` (string, optional, default `"app"`).
 
 **Returns**: an `:ok? true` map with `:debug-enabled?`, `:frames`,
 `:coord-annotation-enabled?`, `:build-id`. Or `:ok? false` with a
-`:reason` keyword if a precondition fails.
+`:reason` keyword if a precondition fails. The most common
+precondition failure on a fresh app is
+`:reason :runtime-not-preloaded` — the runtime ships into the app
+via shadow-cljs `:preloads`; the server probes
+`js/globalThis.__re_frame_pair2_runtime` (the load-time mirror the
+preload installs) and refuses with a setup hint when missing. There
+is no fallback inject path; see the skill's SKILL.md §Setup for the
+two-line preload entry.
 
 ## eval-cljs
 
@@ -22,15 +31,7 @@ Evaluate a CLJS form in the connected browser runtime via
 
 **Returns**: `{:ok? true :value <edn-value>}` on success;
 `{:ok? false :reason :eval-error :message "..."}` on failure.
-
-## inject-runtime
-
-Force a re-ship of `runtime.cljs` regardless of the sentinel state.
-Use after editing the runtime source.
-
-**Args**: `build` (string, optional).
-
-**Returns**: a health map plus `:forced? true`.
+`:reason :runtime-not-preloaded` if the runtime preload hasn't run.
 
 ## dispatch
 

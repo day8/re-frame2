@@ -6,10 +6,10 @@
 //   - persistent socket survives multiple ops on one server instance
 //   - bencode multi-frame parsing (status frame comes separately from
 //     the value frame in our nREPL test setup)
-//   - eval-cljs degrades cleanly when the runtime sentinel is absent
-//     (because we're talking to a plain JVM nREPL, not shadow-cljs —
-//     `runtime.cljs` will fail to load, eval-cljs will surface the
-//     error rather than hang)
+//   - eval-cljs degrades cleanly when the runtime preload marker is
+//     absent (because we're talking to a plain JVM nREPL, not
+//     shadow-cljs — the preload probe fails and eval-cljs surfaces
+//     a structured error rather than hanging)
 //
 // Run via: `NREPL_TEST_PORT=17778 node test/live-nrepl.js`
 

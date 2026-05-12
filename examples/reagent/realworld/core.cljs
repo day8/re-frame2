@@ -60,7 +60,7 @@
             [realworld.favorites]
             [realworld.tags]
             [realworld.settings :as settings])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
 ;; INITIALISATION

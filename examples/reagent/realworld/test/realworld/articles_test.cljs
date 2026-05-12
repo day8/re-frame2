@@ -5,7 +5,7 @@
   (:require [re-frame.core :as rf]
             [realworld.articles]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn articles-load-test []
   (th/reg-canned-success! :rf.http/managed.canned-articles

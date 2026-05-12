@@ -202,9 +202,10 @@ How many MCP tools does pair2-mcp expose, and which ones?
 
 ### Options considered
 
-- **Mirror the seven bash-shim ops** (`discover-app`, `eval-cljs`,
-  `inject-runtime`, `dispatch`, `trace-window`, `watch-epochs`,
-  `tail-build`).
+- **Mirror the bash-shim ops** (`discover-app`, `eval-cljs`,
+  `dispatch`, `trace-window`, `watch-epochs`, `tail-build`).
+  (Pre-rf2-7dvg also included `inject-runtime`; that op was cut along
+  with the per-session inject step.)
 - **Lift some shim helpers into ops** (e.g. a `re-inject` shortcut,
   a `current-frame` accessor, an `assert-runtime` helper). Wider
   surface; smaller per-op work.

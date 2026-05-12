@@ -1,65 +1,49 @@
 (ns re-frame-pair2-mcp.tools
-  "MCP tools — one per bash-shim op surface in
-  `skills/re-frame-pair2/scripts/`. Each tool builds an nREPL eval
-  request, sends it over the persistent connection, and returns the
-  result as an MCP `tools/call` result.
+  "MCP tools — one per pair2 op. Each tool builds an nREPL eval request,
+  sends it over the persistent connection, and returns the result as an
+  MCP `tools/call` result.
 
-  ## Tool catalogue (mirrors the seven bash shims)
+  ## Tool catalogue
 
-  | MCP tool name | Bash shim equivalent      | What it does                             |
-  |---------------|---------------------------|------------------------------------------|
-  | discover-app  | discover-app.sh           | Verify nREPL + inject runtime + health   |
-  | eval-cljs     | eval-cljs.sh              | Eval a CLJS form, return the value       |
-  | inject-runtime| inject-runtime.sh         | Force re-ship of runtime.cljs            |
-  | dispatch      | dispatch.sh               | Fire a re-frame2 event with :origin :pair|
-  | trace-window  | trace-window.sh           | Epochs in the last N ms                  |
-  | watch-epochs  | watch-epochs.sh           | Pull-mode live epoch streaming           |
-  | tail-build    | tail-build.sh             | Wait for a hot-reload to land            |
+  | MCP tool name | What it does                                              |
+  |---------------|-----------------------------------------------------------|
+  | discover-app  | Verify nREPL + confirm the preloaded runtime + health     |
+  | eval-cljs     | Eval a CLJS form, return the value                        |
+  | dispatch      | Fire a re-frame2 event with :origin :pair                 |
+  | trace-window  | Epochs in the last N ms                                   |
+  | watch-epochs  | Pull-mode live epoch streaming                            |
+  | tail-build    | Wait for a hot-reload to land                             |
 
-  ## Sentinel-based reconnect
+  ## Preload probe (no per-session inject)
 
-  Each tool that needs the in-browser runtime first calls
-  `ensure-runtime!`. That probes `re-frame-pair2.runtime/session-id`;
-  if the value is missing (typical after a full page reload), it
-  re-ships `runtime.cljs` from the skill before proceeding. This
-  mirrors the bash-shim's `runtime-already-injected?` check.
+  The `re-frame-pair2.runtime` namespace ships into the consumer app via
+  shadow-cljs's `:devtools :preloads` mechanism. Each tool that needs
+  the runtime first calls `ensure-runtime!`, which checks
+  `js/globalThis.__re_frame_pair2_runtime` — a load-time mirror the
+  preload installs. Missing marker means the preload isn't configured;
+  the tool refuses with `:reason :runtime-not-preloaded` and a setup
+  hint pointing at `skills/re-frame-pair2/SKILL.md`.
+
+  No cljs-eval inject path: the preload is the canonical setup. Earlier
+  drops shipped a per-session inject fallback; that path was cut for
+  rf2-7dvg.
 
   ## Result shape
 
   Each MCP tool returns `{:content [{:type \"text\" :text <edn-string>}]}`
-  on success, or `{:isError true :content [...]}` on failure. The EDN
-  string is what the bash shims emit on stdout — kept identical so the
-  SKILL.md prose that quotes example output stays accurate."
+  on success, or `{:isError true :content [...]}` on failure."
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
-            [re-frame-pair2-mcp.nrepl :as nrepl]
-            ["fs" :as fs]
-            ["path" :as path]))
+            [re-frame-pair2-mcp.nrepl :as nrepl]))
 
 ;; ---------------------------------------------------------------------------
-;; Config — build id, runtime source location.
+;; Config — build id.
 ;; ---------------------------------------------------------------------------
 
 (defn- default-build-id []
   (or (some-> (j/get-in js/process [:env :SHADOW_CLJS_BUILD_ID])
               keyword)
       :app))
-
-(defn- runtime-source-path
-  "Locate the canonical `runtime.cljs` from the skill. We support two
-  layouts:
-    1. Co-located: server is run from the re-frame2 worktree; the file
-       sits at `skills/re-frame-pair2/scripts/runtime.cljs` relative to
-       the project root.
-    2. Override: the env var `PAIR2_RUNTIME_PATH` points at the file.
-  Returns nil if neither is found — `discover-app` reports a structured
-  error in that case."
-  []
-  (or (j/get-in js/process [:env :PAIR2_RUNTIME_PATH])
-      (let [candidates ["skills/re-frame-pair2/scripts/runtime.cljs"
-                        "../../skills/re-frame-pair2/scripts/runtime.cljs"
-                        "../../../skills/re-frame-pair2/scripts/runtime.cljs"]]
-        (some (fn [c] (when (.existsSync fs c) c)) candidates))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP result helpers.
@@ -83,49 +67,69 @@
       (default-build-id)))
 
 ;; ---------------------------------------------------------------------------
-;; Runtime injection / sentinel reconnect.
+;; Preload probe.
 ;; ---------------------------------------------------------------------------
 
-(defn- runtime-injected?
-  "Probe `re-frame-pair2.runtime/session-id`. Resolves to true iff a
-  non-blank string is bound. Failures of any kind (var missing, eval
-  error) resolve to false — the next step is to re-inject."
+(def ^:private preload-missing-hint
+  (str "re-frame-pair2.runtime is not loaded into this build. Add the "
+       "preload entry to your shadow-cljs.edn:\n"
+       "  :builds {:app {:devtools {:preloads [re-frame-pair2.runtime]}}}\n"
+       "and make sure the directory containing re_frame_pair2/runtime.cljs "
+       "is on :source-paths. See skills/re-frame-pair2/SKILL.md (§Setup)."))
+
+(defn- runtime-preloaded?
+  "Probe `js/globalThis.__re_frame_pair2_runtime` — the load-time
+  marker set by the preloaded `re-frame-pair2.runtime` namespace.
+  Resolves to true iff the marker is present. One bencode round-trip,
+  no CLJS compile."
   [conn build-id]
-  (-> (nrepl/cljs-eval-value conn build-id "re-frame-pair2.runtime/session-id")
-      (.then (fn [v] (boolean (and (string? v) (seq v)))))
+  (-> (nrepl/cljs-eval-value
+        conn build-id
+        "(some? (and (exists? js/globalThis) (.-__re_frame_pair2_runtime js/globalThis)))")
+      (.then (fn [v] (true? v)))
       (.catch (fn [_] false))))
 
-(defn- inject-runtime!
-  "Re-ship `runtime.cljs` to the connected runtime."
+(defn- runtime-health!
+  "Call `(re-frame-pair2.runtime/health)`. Caller must have already
+  confirmed the preload landed via `runtime-preloaded?`."
   [conn build-id]
-  (if-let [src-path (runtime-source-path)]
-    (let [src (.toString (.readFileSync fs src-path))]
-      (-> (nrepl/cljs-eval conn build-id src)
-          (.then (fn [_]
-                   (nrepl/cljs-eval-value conn build-id
-                                          "(re-frame-pair2.runtime/health)")))))
-    (js/Promise.reject
-      (js/Error. (str "runtime.cljs not found. Set PAIR2_RUNTIME_PATH or run "
-                      "the MCP server from a directory where "
-                      "skills/re-frame-pair2/scripts/runtime.cljs is reachable.")))))
+  (nrepl/cljs-eval-value conn build-id "(re-frame-pair2.runtime/health)"))
 
 (defn- ensure-runtime!
-  "Probe the sentinel; if missing, re-inject. Returns a Promise
-  resolving to nil. Tools that need the runtime call this first."
+  "Confirm the pair2 runtime is preloaded. Resolves to nil on success,
+  rejects with a structured error otherwise. Tools that need the
+  runtime call this first."
   [conn build-id]
-  (-> (runtime-injected? conn build-id)
-      (.then (fn [injected?]
-               (if injected?
+  (-> (runtime-preloaded? conn build-id)
+      (.then (fn [ok?]
+               (if ok?
                  nil
-                 (inject-runtime! conn build-id))))))
+                 (js/Promise.reject
+                   (ex-info "pair2 runtime not preloaded"
+                            {:reason :runtime-not-preloaded
+                             :hint   preload-missing-hint})))))))
 
 ;; ---------------------------------------------------------------------------
-;; Tool: discover-app — verify the stack and inject the runtime.
+;; Error helpers — surface structured `ex-info` from `ensure-runtime!`.
+;; ---------------------------------------------------------------------------
+
+(defn- err->result
+  "Translate a Promise rejection into an `ok-text` result. Structured
+  ex-info reasons (e.g. `:runtime-not-preloaded`) surface verbatim;
+  other errors fall through to a generic eval-error shape."
+  [fallback-reason err]
+  (if-let [data (ex-data err)]
+    (ok-text (merge {:ok? false} data))
+    (ok-text {:ok? false :reason fallback-reason :message (.-message err)})))
+
+;; ---------------------------------------------------------------------------
+;; Tool: discover-app — verify the stack and probe the preloaded runtime.
 ;; ---------------------------------------------------------------------------
 
 (defn- discover-app [conn args]
   (let [build-id (arg-build args)]
-    (-> (inject-runtime! conn build-id)
+    (-> (ensure-runtime! conn build-id)
+        (.then (fn [_] (runtime-health! conn build-id)))
         (.then
           (fn [health]
             (cond
@@ -161,10 +165,7 @@
 
               :else
               (ok-text (assoc health :ok? true :build-id build-id)))))
-        (.catch
-          (fn [err]
-            (ok-text {:ok? false :reason :discover-failed
-                      :message (.-message err)}))))))
+        (.catch (fn [err] (err->result :discover-failed err))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: eval-cljs — evaluate one CLJS form.
@@ -183,25 +184,7 @@
       (-> (ensure-runtime! conn build-id)
           (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
           (.then (fn [v] (ok-text {:ok? true :value v})))
-          (.catch
-            (fn [err]
-              (ok-text {:ok? false :reason :eval-error
-                        :message (.-message err)})))))))
-
-;; ---------------------------------------------------------------------------
-;; Tool: inject-runtime — force a re-ship.
-;; ---------------------------------------------------------------------------
-
-(defn- inject-runtime-tool [conn args]
-  (let [build-id (arg-build args)]
-    (-> (inject-runtime! conn build-id)
-        (.then (fn [health]
-                 (ok-text (assoc health :build-id build-id
-                                        :forced? true
-                                        :note "Source re-shipped regardless of sentinel."))))
-        (.catch (fn [err]
-                  (ok-text {:ok? false :reason :inject-failed
-                            :message (.-message err)}))))))
+          (.catch (fn [err] (err->result :eval-error err)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: dispatch — fire an event.
@@ -235,9 +218,7 @@
         (-> (ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v] (ok-text (merge {:mode mode} (when (map? v) v)))))
-            (.catch (fn [err]
-                      (ok-text {:ok? false :reason :dispatch-failed
-                                :message (.-message err)}))))))))
+            (.catch (fn [err] (err->result :dispatch-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: trace-window — epochs in the last N ms.
@@ -257,9 +238,7 @@
                            :window-ms ms
                            :count (count epochs)
                            :epochs epochs})))
-        (.catch (fn [err]
-                  (ok-text {:ok? false :reason :trace-failed
-                            :message (.-message err)}))))))
+        (.catch (fn [err] (err->result :trace-failed err))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: watch-epochs — pull-mode polling with predicate filter.
@@ -286,9 +265,7 @@
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
                  (ok-text (merge {:ok? true} (when (map? v) v)))))
-        (.catch (fn [err]
-                  (ok-text {:ok? false :reason :watch-failed
-                            :message (.-message err)}))))))
+        (.catch (fn [err] (err->result :watch-failed err))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool: tail-build — wait for hot-reload to land.
@@ -346,7 +323,7 @@
 
 (def tool-descriptors
   [{:name "discover-app"
-    :description "Verify the shadow-cljs nREPL is reachable, inject the pair2 runtime, and report a health summary. Run this first every session."
+    :description "Verify the shadow-cljs nREPL is reachable, confirm the pair2 runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing."
     :inputSchema {:type "object"
                   :properties {:build {:type "string"
                                        :description "shadow-cljs build id (default: app)"}}
@@ -357,11 +334,6 @@
                   :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
                                :build {:type "string" :description "shadow-cljs build id (default: app)"}}
                   :required ["form"]
-                  :additionalProperties false}}
-   {:name "inject-runtime"
-    :description "Force a re-ship of re-frame-pair2.runtime to the connected runtime. Use after editing scripts/runtime.cljs."
-    :inputSchema {:type "object"
-                  :properties {:build {:type "string"}}
                   :additionalProperties false}}
    {:name "dispatch"
     :description "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. Set `sync` for dispatch-sync, `trace` for synchronous dispatch returning the assembled :rf/epoch-record."
@@ -410,7 +382,6 @@
   (case name
     "discover-app"     (discover-app   conn args)
     "eval-cljs"        (eval-cljs-tool conn args)
-    "inject-runtime"   (inject-runtime-tool conn args)
     "dispatch"         (dispatch-tool  conn args)
     "trace-window"     (trace-window-tool conn args)
     "watch-epochs"     (watch-epochs-tool conn args)

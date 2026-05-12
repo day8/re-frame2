@@ -6,7 +6,7 @@ Four surfaces need coverage at different fidelities. See `docs/initial-spec.md` 
 
 **Status: not yet written.**
 
-`runtime_test.cljs` (planned) covers pure fns in `scripts/runtime.cljs` — `parse-rf2-coord`, `parse-rc-src`, `epoch-matches?`, `current-frame` resolution, `epochs-since` semantics, the session-sentinel shape, time-travel sugar. These can run via `shadow-cljs compile test` + `node out/test.js` without a browser or live re-frame2 app.
+`runtime_test.cljs` (planned) covers pure fns in `preload/re_frame_pair2/runtime.cljs` — `parse-rf2-coord`, `parse-rc-src`, `epoch-matches?`, `current-frame` resolution, `epochs-since` semantics, the session-sentinel shape, time-travel sugar. These can run via `shadow-cljs compile test` + `node out/test.js` without a browser or live re-frame2 app.
 
 **To run (once set up):**
 

@@ -13,7 +13,7 @@
   (:require [cljs.test :refer-macros [is]]
             [re-frame.core :as rf]
             [nine-states.core])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn- has-tag?
   "Read the machine's tag union against a frame's app-db."

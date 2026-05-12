@@ -6,7 +6,7 @@
   (:require [re-frame.core :as rf]
             [realworld.article-editor]
             [realworld.test-helpers :as th])
-  (:require-macros [re-frame.views-macros :refer [with-frame]]))
+  (:require-macros [re-frame.core :refer [with-frame]]))
 
 (defn editor-create-test []
   (th/reg-canned-success! :rf.http/managed.canned-editor-save

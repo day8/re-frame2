@@ -12,7 +12,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 |---|---|
 | Design spec | Complete (see `docs/initial-spec.md`) |
 | `SKILL.md` | Written — the full vocabulary Claude learns |
-| `scripts/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces |
+| `preload/re_frame_pair2/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
 | `scripts/ops.clj` + shell shims | Written — babashka dispatches every op |
 | `.claude-plugin/plugin.json` | Written |
 | `package.json` + GH Actions (CI + release) | Written |
@@ -65,7 +65,7 @@ data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
 
 Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the registry id keyword (`(namespace id)` / `(name id)`). Either coord segment may be the literal `?` for programmatic `reg-view*` calls that bypassed the macro path. Non-DOM roots (Fragment `:<>`, `:>` interop, fn-component head) are exempt — pair tools fall back to `(rf/handler-meta :view id)` for those.
 
-`scripts/runtime.cljs/parse-rf2-coord` now returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). Verified by `tests/runtime/parse_rf2_coord_test.clj` (run via `bb`).
+`preload/re_frame_pair2/runtime.cljs` `parse-rf2-coord` now returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). Verified by `tests/runtime/parse_rf2_coord_test.clj` (run via `bb`).
 
 > **Compatibility note.** Tool-Pair.md declares the attribute's value format opaque to consumers — pair2 parses it pragmatically so the DOM-to-source bridge can be useful, but skill consumers MUST NOT depend on the parsed shape's stability across re-frame2 versions. If the format shifts, update the parser (and these tests) in one place.
 

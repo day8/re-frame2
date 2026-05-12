@@ -21,6 +21,12 @@
          com.pitch/uix.dom         {:mvn/version "1.4.4"}}
 
  :aliases
- {:shadow
-  {:extra-deps {thheller/shadow-cljs {:mvn/version "{{shadow-version}}"}}
-   :main-opts  ["-m" "shadow.cljs.devtools.cli"]}}}
+ {;; `:extra-paths ["test"]` puts the emitted unit-test tree on
+  ;; shadow's classpath under this alias — shadow-cljs reads
+  ;; :paths/:extra-paths out of deps.edn (the :source-paths key in
+  ;; shadow-cljs.edn is ignored when :deps is active).
+  :shadow
+  {:extra-paths ["test" "dev"]
+   :extra-deps  {thheller/shadow-cljs        {:mvn/version "{{shadow-version}}"}
+                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}

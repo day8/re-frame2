@@ -515,5 +515,5 @@ The framework hook is: variants have a stable snapshot identity (`:variant-id` +
 - [`tools/story/`](https://github.com/day8/re-frame2/tree/main/tools/story) — the reference implementation of this spec (`day8/re-frame2-story`).
 - [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) — the implementation contract (decisions, runtime shape, elision, MCP boundary).
 - [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the agent-facing MCP server (`day8/re-frame2-story-mcp`).
-- [Guide chapter 20 — Stories](../docs/guide/20-stories.md) — the narrative walkthrough of this spec.
+- [Guide chapter 21 — Stories](../docs/guide/21-stories.md) — the narrative walkthrough of this spec.
 - [`examples/reagent/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10.

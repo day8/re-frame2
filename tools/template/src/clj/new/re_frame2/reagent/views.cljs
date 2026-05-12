@@ -10,7 +10,7 @@
    render time."
   (:require [re-frame.core    :as rf]
             [re-frame.views])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (reg-view counter-buttons []
   [:div

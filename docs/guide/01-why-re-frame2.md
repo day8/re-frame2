@@ -107,7 +107,7 @@ This isn't an argument by authority. It's an observation that the architectural 
 
 ## What this chapter isn't going to enumerate
 
-A natural next question is: *what specifically does re-frame2 add on top of v1, and what does it keep?* The honest answer is that the list reads as marketing until you've met the pieces — frames[^frames], machines, flows, schema-attached contracts, deep instrumentation, the spec. The guide introduces each in its own chapter. Once you've worked through them, [chapter 19](19-where-next.md) gathers the additions and the inheritances into a single retrospective recap — a sharper read once the names mean something.
+A natural next question is: *what specifically does re-frame2 add on top of v1, and what does it keep?* The honest answer is that the list reads as marketing until you've met the pieces — frames[^frames], machines, flows, schema-attached contracts, deep instrumentation, the spec. The guide introduces each in its own chapter. Once you've worked through them, [chapter 20](20-where-next.md) gathers the additions and the inheritances into a single retrospective recap — a sharper read once the names mean something.
 
 > ### Sidebar: where re-frame2 isn't the right fit
 >

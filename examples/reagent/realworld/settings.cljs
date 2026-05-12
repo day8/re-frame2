@@ -45,7 +45,7 @@
             [re-frame.machines]
             [realworld.schema :as schema]
             [realworld.http :as rh])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 (defn draft-from-user [user]
   {:image    (or (:image user) "")

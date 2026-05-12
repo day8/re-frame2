@@ -23,7 +23,7 @@
             ;; every reg-* expansion elides to nil.
             [counter-with-stories.views :as views]
             [counter-with-stories.stories])
-  (:require-macros [re-frame.views-macros :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app root view ------------------------------------------------
 

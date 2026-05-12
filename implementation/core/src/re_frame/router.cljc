@@ -25,9 +25,15 @@
 ;; process-monotonic :dispatch-id at queue time. When the dispatch is
 ;; emitted as a side-effect of another event's processing (typically inside
 ;; an fx handler running in do-fx), the new dispatch's :parent-dispatch-id
-;; is the in-flight event's :dispatch-id. *current-dispatch-id* tracks the
-;; in-flight dispatch during process-event!; child dispatches read it to
-;; populate :parent-dispatch-id.
+;; is the in-flight event's :dispatch-id.
+;;
+;; The in-flight dispatch is tracked by `re-frame.trace/*current-dispatch-id*`
+;; (per rf2-g6ih4 — moved from this ns so `trace/emit!` can read it and
+;; stamp every trace event emitted inside the cascade with the cascade-
+;; wide id). `process-event!` binds the Var around the inner
+;; `process-event*`; child dispatches read it both to populate
+;; `:parent-dispatch-id` here AND to ride on every emit inside the
+;; cascade.
 ;;
 ;; All of this rides the dev-only trace surface; production builds (where
 ;; interop/debug-enabled? is false at compile time) elide the allocation
@@ -38,8 +44,6 @@
 
 (defn- next-dispatch-id []
   (swap! dispatch-counter inc))
-
-(def ^:dynamic ^:private *current-dispatch-id* nil)
 
 (defn- build-envelope
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
@@ -59,7 +63,7 @@
                         emitted from inside another event's processing"
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
-        parent-dispatch-id (when interop/debug-enabled? *current-dispatch-id*)
+        parent-dispatch-id (when interop/debug-enabled? trace/*current-dispatch-id*)
         ;; Per rf2-d4sf consult the `:adapter/current-frame` late-bind
         ;; hook on CLJS so dispatch picks up the React-context tier of
         ;; the resolution chain. Adapters publish the hook at ns-load
@@ -286,9 +290,11 @@
   source order. Per Spec 002 §Drain-loop pseudocode.
 
   This is the inner of `process-event!`; the outer wraps it in a binding
-  of *current-dispatch-id* so child dispatches issued from within fx
-  handlers inherit the in-flight dispatch's id as their
-  :parent-dispatch-id (Spec 009 §Dispatch correlation)."
+  of `trace/*current-dispatch-id*` so (a) child dispatches issued from
+  within fx handlers inherit the in-flight dispatch's id as their
+  `:parent-dispatch-id`, and (b) every trace event emitted inside the
+  cascade carries the cascade's `:dispatch-id` under `:tags` (per
+  Spec 009 §Dispatch correlation and rf2-g6ih4)."
   [envelope]
   (let [{:keys [event frame]} envelope
         event-id              (first event)
@@ -374,9 +380,12 @@
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:
 
-   1. `*current-dispatch-id*` — so child dispatches issued from within
-      an fx handler inherit this event's `:dispatch-id` as their
-      `:parent-dispatch-id`. Per Spec 009 §Dispatch correlation.
+   1. `trace/*current-dispatch-id*` — so child dispatches issued from
+      within an fx handler inherit this event's `:dispatch-id` as their
+      `:parent-dispatch-id`, AND so every trace event emitted inside
+      the cascade (sub runs, fx-handled, machine transitions, errors)
+      rides the cascade's `:dispatch-id` under `:tags`. Per Spec 009
+      §Dispatch correlation and rf2-g6ih4.
 
    2. `frame/*current-frame*` — bound to the envelope's `:frame` for
       the duration of the handler chain. Per Spec 002 §Dispatch
@@ -396,8 +405,8 @@
       threads the frame), or `:dispatch-later` (frame captured in
       closure) for those paths. Per rf2-l5q3."
   [envelope]
-  (binding [*current-dispatch-id*  (:dispatch-id envelope)
-            frame/*current-frame*  (:frame envelope)]
+  (binding [trace/*current-dispatch-id*  (:dispatch-id envelope)
+            frame/*current-frame*        (:frame envelope)]
     (process-event* envelope)))
 
 (def ^:private drain-depth-default 100)

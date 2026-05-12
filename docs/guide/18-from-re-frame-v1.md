@@ -4,7 +4,7 @@
 
 This is the appendix-shaped chapter for migrators. It tells you which deps move, which skill drives the work, and the broad categories of breakage to expect. The exhaustive rule list lives in [`spec/MIGRATION.md`](../../spec/MIGRATION.md) (40+ M- and O-rules) and is consumed by the migration skill; this chapter does not duplicate it.
 
-If you don't have a v1 codebase to bring across, skip to [19 — Where to go next](19-where-next.md).
+If you don't have a v1 codebase to bring across, skip to [19 — Adapters](19-adapters.md) and [20 — Where to go next](20-where-next.md).
 
 ## Deps to update
 
@@ -71,4 +71,5 @@ The skill applies steps 1–4 unprompted and stops at step 5 for review.
 
 - [`skills/re-frame-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md) — the skill that drives the migration end-to-end.
 - [`spec/MIGRATION.md`](../../spec/MIGRATION.md) — the authoritative rule list. The skill consumes this directly.
-- [19 — Where to go next](19-where-next.md) — once the migration settles, where to head next.
+- [19 — Adapters](19-adapters.md) — substrate-agnostic story, the `init!` call shape, the three adapter packages, the slim-Reagent option.
+- [20 — Where to go next](20-where-next.md) — once the migration settles, where to head next.

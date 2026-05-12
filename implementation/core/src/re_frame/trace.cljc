@@ -26,8 +26,10 @@
 
   The shape is event-at-a-time, not span-shaped: there is no :start/:end/
   :duration pair and no :child-of parent-id. Cascade correlation rides on
-  :dispatch-id / :parent-dispatch-id under :tags of :event/dispatched
-  events (per Spec 009 §Dispatch correlation)."
+  :dispatch-id under :tags of EVERY event emitted inside a cascade;
+  :parent-dispatch-id rides under :tags of :event/dispatched events only
+  (it documents inter-cascade lineage). Per Spec 009 §Dispatch correlation
+  and rf2-g6ih4."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]))
 
@@ -104,6 +106,47 @@
   Per rf2-3nn8."
   nil)
 
+;; ---- *current-dispatch-id* (rf2-g6ih4) ------------------------------------
+;;
+;; Per Spec 009 §Dispatch correlation: `:dispatch-id` is a **cascade-wide**
+;; correlation key. It is allocated when a dispatch is enqueued (per
+;; `router.cljc`) and rides on every trace event emitted **inside** that
+;; dispatch's run-to-completion drain — `:event/dispatched` itself,
+;; `:event/db-changed`, `:rf.fx/handled`, `:sub/run`, `:rf.machine/transition`,
+;; `:rf.error/*`, every emit produced while processing the event.
+;;
+;; The runtime carries the in-flight cascade's id through the dynamic Var
+;; `*current-dispatch-id*` (mirror of `*current-trigger-handler*` per
+;; rf2-3nn8). `router.cljc` binds the Var around `process-event*` so every
+;; downstream emit — including emits produced by user handler code, by
+;; substrate code reacting to a `:db` commit, by fx handlers walking the
+;; `:fx` vector — sees the cascade's id. `emit!` reads the Var and merges
+;; it into the emitted event's `:tags` map when bound and not already
+;; present. Callers that explicitly supply `:dispatch-id` in tags win
+;; (e.g. `emit-dispatched-trace!` stamps its own id; child dispatches
+;; emitted by fx handlers are themselves `:event/dispatched` events with
+;; their own freshly-allocated `:dispatch-id`).
+;;
+;; `:parent-dispatch-id` remains scoped to `:event/dispatched` only — it
+;; documents cascade-from-cascade lineage (which cascade caused this
+;; one), which is per-event-dispatch, not per-trace-event.
+;;
+;; Production elision: when `interop/debug-enabled?` is false the whole
+;; trace surface compiles out via the outer `when` gate in `emit!`, so
+;; the Var read is dead code.
+
+(def ^:dynamic *current-dispatch-id*
+  "The id of the cascade currently being processed by `router.cljc`'s
+  drain. Bound by `router.cljc` around `process-event*` to the in-flight
+  dispatch's `:dispatch-id`. `emit!` reads the Var and merges it into
+  the emitted event's `:tags` when bound and not already present.
+
+  nil outside any drain (e.g. emits produced at registration time, at
+  frame creation, by user code outside a handler).
+
+  Per Spec 009 §Dispatch correlation and rf2-g6ih4."
+  nil)
+
 (defn trigger-handler-from-meta
   "Build a `:rf.trace/trigger-handler` value from a registrar meta map.
   `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
@@ -168,11 +211,42 @@
 (defn trace-buffer
   "Return the trace ring buffer's current contents, oldest first.
 
-  With opts, filters the result. Recognised keys:
-    :operation  — keep only events with this :operation value.
-    :op-type    — keep only events with this :op-type value.
-    :since      — keep only events whose :id is strictly greater than this.
-    :frame      — keep only events whose :tags :frame matches.
+  With opts, filters the result. Recognised keys (all compose AND-wise;
+  an absent key means \"no constraint on that axis\"):
+
+    :operation     — keep only events with this :operation value.
+    :op-type       — keep only events with this :op-type value.
+    :since         — keep only events whose :id is strictly greater than
+                     this. Useful for cursor-based polling.
+    :frame         — keep only events whose `:tags :frame` (or top-level
+                     :frame fallback) matches.
+    :severity      — keep only events whose :op-type matches one of
+                     `:error` / `:warning` / `:info`. Synonym for
+                     `:op-type` restricted to the three severity tiers.
+    :event-id      — keep only events whose `:tags :event-id` matches.
+                     The event-id is the first element of the dispatched
+                     event vector (e.g. `:user/login`).
+    :handler-id    — keep only events whose `:tags :handler-id` matches.
+                     Carried on `:rf.error/handler-exception` and other
+                     handler-scoped emits.
+    :source        — keep only events whose :source (top-level, hoisted
+                     from `:tags :source` by `emit!`) matches. Source
+                     identifies the trigger origin — one of `:ui` /
+                     `:timer` / `:http` / `:repl` / `:machine` /
+                     `:ssr-hydration`. Matched against the top-level slot.
+    :origin        — keep only events whose `:tags :origin` matches.
+                     Origin tags the actor that issued the dispatch
+                     (`:app` / `:pair` / `:story` / `:test` / ...) per
+                     Spec 002 §Dispatch origin tagging.
+    :dispatch-id   — keep only events whose `:tags :dispatch-id` matches.
+                     Cascade-wide post rf2-g6ih4 — every emit inside a
+                     drain carries the in-flight cascade's dispatch-id.
+    :since-ms      — keep only events whose :time is strictly greater
+                     than this numeric host-clock timestamp.
+    :between       — `[t0 t1]` two-element vector — keep only events
+                     whose :time falls in [t0, t1] inclusive.
+    :pred          — `(fn [ev] -> truthy)` arbitrary predicate. Receives
+                     the full event map. Returning truthy keeps the event.
 
   Filters compose: every supplied key must match. Returns an empty vector
   in production (the buffer never receives events when interop/debug-enabled?
@@ -183,16 +257,41 @@
   ([opts]
    (if-not interop/debug-enabled?
      []
-     (let [{:keys [operation op-type since frame]} opts
-           pred (fn [ev]
-                  (and (or (nil? operation) (= operation (:operation ev)))
-                       (or (nil? op-type)   (= op-type   (:op-type ev)))
-                       (or (nil? since)     (and (number? (:id ev))
-                                                 (> (:id ev) since)))
-                       (or (nil? frame)
-                           (= frame (or (:frame ev)
-                                        (get-in ev [:tags :frame]))))))]
-       (filterv pred @trace-buffer-state)))))
+     (let [{:keys [operation op-type since frame
+                   severity event-id handler-id source origin
+                   dispatch-id since-ms between pred]} opts
+           [between-t0 between-t1] (when (and (sequential? between)
+                                              (= 2 (count between)))
+                                     between)
+           predicate
+           (fn [ev]
+             (and (or (nil? operation) (= operation (:operation ev)))
+                  (or (nil? op-type)   (= op-type   (:op-type ev)))
+                  (or (nil? since)     (and (number? (:id ev))
+                                            (> (:id ev) since)))
+                  (or (nil? frame)
+                      (= frame (or (:frame ev)
+                                   (get-in ev [:tags :frame]))))
+                  (or (nil? severity) (= severity (:op-type ev)))
+                  (or (nil? event-id)
+                      (= event-id (get-in ev [:tags :event-id])))
+                  (or (nil? handler-id)
+                      (= handler-id (get-in ev [:tags :handler-id])))
+                  (or (nil? source)
+                      (= source (or (:source ev)
+                                    (get-in ev [:tags :source]))))
+                  (or (nil? origin)
+                      (= origin (get-in ev [:tags :origin])))
+                  (or (nil? dispatch-id)
+                      (= dispatch-id (get-in ev [:tags :dispatch-id])))
+                  (or (nil? since-ms)
+                      (and (number? (:time ev))
+                           (> (:time ev) since-ms)))
+                  (or (nil? between-t0)
+                      (and (number? (:time ev))
+                           (<= between-t0 (:time ev) between-t1)))
+                  (or (nil? pred) (pred ev))))]
+       (filterv predicate @trace-buffer-state)))))
 
 (defn clear-trace-buffer!
   "Empty the ring buffer. Tooling uses this between sessions. No-op in
@@ -256,19 +355,35 @@
 
   Per Spec 009 §Core fields: :source is hoisted to the top level of the
   envelope (origin of the trigger — :ui :timer :http :repl :machine).
-  Tags retain everything else."
+  Tags retain everything else.
+
+  Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the runtime is
+  inside a drain processing a dispatch), the in-flight cascade's id is
+  merged into `:tags :dispatch-id`. Callers that supply their own
+  `:dispatch-id` in tags win (the only such caller in the framework is
+  `:event/dispatched`, which stamps its own freshly-allocated id)."
   [op operation tags]
   (when interop/debug-enabled?
-    (let [source   (:source tags)
-          recovery (:recovery tags)
+    (let [source       (:source tags)
+          recovery     (:recovery tags)
           ;; Per Spec 009 §Required top-level fields: :source and
           ;; :recovery (when present) live at the top level of the
           ;; trace event, NOT inside :tags. Hoist them here.
+          cascade-id   *current-dispatch-id*
+          base-tags    (dissoc tags :source :recovery)
+          ;; Per rf2-g6ih4: stamp the cascade's :dispatch-id on every
+          ;; event emitted inside the drain so consumers can group raw
+          ;; trace events by cascade without inferring from sequence.
+          ;; Caller-supplied :dispatch-id wins (`:event/dispatched` and
+          ;; any future emit that needs to override).
+          tags+        (if (and cascade-id (not (contains? base-tags :dispatch-id)))
+                         (assoc base-tags :dispatch-id cascade-id)
+                         base-tags)
           event    (cond-> {:operation operation
                             :op-type   op
                             :id        (next-event-id)
                             :time      (interop/now-ms)
-                            :tags      (dissoc tags :source :recovery)}
+                            :tags      tags+}
                      source   (assoc :source source)
                      recovery (assoc :recovery recovery))]
       (push-to-buffer! event)
@@ -292,17 +407,27 @@
   handler dispatching, cofx injecting, view rendering), the value is
   hoisted to the top-level `:rf.trace/trigger-handler` slot on the
   emitted event. Absent when no handler is in scope (e.g. outermost-
-  dispatch `:rf.error/no-such-handler`)."
+  dispatch `:rf.error/no-such-handler`).
+
+  Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the error fires
+  inside a drain), the in-flight cascade's id is merged into
+  `:tags :dispatch-id` so consumers can correlate the error with the
+  rest of the cascade. Caller-supplied `:dispatch-id` wins."
   [error-operation tags]
   (when interop/debug-enabled?
-    (let [trigger *current-trigger-handler*
-          event   (cond-> {:operation error-operation
-                           :op-type   :error
-                           :id        (next-event-id)
-                           :time      (interop/now-ms)
-                           :tags      (merge {:category error-operation} tags)
-                           :recovery  (:recovery tags :no-recovery)}
-                    trigger (assoc :rf.trace/trigger-handler trigger))]
+    (let [trigger    *current-trigger-handler*
+          cascade-id *current-dispatch-id*
+          base-tags  (merge {:category error-operation} tags)
+          tags+      (if (and cascade-id (not (contains? base-tags :dispatch-id)))
+                       (assoc base-tags :dispatch-id cascade-id)
+                       base-tags)
+          event      (cond-> {:operation error-operation
+                              :op-type   :error
+                              :id        (next-event-id)
+                              :time      (interop/now-ms)
+                              :tags      tags+
+                              :recovery  (:recovery tags :no-recovery)}
+                       trigger (assoc :rf.trace/trigger-handler trigger))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]

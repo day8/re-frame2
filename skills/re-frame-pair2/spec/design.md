@@ -27,7 +27,7 @@ Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 2. **The trace stream** — `(rf/register-trace-cb id cb)` for live events; `(rf/trace-buffer opts)` for the retain-N ring.
 3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-cb! id cb)`, and `(rf/restore-epoch ...)`.
 
-Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame-pair2.runtime` namespace the skill injects on connect.
+Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame-pair2.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
 
 ### L2 — No re-frame-10x dependency
 
@@ -49,7 +49,7 @@ This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol l
 
 ### L5 — Connect first, every session
 
-Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, injects the `re-frame-pair2.runtime` namespace, and checks the session sentinel. Failures return structured edn (`{:ok? false :reason ...}`); the skill reports the failure verbatim, doesn't guess at workarounds. `references/errors.md` carries the failure-mode catalogue.
+Before any op, `discover-app` runs. This locates the nREPL port, connects, verifies `interop/debug-enabled?` is true, and probes the load-time marker installed by the preloaded `re-frame-pair2.runtime` namespace. Failures return structured edn (`{:ok? false :reason ...}`); the most common precondition failure is `:reason :runtime-not-preloaded`, fixed by adding the two-line preload entry in `SKILL.md` §Setup. The skill reports failures verbatim, doesn't guess at workarounds. `references/errors.md` carries the full failure-mode catalogue.
 
 ### L6 — Multi-frame model, operating-frame selection
 
