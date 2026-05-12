@@ -79,8 +79,9 @@ nav:
     - "16 — Performance": guide/16-performance.md
     - "17 — Routing": guide/17-routing.md
     - "18 — From re-frame v1": guide/18-from-re-frame-v1.md
-    - "19 — Where to go next": guide/19-where-next.md
-    - "20 — Stories": guide/20-stories.md
+    - "19 — Adapters": guide/19-adapters.md
+    - "20 — Where to go next": guide/20-where-next.md
+    - "21 — Stories": guide/21-stories.md
 
   - Spec:
     - Overview: spec/README.md

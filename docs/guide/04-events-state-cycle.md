@@ -315,7 +315,7 @@ Two Patterns bottom out directly on what this chapter covered, so flag them now:
 - [Pattern-AsyncEffect](../../spec/Pattern-AsyncEffect.md) — the generic post-work-await-reply shape that the `:rf.http/managed` example above is one instance of.
 - [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) — HTTP requests with a standard lifecycle slice (idle / loading / loaded / error / stale).
 
-The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, StaleDetection, NineStates — is covered in [chapter 19 — Where to go next](19-where-next.md#look-up-a-pattern-by-name), with one-line summaries you can scan when the shape of your problem matches. Read the Pattern doc and copy the shape; don't invent a new one.
+The rest of the Pattern catalogue — Forms, Boot, WebSocket, LongRunningWork, StaleDetection, NineStates — is covered in [chapter 20 — Where to go next](20-where-next.md#look-up-a-pattern-by-name), with one-line summaries you can scan when the shape of your problem matches. Read the Pattern doc and copy the shape; don't invent a new one.
 
 ## A note on revertibility
 
