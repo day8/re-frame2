@@ -211,11 +211,42 @@
 (defn trace-buffer
   "Return the trace ring buffer's current contents, oldest first.
 
-  With opts, filters the result. Recognised keys:
-    :operation  — keep only events with this :operation value.
-    :op-type    — keep only events with this :op-type value.
-    :since      — keep only events whose :id is strictly greater than this.
-    :frame      — keep only events whose :tags :frame matches.
+  With opts, filters the result. Recognised keys (all compose AND-wise;
+  an absent key means \"no constraint on that axis\"):
+
+    :operation     — keep only events with this :operation value.
+    :op-type       — keep only events with this :op-type value.
+    :since         — keep only events whose :id is strictly greater than
+                     this. Useful for cursor-based polling.
+    :frame         — keep only events whose `:tags :frame` (or top-level
+                     :frame fallback) matches.
+    :severity      — keep only events whose :op-type matches one of
+                     `:error` / `:warning` / `:info`. Synonym for
+                     `:op-type` restricted to the three severity tiers.
+    :event-id      — keep only events whose `:tags :event-id` matches.
+                     The event-id is the first element of the dispatched
+                     event vector (e.g. `:user/login`).
+    :handler-id    — keep only events whose `:tags :handler-id` matches.
+                     Carried on `:rf.error/handler-exception` and other
+                     handler-scoped emits.
+    :source        — keep only events whose :source (top-level, hoisted
+                     from `:tags :source` by `emit!`) matches. Source
+                     identifies the trigger origin — one of `:ui` /
+                     `:timer` / `:http` / `:repl` / `:machine` /
+                     `:ssr-hydration`. Matched against the top-level slot.
+    :origin        — keep only events whose `:tags :origin` matches.
+                     Origin tags the actor that issued the dispatch
+                     (`:app` / `:pair` / `:story` / `:test` / ...) per
+                     Spec 002 §Dispatch origin tagging.
+    :dispatch-id   — keep only events whose `:tags :dispatch-id` matches.
+                     Cascade-wide post rf2-g6ih4 — every emit inside a
+                     drain carries the in-flight cascade's dispatch-id.
+    :since-ms      — keep only events whose :time is strictly greater
+                     than this numeric host-clock timestamp.
+    :between       — `[t0 t1]` two-element vector — keep only events
+                     whose :time falls in [t0, t1] inclusive.
+    :pred          — `(fn [ev] -> truthy)` arbitrary predicate. Receives
+                     the full event map. Returning truthy keeps the event.
 
   Filters compose: every supplied key must match. Returns an empty vector
   in production (the buffer never receives events when interop/debug-enabled?
@@ -226,16 +257,41 @@
   ([opts]
    (if-not interop/debug-enabled?
      []
-     (let [{:keys [operation op-type since frame]} opts
-           pred (fn [ev]
-                  (and (or (nil? operation) (= operation (:operation ev)))
-                       (or (nil? op-type)   (= op-type   (:op-type ev)))
-                       (or (nil? since)     (and (number? (:id ev))
-                                                 (> (:id ev) since)))
-                       (or (nil? frame)
-                           (= frame (or (:frame ev)
-                                        (get-in ev [:tags :frame]))))))]
-       (filterv pred @trace-buffer-state)))))
+     (let [{:keys [operation op-type since frame
+                   severity event-id handler-id source origin
+                   dispatch-id since-ms between pred]} opts
+           [between-t0 between-t1] (when (and (sequential? between)
+                                              (= 2 (count between)))
+                                     between)
+           predicate
+           (fn [ev]
+             (and (or (nil? operation) (= operation (:operation ev)))
+                  (or (nil? op-type)   (= op-type   (:op-type ev)))
+                  (or (nil? since)     (and (number? (:id ev))
+                                            (> (:id ev) since)))
+                  (or (nil? frame)
+                      (= frame (or (:frame ev)
+                                   (get-in ev [:tags :frame]))))
+                  (or (nil? severity) (= severity (:op-type ev)))
+                  (or (nil? event-id)
+                      (= event-id (get-in ev [:tags :event-id])))
+                  (or (nil? handler-id)
+                      (= handler-id (get-in ev [:tags :handler-id])))
+                  (or (nil? source)
+                      (= source (or (:source ev)
+                                    (get-in ev [:tags :source]))))
+                  (or (nil? origin)
+                      (= origin (get-in ev [:tags :origin])))
+                  (or (nil? dispatch-id)
+                      (= dispatch-id (get-in ev [:tags :dispatch-id])))
+                  (or (nil? since-ms)
+                      (and (number? (:time ev))
+                           (> (:time ev) since-ms)))
+                  (or (nil? between-t0)
+                      (and (number? (:time ev))
+                           (<= between-t0 (:time ev) between-t1)))
+                  (or (nil? pred) (pred ev))))]
+       (filterv predicate @trace-buffer-state)))))
 
 (defn clear-trace-buffer!
   "Empty the ring buffer. Tooling uses this between sessions. No-op in

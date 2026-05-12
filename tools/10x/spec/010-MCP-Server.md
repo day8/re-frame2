@@ -75,7 +75,7 @@ agent observe, dispatch, time-travel, and inspect.
 
 | Tool | Mirrors Causa panel | Returns |
 |---|---|---|
-| `get-trace-buffer` | Trace timeline | A slice of the trace stream by filter (`:op-type`, `:operation`, `:frame`, `:dispatch-id`, `:origin`, time range). |
+| `get-trace-buffer` | Trace timeline | A slice of the trace stream by filter. Forwards directly to `(rf/trace-buffer opts)`; recognised filter keys are the canonical [Spec 009 §Filter vocabulary](../../../spec/009-Instrumentation.md#filter-vocabulary) — `:operation`, `:op-type`, `:since`, `:frame`, `:severity`, `:event-id`, `:handler-id`, `:source`, `:origin`, `:dispatch-id`, `:since-ms`, `:between`, `:pred`. |
 | `get-epoch-history` | Time-travel scrubber | Per-frame epoch history (vector of `:rf/epoch-record`). |
 | `get-app-db` | App-db inspector | Current value at a frame, optionally at a path. |
 | `get-app-db-diff` | App-db inspector (slice view) | The slice diff for a named epoch (`{:added [...] :modified [...] :removed [...]}`). |
