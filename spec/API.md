@@ -59,9 +59,12 @@
 
 | API | M/Fn | Signature | Status | Spec |
 |---|---|---|---|---|
-| `dispatch` | Fn | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended) | 002 |
-| `dispatch-sync` | Fn | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended) | 002 |
-| `subscribe` | Fn | `(subscribe query-v)` / `(subscribe query-v opts)` | v1 (preserved + extended) | 002 |
+| `dispatch` | M | `(dispatch event)` / `(dispatch event opts)` | v1 (preserved + extended); macro per rf2-ts1a — captures call-site for `:rf.trace/call-site` | 002 |
+| `dispatch*` | Fn | `(dispatch* event)` / `(dispatch* event opts)` | rf2-ts1a — fn form for HoF / programmatic dispatch (no call-site stamping) | 002 |
+| `dispatch-sync` | M | `(dispatch-sync event)` / `(dispatch-sync event opts)` | v1 (preserved + extended); macro per rf2-ts1a | 002 |
+| `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | rf2-ts1a — fn form for HoF / programmatic sync dispatch | 002 |
+| `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro per rf2-ts1a | 002 |
+| `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | rf2-ts1a — fn form for HoF / programmatic subscribe | 002 |
 | `subscribe-value` | Fn | `(subscribe-value query-v)` / `(subscribe-value frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 002 |
 | `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period) | v1 | 002 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
@@ -504,7 +507,8 @@ The v2 std-interceptor surface is **three specific helpers** plus the `->interce
 
 | API | M/Fn | Signature | Purpose |
 |---|---|---|---|
-| `inject-cofx` | Fn | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
+| `inject-cofx` | M | `(inject-cofx id)` / `(inject-cofx id value)` | Inject a registered cofx into the handler's coeffect map. Macro per rf2-ts1a — captures call-site for `:rf.trace/call-site` on errors emitted from inside the cofx body. Specific work — `:cofx` registry lookup, not subsumable by `->interceptor`. |
+| `inject-cofx*` | Fn | `(inject-cofx* id)` / `(inject-cofx* id value)` | Fn form (rf2-ts1a) for HoF / programmatic interceptor construction — no call-site stamping. |
 | `path` | Fn | `(path & path)` | Focus a handler on an `app-db` sub-slice. Specific work — `:before` focuses, `:after` splices the result back into parent db. |
 | `unwrap` | (val) | `unwrap` | Assert `[id payload-map]` event shape; replace `:event` coeffect with the payload map; restore on `:after`. Sugar over the M-19 canonical map-payload form. |
 | `->interceptor` | Fn | `(->interceptor & {:keys [id before after]})` | The primitive. Build a custom interceptor with `:before` and/or `:after` slots. **Use this for any work not covered by the three specific helpers above** — analytics, logging, validation, ad-hoc context manipulation. The resulting interceptor is named, addressable, and queryable like any other artefact. |

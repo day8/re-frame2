@@ -180,7 +180,16 @@ const DEV_ONLY_SENTINELS = [
   // `rf.machine/source-coords` string fragment must NOT survive in
   // production bundles.
   { source: 're-frame.core/reg-machine (rf.machine/source-coords stamping)',
-    sentinel: 'rf.machine/source-coords' }
+    sentinel: 'rf.machine/source-coords' },
+  // re-frame.core/{dispatch,dispatch-sync,subscribe,inject-cofx} —
+  // call-site source-coord stamping (rf2-ts1a, Q3=B dev-only elision).
+  // Each macro emits an `(if interop/debug-enabled? <stamp-branch>
+  // <no-stamp-branch>)` expansion; under :advanced + goog.DEBUG=false
+  // the closure compiler constant-folds the gate to false and the
+  // stamp branch DCEs. The `rf.trace/call-site` keyword's string
+  // fragment must NOT survive in production bundles.
+  { source: 're-frame.core/{dispatch,subscribe,inject-cofx} (rf.trace/call-site stamping)',
+    sentinel: 'rf.trace/call-site' }
   // Note (rf2-d3k3): re-frame.views/maybe-warn-plain-fn-under-non-
   // default-frame! emits :rf.warning/plain-fn-under-non-default-frame-
   // once gated on interop/debug-enabled?. We do NOT add a sentinel

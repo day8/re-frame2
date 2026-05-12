@@ -110,6 +110,55 @@
   Per rf2-3nn8 (error path) and rf2-lf84g (success path)."
   nil)
 
+;; ---- call-site (rf2-ts1a) -------------------------------------------------
+;;
+;; Complement to `*current-trigger-handler*` (rf2-3nn8). Where the trigger-
+;; handler names the registration site of the in-scope handler, the call-site
+;; names the **invocation line** of the specific callable that's about to
+;; emit (or has just emitted) an error — e.g. the `(rf/dispatch [:bad-event])`
+;; line, the `(rf/subscribe [:bad-sub])` line, the `(rf/inject-cofx :missing)`
+;; line. With both pieces, tooling renders two clickable links per error:
+;; "handler defined at X:142" (trigger-handler) and "failed call at Y:147"
+;; (call-site).
+;;
+;; The call-site is captured at compile time by the macro form of the
+;; callable (per Q1=C: existing-name macro + `*` fn variant; `dispatch` is
+;; the macro, `dispatch*` is the runtime-callable fn). The macro binds this
+;; Var around the underlying `*`-fn call; `emit-error!` reads the Var and
+;; hoists the value to the top-level `:rf.trace/call-site` slot on the
+;; emitted event (Q2=A: flat sibling of `:rf.trace/trigger-handler`).
+;;
+;; For dispatched events the binding happens not at the macro call site but
+;; later, when the router's drain pulls the envelope out of the queue:
+;; `dispatch*` stamps the call-site onto the envelope, and `process-event!`
+;; binds this Var from the envelope before invoking the handler chain so
+;; any error emitted inside the chain carries it.
+;;
+;; For interceptors (`inject-cofx`) the call-site is captured by the
+;; macro into the interceptor's closure; the `:before` body binds the Var
+;; before calling the cofx fn.
+;;
+;; Elision (Q3=B): dev-only. The macros omit the call-site map entirely
+;; when `goog.DEBUG=false` so the compiled-out call becomes `(dispatch*
+;; event-vec)` — identical to the fn-form path. The closure compiler
+;; constant-folds the dead branch and the map literal DCE's.
+
+(def ^:dynamic *current-call-site*
+  "The compile-time-captured call site of the surface (`dispatch`,
+  `dispatch-sync`, `subscribe`, `inject-cofx`) about to emit (or just
+  emitted) an error. Bound by each surface's macro form around the
+  underlying `*`-fn invocation; `emit-error!` reads the Var and attaches
+  the value to the emitted event under `:rf.trace/call-site`. nil when
+  the surface was reached through its fn form (`dispatch*` etc.) or when
+  no surface is in scope.
+
+  Shape: `{:ns <sym> :file <string> :line <int> :column <int>}` — the
+  same shape as `:source-coord` under `:rf.trace/trigger-handler`, but
+  carries the **invocation** line rather than the registration line.
+
+  Per rf2-ts1a (Q1=C macro+fn pair, Q2=A flat key, Q3=B dev-only elision)."
+  nil)
+
 ;; ---- *current-dispatch-id* (rf2-g6ih4) ------------------------------------
 ;;
 ;; Per Spec 009 §Dispatch correlation: `:dispatch-id` is a **cascade-wide**
@@ -429,6 +478,14 @@
   emitted event. Absent when no handler is in scope (e.g. outermost-
   dispatch `:rf.error/no-such-handler`).
 
+  Per rf2-ts1a: when `*current-call-site*` is bound (the error fires
+  inside the body of a surface that was reached through its macro form
+  — `dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`), the
+  compile-time-captured call site is hoisted to the top-level
+  `:rf.trace/call-site` slot on the emitted event. Absent when the
+  surface was reached through its fn form (`dispatch*` etc.) or when
+  no surface is in scope.
+
   Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the error fires
   inside a drain), the in-flight cascade's id is merged into
   `:tags :dispatch-id` so consumers can correlate the error with the
@@ -436,6 +493,7 @@
   [error-operation tags]
   (when interop/debug-enabled?
     (let [trigger    *current-trigger-handler*
+          call-site  *current-call-site*
           cascade-id *current-dispatch-id*
           base-tags  (merge {:category error-operation} tags)
           tags+      (if (and cascade-id (not (contains? base-tags :dispatch-id)))
@@ -447,7 +505,8 @@
                               :time      (interop/now-ms)
                               :tags      tags+
                               :recovery  (:recovery tags :no-recovery)}
-                       trigger (assoc :rf.trace/trigger-handler trigger))]
+                       trigger   (assoc :rf.trace/trigger-handler trigger)
+                       call-site (assoc :rf.trace/call-site       call-site))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]

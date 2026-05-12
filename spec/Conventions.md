@@ -289,9 +289,22 @@ If the option seems to want two buckets, the option is doing two things and shou
 
 ## `*`-suffix naming for fn-versions of macros
 
-When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, or registration without the macro tier.
+When a macro has a fn-version (the unsweetened, runtime-callable surface), the fn gets a `*` suffix. Standard Clojure idiom — `let` / `let*`, `fn` / `fn*`. The macro is the ergonomic surface (parses extra shapes, captures source-coords from `&form`, defs Vars, injects locals, **stamps invocation call-sites** for tooling per [009 §`:rf.trace/call-site` — naming the invocation line](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line-rf2-ts1a)); the `*`-fn is the plain-fn delegate that runtime callers invoke when they need a non-literal body, a computed id, registration without the macro tier, or higher-order use (`(map dispatch* xs)` — the macro can't ride a HoF position).
 
-For now the only pair is `reg-view` / `reg-view*` (per [Spec 004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch)); future macros that want fn partners follow the same convention.
+The current pairs:
+
+| Macro (ergonomic) | Fn (`*` form) | Spec |
+|---|---|---|
+| `reg-view` | `reg-view*` | [004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch) |
+| `reg-machine` | `reg-machine*` | [005 §reg-machine vs reg-machine*](005-StateMachines.md) |
+| `dispatch` | `dispatch*` | rf2-ts1a — call-site stamping |
+| `dispatch-sync` | `dispatch-sync*` | rf2-ts1a — call-site stamping |
+| `subscribe` | `subscribe*` | rf2-ts1a — call-site stamping |
+| `inject-cofx` | `inject-cofx*` | rf2-ts1a — call-site stamping |
+
+The `dispatch` / `subscribe` / `inject-cofx` macros (per rf2-ts1a) are the canonical invocation surface in user code — they pay no extra runtime cost in production (the call-site stamp DCEs under `:advanced` + `goog.DEBUG=false`) and let tooling render two click-to-jump links per error: registration-site (`:rf.trace/trigger-handler`) and invocation-site (`:rf.trace/call-site`). The `*`-fn forms exist for higher-order use and programmatic / REPL paths where there is no syntactic call site to attribute to.
+
+Future macros that want fn partners follow the same convention.
 
 The convention applies **only where there is a macro tier**. The other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`) are already plain fns — they need no macro tier and therefore no `*` partner. Adding `reg-event-db*` / etc. would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
 

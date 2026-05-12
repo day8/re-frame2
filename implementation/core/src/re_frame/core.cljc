@@ -78,7 +78,9 @@
   ;; Spec 004 §reg-view, the macros live in re-frame.core; CLJS users
   ;; can write `rf/reg-view` after `(:require [re-frame.core :as rf])`
   ;; without an explicit `:require-macros` clause at the call site.
-  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame bound-fn]])))
+  #?(:cljs (:require-macros [re-frame.core :refer [reg-view with-frame bound-fn
+                                                   dispatch dispatch-sync
+                                                   subscribe inject-cofx]])))
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -622,13 +624,174 @@
 (def clear-subscription-cache! subs/clear-subscription-cache!)
 
 ;; ---- dispatch and subscribe -----------------------------------------------
+;;
+;; Per rf2-ts1a — call-site source-coords. Each user-facing surface ships
+;; as a macro + `*`-fn pair (Q1=C: existing-name macro, fn-form gets the
+;; `*` suffix; same convention as `reg-view` / `reg-view*` and `reg-
+;; machine` / `reg-machine*` per Conventions §`*`-suffix naming).
+;;
+;;   `dispatch`       — macro; captures `(meta &form)` and routes through
+;;                       `dispatch*` with the call-site stamped on `opts`.
+;;   `dispatch*`      — runtime-callable fn (delegates to `router/dispatch!`).
+;;                       Use this in HoF contexts (`(map dispatch* xs)`) or
+;;                       when the surface is reached programmatically.
+;;
+;; Same shape for `dispatch-sync` / `dispatch-sync*`, `subscribe` /
+;; `subscribe*`, `inject-cofx` / `inject-cofx*`.
+;;
+;; The compile-time `:rf.trace/call-site` map elides under `goog.DEBUG=
+;; false` (Q3=B dev-only elision) — the macro expansion is
+;; `(if interop/debug-enabled? <stamping-call> <plain-call>)` so the
+;; entire stamping branch (including the literal map) DCE's. emit-error!
+;; reads `trace/*current-call-site*` and attaches the value as
+;; `:rf.trace/call-site` (Q2=A flat sibling of `:rf.trace/trigger-handler`)
+;; on the emitted event.
 
-(def dispatch       router/dispatch!)
-(def dispatch-sync  router/dispatch-sync!)
-(def subscribe      subs/subscribe)
+(def dispatch*       router/dispatch!)
+(def dispatch-sync*  router/dispatch-sync!)
 (def subscribe-value subs/subscribe-value)
-(def unsubscribe    subs/unsubscribe)
-(def compute-sub    subs/compute-sub)
+(def unsubscribe     subs/unsubscribe)
+(def compute-sub     subs/compute-sub)
+
+(defn subscribe*
+  "Runtime-callable fn form of `subscribe`. Per rf2-ts1a — the macro
+  form `re-frame.core/subscribe` captures `(meta &form)` and binds
+  `trace/*current-call-site*` around a call to this fn. Direct callers
+  (HoF use, programmatic subscribe paths, view-render closures injected
+  by `reg-view`) skip the call-site stamping by calling this fn
+  directly.
+
+  Arities mirror `re-frame.subs/subscribe`."
+  ([query-v]            (subs/subscribe query-v))
+  ([frame-id query-v]   (subs/subscribe frame-id query-v)))
+
+(defn inject-cofx*
+  "Runtime-callable fn form of `inject-cofx`. Per rf2-ts1a — the macro
+  form `re-frame.core/inject-cofx` captures `(meta &form)` and routes
+  here with the call-site as the trailing arg. Direct callers skip
+  call-site stamping by omitting the trailing arg.
+
+  Arities:
+    (inject-cofx* :id)                  — no value, no call-site
+    (inject-cofx* :id value)            — value, no call-site
+    (inject-cofx* :id value call-site)  — full macro path (value + call-site)
+
+  The macro expansion uses `cofx/no-value` (a public sentinel) to thread
+  the call-site through the no-value branch without ambiguity."
+  ([cofx-id]                      (cofx/inject-cofx cofx-id))
+  ([cofx-id value]                (cofx/inject-cofx cofx-id value nil))
+  ([cofx-id value call-site]      (cofx/inject-cofx cofx-id value call-site)))
+
+;; ---- call-site capturing macros (rf2-ts1a) -------------------------------
+;;
+;; Each macro captures `(meta &form)` and `*ns*` / `*file*` at expansion
+;; time and emits an `(if interop/debug-enabled? <stamping> <plain>)`
+;; branch around the matching `*`-fn call. Under :advanced +
+;; `goog.DEBUG=false` the closure compiler constant-folds the gate to
+;; false and the entire stamping branch — including the literal
+;; `:rf.trace/call-site` map — DCE's. Per Q3=B dev-only elision.
+;;
+;; The `coords-form` helper is reused from `re-frame.source-coords` so
+;; the literal map carries the same `{:ns :file :line :column}` shape as
+;; registration-site coords (rf2-mdjp `:file` resolution rules apply
+;; identically — form-meta `:file` wins, `"NO_SOURCE_PATH"` sentinel is
+;; dropped).
+
+#?(:clj
+   (defn ^:private call-site-form
+     "Build the literal call-site cond-> map for a callable's macro form.
+     Returns the unguarded form; callers wrap in their own
+     `(if interop/debug-enabled? ... ...)` so the entire branch (binding
+     scope or opts-key assoc) DCEs under `goog.DEBUG=false`."
+     [form-meta ns-sym file]
+     (source-coords/coords-form form-meta file ns-sym)))
+
+#?(:clj
+   (defmacro dispatch
+     "Enqueue `event-vec` on the target frame's router. Per Spec 002
+     §Routing. Per rf2-ts1a: macro form — captures the call site at
+     compile time and threads it through the dispatch envelope so any
+     error trace emitted while the handler chain runs carries the
+     invocation coord as `:rf.trace/call-site`.
+
+     For higher-order use (`(map dispatch* xs)`) and programmatic
+     callers, use `dispatch*` — the runtime-callable fn form."
+     ([event-vec]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch* ~event-vec {:rf.trace/call-site ~cs-form})
+           (re-frame.core/dispatch* ~event-vec))))
+     ([event-vec opts]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch* ~event-vec
+                                    (assoc ~opts :rf.trace/call-site ~cs-form))
+           (re-frame.core/dispatch* ~event-vec ~opts))))))
+
+#?(:clj
+   (defmacro dispatch-sync
+     "Run `event-vec` end-to-end synchronously, then drain. Per Spec 002
+     §dispatch-sync. Per rf2-ts1a: macro form — captures the call site
+     and threads it through the dispatch envelope.
+
+     For higher-order use and programmatic callers, use `dispatch-sync*`."
+     ([event-vec]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch-sync* ~event-vec {:rf.trace/call-site ~cs-form})
+           (re-frame.core/dispatch-sync* ~event-vec))))
+     ([event-vec opts]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/dispatch-sync* ~event-vec
+                                         (assoc ~opts :rf.trace/call-site ~cs-form))
+           (re-frame.core/dispatch-sync* ~event-vec ~opts))))))
+
+#?(:clj
+   (defmacro subscribe
+     "Per Spec 006 §Lookup algorithm. Per rf2-ts1a: macro form —
+     captures the call site and binds `trace/*current-call-site*`
+     around the underlying subscribe so the synchronous miss path
+     (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`) carries
+     the invocation coord.
+
+     For HoF / programmatic subscribe, use `subscribe*`."
+     ([query-v]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (binding [re-frame.trace/*current-call-site* ~cs-form]
+             (re-frame.core/subscribe* ~query-v))
+           (re-frame.core/subscribe* ~query-v))))
+     ([frame-id query-v]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (binding [re-frame.trace/*current-call-site* ~cs-form]
+             (re-frame.core/subscribe* ~frame-id ~query-v))
+           (re-frame.core/subscribe* ~frame-id ~query-v))))))
+
+#?(:clj
+   (defmacro inject-cofx
+     "Build a `:before`-only interceptor that runs the registered cofx.
+     Per rf2-ts1a: macro form — captures the call site and threads it
+     into the interceptor's closure so errors emitted from inside the
+     cofx body (`:rf.error/no-such-cofx`, schema-validation failures)
+     carry the invocation coord.
+
+     For HoF / programmatic interceptor construction, use `inject-cofx*`."
+     ([cofx-id]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        ;; Route through the 3-arity with the `cofx/no-value` sentinel
+        ;; so the call-site can ride. The 3-arity branch in
+        ;; cofx/inject-cofx detects the sentinel via identical? and
+        ;; takes the no-value path through the cofx fn body.
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/inject-cofx* ~cofx-id re-frame.cofx/no-value ~cs-form)
+           (re-frame.core/inject-cofx* ~cofx-id))))
+     ([cofx-id value]
+      (let [cs-form (call-site-form (meta &form) (symbol (str (ns-name *ns*))) *file*)]
+        `(if re-frame.interop/debug-enabled?
+           (re-frame.core/inject-cofx* ~cofx-id ~value ~cs-form)
+           (re-frame.core/inject-cofx* ~cofx-id ~value))))))
 
 ;; ---- frame-aware closures (runtime side) ---------------------------------
 ;;
@@ -665,21 +828,32 @@
   Captures the frame at call time, so closures do not need to thread it.
 
   Per Spec 004 §Affordance for plain fns:
-    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])"
+    (let [d (rf/dispatcher)] [:button {:on-click #(d [:inc])} ...])
+
+  Per rf2-ts1a: the returned closure delegates to the fn-form
+  `dispatch*` so it does NOT bake the call-site of this very file's
+  body onto every dispatch — captured dispatchers run from user
+  callsites (timers, event listeners, etc.) where the original
+  invocation has no syntactic position to attribute to."
   []
   (let [frame (current-frame)]
     (fn dispatch-fn
-      ([event] (dispatch event {:frame frame}))
-      ([event opts] (dispatch event (assoc opts :frame frame))))))
+      ([event]      (dispatch* event {:frame frame}))
+      ([event opts] (dispatch* event (assoc opts :frame frame))))))
 
 (defn subscriber
   "Return a fn that subscribes under the current frame. Captures the
-  frame at call time. The returned fn delegates to subscribe."
+  frame at call time. The returned fn delegates to subscribe.
+
+  Per rf2-ts1a: the returned closure delegates to `subs/subscribe`
+  (the underlying fn) for the same reason `dispatcher` uses `dispatch*`
+  — captured subscribers live across the macro/call-site horizon and
+  shouldn't pin this file's line."
   []
   (let [frame (current-frame)]
     (fn subscribe-fn
       [query-v]
-      (subscribe frame query-v))))
+      (subs/subscribe frame query-v))))
 
 ;; with-frame is a macro (per Spec 002 §with-frame and spec/API.md row 74).
 ;; Two shapes:
