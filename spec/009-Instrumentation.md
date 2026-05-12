@@ -261,9 +261,31 @@ Contract:
 | API | Signature | Notes |
 |---|---|---|
 | `(rf/trace-buffer)` | `() → vector` | Returns the buffer's current contents, oldest-first. Empty when no events have been recorded. |
-| `(rf/trace-buffer opts)` | `(opts) → vector` | Optional filter: `{:operation kw}`, `{:op-type kw}`, `{:since trace-id}`, `{:frame frame-id}`. Filters compose. |
+| `(rf/trace-buffer opts)` | `(opts) → vector` | Optional filter map (see [§Filter vocabulary](#filter-vocabulary) below). Filters compose AND-wise; absent key = no constraint on that axis. |
 | `(rf/clear-trace-buffer!)` | `() → nil` | Empties the buffer. Tooling uses this between sessions. |
 | `(rf/configure :trace-buffer {:depth N})` | `(N) → nil` | Configure depth; default 200 events. `0` disables the ring buffer (synchronous delivery still works). |
+
+#### Filter vocabulary
+
+`(rf/trace-buffer opts)` recognises the following filter keys. All compose AND-wise; an absent key means "no constraint on that axis." Unrecognised keys are ignored (forward-compat: tools may probe new axes; missing support degrades to "no filter").
+
+| Key | Type | Semantics |
+|---|---|---|
+| `:operation` | keyword | Match exact `:operation` value (e.g. `:event/dispatched`, `:rf.fx/handled`). |
+| `:op-type` | keyword | Match exact `:op-type` discriminator (e.g. `:event`, `:fx`, `:error`). |
+| `:since` | number | Keep events whose `:id` is strictly greater than this. Cursor-based polling — read the last event's `:id`, pass on next call. |
+| `:frame` | keyword | Match `:tags :frame` (or top-level `:frame` fallback). |
+| `:severity` | `:error` / `:warning` / `:info` | Synonym for `:op-type` restricted to the three severity tiers. Use this when filtering for the issues feed. |
+| `:event-id` | keyword | Match `:tags :event-id` — the first element of the dispatched event vector (e.g. `:user/login`). Present on `:event/*`, `:rf.error/handler-exception`, `:event/db-changed`, and other event-scoped emits. |
+| `:handler-id` | keyword | Match `:tags :handler-id` — the registered handler's id. Present on handler-error emits. |
+| `:source` | `:ui` / `:timer` / `:http` / `:repl` / `:machine` / `:ssr-hydration` | Match the top-level `:source` slot (hoisted from `:tags :source` by `emit!`). Identifies the trigger origin. |
+| `:origin` | `:app` / `:pair` / `:story` / `:test` / ... | Match `:tags :origin` per [Spec 002 §Dispatch origin tagging](002-Frames.md). Lets tools filter "only my dispatches." |
+| `:dispatch-id` | number | Match `:tags :dispatch-id` — the cascade-wide correlation key. Post rf2-g6ih4, every emit inside a drain carries the in-flight cascade's id, so this filter narrows the buffer to one cascade. |
+| `:since-ms` | number | Keep events whose `:time` (host-clock ms) is strictly greater than this. Pair with the scrubber's "drag time-range" gesture. |
+| `:between` | `[t0 t1]` | Two-element vector — keep events whose `:time` falls in `[t0, t1]` inclusive. |
+| `:pred` | `(fn [ev] → truthy)` | Arbitrary predicate. Receives the full event map. Returning truthy keeps the event. Escape hatch for filters not yet promoted to named keys. |
+
+Filters compose AND-wise — supplying both `:op-type :error` and `:frame :tb/scope` keeps only error events on that frame.
 
 Semantics:
 

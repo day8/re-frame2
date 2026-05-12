@@ -195,6 +195,176 @@
              (get-in inner [:tags :parent-dispatch-id]))
           "inner's :parent-dispatch-id == outer's :dispatch-id"))))
 
+;; ---- 1b. Extended filter vocabulary (rf2-97ah0) ----------------------------
+
+(deftest trace-buffer-filter-severity
+  (testing ":severity filters by :op-type tier (:error / :warning / :info)"
+    ;; :rf.error/no-such-handler is a reliable :op-type :error emit.
+    (rf/dispatch-sync [:no-such-event-handler])
+    (let [errs (rf/trace-buffer {:severity :error})]
+      (is (seq errs))
+      (is (every? #(= :error (:op-type %)) errs)
+          ":severity :error narrows to :op-type :error events"))
+    (testing ":severity :warning narrows to :op-type :warning"
+      (let [warns (rf/trace-buffer {:severity :warning})]
+        (is (every? #(= :warning (:op-type %)) warns)
+            (if (seq warns)
+              ":severity :warning narrows correctly"
+              ":severity :warning returns empty when no warnings"))))
+    (testing ":severity composes with :frame"
+      (rf/reg-frame :tb/sev-scope {:doc "severity-scope"})
+      (rf/clear-trace-buffer!)
+      (rf/dispatch-sync [:no-such-event-handler] {:frame :tb/sev-scope})
+      (let [scoped (rf/trace-buffer {:severity :error :frame :tb/sev-scope})]
+        (is (every? #(and (= :error (:op-type %))
+                          (= :tb/sev-scope (or (:frame %)
+                                               (get-in % [:tags :frame]))))
+                    scoped))))))
+
+(deftest trace-buffer-filter-event-id
+  (testing ":event-id filters by :tags :event-id"
+    (rf/reg-event-db :ev/alpha (fn [db _] db))
+    (rf/reg-event-db :ev/beta  (fn [db _] db))
+    (rf/dispatch-sync [:ev/alpha])
+    (rf/dispatch-sync [:ev/beta])
+    (let [alpha (rf/trace-buffer {:event-id :ev/alpha})]
+      (is (seq alpha))
+      (is (every? #(= :ev/alpha (get-in % [:tags :event-id])) alpha)
+          ":event-id filter narrows to one event-id"))
+    (let [beta (rf/trace-buffer {:event-id :ev/beta})]
+      (is (seq beta))
+      (is (every? #(= :ev/beta (get-in % [:tags :event-id])) beta)))))
+
+(deftest trace-buffer-filter-handler-id
+  (testing ":handler-id filters by :tags :handler-id"
+    ;; :rf.error/handler-exception carries :handler-id under :tags.
+    (rf/reg-event-db :ev/throws
+                     (fn [_db _] (throw (ex-info "boom" {}))))
+    (try
+      (rf/dispatch-sync [:ev/throws])
+      (catch Throwable _ nil))
+    (let [hits (rf/trace-buffer {:handler-id :ev/throws})]
+      (is (seq hits) "at least one event carries :handler-id :ev/throws")
+      (is (every? #(= :ev/throws (get-in % [:tags :handler-id])) hits)))))
+
+(deftest trace-buffer-filter-source
+  (testing ":source filters by top-level :source slot (hoisted from :tags)"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:source :repl})
+    (rf/dispatch-sync [:ping] {:source :timer})
+    (let [repl-evs (rf/trace-buffer {:source :repl})]
+      (is (seq repl-evs))
+      (is (every? #(= :repl (or (:source %) (get-in % [:tags :source])))
+                  repl-evs)
+          ":source filter matches top-level slot"))
+    (let [timer-evs (rf/trace-buffer {:source :timer})]
+      (is (seq timer-evs))
+      (is (every? #(= :timer (or (:source %) (get-in % [:tags :source])))
+                  timer-evs)))))
+
+(deftest trace-buffer-filter-origin
+  (testing ":origin filters by :tags :origin"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping] {:origin :pair})
+    (rf/dispatch-sync [:ping] {:origin :story})
+    (let [pair-evs (rf/trace-buffer {:origin :pair})]
+      (is (seq pair-evs))
+      (is (every? #(= :pair (get-in % [:tags :origin])) pair-evs)
+          ":origin :pair narrows to pair-issued cascades"))
+    (let [story-evs (rf/trace-buffer {:origin :story})]
+      (is (seq story-evs))
+      (is (every? #(= :story (get-in % [:tags :origin])) story-evs)))))
+
+(deftest trace-buffer-filter-dispatch-id
+  (testing ":dispatch-id narrows to one cascade (rf2-g6ih4 cascade-wide tag)"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping])
+    (rf/dispatch-sync [:ping])
+    (let [first-dispatch (->> (rf/trace-buffer)
+                              dispatched-events
+                              first)
+          target-id      (get-in first-dispatch [:tags :dispatch-id])
+          slice          (rf/trace-buffer {:dispatch-id target-id})]
+      (is (number? target-id))
+      (is (seq slice))
+      (is (every? #(= target-id (get-in % [:tags :dispatch-id])) slice)
+          "every event in the slice carries the same :dispatch-id"))))
+
+(deftest trace-buffer-filter-since-ms
+  (testing ":since-ms filters by :time host-clock millisecond bound"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping])
+    (let [pre-time (-> (rf/trace-buffer) last :time)]
+      ;; Force a small delay so subsequent events have :time strictly >.
+      (Thread/sleep 5)
+      (rf/dispatch-sync [:ping])
+      (let [after (rf/trace-buffer {:since-ms pre-time})]
+        (is (seq after))
+        (is (every? #(> (:time %) pre-time) after)
+            ":since-ms keeps events strictly after the timestamp")))))
+
+(deftest trace-buffer-filter-between
+  (testing ":between [t0 t1] filters to a time window (inclusive)"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping])
+    (let [t0 (-> (rf/trace-buffer) first :time)
+          t1 (-> (rf/trace-buffer) last  :time)
+          win (rf/trace-buffer {:between [t0 t1]})]
+      (is (seq win))
+      (is (every? #(<= t0 (:time %) t1) win)
+          "every event in the window falls in [t0, t1]"))
+    (testing ":between with a window that excludes everything yields []"
+      (let [win (rf/trace-buffer {:between [0 1]})]
+        (is (= [] win))))))
+
+(deftest trace-buffer-filter-pred
+  (testing ":pred applies an arbitrary predicate"
+    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/dispatch-sync [:ping])
+    (let [errors-and-events (rf/trace-buffer {:pred (fn [ev]
+                                                      (#{:event :error}
+                                                       (:op-type ev)))})]
+      (is (seq errors-and-events))
+      (is (every? #(#{:event :error} (:op-type %)) errors-and-events)
+          ":pred narrows to events matching the predicate"))
+    (testing ":pred composes with named axes"
+      (let [evs (rf/trace-buffer {:op-type :event
+                                  :pred    (fn [ev]
+                                             (= :event/dispatched
+                                                (:operation ev)))})]
+        (is (every? #(and (= :event (:op-type %))
+                          (= :event/dispatched (:operation %)))
+                    evs))))))
+
+(deftest trace-buffer-filters-compose-and-wise
+  (testing "every filter axis composes; supplying many narrows further"
+    (rf/reg-event-db :ev/x (fn [db _] db))
+    (rf/dispatch-sync [:ev/x] {:origin :pair :source :repl})
+    ;; :event/dispatched carries :origin and :source (via top-level hoist)
+    ;; but NOT :event-id (it carries the full :event vector). :event-id
+    ;; lives on :event/db-changed and on error emits. Compose four axes
+    ;; that all coexist on :event/dispatched.
+    (let [evs (rf/trace-buffer {:op-type   :event
+                                :operation :event/dispatched
+                                :origin    :pair
+                                :source    :repl})]
+      (is (seq evs))
+      (is (every? #(and (= :event           (:op-type %))
+                        (= :event/dispatched (:operation %))
+                        (= :pair            (get-in % [:tags :origin]))
+                        (= :repl            (or (:source %)
+                                                (get-in % [:tags :source]))))
+                  evs)
+          "all four axes match simultaneously"))
+    (testing ":event-id composes with the other axes on :event/db-changed"
+      (let [evs (rf/trace-buffer {:operation :event/db-changed
+                                  :event-id  :ev/x
+                                  :origin    :pair})]
+        (is (every? #(and (= :event/db-changed (:operation %))
+                          (= :ev/x            (get-in % [:tags :event-id]))
+                          (= :pair            (get-in % [:tags :origin])))
+                    evs))))))
+
 ;; ---- 3. :origin opt --------------------------------------------------------
 
 (deftest origin-defaults-to-app
