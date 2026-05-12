@@ -84,6 +84,58 @@ Form-1 views — render fns whose body is a literal hiccup expression — get th
 
 The macro errors at compile time if you hand it a Form-3 (`reagent.core/create-class`) or a non-literal-fn body — the message points you at the underlying fn `reg-view*` for those rare cases. The compile-time check is the load-bearing piece: it stops the auto-inject from silently doing the wrong thing when the body shape isn't what the macro can rewrite.
 
+### Views compute hiccup only
+
+A view that reads from a subscription can also *do things* with what it reads — sort it, filter it, format a number, derive a percentage, join two values. Resist. There's a rule that pays for itself almost immediately:
+
+> **Views compute hiccup only.** Anything else — sorting, formatting, filtering, deriving — happens in a subscription. Views should ask `@(subscribe [:something/already-shaped])` and return hiccup. The boundary keeps views cheap to re-render and reactivity precise.
+
+Why it pays: subs are cached per-frame and re-run only when their inputs change. A view re-renders any time *any* deref'd input changes. If the sort lives in the view, the sort re-runs on every re-render. If the sort lives in a sub, it re-runs only when the underlying list changes — and every view that needs the sorted list shares one cached computation.
+
+The before/after is small enough to read at a glance.
+
+```clojure
+;; Before — the view computes.
+(rf/reg-view product-list []
+  [:ul
+   (for [p (sort-by :name @(subscribe [:products]))]
+     ^{:key (:id p)} [:li (:name p) " — $" (.toFixed (:price p) 2)])])
+```
+
+The view holds the `sort-by`, holds the price-formatting. Two responsibilities; both re-run on every re-render of any ancestor.
+
+```clojure
+;; After — the sub computes; the view renders.
+(rf/reg-sub :products/sorted
+  :<- [:products]
+  (fn [products _]
+    (->> products
+         (map #(update % :price (fn [n] (.toFixed n 2))))
+         (sort-by :name))))
+
+(rf/reg-view product-list []
+  [:ul
+   (for [p @(subscribe [:products/sorted])]
+     ^{:key (:id p)} [:li (:name p) " — $" (:price p)])])
+```
+
+The view is now a thin shaping function over already-shaped data. The sort and the price-formatting run once per change to `:products`, in the sub cache, and every view that wants the sorted-and-formatted list shares the cached value. The view's job collapses to "walk the list, emit hiccup."
+
+The principle generalises: if it isn't structurally turning data into hiccup, it belongs upstream. v1 has the canonical worked example — see [`correcting-a-wrong.md`](https://github.com/day8/re-frame/blob/master/docs/correcting-a-wrong.md) for the clock-display refactor that established this rule.
+
+### `<sub` and `>evt` — the LIN aliases
+
+You'll see two short names in v1 code in the wild — `<sub` and `>evt`. They're the **Lambda Island Naming** convention: arrow-shaped aliases that read as "value coming from a sub" and "event going to dispatch."
+
+```clojure
+(def <sub  (comp deref rf/subscribe))   ;; @(rf/subscribe [...])  →  (<sub [...])
+(def >evt  rf/dispatch)                 ;; (rf/dispatch [...])    →  (>evt [...])
+```
+
+The win is purely readability: `(<sub [:products/sorted])` is shorter than `@(rf/subscribe [:products/sorted])`, and the `<`/`>` glyphs hint at the direction of data flow. Inside a `reg-view`, the equivalent local pair is `(comp deref subscribe)` and `dispatch` — the frame-bound versions.
+
+These are **optional ergonomics**, not the canonical idiom in this guide; the examples here use `@(subscribe …)` and `dispatch` directly so the underlying primitive stays visible. If you're reading v1 code, or porting a v1 app, recognising the aliases is enough.
+
 ### How frames propagate through the view tree
 
 The architecture above assumes a view inside a `frame-provider` subtree picks up the surrounding frame. The CLJS reference uses **React context** to carry this — when you wrap a subtree with `[rf/frame-provider {:frame :left} ...]`, every registered view rendered underneath receives the frame id through context, and the auto-injected `dispatch`/`subscribe` resolves against it.
