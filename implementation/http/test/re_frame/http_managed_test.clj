@@ -570,3 +570,174 @@
           (is (= :rf.http/timeout (get-in db [:reply :failure :kind]))))
         (.countDown latch)
         (finally (stop-server! srv))))))
+
+;; ---- 14. supersede on same :request-id (rf2-lxd3) -------------------------
+;;
+;; Per rf2-lxd3 decision A: when a fresh request supersedes a prior one
+;; with the same `:request-id`, the prior request's `:on-failure` reply
+;; is NOT dispatched (semantic = the new request replaces the old one,
+;; debounce-search mental model). The supersede event still emits to
+;; the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`);
+;; consumers wanting abort telemetry subscribe via `register-trace-cb!`.
+
+(deftest jvm-supersede-does-not-fire-on-failure
+  (testing "rf2-lxd3 — superseding a request with the same :request-id MUST NOT
+            fire the prior request's :on-failure. The :on-success is silenced
+            (nil) on both requests so the test isolates failure-reply behaviour
+            from the JVM transport's natural-completion path."
+    (let [latch         (CountDownLatch. 1)
+          a-failed?     (atom false)
+          b-success?    (atom false)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; Block long enough for the second dispatch to supersede the
+              ;; first BEFORE the server responds.
+              (.await latch 5 TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :search/run
+          (fn [_ [_ q]]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/q?" q)}
+                    :request-id :search
+                    :decode     :json
+                    ;; Silence success on the prior request — only the
+                    ;; supersede-driven :on-failure dispatch is under test.
+                    :on-success nil
+                    :on-failure [:search/a-failed]}]]}))
+        (rf/reg-event-fx :search/run-superseding
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/q?fresh")}
+                    :request-id :search
+                    :decode     :json
+                    :on-failure nil
+                    :on-success [:search/b-ok]}]]}))
+        (rf/reg-event-db :search/a-failed (fn [db _] (reset! a-failed? true) db))
+        (rf/reg-event-db :search/b-ok     (fn [db _] (reset! b-success? true) db))
+
+        (rf/dispatch-sync [:search/run "stale"])
+        ;; Let the first request reach in-flight.
+        (await-condition!
+          #(seq (http-managed/in-flight-snapshot))
+          2000)
+        ;; Fire the superseding request — same :request-id.
+        (rf/dispatch-sync [:search/run-superseding])
+        ;; Release the server so the second request can complete.
+        (.countDown latch)
+        ;; Wait for the second request's success reply.
+        (await-condition! #(true? @b-success?) 5000)
+        ;; The PRIOR request's :on-failure (:search/a-failed) MUST NOT
+        ;; have fired. Allow extra settle time to rule out a delayed
+        ;; dispatch from either the abort path or the natural-completion
+        ;; path (which is :success, silenced by :on-success nil).
+        (Thread/sleep 100)
+        (is (false? @a-failed?)
+            "the superseded request's :on-failure must NOT fire (rf2-lxd3 fix)")
+        (is (true? @b-success?)
+            "the superseding request's :on-success DOES fire")
+        (finally (stop-server! srv))))))
+
+(deftest jvm-supersede-still-emits-trace-event
+  (testing "rf2-lxd3 — supersede still emits :rf.http/aborted trace event with
+            :reason :request-id-superseded so register-trace-cb! consumers
+            keep visibility"
+    (let [latch    (CountDownLatch. 1)
+          events   (atom [])
+          cb-id    ::lxd3-trace
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (.await latch 5 TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (trace/register-trace-cb! cb-id
+                                  (fn [ev]
+                                    (when (= :rf.http/aborted (:operation ev))
+                                      (swap! events conj ev))))
+        (rf/reg-event-fx :search/run
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/q1")}
+                    :request-id :search
+                    :decode     :json}]]}))
+        (rf/reg-event-fx :search/run-superseding
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/q2")}
+                    :request-id :search
+                    :decode     :json}]]}))
+
+        (rf/dispatch-sync [:search/run])
+        (await-condition!
+          #(seq (http-managed/in-flight-snapshot))
+          2000)
+        (rf/dispatch-sync [:search/run-superseding])
+        (await-condition! #(seq @events) 2000)
+
+        (let [ev (first @events)
+              tags (:tags ev)]
+          (is (= :rf.http/aborted (:operation ev))
+              "supersede emits :rf.http/aborted trace event")
+          (is (= :request-id-superseded (:reason tags))
+              ":reason :request-id-superseded distinguishes supersede from :user / :actor-destroyed")
+          (is (= :search (:request-id tags))
+              ":request-id rides on the trace event"))
+
+        (.countDown latch)
+        (finally
+          (trace/remove-trace-cb! cb-id)
+          (stop-server! srv))))))
+
+(deftest jvm-non-superseded-abort-still-fires-reply
+  (testing "rf2-lxd3 regression guard — a non-supersede abort (manual
+            :rf.http/managed-abort) STILL fires :on-failure as before.
+            Only :reason :request-id-superseded suppresses the reply."
+    (let [latch        (CountDownLatch. 1)
+          reply-fired? (atom false)
+          reply-data   (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (.await latch 5 TimeUnit/SECONDS)
+              (write-response! ex 200 "application/json" "{}")))]
+      (try
+        (rf/reg-event-fx :slow/load
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" port "/slow")}
+                    :request-id :slow
+                    :decode     :json
+                    :on-failure [:slow/failed]}]]}))
+        (rf/reg-event-fx :slow/abort
+          (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
+        (rf/reg-event-db :slow/failed
+          (fn [db [_ payload]]
+            (reset! reply-fired? true)
+            (reset! reply-data payload)
+            db))
+
+        (rf/dispatch-sync [:slow/load])
+        (await-condition!
+          #(seq (http-managed/in-flight-snapshot))
+          2000)
+        ;; User-initiated abort — the abort fn passes `:user` as the reason.
+        (rf/dispatch-sync [:slow/abort])
+        (await-condition! #(true? @reply-fired?) 2000)
+
+        (is (true? @reply-fired?)
+            "non-supersede abort STILL dispatches :on-failure")
+        ;; Per build-reply-event: explicit :on-failure [:slow/failed] appends
+        ;; the reply payload as the last arg — the handler receives the
+        ;; payload directly (NOT wrapped under :rf/reply).
+        (let [reply @reply-data]
+          (is (= :failure (:kind reply))
+              "the reply is a :failure reply")
+          (is (= :rf.http/aborted (-> reply :failure :kind))
+              "failure kind is :rf.http/aborted")
+          (is (not= :request-id-superseded (-> reply :failure :reason))
+              ":reason is NOT :request-id-superseded (this is the regression guard)"))
+
+        (.countDown latch)
+        (finally (stop-server! srv))))))
