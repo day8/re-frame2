@@ -77,7 +77,7 @@
 ;; (CLJS).
 
 (defn- declares-3-arity? [f]
-  (#'re-frame.machines/declares-3-arity? f))
+  (#'re-frame.machines.transition/declares-3-arity? f))
 
 ;; ---- (1) declares-3-arity? unit tests -------------------------------------
 

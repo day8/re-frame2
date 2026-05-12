@@ -1,0 +1,1039 @@
+(ns re-frame.machines.transition
+  "Pure machine-transition engine. Per Spec 005 §State machines.
+
+  This namespace is the JVM- and CLJS-runnable core of the machine
+  grammar — transition resolution along hierarchical paths, the
+  exit/action/entry cascade, the macrostep drain semantics for `:raise`
+  and `:always`, and the parallel-region broadcast layer. Everything
+  here is a pure function over the [machine snapshot event] triple
+  except for two deterministic-allocation atoms (`spawn-counter` for
+  declarative `:invoke` actor-id allocation per Spec 005 §Declarative
+  `:invoke`, and the test-time helper that resets it).
+
+  The fx vectors built here name `:rf.machine/spawn`,
+  `:rf.machine/destroy`, `:rf.machine/invoke-all-init`,
+  `:rf.machine/after-schedule`, and `:rf.machine/after-cancel`; the
+  actual fx handlers live in `re-frame.machines.lifecycle-fx` and
+  `re-frame.machines.timer`. This namespace stays effect-free so it
+  can be loaded and exercised on the JVM by the conformance fixtures
+  (Spec 005 §Conformance fixtures)."
+  (:require [clojure.set :as set]
+            [re-frame.trace :as trace]))
+
+(defn- chase-ref
+  "Follow a keyword reference chain through the machine's named-bindings
+  map until it hits a fn (or fails). Tolerates one level of indirection
+  like {:short-name :registered-id} where :registered-id resolves to a fn."
+  [registry ref]
+  (loop [r ref seen #{}]
+    (cond
+      (fn? r)              r
+      (contains? seen r)   nil
+      (keyword? r)         (if-let [nxt (get registry r)]
+                             (recur nxt (conj seen r))
+                             nil)
+      :else                nil)))
+
+(defn resolve-guard
+  "Look up a guard reference. If keyword, follow the chain in the machine's
+  :guards map. If a fn, use directly."
+  [machine guard]
+  (cond
+    (fn? guard)      guard
+    (keyword? guard) (or (chase-ref (:guards machine) guard)
+                         (throw (ex-info ":rf.error/machine-unresolved-guard"
+                                         {:guard guard :machine-id (:id machine)})))
+    (nil? guard)     (constantly true)
+    :else            (throw (ex-info ":rf.error/machine-bad-guard-form"
+                                     {:guard guard}))))
+
+(defn- resolve-action
+  [machine action]
+  (cond
+    (fn? action)      action
+    (keyword? action) (or (chase-ref (:actions machine) action)
+                          (throw (ex-info ":rf.error/machine-unresolved-action"
+                                          {:action action :machine-id (:id machine)})))
+    (nil? action)     (constantly nil)
+    :else             (throw (ex-info ":rf.error/machine-bad-action-form"
+                                      {:action action}))))
+
+;; ---- guard/action contract --------------------------------------------------
+;;
+;; Per Spec 005 §Guards / §Actions, the canonical signature is:
+;;
+;;   (fn [data event] ...)              ; 2-arity — the 99% case
+;;   (fn [data event ctx] ...)          ; 3-arity — opt-in introspection
+;;
+;; `data` is the machine's :data slot directly (a map). `event` is the inbound
+;; event vector. `ctx` (3-arity escape hatch) is `{:state ... :meta ...}` —
+;; the snapshot's discrete-state and any user `:meta`. Returning to the 2-
+;; arity surface from the 3-arity body is a one-line `(let [data data] ...)`;
+;; no migration cost when introspection is no longer needed.
+
+(defn- declares-3-arity?
+  "True iff f explicitly declares a 3-fixed-arg invocation. Distinguishes
+  user opt-in 3-arity from variadic helpers like (constantly ...) or
+  (fn [data event & rest] ...). On the JVM, walks the fn class's
+  declared invoke methods (variadics are RestFns with no declared
+  invoke(O,O,O) on the fn class itself); on CLJS, inspects the compiled
+  fn surface — `cljs$lang$maxFixedArity` is set on every variadic and
+  records its max-fixed-arg count, so a variadic with max-fixed < 3 is a
+  2-plus-rest helper and is NOT a 3-arity declaration. A non-variadic fn
+  whose `.-length` is 3, or a multi-arity fn carrying an explicit
+  `cljs$core$IFn$_invoke$arity$3` dispatch slot, IS a 3-arity declaration."
+  [f]
+  #?(:clj  (boolean
+             (some
+               (fn [^java.lang.reflect.Method m]
+                 (and (= "invoke" (.getName m))
+                      (= 3 (.getParameterCount m))))
+               (.getDeclaredMethods (class f))))
+     :cljs (let [variadic? (some? (.-cljs$lang$maxFixedArity f))]
+             (cond
+               ;; Variadic of any flavour — (constantly ...), 2-plus-rest,
+               ;; 3-plus-rest. RestFns on the JVM don't expose a declared
+               ;; `invoke(O,O,O)` on the user's class, so the JVM check
+               ;; classifies all variadics as non-3-arity. To converge,
+               ;; CLJS treats every variadic the same way: routes through
+               ;; the 2-arity path per the docstring's "distinguishes
+               ;; variadic helpers" promise. The previously-buggy CLJS
+               ;; check matched 2-plus-rest as 3-arity via the auto-
+               ;; generated `cljs$core$IFn$_invoke$arity$3` rest-dispatch
+               ;; slot — that's what this branch fixes (rf2-l04j).
+               variadic?
+               false
+               ;; Plain 3-fixed-arity (e.g. `(fn [a b c] ...)`).
+               (= 3 (.-length f))
+               true
+               ;; Multi-arity fn with an explicit 3-arity dispatch case
+               ;; — `(fn ([a] ...) ([a b c] ...))`. The user IS opting
+               ;; in to a 3-arity surface; route through it.
+               (some? (unchecked-get f "cljs$core$IFn$_invoke$arity$3"))
+               true
+               :else
+               false))))
+
+(defn- call-guard
+  "Invoke a resolved guard fn against a snapshot + event with the
+  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  [data event {:state :meta}]."
+  [g snapshot event]
+  (let [data (:data snapshot)]
+    (if (declares-3-arity? g)
+      (g data event {:state (:state snapshot) :meta (:meta snapshot)})
+      (g data event))))
+
+(defn- call-action
+  "Invoke a resolved action fn against a snapshot + event with the
+  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  [data event {:state :meta}]."
+  [f snapshot event]
+  (let [data (:data snapshot)]
+    (if (declares-3-arity? f)
+      (f data event {:state (:state snapshot) :meta (:meta snapshot)})
+      (f data event))))
+
+;; ---- spawn counter --------------------------------------------------------
+;;
+;; Per Spec 005 §Declarative :invoke (sugar over spawn): on entry to an
+;; :invoke-bearing state the runtime emits a :rf.machine/spawn fx and
+;; assigns the spawned actor a deterministic id of the form
+;; `<machine-id>#<n>`. The counter is per machine-id so independent
+;; invokes don't cross-contaminate.
+
+(defonce spawn-counter
+  ;; Keyed by [frame-id machine-id] so independent frames don't share
+  ;; one actor-id sequence — preserves frame isolation and makes
+  ;; deterministic replay / restore reliable. Pure machine-transition
+  ;; calls (the conformance fixture corpus) pass a sentinel frame.
+  (atom {}))   ;; [frame-id machine-id] → int
+
+(defn next-spawn-id
+  [frame-id machine-id]
+  (let [k [frame-id machine-id]
+        n (-> (swap! spawn-counter update k (fnil inc 0))
+              (get k))]
+    (keyword (namespace machine-id)
+             (str (name machine-id) "#" n))))
+
+;; ---- state-path helpers (hierarchical) ------------------------------------
+;;
+;; Per Spec 005 §State paths and §Entry/exit cascading along the LCA, the
+;; snapshot's :state is a vector path from root to leaf (e.g.
+;; [:authenticated :cart :paying]). Flat machines used :state :foo for
+;; compactness; we accept both and normalise internally.
+
+(defn state-path
+  "Coerce a snapshot's :state — either a keyword or a vector path — into
+  a normalised vector path."
+  [state]
+  (cond
+    (vector? state) state
+    (keyword? state) [state]
+    :else (throw (ex-info ":rf.error/machine-bad-state-form" {:state state}))))
+
+(defn denormalise-state
+  "Re-shape a vector path back to the same form as the input snapshot's
+  :state. If `original` was a keyword and the path is length-1, return
+  the keyword; otherwise return the vector."
+  [path original]
+  (cond
+    (and (keyword? original) (= 1 (count path))) (first path)
+    :else (vec path)))
+
+(defn node-at
+  "Walk machine.:states down `path` returning the leaf state-node (or nil
+  if path doesn't resolve)."
+  [machine path]
+  (loop [m  (:states machine)
+         p  path]
+    (cond
+      (empty? p) nil
+      :else
+      (let [n (get m (first p))]
+        (cond
+          (nil? n) nil
+          (= 1 (count p)) n
+          :else (recur (:states n) (rest p)))))))
+
+(defn- nodes-along-path
+  "Return [[prefix-path node] ...] from root down to leaf. Skips nodes
+  that don't resolve (defensive)."
+  [machine path]
+  (loop [m   (:states machine)
+         p   path
+         acc []
+         pre []]
+    (if (empty? p)
+      acc
+      (let [k     (first p)
+            n     (get m k)
+            pre'  (conj pre k)]
+        (if (nil? n)
+          acc
+          (recur (:states n) (rest p) (conj acc [pre' n]) pre'))))))
+
+(defn initial-cascade
+  "Given a target path landing on a possibly-compound node, descend
+  through :initial chain until we reach a leaf. Returns the leaf path."
+  [machine path]
+  (loop [p path]
+    (let [n (node-at machine p)]
+      (if (and (map? n) (:initial n) (:states n))
+        (recur (conj p (:initial n)))
+        p))))
+
+;; ---- :fsm/tags — active-configuration tag union ---------------------------
+;;
+;; Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1). A state node
+;; may declare `:tags <set-of-keywords>`. The runtime maintains a derived
+;; `:tags` slot on the snapshot — the union of every currently-active
+;; state's tag set.
+
+(defn- node-tags
+  "Return the `:tags` set declared on a state-node body, or `nil` if no
+  `:tags` slot is present. Non-set values (e.g. a vector or a single
+  keyword) coerce to a set so the union math doesn't care about the
+  literal form the author wrote — the schema constrains the canonical
+  form (`[:set :keyword]`); coercion here is defensive."
+  [node]
+  (when-let [t (:tags node)]
+    (cond
+      (set? t)        t
+      (sequential? t) (set t)
+      (keyword? t)    #{t}
+      :else           nil)))
+
+(defn compute-tags
+  "Per Spec 005 §State tags: walk the active configuration for `state`
+  and return the union of every active state-node's `:tags` set.
+  Returns a set (possibly empty) — never `nil`."
+  [machine state]
+  (let [path  (state-path state)
+        nodes (nodes-along-path machine path)]
+    (transduce (keep (fn [[_ n]] (node-tags n))) set/union #{} nodes)))
+
+(defn commit-tags
+  "Stamp the active-configuration tag union onto `snapshot` at `:tags`.
+  Per Spec 005 §State tags §Snapshot shape change: the slot is OPTIONAL
+  — when the union is empty, the runtime elides the key entirely to
+  keep snapshots small for the common (no-tags) case."
+  [machine snapshot]
+  (let [tags (compute-tags machine (:state snapshot))]
+    (if (empty? tags)
+      (dissoc snapshot :tags)
+      (assoc snapshot :tags tags))))
+
+(defn- normalise-on-clause
+  "The value at [:on event-id] may be:
+    a keyword              -> treat as {:target <kw>}
+    a vector of state ids  -> treat as {:target <vec>}  (absolute path)
+    a vector of maps       -> multiple guarded transitions
+    a single transition map
+   Returns a vector of transition maps."
+  [v]
+  (cond
+    (nil? v)                        []
+    (keyword? v)                    [{:target v}]
+    (and (vector? v)
+         (every? map? v)
+         (seq v))                   v
+    (vector? v)                     [{:target v}]
+    (map? v)                        [v]
+    :else (throw (ex-info ":rf.error/machine-bad-on-clause" {:value v}))))
+
+(defn- after-epoch-path
+  "Return the path inside the snapshot's `:data` map where the
+  `:after`-timer epoch counter lives for `machine`.
+
+  Per Spec 005 §Delayed `:after` transitions, the epoch is `[:data
+  :rf/after-epoch]` for flat / compound machines. Per Spec 005 §Per-
+  region `:always` / `:after` / `:invoke` scoping (rf2-l67o / Stage 2):
+  when `machine` is a region of a parallel-region parent (signalled by
+  `:rf/region` on the synthetic region-machine spec), the epoch is
+  region-scoped — `[:data :rf/after-epoch-by-region <region-name>]` —
+  so a sibling region's transition doesn't invalidate this region's
+  in-flight timers via the shared `:data` slot."
+  [machine]
+  (if-let [rn (:rf/region machine)]
+    [:data :rf/after-epoch-by-region rn]
+    [:data :rf/after-epoch]))
+
+(defn- pick-after-transition
+  "Per Spec 005 §Delayed :after transitions. The synthetic event
+  [:rf.machine.timer/after-elapsed delay-key carried-epoch] arrives.
+  Walk path leaf→root for an :after table containing delay-key. If the
+  carried epoch matches the snapshot's current :rf/after-epoch, evaluate
+  the transition's :guard (if any).
+
+  Returns one of:
+    nil — no matching :after entry; benign (timer carried from a state
+          we've exited and re-entered without that delay-key).
+    {:stale? true ...} — epoch mismatch; caller emits
+          :rf.machine.timer/stale-after.
+    {:transition t :decl-path p :delay :epoch} — guard pass; caller
+          fires the transition through the standard cascade and emits
+          :rf.machine.timer/fired with :fired? true.
+    {:guard-suppressed? true :state :delay :epoch} — guard returned
+          false; caller emits :rf.machine.timer/fired with :fired? false
+          and other in-flight :after timers continue per Spec 005
+          §Multi-stage interaction with :guard.
+
+  When no :after table is found at any level along the current path,
+  the synthetic timer event was carried from a state the machine has
+  since exited. Matching epochs with no table are treated as a no-op
+  (return nil); non-matching is surfaced as stale."
+  [machine path event snapshot]
+  (let [[_ delay-key carried-epoch] event
+        current-epoch (get-in snapshot (after-epoch-path machine))]
+    (loop [i (dec (count path))]
+      (if (neg? i)
+        (when (not= carried-epoch current-epoch)
+          {:stale?          true
+           :state           (last path)
+           :delay           delay-key
+           :scheduled-epoch carried-epoch
+           :current-epoch   current-epoch})
+        (let [prefix (vec (take (inc i) path))
+              n      (node-at machine prefix)
+              t      (get-in n [:after delay-key])]
+          (cond
+            (nil? t)
+            (recur (dec i))
+
+            (not= carried-epoch current-epoch)
+            {:stale?         true
+             :state          (last prefix)
+             :delay          delay-key
+             :scheduled-epoch carried-epoch
+             :current-epoch   current-epoch}
+
+            :else
+            (let [tspec (if (keyword? t) {:target t} t)
+                  guard-ref (:guard tspec)
+                  pass?
+                  (if guard-ref
+                    (let [g (resolve-guard machine guard-ref)]
+                      (boolean (call-guard g snapshot event)))
+                    true)]
+              (if pass?
+                {:transition tspec
+                 :decl-path  prefix
+                 :delay      delay-key
+                 :epoch      carried-epoch}
+                ;; Guard returned false. Per Spec 005 §Multi-stage
+                ;; interaction with :guard: the timer is "fired and
+                ;; discarded" — no transition, no epoch advance; sibling
+                ;; :after timers continue.
+                {:guard-suppressed? true
+                 :state             (last prefix)
+                 :delay             delay-key
+                 :epoch             carried-epoch}))))))))
+
+(defn- pick-transition
+  "Walk path leaf→root looking for a transition that matches event-id and
+  whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
+  with parent fallthrough.
+
+  Special-cases the synthetic :rf.machine.timer/after-elapsed event by
+  delegating to pick-after-transition."
+  [machine path event snapshot]
+  (let [event-id (first event)]
+    (cond
+      (= :rf.machine.timer/after-elapsed event-id)
+      (pick-after-transition machine path event snapshot)
+
+      :else
+      (loop [i (dec (count path))]
+        (when (>= i 0)
+          (let [prefix (vec (take (inc i) path))
+                n      (node-at machine prefix)
+                cands  (normalise-on-clause
+                         (or (get-in n [:on event-id])
+                             (get-in n [:on :*])))
+                hit    (some (fn [t]
+                               (let [g (resolve-guard machine (:guard t))]
+                                 (when (call-guard g snapshot event) t)))
+                             cands)]
+            (if hit
+              {:transition hit :decl-path prefix}
+              (recur (dec i)))))))))
+
+(defn- target-path
+  "Compute the absolute target path for a transition. Per Spec 005:
+   - keyword target → sibling at decl-path's level (replace last element).
+   - vector target → absolute path from root.
+   - nil target (internal transition) → source path unchanged."
+  [decl-path _source-path target]
+  (cond
+    (nil? target)        nil
+    (vector? target)     target
+    (keyword? target)
+    (let [parent (vec (drop-last decl-path))]
+      (conj parent target))))
+
+(defn- common-prefix-length [a b]
+  (count (take-while true? (map = a b))))
+
+;; Sentinel: when an action throws, run-action returns this map instead of
+;; an effects map. collect-actions / apply-transition-once / machine-transition
+;; propagate it; the outer event handler converts it into a no-:db return so
+;; the cascade halts without committing a snapshot. Per Spec 005 §Errors and
+;; Cross-Spec-Interactions §11 — Machine action throws.
+(defn- action-failure?
+  [x]
+  (and (map? x) (contains? x :rf.machine/action-failure)))
+
+(defn- run-action [machine snap action-ref event]
+  (if action-ref
+    (let [f (resolve-action machine action-ref)]
+      (try
+        (let [result (call-action f snap event)]
+          (or result {}))
+        (catch #?(:clj Throwable :cljs :default) e
+          {:rf.machine/action-failure
+           {:action-ref action-ref
+            :exception  e}})))
+    {}))
+
+(defn- collect-actions
+  "Walk action-refs in order, calling each with snap+event and threading
+  the resulting :data updates forward (so each action sees the previous
+  one's data). Returns [final-snapshot fx-vec], or
+  [::action-failed failure-info] if any action threw — per Spec 005
+  §Errors, the cascade halts on the first throw and the snapshot does
+  not commit."
+  [machine snap event action-refs]
+  (reduce
+    (fn [[s fx] aref]
+      (if aref
+        (let [r (run-action machine s aref event)]
+          (if (action-failure? r)
+            (reduced [::action-failed (:rf.machine/action-failure r)])
+            (let [new-data   (cond-> (:data s)
+                               (contains? r :data) (merge (:data r)))
+                  new-snap   (assoc s :data new-data)
+                  new-fx     (vec (concat fx (or (:fx r) [])))]
+              [new-snap new-fx])))
+        [s fx]))
+    [snap []]
+    action-refs))
+
+;; ---- apply-transition-once helpers (extracted per rf2-g1s1) ---------------
+;;
+;; Each helper builds one fx-vector slice that flows out of apply-transition-
+;; once. The slices compose in order (after-cancel, destroy, spawn, after-
+;; schedule) because the runtime semantics require timers to cancel before
+;; spawned children tear down, children to tear down before new children
+;; spawn, and new timers to schedule last (so the freshly-bumped epoch is
+;; what's stamped on them).
+
+(defn- materialise-data
+  "Resolve an :invoke spec's `:data` slot. Per Spec 005 §Declarative `:invoke`
+  and rf2-h131, `:data` admits a fn form `(fn [snap ev] data)` so the spawn's
+  initial data can depend on the parent snapshot at the moment of entry. The
+  fn runs against the post-action snapshot (any :action :data writes are
+  visible). Returns `[:ok data]` or `[:fail exception]` — caller surfaces
+  the failure through the `::action-failed` sentinel."
+  [d snap event]
+  (if (fn? d)
+    (try
+      [:ok (d snap event)]
+      (catch #?(:clj Throwable :cljs :default) e
+        [:fail e]))
+    [:ok d]))
+
+(defn- build-after-fx
+  "Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR):
+  `:after` is a no-op under `:platform :server`. Per rf2-3y3y: emit the
+  canonical `:rf.machine.timer/scheduled` (or /skipped-on-server) trace
+  synchronously here AND emit `:rf.machine/after-schedule` fx; the fx
+  handler resolves the delay (literal / sub-vec / fn) and installs the
+  host-clock timer.
+
+  Walks the entered pairs (each `[prefix-path node]`) looking for `:after`
+  declarations. The `:scheduled` trace fires per delay-key; the fx carries
+  the same key for the fx-side resolution."
+  [machine entered-pairs internal? snap-final]
+  (when-not internal?
+    (let [parent-id (or (:rf/parent-id machine) :rf/transition-pure)
+          epoch     (get-in snap-final (after-epoch-path machine))
+          server?   (= :server (:rf/platform machine))]
+      (vec
+        (mapcat
+          (fn [[prefix n]]
+            (when-let [after-map (:after n)]
+              (let [leaf-state (last prefix)]
+                (mapv
+                  (fn [[delay-key _target]]
+                    (let [delay-source (cond
+                                         (number? delay-key) :literal
+                                         (vector? delay-key) :sub
+                                         (fn? delay-key)     :fn
+                                         :else               :literal)
+                          ;; Pure-context delay value: literal keys ARE the
+                          ;; resolved ms; sub-vec / fn are resolved at the fx
+                          ;; layer (which emits a fresh /scheduled with the
+                          ;; actual resolved-ms once it has frame access).
+                          ms-tag       delay-key]
+                      (if server?
+                        (trace/emit! :machine :rf.machine.timer/skipped-on-server
+                                     (cond-> {:machine-id   parent-id
+                                              :state        leaf-state
+                                              :delay        ms-tag
+                                              :delay-source delay-source
+                                              :epoch        epoch
+                                              :platform     :server
+                                              :recovery     :skipped}
+                                       (= :sub delay-source)
+                                       (assoc :sub-id (first delay-key))))
+                        (trace/emit! :machine :rf.machine.timer/scheduled
+                                     (cond-> {:machine-id   parent-id
+                                              :state        leaf-state
+                                              :delay        ms-tag
+                                              :delay-source delay-source
+                                              :epoch        epoch}
+                                       (= :sub delay-source)
+                                       (assoc :sub-id (first delay-key))))))
+                    [:rf.machine/after-schedule
+                     {:rf/parent-id parent-id
+                      :rf/invoke-id (vec prefix)
+                      :state        leaf-state
+                      :delay-key    delay-key
+                      :epoch        epoch
+                      :server?      server?}])
+                  after-map))))
+          entered-pairs)))))
+
+(defn- build-after-cancel-fx
+  "Per rf2-3y3y: when exiting an `:after`-bearing state node, emit
+  `:rf.machine/after-cancel` fx so the runtime tears down any pending
+  wall-clock timer (and watcher, for sub-vec delays). The epoch advance
+  backstops correctness; explicit cancellation releases the timer handle
+  promptly and avoids zombie sub watchers across state re-entries."
+  [parent-id exited-pairs internal?]
+  (when-not internal?
+    (vec
+      (for [[prefix n] exited-pairs
+            :when (:after n)]
+        [:rf.machine/after-cancel
+         {:rf/parent-id parent-id
+          :rf/invoke-id (vec prefix)}]))))
+
+(defn- build-destroy-fx
+  "Per Spec 005 §Declarative `:invoke` (sugar over spawn) and rf2-t07u
+  (Option A revised): nodes being EXITED with `:invoke` emit
+  `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/invoke-id ...}`
+  so the destroy-machine fx handler resolves the live actor id from the
+  runtime-owned `[:rf/spawned <parent-id> <invoke-id>]` slot in app-db.
+
+  Per Spec 005 §Spawn-and-join via `:invoke-all` (rf2-6vmw): on exit, tear
+  down EVERY child the parent spawned plus the join-state slot. The
+  destroy-fx handler reads the map at `[:rf/spawned <parent> <invoke-id>]`
+  and iterates `:children` to destroy each, then clears the slot."
+  [parent-id exited-pairs internal?]
+  (when-not internal?
+    (vec
+      (mapcat
+        (fn [[prefix n]]
+          (cond
+            (:invoke n)
+            [[:rf.machine/destroy {:rf/parent-id parent-id
+                                   :rf/invoke-id (vec prefix)}]]
+            (:invoke-all n)
+            [[:rf.machine/destroy {:rf/parent-id  parent-id
+                                   :rf/invoke-id  (vec prefix)
+                                   :rf/invoke-all true}]]
+            :else nil))
+        exited-pairs))))
+
+(defn- handle-invoke-spawn
+  "Handle the `:invoke` branch of the spawn reducer in apply-transition-once.
+  Allocates the spawned actor id (deterministic via `next-spawn-id`),
+  materialises the `:data` fn-form (Spec 005 §Spec-spec keys / rf2-h131),
+  runs the user's `:on-spawn` advisory callback against `:data`, and emits
+  one `[:rf.machine/spawn args]` fx carrying `:rf/parent-id` /
+  `:rf/invoke-id` / `:rf/spawned-id` so the spawn-fx handler can bind the
+  runtime-owned spawn-registry slot (rf2-t07u Option A revised).
+
+  Returns `[snap-after acc-fx']` for the reducer; `[:rf.machine/action-failed
+  info]` (wrapped in `reduced`) if the `:data` fn throws."
+  [machine parent-id s acc-fx prefix n event]
+  (let [inv         (:invoke n)
+        machine-id  (:machine-id inv)
+        invoke-id   (vec prefix)
+        frame-id    (or (:rf/frame machine) :rf/transition-pure)
+        spawned-id  (or (:invoke-id inv)
+                        (next-spawn-id frame-id machine-id))
+        [mat-status mat-data]
+        (if (contains? inv :data)
+          (materialise-data (:data inv) s event)
+          [:ok nil])]
+    (if (= :fail mat-status)
+      (reduced
+        [::action-failed
+         {:action-ref :rf.invoke/data-fn
+          :exception  mat-data
+          :invoke-id  invoke-id}])
+      (let [inv'        (if (contains? inv :data)
+                          (assoc inv :data mat-data)
+                          inv)
+            spawn-args  (-> inv'
+                            (assoc :id-prefix    machine-id)
+                            (assoc :rf/spawned-id spawned-id)
+                            (assoc :rf/parent-id  parent-id)
+                            (assoc :rf/invoke-id  invoke-id))
+            on-spawn-fn (let [aref (:on-spawn inv)]
+                          (when aref
+                            (or (chase-ref (:on-spawn-actions machine) aref)
+                                (chase-ref (:actions machine) aref))))
+            ;; Per Spec 005 §Declarative `:invoke`: the `:on-spawn` callback
+            ;; signature is (fn [data id] new-data) — operates on `:data`,
+            ;; uniform with regular actions. Per rf2-t07u (Option A revised):
+            ;; `:on-spawn` is purely advisory user-side bookkeeping — the
+            ;; runtime tracks the spawn-id itself in [:rf/spawned parent-id
+            ;; invoke-id].
+            s'          (if on-spawn-fn
+                          (let [data     (:data s)
+                                new-data (on-spawn-fn data spawned-id)]
+                            (if new-data
+                              (assoc s :data new-data)
+                              s))
+                          s)]
+        [s' (vec (concat acc-fx [[:rf.machine/spawn spawn-args]]))]))))
+
+(defn- handle-invoke-all-spawn
+  "Handle the `:invoke-all` branch of the spawn reducer in
+  apply-transition-once. Per Spec 005 §Spawn-and-join via `:invoke-all`
+  (rf2-6vmw): allocate one spawned-id per child up front, build the
+  join-state seed map, emit a single `:rf.machine/invoke-all-init` fx
+  (which seeds `[:rf/spawned <parent> <invoke-id>]` in app-db) followed by
+  N per-child `:rf.machine/spawn` fxs.
+
+  Per Spec 005 §Spec-spec keys (rf2-h131): each child invoke-spec admits
+  the same `:data` fn-form as a single `:invoke`. Materialisation may
+  throw; surface via the `::action-failed` sentinel.
+
+  Returns `[snap-after acc-fx']` for the reducer."
+  [machine parent-id s acc-fx prefix n event]
+  (let [inv-all     (:invoke-all n)
+        children    (:children inv-all)
+        invoke-id   (vec prefix)
+        frame-id    (or (:rf/frame machine) :rf/transition-pure)
+        ;; Allocate per-child ids (deterministic via spawn-counter).
+        children'   (mapv
+                      (fn [child]
+                        (let [machine-id (:machine-id child)
+                              spawned-id (or (:invoke-id child)
+                                             (next-spawn-id frame-id machine-id))]
+                          (assoc child :rf/spawned-id spawned-id)))
+                      children)
+        children-map (into {} (map (fn [c] [(:id c) (:rf/spawned-id c)])) children')
+        join-state  {:children  children-map
+                     :done      #{}
+                     :failed    #{}
+                     :resolved? false
+                     :spec      inv-all
+                     :invoke-id invoke-id}
+        init-fx     [:rf.machine/invoke-all-init
+                     {:rf/parent-id parent-id
+                      :rf/invoke-id invoke-id
+                      :join-state   join-state}]
+        ;; Build per-child spawn-args, materialising any `:data` fn-form
+        ;; (rf2-h131). Materialisation may throw — collect a
+        ;; `[:fail e child-id]` sentinel so the reducer short-circuits.
+        child-spawn-build
+        (reduce
+          (fn [acc child]
+            (let [[mat-status mat-data] (if (contains? child :data)
+                                          (materialise-data (:data child) s event)
+                                          [:ok nil])]
+              (if (= :fail mat-status)
+                (reduced [:fail mat-data (:id child)])
+                (let [machine-id (:machine-id child)
+                      spawned-id (:rf/spawned-id child)
+                      child'     (if (contains? child :data)
+                                   (assoc child :data mat-data)
+                                   child)
+                      spawn-args (-> child'
+                                     (dissoc :id)
+                                     (assoc :id-prefix    machine-id)
+                                     (assoc :rf/spawned-id spawned-id)
+                                     (assoc :rf/parent-id  parent-id)
+                                     (assoc :rf/invoke-all-id invoke-id)
+                                     (assoc :rf/invoke-all-child-id (:id child)))]
+                  (conj acc [:rf.machine/spawn spawn-args])))))
+          []
+          children')]
+    (if (and (vector? child-spawn-build)
+             (= :fail (first child-spawn-build)))
+      (reduced
+        [::action-failed
+         {:action-ref :rf.invoke-all/data-fn
+          :exception  (second child-spawn-build)
+          :invoke-id  invoke-id
+          :child-id   (nth child-spawn-build 2)}])
+      (let [child-spawn-fxs child-spawn-build
+            s' (reduce
+                 (fn [snap child]
+                   (let [aref (:on-spawn child)
+                         f    (when aref
+                                (or (chase-ref (:on-spawn-actions machine) aref)
+                                    (chase-ref (:actions machine) aref)))]
+                     (if f
+                       (let [data     (:data snap)
+                             new-data (f data (:rf/spawned-id child))]
+                         (if new-data (assoc snap :data new-data) snap))
+                       snap)))
+                 s
+                 children')]
+        [s' (vec (concat acc-fx [init-fx] child-spawn-fxs))]))))
+
+(defn apply-transition-once
+  "Apply one transition (exit cascade → action → entry cascade → state
+  change). Returns [new-snapshot fx-vec].
+
+  Per Spec 005 §Entry/exit cascading along the LCA:
+   1. Compute LCA of source-path and target-leaf-path.
+   2. Exit each ancestor's :exit from leaf up to (but not including) LCA.
+   3. Run the transition's :action at the LCA level.
+   4. Enter each ancestor's :entry from (LCA depth + 1) down to target leaf.
+
+  Internal transitions (no :target) skip exit/entry; the action fires
+  and the state path is unchanged.
+
+  Per Spec 005 §Delayed :after transitions, every external transition
+  advances :data.:rf/after-epoch (so any in-flight timer captured before
+  the change becomes stale). A target leaf that declares :after schedules
+  a fresh timer at the new epoch via a :rf.machine.timer/scheduled trace.
+
+  `transition` is the transition map with a synthetic :decl-path key
+  recording where in the state-path tree the transition was declared."
+  [machine snapshot event transition]
+  (let [src-path     (state-path (:state snapshot))
+        decl-path    (:decl-path transition (vec (take 1 src-path)))
+        raw-target   (:target transition)
+        target-leaf  (some->> (target-path decl-path src-path raw-target)
+                              (initial-cascade machine))
+        internal?    (nil? raw-target)
+        lca-len      (if internal?
+                       (count src-path)
+                       (common-prefix-length src-path target-leaf))
+        exit-refs    (when-not internal?
+                       (->> (nodes-along-path machine src-path)
+                            (drop lca-len)
+                            (reverse)
+                            (map (fn [[_ n]] (:exit n)))))
+        entry-refs   (when-not internal?
+                       (->> (nodes-along-path machine target-leaf)
+                            (drop lca-len)
+                            (map (fn [[_ n]] (:entry n)))))
+        action-refs  [(:action transition)]
+        all-refs     (concat exit-refs action-refs entry-refs)
+        result       (collect-actions machine snapshot event all-refs)]
+    (if (and (vector? result) (= ::action-failed (first result)))
+      [::action-failed (assoc (second result)
+                              :decl-path  decl-path
+                              :transition transition
+                              :state-path src-path)]
+      (let [[snap-after fx] result
+            ;; Per rf2-t07u (Option A revised) — the runtime carries
+            ;; `[prefix-path node]` pairs through here so spawn / destroy
+            ;; fx emissions can identify each `:invoke`-bearing state by
+            ;; its absolute prefix-path (the per-state "invoke-id") and
+            ;; write/read the runtime-owned `[:rf/spawned <parent-id>
+            ;; <prefix-path>]` slot.
+            exited-pairs  (when-not internal?
+                            (->> (nodes-along-path machine src-path)
+                                 (drop lca-len)
+                                 (vec)))
+            entered-pairs (when-not internal?
+                            (->> (nodes-along-path machine target-leaf)
+                                 (drop lca-len)
+                                 (vec)))
+            exited-nodes  (mapv second exited-pairs)
+            entered-nodes (mapv second entered-pairs)
+            ;; Per Spec 005 §Delayed `:after` transitions §Hierarchy
+            ;; interaction: the epoch advances iff any state being EXITED
+            ;; or ENTERED in this transition declares an `:after` table.
+            ;; Sibling-leaf transitions that don't cross an `:after`-bearing
+            ;; state leave the epoch alone. Internal transitions never
+            ;; advance.
+            epoch-bumps?  (and (not internal?)
+                               (boolean
+                                 (some :after (concat exited-nodes entered-nodes))))
+            new-state    (cond
+                           internal?            (:state snapshot)
+                           (vector? raw-target) (vec target-leaf)
+                           (keyword? raw-target) (if (= 1 (count target-leaf))
+                                                   (first target-leaf)
+                                                   (vec target-leaf))
+                           :else                (denormalise-state target-leaf (:state snapshot)))
+            snap-final   (cond
+                           internal?
+                           (assoc snap-after :state new-state)
+
+                           epoch-bumps?
+                           (let [epoch-path (after-epoch-path machine)
+                                 new-epoch  (inc (or (get-in snap-after epoch-path) 0))]
+                             (-> snap-after
+                                 (assoc :state new-state)
+                                 (assoc-in epoch-path new-epoch)))
+
+                           :else
+                           (assoc snap-after :state new-state))
+            parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
+            after-fx        (build-after-fx machine entered-pairs internal? snap-final)
+            after-cancel-fx (build-after-cancel-fx parent-id exited-pairs internal?)
+            destroy-fx      (build-destroy-fx parent-id exited-pairs internal?)
+            spawn-result
+            (if internal?
+              [snap-final []]
+              (reduce
+                (fn [[s acc-fx] [prefix n]]
+                  (cond
+                    (:invoke n)
+                    (handle-invoke-spawn machine parent-id s acc-fx prefix n event)
+
+                    (:invoke-all n)
+                    (handle-invoke-all-spawn machine parent-id s acc-fx prefix n event)
+
+                    :else
+                    [s acc-fx]))
+                [snap-final []]
+                entered-pairs))]
+        (if (and (vector? spawn-result)
+                 (= ::action-failed (first spawn-result)))
+          [::action-failed (assoc (second spawn-result)
+                                  :decl-path  decl-path
+                                  :transition transition
+                                  :state-path src-path)]
+          (let [[snap-after-spawns spawn-fx] spawn-result
+                all-fx (vec (concat fx
+                                    (or after-cancel-fx [])
+                                    (or destroy-fx [])
+                                    spawn-fx
+                                    (or after-fx [])))]
+            [snap-after-spawns all-fx]))))))
+
+(defn- pick-always-transition
+  "Per Spec 005 §Eventless :always transitions: walk path leaf→root
+  for an :always whose guard passes. Returns {:transition t :decl-path p}
+  or nil."
+  [machine path snapshot]
+  (loop [i (dec (count path))]
+    (when (>= i 0)
+      (let [prefix (vec (take (inc i) path))
+            n      (node-at machine prefix)
+            always (:always n)
+            always (cond
+                     (nil? always)     []
+                     (vector? always)  always
+                     :else             [always])
+            hit    (some (fn [t]
+                           (let [g (resolve-guard machine (:guard t))]
+                             (when (call-guard g snapshot nil) t)))
+                         always)]
+        (if hit
+          {:transition (assoc hit :decl-path prefix) :decl-path prefix}
+          (recur (dec i)))))))
+
+(def ^:private always-depth-limit-default 16)
+(def ^:private raise-depth-limit-default  16)
+
+;; Forward-declared so `drain-raises` can call `machine-transition-single`
+;; directly. The recursive `:raise` step is always against an already-
+;; resolved single (or region) machine context — for a parallel parent,
+;; `parallel-machine-transition` (in `re-frame.machines.parallel`) has
+;; already routed into `machine-transition-single` per-region, and the
+;; recursive call from inside drain-raises uses the SAME `machine` value
+;; (the region-machine, with `parallel?` false). Bypassing the public
+;; parallel-dispatch entry here avoids a per-raise cross-namespace var
+;; deref on CLJS and keeps the parallel layer cleanly above the single-
+;; machine drain.
+(declare machine-transition-single)
+
+(defn- drain-raises
+  "Drain the :raise queue inside fx-vec. Each :raise becomes an inline
+  recursive machine-transition-single call; non-:raise fx pass through to
+  the accumulator. Returns [new-snapshot accum-fx]."
+  [machine snapshot fx-vec depth-limit]
+  (loop [pending fx-vec
+         accum   []
+         snap    snapshot
+         depth   0]
+    (cond
+      (> depth depth-limit)
+      (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
+                             {:machine-id (:id machine) :depth depth
+                              :recovery :no-recovery})
+          [snap accum])
+
+      (empty? pending)
+      [snap accum]
+
+      :else
+      (let [[fx-id args] (first pending)
+            rest-pending (rest pending)]
+        (case fx-id
+          :raise
+          (let [step-result (machine-transition-single machine snap args)]
+            (if (and (vector? step-result)
+                     (= ::action-failed (first step-result)))
+              step-result
+              (let [[snap2 fx2] step-result]
+                (recur (concat fx2 rest-pending)
+                       accum
+                       snap2
+                       (inc depth)))))
+
+          (recur rest-pending
+                 (conj accum [fx-id args])
+                 snap
+                 depth))))))
+
+(defn machine-transition-single
+  "Pure function. Single-machine (flat or compound) implementation of the
+  macrostep. Per Spec 005 §Drain semantics §Level 3:
+   1. Pick the matching transition for the event (deepest-wins resolution
+      along the state path).
+   2. Run the exit cascade → transition's action → entry cascade
+      (`apply-transition-once`).
+   3. Drain the local `:raise` queue depth-first.
+   4. `:always` microstep loop — walk path leaf→root for any matching
+      `:always`; apply, drain raises, loop.
+   5. Commit (return) the snapshot once `:always` reaches fixed point.
+
+  Bounded by `:raise-depth-limit` and `:always-depth-limit` (both default
+  16). Parallel-region routing lives in `re-frame.machines.parallel`'s
+  `machine-transition` — the dispatch checks `parallel?` and either
+  broadcasts across regions or falls through to this fn."
+  [machine snapshot event]
+  (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
+        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
+        path             (state-path (:state snapshot))
+        match            (pick-transition machine path event snapshot)
+        ;; Trace timer firing / staleness / guard-suppression BEFORE
+        ;; running the transition, so listeners see events in the order
+        ;; they occurred.
+        _ (when (and match (:stale? match))
+            (trace/emit! :machine :rf.machine.timer/stale-after
+                         {:state           (:state match)
+                          :delay           (:delay match)
+                          :scheduled-epoch (:scheduled-epoch match)
+                          :current-epoch   (:current-epoch match)
+                          :recovery        :replaced-with-default}))
+        _ (when (and match (:guard-suppressed? match))
+            (trace/emit! :machine :rf.machine.timer/fired
+                         {:state  (:state match)
+                          :delay  (:delay match)
+                          :epoch  (:epoch match)
+                          :fired? false}))
+        _ (when (and match
+                     (not (:stale? match))
+                     (not (:guard-suppressed? match))
+                     (:delay match))
+            (trace/emit! :machine :rf.machine.timer/fired
+                         {:state  (last (:decl-path match))
+                          :delay  (:delay match)
+                          :epoch  (:epoch match)
+                          :fired? true}))
+        result-after-event
+        (cond
+          (and match (:stale? match))
+          [snapshot []]
+
+          (and match (:guard-suppressed? match))
+          [snapshot []]
+
+          match
+          (apply-transition-once
+            machine snapshot event
+            (assoc (:transition match) :decl-path (:decl-path match)))
+
+          :else
+          [snapshot []])]
+    (if (and (vector? result-after-event)
+             (= ::action-failed (first result-after-event)))
+      result-after-event
+      (let [[snap-after-event fx-after-event] result-after-event
+            [snap-after-raise fx-after-raise]
+            (drain-raises machine snap-after-event fx-after-event raise-limit)]
+        ;; Step 4: :always microstep loop. Track visited state-paths so that,
+        ;; on depth-limit abort, we can report the path AND fully roll back to
+        ;; the original input snapshot — the macrostep is atomic per Spec 005.
+        (loop [snap    snap-after-raise
+               fx      fx-after-raise
+               depth   0
+               visited [(:state snap-after-raise)]]
+          (cond
+            (>= depth always-limit)
+            (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                   {:machine-id (:id machine)
+                                    :depth      depth
+                                    :path       visited
+                                    :recovery   :no-recovery})
+                [snapshot []])
+
+            :else
+            (let [snap-path (state-path (:state snap))
+                  always-m  (pick-always-transition machine snap-path snap)]
+              (if (nil? always-m)
+                ;; Macrostep fixed-point reached. Recompute the
+                ;; active-configuration tag union on the committed snapshot
+                ;; AFTER the new state is settled but BEFORE traces fire
+                ;; (so the outer handler's `:rf.machine/transition` trace
+                ;; carries the new tag set).
+                [(commit-tags machine snap) fx]
+                (let [step-result (apply-transition-once machine snap nil
+                                                          (:transition always-m))]
+                  (if (and (vector? step-result)
+                           (= ::action-failed (first step-result)))
+                    step-result
+                    (let [[snap2 fx2] step-result
+                          [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
+                      (recur snap3
+                             (vec (concat fx fx3))
+                             (inc depth)
+                             (conj visited (:state snap3))))))))))))))
