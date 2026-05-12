@@ -326,6 +326,36 @@ Or a one-shot per-call override:
 
 The override is a **redirect**, not a mock. The same dispatch shape the real fx produces lands in the test handler.
 
+### Stubbing managed HTTP
+
+The generic `:fx-overrides` shape above redirects any fx to a test fn. For `:rf.http/managed` specifically, the framework ships two canonical stub fxs plus a higher-level helper, so tests get the canonical reply envelope without hand-rolling one.
+
+Per-request stub via `:fx-overrides` redirect — the stub fx synthesises a success or failure reply with the same shape the live fx would produce:
+
+```clojure
+(rf/dispatch-sync [:counter/load]
+                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+
+(rf/dispatch-sync [:counter/load]
+                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+```
+
+The args map is the same shape the call site already uses; the canned-success stub takes a `:value` key (the payload to put under `:rf/reply :value`); the canned-failure stub takes `:kind` and `:tags` for the failure shape.
+
+For test suites that exercise many requests against many endpoints, `with-managed-request-stubs` routes each `:rf.http/managed` invocation by `:request :method` + `:request :url`:
+
+```clojure
+(rf/with-managed-request-stubs
+  {[:get  "/api/counter"]        {:reply {:ok {:count 5}}}
+   [:get  "/api/does-not-exist"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
+   [:post "/api/counter"]        {:reply {:ok {:count 6}}}}
+  (rf/dispatch-sync [:counter/load])
+  (rf/dispatch-sync [:counter/load-bad])
+  (rf/dispatch-sync [:counter/save]))
+```
+
+Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network. Both canned-stub fxs gate on `interop/debug-enabled?` and elide in production builds — tests pay no production cost. The full contract is in [Spec 014 §Testing](../../spec/014-HTTPRequests.md#testing).
+
 ### Recording dispatched events without firing them
 
 ```clojure

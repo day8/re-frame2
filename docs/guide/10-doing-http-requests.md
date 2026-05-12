@@ -221,39 +221,7 @@ The reply dispatch lands in the **same frame** the request was issued from. The 
 
 ## Test stubs
 
-Tests want managed-HTTP requests to resolve against canned data, not the network. The framework ships **two canonical stub fxs** plus a higher-level helper.
-
-### Per-request stubs via `:fx-overrides`
-
-```clojure
-;; Success stub — synthesises a success reply.
-(rf/dispatch-sync [:counter/load]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-
-;; Failure stub — synthesises a failure reply.
-(rf/dispatch-sync [:counter/load]
-                  {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-```
-
-The args map is the same shape; the canned-success stub takes a `:value` key (the payload to put under `:rf/reply :value`); the canned-failure stub takes `:kind` and `:tags` for the failure shape. Both stubs reuse the canonical reply envelope, so the test handler's reply branch sees what the live fx would produce.
-
-### `with-managed-request-stubs`
-
-For test suites that exercise many requests:
-
-```clojure
-(rf/with-managed-request-stubs
-  {[:get  "/api/counter"]       {:reply {:ok {:count 5}}}
-   [:get  "/api/does-not-exist"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}
-   [:post "/api/counter"]        {:reply {:ok {:count 6}}}}
-  (rf/dispatch-sync [:counter/load])
-  (rf/dispatch-sync [:counter/load-bad])
-  (rf/dispatch-sync [:counter/save]))
-```
-
-The helper inspects each `:rf.http/managed` invocation's `:request :method` + `:request :url` and routes through the configured reply. Wrap a test, run dispatches, assert against the resulting `app-db`. No browser, no network.
-
-The canned-stub fxs gate on `interop/debug-enabled?` — they elide in production builds, so tests pay no production cost.
+For stubbing managed-HTTP requests in tests — the `:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` fxs and the `with-managed-request-stubs` helper — see [13 — Testing §Stubbing managed HTTP](13-testing.md#stubbing-managed-http).
 
 ## The standard request-lifecycle slice
 
@@ -296,15 +264,7 @@ The realworld example is a worked sketch — broader than the counter demo, narr
 
 ## Migrating from re-frame v1's ad-hoc HTTP
 
-If you're coming from a re-frame v1 codebase that registered its own `:http` fx — or used `re-frame-http-fx`, `re-frame-fetch-fx`, or one of their cousins — the migration is mechanical:
-
-1. Replace your `[:http {:url ... :on-success ... :on-error ...}]` fx vectors with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`.
-2. Move wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) inside `:request`.
-3. Rename `:on-error` → `:on-failure`. The reply payload appends as the last argument; destructure `{:keys [value]}` for success, `{:keys [failure]}` for failure.
-4. Adopt the closed `:rf.http/*` failure category set in your error-handling branches — your code that branched on `(:status err)` becomes branching on `(:kind failure)`.
-5. (Optional) Convert per-call success handlers to default reply addressing if the pre-request and post-reply logic naturally co-locate.
-
-The migration is detailed in [`spec/MIGRATION.md` §M-23 (alpha removed)](../../spec/MIGRATION.md#m-23-re-framealpha-is-removed-rf2-7cb2-rf2-s9dn) for callers that depended on the alpha namespace's now-removed query/registration shape, and the per-fx migration is mechanical (Type A) for the standard cases.
+For callers coming from a v1 codebase with their own `:http` fx (or `re-frame-http-fx` / `re-frame-fetch-fx`), see [18 — From re-frame v1 §Migrating an HTTP layer](18-from-re-frame-v1.md#migrating-an-http-layer).
 
 ## Reference and tooling
 
