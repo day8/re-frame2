@@ -30,16 +30,16 @@ This default — co-located request and reply — is the whole reason `:rf.http/
 
 ## Why it exists (vs raw `js/fetch` + ad-hoc effects)
 
-If you're coming from re-frame v1, the obvious thing is to register your own `:http` fx (chapter 04 sketches one), have it call `js/fetch`, and dispatch user-named follow-up events on resolution. That works. It's also what every team using re-frame v1 ended up reinventing, with subtly incompatible answers to:
+We kept rewriting this. Every re-frame v1 app we shipped, every consulting codebase we audited, every open-source app we cribbed from — same five lines of `:http` fx, registered fresh in every project, with subtly drifting opinions baked in. The obvious thing in v1 was to register your own `:http` fx (chapter 04 sketches one), have it call `js/fetch`, and dispatch user-named follow-up events on resolution. That worked. It was also the thing every team ended up reinventing, and every team's answer drifted in subtly different directions on the same six questions:
 
-- **Where does the response shape live?** Some teams put `{:status 200 :body ...}`; some unwrap `:body` immediately; some hand the raw `Response` to the success handler.
-- **How are 4xx and 5xx classified?** Some teams treat any non-2xx as failure; some forward 401 specially; some let the success handler branch on status.
-- **What's a transport error vs a decode error vs an HTTP error?** Usually nothing — `(.catch ...)` swallows them all into `:on-error` with a string.
-- **Do retries exist?** Sometimes, hand-rolled, often inconsistent across endpoints.
-- **How do you abort a stale request?** Often not at all.
-- **How do you stub it for tests?** Each team grows its own.
+- **Where does the response shape live?** Some of us put `{:status 200 :body ...}`; some unwrapped `:body` immediately; some handed the raw `Response` to the success handler. Cross-project code-sharing died at this seam.
+- **How are 4xx and 5xx classified?** Some of us treated any non-2xx as failure; some forwarded 401 specially through a separate auth path; some let the success handler branch on status and discovered the bug three releases later when a 304 quietly fell through.
+- **What's a transport error vs a decode error vs an HTTP error?** Usually nothing — `(.catch ...)` swallowed them all into `:on-error` with a string, and we'd `console.log` the string and ship.
+- **Do retries exist?** Sometimes, hand-rolled, often per-endpoint, often inconsistent on whether the retry counts toward the rate limit, often forgetting to clear the `:loading?` flag between attempts.
+- **How do you abort a stale request?** Mostly we didn't. Search-as-you-type with five letters in flight raced its way to whichever response landed last.
+- **How do you stub it for tests?** Each team grew its own, and the stubs went stale the moment the response shape did.
 
-Spec 014 picks one canonical answer for each of those, locks it, and ships. Apps that adopt it get retry, abort, frame-aware reply addressing, schema-driven decode, the closed `:rf.http/*` failure category set, status-before-decode classification, and test stubs *as a single uniform surface*. Pair tools introspect that surface; conformance fixtures grade against it; AI scaffolds emit code that fits it.
+Each team's answer was reasonable in isolation. The cost was that nothing composed across teams — pair tools couldn't introspect "an HTTP request" because there was no such thing in the framework, only a thousand variations on it. So we picked one canonical answer for each question, locked it in [Spec 014](../../spec/014-HTTPRequests.md), and shipped it as `:rf.http/managed`. Apps that adopt it get retry, abort, frame-aware reply addressing, schema-driven decode, the closed `:rf.http/*` failure category set, status-before-decode classification, and test stubs *as a single uniform surface*. Pair tools introspect that surface; conformance fixtures grade against it; AI scaffolds emit code that fits it.
 
 The lower-level option (write your own fx) is still there for wire-level control — custom transport, raw bytes, idiosyncratic protocols. `:rf.http/managed` covers the common case, ergonomically, and pair tools can rely on it.
 
@@ -287,6 +287,10 @@ Pair tools and AI generators want to know which schemas a handler expects from t
 ```
 
 Then `(rf/handler-meta :event :counter/load)` returns metadata carrying `:rf.http/decode-schemas [CounterResponse]`, which tools introspect. **Optional, never enforced** — the runtime does not cross-check that the call-site `:decode` matches the declared schemas. The metadata is reflective sugar; runtime enforcement would want a `defmanaged-event-fx` macro that DRYs the declaration, which is out of v1 scope.
+
+## The stakes
+
+Your codebase shouldn't carry HTTP archaeology. Every layer of "this is how we used to handle 401s," every project-local `:on-error` convention, every per-endpoint retry policy that someone hand-rolled in 2019 and nobody's touched since — that's debt the framework should be paying down for you, not debt your team should be re-amortising every six months. The point of `:rf.http/managed` isn't that it's the cleverest HTTP fx anyone could write; it's that it's *the same* HTTP fx every re-frame2 app writes. That sameness is the load-bearing piece. It's what lets pair tools see every request your app issues without instrumentation. It's what lets the closed-set `:rf.http/*` failure vocabulary mean the same thing across codebases. It's what lets a stranger read your handler and know — without reading your `:http` fx — what "failure" means, whether retry happened, and where the reply lands. The canonical envelope is the only thing that lets tooling see all your requests at once. Adopt it, and the next time someone joins your team they don't have to learn your HTTP layer; they already know it.
 
 ## Cross-references
 
