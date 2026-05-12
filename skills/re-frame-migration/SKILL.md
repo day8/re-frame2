@@ -41,6 +41,7 @@ Route elsewhere when:
 | Start a brand new re-frame2 project from scratch | `skills/re-frame2-setup/` |
 | Write event handlers, subs, machines, schemas, views in a project that is already on v2 | `skills/re-frame2/` |
 | Inspect / dispatch / debug / time-travel a *running* v2 app from the REPL | `skills/re-frame-pair2/` |
+| Build a NEW re-frame2 implementation in a different host language or substrate | `skills/re-frame2-implementor/` |
 | Understand re-frame2's design rationale (EPs, principles, conventions) | `SKILL-REDIRECT.md` at repo root |
 
 If the author has already finished migrating and is now writing new code, hand off to `re-frame2`. This skill exits when the project compiles, tests pass, and Type B items have been resolved.
@@ -162,4 +163,4 @@ If you hit anything else surprising, surface it to the author rather than guessi
 
 ---
 
-*Authoritative breaking-change list: `spec/MIGRATION.md` (in this repo). For the v1 line: [re-frame](https://github.com/day8/re-frame). For greenfield bootstrap: `skills/re-frame2-setup/`. For application authoring on v2: `skills/re-frame2/`. For live-app inspection: `skills/re-frame-pair2/`.*
+*Authoritative breaking-change list: `spec/MIGRATION.md` (in this repo). For the v1 line: [re-frame](https://github.com/day8/re-frame). For greenfield bootstrap: `skills/re-frame2-setup/`. For application authoring on v2: `skills/re-frame2/`. For live-app inspection: `skills/re-frame-pair2/`. For building a new re-frame2 implementation in a different host language or substrate: `skills/re-frame2-implementor/`.*
