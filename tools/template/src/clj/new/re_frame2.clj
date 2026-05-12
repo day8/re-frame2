@@ -142,6 +142,16 @@
               (sub-render "shared/subs.cljs")]
              ["src/{{nested-dirs}}/views.cljs"
               (sub-render (str substrate-name "/views.cljs"))]
+             ;; -- test tree --
+             ;;
+             ;; A single events-side test gives the `:test` build entry
+             ;; in shadow-cljs.edn (`:target :node-test`, `:ns-regexp
+             ;; "-test$"`) a real target. Substrate-agnostic — uses
+             ;; the plain-atom adapter so it runs node-side without a
+             ;; DOM. See the README "Run tests" section the template
+             ;; also emits.
+             ["test/{{nested-dirs}}/events_test.cljs"
+              (sub-render "shared/events_test.cljs")]
              ;; -- host HTML --
              ["resources/public/index.html"
               (sub-render "shared/index.html")])))

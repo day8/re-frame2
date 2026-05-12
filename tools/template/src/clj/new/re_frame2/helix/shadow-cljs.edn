@@ -1,6 +1,12 @@
 ;; {{name}} — shadow-cljs build config (Helix substrate).
+;;
+;; Two builds:
+;;   :app  — watch / release. Compiles to resources/public/js/main.js.
+;;           Boot entry point: {{namespace}}.core/init.
+;;   :test — node-side test runner. Picks up any *_test.cljs file under
+;;           test/ and runs it via cljs.test.
 {:deps   {:aliases [:shadow]}
- :source-paths ["src"]
+ :source-paths ["src" "test"]
 
  :dev-http {8280 "resources/public"}
 
