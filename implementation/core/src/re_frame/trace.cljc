@@ -26,8 +26,10 @@
 
   The shape is event-at-a-time, not span-shaped: there is no :start/:end/
   :duration pair and no :child-of parent-id. Cascade correlation rides on
-  :dispatch-id / :parent-dispatch-id under :tags of :event/dispatched
-  events (per Spec 009 §Dispatch correlation)."
+  :dispatch-id under :tags of EVERY event emitted inside a cascade;
+  :parent-dispatch-id rides under :tags of :event/dispatched events only
+  (it documents inter-cascade lineage). Per Spec 009 §Dispatch correlation
+  and rf2-g6ih4."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]))
 
@@ -102,6 +104,47 @@
   Shape: `{:kind <kw> :id <kw> :source-coord {:ns :file :line :column}?}`.
 
   Per rf2-3nn8."
+  nil)
+
+;; ---- *current-dispatch-id* (rf2-g6ih4) ------------------------------------
+;;
+;; Per Spec 009 §Dispatch correlation: `:dispatch-id` is a **cascade-wide**
+;; correlation key. It is allocated when a dispatch is enqueued (per
+;; `router.cljc`) and rides on every trace event emitted **inside** that
+;; dispatch's run-to-completion drain — `:event/dispatched` itself,
+;; `:event/db-changed`, `:rf.fx/handled`, `:sub/run`, `:rf.machine/transition`,
+;; `:rf.error/*`, every emit produced while processing the event.
+;;
+;; The runtime carries the in-flight cascade's id through the dynamic Var
+;; `*current-dispatch-id*` (mirror of `*current-trigger-handler*` per
+;; rf2-3nn8). `router.cljc` binds the Var around `process-event*` so every
+;; downstream emit — including emits produced by user handler code, by
+;; substrate code reacting to a `:db` commit, by fx handlers walking the
+;; `:fx` vector — sees the cascade's id. `emit!` reads the Var and merges
+;; it into the emitted event's `:tags` map when bound and not already
+;; present. Callers that explicitly supply `:dispatch-id` in tags win
+;; (e.g. `emit-dispatched-trace!` stamps its own id; child dispatches
+;; emitted by fx handlers are themselves `:event/dispatched` events with
+;; their own freshly-allocated `:dispatch-id`).
+;;
+;; `:parent-dispatch-id` remains scoped to `:event/dispatched` only — it
+;; documents cascade-from-cascade lineage (which cascade caused this
+;; one), which is per-event-dispatch, not per-trace-event.
+;;
+;; Production elision: when `interop/debug-enabled?` is false the whole
+;; trace surface compiles out via the outer `when` gate in `emit!`, so
+;; the Var read is dead code.
+
+(def ^:dynamic *current-dispatch-id*
+  "The id of the cascade currently being processed by `router.cljc`'s
+  drain. Bound by `router.cljc` around `process-event*` to the in-flight
+  dispatch's `:dispatch-id`. `emit!` reads the Var and merges it into
+  the emitted event's `:tags` when bound and not already present.
+
+  nil outside any drain (e.g. emits produced at registration time, at
+  frame creation, by user code outside a handler).
+
+  Per Spec 009 §Dispatch correlation and rf2-g6ih4."
   nil)
 
 (defn trigger-handler-from-meta
@@ -256,19 +299,35 @@
 
   Per Spec 009 §Core fields: :source is hoisted to the top level of the
   envelope (origin of the trigger — :ui :timer :http :repl :machine).
-  Tags retain everything else."
+  Tags retain everything else.
+
+  Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the runtime is
+  inside a drain processing a dispatch), the in-flight cascade's id is
+  merged into `:tags :dispatch-id`. Callers that supply their own
+  `:dispatch-id` in tags win (the only such caller in the framework is
+  `:event/dispatched`, which stamps its own freshly-allocated id)."
   [op operation tags]
   (when interop/debug-enabled?
-    (let [source   (:source tags)
-          recovery (:recovery tags)
+    (let [source       (:source tags)
+          recovery     (:recovery tags)
           ;; Per Spec 009 §Required top-level fields: :source and
           ;; :recovery (when present) live at the top level of the
           ;; trace event, NOT inside :tags. Hoist them here.
+          cascade-id   *current-dispatch-id*
+          base-tags    (dissoc tags :source :recovery)
+          ;; Per rf2-g6ih4: stamp the cascade's :dispatch-id on every
+          ;; event emitted inside the drain so consumers can group raw
+          ;; trace events by cascade without inferring from sequence.
+          ;; Caller-supplied :dispatch-id wins (`:event/dispatched` and
+          ;; any future emit that needs to override).
+          tags+        (if (and cascade-id (not (contains? base-tags :dispatch-id)))
+                         (assoc base-tags :dispatch-id cascade-id)
+                         base-tags)
           event    (cond-> {:operation operation
                             :op-type   op
                             :id        (next-event-id)
                             :time      (interop/now-ms)
-                            :tags      (dissoc tags :source :recovery)}
+                            :tags      tags+}
                      source   (assoc :source source)
                      recovery (assoc :recovery recovery))]
       (push-to-buffer! event)
@@ -292,17 +351,27 @@
   handler dispatching, cofx injecting, view rendering), the value is
   hoisted to the top-level `:rf.trace/trigger-handler` slot on the
   emitted event. Absent when no handler is in scope (e.g. outermost-
-  dispatch `:rf.error/no-such-handler`)."
+  dispatch `:rf.error/no-such-handler`).
+
+  Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the error fires
+  inside a drain), the in-flight cascade's id is merged into
+  `:tags :dispatch-id` so consumers can correlate the error with the
+  rest of the cascade. Caller-supplied `:dispatch-id` wins."
   [error-operation tags]
   (when interop/debug-enabled?
-    (let [trigger *current-trigger-handler*
-          event   (cond-> {:operation error-operation
-                           :op-type   :error
-                           :id        (next-event-id)
-                           :time      (interop/now-ms)
-                           :tags      (merge {:category error-operation} tags)
-                           :recovery  (:recovery tags :no-recovery)}
-                    trigger (assoc :rf.trace/trigger-handler trigger))]
+    (let [trigger    *current-trigger-handler*
+          cascade-id *current-dispatch-id*
+          base-tags  (merge {:category error-operation} tags)
+          tags+      (if (and cascade-id (not (contains? base-tags :dispatch-id)))
+                       (assoc base-tags :dispatch-id cascade-id)
+                       base-tags)
+          event      (cond-> {:operation error-operation
+                              :op-type   :error
+                              :id        (next-event-id)
+                              :time      (interop/now-ms)
+                              :tags      tags+
+                              :recovery  (:recovery tags :no-recovery)}
+                       trigger (assoc :rf.trace/trigger-handler trigger))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]
