@@ -377,6 +377,17 @@
   (testing "re-frame.story.config/enabled? is true at JVM-test time"
     (is (true? story-config/enabled?))))
 
+;; ---- static-mode? (rf2-8wgpm) ----------------------------------------
+
+(deftest static-mode-defaults-false-on-jvm
+  (testing "re-frame.story.config/static-mode? defaults to false on the JVM"
+    ;; Per tools/story/spec/013-Static-Build.md the JVM-side def is a
+    ;; plain const false — JVM consumers never operate in static mode
+    ;; (the flag exists for CLJS :advanced builds via :closure-defines).
+    (is (false? story-config/static-mode?)))
+  (testing "the public probe (re-frame.story/static-mode?) reflects the flag"
+    (is (false? (re-frame.story/static-mode?)))))
+
 ;; ---- Stage 6 contract check -----------------------------------------
 
 (deftest stage-marker

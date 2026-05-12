@@ -131,9 +131,16 @@
 (defonce ^:private hot-reload-poll-handle (atom nil))
 
 (defn- start-hot-reload-poll!
-  "Begin polling for fingerprint changes. v1 mechanism per Stage 4."
+  "Begin polling for fingerprint changes. v1 mechanism per Stage 4.
+
+  Per rf2-8wgpm (tools/story/spec/013-Static-Build.md): under
+  `re-frame.story.config/static-mode?` the registrar is frozen — no
+  dev-time `reg-*` mutations will land, so the 500ms poll is wasted
+  work that thrashes the React tree on every tick. Skip the poll
+  entirely; the shell renders against a stable registry."
   []
   (when (and config/enabled?
+             (not config/static-mode?)
              (nil? @hot-reload-poll-handle))
     (let [h (js/setInterval detect-and-tick! 500)]
       (reset! hot-reload-poll-handle h))))

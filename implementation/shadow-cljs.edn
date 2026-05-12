@@ -477,6 +477,28 @@
    :asset-path "."
    :modules    {:main {:init-fn counter-with-stories.core/run}}}
 
+  ;; Story static-export build (rf2-8wgpm) — see
+  ;; tools/story/spec/013-Static-Build.md. Same source tree as
+  ;; :examples/counter-with-stories, but the entry-point is
+  ;; counter-with-stories.story-static/run (no hash routing, mounts the
+  ;; Story shell directly) and the bundle compiles with
+  ;; :closure-defines {re-frame.story.config/static-mode? true} so the
+  ;; shell drops its dev-time affordances (registrar-fingerprint poll,
+  ;; first-visit help auto-open).
+  ;;
+  ;; The `story:build` npm script (per
+  ;; tools/story/spec/013-Static-Build.md §Invocation) drives this build
+  ;; via `shadow-cljs release`, then stages
+  ;; examples/reagent/counter_with_stories/story_static.index.html as
+  ;; index.html so the output directory is publishable as-is to GitHub
+  ;; Pages / Netlify / S3.
+  :story-static/counter-with-stories
+  {:target           :browser
+   :output-dir       "out/story-static/counter-with-stories"
+   :asset-path       "."
+   :compiler-options {:closure-defines {re-frame.story.config/static-mode? true}}
+   :modules          {:main {:init-fn counter-with-stories.story-static/run}}}
+
   ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked
   ;; example for spec/Pattern-WebSocket.md — connection machine with
   ;; hierarchical :active parent, :invoke'd socket actor, :after

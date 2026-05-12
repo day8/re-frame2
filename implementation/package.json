@@ -21,6 +21,8 @@
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:bundle-isolation": "shadow-cljs release examples/counter && node scripts/check-bundle-isolation.cjs",
     "test:bundle-comparison": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-counter-slim-and-fast.cjs",
-    "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs"
+    "test:examples": "node ../examples/scripts/serve-and-run-examples-tests.cjs",
+    "story:build": "node scripts/story-build.cjs",
+    "test:story-static": "node scripts/check-story-static.cjs"
   }
 }
