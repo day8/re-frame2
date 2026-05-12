@@ -277,7 +277,7 @@ A flow registered mid-event first fires on the next event drain (one-event lag f
 
 ### Topological sort over registration order (RESOLVED)
 
-Earlier sketch leaned on registration order; topological sort selected because dynamic registration via `:rf.fx/reg-flow` makes registration order dispatch-time-dependent and an unreliable contract. The dependency graph is statically derivable from each flow's `:path` and `:inputs`; the cost of memoised topsort is small relative to event volume.
+Earlier sketch leaned on registration order; topological sort selected because dynamic registration via `:rf.fx/reg-flow` makes registration order dispatch-time-dependent and an unreliable contract. The dependency graph is statically derivable from each flow's `:path` and `:inputs`; recomputing the sort once per drain is cheap at v1's per-frame node counts (a handful of flows, Kahn's algorithm over them is cheaper than memo bookkeeping). The sort is not memoised — per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection); an earlier memoised variant was removed under rf2-cd00 after measurement.
 
 ### One-pass evaluation, not fixed-point iteration (RESOLVED)
 
