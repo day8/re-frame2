@@ -135,7 +135,13 @@
   the top level. Any other top-level key is policed via
   police-effect-map-shape! — a :rf.error/effect-map-shape trace is emitted
   per offending key (Spec 009 §Error contract, :recovery
-  :logged-and-skipped) and the key is dropped."
+  :logged-and-skipped) and the key is dropped.
+
+  Per rf2-k3bj: a reg-event-fx handler is contracted to return a map (or
+  nil — the documented no-op). Any other return type (vector, number,
+  string, ...) emits :rf.error/effect-handler-bad-return; the runtime
+  cannot guess intent and treats the dispatch as a no-op (`:recovery
+  :no-recovery`)."
   [handler-fn]
   (interceptor/->interceptor
     :id :rf/fx-handler
@@ -146,14 +152,26 @@
         (let [cofx    (interceptor/get-coeffect ctx)
               event   (interceptor/get-coeffect ctx :event)
               effects (handler-fn cofx event)]
-          (when (map? effects)
-            (police-effect-map-shape! effects event))
-          (cond-> ctx
-            (and (map? effects) (contains? effects :db))
-            (interceptor/assoc-effect :db (:db effects))
+          (cond
+            (nil? effects) ctx  ;; documented legal no-op
+            (not (map? effects))
+            (do (trace/emit-error! :rf.error/effect-handler-bad-return
+                                   {:event-id      (when (vector? event) (first event))
+                                    :event         event
+                                    :returned      effects
+                                    :returned-type (type effects)
+                                    :reason        "reg-event-fx handler returned a non-map; expected {:db ... :fx [...]}."
+                                    :recovery      :no-recovery})
+                ctx)
+            :else
+            (do
+              (police-effect-map-shape! effects event)
+              (cond-> ctx
+                (contains? effects :db)
+                (interceptor/assoc-effect :db (:db effects))
 
-            (and (map? effects) (contains? effects :fx))
-            (interceptor/assoc-effect :fx (:fx effects))))))))
+                (contains? effects :fx)
+                (interceptor/assoc-effect :fx (:fx effects))))))))))
 
 (defn- ctx-handler->interceptor
   "Wrap a (fn [context]) → context handler. Advanced; few apps need it."
