@@ -535,7 +535,7 @@ An auth guard (regular interceptor on `:rf.route/navigate`) consults `:tags` and
                   ctx)))))
 ```
 
-Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer.
+Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer. The interceptor primitive (`->interceptor`), the sandwich shape, and how `:before` modifies the context are covered in [chapter 04a — Interceptors](04a-interceptors.md).
 
 The editor's `:can-leave` guard plus a confirmation dialog are wired exactly as described above — the dirty-flag drives the sub; the dialog renders from `:rf/pending-navigation`; user clicks dispatch `:rf.route/continue` or `:rf.route/cancel`.
 
