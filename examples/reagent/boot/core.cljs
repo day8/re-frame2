@@ -17,10 +17,10 @@
    framework-shipped `:rf.http/managed-canned-success` per Spec 014
    §Testing, so the canonical reply shape is preserved."
   (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
+            [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Required for `rf/init!`.
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             ;; Loads the registrar so we can resolve the canned-success
             ;; fx for the per-URL stub below.
             [re-frame.registrar :as registrar]
@@ -116,7 +116,7 @@
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
 
   ;; Override `:rf.http/managed` on the default frame so every child
   ;; loader's GET routes to the per-URL canned stub above. The

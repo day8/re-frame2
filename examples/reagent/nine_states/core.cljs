@@ -64,7 +64,7 @@
    and `examples/reagent/7Guis/circle_drawer/circle_drawer.cljs`. In a real
    codebase this would split per CP-6 conventions across schema / events /
    subs / views / machines / tests files."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; The Spec 010 schema-attachment ns lives in
@@ -86,7 +86,7 @@
             ;; :rf.error/no-such-fx.
             [re-frame.http-managed]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.views-macros :refer [reg-view]]))
 
 ;; ============================================================================
@@ -673,7 +673,7 @@
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
   ;; Install the demo override so `:rf.http/managed` calls route to the
   ;; in-process canned-stub fxs above. The example runs standalone — no
   ;; backend required.

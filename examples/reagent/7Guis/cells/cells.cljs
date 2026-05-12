@@ -23,13 +23,13 @@
    simple S-expression-flavored calculator (numbers, +, -, *, /, cell refs).
    Excel-style infix is left for a future iteration; the shape of the
    solution doesn't change."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [clojure.set]
             [clojure.string :as str])
   (:require-macros [re-frame.views-macros :refer [reg-view with-frame]]))
@@ -294,6 +294,6 @@
 
 (defn ^:export run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-adapter/adapter)
+  (rf/init! reagent-slim-adapter/adapter)
   (rf/dispatch-sync [:cells/initialise])
   (rdc/render react-root [cells-grid]))
