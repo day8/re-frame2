@@ -12,6 +12,16 @@ description: >
   trace-buffer, register-trace-cb, register-epoch-cb, restore-epoch,
   re-com, shadow-cljs.
 allowed-tools:
+  # MCP transport (preferred — single persistent nREPL connection per session)
+  - mcp__re-frame-pair2__discover-app
+  - mcp__re-frame-pair2__eval-cljs
+  - mcp__re-frame-pair2__inject-runtime
+  - mcp__re-frame-pair2__dispatch
+  - mcp__re-frame-pair2__trace-window
+  - mcp__re-frame-pair2__watch-epochs
+  - mcp__re-frame-pair2__tail-build
+  # Bash-shim transport (deprecated — kept for back-compat sessions
+  # where the MCP server isn't installed yet)
   - Bash(scripts/discover-app.sh *)
   - Bash(scripts/eval-cljs.sh *)
   - Bash(scripts/inject-runtime.sh *)
@@ -58,8 +68,12 @@ Know which mode you're in and why. For the strict source-edit protocol, see [ref
 Before any other op, run:
 
 ```
-scripts/discover-app.sh
+discover-app
 ```
+
+(MCP tool call — formal name `mcp__re-frame-pair2__discover-app`.
+When the MCP server isn't configured for this session, fall back to
+the legacy bash shim: `scripts/discover-app.sh`.)
 
 This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and injects the runtime namespace.
 
@@ -92,6 +106,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Edit source, then wait for the browser to pick up the new code | [references/hot-reload-protocol.md](references/hot-reload-protocol.md) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know that it was dropped) | [references/migration-from-v1.md](references/migration-from-v1.md) |
+| Install/configure the persistent-connection MCP server, or map a bash shim to its MCP tool name | [references/mcp-transport.md](references/mcp-transport.md) |
 
 Load at most two references for a single task. If you find yourself wanting three, the request likely spans concerns and should be broken up.
 

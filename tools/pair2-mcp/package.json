@@ -1,0 +1,36 @@
+{
+  "name": "@day8/re-frame-pair2-mcp",
+  "version": "0.1.0",
+  "description": "MCP (Model Context Protocol) server for re-frame-pair2 — pair-program with a live re-frame application over a persistent nREPL connection.",
+  "license": "MIT",
+  "bin": {
+    "re-frame-pair2-mcp": "./out/server.js"
+  },
+  "files": [
+    "out/server.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "shadow-cljs compile server",
+    "watch": "shadow-cljs watch server",
+    "test": "shadow-cljs compile server-test && node out/server-test.js",
+    "start": "node out/server.js",
+    "stdio-roundtrip": "node test/stdio-roundtrip.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "bencode": "~2.0.3"
+  },
+  "devDependencies": {
+    "shadow-cljs": "^3.4.10"
+  },
+  "keywords": [
+    "re-frame",
+    "clojurescript",
+    "mcp",
+    "model-context-protocol",
+    "nrepl",
+    "claude"
+  ]
+}

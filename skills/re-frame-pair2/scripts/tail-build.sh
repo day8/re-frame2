@@ -2,6 +2,9 @@
 # tail-build.sh — coordinate with shadow-cljs hot-reload after a source
 # edit.
 #
+# DEPRECATED: prefer the MCP tool `tail-build` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). Kept for back-compat.
+#
 # --wait-ms N       how long to wait for the reload to land (default 5000)
 # --probe '<form>'  a CLJS form whose return value changes after the edit is
 #                   live. When the form's return value flips, reload has

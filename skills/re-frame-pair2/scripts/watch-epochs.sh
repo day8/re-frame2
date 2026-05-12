@@ -2,6 +2,11 @@
 # watch-epochs.sh — pull-mode live watch of the operating frame's
 # epoch-history.
 #
+# DEPRECATED: prefer the MCP tool `watch-epochs` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). The MCP tool returns
+# one bundle of matches per call (pull-mode); call it repeatedly with
+# the same `since-id` for a tight watch loop. Kept for back-compat.
+#
 # Emits one edn line per matching epoch, plus a final {:finished?} summary.
 #
 # Modes (pick one or combine; first to fire wins):

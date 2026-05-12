@@ -1,0 +1,283 @@
+(ns re-frame-pair2-mcp.nrepl
+  "Persistent nREPL client over a TCP socket.
+
+  This is what the bash-shim chain replaces. Each shim previously paid:
+    - bash startup       (~50ms on Windows, less elsewhere)
+    - babashka startup   (~50-100ms)
+    - fresh nREPL connect (~200-500ms cold)
+    - bencode round-trip
+    - process teardown
+
+  The MCP server pays the cold connect once at boot; every subsequent
+  call is just a bencode round-trip on the existing socket. Per-op
+  latency drops from ~700ms to ~5-50ms.
+
+  ## Reconnect protocol
+
+  A full page reload in the browser destroys the shadow-cljs CLJS
+  runtime but leaves the nREPL socket on the JVM side intact. So the
+  socket usually stays usable — what we lose is the *runtime sentinel*
+  (`re-frame-pair2.runtime/session-id`), which lives in the CLJS heap.
+
+  The bash-shim chain used `runtime-already-injected?` to detect this
+  and re-ship `runtime.cljs`. We port the same check: every call that
+  needs the runtime first probes the sentinel, and if it's gone we
+  re-inject before proceeding.
+
+  ## Concurrency
+
+  We dispatch by nREPL `id` (UUID per request). The same socket can
+  carry interleaved ops because nREPL's protocol multiplexes on `id` —
+  but the MCP server today calls one tool at a time, so we serialise
+  in-flight ops by `id` and resolve each Promise when its `:done`
+  status arrives."
+  (:require [applied-science.js-interop :as j]
+            [clojure.string :as str]
+            [cljs.reader :as edn]
+            ["bencode" :as bencode]
+            ["net" :as net]
+            ["fs" :as fs]))
+
+;; ---------------------------------------------------------------------------
+;; Port discovery — matches the bash-shim's read-port logic.
+;; ---------------------------------------------------------------------------
+
+(def ^:private port-file-candidates
+  ["target/shadow-cljs/nrepl.port"
+   ".shadow-cljs/nrepl.port"
+   ".nrepl-port"])
+
+(defn read-port-from-fs
+  "Read the nREPL port from the standard shadow-cljs / nrepl locations.
+  Returns an integer or nil."
+  []
+  (or (when-let [env (j/get-in js/process [:env :SHADOW_CLJS_NREPL_PORT])]
+        (let [n (js/parseInt env 10)]
+          (when-not (js/isNaN n) n)))
+      (some (fn [path]
+              (try
+                (let [content (str/trim (.toString (.readFileSync fs path)))
+                      n       (js/parseInt content 10)]
+                  (when-not (js/isNaN n) n))
+                (catch :default _ nil)))
+            port-file-candidates)))
+
+;; ---------------------------------------------------------------------------
+;; bencode framing — handle concatenated frames in one TCP packet.
+;; ---------------------------------------------------------------------------
+
+(defn- decode-all-frames
+  "Decode every complete bencode frame from `buf`. Returns
+  `[js-array-of-frames trailing-buffer]`. Walks via the package's
+  `position` after-decode marker so multi-frame TCP chunks parse fully."
+  [^js buf]
+  (let [frames (array)]
+    (loop [^js b buf]
+      (if (zero? (.-length b))
+        [frames b]
+        (let [decoded  (try (bencode/decode b "utf8") (catch :default _ nil))
+              ;; bencode@2 stores byte cursor info on the decode fn,
+              ;; not on the module exports. `decode.bytes` is the
+              ;; cursor AFTER decoding the most recent frame.
+              ;; bencode@2 exposes a per-decode cursor on the decode
+              ;; fn itself. `position` is the byte offset AFTER the
+              ;; just-decoded frame; `bytes` is unreliable — it gets
+              ;; set to the total buffer length on some paths even
+              ;; when only the first frame was returned. We prefer
+              ;; `position`.
+              consumed (or (j/get-in bencode [:decode :position])
+                           (j/get-in bencode [:decode :bytes])
+                           0)]
+          (cond
+            (nil? decoded)        [frames b]
+            (zero? consumed)      (do (.push frames decoded) [frames (js/Buffer.alloc 0)])
+            :else
+            (do (.push frames decoded)
+                (recur (.slice b consumed)))))))))
+
+;; ---------------------------------------------------------------------------
+;; Connection state.
+;; ---------------------------------------------------------------------------
+
+(defn- log!
+  "Stderr logger — stdout is reserved for MCP messages."
+  [& parts]
+  (.error js/console (str "[pair2-mcp/nrepl] " (str/join " " (map str parts)))))
+
+(defn make-conn
+  "Build a fresh connection record. `:socket` is filled in by `connect!`.
+  `:pending` is `{id resolve-fn}` for in-flight requests. `:closed?` is
+  set when the socket terminates so subsequent calls re-open."
+  [port host]
+  (atom {:port    port
+         :host    (or host "127.0.0.1")
+         :socket  nil
+         :buf     nil
+         :pending {}
+         :closed? true
+         :session nil}))
+
+(defn- attach-handlers!
+  "Wire up `data` / `error` / `close` on the freshly-connected socket.
+  Resolves pending requests on matching `:done` status; logs errors;
+  marks the conn closed on disconnect."
+  [conn-atom ^js socket]
+  (j/call socket :on "data"
+    (fn [chunk]
+      (let [conn (swap! conn-atom update :buf #(js/Buffer.concat #js [(or % (js/Buffer.alloc 0)) chunk]))
+            [frames rest] (decode-all-frames (:buf conn))]
+        (swap! conn-atom assoc :buf rest)
+        (doseq [frame (array-seq frames)]
+          (let [id      (j/get frame "id")
+                resolve (get (:pending @conn-atom) id)]
+            (when resolve
+              ;; Accumulate fields into the pending result. Each pending
+              ;; entry holds {:result (atom result-map) :resolve fn}.
+              ;; For brevity we store a single resolve fn that merges
+              ;; via a per-call atom — see send-eval! below.
+              (resolve frame)))))))
+  (j/call socket :on "error"
+    (fn [err]
+      (log! "socket error:" (.-message err))
+      (swap! conn-atom assoc :closed? true)))
+  (j/call socket :on "close"
+    (fn [_]
+      (swap! conn-atom assoc :closed? true))))
+
+(defn connect!
+  "Open the persistent socket. Returns a Promise resolving to the
+  connection atom once `connect` fires (or rejecting if it errors).
+  Idempotent — if a socket is already open and healthy, resolves
+  immediately."
+  [conn-atom]
+  (let [{:keys [socket closed?]} @conn-atom]
+    (if (and socket (not closed?))
+      (js/Promise.resolve conn-atom)
+      (js/Promise.
+        (fn [resolve reject]
+          (let [{:keys [host port]} @conn-atom
+                sock (net/createConnection #js {:host host :port port})]
+            (j/call sock :on "connect"
+              (fn []
+                (swap! conn-atom assoc :socket sock :closed? false :buf (js/Buffer.alloc 0))
+                (attach-handlers! conn-atom sock)
+                (resolve conn-atom)))
+            (j/call sock :once "error"
+              (fn [err]
+                (swap! conn-atom assoc :closed? true)
+                (reject err)))))))))
+
+(defn close!
+  "Close the persistent socket. Idempotent."
+  [conn-atom]
+  (when-let [^js sock (:socket @conn-atom)]
+    (try (.end sock) (catch :default _ nil)))
+  (swap! conn-atom assoc :socket nil :closed? true :pending {}))
+
+;; ---------------------------------------------------------------------------
+;; Op send / receive — multiplex by request id.
+;; ---------------------------------------------------------------------------
+
+(defn- new-id [] (str (random-uuid)))
+
+(defn send-op!
+  "Send a single nREPL op over the persistent socket. `op-map` is a
+  bencode-able map like `{\"op\" \"eval\" \"code\" \"...\"}`. Returns a
+  Promise resolving to a combined response `{:value :out :err :status :ex}`
+  once a frame with `\"status\":[\"done\"]` arrives for this id.
+
+  Auto-(re)connects if the socket has dropped. Caller manages the
+  reinjection sentinel — see `tools.cljs`."
+  [conn-atom op-map]
+  (-> (connect! conn-atom)
+      (.then
+        (fn [_]
+          (js/Promise.
+            (fn [resolve reject]
+              (let [id     (new-id)
+                    state  (atom {:out "" :err "" :status #{} :value nil :ex nil})
+                    timer  (js/setTimeout
+                             (fn []
+                               (swap! conn-atom update :pending dissoc id)
+                               (reject (js/Error. (str "nREPL op " (j/get op-map "op") " timed out after 30s"))))
+                             30000)
+                    on-frame
+                    (fn [^js frame]
+                      (let [v   (j/get frame "value")
+                            out (j/get frame "out")
+                            err (j/get frame "err")
+                            ex  (j/get frame "ex")
+                            st  (or (j/get frame "status") #js [])]
+                        (when v   (swap! state assoc :value v))
+                        (when out (swap! state update :out str out))
+                        (when err (swap! state update :err str err))
+                        (when ex  (swap! state assoc :ex ex))
+                        (let [st-set (set (js->clj st))]
+                          (swap! state update :status into st-set)
+                          (when (contains? st-set "done")
+                            (js/clearTimeout timer)
+                            (swap! conn-atom update :pending dissoc id)
+                            (resolve @state)))))]
+                (swap! conn-atom assoc-in [:pending id] on-frame)
+                (let [op (j/assoc! (clj->js op-map) "id" id)
+                      ^js sock (:socket @conn-atom)]
+                  (.write sock (bencode/encode op))))))))
+      (.catch (fn [err] (js/Promise.reject err)))))
+
+;; ---------------------------------------------------------------------------
+;; nREPL → CLJS eval bridge (mirrors ops.clj's cljs-eval / cljs-eval-value).
+;; ---------------------------------------------------------------------------
+
+(defn jvm-eval
+  "Evaluate a Clojure form on the JVM side of nREPL. Returns a Promise
+  resolving to a combined response map."
+  [conn-atom form-str]
+  (send-op! conn-atom {"op" "eval" "code" form-str}))
+
+(defn cljs-eval
+  "Evaluate a ClojureScript form through shadow-cljs's `cljs-eval` API.
+  Returns a Promise resolving to a combined response map."
+  [conn-atom build-id form-str]
+  (let [build-pr  (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))
+        ;; pr-str CLJS form: use double-quote-escaped string literal.
+        code-pr   (pr-str form-str)
+        wrapped   (str "(shadow.cljs.devtools.api/cljs-eval "
+                       build-pr " " code-pr " {})")]
+    (jvm-eval conn-atom wrapped)))
+
+(defn- read-edn-safe [s]
+  (try (edn/read-string s) (catch :default _ s)))
+
+(defn cljs-eval-value
+  "Like cljs-eval but unwraps to the actual CLJS value. shadow's
+  cljs-eval returns a string-encoded EDN result like
+  `{:results [\"...\"] :ns user}` — we pull the last `:results` entry
+  and read it as EDN.
+
+  Returns a Promise resolving to the unwrapped value (or rejecting
+  with an Error if the eval threw or returned an error map)."
+  [conn-atom build-id form-str]
+  (-> (cljs-eval conn-atom build-id form-str)
+      (.then
+        (fn [resp]
+          (cond
+            (some? (:ex resp))
+            (js/Promise.reject (js/Error. (str "nREPL eval error: " (:ex resp)
+                                               (when-not (str/blank? (:err resp))
+                                                 (str " — " (:err resp))))))
+
+            (str/blank? (str (:value resp)))
+            nil
+
+            :else
+            (let [outer (read-edn-safe (str (:value resp)))]
+              (cond
+                (and (map? outer) (vector? (:results outer)))
+                (when-let [last-result (peek (:results outer))]
+                  (read-edn-safe last-result))
+
+                (and (map? outer) (:err outer))
+                (js/Promise.reject
+                  (js/Error. (str "cljs eval error: " (:err outer))))
+
+                :else outer)))))))

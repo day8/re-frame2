@@ -2,6 +2,9 @@
 # dispatch.sh — fire a re-frame2 event in the connected app, tagged
 # with :origin :pair (Spec 002 §Dispatch origin tagging).
 #
+# DEPRECATED: prefer the MCP tool `dispatch` from
+# `@day8/re-frame-pair2-mcp` (tools/pair2-mcp/). Kept for back-compat.
+#
 # Default mode is queued dispatch (`rf/dispatch`).
 # --sync  forces `rf/dispatch-sync` for deterministic before/after.
 # --trace dispatches synchronously and returns the assembled
