@@ -61,23 +61,26 @@
 (defn- next-event-id []
   (swap! event-counter inc))
 
-;; ---- trigger-handler (rf2-3nn8) -------------------------------------------
+;; ---- trigger-handler (rf2-3nn8 / rf2-lf84g) -------------------------------
 ;;
-;; Per Spec 009 §Error contract: every `:rf.error/*` trace event MAY carry a
+;; Per Spec 009 §Trace correlation: a trace event MAY carry a
 ;; `:rf.trace/trigger-handler` field naming the handler whose execution
-;; produced the error. The field is OPTIONAL — it is present when an
-;; in-scope handler can be identified (event handler running, sub
-;; recomputing, fx handler dispatching, cofx injecting, view rendering)
-;; and absent when no handler is in scope (e.g. outermost-dispatch
-;; `:rf.error/no-such-handler`).
+;; produced the event. Originally introduced (rf2-3nn8) for the error
+;; path; widened (rf2-lf84g) to ride success-path traces too — every
+;; event emitted inside a handler's execution scope carries the slot.
+;; The field is OPTIONAL — it is present when an in-scope handler can
+;; be identified (event handler running, sub recomputing, fx handler
+;; dispatching, cofx injecting, view rendering) and absent when no
+;; handler is in scope (e.g. outermost-dispatch
+;; `:rf.error/no-such-handler`, registration-time emits).
 ;;
 ;; The runtime carries the in-scope handler through the dynamic Var
 ;; `*current-trigger-handler*`. Runtime boundaries (the router's
 ;; `process-event!`, the sub recompute path, the fx dispatcher, the
 ;; cofx injector, the view render wrapper) bind the Var around the
-;; user code they run; `emit-error!` reads the Var and hoists its
-;; value to the top-level `:rf.trace/trigger-handler` slot on the
-;; emitted event when bound.
+;; user code they run; `emit!` and `emit-error!` read the Var and
+;; hoist its value to the top-level `:rf.trace/trigger-handler` slot
+;; on the emitted event when bound.
 ;;
 ;; Shape (locked, per rf2-3nn8):
 ;;
@@ -97,13 +100,14 @@
 
 (def ^:dynamic *current-trigger-handler*
   "The handler currently in scope for trace emission. Bound by each
-  runtime boundary (router, subs, fx, cofx, views). When bound and an
-  error trace fires, `emit-error!` attaches the value to the event as
-  `:rf.trace/trigger-handler`. nil outside any handler's scope.
+  runtime boundary (router, subs, fx, cofx, views). When bound, both
+  `emit!` (success path) and `emit-error!` (error path) attach the
+  value to the emitted event under the top-level
+  `:rf.trace/trigger-handler` slot. nil outside any handler's scope.
 
   Shape: `{:kind <kw> :id <kw> :source-coord {:ns :file :line :column}?}`.
 
-  Per rf2-3nn8."
+  Per rf2-3nn8 (error path) and rf2-lf84g (success path)."
   nil)
 
 ;; ---- *current-dispatch-id* (rf2-g6ih4) ------------------------------------
@@ -361,7 +365,17 @@
   inside a drain processing a dispatch), the in-flight cascade's id is
   merged into `:tags :dispatch-id`. Callers that supply their own
   `:dispatch-id` in tags win (the only such caller in the framework is
-  `:event/dispatched`, which stamps its own freshly-allocated id)."
+  `:event/dispatched`, which stamps its own freshly-allocated id).
+
+  Per rf2-lf84g: when `*current-trigger-handler*` is bound (the emit
+  fires inside a handler's execution scope — event / sub / fx / cofx /
+  view), the handler's registration coord rides on the emitted event
+  under the top-level `:rf.trace/trigger-handler` slot. Mirrors the
+  error path (`emit-error!`) — same field, same shape, same elision
+  behaviour. Success-path traces emitted inside a handler's scope
+  (`:rf.fx/handled`, `:rf.machine/transition`, `:event/db-changed`,
+  `:event/do-fx`, ...) carry the registration coord so tools can
+  jump-to-source from any trace event in a cascade, not just errors."
   [op operation tags]
   (when interop/debug-enabled?
     (let [source       (:source tags)
@@ -370,6 +384,7 @@
           ;; :recovery (when present) live at the top level of the
           ;; trace event, NOT inside :tags. Hoist them here.
           cascade-id   *current-dispatch-id*
+          trigger      *current-trigger-handler*
           base-tags    (dissoc tags :source :recovery)
           ;; Per rf2-g6ih4: stamp the cascade's :dispatch-id on every
           ;; event emitted inside the drain so consumers can group raw
@@ -385,7 +400,12 @@
                             :time      (interop/now-ms)
                             :tags      tags+}
                      source   (assoc :source source)
-                     recovery (assoc :recovery recovery))]
+                     recovery (assoc :recovery recovery)
+                     ;; Per rf2-lf84g: hoist the in-scope handler's
+                     ;; registration coord onto every trace event
+                     ;; emitted inside a handler's scope. Symmetric
+                     ;; with `emit-error!` per rf2-3nn8.
+                     trigger  (assoc :rf.trace/trigger-handler trigger))]
       (push-to-buffer! event)
       (deliver-to-epoch-capture! event)
       (doseq [[_ f] @listeners]

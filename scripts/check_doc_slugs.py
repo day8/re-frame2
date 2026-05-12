@@ -1,30 +1,35 @@
 #!/usr/bin/env python3
-"""Validate in-repo markdown anchor links resolve to real heading slugs.
+"""Validate in-repo markdown links — both target files and anchor slugs.
 
 Walks the docs corpus, builds a per-file heading-slug index for every
 heading (H1-H6) using the exact same slugifier the MkDocs build uses
 (pymdownx.slugs.slugify with case=lower), then scans every
-[text](file.md#anchor) link and reports any anchors that don't exist in
-the target file's slug index.
+[text](file.md) and [text](file.md#anchor) link and reports:
 
-This is the durable fix for rf2-sefq — the cross-link audit in cluster #10
-surfaced 105+ broken anchors that drifted as chapters were renumbered and
-headings renamed. Hook this into CI and the build fails before such drift
-ships.
+    * BROKEN TARGET — the .md file the link points at does not exist.
+    * BROKEN ANCHOR — the file exists but the #anchor isn't a real slug.
+
+Target-file validation was added under rf2-unge8 after the cross-link
+audit on 2026-05-12 surfaced a stale `[text](file.md)` (no anchor) ref
+the anchor-only validator could not see (docs/guide/17a → 19-where-next
+after #483 renamed it to 20-where-next).
+
+Hook this into CI and the build fails before such drift ships.
 
 Exit code:
-    0  no broken anchors
-    1  at least one broken anchor (results printed in file:line form)
+    0  no broken links
+    1  at least one broken link (results printed in file:line form)
     2  invocation / setup error
 
 Notes on what is and isn't checked:
     * Only intra-repo links are validated. External http(s) URLs are skipped.
     * Only links to .md files are validated. Code, image, and asset links
-      are skipped.
+      are skipped (their existence is mkdocs' concern, not the slug index's).
     * Same-file anchors (no path, just #foo) are validated against the
-      current file's index.
+      current file's index. No target-file check is needed.
     * Cross-tree links resolve relative to the linking file (..  segments
-      are honoured).
+      are honoured). Absolute-style paths (`/docs/foo.md`) resolve
+      repo-root-relative.
     * Anchors are decoded before comparison — links written as #foo%20bar
       are compared as #foo bar (rare in this corpus but defensive).
     * Pure section-anchor permalinks (e.g. #fragment-only-anchor) and link
@@ -247,11 +252,17 @@ def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | Non
     Returns the absolute Path to the target file, or None if resolution would
     escape the repo (which can't be validated locally — those are treated as
     external references and skipped by the caller).
+
+    Absolute-style paths (starting with `/`) resolve repo-root-relative —
+    this matches mkdocs' link-rendering convention.
     """
     if not dest_path:
         return linker  # same-file anchor
     try:
-        target = (linker.parent / dest_path).resolve()
+        if dest_path.startswith("/"):
+            target = (repo_root / dest_path.lstrip("/")).resolve()
+        else:
+            target = (linker.parent / dest_path).resolve()
     except (OSError, ValueError):
         return None
     try:
@@ -262,7 +273,12 @@ def _resolve_target(linker: Path, dest_path: str, repo_root: Path) -> Path | Non
 
 
 def check(repo_root: Path, verbose: bool = False) -> int:
-    """Validate every in-repo anchor link.  Return broken-link count."""
+    """Validate every in-repo markdown link.  Return broken-link count.
+
+    Flags two distinct defects:
+        * BROKEN TARGET — link points at an .md file that doesn't exist.
+        * BROKEN ANCHOR — file exists but the #anchor doesn't resolve.
+    """
     files = list(_iter_markdown(repo_root))
     if verbose:
         sys.stderr.write(f"scanning {len(files)} markdown files...\n")
@@ -276,65 +292,107 @@ def check(repo_root: Path, verbose: bool = False) -> int:
             slug_cache[ap] = _slug_index(path)
         return slug_cache[ap]
 
-    broken: list[tuple[Path, int, str, str]] = []
+    broken_anchor: list[tuple[Path, int, str, str]] = []
+    broken_target: list[tuple[Path, int, str, str]] = []
     for path in files:
         for line_no, dest in _extract_links(path):
-            # Skip external / non-markdown / mailto / fragment-only links
-            # don't qualify as broken — we only validate .md anchors.
-            if "#" not in dest:
-                continue
+            # External / non-file references — out of scope.
             if dest.startswith(("http://", "https://", "mailto:", "tel:", "//")):
                 continue
 
             path_part, _, anchor = dest.partition("#")
             anchor = urllib.parse.unquote(anchor).strip()
-            if not anchor:
-                continue
 
             # Strip any query string from path-part (rare in markdown but safe).
             path_part = path_part.split("?", 1)[0]
 
-            # Same-file anchor.
+            # Same-file anchor (`[text](#foo)`).  No target-file check; anchor
+            # only.  Empty anchor (just `#` with no fragment) is meaningless
+            # so we skip it.
             if path_part == "":
-                target = path
-            else:
-                # Only validate links to .md files — anchors on other file
-                # types (images, source files) aren't slug-derived.
-                if not path_part.endswith(".md"):
+                if not anchor:
                     continue
-                target = _resolve_target(path, path_part, repo_root)
-                if target is None or not target.is_file():
-                    # Missing target file is a different problem (and mkdocs'
-                    # own link check catches it for the rendered site).  We
-                    # only flag anchor mismatches.
-                    continue
+                if anchor not in slugs_for(path):
+                    broken_anchor.append(
+                        (path, line_no, dest, str(path.relative_to(repo_root.resolve())))
+                    )
+                continue
 
-            if anchor not in slugs_for(target):
-                broken.append((path, line_no, dest, str(target.relative_to(repo_root.resolve()))))
+            # Only validate links to .md files — anchors and target-existence
+            # on other file types (images, source files, asset links) aren't
+            # part of the slug-index contract.  mkdocs' own link check is the
+            # right gate for those.
+            if not path_part.endswith(".md"):
+                continue
 
-    if broken:
+            target = _resolve_target(path, path_part, repo_root)
+            if target is None:
+                # Path escapes the repo — treat as external reference, skip.
+                continue
+            if not target.is_file():
+                broken_target.append(
+                    (path, line_no, dest, _display_target(target, repo_root))
+                )
+                continue
+
+            # Target exists.  Validate anchor if one was specified.
+            if anchor and anchor not in slugs_for(target):
+                broken_anchor.append(
+                    (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
+                )
+
+    total = len(broken_anchor) + len(broken_target)
+
+    if broken_target:
         sys.stderr.write(
-            f"\n{len(broken)} broken anchor link(s) found:\n\n"
+            f"\n{len(broken_target)} broken target file(s) found:\n\n"
         )
-        for src, line_no, dest, target_rel in broken:
+        for src, line_no, dest, target_rel in broken_target:
             rel = src.relative_to(repo_root)
             sys.stderr.write(
-                f"  {rel}:{line_no}  -> {dest}\n"
+                f"  BROKEN TARGET: {rel}:{line_no} -> {dest}\n"
+                f"      (missing: {target_rel})\n"
+            )
+        sys.stderr.write(
+            "\nFix: rename the link to point at the file's current path, "
+            "or restore the missing file.\n"
+        )
+
+    if broken_anchor:
+        sys.stderr.write(
+            f"\n{len(broken_anchor)} broken anchor link(s) found:\n\n"
+        )
+        for src, line_no, dest, target_rel in broken_anchor:
+            rel = src.relative_to(repo_root)
+            sys.stderr.write(
+                f"  BROKEN ANCHOR: {rel}:{line_no} -> {dest}\n"
                 f"      (target: {target_rel})\n"
             )
         sys.stderr.write(
             "\nFix: confirm the heading still exists in the target file and "
             "update the link, or rename the heading and re-link.\n"
         )
-    elif verbose:
-        sys.stderr.write("no broken anchors.\n")
 
-    return len(broken)
+    if total == 0 and verbose:
+        sys.stderr.write("no broken links.\n")
+
+    return total
+
+
+def _display_target(target: Path, repo_root: Path) -> str:
+    """Best-effort repo-relative string for a (possibly non-existent) target."""
+    try:
+        return str(target.relative_to(repo_root.resolve()))
+    except ValueError:
+        return str(target)
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate intra-repo markdown anchor links (rf2-sefq).",
+        description=(
+            "Validate intra-repo markdown links — target files (rf2-unge8) "
+            "and anchor slugs (rf2-sefq)."
+        ),
     )
     parser.add_argument(
         "--repo-root",
@@ -344,7 +402,18 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Print progress to stderr."
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Run the bundled fixture-based self-tests in "
+            "scripts/_test_fixtures/check_doc_slugs/ and exit."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.self_test:
+        return _run_self_tests(verbose=args.verbose)
 
     if args.repo_root:
         repo_root = Path(args.repo_root).resolve()
@@ -360,6 +429,79 @@ def main(argv: list[str]) -> int:
 
     broken = check(repo_root, verbose=args.verbose)
     return 0 if broken == 0 else 1
+
+
+# --------------------------------------------------------------------------
+# Self-tests (rf2-unge8) — small fixture-driven sanity checks.
+#
+# Each fixture is a self-contained mini-repo (just enough to exercise the
+# validator: a single .md file plus a sibling mkdocs.yml so the repo-root
+# guard accepts it).  We invoke `check(repo_root)` against each fixture
+# and assert the expected broken-link count.  These run in CI alongside
+# the full-corpus scan.
+# --------------------------------------------------------------------------
+
+_SELF_TEST_FIXTURE_ROOT = Path(__file__).resolve().parent / "_test_fixtures" / "check_doc_slugs"
+
+
+def _run_self_tests(verbose: bool = False) -> int:
+    """Run fixture-based self-tests.  Return 0 on success, 1 on any failure."""
+    cases: list[tuple[str, int]] = [
+        # (fixture-dir, expected-broken-link-count)
+        ("valid_link",              0),
+        ("broken_target",           1),
+        ("broken_anchor",           1),
+        ("same_file_anchor_ok",     0),
+        ("same_file_anchor_broken", 1),
+        ("absolute_path_ok",        0),
+        ("relative_dotdot_ok",      0),
+    ]
+
+    failures = 0
+    for fixture, expected in cases:
+        root = _SELF_TEST_FIXTURE_ROOT / fixture
+        if not (root / "mkdocs.yml").is_file():
+            sys.stderr.write(
+                f"self-test FAIL: fixture {fixture!r} missing mkdocs.yml at {root}\n"
+            )
+            failures += 1
+            continue
+
+        # Silence the validator's own diagnostic output during self-tests so
+        # the success path stays terse.  Failures still surface via the
+        # PASS/FAIL summary below.
+        saved_stderr = sys.stderr
+        sys.stderr = _DevNull()
+        try:
+            got = check(root, verbose=False)
+        finally:
+            sys.stderr = saved_stderr
+
+        if got == expected:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: {fixture} (broken={got})\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {fixture} expected broken={expected}, got {got}\n"
+            )
+            failures += 1
+
+    if failures:
+        sys.stderr.write(f"\n{failures} self-test failure(s).\n")
+        return 1
+    if verbose:
+        sys.stderr.write(f"all {len(cases)} self-tests passed.\n")
+    return 0
+
+
+class _DevNull:
+    """Minimal stderr stand-in that silently swallows writes during self-tests."""
+
+    def write(self, *_args, **_kwargs) -> int:  # noqa: D401
+        return 0
+
+    def flush(self) -> None:  # pragma: no cover
+        return None
 
 
 if __name__ == "__main__":

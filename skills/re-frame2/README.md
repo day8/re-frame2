@@ -1,6 +1,8 @@
 # re-frame2 (skill)
 
-A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) **author re-frame2 ClojureScript applications**. Companion to [`re-frame-pair2`](../re-frame-pair2/) (which targets running apps) and `re-frame2-setup` (which bootstraps new projects from scratch).
+> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+
+A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) **author re-frame2 ClojureScript applications**. Companion to [`re-frame-pair2`](../re-frame-pair2/) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup/) (which bootstraps new projects from scratch).
 
 This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection).
 
@@ -78,7 +80,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** Scaffolding + leaves are in place; the integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is now linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight.
+**Alpha.** All scaffolding and leaves are populated: `reference/fundamentals/`, `reference/state-machines/`, `reference/tooling/`, `reference/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The integration pass (rf2-l086) reconciled the loading map and added derived-from-implementation footers pinned at main `89bd9c3`. The boot example (rf2-dsm2) is linked; evals harness (rf2-p3qg) and `examples/reagent/{websocket,long_running_work}/` worked examples remain in flight but are not blockers for skill use.
 
 ## License
 

@@ -27,6 +27,7 @@ on:
       - 'mkdocs_hooks.py'
       - 'requirements.txt'
       - 'scripts/check_doc_slugs.py'
+      - 'scripts/_test_fixtures/check_doc_slugs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -54,18 +55,23 @@ jobs:
       - name: Install MkDocs + plugins
         run: pip install -r requirements.txt
 
-      # Validate that every in-repo markdown anchor link (e.g.
-      # [text](file.md#anchor)) resolves to a real heading slug in the
-      # target file.  Catches the kind of cross-link drift that the
-      # cluster-#10 audit surfaced (105+ broken anchors after chapter
-      # renumbers and heading renames).  See scripts/check_doc_slugs.py
-      # and rf2-sefq.  Runs before `mkdocs build` so the failure mode
-      # is "this PR broke a doc anchor", not "mkdocs emitted a warning".
+      # Validate that every in-repo markdown link resolves — both the
+      # target .md file (rf2-unge8) and the heading-slug anchor (rf2-sefq).
+      # Catches the kind of cross-link drift that the cluster-#10 audit
+      # surfaced (105+ broken anchors after chapter renumbers and heading
+      # renames) plus the renamed-file case the 2026-05-12 audit caught
+      # (e.g. `[text](19-where-next.md)` after #483 renamed the file).
+      # See scripts/check_doc_slugs.py.  Runs before `mkdocs build` so
+      # the failure mode is "this PR broke a doc link", not "mkdocs
+      # emitted a warning".
       #
       # Strict mode: rf2-ftkz swept the 26 pre-existing broken anchors
-      # main carried at landing, so this step is now fail-loud — a PR
-      # that introduces a broken anchor fails the build.
-      - name: Validate doc anchor links
+      # main carried at landing, so this step is fail-loud — a PR that
+      # introduces a broken link fails the build.
+      - name: Self-test the link validator
+        run: python scripts/check_doc_slugs.py --self-test --verbose
+
+      - name: Validate doc links (targets + anchors)
         run: python scripts/check_doc_slugs.py --verbose
 
       # Stage the spec/ tree under docs/spec/ so MkDocs (which requires

@@ -139,7 +139,7 @@
   []
   (or (:grace-period-ms @config) 0))
 
-(declare subscribe)
+(declare subscribe unsubscribe)
 
 (defn- maybe-validate-sub-return!
   "Per Spec 010 §Validation order step 6 (rf2-wcam) — after a sub
@@ -306,6 +306,19 @@
                             :pending-dispose nil})
       (interop/add-on-dispose! reaction
         (fn []
+          ;; Per rf2-f3rd: a layer-2+ sub's construction called `subscribe`
+          ;; once per `:<-` input (line 290 above), each incrementing the
+          ;; input's `:ref-count`. The disposal of this parent slot must
+          ;; release those refs symmetrically — without this, input
+          ;; ref-counts leak after Reagent auto-disposes the parent. We
+          ;; decrement inputs BEFORE clearing the parent slot so the cache
+          ;; introspection invariant ("ref-count reflects live refs")
+          ;; holds at every observable moment; the recursive disposal
+          ;; cascade is driven by the same ref-count → 0 path
+          ;; `unsubscribe` already takes.
+          (doseq [input-q input-signals]
+            (try (unsubscribe frame-id input-q)
+                 (catch #?(:clj Throwable :cljs :default) _ nil)))
           (swap! cache (fn [m]
                          (if (identical? reaction (get-in m [k :reaction]))
                            (dissoc m k)
@@ -387,8 +400,6 @@
                           (assoc :pending-dispose nil))))
              (:reaction entry))
            (compute-and-cache! frame-id query-v)))))))
-
-(declare unsubscribe)
 
 (defn subscribe-value
   "Subscribe and immediately deref. Useful in handler bodies where a
