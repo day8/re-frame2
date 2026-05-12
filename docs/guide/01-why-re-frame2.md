@@ -52,7 +52,7 @@ There's a quote in the original re-frame docs:
 
 This is the philosophical centre of re-frame2. The pattern is **deliberately less powerful** than the host language it sits inside. You can't write an event handler that suspends mid-flight. You can't have two handlers touch state simultaneously. Side-effects are not free: every effect goes through a registered, named, queryable interpreter. State changes are not free either: every change goes through an event, which has a name, a registration, and (optionally) a schema describing its shape.
 
-When you give up power, you gain something specific in return: **an execution model you can fully model in your head**. The host language is Turing complete, but the library is not — and that's the point. No dependency-array decisions, no escape hatches. Every higher-order concept (state machines, async effects, SSR) inherits the same shape rather than escaping it.
+When you give up power, you gain something specific in return: **an execution model you can fully model in your head**. The host language is Turing complete, but the library is not — and that's the point. No dependency-array decisions, no escape hatches. Every higher-order concept (state machines[^machines], async effects, SSR) inherits the same shape rather than escaping it.
 
 This isn't a soft claim. A finite state machine — to take an extreme — is provably easier to reason about than a Turing machine. Every reachable state is enumerable. Every transition is discrete. Every input has a defined response. You can draw it on paper. re-frame2 isn't a finite state machine, but it lives in the same neighbourhood: it's a small, known set of stages connected in a fixed order, with pure functions inside each stage. You can, in principle, simulate any specific event's path through the system without running the code. People do.
 
@@ -70,11 +70,11 @@ Most teams who switch to this pattern report that they write *more* tests, not f
 
 ### 2. Time-travel debugging that's not a trick
 
-Because state lives in one place and updates atomically, you can record every state value the app ever had. You can play them back. You can pause time, inspect, rewind, replay. This isn't a feature bolted on; it's a consequence of the architecture. re-frame's `re-frame-10x` tool does this for free.
+Because state lives in one place and updates atomically, you can record every state value the app ever had. You can play them back. You can pause time, inspect, rewind, replay. This isn't a feature bolted on; it's a consequence of the architecture. re-frame2's `re-frame-causa`[^causa] devtool — the successor to re-frame v1's `re-frame-10x` — does this for free.
 
 ### 3. State you can actually inspect
 
-The whole app's state is in one map. You can `pprint` it. You can `diff` it. You can ship it across the wire for SSR. You can dump it on disk, reload tomorrow, and inspect it in a REPL. There's no question of "where does this piece of state live?" — it lives where it lives, at a path in `app-db`.
+The whole app's state is in one map. You can `pprint` it. You can `diff` it. You can ship it across the wire for SSR. You can dump it on disk, reload tomorrow, and inspect it in a REPL. There's no question of "where does this piece of state live?" — it lives where it lives, at a path in `app-db`[^app-db].
 
 ### 4. A small set of well-named primitives
 
@@ -113,7 +113,7 @@ This isn't an argument by authority. It's an observation that the architectural 
 
 ## What this chapter isn't going to enumerate
 
-A natural next question is: *what specifically does re-frame2 add on top of v1, and what does it keep?* The honest answer is that the list reads as marketing until you've met the pieces — frames, machines, flows, schema-attached contracts, deep instrumentation, the spec. The guide introduces each in its own chapter. Once you've worked through them, [chapter 19](19-where-next.md) gathers the additions and the inheritances into a single retrospective recap — a sharper read once the names mean something.
+A natural next question is: *what specifically does re-frame2 add on top of v1, and what does it keep?* The honest answer is that the list reads as marketing until you've met the pieces — frames[^frames], machines, flows, schema-attached contracts, deep instrumentation, the spec. The guide introduces each in its own chapter. Once you've worked through them, [chapter 19](19-where-next.md) gathers the additions and the inheritances into a single retrospective recap — a sharper read once the names mean something.
 
 > ### Sidebar: where re-frame2 isn't the right fit
 >
@@ -134,3 +134,8 @@ If the argument lands, the next chapter ([02 — app-db](02-app-db.md)) introduc
 If the argument is unconvincing, the deeper essay on *why* less-powerful-is-more lives at [12 — The dynamic-model story](12-the-dynamic-model.md). It's the long-form version of this chapter, with citations and a Dijkstra quote.
 
 If you want the precise contracts before the prose, the [specification](../../spec/README.md) is one click away.
+
+[^app-db]: You'll meet `app-db` properly in [chapter 02](02-app-db.md) — it's the single immutable map every re-frame2 app pivots around.
+[^machines]: State machines get their own treatment in [chapter 08](08-state-machines.md).
+[^frames]: Frames — re-frame2's unit of isolated state and dispatch — are introduced in [chapter 06](06-views-and-frames.md).
+[^causa]: `re-frame-causa` is the re-frame2 devtools UI; it's covered in [chapter 15](15-devtools-and-pair-tools.md).
