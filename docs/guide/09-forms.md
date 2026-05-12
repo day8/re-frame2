@@ -32,13 +32,13 @@ Each key is doing a specific job — there's no redundancy, and dropping any one
 
 - **`:submitted`** is the *last server-accepted snapshot*. It starts as `nil` and stays `nil` until the first successful submit, at which point it's set to whatever `:draft` was at the time. After that, "is the form dirty?" becomes "does `:draft` differ from `:submitted`?" — the user has unsaved changes. (For profile-edit and settings forms, this is exactly the right question. For login forms, `:submitted` mostly just exists for symmetry.)
 
-- **`:submit-attempted?`** is a boolean that latches `true` on the first submit click and stays `true`. It's how the view decides whether to reveal errors on fields the user hasn't individually touched yet — see the [error-visibility rule](#error-visibility-touched-or-submit-attempted) below.
+- **`:submit-attempted?`** is a boolean that latches `true` on the first submit click and stays `true`. It's how the view decides whether to reveal errors on fields the user hasn't individually touched yet — see the [error-visibility rule](#error-visibility--touched-or-submit-attempted) below.
 
 - **`:status`** is the form's discrete state: `:idle` before any submit, `:submitting` while a submit request is in flight, `:submitted` after success, `:error` after a server rejection. This is the slot the view checks to disable the submit button while a request is pending and to show "Signing in…" instead of "Sign in".
 
 - **`:errors`** is a map from field id to a vector of error messages, plus a reserved `:_form` key for cross-field and submit-time messages that aren't tied to any single field. Both client-side validation results and structured server-side rejections write into this slot — the view doesn't care which validator wrote an entry.
 
-- **`:touched`** is the set of fields the user has interacted with. It grows monotonically during one session of the form (cleared on `:reset`). The view uses it to decide which fields *can* show their errors before the user has clicked submit — see again [the visibility rule](#error-visibility-touched-or-submit-attempted).
+- **`:touched`** is the set of fields the user has interacted with. It grows monotonically during one session of the form (cleared on `:reset`). The view uses it to decide which fields *can* show their errors before the user has clicked submit — see again [the visibility rule](#error-visibility--touched-or-submit-attempted).
 
 - **`:submit-error`** is the *transport* failure slot — network down, 500 with no parseable body, timeout. A single opaque value. The view renders it as a generic "couldn't reach the server" message. Distinct from `:errors`, which holds *renderable validation outcomes* (per-field or `:_form`-level).
 

@@ -110,7 +110,7 @@ The navigation in the example above leaves a slice in `app-db`. The runtime main
 
 The `:rf/route` key is reserved. Path params (`:params`) and query params (`:query`) are distinct maps — captured separately, validated against separate schemas, kept separate in the slice. Consumers that prefer a merged map build one in a derived sub.
 
-`:fragment` carries the URL `#fragment` part. `:nav-token` is the runtime-allocated navigation epoch (see [§Navigation tokens](#navigation-tokens-stale-result-suppression)). Both are runtime-managed; user code reads them through subs.
+`:fragment` carries the URL `#fragment` part. `:nav-token` is the runtime-allocated navigation epoch (see [§Navigation tokens](#navigation-tokens--stale-result-suppression)). Both are runtime-managed; user code reads them through subs.
 
 `:transition` is a tiny FSM driven by the runtime: `:idle` when no navigation is in flight; `:loading` while the active route's `:on-match` events are draining; `:error` if any errors. A global progress bar reads `:rf.route/transition` and renders when it's `:loading`; an error banner reads `:rf.route/error`.
 
@@ -246,7 +246,7 @@ The `:on-match` list is the **enumerable, machine-readable** answer to "what loa
 
 ### Async `:on-match` and stale results — the nav-token in one paragraph
 
-If an `:on-match` event kicks off an async load (HTTP, query, timer) and the user navigates away before it completes, the older load's reply can land *after* the user has moved on and clobber the newer state. Re-frame2's answer is the **navigation token (nav-token)**: each navigation gets a fresh token written into the `:rf/route` slice; an async result is committed only if its carried token still matches the current one. You don't allocate or thread the token by hand — `:on-match` handlers receive it as a cofx, and the runtime drops mismatched results with a `:route.nav-token/stale-suppressed` trace. The mechanism is mostly invisible; you'll meet it when you write an `:on-match` continuation that fetches data. Full walkthrough with a worked example in [§Navigation tokens — stale-result suppression](#navigation-tokens-stale-result-suppression) in the reference half.
+If an `:on-match` event kicks off an async load (HTTP, query, timer) and the user navigates away before it completes, the older load's reply can land *after* the user has moved on and clobber the newer state. Re-frame2's answer is the **navigation token (nav-token)**: each navigation gets a fresh token written into the `:rf/route` slice; an async result is committed only if its carried token still matches the current one. You don't allocate or thread the token by hand — `:on-match` handlers receive it as a cofx, and the runtime drops mismatched results with a `:route.nav-token/stale-suppressed` trace. The mechanism is mostly invisible; you'll meet it when you write an `:on-match` continuation that fetches data. Full walkthrough with a worked example in [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression) in the reference half.
 
 ## The `:rf.route/not-found` route
 

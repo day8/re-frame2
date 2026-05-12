@@ -53,7 +53,7 @@ The optional **`:rf.trace/trigger-handler`** slot names the handler whose execut
 
 Everything else rides under `:tags`, with category-specific keys. The full schema lives in [Spec-Schemas](../../spec/Spec-Schemas.md) under `:rf/trace-event`; the per-category `:tags` shapes are pinned in [Spec-Schemas §Per-category `:tags` schemas](../../spec/Spec-Schemas.md#per-category-tags-schemas).
 
-**Production builds eliminate the trace surface entirely.** No exceptions. The error path described here is dev-only — your release bundles contain zero trace code. Errors that need to reach a monitoring service in production do so through your own `:on-error` policy (below), or through SSR's [error projector](#error-projectors-mapping-errors-to-ux) on the server side.
+**Production builds eliminate the trace surface entirely.** No exceptions. The error path described here is dev-only — your release bundles contain zero trace code. Errors that need to reach a monitoring service in production do so through your own `:on-error` policy (below), or through SSR's [error projector](#error-projectors--mapping-errors-to-ux) on the server side.
 
 ## The error taxonomy
 
