@@ -91,6 +91,25 @@ After this single `dispatch-sync`:
 - `counter-log` holds `[:initialised]` (step 9).
 - Any view subscribed to `[:count]` re-renders with `5` (steps 10-11).
 
+## Errors carry the triggering handler's source-coord
+
+Every `:rf.error/*` trace event emitted from inside a running handler — event, sub, fx, cofx, view, interceptor `:before` / `:after`, late-bind hook — carries `:rf.trace/trigger-handler` with the source-coord of *that* handler:
+
+```clojure
+{:rf/op :rf.error/no-such-cofx
+ :rf.error/data {:cofx-id :user/profile}
+ :rf.trace/trigger-handler {:kind         :event
+                            :id           :user/save
+                            :source-coord {:ns     "myapp.events"
+                                           :file   "src/myapp/events.cljs"
+                                           :line   142
+                                           :column 3}}}
+```
+
+`:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-event`, where no handler is yet in scope. It is **not elided in production** — production debugging benefits most.
+
+Tooling (re-frame-10x, re-frame-pair2) renders click-to-jump links straight to the offending handler off this field; in tests / REPL the same field surfaces in `(rf/trace-buffer {:op-type :error})`.
+
 ## Common gotchas
 
 - **`dispatch` is queued, `dispatch-sync` is immediate.** Calling `dispatch-sync` from inside a handler raises `:rf.error/dispatch-sync-in-handler` — sync drains can't nest.

@@ -86,7 +86,7 @@ The metadata map (`frame.cljc:99-130`) accepts:
 
 - `:doc` — one-sentence what-and-why.
 - `:preset` — one of `:default :test :story :ssr-server`; expands at registration into a fixed metadata bundle.
-- `:fx-overrides` — `{original-id replacement-id}`. The fx walk rewrites lookups (`fx.cljc:62-88`); useful for HTTP stubs in tests/stories.
+- `:fx-overrides` — `{original-id replacement-id-or-fn}`. Two value shapes are honoured (`fx.cljc:62-142`): a **keyword** redirects the lookup to another registered fx (portable, SSR-safe pattern-level form), and a **function** `(fn [m args] ...)` runs inline with no registry lookup (one-shot CLJS-reference convenience for test fixtures and story decorators). The id-redirect form is preferred when the stub is reused; the fn form when one test wants a bespoke response without registering a parallel fx. Per-call `:fx-overrides` in `dispatch` / `dispatch-sync` opts accepts the same two shapes.
 - `:platform` — `:client` or `:server`; gates fx whose `:platforms` set excludes the active platform.
 - `:drain-depth` — bound on dispatch-cascade depth (default 100; `:story` preset tightens to 16).
 - `:on-create` / `:on-destroy` — event vectors fired synchronously at lifecycle transitions.
