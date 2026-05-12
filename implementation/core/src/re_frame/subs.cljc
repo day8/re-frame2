@@ -100,10 +100,8 @@
 ;; ---- the cache ------------------------------------------------------------
 
 (defn- cache-key
-  "Per Spec 006 §Cache shape, the key is the query-vector itself.
-  v2 has a single disposal algorithm (deferred ref-counting); the
-  v1-era composite-key / lifecycle-policy plumbing is removed
-  (rf2-7cb2 / rf2-s9dn)."
+  "Identity now; reserved as the chokepoint if cache-key shape changes
+  (per Spec 006 §Cache shape — currently the query-vector itself)."
   [query-v]
   query-v)
 
