@@ -27,6 +27,8 @@
             [re-frame.story.ui.controls :as controls]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.test-mode :as test-mode]
+            [re-frame.story.ui.scrubber :as scrubber]
+            [re-frame.story.ui.scrubber-xref :as xref]
             [re-frame.story.ui.trace :as trace]
             [re-frame.story.ui.workspace :as workspace]))
 
@@ -261,6 +263,51 @@
         (is (= 1 (count (:subs c))))
         (is (= 1 (count (:renders c))))))))
 
+;; ---- trace × scrubber cross-reference (rf2-sxwvf) -----------------------
+
+(deftest trace-scrubber-cross-ref-pure-helpers-callable-in-cljs
+  (testing "the pure-data cross-ref helpers (xref ns) are JVM+CLJS:
+            CLJS callers see the same shape under the cljc target."
+    (let [history [{:epoch-id 7 :trace-events [{:id 2 :tags {:dispatch-id 100}}
+                                               {:id 6 :tags {:dispatch-id 100}}]}
+                   {:epoch-id 8 :trace-events [{:id 12 :tags {:dispatch-id 200}}]}]]
+      (is (= 100 (xref/cascade-id-for-epoch history 7)))
+      (is (= 6   (xref/max-trace-event-id-for-epoch history 7)))
+      (is (nil?  (xref/cascade-id-for-epoch history nil)))
+      ;; filter is the identity under nil cap, drops cascades under a cap.
+      (let [cs [{:dispatch-id 100 :handler {:id 2 :tags {}} :effects [] :subs [] :renders [] :other []}
+                {:dispatch-id 200 :handler {:id 12 :tags {}} :effects [] :subs [] :renders [] :other []}]]
+        (is (= cs (xref/filter-cascades-up-to cs nil)))
+        (is (= [(first cs)] (xref/filter-cascades-up-to cs 6))))
+      (is (true? (xref/cascade-matches-selected-epoch?
+                   {:dispatch-id 100} 100)))
+      (is (false? (xref/cascade-matches-selected-epoch?
+                    {:dispatch-id 200} 100))))))
+
+(deftest scrubber-selection-ratom-roundtrips
+  (testing "selection ratom set/get/drop round-trip in CLJS — the trace
+            panel's deref against the ratom sees the value the scrubber
+            committed (the wiring the .cljs `panel` fns walk)."
+    (let [vid :story.xref/v1]
+      (try
+        ;; default: no selection (cleaned in finally below)
+        (is (nil? (scrubber/selected-epoch-id vid)))
+        ;; set, read, clear via select-epoch!
+        (scrubber/select-epoch! vid 42)
+        (is (= 42 (scrubber/selected-epoch-id vid)))
+        (scrubber/select-epoch! vid nil)
+        (is (nil? (scrubber/selected-epoch-id vid)))
+        ;; ensure-selection-atom! returns the same atom on repeated calls
+        ;; (the trace panel relies on this for stable deref signal).
+        (let [a1 (scrubber/ensure-selection-atom! vid)
+              a2 (scrubber/ensure-selection-atom! vid)]
+          (is (identical? a1 a2)))
+        ;; drop-selection! removes the entry
+        (scrubber/drop-selection! vid)
+        (is (nil? (scrubber/selected-epoch-id vid)))
+        (finally
+          (scrubber/drop-selection! vid))))))
+
 ;; ---- shell render smoke -------------------------------------------------
 ;;
 ;; We don't mount to a real DOM (the node-test target has no jsdom).
@@ -270,6 +317,7 @@
   (testing "sidebar / canvas / controls / scrubber / trace expose top-level component fns"
     (is (fn? sidebar/sidebar))
     (is (fn? trace/panel))
+    (is (fn? scrubber/panel))
     ;; The controls/panel takes a variant-id arg.
     (is (fn? controls/panel))
     ;; rf2-rodx — the :docs mode pane.

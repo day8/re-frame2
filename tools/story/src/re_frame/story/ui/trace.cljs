@@ -34,11 +34,30 @@
   - `remove-listener!`   — tear down the cb.
 
   Both are idempotent. The shell wires them on mount/unmount of the
-  trace panel, so trace capture only runs while the panel is visible."
+  trace panel, so trace capture only runs while the panel is visible.
+
+  ## Cross-reference with the scrubber (rf2-sxwvf)
+
+  Per `spec/011-Trace-Scrubber-Cross-Ref.md` the trace panel
+  cross-references the scrubber's current scrub. When the scrubber's
+  selection is non-nil for the focused variant:
+
+    - the buffer is filtered to events with `:id` ≤ the maximum trace
+      event id stamped on the selected epoch (cascades whose traces all
+      land at or before the epoch boundary stay; cascades emitted
+      after the epoch settled fall away);
+    - the cascade whose `:dispatch-id` matches the selected epoch's
+      cascade-id is visually marked.
+
+  The cross-reference is implemented as a pair of pure-data helpers
+  (`filter-cascades-up-to` / `cascade-row-style`) so the same predicate
+  runs under the JVM unit tests AND inside the CLJS render path."
   (:require [reagent.core :as r]
             [re-frame.trace :as trace]
             [re-frame.trace.projection :as projection]
-            [re-frame.story.config :as config]))
+            [re-frame.story.config :as config]
+            [re-frame.story.ui.scrubber :as scrubber]
+            [re-frame.story.ui.scrubber-xref :as xref]))
 
 ;; ---- the per-variant trace buffer ----------------------------------------
 
@@ -139,6 +158,18 @@
 ;; Re-export for backwards-compat for any in-tree consumer.
 (def group-cascades projection/group-cascades)
 
+;; ---- cross-reference with the scrubber (rf2-sxwvf) -----------------------
+;;
+;; The pure-data helpers live in `re-frame.story.ui.scrubber-xref` so the
+;; cross-reference predicates run under the JVM unit-test target
+;; (`clojure -M:test`) — per `feedback_jvm_interop_must_work.md`. Story's
+;; render path consults the scrubber's selection ratom (CLJS-only),
+;; pipes the result of `epoch/epoch-history` + `group-cascades` into
+;; the helpers, and lifts the visible subset into the row renderer.
+
+(def filter-cascades-up-to            xref/filter-cascades-up-to)
+(def cascade-matches-selected-epoch?  xref/cascade-matches-selected-epoch?)
+
 ;; ---- styling -------------------------------------------------------------
 
 (def ^:private styles
@@ -153,11 +184,22 @@
    :title        {:font-weight "bold"
                   :margin-bottom "6px"
                   :color "#9cdcfe"}
+   :scrub-note   {:font-size "10px"
+                  :color "#dcdcaa"
+                  :font-style "italic"
+                  :margin-bottom "4px"}
    :row          {:display "grid"
                   :grid-template-columns "auto 1fr 1fr 1fr 1fr 1fr"
                   :gap "4px"
                   :padding "2px 0"
                   :border-bottom "1px dotted #333"}
+   ;; rf2-sxwvf: the highlight ring marks the cascade whose post-effects
+   ;; produced the currently-scrubbed epoch. A solid amber outline plus
+   ;; a left border so the row pops without changing the column layout.
+   :row-selected {:background "#2d2d1a"
+                  :outline "1px solid #dcdcaa"
+                  :border-left "3px solid #dcdcaa"
+                  :padding-left "4px"}
    :cell         {:padding "2px 4px"
                   :overflow "hidden"
                   :text-overflow "ellipsis"
@@ -174,25 +216,32 @@
 ;; ---- view ----------------------------------------------------------------
 
 (defn cascade-row
-  "Render one cascade as a six-column row."
-  [{:keys [event handler fx effects subs renders]}]
-  [:div {:style (:row styles)
-         :title (when-let [src (:source handler)]
-                  (str (:file src) ":" (:line src)))}
-   [:span {:style (merge (:cell styles) (:event-cell styles))}
-    (pr-str (first event))]
-   [:span {:style (merge (:cell styles) (:handler-cell styles))}
-    (if handler
-      (str "ran in " (or (get-in handler [:tags :duration-ms]) "?") "ms")
-      "—")]
-   [:span {:style (merge (:cell styles) (:fx-cell styles))}
-    (if fx (str (count (get-in fx [:tags :fx] {})) " fx") "—")]
-   [:span {:style (merge (:cell styles) (:effect-cell styles))}
-    (str (count effects) " effects")]
-   [:span {:style (merge (:cell styles) (:sub-cell styles))}
-    (str (count subs) " subs")]
-   [:span {:style (merge (:cell styles) (:render-cell styles))}
-    (str (count renders) " renders")]])
+  "Render one cascade as a six-column row. Per rf2-sxwvf, when
+  `selected?` is true the row carries the highlight ring + a
+  `data-selected=\"true\"` attribute so the browser test can assert the
+  cross-reference fired."
+  ([cascade] (cascade-row cascade false))
+  ([{:keys [event handler fx effects subs renders] :as _cascade} selected?]
+   [:div {:style (cond-> (:row styles)
+                   selected? (merge (:row-selected styles)))
+          :data-test "story-trace-cascade-row"
+          :data-selected (if selected? "true" "false")
+          :title (when-let [src (:source handler)]
+                   (str (:file src) ":" (:line src)))}
+    [:span {:style (merge (:cell styles) (:event-cell styles))}
+     (pr-str (first event))]
+    [:span {:style (merge (:cell styles) (:handler-cell styles))}
+     (if handler
+       (str "ran in " (or (get-in handler [:tags :duration-ms]) "?") "ms")
+       "—")]
+    [:span {:style (merge (:cell styles) (:fx-cell styles))}
+     (if fx (str (count (get-in fx [:tags :fx] {})) " fx") "—")]
+    [:span {:style (merge (:cell styles) (:effect-cell styles))}
+     (str (count effects) " effects")]
+    [:span {:style (merge (:cell styles) (:sub-cell styles))}
+     (str (count subs) " subs")]
+    [:span {:style (merge (:cell styles) (:render-cell styles))}
+     (str (count renders) " renders")]]))
 
 (defn panel
   "The trace panel component. Subscribes to the variant's trace buffer
@@ -200,12 +249,28 @@
 
   Mounts a listener via `register-listener!` on first render; tears down
   via `remove-listener!` when the shell unmounts (handled by
-  `re-frame.story.ui.shell`)."
+  `re-frame.story.ui.shell`).
+
+  Per rf2-sxwvf, on each render the panel derefs the scrubber's
+  `selection` ratom for the same variant. When non-nil, the buffer is
+  filtered to events at-or-before the selected epoch and the cascade
+  whose post-effects produced that epoch is visually marked."
   [variant-id]
-  (let [buffer (ensure-buffer! variant-id)]
+  (let [buffer         (ensure-buffer! variant-id)
+        selection-atom (scrubber/ensure-selection-atom! variant-id)]
     (fn [variant-id]
-      (let [events   @buffer
-            cascades (group-cascades events)]
+      (let [events             @buffer
+            selected-epoch     @selection-atom
+            cap                (when selected-epoch
+                                 (scrubber/max-trace-event-id-for-epoch
+                                   variant-id selected-epoch))
+            selected-cascade   (when selected-epoch
+                                 (scrubber/cascade-id-for-epoch
+                                   variant-id selected-epoch))
+            all-cascades       (group-cascades events)
+            visible-cascades   (filter-cascades-up-to all-cascades cap)
+            hidden-by-scrub    (- (count all-cascades)
+                                  (count visible-cascades))]
         ;; Per rf2-xc65: the panel wrap is scrollable (`overflow auto`
         ;; + `max-height 240px`). `tab-index "0"` + an aria-label make
         ;; it keyboard-focusable and named so axe-core's
@@ -213,10 +278,21 @@
         [:div {:style      (:panel styles)
                :role       "region"
                :aria-label "Trace cascades"
-               :tab-index  "0"}
+               :tab-index  "0"
+               :data-test  "story-trace-panel"
+               :data-scrubbed-epoch (when selected-epoch (str selected-epoch))}
          [:div {:style (:title styles)}
           "Trace " (when variant-id (str (pr-str variant-id))) " — "
-          (count events) " events, " (count cascades) " cascades"]
+          (count events) " events, " (count visible-cascades) " cascades"]
+         ;; rf2-sxwvf: when a scrub is active, surface the cross-reference
+         ;; state so the user sees why some cascades dropped out.
+         (when selected-epoch
+           [:div {:style (:scrub-note styles)
+                  :data-test "story-trace-scrub-note"}
+            "scrubbed to epoch " (str selected-epoch)
+            (when (pos? hidden-by-scrub)
+              (str " — " hidden-by-scrub " later cascade"
+                   (when (> hidden-by-scrub 1) "s") " hidden"))])
          [:div {:style (merge (:row styles) (:header styles))}
           [:span {:style (:cell styles)} "event"]
           [:span {:style (:cell styles)} "handler"]
@@ -224,8 +300,11 @@
           [:span {:style (:cell styles)} "effects"]
           [:span {:style (:cell styles)} "subs"]
           [:span {:style (:cell styles)} "renders"]]
-         (if (empty? cascades)
-           [:div {:style (:empty styles)} "no cascades captured yet — dispatch an event to see the six dominos"]
-           (for [c cascades]
+         (if (empty? visible-cascades)
+           [:div {:style (:empty styles)}
+            (if selected-epoch
+              "no cascades at or before the selected epoch"
+              "no cascades captured yet — dispatch an event to see the six dominos")]
+           (for [c visible-cascades]
              ^{:key (:dispatch-id c)}
-             [cascade-row c]))]))))
+             [cascade-row c (cascade-matches-selected-epoch? c selected-cascade)]))]))))
