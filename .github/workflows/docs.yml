@@ -21,8 +21,12 @@ on:
     paths:
       - 'docs/**'
       - 'spec/**'
+      - 'skills/**/*.md'
+      - 'tools/**/*.md'
       - 'mkdocs.yml'
+      - 'mkdocs_hooks.py'
       - 'requirements.txt'
+      - 'scripts/check_doc_slugs.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -49,6 +53,22 @@ jobs:
 
       - name: Install MkDocs + plugins
         run: pip install -r requirements.txt
+
+      # Validate that every in-repo markdown anchor link (e.g.
+      # [text](file.md#anchor)) resolves to a real heading slug in the
+      # target file.  Catches the kind of cross-link drift that the
+      # cluster-#10 audit surfaced (105+ broken anchors after chapter
+      # renumbers and heading renames).  See scripts/check_doc_slugs.py
+      # and rf2-sefq.  Runs before `mkdocs build` so the failure mode
+      # is "this PR broke a doc anchor", not "mkdocs emitted a warning".
+      #
+      # NOTE: `continue-on-error: true` is intentional for the initial
+      # landing — main currently carries 26 pre-existing broken anchors
+      # (rf2-ftkz tracks the sweep).  Once rf2-ftkz closes, drop this
+      # flag so a broken anchor fails the build strictly.
+      - name: Validate doc anchor links
+        run: python scripts/check_doc_slugs.py --verbose
+        continue-on-error: true
 
       # Stage the spec/ tree under docs/spec/ so MkDocs (which requires
       # docs_dir to be a child of the config file) can see it. The local
