@@ -140,6 +140,8 @@ No parallel `:loading?` flag; the machine's state IS the UI signal.
 
 **Re-boot.** Rare but supported — dispatch an event the machine handles from any state (or via a wildcard parent `:on`): `:auth.session/expired {:target :authenticating}`. Most apps re-load the page on session expiry instead.
 
+**Final-state handoff (`:final?` / `:on-done`).** When the boot machine is `:invoke`'d by an outer coordinator (e.g. an SSR shell, an embedding host, or a test harness that needs the boot-done signal), mark `:ready` as `:final?` — the parent's `:invoke` receives `:on-done` synchronously when `:ready` is reached, with the optional `:output-key` carrying e.g. the loaded `:user`. The standalone-singleton form (the canonical shape above) should **NOT** use `:final?`: per `:final?` semantics "final means final", a singleton that reaches a `:final?` leaf auto-destroys, taking the snapshot — and therefore `[:app.boot/phase]` / `[:app.boot/state]` subs — with it. Keep `:ready` as an ordinary terminal leaf (`:meta {:terminal? true}`) when the rest of the app subscribes to the boot snapshot post-handoff. See `../reference/state-machines/invoke.md` §Final states for the full surface (constraints, parallel-region semantics, `:rf.machine/done` trace).
+
 **Parameters — the canonical seam.** The boot machine is the ONLY place that reads host globals (`/config` endpoint, build-time env vars, restored session). Once captured into `:data :config`, subsequent phases thread values forward via Pattern-AsyncEffect mechanism 1 (event payload) or mechanism 2 (spawn-spec `:data` fn). Downstream machines never reach into a global from inside an action body.
 
 ## Anti-patterns
@@ -162,6 +164,7 @@ A narrower instance — single-purpose flow machine, same shape — also lives a
 - Full pattern doc, including the auth-machine worked example for the retry-ownership boundary and SSR handoff details → SKILL-REDIRECT.md → *Pattern — Boot*.
 - Frame `:on-create` semantics (atomic entry point) → SKILL-REDIRECT.md → *EP — Frames (002)*.
 - State-machine substrate (`:invoke`, `:after`, restore semantics) → SKILL-REDIRECT.md → *EP — State machines (005)*.
+- `:final?` / `:on-done` / `:output-key` (when boot is `:invoke`'d) → `../reference/state-machines/invoke.md` §Final states.
 - SSR `:rf/server-init` and hydration handoff → SKILL-REDIRECT.md → *EP — SSR (011)*.
 - The retry-ownership boundary → `patterns/managed-http.md` + SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 
