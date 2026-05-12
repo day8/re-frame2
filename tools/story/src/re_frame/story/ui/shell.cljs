@@ -158,6 +158,10 @@
     (scrubber/remove-listener! variant-id)
     (trace/drop-buffer! variant-id)
     (scrubber/drop-history! variant-id)
+    ;; rf2-sxwvf: drop the per-variant scrub selection too — the cross-
+    ;; reference ratom is keyed by variant-id and needs the same
+    ;; teardown shape as the history / buffer ratoms.
+    (scrubber/drop-selection! variant-id)
     (swap! listened-variants disj variant-id)))
 
 (defn- teardown-all-listeners! []
