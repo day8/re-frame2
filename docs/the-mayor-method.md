@@ -105,7 +105,7 @@ That's the entire layout. Everything else in the method assumes this shape.
 
 ## /ai/findings: the exploratory workspace
 
-**I jealously guard the mayor's context.**
+**I guard the mayor's context like a jealous lover.**
 
 Anything that would burn a lot of tokens — open-ended exploration, surveys of best practice, what-if analysis, audits of the existing code, design drafts, *"research the security implications of X"* questions — gets farmed out to a background agent. I ask for the output to land as a markdown document in `/ai/findings`, and the mayor and I then use it as in-flight thinking material while fine-tuning the spec.
 
