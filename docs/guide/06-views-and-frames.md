@@ -225,12 +225,6 @@ The win is purely readability: `(<sub [:products/sorted])` is shorter than `@(rf
 
 These are **optional ergonomics**, not the canonical idiom in this guide; the examples here use `@(subscribe …)` and `dispatch` directly so the underlying primitive stays visible. If you're reading v1 code, or porting a v1 app, recognising the aliases is enough.
 
-### How frames propagate through the view tree
-
-The architecture above assumes a view inside a `frame-provider` subtree picks up the surrounding frame. The CLJS reference uses **React context** to carry this — when you wrap a subtree with `[rf/frame-provider {:frame :left} ...]`, every registered view rendered underneath receives the frame id through context, and the auto-injected `dispatch`/`subscribe` resolves against it.
-
-The propagation is part of `reg-view`'s contract: a registered view inside `frame-provider {:frame :left}` dispatches to `:left`. The full resolution chain is dynamic-var → React context → `:rf/default`. The split-counter example below exercises the resolution; the view fn doesn't know which frame it's been instantiated under, and the framework routes correctly.
-
 ### The Var-reference idiom
 
 `reg-view` is defn-shape: it auto-defs the symbol you supply. Reference that var like any other Reagent component:
@@ -339,6 +333,8 @@ In CLJS, the way to put a registered view inside a particular frame's subtree is
 ```
 
 Two instances of the same registered view, different frames. Each subtree's `dispatch`/`subscribe` resolves to its own frame. The view fn doesn't know it's been instantiated twice with different state.
+
+The propagation mechanism is **React context** — wrapping a subtree with `[rf/frame-provider {:frame :left} ...]` makes the frame id available to every registered view rendered underneath, and the auto-injected `dispatch`/`subscribe` resolves against it. The full resolution chain is dynamic-var → React context → `:rf/default`; this is part of `reg-view`'s contract, and the split-counter example below exercises it end-to-end.
 
 `frame-provider` is a Reagent-specific (React context-driven) construct. The pattern itself doesn't require it — what the *pattern* requires is that every dispatch/subscribe targets a specific frame, by whatever mechanism the host language provides. In TypeScript, you might use a hooks-flavoured `useFrame()`. In Python, you might pass the frame as an argument. In Clojure, React context happens to be ergonomic. The contract — every view targets a specific frame — is the part that survives across hosts.
 
