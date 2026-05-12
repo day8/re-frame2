@@ -271,30 +271,79 @@ jobs:
         run: clojure -M:clein deploy
 
   # ─────────────────────────────────────────────────────────────────
-  # 4. Per-leaf deploy jobs. All depend on deploy-core; none depend on
-  #    each other (per Conventions §Packaging conventions §Independence
-  #    rule). They run in parallel; a single leaf failure does NOT
-  #    halt sibling leaves — by design, since the published-pom DAG
-  #    has no edges between leaves and a partial-leaf-success is
+  # 4. Per-leaf deploys, fanned out via a single matrix-strategy job
+  #    (rf2-i77u). All depend on deploy-core; none depend on each
+  #    other (per Conventions §Packaging conventions §Independence
+  #    rule). Matrix values run in parallel and `fail-fast: false`
+  #    preserves the original behaviour: a single leaf failure does
+  #    NOT halt sibling leaves — by design, since the published-pom
+  #    DAG has no edges between leaves and a partial-leaf-success is
   #    coherent (a consumer that pins schemas + core only is unaffected
   #    by a flows-deploy failure). The github-release job depends on
-  #    every leaf, so a partial deploy means no GitHub Release is
-  #    cut and the next step is the recovery procedure documented at
-  #    the top of this file.
+  #    `deploy-leaf` (which waits for ALL matrix values to succeed), so
+  #    a partial deploy means no GitHub Release is cut and the next
+  #    step is the recovery procedure documented at the top of this
+  #    file.
   #
-  #    Each leaf:
+  #    Each matrix value:
   #      - re-installs core into the runner's local ~/.m2/repository so
   #        the leaf's pom dep on day8/re-frame2 ${{ version }} resolves
   #        without waiting for Clojars' index;
   #      - rewrites :local/root "../core" → :mvn/version "${VERSION}"
   #        in its own deps.edn (throwaway runner checkout, never
-  #        committed);
+  #        committed) — the `local-root` axis carries the per-leaf
+  #        relative path (substrate adapters live one level deeper, so
+  #        they use "../../core");
   #      - deploys with `clojure -M:clein deploy`.
   # ─────────────────────────────────────────────────────────────────
-  deploy-reagent:
-    name: Deploy day8/re-frame2-reagent
+  deploy-leaf:
+    name: Deploy ${{ matrix.artefact }}
     needs: deploy-core
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leaf: reagent
+            artefact: day8/re-frame2-reagent
+            directory: implementation/adapters/reagent
+            local-root: ../../core
+          - leaf: uix
+            artefact: day8/re-frame2-uix
+            directory: implementation/adapters/uix
+            local-root: ../../core
+          - leaf: helix
+            artefact: day8/re-frame2-helix
+            directory: implementation/adapters/helix
+            local-root: ../../core
+          - leaf: schemas
+            artefact: day8/re-frame2-schemas
+            directory: implementation/schemas
+            local-root: ../core
+          - leaf: machines
+            artefact: day8/re-frame2-machines
+            directory: implementation/machines
+            local-root: ../core
+          - leaf: routing
+            artefact: day8/re-frame2-routing
+            directory: implementation/routing
+            local-root: ../core
+          - leaf: flows
+            artefact: day8/re-frame2-flows
+            directory: implementation/flows
+            local-root: ../core
+          - leaf: http
+            artefact: day8/re-frame2-http
+            directory: implementation/http
+            local-root: ../core
+          - leaf: ssr
+            artefact: day8/re-frame2-ssr
+            directory: implementation/ssr
+            local-root: ../core
+          - leaf: epoch
+            artefact: day8/re-frame2-epoch
+            directory: implementation/epoch
+            local-root: ../core
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -333,555 +382,27 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:clein install
 
-      - name: Rewrite reagent :local/root → :mvn/version
-        working-directory: implementation/adapters/reagent
+      - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
+        working-directory: ${{ matrix.directory }}
         env:
           VERSION: ${{ needs.deploy-core.outputs.version }}
+          LOCAL_ROOT: ${{ matrix.local-root }}
+          LEAF_DIR: ${{ matrix.directory }}
         run: |
           set -euo pipefail
-          if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/reagent/deps.edn"
+          BEFORE=":local/root \"${LOCAL_ROOT}\""
+          if ! grep -qF "${BEFORE}" deps.edn; then
+            echo "::error::expected '${BEFORE}' substring not found in ${LEAF_DIR}/deps.edn"
             exit 1
           fi
-          BEFORE=':local/root "../../core"' \
+          BEFORE="${BEFORE}" \
           AFTER=":mvn/version \"${VERSION}\"" \
           python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
           echo "Rewrote :local/root → :mvn/version $VERSION"
           grep "day8/re-frame2 " deps.edn
 
-      - name: Deploy reagent adapter (day8/re-frame2-reagent)
-        working-directory: implementation/adapters/reagent
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-uix:
-    name: Deploy day8/re-frame2-uix
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite uix :local/root → :mvn/version
-        working-directory: implementation/adapters/uix
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/uix/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy uix adapter (day8/re-frame2-uix)
-        working-directory: implementation/adapters/uix
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-helix:
-    name: Deploy day8/re-frame2-helix
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite helix :local/root → :mvn/version
-        working-directory: implementation/adapters/helix
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../../core\"' substring not found in implementation/adapters/helix/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy helix adapter (day8/re-frame2-helix)
-        working-directory: implementation/adapters/helix
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-schemas:
-    name: Deploy day8/re-frame2-schemas
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite schemas :local/root → :mvn/version
-        working-directory: implementation/schemas
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/schemas/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy schemas (day8/re-frame2-schemas)
-        working-directory: implementation/schemas
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-machines:
-    name: Deploy day8/re-frame2-machines
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite machines :local/root → :mvn/version
-        working-directory: implementation/machines
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/machines/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy machines (day8/re-frame2-machines)
-        working-directory: implementation/machines
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-routing:
-    name: Deploy day8/re-frame2-routing
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite routing :local/root → :mvn/version
-        working-directory: implementation/routing
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/routing/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy routing (day8/re-frame2-routing)
-        working-directory: implementation/routing
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-flows:
-    name: Deploy day8/re-frame2-flows
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite flows :local/root → :mvn/version
-        working-directory: implementation/flows
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/flows/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy flows (day8/re-frame2-flows)
-        working-directory: implementation/flows
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-http:
-    name: Deploy day8/re-frame2-http
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite http :local/root → :mvn/version
-        working-directory: implementation/http
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/http/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy http (day8/re-frame2-http)
-        working-directory: implementation/http
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-ssr:
-    name: Deploy day8/re-frame2-ssr
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite ssr :local/root → :mvn/version
-        working-directory: implementation/ssr
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/ssr/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy ssr (day8/re-frame2-ssr)
-        working-directory: implementation/ssr
-        env:
-          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
-          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
-        run: clojure -M:clein deploy
-
-  deploy-epoch:
-    name: Deploy day8/re-frame2-epoch
-    needs: deploy-core
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Clojure CLI
-        uses: DeLaGuardo/setup-clojure@3fe9b3ae632c6758d0b7757b0838606ef4287b08  # 13.4
-        with:
-          cli: latest
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-${{ hashFiles('implementation/**/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-release-
-            ${{ runner.os }}-clj-
-
-      - name: Install core to runner ~/.m2
-        working-directory: implementation/core
-        run: clojure -M:clein install
-
-      - name: Rewrite epoch :local/root → :mvn/version
-        working-directory: implementation/epoch
-        env:
-          VERSION: ${{ needs.deploy-core.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -qF ':local/root "../core"' deps.edn; then
-            echo "::error::expected ':local/root \"../core\"' substring not found in implementation/epoch/deps.edn"
-            exit 1
-          fi
-          BEFORE=':local/root "../core"' \
-          AFTER=":mvn/version \"${VERSION}\"" \
-          python3 -c 'import os, pathlib; p = pathlib.Path("deps.edn"); src = p.read_text(); before = os.environ["BEFORE"]; after = os.environ["AFTER"]; assert src.count(before) == 1, f"expected exactly one occurrence of {before!r}"; p.write_text(src.replace(before, after))'
-          echo "Rewrote :local/root → :mvn/version $VERSION"
-          grep "day8/re-frame2 " deps.edn
-
-      - name: Deploy epoch (day8/re-frame2-epoch)
-        working-directory: implementation/epoch
+      - name: Deploy ${{ matrix.leaf }} (${{ matrix.artefact }})
+        working-directory: ${{ matrix.directory }}
         env:
           CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
           CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
@@ -894,18 +415,12 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   github-release:
     name: Create GitHub Release
+    # A `needs` entry referencing a matrix job waits for ALL of its
+    # matrix values to succeed, so this single edge replaces the
+    # explicit per-leaf list the previous shape carried.
     needs:
       - deploy-core
-      - deploy-reagent
-      - deploy-uix
-      - deploy-helix
-      - deploy-schemas
-      - deploy-machines
-      - deploy-routing
-      - deploy-flows
-      - deploy-http
-      - deploy-ssr
-      - deploy-epoch
+      - deploy-leaf
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
