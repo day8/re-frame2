@@ -110,7 +110,7 @@ node out/server.js
 
 ## Tool surface
 
-The seven tools, in the order a typical session uses them. Argument
+The nine tools, in the order a typical session uses them. Argument
 schemas and result shapes are specified in
 [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
 
@@ -123,6 +123,8 @@ schemas and result shapes are specified in
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
 | `tail-build` | Wait for a hot-reload to land by polling a probe form. |
 | `snapshot`   | Coarse-grained per-frame state read in one round-trip. Returns `:app-db` + `:sub-cache` + `:machines` + `:epochs` + `:traces` slices for every (or a subset of) frame(s). Mega-op for investigate-X workflows. |
+| `subscribe` | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
+| `unsubscribe` | Close a streaming subscription out-of-band. Idempotent. |
 
 (Pre-rf2-7dvg drops also exposed `inject-runtime`. That tool is gone:
 the runtime ships into consumer apps via shadow-cljs `:devtools
@@ -204,6 +206,7 @@ analogues. Listed here for reference:
 | `re-frame-pair2.runtime/watch-epochs` | preload/re_frame_pair2/runtime.cljs | Poll for epochs after id. |
 | `re-frame-pair2.runtime/probe` | preload/re_frame_pair2/runtime.cljs | Hot-reload landed signal. |
 | `re-frame-pair2.runtime/snapshot-state` | preload/re_frame_pair2/runtime.cljs | Per-frame slice composer fed by `:include` / `:frames` opts; backs the `snapshot` MCP tool. |
+| `re-frame-pair2.runtime/subscribe!` / `drain-subscription!` / `unsubscribe!` | preload/re_frame_pair2/runtime.cljs | Per-subscription filtered queue on the trace + epoch bus; backs the `subscribe` MCP tool (rf2-hq49). |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
 | `:origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
@@ -223,6 +226,7 @@ identical between the two surfaces.
 | `watch-epochs.sh` | `watch-epochs` |
 | `tail-build.sh` | `tail-build` |
 | _(none — MCP-only)_ | `snapshot` |
+| _(none — MCP-only)_ | `subscribe` / `unsubscribe` |
 
 The `snapshot` mega-op has no bash equivalent — it's a coarse-grained
 composition of the existing per-slice runtime readers, shipped as
@@ -250,7 +254,7 @@ vocabulary changes.
 ## What this doesn't expose
 
 - **No new framework primitives.** No new registries, no new
-  dispatch types, no new effect substrates. The seven ops route
+  dispatch types, no new effect substrates. The nine ops route
   through existing `re-frame-pair2.runtime` surfaces. See
   [`Principles.md`](./Principles.md) § Tool consumes the framework.
 - **No remote-attach protocol.** pair2-mcp is stdio-only; the agent
@@ -260,6 +264,11 @@ vocabulary changes.
 - **No "private" surfaces.** All public ops are listed in
   [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); there are no
   hidden tools, no internal-only endpoints.
-- **No long-running streaming.** MCP isn't a streaming protocol;
-  `watch-epochs` is pull-mode, called repeatedly with the same
-  `since-id` rather than maintaining a server-pushed feed.
+- **No raw streaming transport.** MCP isn't a streaming protocol per
+  se. The streaming-shaped tools (`subscribe`, `unsubscribe`, rf2-hq49)
+  layer over MCP's `notifications/progress` mechanism: the server polls
+  the runtime's drain at `poll-ms` and emits one progress notification
+  per non-empty batch. The poll cadence is well below the agent loop's
+  perceptual threshold; the `tools/call` stays open for the lifetime
+  of the subscription and resolves on cancel / `unsubscribe` /
+  caller-supplied caps.

@@ -80,9 +80,10 @@ function run() {
 
       notify('notifications/initialized', {});
 
-      // 2. tools/list — expect all seven tools (six per-op + snapshot
-      // mega-op shipped in rf2-x70e). rf2-7dvg cut inject-runtime in
-      // favour of a shadow-cljs :preloads entry; see SKILL.md §Setup.
+      // 2. tools/list — expect all nine tools (six original + snapshot
+      // mega-op from rf2-x70e + subscribe/unsubscribe streaming pair
+      // from rf2-hq49). rf2-7dvg cut inject-runtime in favour of a
+      // shadow-cljs :preloads entry; see SKILL.md §Setup.
       const list = await call('tools/list', {});
       const names = (list.result?.tools || []).map((t) => t.name).sort();
       const expected = [
@@ -90,14 +91,45 @@ function run() {
         'dispatch',
         'eval-cljs',
         'snapshot',
+        'subscribe',
         'tail-build',
         'trace-window',
+        'unsubscribe',
         'watch-epochs',
       ];
       if (JSON.stringify(names) !== JSON.stringify(expected)) {
         throw new Error('tools/list mismatch:\n  expected ' + expected + '\n  got ' + names);
       }
       console.log('OK   tools/list ->', names.join(', '));
+
+      // 2c. Verify the subscribe descriptor carries the documented
+      // input schema (topic + filter + max-buffered + poll-ms +
+      // max-ms + max-events + build) and the enum of recognised
+      // topics. Pinning the exact set so accidental renames break
+      // the test instead of silently shipping a broken contract.
+      const subDesc = (list.result?.tools || []).find((t) => t.name === 'subscribe');
+      if (!subDesc) throw new Error('subscribe descriptor missing from tools/list');
+      const subProps = subDesc.inputSchema?.properties || {};
+      for (const k of ['topic', 'filter', 'max-buffered', 'poll-ms', 'max-ms', 'max-events', 'build']) {
+        if (!(k in subProps)) {
+          throw new Error('subscribe inputSchema missing property: ' + k);
+        }
+      }
+      const topicEnum = subProps.topic?.enum || [];
+      const expectedTopics = ['trace', 'epoch', 'fx', 'error'];
+      for (const t of expectedTopics) {
+        if (!topicEnum.includes(t)) {
+          throw new Error('subscribe.topic.enum missing: ' + t);
+        }
+      }
+      console.log('OK   subscribe descriptor -> topic/filter/max-buffered/poll-ms/max-ms/max-events/build');
+
+      const unsubDesc = (list.result?.tools || []).find((t) => t.name === 'unsubscribe');
+      if (!unsubDesc) throw new Error('unsubscribe descriptor missing from tools/list');
+      if (!unsubDesc.inputSchema?.required?.includes('sub-id')) {
+        throw new Error('unsubscribe.inputSchema missing required: sub-id');
+      }
+      console.log('OK   unsubscribe descriptor -> sub-id required');
 
       // 2b. Verify the snapshot descriptor carries the documented input
       // schema (frames + include + build), so accidental future renames
@@ -135,6 +167,31 @@ function run() {
         throw new Error('snapshot degraded mode expected, got: ' + JSON.stringify(snapResp));
       }
       console.log('OK   tools/call snapshot (no nREPL) -> degraded isError');
+
+      // 3c. tools/call subscribe (no nREPL) — degraded path. Proves
+      // the streaming-shaped tool is wired into the dispatch table
+      // and routes through the same degraded-mode response as the
+      // pull-mode tools.
+      const subResp = await call('tools/call', {
+        name: 'subscribe',
+        arguments: { topic: 'trace' },
+      });
+      const subTxt = subResp.result?.content?.[0]?.text || '';
+      if (!subResp.result?.isError || !subTxt.includes('nrepl-port-not-found')) {
+        throw new Error('subscribe degraded mode expected, got: ' + JSON.stringify(subResp));
+      }
+      console.log('OK   tools/call subscribe (no nREPL) -> degraded isError');
+
+      // 3d. tools/call unsubscribe (no nREPL) — same.
+      const unsubResp = await call('tools/call', {
+        name: 'unsubscribe',
+        arguments: { 'sub-id': 'fake-uuid' },
+      });
+      const unsubTxt = unsubResp.result?.content?.[0]?.text || '';
+      if (!unsubResp.result?.isError || !unsubTxt.includes('nrepl-port-not-found')) {
+        throw new Error('unsubscribe degraded mode expected, got: ' + JSON.stringify(unsubResp));
+      }
+      console.log('OK   tools/call unsubscribe (no nREPL) -> degraded isError');
 
       // 4. tools/call unknown — expect isError with :unknown-tool
       const unk = await call('tools/call', { name: 'no-such-tool', arguments: {} });
