@@ -46,7 +46,12 @@ re-frame rejects that. Instead, events update centralised state. Subscriptions d
 
 **3. Tooling is first-class.** 
 
-re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. Every tool attaches to that bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Devtools, AI pair-programmers, tests, story panels — they all consume the same surface.
+re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. 
+
+Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you even can get even trace form-by-form (think statement-by-statement), but not by default. 
+
+Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
+
 
 ### The core
 
@@ -64,7 +69,7 @@ These are the surfaces every re-frame2 app uses, more or less by default:
 
 Opt in:
 
-- **Tracing deeply integrated** — during development, nothing happens without trace being emitted to a single trace bus. A re-frame2 app is, quite literally, a small virtual machine with instrumentation built in. And all trace carries source code coordinates. Every DOM element in the browser is tagged. Your application is the ultimate surveillance state.
+- **Tracing deeply integrated** — as previously described. 
 - **Routing** — URL-driven navigation with frame-aware semantics. Per-pane routes are possible because frames are a thing.
 - **Validation / schemas** — Malli-backed boundary checks, opt-in, production-elidable. You pay for what you turn on.
 - **Flows** — derived computation graphs that recompute only on input change. Reactive without the gymnastics.
