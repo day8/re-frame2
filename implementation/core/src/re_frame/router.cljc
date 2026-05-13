@@ -492,13 +492,21 @@
               ;; nil and the fan-out is a single nil-check. Per Spec
               ;; 009 §Event-emit listener.
               (when-let [emit-event! (late-bind/get-fn :event-emit/dispatch-on-event)]
-                (let [end-ms (interop/now-ms)]
+                (let [end-ms     (interop/now-ms)
+                      ;; Per rf2-rirbq §Record shape: `:elapsed-ms`
+                      ;; is an integer. `interop/now-ms` returns a
+                      ;; long on the JVM (System/currentTimeMillis)
+                      ;; but a float on CLJS (`js/performance.now()`
+                      ;; carries sub-millisecond precision). Round
+                      ;; once at the substrate boundary so the
+                      ;; record's contract holds on both platforms.
+                      elapsed-ms (long (max 0 (- end-ms start-ms)))]
                   (emit-event! event
                                event-id
                                frame
                                end-ms
                                (if error :error :ok)
-                               (max 0 (- end-ms start-ms))))))))))))
+                               elapsed-ms))))))))))
 
 (defn- process-event!
   "Wrap process-event* in two dynamic bindings:
