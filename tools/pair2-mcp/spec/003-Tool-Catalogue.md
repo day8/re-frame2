@@ -25,6 +25,36 @@ is not allowed. Agents pattern-match on `:rf.mcp/overflow` and either
 narrow their args or pass `max-tokens 0` for the rare case where the
 full payload is genuinely needed.
 
+## Universal: structural dedup on epoch slices
+
+Every tool that ships epoch slices or events vectors —
+`snapshot` (the `:epochs` slot of each frame), `trace-window`,
+`watch-epochs`, and `subscribe` (per-tick `:events` vector) —
+applies structural dedup after diff-encoding and before the
+wire-cap check (see
+[`Principles.md` §Structural dedup](Principles.md#structural-dedup-rf2-obpa9)).
+Each affected tool accepts a `dedup` arg (boolean, default
+`true`). Deduped payloads are wrapped as
+
+```clojure
+{:rf.mcp/dedup-table
+ {:de-dupe.cache/cache-0 <root-with-refs>
+  :de-dupe.cache/cache-1 <shared-subtree>
+  ...}}
+```
+
+The cache map is `day8/de-dupe`'s flat output. Agents
+reconstruct with `(de-dupe.core/expand cache-map)` — one
+library call, exact round-trip. Pass `dedup false` to skip the
+wrap (e.g. for ad-hoc reads when the agent host hasn't been
+taught to call `expand`).
+
+The marker key `:rf.mcp/dedup-table` matches the cross-MCP
+vocabulary declared in
+[causa-mcp `Principles.md` §5](../../causa-mcp/spec/Principles.md) —
+an agent that learned the slot on causa-mcp sees the same slot
+here.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the
@@ -79,7 +109,8 @@ operating frame.
 
 **Args**: `ms` (integer, default 1000), `frame` (string),
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see §Diff-encoded
-`:db-after` below), `build` (string).
+`:db-after` below), `dedup` (boolean, default `true` — see §Structural
+dedup at the top of this catalogue), `build` (string).
 
 **Returns**: `{:ok? true :window-ms N :count K :epochs-mode :diff|:full :epochs [...]}`.
 
@@ -121,7 +152,9 @@ loop should call us repeatedly with the same `since-id`.
 `:event-id`, `:event-id-prefix`, `:effects`, `:touches-path`,
 `:sub-ran`, `:render`, `:origin`, `:frame`), `frame`,
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see
-`trace-window` §Diff-encoded `:db-after`), `build`.
+`trace-window` §Diff-encoded `:db-after`), `dedup` (boolean,
+default `true` — see §Structural dedup at the top of this
+catalogue), `build`.
 
 **Returns**: `{:ok? true :matches [...] :head-id "..." :id-aged-out? bool :epochs-mode :diff|:full}`.
 
@@ -158,7 +191,9 @@ default all five), `path` (EDN-encoded vector or JSON array of segment
 strings — path-slicing for the `:app-db` slice, rf2-tygdv),
 `epochs-mode` (string — `"diff"` (default) or `"full"`, see `trace-window`
 §Diff-encoded `:db-after`; controls the `:epochs` slice's wire shape,
-rf2-1wdzp), `build` (string).
+rf2-1wdzp), `dedup` (boolean, default `true` — applies structural dedup
+per-frame to each `:epochs` slot; see §Structural dedup at the top of
+this catalogue), `build` (string).
 
 **Returns**:
 
@@ -367,6 +402,11 @@ vocab `watch-epochs` already accepts):
   `true` to disable the gate for this subscription. Dropped count
   surfaces as `:dropped-sensitive` on each progress payload (when
   non-zero) and the final summary.
+- `dedup` (boolean, default `true`) — apply structural dedup
+  (rf2-obpa9) to each progress payload's `:events` vector. See
+  §Structural dedup at the top of this catalogue. The cache is
+  per-tick (each `notifications/progress` frame carries its own
+  table; no cross-tick refs). Pass `false` to skip.
 - `build` (string, default `"app"`) — shadow-cljs build id.
 
 ### Returns

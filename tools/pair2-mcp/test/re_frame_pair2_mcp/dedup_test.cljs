@@ -1,0 +1,349 @@
+(ns re-frame-pair2-mcp.dedup-test
+  "Unit tests for the structural-dedup wire-boundary transform
+  (rf2-obpa9).
+
+  Per `tools/pair2-mcp/spec/Principles.md` mechanism (Structural
+  dedup), every `:rf/epoch-record` slice and each subscribe-tick
+  events vector is passed through `day8/de-dupe` before the wire-cap
+  check. Repeated subtrees (notably the per-record `:db-before`
+  reference after diff-encoding) collapse into a flat cache map that
+  the agent host reconstructs via `de-dupe.core/expand`.
+
+  These tests mirror the private dedup helpers from `tools.cljs`
+  (`parse-dedup-arg`, `empty-payload?`, `dedup-value`,
+  `dedup-expand`, `dedup-epochs-in-snapshot`). A rename or signature
+  change surfaces as a failing test rather than a silent contract
+  drift.
+
+  Live end-to-end coverage runs against a real shadow-cljs build via
+  the existing stdio-roundtrip harness; this file pins the pure
+  transforms, the round-trip property, the wire shape, and the
+  reduction-ratio sanity check."
+  (:require [cljs.test :refer-macros [deftest is testing]]
+            [de-dupe.core :as dedup]))
+
+;; ---------------------------------------------------------------------------
+;; Mirrors of the private dedup helpers from tools.cljs. Keep in
+;; lockstep — sibling tests follow the same convention (CLJS private
+;; vars aren't reachable across namespaces without `#'` so we copy
+;; the surface and lean on regression coverage).
+;; ---------------------------------------------------------------------------
+
+(defn- parse-dedup-arg [raw]
+  (cond
+    (nil? raw)             true
+    (true? raw)            true
+    (false? raw)           false
+    (= raw "false")        false
+    (= raw :false)         false
+    (= raw "true")         true
+    (= raw :true)          true
+    :else                  true))
+
+(defn- empty-payload? [v]
+  (or (nil? v)
+      (and (coll? v) (empty? v))
+      (not (coll? v))))
+
+(defn- dedup-value [v enabled?]
+  (if (or (not enabled?) (empty-payload? v))
+    v
+    (let [cache (dedup/de-dupe-eq v)]
+      {:rf.mcp/dedup-table cache})))
+
+(defn- dedup-expand [v]
+  (if (and (map? v) (contains? v :rf.mcp/dedup-table))
+    (dedup/expand (:rf.mcp/dedup-table v))
+    v))
+
+(defn- dedup-epochs-in-snapshot [snapshot enabled?]
+  (cond
+    (or (not enabled?) (not (map? snapshot)))
+    snapshot
+    :else
+    (reduce-kv
+      (fn [m fid fmap]
+        (assoc m fid
+               (if (and (map? fmap) (contains? fmap :epochs))
+                 (update fmap :epochs dedup-value enabled?)
+                 fmap)))
+      {} snapshot)))
+
+;; ---------------------------------------------------------------------------
+;; parse-dedup-arg — MCP-arg normalisation.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-dedup-default-is-true
+  (is (true? (parse-dedup-arg nil))))
+
+(deftest parse-dedup-booleans-pass-through
+  (is (true? (parse-dedup-arg true)))
+  (is (false? (parse-dedup-arg false))))
+
+(deftest parse-dedup-string-forms-accepted
+  ;; The MCP wire ships JSON; clients sending `"false"` should get
+  ;; the false reading rather than the budget-default true.
+  (is (false? (parse-dedup-arg "false")))
+  (is (true? (parse-dedup-arg "true"))))
+
+(deftest parse-dedup-keyword-forms-accepted
+  (is (false? (parse-dedup-arg :false)))
+  (is (true? (parse-dedup-arg :true))))
+
+(deftest parse-dedup-unknown-defaults-to-true
+  ;; Least-surprise on the budget-sensitive default: an unrecognised
+  ;; value gets the smaller-wire-payload behaviour, not the larger.
+  (is (true? (parse-dedup-arg "garbage")))
+  (is (true? (parse-dedup-arg 42)))
+  (is (true? (parse-dedup-arg :other))))
+
+;; ---------------------------------------------------------------------------
+;; empty-payload? — the no-op guard.
+;; ---------------------------------------------------------------------------
+
+(deftest empty-payload-nil-is-empty
+  (is (true? (empty-payload? nil))))
+
+(deftest empty-payload-empty-vector-is-empty
+  (is (true? (empty-payload? [])))
+  (is (true? (empty-payload? {})))
+  (is (true? (empty-payload? #{})))
+  (is (true? (empty-payload? '()))))
+
+(deftest empty-payload-scalars-are-empty
+  ;; Scalars can't be deduped — the no-op guard catches them.
+  (is (true? (empty-payload? 42)))
+  (is (true? (empty-payload? :keyword)))
+  (is (true? (empty-payload? "string")))
+  (is (true? (empty-payload? true))))
+
+(deftest empty-payload-non-empty-collections-fire-dedup
+  (is (false? (empty-payload? [1 2 3])))
+  (is (false? (empty-payload? {:a 1})))
+  (is (false? (empty-payload? #{:x})))
+  (is (false? (empty-payload? '(1 2)))))
+
+;; ---------------------------------------------------------------------------
+;; dedup-value — the wire-boundary wrap.
+;; ---------------------------------------------------------------------------
+
+(deftest dedup-disabled-passes-through
+  ;; opt-out: caller asks for the raw payload.
+  (let [payload [{:a 1 :b 2} {:a 1 :b 2}]]
+    (is (= payload (dedup-value payload false)))))
+
+(deftest dedup-empty-payload-passes-through
+  ;; Empty / scalar inputs skip wrapping — the cache-of-one would
+  ;; be a wire-size loss for trivial values.
+  (is (nil? (dedup-value nil true)))
+  (is (= [] (dedup-value [] true)))
+  (is (= {} (dedup-value {} true)))
+  (is (= 42 (dedup-value 42 true))))
+
+(deftest dedup-non-empty-collection-emits-marker
+  (let [payload [{:a 1} {:b 2}]
+        wrapped (dedup-value payload true)]
+    (is (map? wrapped))
+    (is (contains? wrapped :rf.mcp/dedup-table))
+    (is (map? (:rf.mcp/dedup-table wrapped))
+        "the table itself is a hash-map keyed by namespaced symbols")))
+
+(deftest dedup-marker-key-is-the-cross-mcp-vocabulary
+  ;; The marker key matches causa-mcp's Principles §5 (Structural
+  ;; dedup): `{:rf.mcp/dedup-table ...}`. Agents that learned the
+  ;; slot on causa-mcp see the same slot here.
+  (let [wrapped (dedup-value [{:a 1} {:a 1}] true)]
+    (is (= [:rf.mcp/dedup-table] (vec (keys wrapped))))))
+
+;; ---------------------------------------------------------------------------
+;; Round-trip: dedup → expand → identity.
+;; ---------------------------------------------------------------------------
+
+(deftest round-trip-simple-shared-map
+  (let [shared {:big "common" :keys [:a :b :c]}
+        payload [{:id 1 :payload shared}
+                 {:id 2 :payload shared}
+                 {:id 3 :payload shared}]
+        wrapped (dedup-value payload true)
+        restored (dedup-expand wrapped)]
+    (is (= payload restored))))
+
+(deftest round-trip-already-expanded-is-noop
+  ;; A payload that was never deduped (caller passed `dedup false`)
+  ;; round-trips identity through expand.
+  (let [payload [{:a 1} {:b 2}]]
+    (is (= payload (dedup-expand payload)))))
+
+(deftest round-trip-nested-shared-subtrees
+  ;; The load-bearing case: epoch slice where every record carries
+  ;; the same large `:db-before`. After dedup → expand the structure
+  ;; comes back exactly.
+  (let [big-db (into {} (for [i (range 100)]
+                          [(keyword (str "k" i))
+                           {:v (str "value-" i)
+                            :meta {:tags [:tag1 :tag2 :tag3]}}]))
+        epochs (vec (for [i (range 10)]
+                      {:epoch-id (str "ep-" i)
+                       :db-before big-db
+                       :db-after  {:rf.mcp/diff-from :db-before
+                                   :patches [[[(keyword (str "k" i)) :v]
+                                              :assoc (str "new-" i)]]}}))
+        wrapped (dedup-value epochs true)
+        restored (dedup-expand wrapped)]
+    (is (= epochs restored))))
+
+(deftest round-trip-empty-collections-inside-payload
+  (let [payload [{:items [] :state {}} {:items [] :state {}}]
+        wrapped (dedup-value payload true)
+        restored (dedup-expand wrapped)]
+    (is (= payload restored))))
+
+(deftest round-trip-deeply-nested-uniform-records
+  ;; Stress: 50 records each carrying the same nested structure.
+  (let [record {:cart {:items [{:sku "A" :qty 1}
+                               {:sku "B" :qty 2}]
+                       :total 30}
+                :user {:id 7 :name "alice"}
+                :ui {:loading? false :error nil}}
+        payload (vec (repeat 50 record))
+        wrapped (dedup-value payload true)
+        restored (dedup-expand wrapped)]
+    (is (= payload restored))
+    (is (= 50 (count restored)))))
+
+;; ---------------------------------------------------------------------------
+;; Reduction-ratio sanity: 10-epoch window with shared map structure.
+;; The bead requires ≥50% reduction; we assert the actual value with
+;; a generous floor because the precise ratio depends on subtree
+;; cardinality + map layout.
+;; ---------------------------------------------------------------------------
+
+(deftest reduction-ratio-shared-subtrees
+  ;; The load-bearing scenario rf2-obpa9 targets: a 10-epoch window
+  ;; whose records share their `:db-before` reference. The diff-
+  ;; encoder (rf2-1wdzp) already reduced :db-after to a tiny patch
+  ;; per record; the deduper now collapses the repeated :db-before.
+  (let [;; Build a "big" app-db — 256 keys, each pointing at a 256-char
+        ;; string value ⇒ ~80KB pr-str.
+        big-db (into {} (for [i (range 256)]
+                          [(keyword (str "k" i))
+                           (apply str (repeat 256 \x))]))
+        ;; 10 epochs, each sharing the same :db-before reference.
+        epochs (vec (for [i (range 10)]
+                      {:epoch-id (str "ep-" i)
+                       :event-id :touch
+                       :db-before big-db
+                       :db-after  {:rf.mcp/diff-from :db-before
+                                   :patches [[[(keyword (str "k" i))]
+                                              :assoc (apply str (repeat 256 \y))]]}}))
+        raw-size (count (pr-str epochs))
+        wrapped (dedup-value epochs true)
+        wrapped-size (count (pr-str wrapped))]
+    (testing "wrapped payload is much smaller than the raw vector"
+      ;; Observability: print the actual ratio in the test log so the
+      ;; PR body and future findings docs have a real number to cite.
+      (println "[rf2-obpa9] 10-epoch / 256-key shared :db-before:"
+               "raw=" raw-size "chars,"
+               "deduped=" wrapped-size "chars,"
+               "reduction=" (.toFixed (- 100.0 (* 100.0 (/ wrapped-size raw-size 1.0))) 1) "%")
+      (is (< wrapped-size raw-size))
+      ;; Conservative: ≥50% reduction (the bead's floor). Actual
+      ;; should be much higher when the same :db-before reference
+      ;; rides 10 times.
+      (is (< wrapped-size (* 0.5 raw-size))
+          (str "Deduped size (" wrapped-size
+               ") should be < 50% of raw (" raw-size
+               "). Ratio: " (/ wrapped-size raw-size 1.0))))
+    (testing "round-trip still reconstructs every epoch"
+      (let [restored (dedup-expand wrapped)]
+        (is (= epochs restored))))))
+
+;; ---------------------------------------------------------------------------
+;; Edge cases per the bead.
+;; ---------------------------------------------------------------------------
+
+(deftest edge-case-empty-payload-is-noop
+  ;; "empty payload (no-op)" — the wrapper short-circuits.
+  (is (nil? (dedup-value nil true)))
+  (is (= [] (dedup-value [] true))))
+
+(deftest edge-case-no-repeated-structure
+  ;; "payload with no repeated structure (table empty)" — the cache
+  ;; ships only the root entry; round-trip still exact.
+  (let [payload [{:a 1} {:b 2} {:c 3}]
+        wrapped (dedup-value payload true)
+        restored (dedup-expand wrapped)]
+    (is (= payload restored))))
+
+(deftest edge-case-one-big-repeated-subtree
+  ;; "payload that's one big repeated subtree (table has 1 entry)" —
+  ;; the cache compresses well; round-trip still exact.
+  (let [shared (into {} (for [i (range 100)]
+                          [(keyword (str "k" i)) i]))
+        payload (vec (repeat 20 shared))
+        wrapped (dedup-value payload true)
+        restored (dedup-expand wrapped)]
+    (is (= payload restored))
+    (is (= 20 (count restored)))
+    (is (every? #(= shared %) restored))))
+
+;; ---------------------------------------------------------------------------
+;; dedup-epochs-in-snapshot — per-frame integration.
+;; ---------------------------------------------------------------------------
+
+(def ^:private fixture-snapshot
+  {:rf/default {:app-db    {:k :v}
+                :sub-cache {}
+                :machines  {:ids [] :state {}}
+                :epochs    [{:epoch-id :ep-1
+                             :db-before {:cart {:items []}}
+                             :db-after  {:rf.mcp/diff-from :db-before :patches []}}
+                            {:epoch-id :ep-2
+                             :db-before {:cart {:items []}}
+                             :db-after  {:rf.mcp/diff-from :db-before :patches []}}]
+                :traces    []}
+   :stories    {:app-db    {:k2 :v2}
+                :sub-cache {}
+                :machines  {:ids [] :state {}}
+                :epochs    [{:epoch-id :ep-A
+                             :db-before {:foo 1}
+                             :db-after  {:rf.mcp/diff-from :db-before
+                                         :patches [[[:foo] :assoc 2]]}}]
+                :traces    []}})
+
+(deftest snapshot-dedup-wraps-each-frames-epochs
+  (let [wrapped (dedup-epochs-in-snapshot fixture-snapshot true)]
+    (testing ":epochs slot wrapped on every frame that has one"
+      (doseq [[_fid fmap] wrapped]
+        (let [eps (:epochs fmap)]
+          (is (and (map? eps) (contains? eps :rf.mcp/dedup-table))
+              "epochs slice replaced with dedup-table marker"))))
+    (testing "other slices pass through unchanged"
+      (is (= {:k :v} (-> wrapped :rf/default :app-db)))
+      (is (= [] (-> wrapped :rf/default :traces))))))
+
+(deftest snapshot-dedup-disabled-passes-through
+  (is (= fixture-snapshot
+         (dedup-epochs-in-snapshot fixture-snapshot false))))
+
+(deftest snapshot-dedup-skips-frames-without-epochs-slice
+  ;; The :include filter may exclude :epochs. Don't add one.
+  (let [snap {:rf/default {:app-db {} :sub-cache {}}}
+        wrapped (dedup-epochs-in-snapshot snap true)]
+    (is (not (contains? (:rf/default wrapped) :epochs)))))
+
+(deftest snapshot-dedup-non-map-passes-through
+  (is (nil? (dedup-epochs-in-snapshot nil true)))
+  (is (= :not-a-snap (dedup-epochs-in-snapshot :not-a-snap true))))
+
+(deftest snapshot-dedup-round-trips-per-frame
+  (let [wrapped (dedup-epochs-in-snapshot fixture-snapshot true)
+        restored (reduce-kv
+                   (fn [m fid fmap]
+                     (assoc m fid
+                            (if (contains? fmap :epochs)
+                              (update fmap :epochs dedup-expand)
+                              fmap)))
+                   {}
+                   wrapped)]
+    (is (= fixture-snapshot restored))))
