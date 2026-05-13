@@ -21,7 +21,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [Spec-Schemas.md §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker) — the marker's Malli shape.
 
 **Consumers.**
-- [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the fifth wire-elision mechanism alongside the four MCP-side shapes (`:rf.mcp/summary`, `:rf.mcp/overflow`, `:rf.mcp/diff-from`, `:rf.mcp/dedup-table`).
+- [Tool-Pair.md](Tool-Pair.md) — pair-shaped tools consume the walker at the wire boundary; the `:rf.size/large-elided` marker is the sixth of six normative wire-protocol markers catalogued in [`tools/mcp-conformance/wire-vocab/`](../tools/mcp-conformance/wire-vocab/README.md) and pinned in [`tools/causa-mcp/spec/DESIGN-RATIONALE.md` §Lock #10](../tools/causa-mcp/spec/DESIGN-RATIONALE.md) — the four MCP-side response shapes (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/dedup-table`, `:rf.mcp/diff-from`), the `:rf.size/large-elided` per-value elision marker, and the `:rf.elision/at` fetch-handle tag that pairs with it.
 - `tools/pair2-mcp/` — applies the walker in `tools.cljs` invoke pipeline; the `elision_test.cljs` suite pins the wire shape.
 - `tools/causa/` — on-box trace listener panels default `:rf.size/include-large?` to `false`; the `[● ELIDED N]` indicator surfaces the marker.
 - `tools/story/` — variant snapshots and trace scrubbers consume the same walker.
