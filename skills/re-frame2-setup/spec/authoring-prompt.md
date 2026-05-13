@@ -1,5 +1,7 @@
 # re-frame2-setup — Authoring Prompt
 
+> **Skill-internal meta-doc.** Design rationale + author notes for the `re-frame2-setup` skill itself — not part of the user-facing or AI-facing skill contract. Not loaded during normal skill operation; exists to re-author the skill from inputs. For the skill contract, see [`SKILL.md`](../SKILL.md).
+
 A self-contained prompt that re-authors the `re-frame2-setup` skill from this `spec/` folder alone. Drop into a fresh Claude Code session in the re-frame2 repo root.
 
 ## The prompt

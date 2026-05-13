@@ -1,5 +1,7 @@
 # re-frame-pair-retro2 — Inputs
 
+> **Skill-internal meta-doc.** Design rationale + author notes for the `re-frame-pair-retro2` skill itself — not part of the user-facing or AI-facing skill contract. Not loaded during normal skill operation; exists to re-author the skill from inputs. For the skill contract, see [`SKILL.md`](../SKILL.md).
+
 The canonical inputs the skill leans on. A re-authoring pass needs these to reproduce the leaves.
 
 ## 1. Primary input — the user's recent session transcript

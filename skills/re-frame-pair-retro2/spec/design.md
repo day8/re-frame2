@@ -1,5 +1,7 @@
 # re-frame-pair-retro2 — Design
 
+> **Skill-internal meta-doc.** Design rationale + author notes for the `re-frame-pair-retro2` skill itself — not part of the user-facing or AI-facing skill contract. Not loaded during normal skill operation; exists to re-author the skill from inputs. For the skill contract, see [`SKILL.md`](../SKILL.md).
+
 The design rationale and locked decisions for the `re-frame-pair-retro2` skill. A future agent could re-author this skill from this folder alone.
 
 ## 1. Goal
