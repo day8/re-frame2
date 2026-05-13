@@ -15,26 +15,39 @@
   "Print a render-tree node in a stable order. Maps are sorted by key
   string; sequences keep order. Functions and var-references appear
   as their toString — stable enough for trees that re-render the same
-  view-fn from the same registry."
+  view-fn from the same registry.
+
+  Per Spec 011 §Hydration-mismatch detection: **nil pruned**. Two render
+  trees that differ only by absent-key vs nil-value are structurally
+  equivalent — `[:div {:class nil}]` and `[:div {}]` hash identically;
+  `[:p \"text\" nil]` and `[:p \"text\"]` hash identically. Without this
+  pruning the server emits `{:class nil}` while the client emits `{}`
+  (the common `{:class (when condition? :selected)}` shape), producing
+  spurious `:rf.ssr/hydration-mismatch` traces. Returns nil for nil
+  input so the parent collection's `keep` / `remove` step prunes it."
   [x]
   (cond
+    (nil? x) nil                                    ;; pruned at parent
+
     (map? x)
     (str "{"
          (clojure.string/join
            ","
-           (map (fn [[k v]] (str (canonical-edn k) " " (canonical-edn v)))
-                (sort-by (comp str key) x)))
+           (->> x
+                (remove (comp nil? val))
+                (sort-by (comp str key))
+                (map (fn [[k v]] (str (canonical-edn k) " " (canonical-edn v))))))
          "}")
 
     (vector? x)
-    (str "[" (clojure.string/join " " (map canonical-edn x)) "]")
+    (str "[" (clojure.string/join " " (keep canonical-edn x)) "]")
 
     (sequential? x)
-    (str "(" (clojure.string/join " " (map canonical-edn x)) ")")
+    (str "(" (clojure.string/join " " (keep canonical-edn x)) ")")
 
     (set? x)
     (str "#{"
-         (clojure.string/join " " (sort (map canonical-edn x)))
+         (clojure.string/join " " (sort (keep canonical-edn x)))
          "}")
 
     (fn? x)
