@@ -1,10 +1,10 @@
-# re-frame-pair-improver2
+# re-frame-pair-retro2
 
 > Turns a `re-frame-pair2` session into a product retrospective. Surfaces friction, classifies root causes, proposes 2–5 concrete improvements, and (only on explicit approval) drafts or files beads against the right repo.
 
 ## What it does
 
-The `re-frame-pair-improver2` skill is a **meta-skill** for `re-frame-pair2`. It reads the current or just-finished pair-programming session and turns it into a focused retrospective: what was the user actually trying to do; where did the workflow drag, confuse, or frustrate; which problems were one-off environment issues vs recurring product gaps; and 2–5 concrete improvement ideas, prioritized by leverage, including 1–2 bolder ideas when reshaping the workflow would materially improve it.
+The `re-frame-pair-retro2` skill is a **meta-skill** for `re-frame-pair2`. It reads the current or just-finished pair-programming session and turns it into a focused retrospective: what was the user actually trying to do; where did the workflow drag, confuse, or frustrate; which problems were one-off environment issues vs recurring product gaps; and 2–5 concrete improvement ideas, prioritized by leverage, including 1–2 bolder ideas when reshaping the workflow would materially improve it.
 
 The skill is **diagnosis first**, contribution second. It presents friction points before root causes, lets the user steer which ones to dig into, and never files a bead or edits another repo without explicit approval. Improvements are routed to the right layer:
 
@@ -32,7 +32,7 @@ Do **not** use this skill for:
 The skill auto-triggers on retrospective-shaped questions ("how could pair2 do this better?", "what could be improved here?"). To force-load:
 
 ```
-/skill re-frame-pair-improver2
+/skill re-frame-pair-retro2
 ```
 
 The skill's analysis workflow runs in six steps: reconstruct the session goal, build a short timeline of stalls / restarts / detours, extract a numbered friction list (and ask the user which to dig into), classify root causes through ten lenses (skill structure / skill gap / misleading docs / missing structured op / unreliable op / default or fallback / platform bug / validation gap / upstream limitation / context-window issue), generate improvements at the right layer, and prioritize down to 2–5.
@@ -41,7 +41,7 @@ Output is a compact retrospective with sections — `Goal`, `Observed friction`,
 
 ## Where the skill lives
 
-- Source: [`skills/re-frame-pair-improver2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2)
-- `SKILL.md`: [`skills/re-frame-pair-improver2/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-pair-improver2/SKILL.md)
-- Reference leaves: [`skills/re-frame-pair-improver2/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2/references) — `analysis-lenses.md` (taxonomy when a session has multiple plausible causes), `known-frictions.md` (recurring classes of `re-frame-pair2` pain — useful for sanity-checking whether a friction is one-off or a pattern), `issue-template.md` (bead-body structure).
+- Source: [`skills/re-frame-pair-retro2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2)
+- `SKILL.md`: [`skills/re-frame-pair-retro2/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-pair-retro2/SKILL.md)
+- Reference leaves: [`skills/re-frame-pair-retro2/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2/references) — `analysis-lenses.md` (taxonomy when a session has multiple plausible causes), `known-frictions.md` (recurring classes of `re-frame-pair2` pain — useful for sanity-checking whether a friction is one-off or a pattern), `issue-template.md` (bead-body structure).
 - Companion skill: [`re-frame-pair2`](re-frame-pair2.md) — the skill this one retrospects.

@@ -197,7 +197,7 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
   causa-mcp/                   day8/re-frame2-causa-mcp — MCP agent surface for Causa (spec-only)
   machines-viz/                day8/re-frame2-machines-viz — state-machine chart renderer
                                (spec-only)
-skills/                        Claude skills — re-frame-pair2, re-frame-pair-improver2,
+skills/                        Claude skills — re-frame-pair2, re-frame-pair-retro2,
                                re-frame2, re-frame2-setup, re-frame-migration
 ```
 

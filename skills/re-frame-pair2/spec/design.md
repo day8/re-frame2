@@ -31,7 +31,7 @@ Every op the skill teaches eventually becomes a ClojureScript form evaluated thr
 
 ### L2 — No re-frame-10x dependency
 
-Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s native Tool-Pair surfaces. The skill never proposes fixes that route through `re-frame-10x`. This is L1 of the sibling `re-frame-pair-improver2` skill too — consistent across the pair family.
+Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s native Tool-Pair surfaces. The skill never proposes fixes that route through `re-frame-10x`. This is L1 of the sibling `re-frame-pair-retro2` skill too — consistent across the pair family.
 
 ### L3 — Two transports, MCP preferred
 
@@ -96,7 +96,7 @@ Before any time-travel experiment, the AI walks the cascade's effects and tells 
 - **Authoring re-frame2 code from scratch** (vs. modifying live) — `skills/re-frame2/`.
 - **v1→v2 migration** — `skills/re-frame-migration/`.
 - **Porting re-frame2 to a different host** — `skills/re-frame2-implementor/`.
-- **Improving the pair tool itself** — `skills/re-frame-pair-improver2/`.
+- **Retrospecting on the pair tool itself** — `skills/re-frame-pair-retro2/`.
 - **Apps not using re-frame2's Tool-Pair contract** (e.g. v1 apps, custom adapters that don't install trace-cb / epoch-cb hooks) — out of scope; the skill returns `:missing :re-frame2-tool-pair` on connect.
 
 ## 5. File structure (locked)

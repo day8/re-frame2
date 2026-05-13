@@ -1,6 +1,6 @@
-# re-frame-pair-improver2 — Design
+# re-frame-pair-retro2 — Design
 
-The design rationale and locked decisions for the `re-frame-pair-improver2` skill. A future agent could re-author this skill from this folder alone.
+The design rationale and locked decisions for the `re-frame-pair-retro2` skill. A future agent could re-author this skill from this folder alone.
 
 ## 1. Goal
 
@@ -80,7 +80,7 @@ When a session resembles a recurring class of pain, the skill consults `referenc
 
 ### L11 — Findings stay local
 
-Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` or `findings/`. This skill's commits contain only `skills/re-frame-pair-improver2/**`.
+Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` or `findings/`. This skill's commits contain only `skills/re-frame-pair-retro2/**`.
 
 ### L12 — Redact secrets before filing
 
@@ -108,7 +108,7 @@ Bead drafts redact secrets, tokens, internal URLs, and unnecessary local file pa
 ## 5. File structure (locked)
 
 ```
-skills/re-frame-pair-improver2/
+skills/re-frame-pair-retro2/
 ├── SKILL.md                            (~170 lines; the conversation guide + workflow)
 ├── README.md                           (human-facing intro)
 ├── LICENSE                             (MIT)
@@ -130,7 +130,7 @@ SKILL.md (~170) + 3 references (~350) + spec (~300) ≈ ~820 LoC. Typical sessio
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` triggers on retrospective / improvement / friction phrases: *"how could re-frame-pair2 better support my workflow"*, *"retrospective on a debugging session"*, *"concrete improvement ideas for re-frame-pair2"*, *"draft a bead for re-frame-pair2"*. The framing is conversational ("Analyze a user's recent work...") — discriminates against the live-app `re-frame-pair2` skill (which triggers on dispatch / app-db / epoch verbs) and against the authoring `re-frame2` skill (which triggers on `reg-*` surfaces).
+The `description` triggers on two canonical paths: (a) **explicit pull** — retrospective / improvement / friction phrases like *"retro on this pair session"*, *"what went wrong with my pair session"*, *"review my re-frame-pair2 session"*, *"draft a bead for re-frame-pair2"*; (b) **post-error within a pair2 session** — after a stack trace, failed dispatch, red CI, or `:on-error` policy fire during live pair2 work, to post-mortem the immediate firefight. Acceptable evidence is either a concrete `re-frame-pair2` session in the conversation or a user-supplied recap / summary of one. The framing is conversational — discriminates against the live-app `re-frame-pair2` skill (which triggers on dispatch / app-db / epoch verbs), the authoring `re-frame2` skill (which triggers on `reg-*` surfaces), and the framework-pattern critique `re-frame2-improver` skill (which triggers on re-frame2 code shape, not pair-tool sessions).
 
 ## 7. Anti-patterns the skill explicitly resists
 

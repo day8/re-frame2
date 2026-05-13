@@ -45,7 +45,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 - **`skills/re-frame2/spec/design.md`** — the parent skill's locked design. This skill inherits the four pillars (recipe-shape, idiomaticness, context economy, training-knowledge assumption), the cardinal-rules format, the routing-table convention.
 - **`skills/re-frame-migration/spec/`** + **`skills/re-frame2-implementor/spec/`** — the existing `spec/` triad pattern. Voice / shape mirror these.
-- **`skills/re-frame-pair-improver2/SKILL.md`** — the sibling improver skill that consumes this skill's output. The two are coupled: the improver routes friction back into beads against the pair tool.
+- **`skills/re-frame-pair-retro2/SKILL.md`** — the sibling retro skill that consumes this skill's output. The two are coupled: the retro skill routes friction back into beads against the pair tool.
 - Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy"; SKILL.md under 500 lines; reference files one level deep; `allowed-tools` listing required when the skill uses MCP / Bash tools beyond the defaults.
 
 ## 6. What the skill does NOT consume

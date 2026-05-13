@@ -1,8 +1,8 @@
-# re-frame-pair-improver2
+# re-frame-pair-retro2
 
 > ↑ [`skills/`](../) — index of all six re-frame2 skills.
 
-`re-frame-pair-improver2` is a Claude ***meta-skill*** for [`re-frame-pair2`](../re-frame-pair2/). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
+`re-frame-pair-retro2` is a Claude ***meta-skill*** for [`re-frame-pair2`](../re-frame-pair2/). It reviews a user's `re-frame-pair2` session, identifies friction and wasted effort, and suggests how `re-frame-pair2` itself could be improved to become a better pair programmer.
 
 It is the re-frame2 sibling of [`re-frame-pair-improver`](https://github.com/day8/re-frame-pair-improver), which targets the v1 [`re-frame-pair`](https://github.com/day8/re-frame-pair) tool against [`re-frame`](https://github.com/day8/re-frame) v1.
 
@@ -52,7 +52,7 @@ Pre-alpha. Ports the v1 `re-frame-pair-improver` skill structure to target re-fr
 
 ## Install
 
-`re-frame-pair-improver2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair-improver2/`.
+`re-frame-pair-retro2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame-pair-retro2/`.
 
 ### Install the skill in Claude Code
 
@@ -63,19 +63,19 @@ Clone the re-frame2 repo somewhere stable, then symlink the skill subdirectory i
 ```bash
 git clone https://github.com/day8/re-frame2.git ~/src/re-frame2
 mkdir -p ~/.claude/skills
-ln -s ~/src/re-frame2/skills/re-frame-pair-improver2 ~/.claude/skills/re-frame-pair-improver2
+ln -s ~/src/re-frame2/skills/re-frame-pair-retro2 ~/.claude/skills/re-frame-pair-retro2
 ```
 
 Best when you want the skill available everywhere and are happy to `git pull` updates in one place.
 
 #### Project-local — for your whole team via the repo
 
-Copy the skill into the project's own `.claude/skills/re-frame-pair-improver2/` and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
+Copy the skill into the project's own `.claude/skills/re-frame-pair-retro2/` and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
 
 ```bash
 cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame-pair-improver2 .claude/skills/re-frame-pair-improver2
-git add .claude/skills/re-frame-pair-improver2
+cp -r /path/to/re-frame2/skills/re-frame-pair-retro2 .claude/skills/re-frame-pair-retro2
+git add .claude/skills/re-frame-pair-retro2
 ```
 
 #### Which to choose

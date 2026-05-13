@@ -1,24 +1,32 @@
 ---
-name: re-frame-pair-improver2
+name: re-frame-pair-retro2
 description: >
-  Retrospect on a **just-finished** `re-frame-pair2` session and turn it
-  into prioritised improvement ideas for the `re-frame-pair2` skill,
-  scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract.
-  Surfaces friction, wasted effort, missing observability, workflow
-  mismatches, and high-leverage product gaps; optionally drafts a `bd`
-  bead the user can file. Use only when there is a concrete recent
-  `re-frame-pair2` session to retrospect on — turns where the user
-  attached to a running app, dispatched events, walked traces or epochs,
-  hot-swapped a handler, or time-travelled with `restore-epoch` — and
-  the user explicitly asks to improve `re-frame-pair2` or wants an
-  opt-in bead draft. **Do not use** for ordinary `re-frame-pair2`
+  Retrospect on a `re-frame-pair2` session and turn it into prioritised
+  improvement ideas for the `re-frame-pair2` skill, scripts, MCP
+  surface, or upstream `re-frame2` Tool-Pair contract. Surfaces
+  friction, wasted effort, missing observability, workflow mismatches,
+  and high-leverage product gaps; optionally drafts a `bd` bead the
+  user can file. Activates on two triggers: (a) **explicit pull** —
+  user asks for a retrospective on a recent pair session ("retro on
+  this pair session", "what went wrong with my pair session", "review
+  my re-frame-pair2 session", "draft a bead about that"); or (b)
+  **post-error within a pair2 session** — after a stack trace, failed
+  dispatch, red CI, or `:on-error` policy fire during live pair2 work,
+  to post-mortem the immediate firefight. Acceptable evidence is
+  either a concrete `re-frame-pair2` session in this conversation —
+  turns where the user attached to a running app, dispatched events,
+  walked traces or epochs, hot-swapped a handler, or time-travelled
+  with `restore-epoch` — **or** a user-supplied recap / summary of
+  such a session. **Do not use** for ordinary `re-frame-pair2`
   operation (use `re-frame-pair2` itself), generic debugging
-  retrospectives with no pair-tool involvement, authoring re-frame2 app
-  code (use `re-frame2`), spec or architecture discussion, or framework
-  feedback unrelated to the pair tool. Vocabulary matches alone
-  ("retro", "what went wrong", "how could this be better") do not
-  justify activation — a real `re-frame-pair2` session must have
-  occurred in this conversation or be summarised by the user.
+  retrospectives with no pair-tool involvement, authoring re-frame2
+  app code (use `re-frame2`), critique of re-frame2 patterns / idioms
+  in code (use `re-frame2-improver`), spec or architecture
+  discussion, or framework feedback unrelated to the pair tool.
+  Vocabulary matches alone ("retro", "what went wrong", "how could
+  this be better", "any improvements?") do not justify activation —
+  a real `re-frame-pair2` session must have occurred in this
+  conversation or be summarised by the user as a recap.
 allowed-tools:
   - Bash(bd *)
   - Read
@@ -29,9 +37,9 @@ allowed-tools:
   - mcp__re-frame-pair2__discover-app
 ---
 
-# re-frame-pair-improver2
+# re-frame-pair-retro2
 
-Turns the current or just-finished session into a product retrospective for `re-frame-pair2`. This is a conversation, not an automated report: surface findings, let the user steer which ones matter, then converge on improvements.
+Turns a `re-frame-pair2` session — the one happening now (post-error), a just-finished one, or one summarised by the user as a recap — into a product retrospective for `re-frame-pair2`. This is a conversation, not an automated report: surface findings, let the user steer which ones matter, then converge on improvements.
 
 ## Core job
 
@@ -53,11 +61,11 @@ Deliver:
 
 ## When NOT to use this skill
 
-**Activation precondition is strict**: a concrete `re-frame-pair2` session must have already occurred (in this conversation, or as a user-supplied recap). If no pair-tool surface was exercised, decline — there is nothing to improve.
+**Activation precondition**: a `re-frame-pair2` session must be available as evidence — either occurring in this conversation, or supplied by the user as a recap / summary. If no pair-tool surface was exercised and the user has not described one, decline — there is nothing to retrospect on.
 
 Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers.
 
-When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on?"* Decline rather than fabricate evidence.
+When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on? If you can paste a short recap I can work from that."* Decline rather than fabricate evidence.
 
 ## Working style (short form)
 

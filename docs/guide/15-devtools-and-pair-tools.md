@@ -33,7 +33,7 @@ Four tools, at different stages of life. They all attach to the one substrate ab
 
 [**`re-frame-pair2`**](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) is a Claude Code skill that attaches an AI pair programmer to your running re-frame2 app. With it, the agent isn't just reading static source — it can dispatch events, hot-swap a handler, stub a fx, inspect `app-db`, walk epoch history, restore to a prior state, and read structured trace events as they fire. It's the v2 successor to the original [`re-frame-pair`](https://github.com/day8/re-frame-pair) — but where v1 reached into `re-frame-10x` internals to read the epoch buffer, v2 reads `(rf/epoch-history frame-id)` directly. Same vocabulary, no 10x dependency.
 
-You'd use `re-frame-pair2` when you want an AI agent that can do experimentally what a human REPL session would: try a thing, see the trace, decide what's next. The skill's transcripts are kept structured precisely so [`re-frame-pair-improver2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-improver2) — a sibling retrospective skill — can review them and propose improvements to the pair tool itself.
+You'd use `re-frame-pair2` when you want an AI agent that can do experimentally what a human REPL session would: try a thing, see the trace, decide what's next. The skill's transcripts are kept structured precisely so [`re-frame-pair-retro2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2) — a sibling retrospective skill — can review them and propose improvements to the pair tool itself.
 
 ### `re-frame2-story` — Storybook for frames *(in design)*
 
@@ -211,7 +211,7 @@ The framework commits to stable data shapes and query APIs; tools own presentati
 
 - Claude prompts and nREPL middleware in `re-frame-pair2`.
 - The Causa devtools UI, consuming the same trace bus.
-- DOM-to-source helpers and the `re-frame-pair-improver2` skill.
+- DOM-to-source helpers and the `re-frame-pair-retro2` skill.
 
 ---
 
