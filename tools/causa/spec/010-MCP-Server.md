@@ -12,7 +12,7 @@ without opening Causa's UI.
 > [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md).
 > The design locks accumulated in this file have been lifted there;
 > citations point to their canonical homes. This file remains the
-> **catalogue prose** (the eighteen tools enumerated with signatures
+> **catalogue prose** (the seventeen tools enumerated with signatures
 > and return shapes); when implementation lands and
 > `tools/causa-mcp/spec/003-Tool-Catalogue.md` is authored, the
 > catalogue prose migrates there and this file shrinks to a pointer.
@@ -129,10 +129,10 @@ The seventeen-tool cardinality and closed-set policy are locked at
 Lock #5; the closed-set discipline and `eval-cljs` escape valve
 posture live at
 [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
-�Closed-set tool catalogue, deliberate escape valve. The
+§Closed-set tool catalogue, deliberate escape valve. The
 **catalogue prose itself** (the tables below) remains here until
 implementation lands and migrates it to
-`tools/causa-mcp/spec/003-Tool-Catalogue.md`.: harmonise tool count between prose and table (rf2-mdoqh))
+`tools/causa-mcp/spec/003-Tool-Catalogue.md`.
 
 ### Inspection (read-only)
 
@@ -666,7 +666,7 @@ The projection consumes three inputs, indexed once per call:
 
 - **`events`** — the raw trace-buffer slice exposed by
   `(rf/trace-buffer)`, per
-  [Spec 009 §Trace bus](../../../spec/009-Instrumentation.md). Each
+  [Spec 009 §The trace event model](../../../spec/009-Instrumentation.md#the-trace-event-model). Each
   event MUST carry `:id`, `:time`, `:op-type`, `:operation`, and
   `:tags`; the projection consults `[:tags :origin]`, `[:tags :tool]`,
   `[:tags :event]`, `[:tags :reason]`, `[:tags :sub-id]`,
@@ -787,9 +787,10 @@ The MCP server's per-tool spec scaffold now lives at
   EDN canonical; closed-set catalogue with `eval-cljs` escape valve;
   stage-marker-independent; degraded boot).
 - [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md)
-  — eight locks (implementation language, transport, connection
+  — ten locks (implementation language, transport, connection
   model, origin tagging, catalogue cardinality, npm coord, Chrome
-  MCP posture, bencode pin) with question / options / pick / why /
+  MCP posture, bencode pin, wire-protocol budget posture,
+  size-elision marker shape) with question / options / pick / why /
   date locked.
 
 The four pair2-mcp-shape capability files
