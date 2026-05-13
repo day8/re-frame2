@@ -430,7 +430,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Size-elision wire markers (rf2-urjnc).
 ;;
-;; The fifth wire-protocol mechanism. After diff-encoding (rf2-1wdzp)
+;; The sixth wire-protocol mechanism — alongside `:rf.mcp/summary`,
+;; `:rf.mcp/overflow`, `:rf.mcp/diff-from`, `:rf.mcp/dedup-table`, and
+;; `:rf.mcp/cache-hit` (rf2-3rt1f). After diff-encoding (rf2-1wdzp)
 ;; collapses each `:db-after`, and dedup (rf2-obpa9) pools repeated
 ;; subtrees, a single large slot — say a 100KB uploaded PDF base64 on
 ;; `[:user :uploaded-pdf]` — still rides the wire verbatim. The
