@@ -58,12 +58,72 @@ exactly:
   [`tools/pair2-mcp/spec/002-nREPL-Transport.md`](../../pair2-mcp/spec/002-nREPL-Transport.md)).
 - Same port-discovery walk (`$SHADOW_CLJS_NREPL_PORT` → standard
   shadow paths → `.nrepl-port`).
-- Same runtime-injection footing: a small sentinel namespace
-  (`re-frame2-causa-mcp.runtime`) re-ships on browser reload.
+- Same **two-namespace split** between the Node-side MCP server
+  and the browser-side injected runtime (per
+  [§Two namespaces, two sides](#two-namespaces-two-sides) below);
+  a small sentinel namespace re-ships on browser reload.
 - Same degraded-boot policy: tools return structured
   `{:ok? false :reason ...}` errors rather than refusing to start.
 
 Different tool catalogue. Different `:origin` tag.
+
+## Two namespaces, two sides
+
+Causa-MCP's code lives on two sides of an stdio JSON-RPC pipe.
+Each side has its own namespace root; the spec keeps the two
+roles separate because the implementation will too. The split
+mirrors pair2-mcp exactly (see
+[`tools/pair2-mcp/`](../../pair2-mcp/)'s
+`re-frame-pair2-mcp.*` / `re-frame-pair2.runtime` split).
+
+| Side | Root ns | Lives in | Loaded by | Role |
+|---|---|---|---|---|
+| **MCP server** (Node process) | `day8.re-frame2-causa-mcp.*` | `tools/causa-mcp/src/` (when impl lands) | `npx @day8/re-frame2-causa-mcp` (the agent host spawns the subprocess) | Speaks MCP/JSON-RPC over stdio; speaks nREPL/bencode to shadow-cljs; renders eval forms that target the injected runtime. |
+| **Injected runtime** (browser eval target) | `day8.re-frame2-causa.runtime` | the [Causa](../../causa/) panel's preload classpath | shadow-cljs `:devtools :preloads` (rides Causa-the-panel's existing preload) | Lives in the consumer app's runtime; exposes the seventeen tool-shaped accessors the server's eval forms call; carries the `current-origin` dynamic var that stamps `:origin :causa-mcp` on mutations. |
+
+**The two namespaces never share a JVM / Node process.** The MCP
+server runs on Node; the injected runtime runs in the browser.
+They communicate exclusively via eval-form strings travelling
+over the bencode-framed nREPL bridge — the server **renders** an
+EDN form addressed at `day8.re-frame2-causa.runtime/<accessor>`,
+shadow-cljs evaluates it inside the browser tab, the return
+value comes back over the same socket. There is no shared state,
+no shared classpath, no shared dep — only a contract on the
+shape of the seventeen accessors.
+
+**Why two roots, not one.** Conflating the two roles into a
+single namespace (the obvious wrong default) creates two
+problems. (1) It forces the consumer app's preload classpath to
+pull in MCP-server code (the Node-side `@modelcontextprotocol/sdk`
+imports, the bencode wire format, the stdio plumbing) that has
+no business existing inside a browser bundle, even one gated by
+`:preloads` — the bundle-isolation rule
+([`tools/README.md`](../../README.md)) forbids it. (2) It muddles
+the question "is this op a server-side or runtime-side
+concern?" at code-review time — a question pair2-mcp's split
+already answers cleanly. Two roots, two locations, two roles.
+
+**Cross-side coupling is one-way.** The MCP server depends on
+the runtime's accessor signatures (the contract); the runtime is
+independent of the server (it can be loaded standalone via
+Causa-the-panel's preload without the MCP server running at all,
+which is exactly the position before `npx @day8/re-frame2-causa-mcp`
+is launched). The dependency arrow flows server → runtime
+contract.
+
+**Why the runtime lives under `day8.re-frame2-causa.*`.** Because
+the runtime is browser-side and rides Causa-the-panel's
+preload; the panel already owns `day8.re-frame2-causa.*` for the
+in-app surface. The MCP server's own code stays at
+`day8.re-frame2-causa-mcp.*` (matching the maven coord
+`day8/re-frame2-causa-mcp` and the npm coord
+`@day8/re-frame2-causa-mcp` per
+[`DESIGN-RATIONALE.md` Lock #6](./DESIGN-RATIONALE.md)).
+Pair2-mcp does the equivalent: server code under
+`re-frame-pair2-mcp.*`, injected runtime under
+`re-frame-pair2.runtime` — the runtime ns is parented by the
+**injected** artefact's root, not the **MCP-server** artefact's
+root.
 
 ## What it isn't
 
@@ -163,7 +223,8 @@ Causa-MCP is the **debugger-side** counterpart to pair2-mcp's
 | Audience | Editor-side AI workflows (build/edit/test). | Debugger-side AI workflows (inspect/time-travel). |
 | Surface | 9 tools (dispatch, eval, hot-swap, trace, streaming). | 17 tools (inspection + mutation + streaming + escape hatch + session lifecycle). |
 | `:origin` tag | `:pair` | `:causa-mcp` |
-| Runtime ns | `re-frame-pair2.runtime` | `re-frame2-causa-mcp.runtime` |
+| MCP-server ns (Node-side) | `re-frame-pair2-mcp.*` (e.g. `re-frame-pair2-mcp.server`, `.tools`, `.nrepl`, `.cache`) | `day8.re-frame2-causa-mcp.*` (when impl lands) |
+| Injected-runtime ns (browser-side) | `re-frame-pair2.runtime` | `day8.re-frame2-causa.runtime` (rides Causa's preload) |
 | Implementation | shadow-cljs `:node-script`, npm-published. | Same. |
 | MCP transport | stdio JSON-RPC 2.0. | Same. |
 
