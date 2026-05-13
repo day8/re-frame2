@@ -185,8 +185,14 @@ internals.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
-  Future strategies — path-slicing, lazy summary, diff
-  encoding — slot in here without touching per-tool functions.
+  Future strategies — diff encoding (rf2-1wdzp), structural
+  dedup — slot in here without touching per-tool functions.
+  Path-slicing and lazy-summary already landed (rf2-tygdv) but
+  as per-tool input-shape concerns: the `snapshot` and
+  `get-path` tools accept a `:path` arg and default to a
+  `{:rf.mcp/summary ...}` response for the unbounded `:app-db`
+  slice, so the cap stays a backstop rather than the primary
+  mechanism for the common case.
 - **Silent truncation is not allowed**: a payload that exceeds
   the cap MUST NOT be shipped in any partial form that would
   let the agent host parse it as a valid response. The marker

@@ -120,7 +120,9 @@ implementation.
 **Args**: `frames` (string `"all"` or array of frame-id strings like
 `":rf/default"`, default `"all"`), `include` (array of slice names —
 subset of `["app-db" "sub-cache" "machines" "epochs" "traces"]`,
-default all five), `build` (string).
+default all five), `path` (EDN-encoded vector or JSON array of segment
+strings — path-slicing for the `:app-db` slice, rf2-tygdv), `build`
+(string).
 
 **Returns**:
 
@@ -128,13 +130,17 @@ default all five), `build` (string).
 {:ok? true
  :frames :all|[<frame-id>...]
  :include [:app-db :sub-cache :machines :epochs :traces]
- :snapshot {<frame-id> {:app-db    {...}
+ :mode :summary | :path-sliced
+ :path  [<segment>...]              ; only when `path` arg was supplied
+ :snapshot {<frame-id> {:app-db    <slice>
                         :sub-cache {<query-v> {:value v :ref-count n}}
                         :machines  {:ids [<machine-id>...]
                                     :state {<machine-id> <snapshot>}}
                         :epochs    [<:rf/epoch-record> ...]
                         :traces    [<trace-event> ...]}
-            ...}}
+            ...}
+ :path-not-found {<frame-id> {:exists? false
+                              :deepest-valid-prefix [...]}}  ; when present}
 ```
 
 The `:machines` slice combines the global registrar's machine-id list
@@ -143,16 +149,88 @@ the frame's `app-db` (per Spec 005). The `:traces` slice filters the
 retain-N trace ring buffer by `:frame`. Other slices delegate
 verbatim to the public per-slice surface.
 
-Pass a smaller `include` to subset (e.g.
-`{:frames "all" :include ["app-db" "epochs"]}` for a quick
-"state + recent history" probe). Per-op fine-grain reads (`eval-cljs`
-against `runtime/app-db-at`, `runtime/sub-cache`, etc.) stay
+### `:app-db` slice modes (rf2-tygdv)
+
+The `:app-db` slice has two response modes governed by the `path` arg:
+
+- **`:mode :summary`** (default, no `path`): the `:app-db` slice is
+  replaced with a `{:rf.mcp/summary {:type :map :keys [...] :count
+  ... :bytes ~...}}` marker — the top-level shape without committing
+  the token budget. A map with more than 64 top-level keys truncates
+  the `:keys` list and flags `:keys-truncated? true` so the marker
+  itself can never blow the wire cap. The agent drills down with a
+  follow-up call carrying `path`, or with the `get-path` tool.
+- **`:mode :path-sliced`** (with `path`): the `:app-db` slice is the
+  subtree at `(get-in db path)`. An out-of-range path surfaces
+  per-frame in the top-level `:path-not-found` map with the
+  deepest-valid-prefix attached so the agent can re-aim.
+- **Root path `[]`**: the agent explicitly asks for the full `:app-db`
+  — equivalent to the legacy default. The wire cap then becomes the
+  backstop.
+
+Path vocabulary matches `get-in`: a vector of keys / indices. EDN
+strings (`":cart"`, `"0"`, `"-1"`) are parsed by the reader; non-EDN
+strings (`"bare-key"`) stay as map-key strings. Same vocabulary as
+the `get-path` tool below and as Causa-MCP's `:path` mechanism — one
+shape across the tool family.
+
+The other slices (`:sub-cache`, `:machines`, `:epochs`, `:traces`)
+pass through unchanged. Pass a smaller `include` to subset (e.g.
+`{:frames "all" :include ["app-db" "epochs"]}` for a quick "state +
+recent history" probe). Per-op fine-grain reads (`get-path` against
+the app-db, `eval-cljs` against `runtime/sub-cache`, etc.) stay
 available — they're the right surface when you genuinely need one
 slice for one frame. `snapshot` is the right surface when you don't
 know yet which slice carries the answer.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :snapshot-failed` (with `:message`) on any other failure.
+
+## get-path
+
+Read a single value at `path` from a frame's `app-db`. Minimal
+primitive for targeted reads — the agent already knows the path.
+Server-side `(get-in db path)`; only the addressed subtree crosses
+the wire (rf2-tygdv).
+
+**Args**: `path` (string — EDN-encoded vector, e.g. `"[:cart :items 0
+:sku]"` — or JSON array of segment strings; required), `frame`
+(string — frame-id, default operating frame), `build` (string).
+
+**Returns** on success:
+
+```clojure
+{:ok?     true
+ :exists? true
+ :path    [<segment>...]
+ :value   <subtree>
+ :frame   <frame-id>}     ; only when frame arg was supplied
+```
+
+When the path doesn't resolve:
+
+```clojure
+{:ok?                  false
+ :reason               :path-not-found
+ :path                 [<segment>...]
+ :deepest-valid-prefix [<segment>...]
+ :frame                <frame-id>}     ; only when frame arg was supplied
+```
+
+`:exists?` distinguishes a path that legitimately points at a `nil`
+value (`:exists? true :value nil`) from a path that doesn't resolve
+(`:ok? false :reason :path-not-found`). The deepest-valid-prefix lets
+the agent re-aim without a binary search.
+
+`get-path` is the read-by-path surface for when `snapshot`'s
+`:summary` mode tells the agent which key carries the answer.
+`snapshot {... :path [...]}` is the equivalent surface when the agent
+wants several slices in the same round-trip; both share the same
+`:path` vocabulary.
+
+`:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :missing-path` if `path` was omitted;
+`:reason :get-path-failed` (with `:message`) on any other failure.
 
 ## subscribe
 
