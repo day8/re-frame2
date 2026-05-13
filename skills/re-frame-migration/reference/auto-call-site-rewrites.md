@@ -6,7 +6,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../spec/MIGRATION.md). Th
 
 ## Contents
 
-- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25)
+- Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25, M-52)
 - Effect-map consolidation (M-8)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
 
@@ -84,8 +84,32 @@ Same for `uix` / `helix` variants.
 (:require [re-frame.test-support :as rf-test])
 ```
 
-Helper names (`dispatch-sequence`, `assert-state`, `run-test-sync`) unchanged.
+Surviving helper names (`dispatch-sequence`, `assert-state`) unchanged. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
 Also: drop `day8/re-frame-test` from the Maven coords.
+
+### M-52 — `run-test-sync` removed
+
+```clojure
+;; SEARCH
+(ts/run-test-sync
+  body...)
+(rf-test/run-test-sync
+  body...)
+(re-frame.test-support/run-test-sync
+  body...)
+
+;; REWRITE — hoist body; per-test fixture handles registrar isolation
+;; (assumes the ns already installs reset-runtime-fixture via use-fixtures :each;
+;; if not, add it — see M-52 in MIGRATION.md for the full pattern)
+body...
+
+;; AD-HOC ALTERNATIVE — one-off bracket without converting the ns to use a :each fixture
+(ts/with-fresh-registrar
+  (fn []
+    body...))
+```
+
+v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.
 
 ---
 

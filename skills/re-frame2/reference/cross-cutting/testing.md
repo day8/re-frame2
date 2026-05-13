@@ -13,7 +13,7 @@ This skill does **not** teach the AI to *run* tests; that is the user's job. It 
              :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]]))
 ```
 
-Everything you need — fixtures, helpers, run-test-sync — lives under `re-frame.test-support`. Do not reach into `re-frame.registrar` or `re-frame.frame` directly.
+Everything you need — fixtures, helpers — lives under `re-frame.test-support`. Do not reach into `re-frame.registrar` or `re-frame.frame` directly.
 
 ## The per-test fixture (always use it)
 
@@ -196,20 +196,6 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
 ```
 
 Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
-
-## v1 compatibility shim: `run-test-sync`
-
-If you are mechanically porting v1 tests, `ts/run-test-sync` is a body wrapper that snapshot/restores the registrar around the body:
-
-```clojure
-(deftest legacy-flow
-  (ts/run-test-sync
-    (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-    (rf/dispatch-sync [:counter/inc])
-    (is (= 1 (:n (rf/get-frame-db :rf/default))))))
-```
-
-In v2 `dispatch-sync` already drains synchronously, so for greenfield tests this macro is unnecessary — `dispatch-sync` plus the per-test fixture is enough.
 
 ## Checklist before declaring a test done
 

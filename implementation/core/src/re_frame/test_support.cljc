@@ -49,10 +49,7 @@
   - [[dispatch-sequence]] — fire a vector of events synchronously,
     optionally observing intermediate state via `:after-each`.
   - [[assert-state]] — assert against the current frame's app-db (full
-    db or `path` form); failure is reported via `clojure.test/is`.
-  - [[run-test-sync]] — v1 compatibility shim. v2's `dispatch-sync`
-    drain is already synchronous so the macro is largely a body
-    wrapper; included for mechanical migration of v1 test code."
+    db or `path` form); failure is reported via `clojure.test/is`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             ;; re-frame.flows (Spec 013) ships as a separate artefact
@@ -316,14 +313,14 @@
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;
-;; Three thin wrappers over `dispatch-sync!` and `frame-app-db-value` for
+;; Two thin wrappers over `dispatch-sync!` and `frame-app-db-value` for
 ;; ergonomic test code. The fixture machinery above carries the heavy
 ;; lifting; these helpers are composition sugar.
 ;;
-;; Per Spec 008 §Built-in test-runner namespace, all three live under
+;; Per Spec 008 §Built-in test-runner namespace, both live under
 ;; re-frame.test-support so users `(:require [re-frame.test-support :as t])`
-;; once and reach the full testing surface — including dispatch-sequence,
-;; assert-state, run-test-sync — without an additional require.
+;; once and reach the full testing surface — including dispatch-sequence
+;; and assert-state — without an additional require.
 
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
@@ -435,29 +432,3 @@
         :expected expected-val
         :actual   actual})
      pass?)))
-
-#?(:clj
-   (defmacro run-test-sync
-     "v1 compatibility shim for `re-frame-test/run-test-sync`. In v2
-     `dispatch-sync` already drains synchronously to fixed point, so this
-     macro is largely a body wrapper — it exists so v1 test code that
-     called `re-frame.test/run-test-sync` ports to v2 by a mechanical
-     namespace rename (per [MIGRATION §M-25](MIGRATION.md), and rf2-8hcb's
-     `re-frame.test` → `re-frame.test-support` rename).
-
-     The macro snapshots and restores the registrar around `body` so
-     test-local registrations are rolled back even if the body throws.
-     This matches v1's `run-test-sync` behaviour of giving each test
-     block a fresh registrar baseline.
-
-     Example:
-
-         (deftest legacy-flow
-           (run-test-sync
-             (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-             (rf/dispatch-sync [:counter/inc])
-             (is (= 1 (:n (rf/get-frame-db :rf/default))))))
-
-     Per Spec 008 §`re-frame-test` library compatibility."
-     [& body]
-     `(with-fresh-registrar (fn [] ~@body))))

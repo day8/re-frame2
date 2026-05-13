@@ -965,13 +965,13 @@ The agent rewrites mechanically. For the Var-ref form (the common case), the nam
 
 **Type A** (mechanical).
 
-Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. The three test-flavoured helpers — `dispatch-sequence`, `assert-state`, `run-test-sync` — keep their v1 names and ship under the new ns; the move is a mechanical require-rewrite.
+Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re-frame-test` library's helpers) is renamed to `re-frame.test-support` in v2 and ships as part of the core artefact. Two of the three test-flavoured helpers — `dispatch-sequence` and `assert-state` — keep their v1 names and ship under the new ns; `run-test-sync` is **dropped** in v2 (per [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-reset-runtime-fixture); rewrite call sites to inline `dispatch-sync`). The require-rewrite for the surviving helpers is mechanical.
 
 **What to look for** in the codebase:
 
 ```clojure
 (:require [re-frame.test :as rf-test])
-(:require [re-frame.test :refer [run-test-sync dispatch-sequence assert-state]])
+(:require [re-frame.test :refer [dispatch-sequence assert-state]])
 ;; or referencing day8/re-frame-test directly:
 (:require [day8.re-frame.test :as rf-test])
 ```
@@ -981,24 +981,23 @@ Per rf2-8hcb / rf2-0l3s / rf2-hkr5: v1's `re-frame.test` namespace (the `day8/re
 ```clojure
 ;; before
 (:require [re-frame.test :as rf-test])
-(rf-test/run-test-sync ...)
 (rf-test/dispatch-sequence ...)
 (rf-test/assert-state ...)
 
 ;; after — single mechanical require-rewrite; helper names unchanged
 (:require [re-frame.test-support :as ts])
-(ts/run-test-sync ...)
 (ts/dispatch-sequence ...)
 (ts/assert-state ...)
 ```
+
+Any `run-test-sync` call sites encountered during this rewrite are handled by [M-52](#m-52-run-test-sync-removed--use-dispatch-sync-under-reset-runtime-fixture) — the body is hoisted to inline `dispatch-sync` calls under the standard per-test fixture; no shim survives in `re-frame.test-support`.
 
 **Signature notes** (the v2 helpers are frame-aware; v1 helpers were single-frame implicit):
 
 - `(dispatch-sequence events)` / `(dispatch-sequence events {:after-each f :frame f-id})` — v1's frame-implicit form maps to the no-opts arity; tests targeting a non-default frame supply `{:frame ...}`.
 - `(assert-state expected-db)` / `(assert-state path expected-val)` / either form `+ {:frame ...}` — v1's two-arg `(assert-state path expected)` is the path form; the full-db form and `:frame` opt are v2 additions.
-- `(run-test-sync body...)` — v2's `dispatch-sync` already drains synchronously, so the macro is largely a body wrapper that snapshots/restores the registrar. v1 callers see no behavioural difference.
 
-If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the helpers in the core artefact (no separate coordinate to require).
+If the project depended on `day8/re-frame-test` as a Maven coordinate, drop the dependency — v2 ships the surviving helpers in the core artefact (no separate coordinate to require).
 
 ### M-26. Drift-sweep drops — v1 surfaces with no v2 equivalent or absorbed by canonical surfaces
 
@@ -1742,6 +1741,59 @@ Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx`, etc.) and apps t
 **Apply to:** every unary `reg-fx` handler in the codebase. The runtime no longer accepts the unary shape.
 
 **Cross-references.** [Spec 002 §Async effects and frame propagation](002-Frames.md#async-effects-and-frame-propagation) for the binary signature's contract; [Spec 002 §What library authors of async fx have to know](002-Frames.md#what-library-authors-of-async-fx-have-to-know) for the async-correctness checklist.
+
+### M-52. `run-test-sync` removed — use `dispatch-sync` under `reset-runtime-fixture`
+
+**Type A** (mechanical).
+
+Per rf2-u3w8j: v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim" under `re-frame.test-support`, but the shim was pure migration tax — v2's `dispatch-sync` is already settle-by-default (drains the event queue to fixed point synchronously per [Spec 002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) and [M-3](#m-3-dispatch-ordering--events-dispatched-during-a-handler-run-synchronously)), and v2 test suites already wrap each test in `reset-runtime-fixture` (or `with-fresh-registrar`) for registrar isolation. The macro's only job was a snapshot/restore bracket around the body, and the per-test fixture supplies that uniformly. Per pre-alpha policy: v2 drops the shim.
+
+**What to look for** in the codebase:
+
+```clojure
+(ts/run-test-sync body...)
+(re-frame.test-support/run-test-sync body...)
+;; or, post-M-25 rewrite-in-progress, occasionally still:
+(rf-test/run-test-sync body...)
+```
+
+**What to do.** Hoist the body to inline `dispatch-sync` calls under the standard per-test fixture — `run-test-sync` was a thin body wrapper, not a synchronicity primitive.
+
+```clojure
+;; before
+(deftest legacy-flow
+  (ts/run-test-sync
+    (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:counter/inc])
+    (is (= 1 (:n (rf/get-frame-db :rf/default))))))
+
+;; after — body is hoisted; per-test fixture handles registrar isolation
+(use-fixtures :each
+  (ts/reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(deftest legacy-flow
+  (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+  (rf/dispatch-sync [:counter/inc])
+  (is (= 1 (:n (rf/get-frame-db :rf/default)))))
+```
+
+If the file does not already install a `:each` fixture, add one — every v2 test suite installs `reset-runtime-fixture` (or, for ad-hoc per-test rollbacks, calls `with-fresh-registrar` directly inside the body). Per [Spec 008 §Built-in test-runner namespace](008-Testing.md#built-in-test-runner-namespace).
+
+For ad-hoc bodies that want a one-off registrar bracket without converting the whole ns to use a `:each` fixture, replace `run-test-sync` with `with-fresh-registrar`:
+
+```clojure
+;; ad-hoc bracket — no :each fixture installed
+(deftest one-off
+  (ts/with-fresh-registrar
+    (fn []
+      (rf/reg-event-db :tmp/inc (fn [db _] (update db :n inc)))
+      (rf/dispatch-sync [:tmp/inc])
+      (is (= 1 (:n (rf/get-frame-db :rf/default)))))))
+```
+
+**Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
+
+**Cross-references.** [M-25](#m-25-re-frametest-helpers-renamed-to-re-frametest-support) for the surviving helper rewrites (`dispatch-sequence`, `assert-state`); [Spec 008 §`re-frame-test` library compatibility](008-Testing.md#re-frame-test-library-compatibility) for the runtime-side framing.
 
 ---
 
