@@ -185,11 +185,14 @@ not created up-front.
   graduated). Lands as Stage 7 of the Story epic (`rf2-tgci`); same
   human-tool / agent-surface separation as causa-mcp.
 
-- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. XState-style
-  state-chart visualisation for machines registered via `reg-machine`.
-  Consumes the trace bus and per-frame machine snapshots. Causa embeds
-  this surface; whether it also ships as a standalone jar is pending
-  the first cut.
+- **`tools/machines-viz/`** — `day8/re-frame2-machines-viz`. The
+  state-chart component for re-frame2 machines. Ships one component
+  (`MachineChart`) plus a static read-only viewer page (decodes a
+  `#machine=<base64-edn>` URL fragment). Causa's Machine Inspector
+  embeds the component; Story's per-variant machine panel embeds it
+  the same way. Explicitly **not** a visualiser-as-product (Stately's
+  Visualizer + Studio occupy that lane). Per-tool spec scaffolded via
+  rf2-x50eu; see [`tools/machines-viz/spec/`](./machines-viz/spec/).
 
 - **`tools/machines-viz-mcp/`** — `day8/re-frame2-machines-viz-mcp`.
   A likely separate MCP surface for machine viz, mirroring the
