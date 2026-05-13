@@ -4,6 +4,8 @@ For most of the SPA era, "server-side rendering" has been an awkward retrofit. Y
 
 re-frame2 takes a different stance: **server-side rendering is a first-class concern from day one**. It's not a future addition. It shapes the architecture. The architecture happens to be fine for client-only apps too — but if you ever want SSR, the foundations are already in place.
 
+The SSR response-shape fxs (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.server/set-cookie`, `:rf.server/redirect`, ...) together with the Ring host adapter are **managed external effects** in the [ch.10](10-doing-http-requests.md) sense — the per-request response is built across the per-request frame's lifetime, then emitted as one structured response. See [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md) for the unifying eight-property contract the SSR surface inherits.
+
 This chapter explains how that works.
 
 ## The core idea

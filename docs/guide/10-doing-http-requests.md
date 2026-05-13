@@ -6,6 +6,8 @@ Most SPAs spend their lives talking to a server. A handler dispatches; a fetch g
 
 ## What `:rf.http/managed` is
 
+`:rf.http/managed` is **the canonical managed external effect for HTTP** — the first instance, today, of a single contract shape every framework-owned async surface in re-frame2 conforms to (WebSockets, state-machine `:invoke`, SSR per-request fxs, managed flows). The shape is named and graded against eight properties in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md); this chapter is the human-facing walkthrough of the HTTP instance.
+
 A registered fx whose args map describes an HTTP request *as data*, and whose runtime side issues the request, decodes the body, runs retry-with-backoff if you asked for it, classifies failures into a closed set of `:rf.http/*` categories, and dispatches the reply back into the runtime.
 
 You don't write the fetch. You don't write the `.then` chain. You don't reach for `js/fetch` or `java.net.http.HttpClient` directly. You return a map, the runtime does the rest.
