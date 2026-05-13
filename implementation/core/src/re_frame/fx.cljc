@@ -237,7 +237,8 @@
   to the originator without a separate cofx-injection step."
   [frame-id [original-fx-id args] active-platform overrides origin-event]
   (let [fx-id (resolve-fx-with-overrides original-fx-id overrides)
-        resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)]
+        resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)
+        origin-event-id (when (vector? origin-event) (first origin-event))]
    ;; Per Spec 009 §Performance instrumentation (rf2-du3i): every fx
    ;; invocation — reserved or user-registered — runs inside a perf
    ;; bracket so prod builds with the perf flag enabled produce a
@@ -293,55 +294,80 @@
     ;; a second lookup.
     (if-let [meta resolved-meta]
       (if (fx-runs-on-platform? meta active-platform)
-        ;; Per rf2-3nn8 (error path) and rf2-lf84g (success path): bind
-        ;; `*current-trigger-handler*` for the duration of the fx
-        ;; handler's invocation AND for the success-path `:rf.fx/handled`
-        ;; emit that follows. Error traces emitted from inside the fx
-        ;; body (`:rf.error/fx-handler-exception` here and anything the
-        ;; body itself surfaces) carry the fx handler's source-coord;
-        ;; the success-path `:rf.fx/handled` emit picks up the same
-        ;; coord through `emit!`'s hoist of `*current-trigger-handler*`
-        ;; (the outer event handler's binding would otherwise stamp the
-        ;; event handler's coord onto the `:rf.fx/handled` event, which
-        ;; is not what consumers want — Story/Causa want jump-to-source
-        ;; to land on the fx handler's `reg-fx` site, not the event
-        ;; handler that produced the fx vector).
-        ;; Per rf2-isdwf: bind `*current-sensitive?*` to the fx
-        ;; handler's reading so any trace event emitted inside the
-        ;; fx body's scope (including the success `:rf.fx/handled`
-        ;; emit) carries the fx-handler-level sensitivity flag.
-        ;; Per Spec 009 §Privacy "innermost in-scope handler's flag
-        ;; wins" rule: when an event handler is sensitive but the fx
-        ;; handler it dispatches to is not, the `:rf.fx/handled`
-        ;; trace event reflects the FX handler's reading.
-        ;; Per rf2-qsjda: bind `*current-no-emit?*` to the fx
-        ;; handler's reading so the "innermost in-scope handler
-        ;; wins" rule applies to trace-emission opt-out too.
-        (binding [trace/*current-trigger-handler*
-                  (trace/trigger-handler-from-meta :fx fx-id meta)
-                  trace/*current-sensitive?*
-                  (trace/sensitive?-from-meta meta)
-                  trace/*current-no-emit?*
-                  (trace/no-emit?-from-meta meta)]
-          (let [ok? (try
-                      ((:handler-fn meta) (cond-> {:frame frame-id}
-                                            origin-event (assoc :event origin-event))
-                                          args)
-                      true
-                      (catch #?(:clj Throwable :cljs :default) e
-                        (let [msg (#?(:clj .getMessage :cljs .-message) e)]
-                          (trace/emit-error! :rf.error/fx-handler-exception
-                                             {:failing-id        fx-id
-                                              :fx-id             fx-id
-                                              :fx-args           args
-                                              :frame             frame-id
-                                              :exception         e
-                                              :exception-message msg
-                                              :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
-                                              :recovery          :no-recovery}))
-                        false))]
-            (when ok?
-              (emit-handled! fx-id args frame-id))))
+        ;; Per Spec 010 §Validation order step 5 (rf2-xp2o3): before the
+        ;; fx handler runs, validate its args against any `:spec` on the
+        ;; fx's registration meta. The schemas artefact is optional — when
+        ;; absent or when no `:spec` is registered, the late-bind hook
+        ;; resolves nil and the call is a no-op (true / pass).
+        ;; On failure (returns false) the offending fx is skipped (per
+        ;; Spec 010 §Per-step recovery row 5: `:recovery :skipped`) and
+        ;; the walk continues with the next entry in the `:fx` vector —
+        ;; sibling fx are not impacted, the cascade does not halt.
+        ;; `validate-fx!` itself emits the `:rf.error/schema-validation-
+        ;; failure :where :fx-args` trace; this caller only honours the
+        ;; boolean.
+        (let [validate-fx! (late-bind/get-fn :schemas/validate-fx!)
+              fx-ok?       (if (and validate-fx! (:spec meta))
+                             (try
+                               (validate-fx! fx-id origin-event-id args meta)
+                               (catch #?(:clj Throwable :cljs :default) _ true))
+                             true)]
+        (if-not fx-ok?
+          ;; Schema validation failed — the offending fx is skipped.
+          ;; `validate-fx!` already emitted the structured error trace;
+          ;; do NOT emit `:rf.fx/handled` (the fx did not run) and do
+          ;; NOT emit a sibling warning (the schema-validation-failure
+          ;; trace IS the warning, per Spec 010).
+          nil
+          ;; Per rf2-3nn8 (error path) and rf2-lf84g (success path): bind
+          ;; `*current-trigger-handler*` for the duration of the fx
+          ;; handler's invocation AND for the success-path `:rf.fx/handled`
+          ;; emit that follows. Error traces emitted from inside the fx
+          ;; body (`:rf.error/fx-handler-exception` here and anything the
+          ;; body itself surfaces) carry the fx handler's source-coord;
+          ;; the success-path `:rf.fx/handled` emit picks up the same
+          ;; coord through `emit!`'s hoist of `*current-trigger-handler*`
+          ;; (the outer event handler's binding would otherwise stamp the
+          ;; event handler's coord onto the `:rf.fx/handled` event, which
+          ;; is not what consumers want — Story/Causa want jump-to-source
+          ;; to land on the fx handler's `reg-fx` site, not the event
+          ;; handler that produced the fx vector).
+          ;; Per rf2-isdwf: bind `*current-sensitive?*` to the fx
+          ;; handler's reading so any trace event emitted inside the
+          ;; fx body's scope (including the success `:rf.fx/handled`
+          ;; emit) carries the fx-handler-level sensitivity flag.
+          ;; Per Spec 009 §Privacy "innermost in-scope handler's flag
+          ;; wins" rule: when an event handler is sensitive but the fx
+          ;; handler it dispatches to is not, the `:rf.fx/handled`
+          ;; trace event reflects the FX handler's reading.
+          ;; Per rf2-qsjda: bind `*current-no-emit?*` to the fx
+          ;; handler's reading so the "innermost in-scope handler
+          ;; wins" rule applies to trace-emission opt-out too.
+          (binding [trace/*current-trigger-handler*
+                    (trace/trigger-handler-from-meta :fx fx-id meta)
+                    trace/*current-sensitive?*
+                    (trace/sensitive?-from-meta meta)
+                    trace/*current-no-emit?*
+                    (trace/no-emit?-from-meta meta)]
+            (let [ok? (try
+                        ((:handler-fn meta) (cond-> {:frame frame-id}
+                                              origin-event (assoc :event origin-event))
+                                            args)
+                        true
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (let [msg (#?(:clj .getMessage :cljs .-message) e)]
+                            (trace/emit-error! :rf.error/fx-handler-exception
+                                               {:failing-id        fx-id
+                                                :fx-id             fx-id
+                                                :fx-args           args
+                                                :frame             frame-id
+                                                :exception         e
+                                                :exception-message msg
+                                                :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
+                                                :recovery          :no-recovery}))
+                          false))]
+              (when ok?
+                (emit-handled! fx-id args frame-id))))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
                      {:fx-id                fx-id
                       :frame                frame-id
