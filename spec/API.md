@@ -66,8 +66,8 @@
 | `dispatch-sync*` | Fn | `(dispatch-sync* event)` / `(dispatch-sync* event opts)` | rf2-ts1a — fn form for HoF / programmatic sync dispatch | 002 |
 | `subscribe` | M | `(subscribe query-v)` / `(subscribe frame-id query-v)` | v1 (preserved + extended); macro per rf2-ts1a | 002 |
 | `subscribe*` | Fn | `(subscribe* query-v)` / `(subscribe* frame-id query-v)` | rf2-ts1a — fn form for HoF / programmatic subscribe | 002 |
-| `subscribe-value` | Fn | `(subscribe-value query-v)` / `(subscribe-value frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 002 |
-| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period) | v1 | 002 |
+| `subscribe-value` | Fn | `(subscribe-value query-v)` / `(subscribe-value frame-id query-v)` → value (subscribe + deref + immediate unsubscribe; one-shot, non-reactive read for handler bodies, machine actions, REPL) | v1 | 006 |
+| `unsubscribe` | Fn | `(unsubscribe query-v)` / `(unsubscribe frame-id query-v)` → nil (decrement the cache ref-count; ref-count→0 schedules disposal after the configured `:sub-cache` grace-period) | v1 | 006 |
 | `sub-machine` | Fn | `(sub-machine machine-id)` → reaction over snapshot. Sugar over `(subscribe [:rf/machine machine-id])`. | v1 | 005 |
 
 `opts` map keys: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Envelope shape and semantics: see [002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope).
