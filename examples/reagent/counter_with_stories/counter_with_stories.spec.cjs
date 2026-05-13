@@ -748,8 +748,26 @@ module.exports = {
     // Clicking the canvas's "+" button dispatches `:counter/inc` —
     // the trace listener buckets it into a cascade and the panel's
     // title bumps its event count above zero.
+    //
+    // Per rf2-9la06: scope all main-pane selectors via the
+    // `data-test-variant` anchor that canvas.cljs stamps on the active
+    // variant's <section>. Without that anchor, `main.locator(...)`
+    // can resolve to a stale workspace cell that's still mounted under
+    // <main> because §§5/6 selected a workspace and §7's variant click
+    // doesn't clear `:selected-workspace` (selection slots are
+    // independent — see tools/story state.cljc). When the workspace
+    // is still mounted, `main.locator('[data-test="inc"]').first()`
+    // picks the alphabetically-first cell (`:story.counter/clicked-
+    // three-times`, count=3 after :play), the click bumps it to 4,
+    // and the §11 scrubber assertion (driven against the right-pane
+    // slider, which IS scoped to the active variant) reports "still
+    // 4" — the canonical signature of this flake.
     const main = page.getByRole('main');
-    await main.locator('[data-test="inc"]').first().click();
+    const loadedCanvas = main.locator(
+      '[data-test-variant=":story.counter/loaded"]',
+    );
+    await loadedCanvas.waitFor({ state: 'visible', timeout: 5000 });
+    await loadedCanvas.locator('[data-test="inc"]').first().click();
 
     // The trace panel's title is "Trace <variant-id> — N events, M cascades".
     // We wait until the count is non-zero.
@@ -838,7 +856,14 @@ module.exports = {
     // mouseup via :on-mouse-up; Playwright's fill() doesn't fire that,
     // so we set the value via DOM and dispatch the events the panel
     // listens for explicitly.
-    const canvasCount = main.locator('[data-test="count"]').first();
+    //
+    // Per rf2-9la06: read the count from the active variant's canvas
+    // via the `data-test-variant` anchor — `main.locator(...).first()`
+    // could land on a workspace cell from §§5/6 whose `:counter/
+    // initialise` settled to a different value (the scrubber here is
+    // the right-pane slider, which IS scoped to the active variant;
+    // mismatched canvas + slider was the original "still 4" failure).
+    const canvasCount = loadedCanvas.locator('[data-test="count"]').first();
     const beforeText = (await canvasCount.textContent()) || '';
 
     await slider.evaluate((el) => {
@@ -923,7 +948,12 @@ module.exports = {
     // record the slider's current `max` and scrub to it; the latest
     // record IS the inc we just clicked because every dispatch settles
     // a new epoch at the tail.
-    await main.locator('[data-test="inc"]').first().click();
+    //
+    // Per rf2-9la06: scope the click to the active variant's canvas
+    // (same rationale as the §10 click above — `.first()` under raw
+    // <main> could land on a workspace cell whose state is unrelated
+    // to the right-pane scrubber's variant).
+    await loadedCanvas.locator('[data-test="inc"]').first().click();
 
     // Wait for the slider's max to advance once the inc settles in the
     // framework's epoch ring buffer (the listener wires synchronous

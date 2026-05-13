@@ -310,9 +310,18 @@
          ;; passes. The `<section>` element + aria-label give it a
          ;; landmark name (it's nested inside the shell's <main> so
          ;; landmark structure remains: main > section).
-         [:section {:style      (:wrap styles)
-                    :aria-label "Variant canvas"
-                    :tab-index  "0"}
+         ;;
+         ;; Per rf2-9la06: also stamp `data-test-variant` with the
+         ;; active variant id so Playwright specs can scope selectors
+         ;; to the canvas of a specific variant — disambiguates the
+         ;; canvas from sibling workspace cells whose state may not yet
+         ;; have torn down (sidebar `:selected-variant` and
+         ;; `:selected-workspace` are independent slots; clicking a
+         ;; variant doesn't clear a previously-selected workspace).
+         [:section (cond-> {:style      (:wrap styles)
+                            :aria-label "Variant canvas"
+                            :tab-index  "0"}
+                     variant-id (assoc :data-test-variant (pr-str variant-id)))
           (if variant-id
             [canvas-inner variant-id]
             [:div {:style (:empty styles)}
