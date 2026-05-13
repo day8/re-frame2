@@ -130,6 +130,7 @@
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as issues-helpers]
             [day8.re-frame2-causa.panels.mcp-server-helpers :as mcp-helpers]
             [day8.re-frame2-causa.panels.performance-helpers :as perf-helpers]
+            [day8.re-frame2-causa.panels.routes-helpers :as routes-helpers]
             [day8.re-frame2-causa.panels.schema-violation-timeline-helpers :as svt-helpers]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as subs-helpers]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
@@ -1520,6 +1521,131 @@
       (fn [db _event]
         (update db :mcp-origin-filter-enabled? not)))
     ;; ── mcp-server panel end ──
+
+    ;; ---- Phase 5 (rf2-6blai) — Routes panel ----------------------------
+    ;;
+    ;; Per `spec/012-Routing.md` the panel surfaces three pieces of the
+    ;; routing surface: the registered-route set (`(rf/handlers
+    ;; :route)`), the active `:rf/route` slice on the target frame
+    ;; (Spec 012 §The `:rf/route` slice), and recent navigation history
+    ;; (the `:route.nav-token/*` + `:rf.route/url-changed` trace event
+    ;; stream per Spec 012 §Trace events).
+    ;;
+    ;; Tests stub the registered-routes surface by writing
+    ;; `:registered-routes-override` to Causa's app-db (via
+    ;; `:rf.causa/set-registered-routes-override-for-test`) and the
+    ;; active-route slice via
+    ;; `:rf.causa/set-active-route-slice-override-for-test` so the
+    ;; suite can assert against a deterministic registry + slice without
+    ;; booting a host with `rf/reg-route` calls. Production paths read
+    ;; through `rf/handlers` + `rf/get-frame-db` directly.
+    ;;
+    ;; Shape of `:rf.causa/routes-data`:
+    ;;
+    ;;     {:rows              [<row> ...]
+    ;;      :total             <int>
+    ;;      :active-route      <projected-or-nil>
+    ;;      :selected-route-id <id-or-nil>
+    ;;      :history           [<entry> ...]
+    ;;      :empty-kind        <:no-routes / nil>}
+
+    ;; Read the registered-route map. Reads `(rf/handlers :route)` —
+    ;; per Spec 001 §The public registrar query API the registrar is
+    ;; process-global so this surfaces every registered route across
+    ;; every frame. The v1 wiring threads `rf/handlers` through the
+    ;; override slot so the JVM test target can drive the projection
+    ;; without a populated registrar. The fallback path is wrapped in
+    ;; a `try` so a missing-kind exception (older builds without the
+    ;; `:route` kind) collapses to an empty registry rather than
+    ;; throwing through the sub.
+    (rf/reg-sub :rf.causa/registered-routes
+      (fn [db _query]
+        (let [ov (get db :registered-routes-override)]
+          (or ov
+              (try (rf/handlers :route)
+                   (catch :default _ {}))))))
+
+    ;; Test-only override hook for the registered-routes surface.
+    ;; Production code paths never dispatch this — the slot exists
+    ;; only so JVM + node-test suites can drive the projection
+    ;; without booting a host with `rf/reg-route` calls.
+    (rf/reg-event-db :rf.causa/set-registered-routes-override-for-test
+      (fn [db [_ ov]]
+        (if (nil? ov)
+          (dissoc db :registered-routes-override)
+          (assoc db :registered-routes-override ov))))
+
+    ;; The active `:rf/route` slice on the target frame. Reads
+    ;; `:rf/route` off the target-frame's app-db via the same
+    ;; `:rf.causa/target-frame-db` sub the App-DB Diff panel uses, so
+    ;; the panel re-fires on every settled epoch on the host frame.
+    ;; The override slot mirrors the registered-routes pattern — JVM
+    ;; tests write a slice without a live frame; production reads
+    ;; through the live frame's app-db.
+    (rf/reg-sub :rf.causa/active-route-slice
+      :<- [:rf.causa/target-frame-db]
+      (fn [target-frame-db _query]
+        (when (map? target-frame-db)
+          (:rf/route target-frame-db))))
+
+    ;; Override-aware reader. Returns the override when set; falls
+    ;; through to the live slice otherwise. Wired this way (rather
+    ;; than reading the override inside `:rf.causa/active-route-slice`)
+    ;; so test fixtures can override the slice without disturbing the
+    ;; target-frame-db chain — important when an integration test
+    ;; needs the live target-frame chain wired but wants to inject a
+    ;; deterministic slice value.
+    (rf/reg-sub :rf.causa/active-route-slice-override
+      (fn [db _query]
+        (get db :active-route-slice-override)))
+
+    (rf/reg-event-db :rf.causa/set-active-route-slice-override-for-test
+      (fn [db [_ ov]]
+        (if (nil? ov)
+          (dissoc db :active-route-slice-override)
+          (assoc db :active-route-slice-override ov))))
+
+    ;; The Causa trace-buffer's route-history slice — filtered to the
+    ;; three operations Spec 012 §Trace events enumerates. Pure-data
+    ;; filter — the helper's predicate is JVM-runnable so tests can
+    ;; drive it without a CLJS runtime.
+    (rf/reg-sub :rf.causa/route-history-events
+      :<- [:rf.causa/trace-buffer]
+      (fn [buffer _query]
+        (routes-helpers/filter-history-events buffer)))
+
+    ;; The user's per-panel route selection. Drives the row highlight
+    ;; in the registered-routes list. v1 carries the selection only;
+    ;; the cross-panel jump (click → open-in-editor at the route's
+    ;; source coord) lands when the cross-panel jump API stabilises.
+    (rf/reg-sub :rf.causa/selected-route-id
+      (fn [db _query]
+        (get db :selected-route-id)))
+
+    ;; The composite the panel consumes. One read produces every slot
+    ;; the view needs (matches the per-panel composite pattern every
+    ;; other Causa panel uses).
+    (rf/reg-sub :rf.causa/routes-data
+      :<- [:rf.causa/registered-routes]
+      :<- [:rf.causa/active-route-slice]
+      :<- [:rf.causa/active-route-slice-override]
+      :<- [:rf.causa/route-history-events]
+      :<- [:rf.causa/selected-route-id]
+      (fn [[routes-map live-slice slice-override history-events selected-id]
+           _query]
+        (let [slice (or slice-override live-slice)]
+          (routes-helpers/project-feed
+            routes-map slice history-events selected-id))))
+
+    ;; ---- Routes panel events ----------------------------------------
+
+    (rf/reg-event-db :rf.causa/select-route
+      (fn [db [_ route-id]]
+        (assoc db :selected-route-id route-id)))
+
+    (rf/reg-event-db :rf.causa/clear-route-selection
+      (fn [db _event]
+        (dissoc db :selected-route-id)))
 
     ;; ---- Phase 5 (rf2-rccf3) — AI Co-Pilot panel -----------------------
     ;;
