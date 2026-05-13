@@ -461,6 +461,34 @@ registration time; an unresolved parent raises
 output is a leak. Stage 8 (examples + guide) wires the example
 builds against this sentinel.
 
+### Bundle-size comparison (rf2-xgay8)
+
+Measured 2026-05-13 on `examples/reagent/counter_with_stories` via
+`shadow-cljs release`:
+
+- Counter with Story enabled (dev-bundle-equivalent, `:advanced`):
+  **+118 KiB gzipped** (+453 KiB raw) over the no-Story baseline.
+  That's the JS Story would add to a consumer's bundle if shipped
+  to production.
+- Counter with Story disabled (`:advanced` +
+  `re-frame.story.config/*enabled?*=false`): **0 additional bytes**.
+  Elision verified by `scripts/check-bundle-isolation.cjs`.
+
+For reference, Storybook 9's `storybook` core package alone is
+~35 MB unpacked (npm registry, 9.1.20), and a working SB9 project
+is typically tens to hundreds of MB on disk. Storybook is a
+separate dev-server with manager + preview iframes; Story is a
+runtime registry that mounts inside the consumer's existing app —
+the categories differ, but the consumer-cost answer is "~118 KiB
+gz in dev / 0 bytes in prod" either way.
+
+One-shot measurement; not a CI gate. Rerun via
+`node tools/story/bench/bundle-size.cjs` from `implementation/`.
+Companion findings doc (with the full SB9 comparison table and
+sources): `ai/findings/story-bundle-vs-sb9-20260513.md` (local-only
+per `docs/the-mayor-method.md`; the headline numbers and methodology
+are committed here + in the bench script).
+
 ## v1 ship list (high-confidence + must-ships)
 
 Per Phase 2 §5.1's converged ship list (12 items) + additional
