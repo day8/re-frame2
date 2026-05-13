@@ -28,6 +28,34 @@ jobs:
       - name: Verify lockstep version contract
         run: ./.github/scripts/verify-version-lockstep.sh
 
+  # PR-time drift detection for the skill ↔ MCP tool-catalogue contract
+  # (rf2-flzdp). Source: rf2-fvy7o audit, finding #6. When an MCP server
+  # adds a tool (e.g. pair2-mcp added `subscribe`/`unsubscribe` under
+  # rf2-hq49) the consumer skill's `allowed-tools` front-matter doesn't
+  # auto-update; the agent host blocks the new tool even though the
+  # server advertises it. The script in scripts/check_skill_mcp_drift.py
+  # diffs every MCP-server tool catalogue against its consumer skill's
+  # allow-list and fails on drift in either direction.
+  #
+  # Fast — pure Python stdlib, no setup beyond actions/setup-python.
+  # The script ships with a `_BASELINE` set that documents the drift on
+  # main at PR-landing time so this gate lands before its companion
+  # fix (rf2-aks1t) completes; trim entries from `_BASELINE` as their
+  # underlying drift is resolved.
+  verify-skill-mcp-drift:
+    name: Verify skill ↔ MCP allowed-tools drift (rf2-flzdp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@39cd14951b08e74b54015e9e001cdefcf80e669f  # v5
+        with:
+          python-version: '3.12'
+
+      - name: Diff MCP tool catalogues vs skill allowed-tools
+        run: python scripts/check_skill_mcp_drift.py --verbose --ci
+
   jvm-core:
     name: JVM core (clojure -M:test)
     runs-on: ubuntu-latest
