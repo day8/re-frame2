@@ -27,11 +27,16 @@
  :fixture/frame-config {:on-create [] :platform :client}
 
  :fixture/dispatches
+ ;; Per Spec 011 §The :rf/hydrate event the payload's `:rf/app-db`
+ ;; carries the active-route slice under the canonical `:rf/route`
+ ;; key (matching Spec 004 §Active-route storage). The runtime's
+ ;; `active-head` reads `:rf/route` to find the route-id whose `:head`
+ ;; metadata names the head fn to invoke.
  [[:rf/hydrate {:rf/version    1
                 :rf/frame-id   :rf/default
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
                                                   :summary "How re-frame2 ships SSR"}}
-                                :route    {:id :route/article :params {:id "123"}}}
+                                :rf/route {:id :route/article :params {:id "123"}}}
                 :rf/render-hash "render-hash-server-A"}]]
 
  :fixture/render-after-hydrate
@@ -44,7 +49,7 @@
  :fixture/expect
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"
                                    :summary "How re-frame2 ships SSR"}}
-                 :route    {:id :route/article :params {:id "123"}}}
+                 :rf/route {:id :route/article :params {:id "123"}}}
 
   :ssr/active-head
   {:title "Article: re-frame2 SSR — Example"
