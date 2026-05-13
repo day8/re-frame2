@@ -91,6 +91,54 @@ vocabulary `[:rf.elision/at <path>]` are reserved per
 and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
 the shape is shared across pair2-mcp, story-mcp, and causa-mcp.
 
+## Universal: per-session response cache
+
+Every read tool — `snapshot`, `get-path`, `trace-window`,
+`watch-epochs`, `discover-app` — opts into an 8-slot LRU
+keyed on `(tool, args-fingerprint)` (see
+[`Principles.md` §Per-session response cache](Principles.md#per-session-response-cache-rf2-3rt1f)).
+Each tool accepts a universal `cache` arg (boolean, default
+`false`). When `true` and the result's hash matches the prior
+call for the same `(tool, args)`, the full payload is replaced
+with a tiny marker:
+
+```clojure
+{:rf.mcp/cache-hit
+ {:hash            <integer>
+  :unchanged-since <ms-since-epoch>
+  :tool            "<tool-name>"
+  :hint            "<agent-host instruction string>"}}
+```
+
+The agent host already has the byte-identical bytes from the
+prior `tools/call`; re-shipping doubles the conversation cost
+for no new information. On a hash miss (state moved on), the
+fresh payload is returned and the new hash is stored. Capacity
+is 8 — sized for the typical "inspect, dispatch one thing,
+inspect again" rhythm; least-recently-used entries are evicted
+first. Cache lifetime is the MCP server process (= one MCP
+session per the [persistent-socket principle](Principles.md#single-persistent-nrepl-socket));
+no cross-process leak, no manual invalidation.
+
+Action tools (`dispatch`, `eval-cljs`, `tail-build`) and
+streaming tools (`subscribe`, `unsubscribe`) bypass the cache —
+their return value is the result of an action, not a read.
+`:isError` results bypass too; a transient failure must not
+mask a future successful read.
+
+The marker key `:rf.mcp/cache-hit` matches the cross-MCP wire-
+vocabulary family (`:rf.mcp/overflow`, `:rf.mcp/dedup-table`,
+`:rf.mcp/summary`, `:rf.size/large-elided`). Agents that
+learned the slot family see one more slot.
+
+The cache saves wire bytes, not the nREPL round-trip — the
+tool still runs server-side and the result is built locally.
+The byte saving is the one the bead targets: a typical
+"inspect, dispatch, inspect" workflow today re-ships the full
+app-db on the second inspect; with the cache it ships ~100
+bytes. Saving the round-trip too needs a server-side hash
+precheck and is filed as a follow-on bead.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the
