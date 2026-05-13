@@ -134,6 +134,93 @@
               :frame      (provider/current-frame)}))))
 
 ;; ---- reg-view -------------------------------------------------------------
+;;
+;; Per rf2-w9ykb the wrapper-builder is decomposed into named helpers,
+;; each owning one phase of the registration pipeline:
+;;
+;;   1. `apply-adapter-wrap-view`   — consult the substrate hook
+;;   2. `view-coord-attr`           — debug-only source-coord stamp
+;;   3. `trace/handler-scope-from-meta` — pre-compute the view's HandlerScope
+;;      (already a named helper in trace.cljc — rf2-ryri7)
+;;   4. `build-frame-aware-view`    — assemble the per-render wrapped fn
+;;   5. `registrar/register!`       — install in the :view kind
+;;
+;; reg-view* itself becomes a five-line straight-line composition.
+
+(defn- apply-adapter-wrap-view
+  "Consult the `:adapter/wrap-view` late-bind hook (rf2-00li) for a
+  substrate-side wrap. Returns `[render-fn wrap-applied?]`.
+
+  UIx / Helix register a substrate wrap-view because their render-fn
+  output is a React element — neither a hiccup vector nor a fn — so
+  the inline `inject-source-coord-attr` walk would mis-classify the
+  root and skip annotation. Those adapters supply a wrap-view that
+  injects `data-rf2-source-coord` via `React.cloneElement`. The
+  Reagent adapter does NOT publish the hook; the inline hiccup walk
+  in `build-frame-aware-view` continues to serve it.
+
+  The hook may be registered (e.g. test bundle loaded UIx + Helix
+  adapter ns's) yet return nil — each adapter's routing closure
+  returns nil when its own adapter is NOT the installed one (per
+  rf2-0d35), so the chain bottoms out at nil when the Reagent adapter
+  is installed. A nil from the hook means \"no substrate wrap
+  applied\" — keep render-fn unchanged and let the inline walk run.
+
+  The adapter's wrap-view body itself sits inside
+  `(when interop/debug-enabled? ...)`, so under :advanced +
+  goog.DEBUG=false the wrapped fn collapses to the bare user-fn (no
+  cloneElement) — keeping the elision contract."
+  [id metadata render-fn]
+  (let [hook    (late-bind/get-fn :adapter/wrap-view)
+        wrapped (when hook (hook id metadata render-fn))]
+    (if (some? wrapped)
+      [wrapped true]
+      [render-fn false])))
+
+(defn- view-coord-attr
+  "Capture the source-coord stamp for the inline hiccup-walk
+  annotation path (Spec 006 §Source-coord annotation, rf2-z7f7 /
+  rf2-z9n1). Returns nil under :advanced + goog.DEBUG=false, and
+  also nil when the substrate hook has already wrapped render-fn
+  (its own cloneElement path supersedes the hiccup walk)."
+  [id metadata wrap-applied?]
+  (when (and interop/debug-enabled? (not wrap-applied?))
+    (source-coord/format-source-coord id metadata)))
+
+(defn- build-frame-aware-view
+  "Build the per-render wrapped fn that ties view registration into
+  Reagent: each render binds `*render-key*` and `*handler-scope*`,
+  emits the `:view/render` trace, brackets the user render-fn in
+  performance marks, and (when serving the Reagent inline path)
+  annotates the rendered hiccup root with the source-coord attribute.
+
+  The returned fn carries `{:contextType frame-context}` meta so
+  Reagent's create-class / fn-to-class machinery hooks it up to the
+  React frame-context (rf2-kdwc — note the camelCase static-field
+  name; the earlier kebab `:context-type` shape was silently ignored
+  by Reagent)."
+  [id render-fn view-scope coord-attr wrap-applied?]
+  (with-meta
+    (fn frame-aware-view [& args]
+      (let [tok        (provider/reagent-component-token)
+            render-key [id tok]]
+        (binding [*render-key* render-key]
+          (trace/with-handler-scope view-scope
+            (emit-render-trace! render-key)
+            ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
+            ;; every render of a registered view brackets the user
+            ;; render-fn in performance marks so prod builds with the
+            ;; perf flag enabled produce a `rf:render:<view-id>` measure
+            ;; entry. Default-off; under :advanced +
+            ;; `re-frame.performance/enabled?=false` the bracket DCEs
+            ;; and the form collapses to the bare `(apply render-fn
+            ;; args)` call.
+            (let [out (performance/mark-and-measure :render id
+                        (apply render-fn args))]
+              (if (and interop/debug-enabled? (not wrap-applied?))
+                (source-coord/inject-source-coord-attr id coord-attr out)
+                out))))))
+    {:contextType frame-context}))
 
 (defn reg-view*
   "Reagent-aware view registration. Wraps `render-fn` with the React
@@ -146,101 +233,29 @@
   registry slot's metadata as-is; source-coord capture is performed
   by the caller (`re-frame.core/reg-view*`).
 
-  Note (rf2-kdwc): Reagent's create-class / fn-to-class machinery
-  recognises `:contextType` (camelCase, the React static-field name),
-  not `:context-type` (kebab). The earlier shape used the kebab key
-  and was silently ignored, which is why frame-provider context
-  resolution fell back to :rf/default.
-
   Per rf2-piag / rf2-t5tx: each render binds `*render-key*` to the
   tuple `[id instance-token]` for the body, so the trace recorder can
   attribute the render. The instance-token is minted at mount and
   reused across re-renders of the same component instance (per
   Spec 004 §Render-tree primitives).
 
-  Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1): when
-  `interop/debug-enabled?` is true, the wrapper merges
-  `:data-rf2-source-coord` onto the rendered root DOM element. The
-  attribute value carries `<ns>:<sym>:<line>:<col>`, derived from the
-  registry id and the coords captured by the reg-view macro at
-  expansion time. Production builds elide the entire annotation
-  branch via the `interop/debug-enabled?` gate.
+  Per rf2-ryri7: the view's HandlerScope is pre-computed once at
+  registration time from `metadata` (source-coord stamp, `:sensitive?`,
+  `:rf.trace/no-emit?` — all three fixed for the life of the registered
+  view). Each render binds the scope (via `with-handler-scope`, which
+  inherits parent's `:call-site` / `:dispatch-id`) around the user
+  render-fn invocation. Errors emitted during render (subscribe-miss
+  against this frame, sub exception during a render-time deref, etc.)
+  ride the view's `:trigger-handler` coord; `:view/render` emits ride
+  `:sensitive?` per Spec 009 §Privacy and short-circuit when
+  `:no-emit?` is true.
 
-  Per rf2-00li: substrates whose `render-fn` returns React elements
-  (UIx, Helix) cannot be served by the hiccup-shape `inject-source-
-  coord-attr` walk below — a React element is neither a hiccup
-  vector nor a fn, so the walk would mis-classify it as a non-DOM
-  root and skip annotation with a one-shot warning. Those adapters
-  publish a substrate-side `wrap-view` through the `:adapter/wrap-
-  view` late-bind hook. When the hook is set, the substrate-supplied
-  wrap-view replaces the inline annotation path: it wraps `render-fn`
-  so each call returns a React element with `data-rf2-source-coord`
-  injected via `React.cloneElement`. The Reagent adapter does NOT
-  publish the hook (it has no React-side walk needed); the inline
-  hiccup walk continues to serve it."
+  Per rf2-w9ykb the body is a five-line pipeline; the work lives in
+  the named helpers above."
   [id metadata render-fn]
-  (let [adapter-wrap-view (late-bind/get-fn :adapter/wrap-view)
-        ;; rf2-00li: if an adapter has registered a substrate-side
-        ;; wrap-view (UIx, Helix), call it to wrap render-fn before
-        ;; binding into the frame-aware-view. This replaces the inline
-        ;; hiccup-shape walk for substrates whose render-fn output is
-        ;; a React element.
-        ;;
-        ;; The hook may be registered (e.g. test bundle loaded UIx +
-        ;; Helix adapter ns's) yet return nil — each adapter's routing
-        ;; closure returns nil when its own adapter is NOT the
-        ;; installed one (per rf2-0d35), so the chain bottoms out at
-        ;; nil when the Reagent adapter is installed even though
-        ;; UIx + Helix have published into the hook. A nil from the
-        ;; hook means "no substrate wrap applied" — keep render-fn
-        ;; unchanged and run the inline hiccup walk (the Reagent
-        ;; behaviour) below.
-        ;;
-        ;; The adapter's wrap-view body itself sits inside
-        ;; `(when interop/debug-enabled? ...)`, so under :advanced +
-        ;; goog.DEBUG=false the wrapped fn collapses to the bare
-        ;; user-fn (no cloneElement) — keeping the elision contract.
-        wrapped-by-adapter (when adapter-wrap-view
-                             (adapter-wrap-view id metadata render-fn))
-        wrap-applied?      (some? wrapped-by-adapter)
-        render-fn          (if wrap-applied? wrapped-by-adapter render-fn)
-        coord-attr (when (and interop/debug-enabled? (not wrap-applied?))
-                     (source-coord/format-source-coord id metadata))
-        ;; Per rf2-ryri7: pre-compute the view's HandlerScope once at
-        ;; registration time. The registrar `metadata` map carries the
-        ;; source-coord stamp, `:sensitive?`, and `:rf.trace/no-emit?`
-        ;; readings — all three derive from meta and are fixed for the
-        ;; life of the registered view. Each render binds the scope
-        ;; (via `with-handler-scope`, which inherits parent's
-        ;; `:call-site` / `:dispatch-id`) around the user render-fn
-        ;; invocation. Errors emitted during render (subscribe-miss
-        ;; against this frame, sub exception during a render-time
-        ;; deref, etc.) ride the view's `:trigger-handler` coord;
-        ;; `:view/render` emits ride `:sensitive?` per Spec 009
-        ;; §Privacy and short-circuit when `:no-emit?` is true.
+  (let [[render-fn wrap-applied?] (apply-adapter-wrap-view id metadata render-fn)
+        coord-attr (view-coord-attr id metadata wrap-applied?)
         view-scope (trace/handler-scope-from-meta :view id metadata)
-        wrapped (with-meta
-                  (fn frame-aware-view [& args]
-                    (let [tok        (provider/reagent-component-token)
-                          render-key [id tok]]
-                      (binding [*render-key* render-key]
-                        (trace/with-handler-scope view-scope
-                          (emit-render-trace! render-key)
-                          ;; Per Spec 009 §Performance instrumentation
-                          ;; (rf2-du3i): every render of a registered
-                          ;; view brackets the user render-fn in
-                          ;; performance marks so prod builds with the
-                          ;; perf flag enabled produce a
-                          ;; `rf:render:<view-id>` measure entry.
-                          ;; Default-off; under :advanced +
-                          ;; `re-frame.performance/enabled?=false` the
-                          ;; bracket DCEs and the form collapses to the
-                          ;; bare `(apply render-fn args)` call.
-                          (let [out (performance/mark-and-measure :render id
-                                      (apply render-fn args))]
-                            (if (and interop/debug-enabled? (not wrap-applied?))
-                              (source-coord/inject-source-coord-attr id coord-attr out)
-                              out))))))
-                  {:contextType frame-context})]
+        wrapped    (build-frame-aware-view id render-fn view-scope coord-attr wrap-applied?)]
     (registrar/register! :view id (assoc metadata :handler-fn wrapped))
     wrapped))
