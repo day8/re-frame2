@@ -23,9 +23,10 @@ bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The 16 panels are
 *presentation* of an already-structured runtime.
 
-A separate jar `tools/causa-mcp/` exposes Causa's surfaces as MCP tools
-for AI agents — same architecture as `tools/pair2-mcp/`, different tool
-catalogue.
+A separate jar `tools/causa-mcp/` is planned to expose Causa's surfaces
+as MCP tools for AI agents — same architecture as `tools/pair2-mcp/`,
+different tool catalogue. The artefact does not yet exist on disk; the
+contract is being designed in [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
 
 ## Headline experiences
 
@@ -47,10 +48,17 @@ Full panel inventory in [`spec/000-Vision.md`](./spec/000-Vision.md).
 
 ### Install
 
+Until the alpha publish lands on Clojars, use the `:local/root` route
+from a checkout of this repo:
+
 ```clojure
 ;; deps.edn (dev alias only)
-{:aliases {:dev {:extra-deps {day8/re-frame2-causa {:mvn/version "1.0.0"}}}}}
+{:aliases {:dev {:extra-deps {day8/re-frame2-causa {:local/root "tools/causa"}}}}}
 ```
+
+Once published, the dev-deps coord will be
+`day8/re-frame2-causa {:mvn/version "0.0.1.alpha"}` (tracking the repo
+`VERSION`).
 
 ### Enable
 
@@ -79,19 +87,27 @@ Remove the `:preloads` entry, or set
 `:closure-defines {day8.re-frame2-causa.config/enabled? false}` to
 force-disable in dev.
 
-### MCP (Causa as an agent surface)
+### MCP (Causa as an agent surface) — planned
+
+A separate `tools/causa-mcp/` artefact is in design — it will expose
+Causa's surfaces as MCP tools so AI agents can drive the same
+observations through a tool catalogue. Neither the jar nor the npm
+wrapper ships yet.
+
+When the artefact lands, the consumer-side wiring will look roughly
+like this (the exact coord names are not final):
 
 ```bash
+# planned — not yet published
 npm install -g @day8/re-frame2-causa-mcp
 ```
 
-Add to `~/.claude/settings.json`:
-
 ```json
+// planned — ~/.claude/settings.json
 { "mcpServers": { "causa": { "command": "re-frame2-causa-mcp" } } }
 ```
 
-Tool catalogue in [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
+Tool catalogue under design in [`spec/010-MCP-Server.md`](./spec/010-MCP-Server.md).
 
 ## Spec
 
