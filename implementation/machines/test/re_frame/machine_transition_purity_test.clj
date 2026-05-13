@@ -58,22 +58,40 @@
           "two pure-call invocations from the same input produce the same next-snapshot")
       (is (= fx1 fx2)
           "two pure-call invocations from the same input produce the same effects vector")
-      ;; The spawn-id allocated by both calls must be byte-identical —
-      ;; pre-rf2-gr8q the second call would have produced `:http/post#2`.
-      (is (= [[:rf.machine/spawn {:machine-id    :http/post
-                                  :id-prefix     :http/post
-                                  :data          {:url "/api/login"}
-                                  :start         [:begin]
-                                  :rf/spawned-id :http/post#1
-                                  :rf/parent-id  :rf/transition-pure
-                                  :rf/invoke-id  [:authenticating]}]]
-             fx1)
-          "the spawn fx carries `:http/post#1` deterministically")
-      (is (= {:state            :authenticating
-              :data             {}
-              :rf/spawn-counter {:http/post 1}}
-             snap1)
-          "the in-snapshot counter advances; the snapshot now carries `:rf/spawn-counter`")))
+      ;; Per rf2-d0wem (informed by rf2-ra1he §TE1): assert only the
+      ;; load-bearing slots of the emitted spawn fx — the contract — and
+      ;; leave implementation-detail keys (`:id-prefix`, exact arg-map
+      ;; shape, the user-passed `:data` / `:start` echo) free to evolve
+      ;; without churning this test. The contract is:
+      ;;   - the fx-id is `:rf.machine/spawn`
+      ;;   - `:rf/spawned-id` is `:http/post#1` (allocator deterministic)
+      ;;   - `:rf/parent-id` is `:rf/transition-pure` (sentinel for the
+      ;;     pure-call surface)
+      ;;   - `:rf/invoke-id` is the state-path the spawn issued from
+      ;;     (`[:authenticating]`)
+      (is (= 1 (count fx1))
+          "exactly one effect emitted by the :submit transition")
+      (let [[[fx-id args]] fx1]
+        (is (= :rf.machine/spawn fx-id)
+            "the emitted fx is :rf.machine/spawn")
+        (is (= :http/post#1 (:rf/spawned-id args))
+            "the spawned-id is allocated deterministically as :http/post#1")
+        (is (= :rf/transition-pure (:rf/parent-id args))
+            "parent-id sentinel for the pure-call surface is :rf/transition-pure")
+        (is (= [:authenticating] (:rf/invoke-id args))
+            "invoke-id is the state-path the spawn issued from"))
+      ;; Snapshot: the load-bearing contract is that `:state` advanced and
+      ;; the in-snapshot counter bumped to 1 for the `:http/post` slot.
+      ;; The exact key-set of the snapshot map (e.g. whether the counter
+      ;; root is `:rf/spawn-counter` or evolves under refactor) is not
+      ;; load-bearing for this contract — assert the counter slot via
+      ;; `get-in`.
+      (is (= :authenticating (:state snap1))
+          "snapshot's :state advances to :authenticating")
+      (is (= {} (:data snap1))
+          "user-facing :data is unchanged (the :http/post :data is on the spawn fx, not in the parent snapshot)")
+      (is (= 1 (get-in snap1 [:rf/spawn-counter :http/post]))
+          "the in-snapshot counter advanced to 1 for the :http/post slot")))
 
   (testing "different input snapshots allocate independently — no shared module-level counter"
     ;; Two separate input snapshots, each starting at counter 0, both
