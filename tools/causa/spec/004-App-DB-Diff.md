@@ -79,7 +79,7 @@ sessions.
 
 The runtime owns a fixed set of top-level `app-db` keys, catalogued
 in [Conventions §Reserved app-db keys](../../../spec/Conventions.md#reserved-app-db-keys).
-Causa's `[runtime]` group segregates these five:
+Causa's `[runtime]` group segregates these six:
 
 | Reserved key | Owner | One-line role |
 |---|---|---|
@@ -88,13 +88,15 @@ Causa's `[runtime]` group segregates these five:
 | `:rf/spawned` | machine runtime | Declarative-`:invoke` / `:invoke-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
 | `:rf/route` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
+| `:rf/elision` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :runtime-flagged {<path> {:bytes :first-seen-epoch}}}`. Mutated via `:rf.size/declare-large` / `:rf.size/clear`; consulted by `rf/elide-wire-value` at every wire-boundary emit. |
 
 Conventions is the canonical home; this table is the panel-facing
-projection. The five above are the keys Causa's `partition-reserved`
+projection. The six above are the keys Causa's `partition-reserved`
 treats as runtime-owned in the diff panel — diff triples rooted in
 one of them render here rather than as slice mini-panels. If a new
 reserved key lands in Conventions, the `[runtime]` group's coverage
-and this table are updated in lockstep.
+and this table are updated in lockstep; the drift-detector test in
+`app_db_diff_helpers_cljs_test.cljc` enforces this on every run.
 
 ```
 ┌─ [runtime] ───────────────────────────────────────┐

@@ -55,7 +55,7 @@
 ;; ---- reserved keys --------------------------------------------------------
 
 (def reserved-app-db-keys
-  "Per spec/Conventions.md §Reserved app-db keys the runtime owns five
+  "Per spec/Conventions.md §Reserved app-db keys the runtime owns six
   top-level slots in `app-db`. Diff triples whose path roots in one
   of these keys render in the `[runtime]` group rather than as a
   slice mini-panel.
@@ -64,12 +64,19 @@
   - `:rf/system-ids` — system-id reverse index
   - `:rf/route` — current route slice (per spec/012-Routing.md)
   - `:rf/pending-navigation` — pending-nav slot
-  - `:rf/spawned` — spawned-actor table"
+  - `:rf/spawned` — spawned-actor table
+  - `:rf/elision` — wire-elision declaration registry (per spec/009-Instrumentation.md §Size elision)
+
+  Lockstep contract: this set MUST match the rows of
+  spec/Conventions.md §Reserved app-db keys exactly. The drift-detector
+  test `reserved-app-db-keys-matches-conventions-md` in
+  `app_db_diff_helpers_cljs_test.cljc` enforces the invariant."
   #{:rf/machines
     :rf/route
     :rf/system-ids
     :rf/pending-navigation
-    :rf/spawned})
+    :rf/spawned
+    :rf/elision})
 
 (defn reserved-path?
   "True when `path`'s root key is a reserved-app-db key. Pure data →
