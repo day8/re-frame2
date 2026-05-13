@@ -47,7 +47,7 @@
 
 ;; ---- lexical-scope fx-override binding (rf2-5uwl) -------------------------
 ;;
-;; Per the `rf/with-overrides` macro (declared in re-frame.core) tests
+;; Per the `rf/with-fx-overrides` macro (declared in re-frame.core) tests
 ;; bind this Var to a `{fx-id -> override}` map for the macro body's
 ;; lexical scope; `build-envelope` merges it into the per-call
 ;; `:fx-overrides` opt. Precedence: per-call opt > lexical
@@ -122,7 +122,7 @@
     (cond-> {:event                  event
              :frame                  (or (:frame opts) default-frame)
              ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
-             ;; (bound by `rf/with-overrides`) under the per-call opt so
+             ;; (bound by `rf/with-fx-overrides`) under the per-call opt so
              ;; the per-call opt wins on key collision. The per-frame
              ;; tier is still merged later inside `apply-overrides`.
              :fx-overrides           (merge *fx-overrides* (:fx-overrides opts {}))

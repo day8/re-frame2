@@ -1656,6 +1656,35 @@ Pre-release framing: per rf2-l67o (Nine States Stage 2), the snapshot's `:state`
 
 **Cross-references.** [Spec 005 §Snapshot shape](005-StateMachines.md#snapshot-shape) for the three-arm `:state` form; [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) for the schema; [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive) above for the registration-side change.
 
+### M-50. `with-overrides` macro renamed to `with-fx-overrides`
+
+**Type A** (mechanical, name-rename).
+
+Per rf2-mozsm: the test-support macro `re-frame.core/with-overrides` (per rf2-5uwl) is renamed to `with-fx-overrides` for symmetry with the `:fx-overrides` opt key it binds and the `re-frame.router/*fx-overrides*` dynvar it sets. Three names — macro, opt key, dynvar — now share the same `fx-overrides` stem. The bare `with-overrides` name is freed for a future general-purpose override helper (e.g. `with-interceptor-overrides` is a natural companion).
+
+**What to look for** in the codebase:
+
+```clojure
+(rf/with-overrides {:fx/http :fx/http-stub}
+  (rf/dispatch-sync ...))
+```
+
+**What to do.** Mechanical rename:
+
+```clojure
+;; before
+(rf/with-overrides {:fx/http :fx/http-stub}
+  (rf/dispatch-sync ...))
+
+;; after
+(rf/with-fx-overrides {:fx/http :fx/http-stub}
+  (rf/dispatch-sync ...))
+```
+
+Body, override-map shape, precedence rules, and composition with `with-frame` are unchanged — the macro is the same `binding` over `re-frame.router/*fx-overrides*`; only its name moves.
+
+**Cross-references.** [API.md §Testing](API.md#testing) for the row; [Spec 002 §`:fx-overrides`](002-Frames.md#fx-overrides--replace-fx-handlers) for the override-value shapes the macro honours.
+
 ---
 
 ## Opt-in modernisation (only if asked)

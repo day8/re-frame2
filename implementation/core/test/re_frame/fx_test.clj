@@ -149,10 +149,10 @@
           (is (= [:per-call] @fired)
               "per-call override redirects past the per-frame override"))))))
 
-;; ---- 2b. rf/with-overrides — lexical-scope :fx-overrides binding (rf2-5uwl)
+;; ---- 2b. rf/with-fx-overrides — lexical-scope :fx-overrides binding (rf2-5uwl)
 
-(deftest with-overrides-binds-fx-overrides-lexically
-  (testing "rf/with-overrides — every dispatch inside the body inherits the override map"
+(deftest with-fx-overrides-binds-fx-overrides-lexically
+  (testing "rf/with-fx-overrides — every dispatch inside the body inherits the override map"
     (let [fired (atom [])]
       (rf/reg-fx :fx-test/wo-email
                  {:platforms #{:client :server}}
@@ -166,14 +166,14 @@
       (rf/reg-event-fx :fx-test/wo-send
         (fn [_ _] {:fx [[:fx-test/wo-email {:to "alice"}]]}))
 
-      (testing "outside with-overrides the registered fx fires"
+      (testing "outside with-fx-overrides the registered fx fires"
         (reset! fired [])
         (rf/dispatch-sync [:fx-test/wo-send])
         (is (= [:registered] @fired)))
 
-      (testing "inside with-overrides every dispatch inherits the override"
+      (testing "inside with-fx-overrides every dispatch inherits the override"
         (reset! fired [])
-        (rf/with-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
+        (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
           (rf/dispatch-sync [:fx-test/wo-send])
           (rf/dispatch-sync [:fx-test/wo-send])
           (rf/dispatch-sync [:fx-test/wo-send]))
@@ -186,20 +186,20 @@
         (is (= [:registered] @fired)
             "the dynamic var unwound; the override is gone"))
 
-      (testing "per-call opt > lexical with-overrides > per-frame"
+      (testing "per-call opt > lexical with-fx-overrides > per-frame"
         (reset! fired [])
         (let [f (rf/make-frame
                   {:fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}})]
-          (rf/with-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
+          (rf/with-fx-overrides {:fx-test/wo-email :fx-test/wo-email.stub}
             ;; Per-call wins over both lexical and per-frame
             (rf/dispatch-sync [:fx-test/wo-send]
                               {:frame        f
                                :fx-overrides {:fx-test/wo-email :fx-test/wo-email.call}}))
           (is (= [:per-call] @fired)
-              "per-call opt outranks the lexical with-overrides binding"))))))
+              "per-call opt outranks the lexical with-fx-overrides binding"))))))
 
-(deftest with-overrides-composes-with-with-frame
-  (testing "rf/with-overrides nests cleanly inside rf/with-frame"
+(deftest with-fx-overrides-composes-with-with-frame
+  (testing "rf/with-fx-overrides nests cleanly inside rf/with-frame"
     (let [fired (atom [])]
       (rf/reg-fx :fx-test/comp-email
                  {:platforms #{:client :server}}
@@ -213,10 +213,10 @@
 
       (reset! fired [])
       (rf/with-frame :wo/A
-        (rf/with-overrides {:fx-test/comp-email :fx-test/comp-email.stub}
+        (rf/with-fx-overrides {:fx-test/comp-email :fx-test/comp-email.stub}
           (rf/dispatch-sync [:fx-test/comp-send])))
       (is (= [:stub] @fired)
-          "with-overrides inside with-frame applies its override to dispatches targeted at the named frame"))))
+          "with-fx-overrides inside with-frame applies its override to dispatches targeted at the named frame"))))
 
 ;; ---- 3. fx-handler exception → :rf.error/fx-handler-exception -------------
 ;;
