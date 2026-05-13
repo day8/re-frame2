@@ -68,20 +68,20 @@
     (let [schema [:map
                   [:user :string]
                   [:password {:sensitive? true} :string]]]
-      (is (= {[:password] {:sensitive? true}}
+      (is (= {[:password] {:sensitive? true :source :schema}}
              (schemas/extract-sensitive-paths-from-schema schema []))))))
 
 (deftest extract-honours-base-path
   (testing "base-path is prepended to every discovered slot path"
     (let [schema [:map
                   [:password {:sensitive? true} :string]]]
-      (is (= {[:auth :password] {:sensitive? true}}
+      (is (= {[:auth :password] {:sensitive? true :source :schema}}
              (schemas/extract-sensitive-paths-from-schema schema [:auth]))))))
 
 (deftest extract-container-level-sensitive
   (testing "the schema's OWN props (container-level) claim the base-path"
     ;; `(reg-app-schema [:auth :token] [:string {:sensitive? true}])`
-    (is (= {[:auth :token] {:sensitive? true}}
+    (is (= {[:auth :token] {:sensitive? true :source :schema}}
            (schemas/extract-sensitive-paths-from-schema
              [:string {:sensitive? true}] [:auth :token])))))
 
@@ -93,7 +93,7 @@
                     [:profile
                      [:map
                       [:ssn {:sensitive? true} :string]]]]]]]
-      (is (= {[:user :profile :ssn] {:sensitive? true}}
+      (is (= {[:user :profile :ssn] {:sensitive? true :source :schema}}
              (schemas/extract-sensitive-paths-from-schema schema []))))))
 
 (deftest extract-multiple-sensitive-slots
@@ -103,14 +103,14 @@
                   [:password  {:sensitive? true} :string]
                   [:totp-code {:sensitive? true} :string]
                   [:email :string]]]
-      (is (= {[:password]  {:sensitive? true}
-              [:totp-code] {:sensitive? true}}
+      (is (= {[:password]  {:sensitive? true :source :schema}
+              [:totp-code] {:sensitive? true :source :schema}}
              (schemas/extract-sensitive-paths-from-schema schema []))))))
 
 (deftest extract-positional-combinator-descends
   (testing ":vector / :or / :and descend at the same base-path"
     ;; A :vector with sensitive props on its inner type's container.
-    (is (= {[:tokens] {:sensitive? true}}
+    (is (= {[:tokens] {:sensitive? true :source :schema}}
            (schemas/extract-sensitive-paths-from-schema
              [:vector [:string {:sensitive? true}]] [:tokens])))))
 
