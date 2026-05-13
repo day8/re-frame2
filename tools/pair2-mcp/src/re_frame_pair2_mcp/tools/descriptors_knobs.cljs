@@ -1,13 +1,13 @@
 (ns re-frame-pair2-mcp.tools.descriptors-knobs
-  "Tool-descriptor knob properties + the `with-*-knob` splicers that
-  attach them.
+  "Tool-descriptor knob properties — the schema fragments that get
+  spliced into per-tool descriptors via the `with-*-knob` composers
+  in `descriptors.cljs`.
 
   Each tool descriptor exposes a stable schema via `tools/list`. A
   handful of knobs are universal (wire-cap, cache) and pinned here so
   every descriptor inherits the same shape via composition rather than
   via copy-paste."
-  (:require [re-frame-pair2-mcp.cache :as cache]
-            [re-frame-pair2-mcp.tools.cap :as cap]))
+  (:require [re-frame-pair2-mcp.tools.cap :as cap]))
 
 (def max-tokens-property
   {:type        "integer"
@@ -106,26 +106,8 @@
                      "(dispatch, eval-cljs, tail-build) and streaming "
                      "tools (subscribe) bypass.")})
 
-(defn with-budget-knob
-  "Splice `max-tokens` into a tool descriptor's inputSchema.properties.
-  No-op if the descriptor already declares it (forward-compat)."
-  [desc]
-  (let [props (get-in desc [:inputSchema :properties])]
-    (if (contains? props :max-tokens)
-      desc
-      (assoc-in desc [:inputSchema :properties :max-tokens]
-                max-tokens-property))))
-
-(defn with-cache-knob
-  "Splice `cache` into a tool descriptor's inputSchema.properties — but
-  only for the read tools that consult `cache/apply-cache`. Action
-  tools and streaming tools don't list the knob because it has no
-  effect there (bypassed in `cache/cacheable?`)."
-  [desc]
-  (let [name  (:name desc)
-        props (get-in desc [:inputSchema :properties])]
-    (if (or (contains? props :cache)
-            (not (cache/cacheable? name)))
-      desc
-      (assoc-in desc [:inputSchema :properties :cache]
-                cache-property))))
+;; `with-budget-knob` and `with-cache-knob` splicers live in
+;; `descriptors.cljs` — they consume `registry/cacheable?` and the
+;; descriptor data, so siting them at the assembly boundary keeps
+;; this ns property-data-only and breaks the otherwise-circular
+;; descriptors-knobs ↔ registry require chain.

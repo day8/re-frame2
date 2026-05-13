@@ -21,7 +21,7 @@
   | subscription-info | List active streaming subscriptions + queue stats     |
   |               | (rf2-zjz9q)                                               |
 
-  ## Per-tool / per-concern layout (rf2-vrbwx)
+  ## Per-tool / per-concern layout (rf2-vrbwx, rf2-47g8l)
 
   This namespace is the public façade — `invoke` glue, internal
   dispatch, and re-exported descriptor surface. The eleven tool bodies
@@ -33,9 +33,12 @@
   - Tools: `discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
     `watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`
     (+ `subscribe-emit`), `unsubscribe`, `subscription-info`.
-  - Descriptors: `descriptors-knobs` (the universal knob property defs
-    + the `with-*-knob` splicers) and `descriptors` (the catalogue of
-    eleven tool descriptors + `tool-descriptors-js`).
+  - Descriptors: `descriptors-knobs` (universal knob property data),
+    `descriptors-data` (per-tool descriptor maps), `descriptors`
+    (`tool-descriptors-js` + the knob splicers).
+  - Registry (rf2-47g8l): `registry` — the single map binding name →
+    descriptor + handler + cacheable?; the three downstream views are
+    derived from it.
   - Precheck: `precheck` (the rf2-36xod cheap-hash short-circuit).
 
   ## Result shape
@@ -47,17 +50,7 @@
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.cap :as cap]
             [re-frame-pair2-mcp.tools.precheck :as precheck]
-            [re-frame-pair2-mcp.tools.discover-app :as discover-app]
-            [re-frame-pair2-mcp.tools.eval-cljs :as eval-cljs]
-            [re-frame-pair2-mcp.tools.dispatch :as dispatch]
-            [re-frame-pair2-mcp.tools.trace-window :as trace-window]
-            [re-frame-pair2-mcp.tools.watch-epochs :as watch-epochs]
-            [re-frame-pair2-mcp.tools.tail-build :as tail-build]
-            [re-frame-pair2-mcp.tools.snapshot :as snapshot]
-            [re-frame-pair2-mcp.tools.get-path :as get-path]
-            [re-frame-pair2-mcp.tools.subscribe :as subscribe]
-            [re-frame-pair2-mcp.tools.unsubscribe :as unsubscribe]
-            [re-frame-pair2-mcp.tools.subscription-info :as subscription-info]
+            [re-frame-pair2-mcp.tools.registry :as registry]
             [re-frame-pair2-mcp.tools.descriptors :as descriptors]))
 
 ;; Re-export the descriptor catalogue + JS-shape builder. Tests
@@ -70,20 +63,15 @@
 (defn- dispatch-tool*
   "Route a `tools/call` to the per-tool implementation. Unknown tools
   resolve to an isError result rather than throwing — keeps the server
-  loop simple."
+  loop simple.
+
+  Lookup is a single `(get registry/handler-for name)` — the registry
+  is the only place tool names are enumerated (rf2-47g8l). Every
+  registered handler is a uniform 3-arity `(fn [conn args extra])`; the
+  registry adapts 2-arity per-tool handlers internally."
   [conn name args extra]
-  (case name
-    "discover-app"      (discover-app/discover-app conn args)
-    "eval-cljs"         (eval-cljs/eval-cljs-tool conn args)
-    "dispatch"          (dispatch/dispatch-tool conn args)
-    "trace-window"      (trace-window/trace-window-tool conn args)
-    "watch-epochs"      (watch-epochs/watch-epochs-tool conn args)
-    "tail-build"        (tail-build/tail-build-tool conn args)
-    "snapshot"          (snapshot/snapshot-tool conn args)
-    "get-path"          (get-path/get-path-tool conn args)
-    "subscribe"         (subscribe/subscribe-tool conn args extra)
-    "unsubscribe"       (unsubscribe/unsubscribe-tool conn args)
-    "subscription-info" (subscription-info/subscription-info-tool conn args)
+  (if-let [handler (get registry/handler-for name)]
+    (handler conn args extra)
     (js/Promise.resolve
       (wire/err-text {:ok? false :reason :unknown-tool :tool name}))))
 
