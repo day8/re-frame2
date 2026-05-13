@@ -7,20 +7,30 @@
   then register a small fixture story + variant so each tool has
   something to read."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.story.recorder :as recorder]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
-            [re-frame.story-mcp.tools :as tools]))
+            [re-frame.story-mcp.tools :as tools]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-story-and-config
   "Each test gets a fresh Story registry + write-gate set to false (the
   documented default per IMPL-SPEC §7.3). Tests that need writes flip
-  the gate explicitly."
+  the gate explicitly.
+
+  Also pins re-frame's substrate to `plain-atom` so tests that exercise
+  the full run-variant → assertion-record-into-frame-db → read-failures
+  pipeline land assertions where `read-failures` can find them (the
+  pipeline requires an initialised substrate adapter; without it
+  `dispatch-sync` no-ops and `:rf.story/assertions` never accretes)."
   [t]
+  (try (rf/init! plain-atom/adapter)
+       (catch clojure.lang.ExceptionInfo _ nil))
   (story/clear-all!)
   (story/install-canonical-vocabulary!)
   (config/set-allow-writes! false)
@@ -263,6 +273,137 @@
       (is (= 0 (:total s)))
       (is (empty? (:failures s)))
       (is (true? (:passing? s))))))
+
+;; ---------------------------------------------------------------------------
+;; Self-healing loop — failing :rf.assert/* through run-variant → read-failures
+;;
+;; Per rf2-6r441: existing tests cover the optimistic (vacuous-pass) flow only.
+;; This deftest drives a DELIBERATELY-FAILING `:rf.assert/path-equals` through
+;; the MCP tool surface and asserts the AI-visible failure shape — the wire-
+;; side contract an agent would consume.
+;;
+;; The agent self-healing loop has four steps:
+;;   1. register-variant with a `:play` body whose assertion will fail
+;;   2. run-variant — :passing? false; :assertions carries the failed record
+;;   3. read-failures — non-empty :failures vector with structured data
+;;   4. (agent proposes a fix — out of scope for this contract test)
+;;
+;; The failure record's shape (per tools/story/spec/004-Assertions.md +
+;; tools/story/src/re_frame/story/assertions.cljc `assertion-record`):
+;;
+;;     {:assertion :rf.assert/path-equals
+;;      :payload   [[:auth :status] :authenticated]
+;;      :passed?   false
+;;      :expected  :authenticated
+;;      :actual    nil
+;;      :path      [:auth :status]
+;;      :reason    "expected :authenticated at [:auth :status] but got nil"
+;;      :elapsed-ms <int>}
+;;
+;; The MCP wire serialises this as-is on `:structuredContent` (per
+;; tools.cljc `tool-read-failures` + `tool-run-variant`) — Story keys
+;; survive the JSON-RPC round-trip into the agent's view.
+;; ---------------------------------------------------------------------------
+
+(deftest self-healing-loop-failing-assertion-shape
+  (testing "register → run → read-failures surfaces the :rf.assert/path-equals failure shape"
+    (config/set-allow-writes! true)
+    ;; Step 1 — agent registers a variant whose :play body asserts a slot
+    ;; that no `:events` step populated. The assertion will fail because
+    ;; `(get-in @app-db [:auth :status])` is nil, not :authenticated.
+    (let [reg (invoke "register-variant"
+                      {:variant-id "story.auth/sad"
+                       :body (str "{:doc \"Deliberately-failing assertion.\""
+                                  " :events []"
+                                  " :play   [[:rf.assert/path-equals [:auth :status] :authenticated]]}")})]
+      (is (success? reg) "fixture registration succeeds")
+      (is (true? (-> reg :structuredContent :registered?))))
+
+    ;; Step 2 — run-variant. The wire result carries :passing? false and a
+    ;; non-empty :assertions vector. The failed record carries the
+    ;; assertion-id, payload, and expected/actual slots — enough for the
+    ;; agent to localise the failure without re-fetching anything.
+    (let [run (invoke "run-variant" {:variant-id "story.auth/sad"})
+          s   (:structuredContent run)
+          a   (first (:assertions s))]
+      (is (success? run))
+      (is (false? (:passing? s))
+          "a failed assertion flips :passing? — the wire-side green-light bit")
+      (is (= 1 (count (:assertions s))) "one assertion fired, one record")
+      (is (= :rf.assert/path-equals (:assertion a))
+          "the failed record names the canonical assertion id")
+      (is (false? (:passed? a)) "the record explicitly carries :passed? false")
+      (is (= :authenticated (:expected a)))
+      (is (nil? (:actual a)))
+      (is (= [:auth :status] (:path a))
+          "the path slot localises the assertion to a single app-db site")
+      (is (string? (:reason a))
+          "the :reason slot is the human-readable explanation the AI surfaces back to the LLM")
+      (is (re-find #":authenticated" (:reason a))
+          "the reason text names the expected value"))
+
+    ;; Step 3 — read-failures (the dedicated agent-facing read of accumulated
+    ;; failures without re-running). The shape per `tool-read-failures`:
+    ;;   {:variant-id <kw> :total <int> :failures <vec> :passing? <bool>}
+    (let [rf (invoke "read-failures" {:variant-id "story.auth/sad"})
+          s  (:structuredContent rf)
+          f  (first (:failures s))]
+      (is (success? rf))
+      (is (= :story.auth/sad (:variant-id s))
+          ":variant-id round-trips so the agent can correlate the read with its source variant")
+      (is (= 1 (:total s)) ":total counts every assertion (passed + failed)")
+      (is (= 1 (count (:failures s)))
+          ":failures filters to those with :passed? false")
+      (is (false? (:passing? s))
+          ":passing? is the same bit `run-variant` returned — consistent across the read surface")
+      ;; The failure record's keys match the run-variant projection — the
+      ;; agent sees the same record shape regardless of which tool read it.
+      (is (= :rf.assert/path-equals (:assertion f)))
+      (is (false? (:passed? f)))
+      (is (= :authenticated (:expected f)))
+      (is (nil? (:actual f)))
+      (is (= [:auth :status] (:path f))))
+
+    ;; Step 4 (out of scope) — an agent would now propose a `:events` slot
+    ;; like `[[:test/set-status]]` and re-register, then re-run. The "fix
+    ;; passes" half is exercised in tools/story's `path-equals-pass` test.
+
+    ;; Tear-down — keep the read surface clean for any downstream test.
+    (config/set-allow-writes! true)
+    (invoke "unregister-variant" {:variant-id "story.auth/sad"})))
+
+(deftest self-healing-loop-survives-record-dont-throw
+  (testing "play-runner records every failure and continues; read-failures returns all of them"
+    ;; Per tools/story/spec/004-Assertions.md the play sequence does NOT
+    ;; halt on a failed assertion — failures record into the accumulator and
+    ;; the sequence runs to completion. The agent's view of `read-failures`
+    ;; therefore reflects EVERY failure observed, not just the first.
+    (config/set-allow-writes! true)
+    (let [reg (invoke "register-variant"
+                      {:variant-id "story.auth/double-fail"
+                       :body (str "{:doc \"Two failing assertions; both must record.\""
+                                  " :events []"
+                                  " :play   [[:rf.assert/path-equals [:auth :status] :authenticated]"
+                                  "          [:rf.assert/path-equals [:user :role] :admin]]}")})]
+      (is (success? reg)))
+
+    (let [run (invoke "run-variant" {:variant-id "story.auth/double-fail"})
+          s   (:structuredContent run)]
+      (is (success? run))
+      (is (false? (:passing? s)))
+      (is (= 2 (count (:assertions s)))
+          "BOTH assertions recorded — the play sequence ran to completion despite the first fail"))
+
+    (let [rf (invoke "read-failures" {:variant-id "story.auth/double-fail"})
+          s  (:structuredContent rf)]
+      (is (success? rf))
+      (is (= 2 (:total s)))
+      (is (= 2 (count (:failures s))))
+      (is (= [:auth :status] (-> s :failures first :path))
+          "failures preserve registration order")
+      (is (= [:user :role] (-> s :failures second :path))))
+
+    (invoke "unregister-variant" {:variant-id "story.auth/double-fail"})))
 
 ;; ---------------------------------------------------------------------------
 ;; Write surface (gating)
