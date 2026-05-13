@@ -32,7 +32,7 @@ that's how drift is prevented when a count next moves.
 | Count | Value | Source-of-truth |
 |---|---|---|
 | **Tools** | **18** | [`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md) §Tool catalogue — the catalogue prose enumerates each. Migrates to `003-Tool-Catalogue.md` when impl lands. Eighteenth tool (`list-subscriptions`) added by [`DESIGN-RATIONALE.md` Lock #12](DESIGN-RATIONALE.md) on 2026-05-14 (rf2-3we2k). |
-| **Bands** | **5** | Inspection (9) + Mutation (3) + Streaming (3) + Escape hatch (1) + Meta (2) = 18. Enumerated in [`000-Vision.md`](000-Vision.md) §MCP catalogue summary. Streaming band grew from 2 to 3 via Lock #12. |
+| **Bands** | **5** | Inspection (9) + Mutation (3) + Streaming (3) + Escape hatch (1) + Meta (2) = 18. Band enumeration with tool names lives at [`tools/causa/spec/010-MCP-Server.md` §Tool catalogue](../../causa/spec/010-MCP-Server.md#tool-catalogue) — the five band subsections carry the per-tool detail. Migrates to `003-Tool-Catalogue.md` when impl lands. Streaming band grew from 2 to 3 via Lock #12. |
 | **Mechanisms** | **6** | [`Principles.md`](Principles.md) §"Tight token budget per response" — token cap, path slicing, cursor pagination, lazy summary, structural dedup, size elision. Mechanism #6 promoted by Lock #10. |
 | **Locks** | **12** | [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §Summary table. |
 | **Namespace roots** | **2** | MCP-server (Node-side): `day8.re-frame2-causa-mcp.*` — injected runtime (browser-side): `day8.re-frame2-causa.runtime`. Per [`000-Vision.md` §Two namespaces, two sides](000-Vision.md#two-namespaces-two-sides) and [`DESIGN-RATIONALE.md` Lock #11](DESIGN-RATIONALE.md). |

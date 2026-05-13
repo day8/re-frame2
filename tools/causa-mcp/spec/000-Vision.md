@@ -143,21 +143,23 @@ root.
 
 ## MCP catalogue summary
 
-Eighteen tools across five bands (per the [canonical counts in
-`README.md`](./README.md#canonical-counts)); the full enumeration
-with signatures, return shapes, and example flows lives in
-[`tools/causa/spec/010-MCP-Server.md`](../../causa/spec/010-MCP-Server.md)
-until implementation lands and this folder grows its own
-`003-Tool-Catalogue.md` (the pair2-mcp-shape companion to
-`Principles.md` and `DESIGN-RATIONALE.md`). The short list:
+Eighteen tools across five bands — Inspection (9) / Mutation (3)
+/ Streaming (3) / Escape hatch (1) / Meta (2) — per the
+[canonical counts in `README.md`](./README.md#canonical-counts).
 
-| Band | Tools |
-|---|---|
-| **Inspection** (read-only, 9 tools) | `get-trace-buffer`, `get-epoch-history`, `get-app-db`, `get-app-db-diff`, `get-machine-state`, `get-machine-list`, `get-issues`, `get-handlers`, `get-source-coord`. |
-| **Mutation** (user-confirmed equivalents, 3 tools) | `restore-epoch`, `reset-frame-db`, `dispatch`. |
-| **Streaming** (push-mode + diagnostic, 3 tools) | `subscribe`, `unsubscribe` — `notifications/progress` shaped, topic-mediated filters; `list-subscriptions` — request-response diagnostic enumerating open subs with queue stats (per [`DESIGN-RATIONALE.md` Lock #12](./DESIGN-RATIONALE.md)). |
-| **Escape hatch** (1 tool) | `eval-cljs` — arbitrary CLJS form; any side-effects inherit `:origin :causa-mcp`. |
-| **Meta** (session lifecycle, 2 tools) | `discover-app`, `tail-build`. |
+**The band enumeration with tool names, signatures, return
+shapes, and example flows lives upstream at
+[`tools/causa/spec/010-MCP-Server.md` §Tool catalogue](../../causa/spec/010-MCP-Server.md#tool-catalogue).**
+Cite that section; do not restate it here. The five band
+subsections (Inspection / Mutation / Streaming / Escape hatch /
+Meta) carry the per-tool detail; the eighteenth-tool addition
+(`list-subscriptions` in the Streaming band) is locked at
+[`DESIGN-RATIONALE.md` Lock #12](./DESIGN-RATIONALE.md).
+
+When implementation lands and this folder grows its own
+`003-Tool-Catalogue.md` (the pair2-mcp-shape companion to
+`Principles.md` and `DESIGN-RATIONALE.md`), the catalogue prose
+migrates here and `010-MCP-Server.md` shrinks to a pointer.
 
 Each tool maps to a Causa-side affordance (the seventeen panel
 mirrors plus the streaming-registry diagnostic); together they
