@@ -353,6 +353,39 @@
       (is (= :declared (:source d)) "declared wins over schema")
       (is (= "app declared this" (:hint d))))))
 
+(deftest schema-population-descends-maybe-wrapper
+  (testing "the idiomatic Malli shape `[:maybe [:string {:large? true}]]` claims the slot's path (rf2-b20zm)"
+    ;; Per rf2-b20zm: when `:large?` lives inside a `[:maybe inner]`
+    ;; wrapper, the walker descends so the inner flag propagates to the
+    ;; wrapper's app-db path. Without this descent, idiomatic "optional
+    ;; but typed" schemas silently drop the elision claim.
+    (rf/reg-app-schema [:user :pdf]
+                       [:maybe [:string {:large? true :hint "upload preview"}]])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= [[:user :pdf]] populated))
+      (is (= :schema (get-in decls [[:user :pdf] :source])))
+      (is (= "upload preview" (get-in decls [[:user :pdf] :hint]))))))
+
+(deftest schema-population-top-level-large-still-works
+  (testing "the existing top-level shape `[:string {:large? true}]` is unchanged by rf2-b20zm"
+    (rf/reg-app-schema [:user :pdf] [:string {:large? true :hint "blob"}])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= [[:user :pdf]] populated))
+      (is (= :schema (get-in decls [[:user :pdf] :source])))
+      (is (= "blob" (get-in decls [[:user :pdf] :hint]))))))
+
+(deftest schema-population-maybe-without-large-no-claim
+  (testing "`[:maybe [:string]]` (no flag) produces NO declaration"
+    ;; Negative control: the wrapper descent must not synthesise a claim
+    ;; when the wrapped schema carries no `:large?` flag.
+    (rf/reg-app-schema [:user :pdf] [:maybe [:string]])
+    (let [populated (rf/populate-elision-from-schemas!)
+          decls     (rf/elision-declarations)]
+      (is (= [] populated))
+      (is (nil? (get decls [:user :pdf]))))))
+
 (deftest schema-population-noop-when-schemas-artefact-absent
   (testing "with no late-bind hook, population is a no-op"
     (let [restore-fn (late-bind/get-fn :schemas/frame-schema-entries)]
