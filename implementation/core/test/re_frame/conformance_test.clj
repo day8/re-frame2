@@ -75,6 +75,11 @@
     :flow/dirty-check
     :flow/toggle
     :flow/hot-reload
+    ;; Spec 009 §Flow trace events / Spec 013 §Flow tracing (rf2-2s1o) —
+    ;; the runtime emits :rf.flow/registered, :rf.flow/computed,
+    ;; :rf.flow/skip, :rf.flow/cleared, :rf.flow/failed under :op-type
+    ;; :flow. Claimed so `flow-lifecycle-emits-traces.edn` runs (rf2-efjs6).
+    :flow/trace
     ;; Spec 014 — :rf.http/managed (rf2-z1mw)
     :rf.http/managed})
 
