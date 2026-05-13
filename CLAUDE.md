@@ -73,18 +73,39 @@ Per `docs/the-mayor-method.md`, the `ai/` directory at repo root holds all AI wo
 
 ## Build & Test
 
-_Add your build and test commands here_
+The CLJS reference implementation builds and tests run from `implementation/`. shadow-cljs is the build tool; npm scripts in `implementation/package.json` are the canonical entry points.
 
 ```bash
-# Example:
-# npm install
-# npm test
+# From implementation/:
+npm install                          # one-time, installs shadow-cljs + react
+npm run test:cljs                    # node-runtime CLJS tests (fast, default gate)
+npm run test:browser                 # browser tests via Playwright
+npm run test:elision                 # production elision probe
+npm run test:perf-bundle             # perf-budget bundle check
+npm run test:bundle-isolation        # tools must not leak into production bundles
+npm run test:examples                # examples test runner
+npm run story:build                  # build the story artefact
 ```
+
+Per-artefact tests run from each artefact directory via `clojure -M:test` (see e.g. `tools/story/deps.edn` `:test` alias). Workflow gates live in `.github/workflows/`.
+
+Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+**The spec is the artefact; the code is downstream.** The normative description of re-frame2 lives in [`spec/`](spec/) (~22K lines across 35+ documents); [`implementation/`](implementation/) is a CLJS reference that validates the spec end-to-end. See the repo-root [`README.md`](README.md) for the marketing-voice introduction and the project-layout map, and [`spec/README.md`](spec/README.md) for the spec index.
+
+Top-level layout:
+
+- `spec/` — the specification (primary artefact; AI-targeted)
+- `implementation/` — CLJS reference: `core/` + per-substrate `adapters/` (Reagent, UIx, Helix) + per-feature artefacts (machines, schemas, …). The top-level `implementation/shadow-cljs.edn` + `implementation/deps.edn` coordinate the cross-artefact classpath.
+- `tools/` — dev/inspection tools that consume the Spec 009 instrumentation API and Tool-Pair contract (`story/`, `story-mcp/`, `pair2-mcp/`, `causa/`, `template/`). Bundle-isolated from production builds; nothing in `implementation/` may `:require` from `tools/`.
+- `examples/` — worked examples per substrate.
+- `docs/` — human-facing guide (`docs/guide/`) and operational docs.
+- `skills/` — Claude Code skills for re-frame2 workflows.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+Normative conventions are catalogued in [`spec/Conventions.md`](spec/Conventions.md) — reserved namespaces (the `:rf/*` single-root scheme), reserved fx-ids, reserved app-db keys, the feature-modularity id-prefix convention, and packaging conventions. [`spec/Principles.md`](spec/Principles.md) carries the nine AI-first practical principles. [`spec/Ownership.md`](spec/Ownership.md) maps every contract surface to its owning spec — the "where does X live?" reference.
+
+Hot-zone files (sequential, never parallel — see the Workflow section above for the list) and isolated surfaces (safe to parallel) are documented in the dispatch rules above; new beads should respect that split to minimise merge conflicts.
