@@ -41,6 +41,7 @@
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
+            [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
@@ -82,7 +83,7 @@
    {:id :flows        :label "Flows"         :bead "rf2-xxx"}
    {:id :performance  :label "Performance"   :bead "rf2-xxx"}
    {:id :issues       :label "Issues"        :bead "rf2-xxx"}
-   {:id :schemas      :label "Schemas"       :bead "rf2-xxx"}
+   {:id :schemas      :label "Schemas"       :bead "rf2-htffa" :live? true}
    ;; Phase 5 (rf2-pzxsr). Per spec/006-Hydration-Debugger.md §Visibility
    ;; the panel is dormant until at least one :rf.ssr/hydration-mismatch
    ;; trace lands. The sidebar entry's `:dormant?` flag drives the `◌`
@@ -253,6 +254,7 @@
       :event-detail [event-detail/event-detail-view]
       :time-travel  [time-travel/time-travel-view]
       :causality    [causality-graph/causality-graph-view]
+      :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
       [stub-panel (or item {:label "Unknown panel"
