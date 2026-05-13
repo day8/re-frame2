@@ -45,14 +45,9 @@ Deliver:
 
 ## When NOT to use this skill
 
-Activation precondition is strict: a concrete `re-frame-pair2` session must have already occurred (in this conversation, or as a user-supplied recap). Decline and route elsewhere when:
+**Activation precondition is strict**: a concrete `re-frame-pair2` session must have already occurred (in this conversation, or as a user-supplied recap). If no pair-tool surface was exercised, decline — there is nothing to improve.
 
-- No `re-frame-pair2` session happened. Generic debugging retrospectives, post-mortems on shell sessions, IDE workflows, or test-suite runs are out of scope — there is no pair-tool surface to improve.
-- The user is mid-session and still trying to make progress. Switch back to `re-frame-pair2`; retrospect after the work, not during it.
-- The user is authoring re-frame2 app code (handlers, subs, frames, schemas) without a live runtime involved. Route to `re-frame2`.
-- The feedback is about the `re-frame2` framework spec, architecture, or design — not the pair-tool experience. Either route to `re-frame2` directly or file a `bd` bead against the `re-frame2` repo without invoking this skill.
-- The user wants help fixing a bug in their own app (not in `re-frame-pair2`). Route to `re-frame-pair2`.
-- Vocabulary alone matches ("retro", "what went wrong", "improve workflow") but no pair-tool session is on the table. Ask the user to confirm the session before activating; if there is none, decline.
+Routing decisions (mid-session pair work, app-authoring without a live runtime, framework / spec feedback, app-bug help, vocabulary-only matches) follow the matrix at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source) and §Disqualifiers.
 
 When in doubt, ask: *"Was there a `re-frame-pair2` session you want me to retrospect on?"* Decline rather than fabricate evidence.
 

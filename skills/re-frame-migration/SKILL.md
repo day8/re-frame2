@@ -24,13 +24,7 @@ The authoritative rule corpus — M-rules (required) and O-rules (opt-in moderni
 
 ## When NOT to use
 
-| Author intent | Route to |
-|---|---|
-| Start a new re-frame2 project from scratch | `skills/re-frame2-setup/` |
-| Write new code on a project already on v2 | `skills/re-frame2/` |
-| Inspect / debug / time-travel a running v2 app | `skills/re-frame-pair2/` |
-| Build a new re-frame2 implementation in another host/substrate | `skills/re-frame2-implementor/` |
-| Read re-frame2's design rationale | `SKILL-REDIRECT.md` |
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for greenfield bootstrap, authoring on an already-v2 project, live-runtime inspection, porting re-frame2 itself, or spec / design-rationale reading.
 
 Exit this skill when the project compiles, tests pass, and Type B items have been resolved.
 
@@ -105,4 +99,4 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 
 ---
 
-*Authoritative breaking-change list: [`MIGRATION.md`](../../spec/MIGRATION.md). v1 line: [re-frame](https://github.com/day8/re-frame). Greenfield: `skills/re-frame2-setup/`. v2 authoring: `skills/re-frame2/`. Live inspection: `skills/re-frame-pair2/`. New re-frame2 implementation in another host/substrate: `skills/re-frame2-implementor/`.*
+*Authoritative breaking-change list: [`MIGRATION.md`](../../spec/MIGRATION.md). v1 line: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source).*
