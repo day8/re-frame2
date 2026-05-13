@@ -4,22 +4,30 @@
 
   Every variant has a stable **snapshot identity** — a content hash
   over the canonicalised `(variant × resolved-args × decorators ×
-  loaders × substrate × modes)` tuple. Visual-regression services
-  key against `[variant-id content-hash]` — when the body changes,
-  the hash changes; when it doesn't, the hash is stable across hosts
-  and runs.
+  loaders × substrate × modes × view-schema-digest)` tuple. Visual-
+  regression services key against `[variant-id content-hash]` — when
+  the body changes, the hash changes; when it doesn't, the hash is
+  stable across hosts and runs.
 
   ## What's in the hash
 
-  Per IMPL-SPEC §5.6 the hash includes:
+  Per spec/007 §Variant snapshot identity (lines 424-429) the hash
+  includes:
 
   - Variant id
-  - `:events`, `:play`, `:loaders` (in declared order; canonicalised)
-  - Effective `:args` (post-merge with story + active modes)
-  - Decorator id sequence + their ref-args
-  - Tag set
+  - `:events` and `:play` event vectors (in order)
+  - `:loaders` (in declared order; canonicalised)
+  - Effective `:args` (post-`:extends`-merge with story + active modes)
+  - Variant `:decorators` id sequence + their ref-args
+  - Variant `:tags` set
   - Parent story `:component` id
   - Parent story `:decorators`
+  - Parent story `:tags`
+  - The *registered* schema digest of the view (per spec/011
+    §`:rf/schema-digest`) — sourced via the `:schemas/app-schemas-digest`
+    late-bind hook so a schema change invalidates the snapshot identity.
+    When the schemas artefact is absent from the classpath the digest is
+    nil and the slot still participates in the hash (nil is stable).
   - Active substrate (when computing per-substrate identity)
   - Active modes (when computing per-mode identity)
 
@@ -42,7 +50,8 @@
   the first slot of the hashed structure, so future canonical-form
   revisions can introduce `:rf/snapshot-canonical-v2` without breaking
   v1 baselines."
-  (:require [re-frame.story.args      :as args]
+  (:require [re-frame.late-bind       :as late-bind]
+            [re-frame.story.args      :as args]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---- canonicalisation ----------------------------------------------------
@@ -142,13 +151,17 @@
 (defn- variant-body-slice
   "Return the slice of the variant body that contributes to the snapshot
   identity. Excludes runtime-environmental keys (`:source` coords) and
-  Stage 4+ slots that don't yet exist (kept for forward compatibility)."
+  Stage 4+ slots that don't yet exist (kept for forward compatibility).
+
+  Per spec/007 §Variant snapshot identity the variant-level `:decorators`
+  participate in the hash — watch-mode auto-rerun keys off this identity
+  so a decorator-only edit MUST perturb it."
   [variant-id]
   (let [body (registrar/handler-meta :variant variant-id)]
     (when body
       (select-keys body
                    [:events :play :loaders :loaders-complete-when
-                    :tags :args->events :platforms :substrates]))))
+                    :tags :decorators :args->events :platforms :substrates]))))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
@@ -159,6 +172,22 @@
         body     (when story-id (registrar/handler-meta :story story-id))]
     (when body
       (select-keys body [:component :decorators :tags]))))
+
+(defn- view-schema-digest
+  "Return the *registered* schema digest of the view per spec/007 §Variant
+  snapshot identity (lines 424-429) and spec/011 §`:rf/schema-digest`.
+
+  Sourced via the `:schemas/app-schemas-digest` late-bind hook so this
+  ns does not statically `:require` the schemas artefact — in builds
+  where schemas is absent from the classpath the lookup returns nil
+  and the digest slot still participates in the hash (nil is stable
+  across runs). When schemas IS present, registering a new app-schema
+  or mutating an existing one perturbs the digest and therefore the
+  variant snapshot identity — exactly the invalidation visual-regression
+  baselines need on schema changes."
+  []
+  (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
+    (f)))
 
 (defn snapshot-tuple
   "Build the canonical tuple that feeds `content-hash` for a variant.
@@ -171,19 +200,26 @@
 
   The tuple captures everything the visual-regression service treats
   as identity-determining. A change to ANY of these fields produces a
-  fresh hash; otherwise the hash is stable across runs."
+  fresh hash; otherwise the hash is stable across runs.
+
+  Per spec/007 §Variant snapshot identity the tuple includes the view's
+  registered schema-digest — sourced via the `:schemas/app-schemas-digest`
+  late-bind hook — so a schema change on the view invalidates the
+  visual-regression baseline."
   ([variant-id] (snapshot-tuple variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides substrate] :as _opts}]
    (let [variant      (variant-body-slice variant-id)
          story        (story-body-slice variant-id)
          effective    (args/resolve-args variant-id
                                          {:active-modes   active-modes
-                                          :cell-overrides cell-overrides})]
+                                          :cell-overrides cell-overrides})
+         schema-digest (view-schema-digest)]
      {:rf/snapshot-canonical :rf/snapshot-canonical-v1
       :variant-id            variant-id
       :variant               variant
       :story                 story
       :effective-args        effective
+      :view-schema-digest    schema-digest
       :active-modes          (vec (or active-modes []))
       :substrate             substrate})))
 

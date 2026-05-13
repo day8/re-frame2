@@ -146,9 +146,12 @@
 (defn- compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
   hex-hash}` map of snapshot-identity content hashes. The hash captures
-  the variant's `:play` / `:events` / `:loaders` slots plus the parent
-  story's slice (per `re-frame.story.identity` §What's in the hash),
-  so a change to any of those produces a fresh hash."
+  the variant's `:play` / `:events` / `:loaders` / `:decorators` /
+  `:tags` slots plus the parent story's slice and the view's registered
+  schema-digest (per `re-frame.story.identity` §What's in the hash —
+  spec/007 §Variant snapshot identity), so a change to any of those —
+  including a decorator-only edit or a view schema change — produces a
+  fresh hash."
   []
   (let [testable (state/testable-variant-ids (:variants (state/registry-snapshot)))
         shell    (state/get-state)
