@@ -1,21 +1,29 @@
 (ns re-frame.core-reg-view-macro
-  "Helpers for the view-registration and frame-scope lexical macros —
-  `reg-view`, `reg-machine`, `with-frame`, `bound-fn`, `with-fx-
-  overrides`, `with-managed-request-stubs`. Per Spec 004 §reg-view,
-  Spec 005 §Source-coord stamping, Spec 002 §with-frame / §bound-fn /
-  §`:fx-overrides`, Spec 014 §Testing.
+  "View registration + frame-scope macro EMITTERS (per rf2-4rnui split
+  from `re-frame.core`). JVM-only — the `defmacro` entrypoints live in
+  `re-frame.core` so CLJS macro propagation works for users who
+  `(:require [re-frame.core :as rf])`; this namespace owns the emitter
+  pipelines.
 
-  Carved out of `re-frame.core` per rf2-4rnui so the public namespace
-  stays under the 250-LoC leaf ceiling (rf2-zkca8). The user-facing
-  `defmacro reg-view` / `with-frame` / etc. shells live in
-  `re-frame.core` itself (they MUST, so `rf/reg-view` resolves alias-
-  qualified per Clojure's standard `ns-alias/Var` lookup); each shell
-  is a one-line call into the matching `expand-…` plain fn here.
+  Surface (each defmacro lives in `re-frame.core` as a thin shell):
 
-  The expander helpers stay plain CLJ fns so CLJS test files can also
-  exercise them JVM-side.
+    `reg-view`        — defn-shape view registration (Spec 004). Auto-
+                         derives id from `(keyword (str *ns*) (str sym))`,
+                         injects lexical `dispatch` / `subscribe`, defs
+                         the sym, registers under the id.
+    `with-frame`      — Spec 002 §with-frame; lexical frame binding. Two
+                         shapes (bare keyword / let-binding).
+    `bound-fn`        — Spec 002 §bound-fn; captures `*current-frame*`
+                         at definition time, restores it at call time.
+    `with-fx-overrides` — Spec 002 §`:fx-overrides`; lexical scope.
+    `with-managed-request-stubs` — Spec 014; install stubs, run body,
+                         uninstall.
 
-  File naming uses the flat dash-form (per rf2-2vbm)."
+  The reg-view expansion pipeline (parse-reg-view-args /
+  describe-reg-view-bad-second-arg / reagent-slim-form-tag /
+  expand-reg-view) lives here as plain CLJ helpers so the defmacro in
+  `re-frame.core` stays a one-line delegation and CLJS test files can
+  also exercise the helpers JVM-side."
   (:require [re-frame.source-coords :as source-coords]))
 
 ;; ---- reg-view expansion helpers ------------------------------------------
@@ -54,13 +62,14 @@
 
 #?(:clj
    (defn- reagent-slim-form-tag
-     "Classify body shape (Form-1 / Form-2) at compile time when reagent-
-     slim is on the classpath. Returns a keyword form-tag or nil. Per
-     rf2-yfbx — the compile-time fold sits in the canonical `reg-view`
-     macro (no separate `defview`); the runtime detection in `reagent2.
-     impl.component/wrap-render` is the load-bearing correctness path,
-     this tag is an additive perf hint. `requiring-resolve` keeps core
-     free of a static reagent-slim dep — UIx/Helix builds resolve nil."
+     "Classify the user's body shape (Form-1 / Form-2) at compile time,
+     when `day8/reagent-slim` is on the classpath. Returns a keyword
+     form-tag or nil when the helper isn't available. Per rf2-yfbx the
+     compile-time fold sits in the canonical `reg-view` — there is no
+     separate `defview` macro.
+
+     Lookup goes through `requiring-resolve` so core does not statically
+     depend on reagent-slim."
      [body]
      (when-let [classifier (try (requiring-resolve
                                   'reagent2.impl.component/classify-form-body)
@@ -69,17 +78,19 @@
 
 #?(:clj
    (defn expand-reg-view
-     "Build the expansion form for a `reg-view` macro call. `form-meta` is
-     `(meta &form)`; `current-ns-sym` is `(ns-name *ns*)`; `current-file`
-     is `*file*` at expansion time. Captured as literals so the emitted
-     form does not reference `*ns*` / `*file*` at runtime (required for
-     CLJS, where `cljs.core/*ns*` is nil at runtime).
+     "Build the expansion form for a reg-view macro call. `form-meta` is
+     `(meta &form)` from the calling macro; `current-ns-sym` is
+     `(ns-name *ns*)` at expansion time; `current-file` is `*file*` at
+     expansion time. Both are captured as literals in the expansion so
+     the emitted form does not reference `*ns*` / `*file*` at runtime —
+     necessary for CLJS, where `cljs.core/*ns*` is nil at runtime.
 
-     Per rf2-yfbx: when reagent-slim is on the classpath the body is
-     classified (Form-1 / Form-2) at expansion time and the wrapper fn
-     is stamped with `^{:reagent2/form ...}` meta — an additive perf
-     hint; the runtime detection in `reagent2.impl.component/wrap-
-     render` remains load-bearing for correctness."
+     Per rf2-yfbx: when reagent-slim is on the classpath, the body is
+     structurally classified (Form-1 / Form-2) at expansion time and
+     the wrapper fn is stamped with `^{:reagent2/form ...}` meta. The
+     reagent-slim runtime path reads this tag to skip the Form-1/2
+     cond on the hot path. The runtime detection remains load-bearing
+     for correctness; this is an additive perf hint."
      [form-meta current-ns-sym current-file sym more]
      (let [parsed   (parse-reg-view-args more)
            sym-meta (or (meta sym) {})
@@ -104,19 +115,24 @@
              full-slot-meta (cond-> slot-meta
                               docstring (assoc :doc docstring)
                               form-tag  (assoc :reagent2/form form-tag))
-             ;; Wrapper fn carries form-tag on its own meta so renderers
-             ;; reaching it via `(rf/view :id)` see the tag without a
-             ;; registry-slot round-trip.
-             fn-body  `(fn ~sym ~args
-                         (let [~'dispatch  (re-frame.core/dispatcher)
-                               ~'subscribe (re-frame.core/subscriber)]
-                           ~@body))
-             fn-form  (cond-> fn-body
-                        form-tag (with-meta {:reagent2/form form-tag}))]
-         ;; Per Conventions §`reg-*` return-value (rf2-hzos): every reg-*
-         ;; macro returns its primary id. The trailing `~id` is load-
-         ;; bearing — without it the `def` would be the last form and the
-         ;; macro would return the Var, breaking the contract.
+             ;; The wrapper fn carries the form-tag as its own meta too
+             ;; so renderers that take the fn alone (e.g. directly via
+             ;; (rf/view :id)) can still read it without round-tripping
+             ;; through the registry slot.
+             fn-form  (if form-tag
+                        (with-meta
+                          `(fn ~sym ~args
+                             (let [~'dispatch  (re-frame.core/dispatcher)
+                                   ~'subscribe (re-frame.core/subscriber)]
+                               ~@body))
+                          {:reagent2/form form-tag})
+                        `(fn ~sym ~args
+                           (let [~'dispatch  (re-frame.core/dispatcher)
+                                 ~'subscribe (re-frame.core/subscriber)]
+                             ~@body)))]
+         ;; Per Conventions §`reg-*` return-value convention: every
+         ;; `reg-*` macro returns its primary id. The auto-def is a side
+         ;; effect; the macro's terminal value is `id`. Per rf2-hzos.
          `(do
             (binding [re-frame.source-coords/*pending-coords*
                       ~(source-coords/coords-form form-meta current-file current-ns-sym)]
@@ -126,14 +142,27 @@
             ~def-form
             ~id)))))
 
-;; ---- frame-scope lexical-binding macro expansions ------------------------
+;; ---- frame-scope emitters -----------------------------------------------
 ;;
-;; `with-frame` discriminates on first-arg shape: a 2-element vector
-;; `[sym expr]` triggers Shape 2 (eval, bind, run, destroy); anything
-;; else is Shape 1 (bind an existing frame-id). Per Spec 002 §with-frame.
+;; with-frame two shapes:
+;;
+;;   Shape 1 — bare keyword (operate on an existing frame):
+;;     (with-frame :scratch body...)
+;;     => (binding [frame/*current-frame* :scratch] body...)
+;;
+;;   Shape 2 — let-binding (create, use, destroy):
+;;     (with-frame [f (make-frame opts)] body...)
+;;     => (let [f (make-frame opts)]
+;;          (try
+;;            (binding [frame/*current-frame* f] body...)
+;;            (finally (destroy-frame f))))
+;;
+;; The discriminator is the first argument: a vector triggers Shape 2;
+;; anything else is Shape 1.
 
 #?(:clj
-   (defn expand-with-frame
+   (defn emit-with-frame
+     "Build the expansion form for `re-frame.core/with-frame`."
      [bindings body]
      (cond
        (and (vector? bindings) (= 2 (count bindings)))
@@ -143,14 +172,17 @@
               (binding [re-frame.frame/*current-frame* ~sym]
                 ~@body)
               (finally
-                (re-frame.frame/destroy-frame! ~sym)))))
+                (re-frame.core/destroy-frame ~sym)))))
 
        :else
        `(binding [re-frame.frame/*current-frame* ~bindings]
           ~@body))))
 
 #?(:clj
-   (defn expand-bound-fn
+   (defn emit-bound-fn
+     "Build the expansion form for `re-frame.core/bound-fn` — captures
+     the current frame at definition time and re-binds
+     `*current-frame*` inside the body."
      [argv body]
      (let [frame-sym (gensym "frame__")]
        `(let [~frame-sym (re-frame.core/current-frame)]

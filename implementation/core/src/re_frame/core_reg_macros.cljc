@@ -1,137 +1,94 @@
 (ns re-frame.core-reg-macros
-  "Helpers for the registration-site `reg-*` macros. Per Spec 001
-  §Source-coordinate capture (CLJS reference) and Tool-Pair §Source-
-  mapping: every `reg-*` registration's metadata carries `:ns` /
-  `:line` / `:file` auto-supplied at compile time. The canonical
-  capture skeleton — `(meta &form)`'s `:line` / `:column` plus `*ns*` /
-  `*file*` bound around the underlying fn — is centralised here as
-  the `with-coords-form` helper plus the `defreg-macro` macro-defining
-  macro.
+  "Registration-site source-coord-capturing macro EMITTERS (per
+  rf2-4rnui split from `re-frame.core`).
 
-  Carved out of `re-frame.core` per rf2-4rnui so the public namespace
-  stays under the 250-LoC leaf ceiling (rf2-zkca8). The user-facing
-  `defmacro reg-event-db` / `reg-sub` / `reg-flow` / … shells live in
-  `re-frame.core` itself (they MUST, so `rf/reg-event-db` resolves
-  alias-qualified per Clojure's standard `ns-alias/Var` lookup); each
-  shell is a one-line `(defreg-macro …)` form. The bulk LoC sits here.
+  The defmacro entrypoints live in `re-frame.core` so CLJS macro
+  propagation works for `(:require [re-frame.core :as rf])` users
+  (same-name rule). This namespace owns the EMITTER FNS that each
+  re-frame.core `defmacro` delegates to. Result: each macro entry in
+  `core.cljc` is a one-line `(emit-reg-X &form (ns-name *ns*) *file*
+  args)` delegation; the heavy lifting (binding-form construction,
+  per-element coord walks) lives here.
 
-  rf2-xnym: the rationale for `(symbol (str (ns-name *ns*)))` rather
-  than `(ns-name *ns*)` — in CLJS macro context the ns-symbol may
-  carry the consumer namespace's `:doc` metadata, which would then get
-  serialised into the bundle and defeat production elision. Every
-  reg-* macro routes its `(meta &form)` / `*file*` / `*ns*` capture
-  through `with-coords-form` so the rationale lives in one place.
+  Per Spec 001 §Source-coordinate capture each `reg-*` registration's
+  metadata carries `:ns` / `:line` / `:file` auto-supplied at compile
+  time. The emitter binds `re-frame.source-coords/*pending-coords*`
+  around the underlying fn call; the fn merges the coords into the
+  registered metadata.
 
-  File naming uses the flat dash-form (per Conventions; rf2-2vbm):
-  CLJS `goog.provide` for `re-frame.core` overwrites its parent
-  object, which would wipe a previously-loaded `re-frame.core.X`."
+  Per rf2-xnym the `(symbol (str (ns-name *ns*)))` form (rather than
+  bare `(ns-name *ns*)`) drops any `:doc` metadata the consuming
+  namespace's ns-symbol may carry — without the strip those docstrings
+  would serialise into the bundle and defeat production elision. The
+  emitters take a `ns-sym` arg already stripped at the macro
+  entrypoint."
   (:require [re-frame.source-coords :as source-coords]))
 
-;; ---- with-coords-form ----------------------------------------------------
+;; ---- emitters: the splice-through reg-* shape ----------------------------
+;;
+;; Each emitter takes `form-meta` (the caller's `(meta &form)`),
+;; `ns-sym` (the stripped ns-symbol), `file` (the caller's `*file*`),
+;; the delegate symbol (fully qualified, in scope at the user's call
+;; site), and the user's arg vector. Returns a syntax-quoted form
+;; binding `*pending-coords*` around the delegate call.
 
 #?(:clj
-   (defn with-coords-form
-     "Wrap `body-form` in a binding of `source-coords/*pending-coords*`
-     to the compile-time coord map for `form-meta` / `file` / `ns-sym`.
-     Caller passes `(meta &form)`, `*file*`, and the metadata-free
-     ns-symbol (per the rf2-xnym rationale above). Returns a syntax-
-     quote-safe form suitable for a reg-* defmacro to emit.
-
-     The rf2-52gw helper: centralises the `(binding [...] (target ...))`
-     skeleton that every reg-* macro emits, so each defmacro becomes a
-     one-line delegation rather than a 12-line repetition."
-     [form-meta file ns-sym body-form]
-     `(binding [re-frame.source-coords/*pending-coords*
+   (defn emit-reg
+     "Build the `(binding [*pending-coords* ...] (<delegate> ~@args))`
+     form for the canonical splice-through reg-* shape. The 13 reg-*
+     macros in `re-frame.core` (reg-event-db / -fx / -ctx, reg-sub /
+     -fx / -cofx / -frame, reg-flow / -route / -app-schema / -app-
+     schemas / -error-projector / -head) all share this body."
+     [form-meta ns-sym file delegate-sym args]
+     `(binding [source-coords/*pending-coords*
                 ~(source-coords/coords-form form-meta file ns-sym)]
-        ~body-form)))
+        (~delegate-sym ~@args))))
 
-;; ---- defreg-macro --------------------------------------------------------
+;; ---- reg-machine emitter (bespoke; per-element coord walker) -------------
 ;;
-;; `defreg-macro` (rf2-bd6zl) is a macro-defining macro that emits a
-;; canonical reg-* defmacro body: captures source-coords at the caller's
-;; call site and splices the args through to a fn-form delegate.
-;; `~'&form` / `~'*file*` / `~'*ns*` escapes resolve at the INNER
-;; defmacro's expansion time (the user's call site).
-;;
-;; `delegate-sym` is resolved through `re-frame.core`'s aliases at
-;; `defreg-macro` expansion time (so the inner-macro emission baked into
-;; the consumer's classfile carries a fully-qualified symbol — the user's
-;; namespace never needs to alias the producing ns). `re-frame.core` is
-;; the resolution namespace because (a) defreg-macro is called FROM
-;; re-frame.core to define the user-facing macros in that ns (so
-;; `rf/reg-event-db` etc. resolve via standard alias-qualified lookup),
-;; and (b) re-frame.core aliases all the delegate namespaces.
+;; Per Spec 005 §Source-coord stamping (rf2-8bp3): walks the literal
+;; machine spec at compile time and stamps each transition / state with
+;; its source coord. The DCE gate `interop/debug-enabled?` ensures the
+;; per-element index drops under `:advanced` + `goog.DEBUG=false`.
 
 #?(:clj
-   (defn resolve-delegate-sym
-     "Resolve `sym` against `re-frame.core`'s aliases and return the
-     fully-qualified symbol. Lets `defreg-macro` emit a delegate call
-     that doesn't depend on the consumer's namespace aliasing the
-     producing ns."
-     [sym]
-     (let [v (ns-resolve (find-ns 're-frame.core) sym)]
-       (when (nil? v)
-         (throw (ex-info (str "defreg-macro: cannot resolve delegate symbol " sym
-                              " in re-frame.core")
-                         {:sym sym})))
-       (symbol (str (.ns ^clojure.lang.Var v))
-               (str (.sym ^clojure.lang.Var v))))))
-
-#?(:clj
-   (defmacro defreg-macro
-     "Emits a canonical `defmacro` for a `reg-*` surface. The emitted
-     macro captures `(meta &form)` / `*file*` / `*ns*` and splices the
-     consumer's args through to `delegate-sym` (a symbol that must
-     resolve in `re-frame.core`). Per rf2-bd6zl."
-     [macro-sym delegate-sym docstring & [attr-map]]
-     (let [qualified (resolve-delegate-sym delegate-sym)]
-       `(defmacro ~macro-sym
-          ~docstring
-          ~(or attr-map {})
-          [~'& args#]
-          (with-coords-form (meta ~'&form) ~'*file*
-                            (symbol (str (ns-name ~'*ns*)))
-                            (list* '~qualified args#))))))
-
-;; ---- reg-machine expansion (per-element coord stamping) ------------------
-;;
-;; The bespoke reg-* form (Spec 005 §Source-coord stamping; rf2-xbtj) —
-;; doesn't fit the splice-through pattern because the spec form is
-;; walked at compile time and a per-element coord index is emitted
-;; under `:rf.machine/source-coords`. The walker drops to {} for non-
-;; literal spec forms (a runtime symbol) and tools fall back to the
-;; top-level handler-meta call-site coords.
-
-#?(:clj
-   (defn expand-reg-machine
-     "Build the expansion form for a `reg-machine` macro call. Per
-     Spec 005 §Source-coord stamping; rf2-xbtj. `form-meta` is `(meta
-     &form)`; `ns-sym` / `file` are `*ns*` / `*file*` at expansion time.
-     The per-element coord-index literal is gated on
-     `interop/debug-enabled?` so it DCEs under :advanced +
-     `goog.DEBUG=false`."
-     [form-meta ns-sym file machine-id machine]
-     (let [per-el-coords  (source-coords/walk-machine-spec machine ns-sym file)
-           ;; Symbols inside `:ns` need explicit quoting — otherwise the
-           ;; syntax-quote splice would namespace-resolve them at compile
-           ;; time (ClassNotFoundException for the consumer's ns).
-           per-el-form    (into {}
-                                (map (fn [[path coords]]
-                                       [path
-                                        (cond-> {:ns (list 'quote (:ns coords))}
-                                          (:file coords)   (assoc :file (:file coords))
-                                          (:line coords)   (assoc :line (:line coords))
-                                          (:column coords) (assoc :column (:column coords)))])
-                                     per-el-coords))
-           machine-sym    (gensym "machine__")]
-       `(binding [re-frame.source-coords/*pending-coords*
-                  ~(source-coords/coords-form form-meta file ns-sym)]
-          ~(if (empty? per-el-coords)
-             `(re-frame.core-machines/reg-machine ~machine-id ~machine)
-             `(let [~machine-sym ~machine
-                    stamped# (if re-frame.interop/debug-enabled?
-                               (assoc ~machine-sym
-                                      :rf.machine/source-coords
-                                      ~per-el-form)
-                               ~machine-sym)]
-                (re-frame.core-machines/reg-machine ~machine-id stamped#)))))))
+   (defn emit-reg-machine
+     "Build the expansion form for `reg-machine`. Walks the literal spec
+     form, builds a `:rf.machine/source-coords` per-element index when
+     the spec is a literal map, and emits a debug-gated `if` branch so
+     the index DCEs in production."
+     [form-meta ns-sym file delegate-sym machine-id machine-form]
+     (let [;; Walk the literal spec form at compile time. When `machine`
+           ;; is a non-map (a symbol bound to a value at runtime) the
+           ;; walker returns {} — tools fall back to the call-site coords
+           ;; on the top-level handler-meta.
+           per-el-coords (source-coords/walk-machine-spec machine-form ns-sym file)
+           ;; Build a syntax-quote-safe literal form for the coord index.
+           ;; Symbols inside `:ns` need to be quoted (otherwise the syntax
+           ;; quote splice would try to namespace-resolve them at compile
+           ;; time and the compiler would throw ClassNotFoundException
+           ;; for the consumer's ns).
+           per-el-form   (into {}
+                               (map (fn [[path coords]]
+                                      [path
+                                       (cond-> {:ns (list 'quote (:ns coords))}
+                                         (:file coords)   (assoc :file (:file coords))
+                                         (:line coords)   (assoc :line (:line coords))
+                                         (:column coords) (assoc :column (:column coords)))])
+                                    per-el-coords))
+           machine-sym   (gensym "machine__")
+           coord-binding `(binding [source-coords/*pending-coords*
+                                    ~(source-coords/coords-form form-meta file ns-sym)])]
+       (if (empty? per-el-coords)
+         `(binding [source-coords/*pending-coords*
+                    ~(source-coords/coords-form form-meta file ns-sym)]
+            (~delegate-sym ~machine-id ~machine-form))
+         `(binding [source-coords/*pending-coords*
+                    ~(source-coords/coords-form form-meta file ns-sym)]
+            (let [~machine-sym ~machine-form
+                  stamped# (if re-frame.interop/debug-enabled?
+                             (assoc ~machine-sym
+                                    :rf.machine/source-coords
+                                    ~per-el-form)
+                             ~machine-sym)]
+              (~delegate-sym ~machine-id stamped#)))))))
