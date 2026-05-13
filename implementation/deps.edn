@@ -1,5 +1,6 @@
 ;; Top-level coordinator (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit).
+;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit,
+;; rf2-ny6v7).
 ;;
 ;; The published artefacts are
 ;;   - core/          (day8/re-frame2)
@@ -13,6 +14,7 @@
 ;;   - flows/    (day8/re-frame2-flows,    rf2-tfw3)
 ;;   - http/     (day8/re-frame2-http,     rf2-5kpd)
 ;;   - ssr/      (day8/re-frame2-ssr,      rf2-uo7v)
+;;   - ssr-ring/ (day8/re-frame2-ssr-ring, rf2-ny6v7)
 ;;   - epoch/    (day8/re-frame2-epoch,    rf2-lt4e)
 ;; see implementation/core/deps.edn,
 ;; implementation/adapters/reagent/deps.edn,
@@ -43,6 +45,7 @@
          day8/re-frame2-flows    {:local/root "flows"}
          day8/re-frame2-http     {:local/root "http"}
          day8/re-frame2-ssr      {:local/root "ssr"}
+         day8/re-frame2-ssr-ring {:local/root "ssr-ring"}
          day8/re-frame2-epoch    {:local/root "epoch"}}
 
  :aliases
@@ -61,6 +64,7 @@
                  "flows/test"
                  "http/test"
                  "ssr/test"
+                 "ssr-ring/test"
                  "epoch/test"
                  ;; Per rf2-kx74 examples are grouped per substrate. The
                  ;; combined :test alias loads every example tree onto
