@@ -163,6 +163,66 @@ deterministically from its own jar plus the launch-time
 configuration. No surprise file reads, no environment-dependent
 discovery dance.
 
+## Tight token budget per response
+
+Each MCP tool response is bounded at **≤ 5,000 tokens** by
+default. The cap is normative, not aspirational: a tool that
+cannot answer inside the budget MUST trim, summarise, or
+paginate rather than over-spend.
+
+The motivation is the 2026 trend axis. Microsoft's April 2026
+recommendation (Playwright CLI **over** Playwright MCP for
+coding agents) was driven by MCP responses being roughly 4×
+larger in tokens than the equivalent CLI output. Anthropic's
+own router-SKILL guidance lands at the same ~5k ceiling. An
+agent host with a 200k context window can absorb a handful of
+20k tool returns, but the realistic working session fires
+dozens of tool calls — story-mcp's `run-variant` (whose
+output is the variant's rendered identity plus assertion
+results) and `list-variants` on a populous library are the
+exposed surfaces here. A single oversized response burns the
+budget the agent needs for the next ten ops.
+
+The discipline applies across three axes:
+
+- **Pagination / cursor for unbounded surfaces.**
+  `list-variants`, `list-modes`, `list-assertions`, and any
+  read tool whose return size is a function of registry size
+  MUST accept a `:limit` argument and return a `:cursor` for
+  continuation. The default `:limit` MUST keep the response
+  under the cap. No unbounded list responses; no "best-effort"
+  omission of pagination.
+- **Summarisation modes for rich payloads.** Ops with rich
+  per-item shape (`run-variant`, `snapshot-identity`,
+  `variant->edn`) MUST expose a `:mode` argument with at
+  least `:count` (return totals / pass-fail counts only),
+  `:sample` (return a bounded prefix or stratified sample
+  with sizes attached), and `:full` (return everything,
+  paginated). The default MUST be `:sample` for any op whose
+  `:full` payload can exceed the cap. The self-healing loop
+  (run → read-failures → fix) naturally biases towards
+  failure-only payloads, which is the `:sample` mode under a
+  failure filter.
+- **Streaming over batch where appropriate.** If story-mcp
+  later grows a streaming tool (e.g., a long-running batch
+  variant run), each notification MUST stay under the cap;
+  the agent host meters consumption. Batching is reserved
+  for ops whose payload is naturally bounded and small.
+
+The cap is enforced at the runtime boundary, not just
+documented. Each tool's reference entry in
+[`002-Tool-Registry.md`](002-Tool-Registry.md) carries a
+**typical-token** hint (e.g., `~0.8k`, `~3k under :sample`)
+and a **cap-reached** behaviour note (truncate-with-cursor,
+return `isError: true` with `:reason :budget-exceeded` and a
+hint to narrow the filter or switch mode). The hints surface
+in `list-tools` so the agent can plan ahead.
+
+This is the load-bearing budget posture for story-mcp's
+agent-host workflow: keep the per-op cost predictable, push
+the agent to ask for what it actually needs, and never let a
+single op blow the session.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md)

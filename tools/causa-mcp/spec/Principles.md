@@ -214,6 +214,76 @@ historical context is in
 [`tools/pair2-mcp/spec/DESIGN-RATIONALE.md`](../../pair2-mcp/spec/DESIGN-RATIONALE.md)
 Lock #6.
 
+## Tight token budget per response
+
+Each MCP tool response is bounded at **≤ 5,000 tokens** by
+default. The cap is normative, not aspirational: a tool that
+cannot answer inside the budget MUST trim, summarise, or
+paginate rather than over-spend.
+
+The motivation is the 2026 trend axis. Microsoft's April 2026
+recommendation (Playwright CLI **over** Playwright MCP for
+coding agents) was driven by MCP responses being roughly 4×
+larger in tokens than the equivalent CLI output. Anthropic's
+own router-SKILL guidance lands at the same ~5k ceiling. An
+agent host with a 200k context window can absorb a handful of
+20k tool returns, but the realistic working session fires
+dozens of tool calls — Causa-MCP is the most exposed of the
+triplet because its catalogue includes
+`get-trace-buffer`, `get-epoch-history`, `app-db-diff`, and
+the `subscribe` stream, all of which return payloads whose
+size scales with runtime state.
+
+The discipline applies across three axes:
+
+- **Pagination / cursor for unbounded surfaces.**
+  `get-trace-buffer`, `get-epoch-history`,
+  `list-subscriptions`, `get-causality-graph`, and any read
+  tool whose return size is a function of trace-bus depth
+  MUST accept a `:limit` argument and return a `:cursor` for
+  continuation. The default `:limit` MUST keep the response
+  under the cap. No unbounded list responses; no
+  "best-effort" omission of pagination. The `:since-ms` and
+  `:filter` arguments are not substitutes for pagination —
+  an active app can still blow the budget inside a 5-second
+  window.
+- **Summarisation modes for rich payloads.** Ops with rich
+  per-item shape (`app-db-diff`, `get-causality-graph`,
+  `get-epoch`, `get-machine-snapshot`) MUST expose a `:mode`
+  argument with at least `:count` (return totals only),
+  `:sample` (return a bounded prefix or stratified sample
+  with sizes attached), and `:full` (return everything,
+  paginated). The default MUST be `:sample` for any op whose
+  `:full` payload can exceed the cap. `app-db-diff` in
+  particular MUST default to a path-summary mode (changed
+  paths + cardinalities) rather than the full nested diff.
+- **Streaming over batch where appropriate.** The
+  `subscribe` stream returns one event per JSON-RPC
+  notification, not a buffered batch. The cap applies per
+  notification; the agent host meters consumption. A
+  `subscribe` topic whose individual events can exceed the
+  cap (e.g., a trace event with a large coeffect payload)
+  MUST attach a server-side trimmer (drop the heavy fields,
+  attach a `:elided [:cofx :db]` marker, surface a follow-up
+  `get-trace-buffer` cursor).
+
+The cap is enforced at the runtime boundary, not just
+documented. Each tool's reference entry in the catalogue
+carries a **typical-token** hint (e.g., `~1.5k`,
+`~3k under :sample`) and a **cap-reached** behaviour note
+(truncate-with-cursor, return `:ok? false :reason
+:budget-exceeded` with a hint to narrow the filter, switch
+mode, or paginate). The hints surface in `list-tools` so the
+agent can plan ahead.
+
+This is the load-bearing budget posture for Causa-MCP's
+agent-host workflow: keep the per-op cost predictable, push
+the agent to ask for what it actually needs, and never let a
+single op blow the session. Causa-MCP's value over a
+generalist surface (Chrome DevTools MCP's
+`evaluate_script`) collapses if the agent can't afford to
+call the tools.
+
 ## Backed by Causa's and the framework's principles
 
 When in doubt, defer to the principles upstream:
