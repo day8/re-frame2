@@ -119,33 +119,40 @@
 
           :else acc)))))
 
-(defn- slice-app-db-in-snapshot [snapshot path]
-  (if-not (map? snapshot)
-    [snapshot {}]
-    (let [status* (atom {})
-          missing (js-obj)
-          process-frame
-          (fn [frame-id frame-map]
-            (if-not (and (map? frame-map) (contains? frame-map :app-db))
-              frame-map
-              (let [db (:app-db frame-map)]
-                (cond
-                  (nil? path)
-                  (update frame-map :app-db tree-summary)
-                  (empty? path)
-                  frame-map
-                  :else
-                  (let [v (get-in db path missing)]
-                    (if (identical? v missing)
-                      (do (swap! status* assoc frame-id
-                                 {:exists? false
-                                  :deepest-valid-prefix (deepest-valid-prefix db path)})
-                          (assoc frame-map :app-db nil))
-                      (assoc frame-map :app-db v)))))))
-          processed (reduce-kv (fn [m fid fmap]
-                                 (assoc m fid (process-frame fid fmap)))
-                               {} snapshot)]
-      [processed @status*])))
+(defn- slice-app-db-in-snapshot
+  ([snapshot path] (slice-app-db-in-snapshot snapshot path :summary))
+  ([snapshot path app-db-mode]
+   (if-not (map? snapshot)
+     [snapshot {}]
+     (let [status* (atom {})
+           missing (js-obj)
+           full?   (= :full app-db-mode)
+           process-frame
+           (fn [frame-id frame-map]
+             (if-not (and (map? frame-map) (contains? frame-map :app-db))
+               frame-map
+               (let [db (:app-db frame-map)]
+                 (cond
+                   ;; No path + summary mode: summarise.
+                   (and (nil? path) (not full?))
+                   (update frame-map :app-db tree-summary)
+                   ;; No path + full mode: full slice.
+                   (nil? path)
+                   frame-map
+                   (empty? path)
+                   frame-map
+                   :else
+                   (let [v (get-in db path missing)]
+                     (if (identical? v missing)
+                       (do (swap! status* assoc frame-id
+                                  {:exists? false
+                                   :deepest-valid-prefix (deepest-valid-prefix db path)})
+                           (assoc frame-map :app-db nil))
+                       (assoc frame-map :app-db v)))))))
+           processed (reduce-kv (fn [m fid fmap]
+                                  (assoc m fid (process-frame fid fmap)))
+                                {} snapshot)]
+       [processed @status*]))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-path-arg — the input-shape contract.

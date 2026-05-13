@@ -224,14 +224,19 @@ implementation.
 `":rf/default"`, default `"all"`), `include` (array of slice names —
 subset of `["app-db" "sub-cache" "machines" "epochs" "traces"]`,
 default all five), `path` (EDN-encoded vector or JSON array of segment
-strings — path-slicing for the `:app-db` slice, rf2-tygdv),
-`epochs-mode` (string — `"diff"` (default) or `"full"`, see `trace-window`
-§Diff-encoded `:db-after`; controls the `:epochs` slice's wire shape,
-rf2-1wdzp), `dedup` (boolean, default `true` — applies structural dedup
-per-frame to each `:epochs` slot; see §Structural dedup at the top of
-this catalogue), `elision` (boolean, default `true` — applies the
-size-elision walker to each frame's `:app-db` slice; see §Size-elision
-at the top of this catalogue, rf2-urjnc), `build` (string).
+strings — path-slicing for the `:app-db` slice, rf2-tygdv), `mode`
+(string — `"summary"` (default) or `"full"` — global lazy-summary
+default for every rich slice; see §Lazy-summary mode below, rf2-u2029),
+`modes` (object — per-slice override of `mode`, e.g.
+`{"app-db": "full", "epochs": "summary"}`; takes precedence over the
+global `mode` arg, rf2-u2029), `epochs-mode` (string — `"diff"`
+(default) or `"full"`, see `trace-window` §Diff-encoded `:db-after`;
+controls the `:epochs` slice's wire shape, rf2-1wdzp), `dedup`
+(boolean, default `true` — applies structural dedup per-frame to each
+`:epochs` slot; see §Structural dedup at the top of this catalogue),
+`elision` (boolean, default `true` — applies the size-elision walker
+to each frame's `:app-db` slice; see §Size-elision at the top of this
+catalogue, rf2-urjnc), `build` (string).
 
 **Returns**:
 
@@ -239,7 +244,12 @@ at the top of this catalogue, rf2-urjnc), `build` (string).
 {:ok? true
  :frames :all|[<frame-id>...]
  :include [:app-db :sub-cache :machines :epochs :traces]
- :mode :summary | :path-sliced
+ :mode :summary | :full | :path-sliced
+ :slice-modes {:app-db    :summary | :full | :path-sliced
+               :sub-cache :summary | :full
+               :machines  :summary | :full
+               :epochs    :summary | :full
+               :traces    :summary | :full}
  :epochs-mode :diff | :full
  :dedup   true | false
  :elision true | false
@@ -254,6 +264,14 @@ at the top of this catalogue, rf2-urjnc), `build` (string).
  :path-not-found {<frame-id> {:exists? false
                               :deepest-valid-prefix [...]}}  ; when present}
 ```
+
+Each slice in `:snapshot` is either the raw payload (when its resolved
+mode is `:full` or, for `:app-db`, when a `path` arg is supplied) or a
+`{:rf.mcp/summary {:type :map|:vector|:set|:seq|:scalar :keys [...]
+:count N :bytes ~B}}` marker (when its resolved mode is `:summary` —
+the default). The top-level `:mode` echoes the snapshot's primary
+posture for backward compatibility; the per-slice `:slice-modes` map
+tells the agent which slices it can drill into without a second call.
 
 The `:machines` slice combines the global registrar's machine-id list
 (`rf/machines`) with the per-frame state stash at `[:rf/machines]` in
@@ -271,24 +289,55 @@ the legacy shape (rare — only needed if you drive time-travel restore
 off the wire response rather than via `rf/restore-epoch`). See
 `trace-window` above for the wire shape and rationale.
 
+### Lazy-summary mode (rf2-u2029)
+
+Every rich slice in the snapshot response defaults to a
+`{:rf.mcp/summary {:type ... :keys [...] :count N :bytes ~B}}`
+marker — the top-level shape without committing the token budget.
+The default snapshot call (no `mode`, no `path`) returns summary
+markers for all five slices. A 1MB-app-db / 10-epoch-history
+discovery snapshot collapses from tens of millions of tokens to
+under 500. Agents drill into the slice they actually need via one
+of three opt-ins:
+
+- **Global `mode "full"`**: every rich slice expands to its raw
+  payload. Equivalent to the pre-rf2-u2029 default. The wire cap
+  (rf2-rvyzy) becomes the backstop.
+- **Per-slice `modes {"epochs": "full"}`** (and equivalents): expand
+  only the named slice; others stay summarised. Per-slice override
+  beats the global `mode` arg. Slice names match the `include` arg's
+  vocabulary: `app-db`, `sub-cache`, `machines`, `epochs`, `traces`.
+- **`path` arg** (`:app-db` slice only): return the subtree at the
+  requested path. Path-slicing supersedes the slice-level mode for
+  `:app-db` — a `path` arg always wins.
+
+The `:mode` slot in the response echoes the snapshot's primary posture
+(`:summary` | `:full` | `:path-sliced`). The `:slice-modes` map gives
+the per-slice resolution so the agent can pattern-match on which
+slices are markers vs raw payloads without re-deriving the choice
+from the request shape.
+
+The summary marker's `:bytes` hint is computed AFTER diff-encoding
+and dedup — it reflects the post-shrink wire cost the agent would
+pay to expand the slice, not the raw in-memory size. A map with more
+than 64 top-level keys truncates the `:keys` list and flags
+`:keys-truncated? true` so the marker itself can never blow the
+wire cap.
+
 ### `:app-db` slice modes (rf2-tygdv)
 
-The `:app-db` slice has two response modes governed by the `path` arg:
+The `:app-db` slice has three response postures:
 
-- **`:mode :summary`** (default, no `path`): the `:app-db` slice is
-  replaced with a `{:rf.mcp/summary {:type :map :keys [...] :count
-  ... :bytes ~...}}` marker — the top-level shape without committing
-  the token budget. A map with more than 64 top-level keys truncates
-  the `:keys` list and flags `:keys-truncated? true` so the marker
-  itself can never blow the wire cap. The agent drills down with a
-  follow-up call carrying `path`, or with the `get-path` tool.
+- **`:mode :summary`** (default, no `path`, no `mode` override): the
+  `:app-db` slice is the `{:rf.mcp/summary ...}` marker described
+  above (rf2-tygdv landed this for `:app-db`; rf2-u2029 generalised
+  to every rich slice).
+- **`:mode :full`** (no `path`, `mode "full"` or `modes {"app-db":
+  "full"}`): the full slice — equivalent to passing root path `[]`.
 - **`:mode :path-sliced`** (with `path`): the `:app-db` slice is the
   subtree at `(get-in db path)`. An out-of-range path surfaces
   per-frame in the top-level `:path-not-found` map with the
   deepest-valid-prefix attached so the agent can re-aim.
-- **Root path `[]`**: the agent explicitly asks for the full `:app-db`
-  — equivalent to the legacy default. The wire cap then becomes the
-  backstop.
 
 Path vocabulary matches `get-in`: a vector of keys / indices. EDN
 strings (`":cart"`, `"0"`, `"-1"`) are parsed by the reader; non-EDN
@@ -297,13 +346,15 @@ the `get-path` tool below and as Causa-MCP's `:path` mechanism — one
 shape across the tool family.
 
 The other slices (`:sub-cache`, `:machines`, `:epochs`, `:traces`)
-pass through unchanged. Pass a smaller `include` to subset (e.g.
-`{:frames "all" :include ["app-db" "epochs"]}` for a quick "state +
-recent history" probe). Per-op fine-grain reads (`get-path` against
-the app-db, `eval-cljs` against `runtime/sub-cache`, etc.) stay
-available — they're the right surface when you genuinely need one
-slice for one frame. `snapshot` is the right surface when you don't
-know yet which slice carries the answer.
+follow the same `mode` / `modes` opt-in shape. Pass a smaller
+`include` to drop slices entirely (e.g. `{:frames "all" :include
+["app-db" "epochs"]}` for a quick "state + recent history" probe).
+Per-op fine-grain reads (`get-path` against the app-db, `eval-cljs`
+against `runtime/sub-cache`, etc.) stay available — they're the
+right surface when you genuinely need one slice for one frame.
+`snapshot` is the right surface when you don't know yet which slice
+carries the answer; the lazy-summary default keeps that discovery
+workflow inside the wire cap by construction.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :snapshot-failed` (with `:message`) on any other failure.

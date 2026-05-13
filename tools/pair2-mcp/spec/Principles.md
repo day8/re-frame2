@@ -185,16 +185,20 @@ internals.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
-  Path-slicing and lazy-summary already landed (rf2-tygdv) but
-  as per-tool input-shape concerns: the `snapshot` and
-  `get-path` tools accept a `:path` arg and default to a
-  `{:rf.mcp/summary ...}` response for the unbounded `:app-db`
-  slice, so the cap stays a backstop rather than the primary
-  mechanism for the common case. Diff-encoded `:db-after`
-  (rf2-1wdzp) and structural dedup (rf2-obpa9) also live at the
-  tool surface — see the dedicated mechanisms below. They run
-  BEFORE the cap so the wrapper measures the already-shrunk
-  payload.
+  Path-slicing and lazy-summary already landed (rf2-tygdv,
+  generalised to every rich snapshot slice in rf2-u2029) as
+  per-tool input-shape concerns: the `snapshot` tool accepts a
+  `:path` arg, a global `:mode` arg, and a per-slice `:modes`
+  override, and defaults to a `{:rf.mcp/summary ...}` response
+  for every rich slice (`:app-db`, `:sub-cache`, `:machines`,
+  `:epochs`, `:traces`) — the discovery workflow ("I don't know
+  which slice carries the answer") stays inside the cap by
+  construction rather than relying on the cap as a backstop.
+  `get-path` continues to take a `:path` arg for the targeted-read
+  surface. Diff-encoded `:db-after` (rf2-1wdzp) and structural
+  dedup (rf2-obpa9) also live at the tool surface — see the
+  dedicated mechanisms below. They run BEFORE the cap so the
+  wrapper measures the already-shrunk payload.
 - **Silent truncation is not allowed**: a payload that exceeds
   the cap MUST NOT be shipped in any partial form that would
   let the agent host parse it as a valid response. The marker

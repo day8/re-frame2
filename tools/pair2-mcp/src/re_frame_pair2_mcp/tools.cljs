@@ -1112,7 +1112,7 @@
       [scrubbed @dropped])))
 
 ;; ---------------------------------------------------------------------------
-;; Tree-summary for the `:app-db` slice (rf2-tygdv).
+;; Tree-summary for snapshot slices (rf2-tygdv, generalised rf2-u2029).
 ;;
 ;; Per causa-mcp's wire-protocol Principles §"4. Lazy summary", the
 ;; default response mode for a rich nested value is a *summary*, not the
@@ -1124,12 +1124,22 @@
 ;;                     :count <int>                ; non-scalars only
 ;;                     :bytes ~<int>}}             ; pr-str char count
 ;;
-;; Applied to snapshot's `:app-db` slice when the caller does NOT pass
-;; `:path`. Agents drill down by re-calling with `:path [:cart :items]`
-;; (mechanism 2). The other slices (:sub-cache :machines :epochs
-;; :traces) already have their own pagination / bounded shapes; only
-;; `:app-db` was the unbounded blow-the-cap surface flagged in
-;; rf2-jlq5j's findings doc.
+;; rf2-tygdv landed this for the `:app-db` slice only. rf2-u2029
+;; generalises it to every rich slice in the snapshot response:
+;; `:app-db`, `:sub-cache`, `:machines`, `:epochs`, `:traces`. The
+;; default snapshot call (no `:mode`, no `:path`) returns a summary
+;; marker for each slice instead of the full payload — the discovery
+;; workflow ("I don't know which slice carries the answer") fits the
+;; cap by construction. Agents drill in via:
+;;
+;;   - `:path` arg (`:app-db` slice only) for path-slicing, OR
+;;   - `:mode "full"` (every rich slice expands), OR
+;;   - `:modes {"app-db" "full" "sub-cache" "summary" ...}` for per-slice
+;;     override.
+;;
+;; Path-slicing on `:app-db` supersedes the slice-level mode for that
+;; slice (the slicer already returns a bounded subtree). Other slices
+;; respect mode independently.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private summary-keys-cap
@@ -1201,28 +1211,39 @@
 
 (defn- slice-app-db-in-snapshot
   "Post-process the raw snapshot map: for each frame's `:app-db` slice,
-  apply path-slicing (when `path` is present) or summarisation (when
-  `path` is nil).
+  apply path-slicing (when `path` is present), summarisation (when
+  `path` is nil and the resolved app-db mode is `:summary`), or pass
+  the slice through (when the resolved mode is `:full`).
+
+  `app-db-mode` is `:summary` (default) or `:full`. The `:path` arg
+  takes precedence — when a non-nil path is supplied the slice is
+  always path-sliced regardless of mode. An empty path `[]` is
+  semantically equivalent to `:full` mode (agent explicitly asking
+  for the whole slice).
 
   Returns `[processed-snapshot per-frame-path-status]` where
   `per-frame-path-status` is `{<frame-id> {:exists? bool
                                             :deepest-valid-prefix [...]}}`
   populated only when `path` is supplied and at least one frame's
   path didn't resolve. Empty map when path is nil."
-  [snapshot path]
+  [snapshot path app-db-mode]
   (if-not (map? snapshot)
     [snapshot {}]
     (let [status* (atom {})
           missing (js-obj)
+          full?   (= :full app-db-mode)
           process-frame
           (fn [frame-id frame-map]
             (if-not (and (map? frame-map) (contains? frame-map :app-db))
               frame-map
               (let [db (:app-db frame-map)]
                 (cond
-                  ;; No path: summarise.
-                  (nil? path)
+                  ;; No path + summary mode (rf2-tygdv default): summarise.
+                  (and (nil? path) (not full?))
                   (update frame-map :app-db tree-summary)
+                  ;; No path + full mode: full slice (rf2-u2029 opt-in).
+                  (nil? path)
+                  frame-map
                   ;; Root path (`[]`): return full db (agent opted in
                   ;; explicitly). Equivalent to legacy default behaviour.
                   (empty? path)
@@ -1240,6 +1261,140 @@
                                  (assoc m fid (process-frame fid fmap)))
                                {} snapshot)]
       [processed @status*])))
+
+;; ---------------------------------------------------------------------------
+;; Lazy-summary default for every rich slice (rf2-u2029).
+;;
+;; Generalises rf2-tygdv's `:app-db` summary default to `:sub-cache`,
+;; `:machines`, `:epochs`, `:traces`. Per spec/Principles.md §Per-tool
+;; budget discipline, "the default MUST be `:sample` for any op whose
+;; `:full` payload can exceed the cap" — every rich slice in snapshot
+;; can do that.
+;;
+;; The resolved mode for each slice is governed by:
+;;
+;;   1. `:modes` per-slice override (highest priority).
+;;   2. Global `:mode` arg (`:summary` (default) or `:full`).
+;;   3. For `:app-db` specifically: a non-nil `:path` arg forces
+;;      `:path-sliced` regardless of mode (path-slicer already gives
+;;      a bounded subtree). An empty path `[]` means "explicit full".
+;;
+;; This function walks each frame's slice map and, for rich slices
+;; resolved to `:summary`, replaces the value with the `tree-summary`
+;; marker. `:app-db` is handled by `slice-app-db-in-snapshot`
+;; upstream; this function skips `:app-db` to avoid double-work.
+;; ---------------------------------------------------------------------------
+
+(def ^:private summarisable-slices
+  "Slices for which a summary marker is a meaningful budget win.
+  `:app-db` is omitted — `slice-app-db-in-snapshot` already handles it
+  and respects the `:path` arg. The rest are vectors or maps that can
+  grow unbounded with runtime state."
+  #{:sub-cache :machines :epochs :traces})
+
+(defn- resolve-slice-mode
+  "Resolve the effective mode for a slice. `slice-modes` is the
+  per-slice override map; `global-mode` is the snapshot-wide `:mode`
+  arg. Falls back to `:summary` when nothing pins the slice. Always
+  returns `:summary` or `:full`."
+  [slice slice-modes global-mode]
+  (let [m (or (get slice-modes slice) global-mode :summary)]
+    (case m
+      :full :full
+      :summary)))
+
+(defn- summarise-other-slices-in-snapshot
+  "Apply `tree-summary` to every frame's non-app-db slice whose
+  resolved mode is `:summary`. `:full` slices pass through unchanged.
+  Returns the rewritten snapshot map. `:app-db` is skipped — that
+  slice's summary / path-slicing already happened upstream in
+  `slice-app-db-in-snapshot`.
+
+  Returns `{:snapshot processed :resolved-modes {<slice> :summary|:full}}`
+  so the snapshot response can echo back which slices were summarised
+  — agents pattern-match on the resolved-modes map without re-deriving
+  the slice list."
+  [snapshot slice-modes global-mode]
+  (if-not (map? snapshot)
+    {:snapshot snapshot :resolved-modes {}}
+    (let [resolved (into {} (map (fn [s]
+                                   [s (resolve-slice-mode s slice-modes global-mode)]))
+                         summarisable-slices)
+          process-frame
+          (fn [frame-map]
+            (if-not (map? frame-map)
+              frame-map
+              (reduce-kv
+                (fn [m k v]
+                  (assoc m k
+                         (if (and (contains? summarisable-slices k)
+                                  (= :summary (get resolved k))
+                                  (some? v))
+                           (tree-summary v)
+                           v)))
+                {} frame-map)))
+          processed (reduce-kv (fn [m fid fmap]
+                                 (assoc m fid (process-frame fmap)))
+                               {} snapshot)]
+      {:snapshot processed :resolved-modes resolved})))
+
+(defn- parse-mode-arg
+  "Normalise the global `mode` MCP arg. Accepts strings (`\"summary\"`,
+  `\"full\"`) or keywords. Defaults to `:summary` — the lazy-summary
+  default per rf2-u2029. Unrecognised values default to `:summary`
+  (budget-sensitive default)."
+  [raw]
+  (cond
+    (nil? raw)                 :summary
+    (= raw :full)              :full
+    (= raw :summary)           :summary
+    (= raw "full")             :full
+    (= raw "summary")          :summary
+    :else                      :summary))
+
+(defn- parse-modes-arg
+  "Normalise the per-slice `modes` MCP arg into a `{<slice-keyword>
+  <mode-keyword>}` map. Accepts a JS object, a CLJS map, or nil.
+  Unknown slices are dropped. Unknown mode values are dropped (the
+  slice falls back to the global mode default). Slice keys may be
+  bare strings (`\"app-db\"`), EDN-shaped strings (`\":app-db\"`),
+  or keywords."
+  [raw]
+  (let [as-clj (cond
+                 (nil? raw)            nil
+                 (map? raw)            raw
+                 ;; JS object from the MCP wire.
+                 (and (some? raw)
+                      (not (array? raw))
+                      (not (string? raw))
+                      (not (boolean? raw))
+                      (not (number? raw)))
+                 (try (js->clj raw) (catch :default _ nil))
+                 :else nil)
+        coerce-k (fn [k]
+                   (cond
+                     (keyword? k) k
+                     (string? k)
+                     (let [s (if (str/starts-with? k ":") (subs k 1) k)]
+                       (keyword s))
+                     :else nil))
+        coerce-v (fn [v]
+                   (cond
+                     (= v :summary)  :summary
+                     (= v :full)     :full
+                     (= v "summary") :summary
+                     (= v "full")    :full
+                     :else           nil))]
+    (if-not (map? as-clj)
+      {}
+      (reduce-kv
+        (fn [m k v]
+          (let [k' (coerce-k k)
+                v' (coerce-v v)]
+            (if (and k' (contains? valid-slices k') v')
+              (assoc m k' v')
+              m)))
+        {} as-clj))))
 
 (defn- diff-encode-epochs-in-snapshot
   "Walk the per-frame snapshot map and diff-encode every frame's
@@ -1286,6 +1441,12 @@
         incl?     (include-sensitive? args)
         path      (parse-path-arg (arg args :path))
         mode      (parse-epochs-mode (arg args :epochs-mode))
+        ;; Global lazy-summary mode (rf2-u2029): `:summary` (default)
+        ;; replaces every rich slice with a tree-summary marker;
+        ;; `:full` ships the full payload. Per-slice override via
+        ;; `:modes` map takes precedence over the global mode.
+        slice-mode  (parse-mode-arg (arg args :mode))
+        slice-modes (parse-modes-arg (arg args :modes))
         dedup?    (parse-dedup-arg (arg args :dedup))
         elision?  (parse-elision-arg (arg args :elision))
         opts      {:frames frames :include include}
@@ -1319,18 +1480,35 @@
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
-                 (let [[scrubbed dropped]    (scrub-snapshot-sensitive v incl?)
-                       [sliced path-status]  (slice-app-db-in-snapshot scrubbed path)
+                 (let [app-db-mode (resolve-slice-mode :app-db slice-modes slice-mode)
+                       [scrubbed dropped]    (scrub-snapshot-sensitive v incl?)
+                       [sliced path-status]  (slice-app-db-in-snapshot scrubbed path app-db-mode)
                        diff-encoded          (diff-encode-epochs-in-snapshot sliced mode)
-                       deduped               (dedup-epochs-in-snapshot diff-encoded dedup?)]
-                   (ok-text (cond-> {:ok?         true
-                                     :frames      (if (= :all frames) :all (vec frames))
-                                     :include     include
-                                     :mode        (if (nil? path) :summary :path-sliced)
-                                     :epochs-mode mode
-                                     :dedup       dedup?
-                                     :elision     elision?
-                                     :snapshot    deduped}
+                       deduped               (dedup-epochs-in-snapshot diff-encoded dedup?)
+                       ;; Lazy-summary default for non-app-db rich
+                       ;; slices (rf2-u2029). Runs LAST in the pipeline
+                       ;; so summary `:bytes` hints reflect the
+                       ;; post-shrink wire cost of each slice.
+                       {summarised :snapshot
+                        other-modes :resolved-modes} (summarise-other-slices-in-snapshot
+                                                       deduped slice-modes slice-mode)
+                       resolved-modes (assoc other-modes :app-db
+                                             (cond
+                                               path :path-sliced
+                                               :else app-db-mode))
+                       response-mode  (cond
+                                        path                  :path-sliced
+                                        (= :full app-db-mode) :full
+                                        :else                 :summary)]
+                   (ok-text (cond-> {:ok?            true
+                                     :frames         (if (= :all frames) :all (vec frames))
+                                     :include        include
+                                     :mode           response-mode
+                                     :slice-modes    resolved-modes
+                                     :epochs-mode    mode
+                                     :dedup          dedup?
+                                     :elision        elision?
+                                     :snapshot       summarised}
                               path                  (assoc :path path)
                               (seq path-status)     (assoc :path-not-found path-status)
                               (pos? dropped)        (assoc :dropped-sensitive dropped))))))
@@ -1782,15 +1960,19 @@
                       ":app-db, :sub-cache, :machines, :epochs, :traces. "
                       "Server-side composition over the existing per-slice runtime readers. "
                       "Prefer this over chaining 5-10 individual reads. "
+                      "Lazy-summary default (rf2-u2029): each rich slice in the response is replaced with a "
+                      "`{:rf.mcp/summary {:type :map|:vector :keys [...] :count N :bytes ~B}}` marker by "
+                      "default — keeps a discovery snapshot under the wire cap by construction. Agents drill "
+                      "into the slice they actually need via `mode \"full\"` (every slice expands), per-slice "
+                      "`modes {\"app-db\": \"full\"}` (one slice expands), or — for the :app-db slice only — "
+                      "the `path` arg (rf2-tygdv: returns the addressed subtree). "
                       "Path slicing (rf2-tygdv): the `:app-db` slice supports a `path` arg (an EDN-encoded "
                       "vector of keys, e.g. \"[:cart :items 0]\"). With `path`, returns the addressed subtree. "
-                      "Without `path`, returns a `{:rf.mcp/summary ...}` marker for the `:app-db` slice "
-                      "(top-level keys + count + bytes) rather than the full value — keeps the response "
-                      "under the wire cap by default. Agents drill down by re-calling with `path`. "
+                      "Path-slicing supersedes the slice-level mode for `:app-db`. "
                       "Diff-encoded epochs (rf2-1wdzp): each epoch in the `:epochs` slice has its `:db-after` "
                       "replaced with a structural diff against its own `:db-before` by default — pass "
                       "`epochs-mode \"full\"` for legacy full-pair shape (opt-in for time-travel restore). "
-                      "The other slices (:sub-cache, :machines, :traces) pass through unchanged. "
+                      "Diff-encode runs before the lazy-summary so `bytes` hints reflect post-shrink cost. "
                       "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                       "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
                       "machines slices pass through unchanged — payload redaction is the `with-redacted` "
@@ -1819,10 +2001,29 @@
                                                            "strings. When supplied, the :app-db slice in the result "
                                                            "is the subtree at the path. Out-of-range paths surface "
                                                            "as `:path-not-found` per-frame with deepest-valid-prefix "
-                                                           "attached. When absent, the :app-db slice is a "
-                                                           "`{:rf.mcp/summary ...}` marker (mode :summary).")
+                                                           "attached. Path-slicing supersedes the slice-level mode "
+                                                           "for :app-db. When absent, the :app-db slice respects "
+                                                           "the resolved mode (default :summary).")
                                          :oneOf [{:type "string"}
                                                  {:type "array" :items {:type "string"}}]}
+                               :mode    {:type "string"
+                                         :description (str "Global lazy-summary mode (rf2-u2029). "
+                                                           "\"summary\" (default) replaces every rich slice "
+                                                           "(:app-db when no `path`, :sub-cache, :machines, :epochs, :traces) "
+                                                           "with a `{:rf.mcp/summary ...}` marker — top-level keys, "
+                                                           "count, and approximate bytes. \"full\" expands every "
+                                                           "slice to its raw payload (legacy pre-rf2-u2029 behaviour). "
+                                                           "Per-slice override via `modes` takes precedence.")
+                                         :enum ["summary" "full"]}
+                               :modes   {:type "object"
+                                         :description (str "Per-slice mode override (rf2-u2029) — a map "
+                                                           "{slice-name: \"summary\"|\"full\"}. Recognised slices: "
+                                                           "app-db, sub-cache, machines, epochs, traces. Slices not "
+                                                           "listed fall back to the global `mode` arg (default \"summary\"). "
+                                                           "Example: `{\"app-db\": \"full\", \"epochs\": \"summary\"}` — "
+                                                           "expand the live state, summarise the history.")
+                                         :additionalProperties {:type "string"
+                                                                :enum ["summary" "full"]}}
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
                                              :enum ["diff" "full"]}
