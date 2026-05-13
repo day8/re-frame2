@@ -86,6 +86,7 @@ Patterns (worked-example conventions, not Specs):
 | [Pattern — Boot](Pattern-Boot.md) | Pattern | Application boot as a chained-async sequence — chained-events form for trivial boots; state-machine canonical form (config → auth → profile → hydrate → route → ready) for non-trivial. SSR handoff and hot-reload rules included. |
 | [Pattern — WebSocket](Pattern-WebSocket.md) | Pattern | Long-lived connection lifecycle (WebSocket / SSE / WebRTC peer) as a state machine — `:disconnected` / `:connecting` / `:authenticating` / `:connected` / `:reconnecting` / `:failed`. Worked example of hierarchical states, `:after`, `:always`, and `:invoke` composed. |
 | [Pattern — Long-Running Work](Pattern-LongRunningWork.md) | Pattern | Modernised guidance for handling CPU-intensive work without freezing the UI. Decision tree (offload vs chunk on main thread); state-machine canonical form for chunked work with `:always` for batch progression and `:after 0` for browser yielding; cancellation via state transition; replaces the v1 `^:flush-dom` metadata. |
+| [Pattern — SSR Loaders](Pattern-SSR-Loaders.md) | Pattern | Parallel data-fetch fan-out for an SSR request — N HTTP fetches spawned via `:invoke-all`, joined on all-complete, results written to `app-db` before `render-to-string` runs. Composes with `:rf.server/request` cofx (request-derived inputs) and `:rf.http/managed` (per-child retry / abort / decode). Same machine drives client-side navigation-fetch. |
 
 Worked examples:
 
