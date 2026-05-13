@@ -92,3 +92,40 @@
           "dispatch-sync returned nil despite the listener throw")
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
+
+;; ---- handler-meta :sensitive? short-circuit under prod (rf2-6hklf) -------
+
+(deftest event-emit-sensitive-handler-meta-drops-record-under-prod
+  (testing "Per rf2-6hklf: handler-meta `:sensitive? true` MUST keep
+            records out of the always-on substrate under `:advanced` +
+            `goog.DEBUG=false`. This is the production-build contract
+            the bug report exists to lock — a Datadog forwarder
+            attached at boot still sees normal events but never sees
+            a sensitive-handler's records."
+    (let [seen (atom [])]
+      (rf/register-event-emit-listener!
+        :prod/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :prod/sensitive
+                       {:sensitive? true}
+                       (fn [db _] (assoc db :touched true)))
+      (rf/dispatch-sync [:prod/sensitive "secret-payload"])
+      (is (= 0 (count @seen))
+          "no listener invocation for a :sensitive? handler under prod — record dropped at the boundary"))))
+
+(deftest event-emit-non-sensitive-handler-still-fires-under-prod
+  (testing "Companion lock to the :sensitive? prod-drop test: a handler
+            registered WITHOUT `:sensitive?` continues to deliver
+            records to listeners under prod as before. Guards against
+            the rf2-6hklf fix accidentally regressing the default path."
+    (let [seen (atom [])]
+      (rf/register-event-emit-listener!
+        :prod/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :prod/normal
+                       (fn [db _] (assoc db :touched true)))
+      (rf/dispatch-sync [:prod/normal "payload"])
+      (is (= 1 (count @seen))
+          "non-sensitive handler still fans out under prod")
+      (is (= [:prod/normal "payload"] (:event (first @seen)))
+          "elided event payload reaches the listener under prod"))))
