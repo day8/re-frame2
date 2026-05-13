@@ -193,23 +193,25 @@
     (is (= "\n     " (review-dialog/indent-after "12345")))))
 
 (deftest indent-after-aligns-recorder-play-body
-  (testing "the indent lines events up under the `[` of `:play [` on the previous line"
+  (testing "the indent lines events up under the first item of `:play [` on the previous line"
     (let [prefix      "   :play ["
           first-line  (str prefix "[:counter/inc]")
           cont-indent (review-dialog/indent-after prefix)
           full        (str first-line cont-indent "[:counter/dec]")
           lines       (clojure.string/split full #"\n")
-          ;; column of '[' on line 1 = (count prefix) - 1 (the `[` is the last char of prefix)
-          line1-bracket-col (dec (count prefix))
-          ;; column of '[' on line 2 = the indent's space-count (count cont-indent) - 1 for `\n`
-          line2-bracket-col (dec (count cont-indent))]
+          ;; column of the first event char on line 1 = (count prefix)
+          ;; (the `[` of `:play [` is the last char of prefix; the next
+          ;; char — the first event's leading `[` — sits at index N.)
+          line1-event-col (count prefix)
+          ;; column of the first event char on line 2 = the indent's
+          ;; space-count, which equals (count cont-indent) - 1 for `\n`.
+          line2-event-col (dec (count cont-indent))]
       (is (= 2 (count lines)))
-      ;; bracket on line 1 is at the column where line 2's items begin
-      (is (= line1-bracket-col line2-bracket-col)
-          "second event's `[` aligns under first event's `[`"))))
+      (is (= line1-event-col line2-event-col)
+          "second event's leading char aligns under first event's leading char"))))
 
 (deftest indent-after-aligns-save-variant-args-map
-  (testing "the indent lines kv pairs up under the `{` of `:args {` on the previous line"
+  (testing "the indent lines kv pairs up under the first kv of `:args {` on the previous line"
     (let [prefix      "   :args {"
           first-line  (str prefix ":a 1")
           cont-indent (review-dialog/indent-after prefix)
@@ -219,7 +221,7 @@
           line2-first-kv-col (dec (count cont-indent))]
       (is (= 2 (count lines)))
       (is (= line1-first-kv-col line2-first-kv-col)
-          "second kv aligns under first kv"))))
+          "second kv's leading char aligns under first kv's leading char"))))
 
 (deftest indent-after-pure-and-deterministic
   (testing "the helper is pure — same input → same output"
