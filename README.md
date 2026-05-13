@@ -12,7 +12,7 @@ re-frame2 is an architectural pattern for building Single Page Apps that target 
 
 ## What's novel and interesting?
 
-Four things:
+Five things:
 
 **1. The spec is the artefact. The code is downstream.** 
 
@@ -55,14 +55,24 @@ Every tool attaches to that trace bus and gets the whole picture for free. Sourc
 
 And, yes, relax, you can set policies to elide sensitive things, as well as too-large binary blobs.
 
+**4. Managed external effects.**
 
-**4. Lisp's quiet advantage.**
+Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
-Also nerdy.
+re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
+
+`:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:invoke` / `:invoke-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
+
+And the external story composes naturally with the *internal* management primitives — events, subs, state machines, flows — that handle the 7Guis-class problems. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
+
+**5. Lisp's quiet advantage.**
+
+Appolgies for the nerd snipe, but ...
 
 re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. 
 
 Having said that, you can roll your own version in JS, TS, Reason, etc.
+
 
 
 ### Novelty, bah humbug!
