@@ -38,86 +38,15 @@
              (trace-bus/push buf 3 {:id 6}))
           "depth 3 retains 3 newest entries after the next push"))))
 
-;; ---- self-emitted? predicate (rf2-nk01x) --------------------------------
+;; ---- self-emit guard history (rf2-nk01x → rf2-qsjda) ----------------------
 ;;
-;; `collect-trace!`'s guard for Causa's own bookkeeping dispatches.
-;; Pure-data + JVM-runnable so the predicate's algebra is covered
-;; without a CLJS runtime. The integration coverage (`dispatch-sync`
-;; under a real cascade) lives in the CLJS sensitive_trace test.
-
-(deftest self-emitted?-recognises-bookkeeping-dispatched-trace
-  (testing ":event/dispatched trace events for Causa's own bookkeeping
-            event ids are self-emits"
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/dispatched
-                 :sensitive? true
-                 :tags {:event [:rf.causa/note-sensitive-suppressed :rf/default]
-                        :frame :rf/causa}}))
-        ":rf.causa/note-sensitive-suppressed dispatch trace is self-emit")
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/dispatched
-                 :tags {:event [:rf.causa/note-trace-event {:fake :event}]
-                        :frame :rf/causa}}))
-        ":rf.causa/note-trace-event dispatch trace is self-emit")
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/dispatched
-                 :tags {:event [:rf.causa/clear-trace-buffer]
-                        :frame :rf/causa}}))
-        ":rf.causa/clear-trace-buffer dispatch trace is self-emit")
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/dispatched
-                 :tags {:event [:rf.causa/reset-suppressed-counters]
-                        :frame :rf/causa}}))
-        ":rf.causa/reset-suppressed-counters dispatch trace is self-emit")
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/dispatched
-                 :tags {:event [:rf.causa/sync-trace-buffer []]
-                        :frame :rf/causa}}))
-        ":rf.causa/sync-trace-buffer dispatch trace is self-emit")))
-
-(deftest self-emitted?-recognises-handler-scoped-bookkeeping-trace
-  (testing "trace events emitted INSIDE the bookkeeping handler's scope
-            (with :tags :event-id pointing at the bookkeeping id) are
-            self-emits — this catches :event/handled, :event/db-changed,
-            :rf.fx/handled, etc., emitted under the handler's dynamic
-            binding"
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/db-changed
-                 :tags {:event-id :rf.causa/note-sensitive-suppressed
-                        :frame :rf/causa}})))
-    (is (true? (trace-bus/self-emitted?
-                {:op-type :event :operation :event/handled
-                 :tags {:event-id :rf.causa/note-trace-event
-                        :frame :rf/causa}})))))
-
-(deftest self-emitted?-rejects-non-bookkeeping-events
-  (testing "user-domain events are NOT self-emits"
-    (is (false? (trace-bus/self-emitted?
-                 {:op-type :event :operation :event/dispatched
-                  :sensitive? true
-                  :tags {:event [:auth/sign-in {:password "x"}]
-                         :frame :rf/default}}))
-        "a real :sensitive? event is NOT a self-emit")
-    (is (false? (trace-bus/self-emitted?
-                 {:op-type :event :operation :event/handled
-                  :tags {:event-id :user/click
-                         :frame :rf/default}}))
-        "a normal user event handled-trace is NOT a self-emit"))
-  (testing "non-:rf.causa/* re-frame internal events are NOT self-emits"
-    (is (false? (trace-bus/self-emitted?
-                 {:op-type :event :operation :event/dispatched
-                  :tags {:event [:rf.fx/dispatch [:user/foo]]}}))))
-  (testing "non-map / nil / bare values are not self-emits (no NPE)"
-    (is (false? (trace-bus/self-emitted? nil)))
-    (is (false? (trace-bus/self-emitted? :keyword)))
-    (is (false? (trace-bus/self-emitted? [:vector])))
-    (is (false? (trace-bus/self-emitted? {})))
-    (is (false? (trace-bus/self-emitted? {:tags {}}))))
-  (testing "shapes that look LIKE the bookkeeping events but aren't"
-    (is (false? (trace-bus/self-emitted?
-                 {:op-type :event :operation :event/dispatched
-                  :tags {:event [:user/note-sensitive-suppressed]}}))
-        "different ns, same suffix — must NOT match")
-    (is (false? (trace-bus/self-emitted?
-                 {:tags {:event-id :rf.causa/select-panel}}))
-        ":rf.causa/* but NOT a bookkeeping id")))
+;; rf2-nk01x introduced a Causa-side `self-emitted?` predicate to stop
+;; `collect-trace!` re-entering itself via its own bookkeeping dispatches'
+;; trace events. rf2-qsjda promoted the opt-out to the framework: the
+;; bookkeeping handlers in registry.cljs now carry `:rf.trace/no-emit?
+;; true`, and `re-frame.trace/emit!` / `emit-error!` / the queue-time
+;; `emit-dispatched-trace!` all short-circuit on the flag. The
+;; Causa-side `self-emitted?` predicate is obsolete and gone; the
+;; framework gate's tests live in `re-frame.trace-test`. The
+;; integration coverage of the closed loop under a real CLJS cascade
+;; remains in `sensitive_trace_loop_cljs_test.cljs`.

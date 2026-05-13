@@ -266,6 +266,66 @@
   (and (map? trace-event)
        (true? (:sensitive? trace-event))))
 
+;; ---- *current-no-emit?* (rf2-qsjda) ---------------------------------------
+;;
+;; Per Spec 009 §Trace-emission opt-out: handlers whose registration meta
+;; carries `:rf.trace/no-emit? true` produce NO trace events. The flag is
+;; the framework-level escape hatch for trace-consuming integrations
+;; (Causa, Story, pair2-preload, …) whose own bookkeeping dispatches —
+;; emitted from inside a trace-cb — would otherwise re-enter the consumer
+;; through the trace-cb fan-out and form a cb-dispatch loop. (Originally
+;; landed by rf2-nk01x as a per-consumer Causa-side guard; this Var
+;; promotes the opt-out to the framework so any consumer can declare a
+;; handler internal-only without writing its own guard.)
+;;
+;; The runtime carries the in-scope handler's no-emit reading through the
+;; dynamic Var `*current-no-emit?*` — bound alongside `*current-trigger-
+;; handler*` (rf2-3nn8 / rf2-lf84g) and `*current-sensitive?*` (rf2-isdwf)
+;; at every handler-scope binding site (router, fx, cofx, subs, views).
+;; `emit!` and `emit-error!` read this Var and short-circuit (no envelope
+;; allocation, no listener fan-out, no buffer push) when bound true.
+;;
+;; The flag also rides the queue-time emit path: `emit-dispatched-trace!`
+;; in `router.cljc` reads the target handler's registration meta and
+;; suppresses the `:event/dispatched` emit when the meta carries
+;; `:rf.trace/no-emit? true` (mirrors the queue-time `:sensitive?` lookup
+;; per rf2-isdwf since the handler-scope binding doesn't exist yet at
+;; enqueue time).
+;;
+;; Cascade composition rule: the innermost in-scope handler's reading
+;; wins; the runtime does NOT transitively widen the flag across handler
+;; boundaries. A non-`:rf.trace/no-emit?` handler dispatched from inside
+;; a `:rf.trace/no-emit? true` handler emits normally — the inner binding
+;; rebinds to false and the inner cascade is visible.
+;;
+;; Production elision: when `interop/debug-enabled?` is false the whole
+;; trace surface compiles out via the outer `when` gate in `emit!`, so
+;; the Var read is dead code.
+
+(def ^:dynamic *current-no-emit?*
+  "Boolean. True when the in-scope handler's registration metadata
+  carries `:rf.trace/no-emit? true`. Bound alongside
+  `*current-trigger-handler*` and `*current-sensitive?*` at every
+  handler-scope binding site (router process-event, fx dispatcher,
+  cofx injector, sub recompute, view render). `emit!` and
+  `emit-error!` read this Var and short-circuit before envelope
+  allocation when bound true.
+
+  nil / false outside any handler's scope. Per rf2-qsjda and
+  Spec 009 §Trace-emission opt-out."
+  nil)
+
+(defn no-emit?-from-meta
+  "Read `:rf.trace/no-emit?` from a registrar slot's meta map. Returns
+  `true` iff the meta carries `:rf.trace/no-emit? true`; `false` for
+  every other shape (nil meta, absent key, falsy value).
+
+  Used by handler-scope binding sites to compute the value to bind
+  `*current-no-emit?*` to, and by `emit-dispatched-trace!` to gate
+  the queue-time `:event/dispatched` emit. Per rf2-qsjda."
+  [meta]
+  (true? (:rf.trace/no-emit? meta)))
+
 (defn trigger-handler-from-meta
   "Build a `:rf.trace/trigger-handler` value from a registrar meta map.
   `kind` is the registry kind (`:event`, `:sub`, `:fx`, `:cofx`, `:view`);
@@ -502,9 +562,24 @@
   behaviour. Success-path traces emitted inside a handler's scope
   (`:rf.fx/handled`, `:rf.machine/transition`, `:event/db-changed`,
   `:event/do-fx`, ...) carry the registration coord so tools can
-  jump-to-source from any trace event in a cascade, not just errors."
+  jump-to-source from any trace event in a cascade, not just errors.
+
+  Per rf2-qsjda: when `*current-no-emit?*` is bound true (the
+  in-scope handler's registration meta carries `:rf.trace/no-emit?
+  true`), the body short-circuits before envelope allocation — no
+  buffer push, no epoch-capture, no listener fan-out, no id-counter
+  bump. This is the framework-level opt-out for trace-consuming
+  integrations whose own bookkeeping handlers must not re-enter the
+  trace stream and form a cb-dispatch loop. Per Spec 009
+  §Trace-emission opt-out."
   [op operation tags]
   (when interop/debug-enabled?
+    ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
+    ;; out of trace emission. Guard sits *inside* the outer
+    ;; `interop/debug-enabled?` gate (Spec 009 §Production builds
+    ;; mandates the outermost form be that gate alone — `(when
+    ;; (and X interop/debug-enabled?) ...)` defeats Closure DCE).
+   (when-not (true? *current-no-emit?*)
     (let [source       (:source tags)
           recovery     (:recovery tags)
           ;; Per Spec 009 §Required top-level fields: :source and
@@ -557,7 +632,7 @@
           (catch #?(:clj Throwable :cljs :default) _
             ;; Listeners that throw don't break the runtime; the stream
             ;; continues. Per Spec 009: listener failures are isolated.
-            nil))))))
+            nil)))))))
 
 (defn emit-error!
   "Emit a structured error trace event. Per Spec 009 §Error contract:
@@ -583,9 +658,23 @@
   Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the error fires
   inside a drain), the in-flight cascade's id is merged into
   `:tags :dispatch-id` so consumers can correlate the error with the
-  rest of the cascade. Caller-supplied `:dispatch-id` wins."
+  rest of the cascade. Caller-supplied `:dispatch-id` wins.
+
+  Per rf2-qsjda: when `*current-no-emit?*` is bound true (the
+  in-scope handler's registration meta carries `:rf.trace/no-emit?
+  true`), the body short-circuits before envelope allocation —
+  symmetric with the success path in `emit!`. The framework-level
+  trace-emission opt-out applies to error traces too (a Causa-style
+  bookkeeping handler must not re-enter the consumer through error
+  emits any more than through success emits). Per Spec 009
+  §Trace-emission opt-out."
   [error-operation tags]
   (when interop/debug-enabled?
+   ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
+   ;; out of trace emission. Guard sits *inside* the outer
+   ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
+   ;; (the outer gate must stand alone for Closure DCE).
+   (when-not (true? *current-no-emit?*)
     (let [trigger    *current-trigger-handler*
           call-site  *current-call-site*
           cascade-id *current-dispatch-id*
@@ -615,7 +704,7 @@
       (doseq [[_ f] @listeners]
         (try
           (f event)
-          (catch #?(:clj Throwable :cljs :default) _ nil))))))
+          (catch #?(:clj Throwable :cljs :default) _ nil)))))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

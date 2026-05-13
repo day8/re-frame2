@@ -247,10 +247,15 @@
   ;; per Spec 009 §Privacy line 1160 "the conventional use sites
   ;; are reg-event-* and reg-sub" — sub return values flow user
   ;; input into views and must be filterable.
+  ;; Per rf2-qsjda: bind `*current-no-emit?*` symmetrically — a sub
+  ;; whose registration carries `:rf.trace/no-emit? true` produces
+  ;; no `:sub/run` trace event (and no error trace if it throws).
   (binding [trace/*current-trigger-handler*
             (trace/trigger-handler-from-meta :sub query-id sub-meta)
             trace/*current-sensitive?*
-            (trace/sensitive?-from-meta sub-meta)]
+            (trace/sensitive?-from-meta sub-meta)
+            trace/*current-no-emit?*
+            (trace/no-emit?-from-meta sub-meta)]
     (trace/emit! :sub/run :sub/run
                  {:sub-id  query-id
                   :query-v query-v

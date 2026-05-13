@@ -453,10 +453,22 @@
           ;; (the inner fx scope re-binds), :sub/run (sub recompute
           ;; re-binds to the sub's reading), :rf.error/* (every error
           ;; emit inside the chain).
+          ;;
+          ;; Per rf2-qsjda: also bind `*current-no-emit?*` from the
+          ;; handler's registration meta. When the handler carries
+          ;; `:rf.trace/no-emit? true`, every trace event produced
+          ;; inside the handler's scope short-circuits at `emit!` /
+          ;; `emit-error!` (no envelope allocation, no listener
+          ;; fan-out). The framework-level trace-emission opt-out
+          ;; (Spec 009 §Trace-emission opt-out) — covers the cascade
+          ;; from this binding through the interceptor chain, db
+          ;; commit, flows, and fx walk.
           (binding [trace/*current-trigger-handler*
                     (trace/trigger-handler-from-meta :event event-id handler-meta)
                     trace/*current-sensitive?*
-                    (trace/sensitive?-from-meta handler-meta)]
+                    (trace/sensitive?-from-meta handler-meta)
+                    trace/*current-no-emit?*
+                    (trace/no-emit?-from-meta handler-meta)]
             (let [;; Per rf2-rirbq: capture the wall-clock at the very
                   ;; start of cascade execution so the always-on
                   ;; event-emit substrate can report `:elapsed-ms` in
@@ -779,24 +791,35 @@
   in the drain). Look up the target handler's registration metadata
   directly and pass `:sensitive?` in the tags so `emit!` hoists it
   to the top level. When the handler is missing the field is omitted
-  (consumers treat absent as false)."
+  (consumers treat absent as false).
+
+  Per rf2-qsjda: same queue-time consideration applies for
+  `:rf.trace/no-emit?`. The handler-scope binding for
+  `*current-no-emit?*` doesn't exist yet at enqueue time, so we read
+  the flag directly off the target handler's registration meta and
+  short-circuit the `:event/dispatched` emit when set. Without this,
+  a Causa-style bookkeeping handler would have its enqueue trace
+  delivered to listeners (re-entering the consumer's trace-cb)
+  before the handler-scope binding ever took effect."
   [envelope sync?]
   (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
         handler-meta (when event-id (registrar/lookup :event event-id))
-        sensitive?   (trace/sensitive?-from-meta handler-meta)]
-    (trace/emit! :event :event/dispatched
-                 (cond-> {:event    event
-                          :frame    (:frame envelope)
-                          :origin   (:origin envelope)
-                          :source   (:source envelope)
-                          :sync?    sync?}
-                   sensitive?
-                   (assoc :sensitive? true)
-                   (:dispatch-id envelope)
-                   (assoc :dispatch-id (:dispatch-id envelope))
-                   (:parent-dispatch-id envelope)
-                   (assoc :parent-dispatch-id (:parent-dispatch-id envelope))))))
+        sensitive?   (trace/sensitive?-from-meta handler-meta)
+        no-emit?     (trace/no-emit?-from-meta handler-meta)]
+    (when-not no-emit?
+      (trace/emit! :event :event/dispatched
+                   (cond-> {:event    event
+                            :frame    (:frame envelope)
+                            :origin   (:origin envelope)
+                            :source   (:source envelope)
+                            :sync?    sync?}
+                     sensitive?
+                     (assoc :sensitive? true)
+                     (:dispatch-id envelope)
+                     (assoc :dispatch-id (:dispatch-id envelope))
+                     (:parent-dispatch-id envelope)
+                     (assoc :parent-dispatch-id (:parent-dispatch-id envelope)))))))
 
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:

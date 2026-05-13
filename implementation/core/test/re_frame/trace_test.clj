@@ -560,3 +560,95 @@
 
       (rf/remove-trace-cb! ::throwing)
       (rf/remove-trace-cb! ::survivor))))
+
+;; ---- :rf.trace/no-emit? event-meta opt-out (rf2-qsjda) --------------------
+;;
+;; Per Spec 009 §Trace-emission opt-out: handlers whose registration meta
+;; carries `:rf.trace/no-emit? true` produce NO trace events. The flag is
+;; the framework-level escape hatch for trace-consuming integrations
+;; whose own bookkeeping dispatches — emitted from inside a trace-cb —
+;; would otherwise re-enter the consumer through the trace-cb fan-out
+;; and form a cb-dispatch loop. (See `re-frame.trace/*current-no-emit?*`
+;; for the runtime mechanism.)
+;;
+;; Covers:
+;;   - A handler WITH `:rf.trace/no-emit? true` produces no `:event/
+;;     dispatched`, no `:event :run-start` / `:run-end`, no
+;;     `:event/db-changed`, no in-cascade emits at all.
+;;   - A handler WITHOUT the flag emits normally — sanity baseline so
+;;     the no-emit test doesn't trivially pass on a broken framework.
+
+(deftest no-emit-handler-suppresses-every-cascade-trace
+  (testing "Handler registration meta `:rf.trace/no-emit? true` causes
+            the runtime to emit NO trace events for the dispatch — not
+            at queue time (`:event/dispatched`), not at run-start /
+            run-end, not on db-commit (`:event/db-changed`), not for
+            any in-cascade emit. Per Spec 009 §Trace-emission opt-out
+            and rf2-qsjda."
+    (rf/reg-event-db :rf2-qsjda/internal-bookkeeping
+                     {:rf.trace/no-emit? true}
+                     (fn [db _] (assoc db :bookkeeping/ran? true)))
+
+    (let [recorded (atom [])]
+      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+
+      (rf/dispatch-sync [:rf2-qsjda/internal-bookkeeping])
+
+      ;; Handler ran (db committed) but no traces were emitted.
+      (is (true? (:bookkeeping/ran? (rf/get-frame-db :rf/default)))
+          "the handler body still ran — :rf.trace/no-emit? opts out
+           of TRACE EMISSION, not handler execution")
+
+      ;; Sanity: no trace events for this dispatch at all. We assert
+      ;; on event-id / event-vec tags, since the trace stream might
+      ;; carry framework-level emits unrelated to our dispatch
+      ;; (e.g. registrar registration traces fired by the
+      ;; reg-event-db above).
+      (let [our-events
+            (filter
+              (fn [ev]
+                (let [tags (:tags ev)
+                      eid  (or (:event-id tags)
+                               (let [ev-vec (:event tags)]
+                                 (when (vector? ev-vec) (first ev-vec))))]
+                  (= :rf2-qsjda/internal-bookkeeping eid)))
+              @recorded)]
+        (is (empty? our-events)
+            (str "expected NO trace events for the :rf.trace/no-emit?
+                  handler's dispatch, got: "
+                 (vec (map (juxt :op-type :operation) our-events)))))
+
+      (rf/remove-trace-cb! ::rec))))
+
+(deftest no-emit-flag-absent-emits-normally
+  (testing "Baseline sanity: the SAME dispatch shape WITHOUT
+            `:rf.trace/no-emit? true` produces the normal cascade
+            traces (`:event/dispatched`, run-start, run-end,
+            `:event/db-changed`). Pins the opt-out as the difference."
+    (rf/reg-event-db :rf2-qsjda/normal
+                     {:doc "without :rf.trace/no-emit?"}
+                     (fn [db _] (assoc db :normal/ran? true)))
+
+    (let [recorded (atom [])]
+      (rf/register-trace-cb! ::rec (fn [ev] (swap! recorded conj ev)))
+
+      (rf/dispatch-sync [:rf2-qsjda/normal])
+
+      (let [our-events
+            (filter
+              (fn [ev]
+                (let [tags (:tags ev)
+                      eid  (or (:event-id tags)
+                               (let [ev-vec (:event tags)]
+                                 (when (vector? ev-vec) (first ev-vec))))]
+                  (= :rf2-qsjda/normal eid)))
+              @recorded)
+            ops (set (map :operation our-events))]
+        (is (contains? ops :event/dispatched)
+            ":event/dispatched fired for the un-flagged handler")
+        (is (contains? ops :event/db-changed)
+            ":event/db-changed fired for the un-flagged handler")
+        (is (contains? ops :event)
+            ":event (run-start / run-end) fired for the un-flagged handler"))
+
+      (rf/remove-trace-cb! ::rec))))
