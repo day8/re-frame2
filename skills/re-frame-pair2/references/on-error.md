@@ -52,22 +52,26 @@ These appear in the trace buffer when an `:on-error` policy violates the contrac
 
 ```
 ;; Read the registered policy fn for the operating frame:
-scripts/eval-cljs.sh '(:on-error (rf/frame-meta :rf/default))'
+mcp__re-frame-pair2__eval-cljs {form: "(:on-error (rf/frame-meta :rf/default))"}
 
 ;; Pull recent policy-contract violations from the trace buffer:
-scripts/eval-cljs.sh
-  '(filter #(#{:rf.error/bad-on-error-return
-               :rf.error/on-error-policy-exception} (:operation %))
-           (rf/trace-buffer {:op-type :error}))'
+mcp__re-frame-pair2__eval-cljs {
+  form: "(filter #(#{:rf.error/bad-on-error-return
+                     :rf.error/on-error-policy-exception} (:operation %))
+                 (rf/trace-buffer {:op-type :error}))"
+}
 
 ;; Hot-swap a policy (ephemeral; survives until full page reload):
-scripts/eval-cljs.sh
-  '(rf/reg-frame :rf/default
-     {:on-error (fn [error-event]
-                  (case (:operation error-event)
-                    :rf.error/handler-exception {:recovery :no-recovery}
-                    nil))})'
+mcp__re-frame-pair2__eval-cljs {
+  form: "(rf/reg-frame :rf/default
+           {:on-error (fn [error-event]
+                        (case (:operation error-event)
+                          :rf.error/handler-exception {:recovery :no-recovery}
+                          nil))})"
+}
 ```
+
+Legacy bash form (if the MCP server isn't wired): replace each `mcp__re-frame-pair2__eval-cljs {form: "..."}` with `scripts/eval-cljs.sh '<form>'`.
 
 ## Quick checklist for proposing a policy
 

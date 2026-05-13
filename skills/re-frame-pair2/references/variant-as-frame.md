@@ -36,13 +36,15 @@ trace/last-epoch                       ;; epoch history from the variant's frame
 dispatch [:counter/inc]                ;; dispatches into the variant's frame
 ```
 
-**Idiom 2 — explicit `--frame` per call.** Useful when you're flipping between variants or when the session-default is something else (e.g. `:rf/default`).
+**Idiom 2 — explicit `frame` per call.** Useful when you're flipping between variants or when the session-default is something else (e.g. `:rf/default`).
 
 ```
-scripts/dispatch.sh '[:counter/inc]' --frame :story.counter/loaded
-scripts/eval-cljs.sh '(re-frame-pair2.runtime/snapshot {:frame :story.counter/loaded})'
-mcp__re-frame-pair2__get-path {path: "[:count]", frame: ":story.counter/loaded"}
+mcp__re-frame-pair2__dispatch  {event: "[:counter/inc]", frame: ":story.counter/loaded"}
+mcp__re-frame-pair2__eval-cljs {form: "(re-frame-pair2.runtime/snapshot {:frame :story.counter/loaded})"}
+mcp__re-frame-pair2__get-path  {path: "[:count]", frame: ":story.counter/loaded"}
 ```
+
+Legacy bash forms (if the MCP server isn't wired): `scripts/dispatch.sh '[:counter/inc]' --frame :story.counter/loaded` and `scripts/eval-cljs.sh '(re-frame-pair2.runtime/snapshot {:frame :story.counter/loaded})'`.
 
 Use Idiom 1 for long sessions inside one variant; Idiom 2 for cross-variant work (recipe 2 below).
 
@@ -75,8 +77,10 @@ frames/list                              ;; (rf/frame-ids) — every registered 
 Story-registered variants appear as `:story.*` keywords. Filter:
 
 ```
-scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'
+mcp__re-frame-pair2__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/frame-ids))"}
 ```
+
+Legacy bash form: `scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'`.
 
 For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/reference/tooling/stories.md`.
 

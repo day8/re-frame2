@@ -2,6 +2,8 @@
 
 Named procedures the user may ask for. When the user asks a matching question, run the procedure below rather than improvising.
 
+Each recipe leads with the **MCP-tool form** (preferred — ~14× faster, single persistent nREPL connection). When the agent host hasn't configured the MCP server, fall back to the bash-shim equivalents — these are catalogued in [`ops.md` §Bash-shim back-compat appendix](ops.md#bash-shim-back-compat-appendix). Op semantics are identical between transports.
+
 ## Contents
 
 - ["What's in `app-db`?" / "What did the last event do?"](#whats-in-app-db--what-did-the-last-event-do)
@@ -61,10 +63,12 @@ Procedure:
 2. Identify the **app-db key(s) or sub(s)** that govern the observation. If the user can't, trace the recent render for the offending component and walk its sub inputs.
 3. Use `trace/find-where` to pinpoint the epoch where the governing key last changed to its current (bad) value. Example:
    ```
-   scripts/eval-cljs.sh '(re-frame-pair2.runtime/find-where
-                           (fn [e] (= :expired (get-in (:db-after e)
-                                                        [:auth-state]))))'
+   mcp__re-frame-pair2__eval-cljs {
+     form: "(re-frame-pair2.runtime/find-where
+              (fn [e] (= :expired (get-in (:db-after e) [:auth-state]))))"
+   }
    ```
+   Legacy bash form: `scripts/eval-cljs.sh '(re-frame-pair2.runtime/find-where (fn [e] (= :expired (get-in (:db-after e) [:auth-state]))))'`.
 4. Report that epoch as the culprit: its `:trigger-event`, the diff between `:db-before` and `:db-after`, and (crucially) the cascade tree. Often the root-cause dispatch is a child of another event — follow `:parent-dispatch-id` upstream via `trace/cascade <dispatch-id>`.
 5. If no single epoch is responsible — the state drifted over many events — use `find-all-where` to get the trajectory. Narrate the 3–5 most relevant transitions rather than all of them.
 6. Propose a fix. Usually one of: a handler that shouldn't have fired, a handler that did fire but was wrong, or a missing guard.
@@ -136,7 +140,7 @@ Canonical procedure:
    - *Handlers / subs / fx:* `(rf/reg-event-fx :foo ...)` / `(rf/reg-sub :bar ...)` / `(rf/reg-fx :baz ...)` via `repl/eval`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `(rf/reg-machine :auth ...)` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
    - *Views / helpers (plain `defn`s):* redefine the var via `repl/eval`. Subsequent renders pick up the new fn.
-   - *Permanent change:* `Edit` the source file, then `scripts/tail-build.sh --probe '...'` to wait for the reload to land.
+   - *Permanent change:* `Edit` the source file, then `mcp__re-frame-pair2__tail-build {probe: "..."}` to wait for the reload to land (legacy: `scripts/tail-build.sh --probe '...'`).
 5. **Verify the patch took before re-dispatching.** `registrar/describe :event :foo` should now return different `:line` / `:column` (or a different `:handler-fn` hash) than what you captured at step 1. If the patch didn't land, re-dispatching will silently test the old code.
 6. `trace/dispatch-and-collect [:foo ...]` → observe the new behaviour.
 7. Compare the two epochs (`epoch-diff` between their `:db-after` values; cross-check `:sub-runs` and `:renders` projections). Repeat until satisfied.
@@ -147,8 +151,13 @@ Canonical procedure:
 Per Spec 002 §Per-frame and per-call overrides, dispatches can carry `:fx-overrides` to redirect a registered fx to a stub for one cascade. Used to run "what if the HTTP request returned X" experiments without hitting the network.
 
 ```
-scripts/dispatch.sh '[:cart/checkout]' --fx-override :http=:stub-http
+mcp__re-frame-pair2__dispatch {
+  event: "[:cart/checkout]",
+  fx-overrides: {":http": ":stub-http"}
+}
 ```
+
+Legacy bash form: `scripts/dispatch.sh '[:cart/checkout]' --fx-override :http=:stub-http`.
 
 The stub must already be registered via `(rf/reg-fx :stub-http (fn [_ v] ...))`. The override applies for this dispatch only; subsequent dispatches use the canonical `:http` again.
 
@@ -158,21 +167,21 @@ For `:rf.http/managed` failure-category experiments (Spec 014 §Failure categori
 
 Prefer the push-mode MCP path: call `mcp__re-frame-pair2__subscribe` with `{topic: "epoch", max-events: N}`. Each batch arrives as a `notifications/progress` tick; report each epoch as a short paragraph (event id, `:trigger-event`, key entries from `:effects` and `:sub-runs`, `app-db` diff summary) as it fires. The tool resolves with a summary once `max-events` is reached.
 
-Fallback (host doesn't surface progress notifications): `watch/count N` with no filter, narrate on each pull.
+Fallback (host doesn't surface progress notifications): `mcp__re-frame-pair2__watch-epochs {count: N}` (pull-mode) with no filter, narrate on each pull.
 
 See [streaming-subscriptions.md](streaming-subscriptions.md) for topic / filter / termination detail.
 
 ## "Alert me on slow events"
 
-Prefer `subscribe {topic: "epoch"}` with no server-side filter (the `epoch-matches?` filter vocab doesn't include a timing predicate — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). On each `notifications/progress` tick, caller-side check the epoch's `:event/run` duration against the threshold; report matches with per-interceptor timings from the raw trace. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
+Prefer `mcp__re-frame-pair2__subscribe {topic: "epoch"}` with no server-side filter (the `epoch-matches?` filter vocab doesn't include a timing predicate — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). On each `notifications/progress` tick, caller-side check the epoch's `:event/run` duration against the threshold; report matches with per-interceptor timings from the raw trace. Close with `unsubscribe` when the user moves on (or pass `max-ms` for a hard upper bound).
 
-Fallback: `watch/stream --timing-ms '>100'` (the bash shim applies the timing predicate caller-side too, but the wrapper hides that detail).
+Fallback: `mcp__re-frame-pair2__watch-epochs {stream: true, pred: {"timing-ms": ">100"}}` (the timing predicate is applied caller-side under pull-mode; the wrapper hides that detail).
 
 ## "Watch for X while I interact"
 
-Prefer `subscribe {topic: "epoch", filter: {":event-id-prefix": ":checkout/"}}` (or other predicate from the `epoch-matches?` vocab — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). Narrate each match as it arrives via `notifications/progress`; summarise when the stream goes idle. Close with `unsubscribe` (or `max-events` / `max-ms`) when the user moves on.
+Prefer `mcp__re-frame-pair2__subscribe {topic: "epoch", filter: {":event-id-prefix": ":checkout/"}}` (or other predicate from the `epoch-matches?` vocab — see [streaming-subscriptions.md](streaming-subscriptions.md) §Filter shape). Narrate each match as it arrives via `notifications/progress`; summarise when the stream goes idle. Close with `unsubscribe` (or `max-events` / `max-ms`) when the user moves on.
 
-Fallback: `watch/stream --event-id-prefix :checkout/`.
+Fallback: `mcp__re-frame-pair2__watch-epochs {stream: true, pred: {"event-id-prefix": ":checkout/"}}`.
 
 ### Inspect what's currently subscribed
 
@@ -194,8 +203,11 @@ Use this when a streaming probe seems to have gone quiet — confirm it's still 
 
 1. List candidate variants: `frames/list`, filter to the `story` namespace.
    ```
-   scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'
+   mcp__re-frame-pair2__eval-cljs {
+     form: "(filter #(= \"story\" (namespace %)) (rf/frame-ids))"
+   }
    ```
+   Legacy bash form: `scripts/eval-cljs.sh '(filter #(= "story" (namespace %)) (rf/frame-ids))'`.
    If the user has the story-mcp jar loaded, prefer `mcp__re-frame2-story-mcp__list-stories` — richer metadata (tags, modes, parent story).
 2. If the variant isn't mounted yet, mount it via story-mcp:
    ```
@@ -229,10 +241,13 @@ Use this when a streaming probe seems to have gone quiet — confirm it's still 
    With the MCP `:summary` default (rf2-tygdv), each result returns top-level keys + counts — drill into divergent keys with `get-path`.
 2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
    ```
-   scripts/eval-cljs.sh '(let [a (rf/get-frame-db :story.counter/empty)
-                               b (rf/get-frame-db :story.counter/loaded)]
-                           (clojure.data/diff a b))'
+   mcp__re-frame-pair2__eval-cljs {
+     form: "(let [a (rf/get-frame-db :story.counter/empty)
+                  b (rf/get-frame-db :story.counter/loaded)]
+              (clojure.data/diff a b))"
+   }
    ```
+   Legacy bash form: `scripts/eval-cljs.sh '(let [a (rf/get-frame-db :story.counter/empty) b (rf/get-frame-db :story.counter/loaded)] (clojure.data/diff a b))'`.
    The runtime helper `(re-frame-pair2.runtime/frame-diff :a-id :b-id)` returns `{:only-in-a :only-in-b :common}` — semantics match `epoch-diff` but across frames instead of across one epoch's before/after.
 3. Cross-check the cascade: `(rf/epoch-history :story.counter/empty)` and `(rf/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
 4. Narrate the divergence in terms the user can act on: *"variant `:loaded` carries `[:items]` with 7 entries from its `:counter/initialise 7` event; variant `:empty` has no `:items` key because its events list is empty."*
