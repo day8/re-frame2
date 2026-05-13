@@ -43,6 +43,7 @@
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
+            [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
             [day8.re-frame2-causa.registry :as registry]
@@ -84,7 +85,7 @@
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
    {:id :flows        :label "Flows"         :bead "rf2-xxx"}
    {:id :performance  :label "Performance"   :bead "rf2-xxx"}
-   {:id :issues       :label "Issues"        :bead "rf2-xxx"}
+   {:id :issues       :label "Issues"        :bead "rf2-d1p4o" :live? true}
    {:id :schemas      :label "Schemas"       :bead "rf2-htffa" :live? true}
    ;; Phase 5 (rf2-pzxsr). Per spec/006-Hydration-Debugger.md §Visibility
    ;; the panel is dormant until at least one :rf.ssr/hydration-mismatch
@@ -266,6 +267,7 @@
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
+      :issues       [issues-ribbon/issues-ribbon-view]
       ;; Sidebar Co-pilot row renders the panel-style view in the
       ;; canvas; the rail still lives in the shell's right margin per
       ;; spec/007-UX-IA.md §The five regions item 4.
