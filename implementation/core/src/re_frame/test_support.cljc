@@ -84,6 +84,13 @@
             ;; to clear).
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]
+            ;; Per rf2-rirbq: clear the always-on event-emit listener
+            ;; registry in the per-test reset so a forwarder registered
+            ;; in one test does not see events fired by a sibling test.
+            ;; The substrate is always-on (no goog.DEBUG check) and the
+            ;; registry is a plain atom — clearing is cheap and
+            ;; substrate-agnostic.
+            [re-frame.event-emit :as event-emit]
             [re-frame.router :as router]
             [re-frame.substrate.adapter :as adapter]
             #?(:clj  [clojure.test :as ctest]
@@ -293,6 +300,7 @@
          (when-let [clear-warn-once! (late-bind/get-fn :adapter/clear-warn-once-caches!)]
            (clear-warn-once!))
          (trace/clear-trace-cbs!)
+         (event-emit/clear-event-emit-listeners!)
          (when adapter
            (adapter/install-adapter! adapter)
            (frame/ensure-default-frame!))

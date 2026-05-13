@@ -454,6 +454,12 @@
     :producer-ns 're-frame.trace
     :description "Emit a trace error event (registrar replace-warning seam)."}
 
+   ;; ---- re-frame.event-emit (rf2-rirbq — always-on event observability) -----
+   {:key         :event-emit/dispatch-on-event
+    :producer-ns 're-frame.event-emit
+    :design-bead "rf2-rirbq"
+    :description "Always-on per-event fan-out for production observability (Datadog / Honeycomb / Sentry). Survives `:advanced` + `goog.DEBUG=false`; parallel to (not a fallback for) the dev-only trace surface. Router invokes once per processed event after the cascade settles."}
+
    ;; ---- re-frame.privacy (rf2-isdwf — sensitive-without-redaction cache) ----
    {:key         :privacy/clear-suppression-cache!
     :producer-ns 're-frame.privacy
