@@ -200,7 +200,13 @@
                                                       variant-id])})
            assertions     (runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
-       [:div {:style (:cell styles)}
+       ;; Per rf2-9la06: stamp `data-test-variant` on each cell so
+       ;; Playwright specs can disambiguate workspace cells from each
+       ;; other and from the canvas's variant when both are mounted
+       ;; (sidebar `:selected-variant` and `:selected-workspace` are
+       ;; independent slots; one doesn't clear the other on selection).
+       [:div {:style (:cell styles)
+              :data-test-variant (pr-str variant-id)}
         [:div {:style (:cell-title styles)}
          [:span (pr-str variant-id)]
          (when view-id
