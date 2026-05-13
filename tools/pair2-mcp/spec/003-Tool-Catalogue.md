@@ -1,5 +1,11 @@
 # 003-Tool-Catalogue
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> each MCP tool below routes through one or more of the Tool-Pair
+> primitives (`get-frame-db`, `epoch-history`, `register-trace-cb!`,
+> `register-epoch-cb!`, `restore-epoch`, `reset-frame-db!`,
+> `dispatch`, `dispatch-sync`).
+
 The nine MCP tools.
 
 ## Universal: wire-boundary token cap

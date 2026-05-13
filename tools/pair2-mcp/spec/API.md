@@ -1,5 +1,9 @@
 # API
 
+> Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
+> the framework-side contract for pair-shaped AI tools that pair2-mcp
+> exposes over MCP/stdio.
+
 The consolidated user-facing surface. One-stop reference for
 installing, configuring, launching, and calling pair2-mcp.
 
