@@ -147,6 +147,14 @@
     :producer-ns 're-frame.schemas
     :design-bead "rf2-nwv63"
     :description "Idempotent: hydrate app-db [:rf/elision :declarations] from a frame's schema-derived large-path declarations."}
+   {:key         :schemas/extract-sensitive-paths-from-schema
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-kj51z"
+    :description "Walk a Malli EDN form at a base-path; return paths whose props carry :sensitive? true."}
+   {:key         :schemas/schema-has-sensitive?
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-kj51z"
+    :description "Predicate: does any sub-slot of the schema declare :sensitive? true?"}
 
    ;; ---- re-frame.machines (rf2-xbtj / rf2-8bp3) ------------------------------
    {:key         :machines/reg-machine
@@ -406,7 +414,13 @@
     :description "Emit a trace event (registrar replace-warning seam)."}
    {:key         :trace/emit-error!
     :producer-ns 're-frame.trace
-    :description "Emit a trace error event (registrar replace-warning seam)."}])
+    :description "Emit a trace error event (registrar replace-warning seam)."}
+
+   ;; ---- re-frame.privacy (rf2-isdwf — sensitive-without-redaction cache) ----
+   {:key         :privacy/clear-suppression-cache!
+    :producer-ns 're-frame.privacy
+    :design-bead "rf2-isdwf"
+    :description "Reset the per-(kind, id) :rf.warning/sensitive-without-redaction suppression cache; called on frame destroy so re-registrations after teardown re-emit the warning if still mis-configured."}])
 
 (defn hook-keys
   "Set of every late-bind hook key documented in the directory."

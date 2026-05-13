@@ -363,6 +363,15 @@
     (notify-machine-destruction! id)
     (mark-frame-destroyed! id)
     (tear-down-sub-cache! f)
+    ;; Per rf2-isdwf / Spec 009 §Privacy: reset the
+    ;; sensitive-without-redaction warning suppression cache so a
+    ;; re-registration after frame teardown (test fixtures, hot
+    ;; reload that destroys and re-creates the frame) re-emits the
+    ;; warning if still mis-configured. Late-bound through the hook
+    ;; table; no-op when re-frame.privacy hasn't been loaded.
+    (when-let [clear-cache! (late-bind/get-fn :privacy/clear-suppression-cache!)]
+      (try (clear-cache!)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))
     (emit-frame-destroyed-trace! id)
     (dissoc-frame! id)
     (unregister-frame! id)

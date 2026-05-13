@@ -243,8 +243,14 @@
   ;; Per Spec 009 §:rf.trace/trigger-handler table row "Inside a sub
   ;; recompute (body fn)": carries the sub's coord. The emit MUST sit
   ;; inside the binding for the sub's coord to ride the success trace.
+  ;; Per rf2-isdwf: bind `*current-sensitive?*` to the sub's reading
+  ;; per Spec 009 §Privacy line 1160 "the conventional use sites
+  ;; are reg-event-* and reg-sub" — sub return values flow user
+  ;; input into views and must be filterable.
   (binding [trace/*current-trigger-handler*
-            (trace/trigger-handler-from-meta :sub query-id sub-meta)]
+            (trace/trigger-handler-from-meta :sub query-id sub-meta)
+            trace/*current-sensitive?*
+            (trace/sensitive?-from-meta sub-meta)]
     (trace/emit! :sub/run :sub/run
                  {:sub-id  query-id
                   :query-v query-v

@@ -262,13 +262,22 @@
   "Surface an interceptor-chain exception as :rf.error/handler-exception
   trace. The chain captures the exception into `:rf/interceptor-error`
   rather than re-throwing (the drain must not abort); this helper
-  translates that into the trace surface."
-  [error event-id event frame]
+  translates that into the trace surface.
+
+  Per Spec 009 §The `with-redacted` interceptor (line 1226): the
+  `:tags :event` slot of `:rf.error/handler-exception` MUST honour
+  `with-redacted` — if the failing handler declared redacted paths,
+  the trace event carries the scrubbed event vector, not the
+  unredacted one. `ctx` (the final interceptor context) carries the
+  scrubbed form under `:rf/redacted-event` when `with-redacted`
+  ran; we surface that here."
+  [error event-id event frame ctx]
   (let [e (:exception error)
-        msg #?(:clj (.getMessage e) :cljs (.-message e))]
+        msg #?(:clj (.getMessage e) :cljs (.-message e))
+        emit-event (or (:rf/redacted-event ctx) event)]
     (trace/emit-error! :rf.error/handler-exception
                        {:event-id          event-id
-                        :event             event
+                        :event             emit-event
                         :frame             frame
                         :failing-id        event-id
                         :handler-id        event-id
@@ -294,14 +303,21 @@
 
 (defn- commit-db-effect!
   "Apply :db atomically: replace the app-db container, emit the
-  :event/db-changed trace, then run post-commit schema validation."
-  [effects event-id event frame]
+  :event/db-changed trace, then run post-commit schema validation.
+
+  Per Spec 009 §The `with-redacted` interceptor (line 1225): the
+  `:event/db-changed` trace event MUST surface the scrubbed event
+  vector under `:tags :event` when `with-redacted` ran on the
+  handler's chain. The interceptor stashes `:rf/redacted-event`
+  on the context; we read it through and emit the scrubbed form."
+  [effects event-id event frame ctx]
   (when (contains? effects :db)
-    (let [container (frame/get-frame-db frame)]
-      (adapter/replace-container! container (:db effects)))
-    (trace/emit! :event :event/db-changed
-                 {:event-id event-id :event event :frame frame})
-    (run-post-commit-validation! (:db effects) event-id frame)))
+    (let [container  (frame/get-frame-db frame)
+          emit-event (or (:rf/redacted-event ctx) event)]
+      (adapter/replace-container! container (:db effects))
+      (trace/emit! :event :event/db-changed
+                   {:event-id event-id :event emit-event :frame frame})
+      (run-post-commit-validation! (:db effects) event-id frame))))
 
 (defn- run-flows!
   "Per Spec 013 §Drain integration: run flows after :db commits and
@@ -378,8 +394,20 @@
           ;; returns nil when no source-coord was stamped (programmatic
           ;; registration / REPL eval); the binding is then nil and
           ;; the field is omitted from any emitted error event.
+          ;;
+          ;; Per rf2-isdwf: also bind `*current-sensitive?*` from the
+          ;; handler's registration meta. `emit!`/`emit-error!` hoist
+          ;; `:sensitive? true` onto every trace event produced inside
+          ;; this scope (Spec 009 §Privacy). The interceptor chain,
+          ;; db commit, flows, fx walk all ride this binding —
+          ;; covering :event/db-changed, :event/do-fx, :rf.fx/handled
+          ;; (the inner fx scope re-binds), :sub/run (sub recompute
+          ;; re-binds to the sub's reading), :rf.error/* (every error
+          ;; emit inside the chain).
           (binding [trace/*current-trigger-handler*
-                    (trace/trigger-handler-from-meta :event event-id handler-meta)]
+                    (trace/trigger-handler-from-meta :event event-id handler-meta)
+                    trace/*current-sensitive?*
+                    (trace/sensitive?-from-meta handler-meta)]
             (let [_            (trace/emit! :event :event
                                             {:event-id event-id
                                              :event    event
@@ -408,8 +436,8 @@
                   effects      (:effects final-ctx)
                   error        (:rf/interceptor-error final-ctx)]
               (when error
-                (emit-handler-exception! error event-id event frame))
-              (commit-db-effect! effects event-id event frame)
+                (emit-handler-exception! error event-id event frame final-ctx))
+              (commit-db-effect! effects event-id event frame final-ctx)
               (run-flows! frame event)
               (run-fx-effects! effects frame frame-record fx-overrides event)
               (trace/emit! :event :event
@@ -661,18 +689,32 @@
   Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
   ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
   on :tags too. Spec elision is automatic — trace/emit! short-circuits
-  when interop/debug-enabled? is false at compile time."
+  when interop/debug-enabled? is false at compile time.
+
+  Per rf2-isdwf: `:event/dispatched` fires at queue/enqueue time —
+  BEFORE the handler-scope binding for `*current-sensitive?*` is
+  established (the binding wraps `process-event*`, which runs later
+  in the drain). Look up the target handler's registration metadata
+  directly and pass `:sensitive?` in the tags so `emit!` hoists it
+  to the top level. When the handler is missing the field is omitted
+  (consumers treat absent as false)."
   [envelope sync?]
-  (trace/emit! :event :event/dispatched
-               (cond-> {:event    (:event envelope)
-                        :frame    (:frame envelope)
-                        :origin   (:origin envelope)
-                        :source   (:source envelope)
-                        :sync?    sync?}
-                 (:dispatch-id envelope)
-                 (assoc :dispatch-id (:dispatch-id envelope))
-                 (:parent-dispatch-id envelope)
-                 (assoc :parent-dispatch-id (:parent-dispatch-id envelope)))))
+  (let [event        (:event envelope)
+        event-id     (when (vector? event) (first event))
+        handler-meta (when event-id (registrar/lookup :event event-id))
+        sensitive?   (trace/sensitive?-from-meta handler-meta)]
+    (trace/emit! :event :event/dispatched
+                 (cond-> {:event    event
+                          :frame    (:frame envelope)
+                          :origin   (:origin envelope)
+                          :source   (:source envelope)
+                          :sync?    sync?}
+                   sensitive?
+                   (assoc :sensitive? true)
+                   (:dispatch-id envelope)
+                   (assoc :dispatch-id (:dispatch-id envelope))
+                   (:parent-dispatch-id envelope)
+                   (assoc :parent-dispatch-id (:parent-dispatch-id envelope))))))
 
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:

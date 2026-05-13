@@ -201,8 +201,15 @@
            (let [frame-id        (interceptor/get-coeffect ctx :frame)
                  active-platform (active-platform-for-frame frame-id)]
              (if (cofx-runs-on-platform? meta active-platform)
+               ;; Per rf2-isdwf: bind `*current-sensitive?*` to the
+               ;; cofx handler's reading. The cofx body runs inside
+               ;; this scope; any trace event it emits carries the
+               ;; cofx-handler-level sensitivity flag per Spec 009
+               ;; "innermost in-scope handler" rule.
                (binding [trace/*current-trigger-handler*
                          (trace/trigger-handler-from-meta :cofx cofx-id meta)
+                         trace/*current-sensitive?*
+                         (trace/sensitive?-from-meta meta)
                          trace/*current-call-site*
                          (or captured-cs trace/*current-call-site*)]
                  (-> (if valued?

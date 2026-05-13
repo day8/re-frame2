@@ -214,12 +214,19 @@
         ;; sub exception during a render-time deref, etc.) inherit the
         ;; view's coord as the in-scope trigger handler.
         view-trigger-handler (trace/trigger-handler-from-meta :view id metadata)
+        ;; Per rf2-isdwf: pre-compute the view's `:sensitive?`
+        ;; reading once at registration time (same idiom as
+        ;; `view-trigger-handler`). Every render binds it; any
+        ;; trace event emitted during the view's render carries
+        ;; the flag per Spec 009 §Privacy.
+        view-sensitive?      (trace/sensitive?-from-meta metadata)
         wrapped (with-meta
                   (fn frame-aware-view [& args]
                     (let [tok        (provider/reagent-component-token)
                           render-key [id tok]]
                       (binding [*render-key* render-key
-                                trace/*current-trigger-handler* view-trigger-handler]
+                                trace/*current-trigger-handler* view-trigger-handler
+                                trace/*current-sensitive?* view-sensitive?]
                         (emit-render-trace! render-key)
                         ;; Per Spec 009 §Performance instrumentation
                         ;; (rf2-du3i): every render of a registered view
