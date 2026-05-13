@@ -19,3 +19,10 @@ Every `:rf.error/*` trace event carries `:rf.trace/trigger-handler` — `{:kind 
 - `:timed-out? true` on a `dispatch-and-collect` → drain didn't settle in the wait window (a long-running async cascade, or a stuck `:dispatch-later`). Inspect the in-flight cascade via the trace buffer.
 - `:connection :lost` → reconnect by calling `scripts/discover-app.sh` again.
 - Restore failures (`:rf.epoch/restore-*`) → see the time-travel failure table in [ops.md](ops.md#time-travel-epoch-restore).
+
+## `:on-error` policy violations (rf2-ciy)
+
+Two error categories surface when a frame's `:on-error` policy violates its return-map contract. Both ride the trace stream like any other `:rf.error/*` event — pull them with `(rf/trace-buffer {:op-type :error})` and surface to the user verbatim. For the full contract (closed return shape, the `:recovery` enum, why `:retry-count` is gone), see [on-error.md](on-error.md).
+
+- `:rf.error/bad-on-error-return` (`:recovery :logged-and-skipped`) → the policy returned a map with a `:recovery` outside the closed enum (commonly the now-removed `:retried`), or set `:replacement` malformed or on a category that has no substitutable value. The runtime falls back to the original error's category default. `:tags {:received <map> :reason <str>}` names the offending shape — quote it to the user; the fix is almost always "drop `:retry-count` and pick a real `:recovery` keyword".
+- `:rf.error/on-error-policy-exception` (`:recovery :no-recovery`) → the policy fn itself threw. The runtime does NOT recursively invoke the policy on its own exception — it emits this trace and falls back to the original error's category default. `:tags {:original <input-error-event> :exception-message <str>}` carries the original error the policy was handling plus the throw message. Cascade halts; the policy's exception does not propagate to user code. Surface both the original op and the throw site to the user.
