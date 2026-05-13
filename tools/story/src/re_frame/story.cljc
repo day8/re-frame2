@@ -259,10 +259,12 @@
    (defmacro reg-tag
      "Register a tag. Per spec/007 §Inclusion tags + IMPL-SPEC §3.1.
 
-     Body:
+     Body (all slots optional):
 
      ```
-     {:doc \"...\"}
+     {:doc            \"...\"
+      :axis           :status                 ; e.g. :status / :role / :team / :feature
+      :default-filter :exclude}               ; :include (default) | :exclude
      ```
 
      The seven canonical tags (`:dev :docs :test :screenshot :experimental
@@ -270,6 +272,18 @@
      register these. Project-specific tags must register before use; a
      variant whose `:tags` set carries an unregistered tag raises
      `:rf.error/unknown-tag`.
+
+     **`:axis`** — optional keyword classifier. The sidebar tag-filter UI
+     groups registered tags by `:axis` into collapsible facet rows
+     (rf2-v05qb SB9 parity). Tags registered without `:axis` render in a
+     trailing un-grouped facet row. Query the axis grouping via
+     `tags-by-axis` / `tags-without-axis`.
+
+     **`:default-filter`** — `:include` (default) | `:exclude`. When
+     `:exclude`, the sidebar pre-excludes variants carrying this tag at
+     boot (e.g. `:internal` / `:experimental` start hidden so they don't
+     crowd the dev shell). Query the default-excluded set via
+     `tags-default-excluded`.
 
      `!`-prefix removal-syntax (e.g. `:!dev`) on a variant `:tags` set
      resolves at registration time against the inherited set — see
@@ -337,6 +351,30 @@
   "Per IMPL-SPEC §7.4 — return the set of registered mode ids."
   []
   (ids :mode))
+
+(defn tags-by-axis
+  "Per spec/001 §reg-tag — return the set of registered tag ids whose
+  body's `:axis` equals `axis-kw` (e.g. `:status` / `:role` / `:team` /
+  `:feature`). The sidebar tag-filter UI uses this to group registered
+  tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
+  empty set if no tag carries that axis."
+  [axis-kw]
+  (registrar/tags-by-axis axis-kw))
+
+(defn tags-without-axis
+  "Per spec/001 §reg-tag — return the set of registered tag ids whose
+  body carries no `:axis`. The sidebar renders these in a trailing
+  un-grouped facet row."
+  []
+  (registrar/tags-without-axis))
+
+(defn tags-default-excluded
+  "Per spec/001 §reg-tag — return the set of registered tag ids whose
+  body's `:default-filter` is `:exclude`. The sidebar tag-filter
+  pre-excludes variants carrying any of these at boot (e.g.
+  `:internal` / `:experimental`)."
+  []
+  (registrar/tags-default-excluded))
 
 (def canonical-tags
   "Re-export of the seven canonical tag ids from spec/007 §Inclusion

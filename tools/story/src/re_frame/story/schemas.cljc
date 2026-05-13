@@ -375,10 +375,26 @@
 ;; ---- :rf/tag --------------------------------------------------------------
 
 (def Tag
-  "Schema for the body of `reg-tag`. Tag bodies carry a `:doc` only.
-  The vocabulary itself is queryable via `(story/handlers :tag)`."
+  "Schema for the body of `reg-tag`. The vocabulary itself is queryable
+  via `(story/handlers :tag)`.
+
+  Slots (all optional):
+
+  - `:doc` — string, one-sentence what/why.
+  - `:axis` — keyword classifier (e.g. `:status`, `:role`, `:team`,
+    `:feature`). Per spec/001 §reg-tag — the sidebar tag-filter UI
+    groups registered tags by `:axis` into collapsible facet rows
+    (rf2-v05qb SB9 parity). Tags without `:axis` render in a trailing
+    un-grouped row.
+  - `:default-filter` — `:include` | `:exclude`. Pre-applied to the
+    sidebar tag filter at boot. `:exclude` hides variants carrying
+    this tag from the default sidebar view (e.g. `:internal` /
+    `:experimental` start excluded so they don't crowd the dev shell).
+    Tags without `:default-filter` default to `:include` semantics."
   [:map
-   [:doc {:optional true} :string]])
+   [:doc            {:optional true} :string]
+   [:axis           {:optional true} :keyword]
+   [:default-filter {:optional true} [:enum :include :exclude]]])
 
 ;; ---- validator dispatch table ---------------------------------------------
 
