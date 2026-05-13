@@ -51,6 +51,160 @@ The graph is **per-frame plus cross-frame edges**. Each frame is a
 horizontal swimlane; cross-frame fx (per Spec 002) draws an explicit
 arrow from one swimlane to another. No other JS devtool renders this.
 
+## Algorithm
+
+The graph is computed as a pure data → data pipeline: trace events →
+cascades → graph (nodes + arrows + roots) → layout (per-node `:x`/`:y`
+pixel positions). The pipeline is JVM-runnable so it can be tested
+without a DOM. Live updates re-run the pipeline against the current
+buffer slice; per §Performance the runner is debounced to one rAF.
+
+### Input model
+
+The pipeline consumes two streams off the trace bus (per Spec 009 §
+Dispatch correlation):
+
+- **Cascades** — `re-frame.trace.projection/group-cascades` produces
+  one record per `:dispatch-id`, bundling `:event`, `:handler`, `:fx`,
+  `:effects`, `:subs`, `:renders`, and `:other` for that cascade.
+  Events without a `:dispatch-id` (registry-time emits, frame
+  lifecycle, REPL evals) collect under `:dispatch-id :ungrouped`.
+- **Raw trace events** — used in an *enrich* pass to stitch each
+  cascade's `:event/dispatched` trace event back onto the cascade
+  record under `:event-trace`. `group-cascades` retains the event
+  *vector* under `:event` but drops the originating trace event; the
+  graph needs `:tags :origin` and `:tags :parent-dispatch-id` off that
+  event for visual encoding and edge construction, so the enrich step
+  walks the raw stream once and indexes `:event/dispatched` events by
+  `:tags :dispatch-id`.
+
+The enrich step is MUST: a cascade without its `:event-trace`
+defaults `:origin` to `:app` and `:parent-dispatch-id` to `nil`, which
+silently mis-classifies non-root cascades as roots. Callers MUST run
+enrichment before graph projection.
+
+### Graph construction
+
+The projection step turns enriched cascades into `{:nodes :arrows
+:roots :index}`:
+
+- **Filter `:ungrouped`.** The `:ungrouped` cascade has no
+  `:dispatch-id` and no causal lineage; it MUST be dropped before
+  projection so it never spawns a node. Consumers inspect ungrouped
+  events via the trace panel's `:op-type` filter.
+- **Nodes = one per dispatch cascade**, keyed by `:dispatch-id`. Each
+  node carries `:event`, `:origin`, `:root?`, `:error?`, `:warning?`,
+  `:parent`, plus count fields (`:effect-count`, `:sub-count`,
+  `:render-count`, `:other-count`) used by the hover summary.
+- **Arrows = `[parent-id child-id]` pairs**, emitted only when the
+  parent cascade is *also* present in the projected set. Orphan
+  children (parent aged out of the buffer, or never present)
+  contribute no arrow and become roots themselves — per §What this
+  doesn't do §No retroactive correlation.
+- **Roots = the set of `:dispatch-id`s with no in-graph parent.** A
+  cascade is a root if its `:parent-dispatch-id` is `nil` OR its
+  parent is not in the projected id-set (the orphan-as-root rule).
+- **Index = `{:dispatch-id <node>}`** for O(1) lookup during render.
+
+### Layout algorithm
+
+Layout is a stable, deterministic, two-pass BFS over the graph:
+
+1. **`assign-levels`** — BFS outward from `roots`, recording each
+   node's level (distance from the nearest root). Roots sit at level
+   0; their children at level 1; etc. A node entering the queue is
+   admitted at most once: `(if (contains? acc id) acc (assoc acc id
+   lvl))`. The vertical axis is **time-by-causal-depth**, not
+   wall-clock time — children always sit below their parent.
+2. **`assign-columns`** — a second BFS from `roots` produces a stable
+   encounter order; within each level, nodes are assigned columns
+   0, 1, 2, … in encounter order. The per-level counter MUST be
+   per-level (siblings of unrelated parents do not share a column
+   space). The BFS encounter order is the canonical horizontal-tie
+   breaker; consumers MUST NOT post-process for force-directed
+   layouts at v1 (per §Performance — the budget assumes O(n)).
+
+Missed nodes — any in `all-ids` not visited by the level walker —
+default to level 0 and are appended to the encounter order before
+column assignment. This keeps the helper total over arbitrary inputs
+even when the orphan-as-root rule (above) hasn't pre-classified every
+disconnected node as a root.
+
+Pixel positions are then `{:x (+ margin (* col (+ node-width
+column-gap))) :y (+ margin (* lvl (+ node-height row-gap)))}`. SVG
+width and height are derived from `(inc max-col)` × column-pitch and
+`(inc max-lvl)` × row-pitch plus the outer margin.
+
+### Cycles
+
+The model is a DAG by construction: `:parent-dispatch-id` is allocated
+monotonically before the child dispatch is enqueued, so a cycle cannot
+form in well-formed trace data. Both BFS walkers are nonetheless
+defensive — a node is admitted to the level/column accumulator at
+most once, so a malformed input (e.g. a hand-edited trace stream with
+a forged `:parent-dispatch-id` pointing at a descendant) terminates
+rather than loops. The graph silently absorbs the malformation; Causa
+MUST NOT project a separate `:rf.causa/error` for it (the source of
+truth is the runtime, and the runtime cannot emit cycles).
+
+### Layout invariants
+
+- **Level pitch** = `default-node-height + default-row-gap` (44 + 28 =
+  72px at v1). MUST be uniform across the layout — variable row
+  heights break the eye's vertical-time mapping.
+- **Column pitch** = `default-node-width + default-column-gap` (140 +
+  24 = 164px at v1). MUST be uniform within a level.
+- **Outer margin** = `default-margin` (16px). MUST surround the
+  layout's bounding box so edge nodes don't clip the panel chrome.
+- **Node cap** = the last 200 dispatches per
+  [`007-UX-IA.md`](./007-UX-IA.md) §Performance budget. The cap is
+  enforced upstream at the trace buffer (Spec 009 default 200
+  entries); the layout itself does not re-cap. Deeper views MUST
+  require the "load older" affordance (per §Buffer caps) — silent
+  layout of 1000+ nodes is forbidden.
+- **Determinism**: the same enriched-cascades input MUST produce the
+  same `{:positions :width :height}` output, so two consecutive
+  layouts can be diffed for animation (the 250ms edge fade-in + 600ms
+  just-landed pulse per §Layout).
+
+### Cascade-filter integration
+
+When Time-Travel's `:rf.causa/selected-epoch-id` resolves to a
+cascade-id present in the graph (via `dispatch-id-of-epoch` walking
+the epoch-record's `:trace-events`), the graph filters to that
+cascade's family — every ancestor walked up through `:parent`, plus
+every descendant walked down through the children index, recomputing
+roots for the filtered sub-graph. Per §Filter graph to this cascade
+this is the `f`-keyboard / right-click affordance's data path; the
+scrubber drives it passively (no rewind).
+
+### Rendering contract
+
+The pipeline hands the projected `{:graph :layout}` map to the panel
+view. The view consumes the index for node lookup and the
+`:positions` map for SVG placement; visual encoding (glyph,
+fill-colour, border-colour) is computed per-node off `:root?`,
+`:origin`, `:error?`, `:warning?` per §Visual encoding. The pipeline
+MUST NOT emit SVG or React: keeping projection + layout pure data
+preserves the JVM-test surface and lets the inline mini-graph
+(§The inline mini-graph) and the causality strip (§The causality
+strip) consume the same projection without re-implementing it.
+
+### Registry surface
+
+The pipeline is exposed to the panel via one composite subscription,
+`:rf.causa/causality-graph-data`, enumerated in
+[`014-Registry-Catalogue.md` §Causality graph](./014-Registry-Catalogue.md#causality-graph).
+The composite's inputs are `:rf.causa/trace-buffer`,
+`:rf.causa/selected-dispatch-id`, `:rf.causa/selected-epoch-id`, and
+`:rf.causa/epoch-history`; its output shape is `{:graph :layout
+:selected-dispatch-id :selected-epoch-id :filtered?}`. The graph adds
+no new events — it reuses the event-detail panel's
+`:rf.causa/select-dispatch-id` /
+`:rf.causa/clear-selected-dispatch-id` (per §10 Lock 7) and the
+scrubber's `:rf.causa/clear-selected-epoch` for the cascade-filter
+affordance.
+
 ## Rendering
 
 The graph lays out top-down (older → newer) on a vertical timeline.
