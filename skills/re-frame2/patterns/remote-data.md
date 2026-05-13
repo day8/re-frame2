@@ -2,6 +2,8 @@
 
 The standard request-lifecycle convention. A 5-key slice (or one machine region) tracks **status / data / error / loaded-at / attempt**, and four events drive the lifecycle (**load / loaded / load-failed / reset**). The load-bearing distinction is `:loading` (truly empty, first fetch) vs `:fetching` (revalidate with existing data) — they look identical to a careless UI but feel very different to a user.
 
+RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any framework-owned surface (`:rf.ws/*` request-reply messages, state-machine `:invoke`'d loaders, `:rf.server/*` per-request fxs). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
+
 ## When to load this leaf
 
 The prompt mentions: fetching data from a server, an HTTP request lifecycle, a list/article/feed/profile that needs to load, "spinner vs revalidate", optimistic update, polling, or any feature whose `app-db` will hold "the result of a fetch". Also load this leaf when picking between the **slice form** (a key in `app-db`) and the **machine form** (`:data-region` of a `reg-machine`) — see §Common variations.

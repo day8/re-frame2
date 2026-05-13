@@ -2,6 +2,8 @@
 
 The canonical "external work + dispatched reply" shape every async-effecting feature follows in re-frame2.
 
+This pattern is the *foundation* the **managed external effect** umbrella specialises. A managed effect (`:rf.http/managed`, `:rf.ws/*`, state-machine `:invoke`, `:rf.server/*`, `:rf.flow/*`) is an async effect with an eight-property contract layered on top — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown semantics, trace-bus observability. Author an ad-hoc async fx with this leaf; reach for [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) when authoring a *new* framework-owned surface (managed timers, managed background jobs, managed IndexedDB) that should inherit the umbrella's checklist.
+
 ## When to load this leaf
 
 Load when the task is:

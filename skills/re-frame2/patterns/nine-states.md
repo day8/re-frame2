@@ -2,6 +2,8 @@
 
 A page-level rendering convention that makes every legal UI state explicit and testable. The page's render axes are modelled as **parallel regions** of a single `reg-machine`, each region's states carry **tags**, and one **selector sub** consults a **render-priority** table to pick the single render-model keyword the root view's `case` branches on.
 
+NineStates is the **rendering layer** that sits over the lifecycles produced by **managed external effects**. The `:data` region typically advances on replies from `:rf.http/managed`, `:rf.ws/*`, or an `:invoke`'d loader; the umbrella's framework-owned reply addressing and structured failure taxonomy is what makes the tag set (`:loading`, `:loaded`, `:error`, …) reliable enough to drive a priority table. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the underlying contract; this leaf names how a page renders across the lifecycle's cardinality.
+
 ## When to load this leaf
 
 The prompt mentions: "nine states", "empty / one / some / too-many", "loading vs error vs success render", "page-level rendering states", "render priority", or a page that needs to render the cardinality of its loaded data distinctly. Also load this leaf when the user wants to combine a data lifecycle with a form lifecycle and a read-only mode in one screen and is asking "where does each state go?".

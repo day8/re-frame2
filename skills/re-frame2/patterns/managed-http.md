@@ -2,6 +2,8 @@
 
 `:rf.http/managed` — the canonical HTTP fx for re-frame2. Two affordances on one registrar id: the **fx form** for direct use from event handlers, and the **machine-form wrapper** for `:invoke` from a parent state machine. The contract — args map, failure categories, retry, abort, reply addressing — is identical across both.
 
+`:rf.http/managed` is one instance of the **managed external effect** umbrella — alongside `:rf.ws/*`, state-machine `:invoke`, `:rf.server/*`, and `:rf.flow/*`. All five inherit the same eight-property contract (effect-as-data, framework-owned lifecycle, structured failure taxonomy, trace-bus observability, elision composition, built-in retry/abort/teardown, reply addressing, pair-tool override seam). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; the rest of this leaf is HTTP-specific.
+
 > Managed-HTTP is **v1-optional** but shipped in the CLJS reference. It lives in `day8/re-frame2-http`; requiring `re-frame.http-managed` at app boot triggers its load-time registrations.
 
 ## When to use this pattern
