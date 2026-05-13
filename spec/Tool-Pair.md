@@ -367,7 +367,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 `register-trace-cb!` callbacks see *every* trace event. Tools that only care about a single subsystem filter inside the callback by `:op-type` — the universal discriminator (per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). The pattern is one-key dispatch on the event:
 
 ```clojure
-;; A tool (re-frame-10x v2's flow panel, a pair-tool flow inspector,
+;; A tool (Causa's flow panel, a pair-tool flow inspector,
 ;; a custom dashboard) subscribes to JUST the flow trace stream.
 ;; Per Spec 009 §Flow trace events, every flow lifecycle event carries
 ;; :op-type :flow with the per-event identity in :operation
@@ -435,7 +435,7 @@ Edge-case behaviour the example does not exercise but consumers should know abou
 ### Implications for downstream tools
 
 - **re-frame-pair** (the upstream nREPL companion) consumes only the surfaces above. It depends on re-frame2; it does not depend on re-frame-10x.
-- **A future re-frame-10x v2** can be rewritten as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. 10x and pair share the substrate; one does not depend on the other.
+- **Causa** (the structural successor to re-frame-10x; Maven coord `day8/re-frame2-causa`) is built as a renderer of the same surfaces — a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Causa and pair share the substrate; one does not depend on the other.
 - **Custom debug panels, story tools (Spec 007), and pair-improver-style skills** consume the same surface. Multi-tool coexistence is the expected default — multiple `register-trace-cb!` keys, multiple readers of the trace buffer, multiple consumers of the registrar. Listener ordering is not contract (per [009 §Listener ordering](009-Instrumentation.md#listener-ordering)).
 
 The framework is **infrastructure-complete** for AI-tool consumption: data shapes, query APIs, retention policies, configuration knobs, production elision. Downstream tools own *presentation and orchestration*; they do not need to ship infrastructure that should live in the framework.

@@ -1,4 +1,4 @@
-# Causa (re-frame-10x v2) — Spec
+# Causa — Spec
 
 ## Files
 

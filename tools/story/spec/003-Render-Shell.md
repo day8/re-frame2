@@ -132,7 +132,7 @@ no parallel mounting protocol. Five rules govern panel hosting:
 1. **`:render` is a `:view` id.** The shell renders the panel by
    calling `(rf/view <render-id>)` and invoking the resolved fn with
    the current `variant-id`. Late-bind: the actual view can register
-   from a different artefact (e.g. `day8/re-frame2-10x` for the epoch
+   from a different artefact (e.g. `day8/re-frame2-causa` for the epoch
    panel) so long as the same `:view` id is registered before the user
    opens the panel.
 

@@ -64,7 +64,7 @@ Most teams who switch to this pattern report that they write *more* tests, not f
 
 ### 2. Time-travel debugging that's not a trick
 
-Because state lives in one place and updates atomically, you can record every state value the app ever had. You can play them back. You can pause time, inspect, rewind, replay. This isn't a feature bolted on; it's a consequence of the architecture. re-frame2's `re-frame-causa`[^causa] devtool — the successor to re-frame v1's `re-frame-10x` — does this for free.
+Because state lives in one place and updates atomically, you can record every state value the app ever had. You can play them back. You can pause time, inspect, rewind, replay. This isn't a feature bolted on; it's a consequence of the architecture. re-frame2's **Causa**[^causa] devtool — the structural successor to re-frame v1's `re-frame-10x` — does this for free.
 
 ### 3. State you can actually inspect
 
@@ -132,4 +132,4 @@ If you want the precise contracts before the prose, the [specification](../../sp
 [^app-db]: You'll meet `app-db` properly in [chapter 02](02-app-db.md) — it's the single immutable map every re-frame2 app pivots around.
 [^machines]: State machines get their own treatment in [chapter 08](08-state-machines.md).
 [^frames]: Frames — re-frame2's unit of isolated state and dispatch — are introduced in [chapter 06](06-views-and-frames.md).
-[^causa]: `re-frame-causa` is the re-frame2 devtools UI; it's covered in [chapter 15](15-devtools-and-pair-tools.md).
+[^causa]: Causa is the re-frame2 devtools UI (Maven coord `day8/re-frame2-causa`); it's covered in [chapter 15](15-devtools-and-pair-tools.md).

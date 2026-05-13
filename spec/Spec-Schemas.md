@@ -1024,7 +1024,7 @@ When an interceptor's `:before` or `:after` function throws, the chain runner re
    ;; Vector: every `:before` and `:after` throw appends here, even after
    ;; the singleton above has been set. A later `:after`-phase failure that
    ;; would otherwise be hidden by an earlier `:before` failure is preserved
-   ;; for post-hoc inspection (pair-tools, 10x v2).
+   ;; for post-hoc inspection (pair-tools, Causa).
    [:rf/interceptor-errors {:optional true} [:vector :any]]])
 ```
 

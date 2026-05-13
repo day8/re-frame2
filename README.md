@@ -95,7 +95,7 @@ The reference implementation comes with a growing AI- and developer-facing tools
 
 - **`re-frame-pair2`** — an nREPL-attached AI pair-programming companion. Watches, traces, and interacts with your running app.
 - **`re-frame2-story`** *(in design)* — Storybook-flavoured component playground with frame-aware controls, machine-state visualisation, and time-travel.
-- **`re-frame-10x` v2** *(in design)* — interactive devtools panel for the runtime.
+- **Causa** *(in design)* — interactive devtools panel for the runtime; the structural successor to re-frame-10x.
 - **Source-coord stamping** — every registration carries its source location; click-to-source from any tool.
 - **Trace bus** — a first-class observability surface that all tooling consumes.
 
@@ -209,11 +209,10 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
   story/                       day8/re-frame2-story — Storybook-flavoured playground (in design)
   story-mcp/                   day8/re-frame2-story-mcp — MCP agent surface for story; separate
                                jar (in design)
-  machines-viz/                day8/re-frame2-machines-viz — XState-style state-chart visualisation
-                               (in design)
-  machines-viz-mcp/            day8/re-frame2-machines-viz-mcp — MCP surface for machines-viz;
-                               likely separate jar (in design)
-  10x/                         day8/re-frame2-10x — re-frame-10x v2 (in design)
+  pair2-mcp/                   day8/re-frame2-pair2-mcp — MCP agent surface for the re-frame-pair2
+                               nREPL companion (in design)
+  causa/                       day8/re-frame2-causa — Causa, the re-frame2 devtools panel;
+                               the structural successor to re-frame-10x (in design)
 skills/                        Claude skills (planned; pair-improver and friends)
 ```
 

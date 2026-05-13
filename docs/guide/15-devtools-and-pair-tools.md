@@ -9,7 +9,7 @@ This chapter is the human-facing version of that pitch. What you actually get, w
 You'll come away knowing:
 
 - What re-frame2 commits to as a *tooling substrate*, in narrative form.
-- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, `re-frame-causa`, machine visualisers).
+- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, Causa, machine visualisers).
 - Why the **trace bus** and **per-cascade epoch records** are the architectural punchline — one observation surface, every tool consumes it.
 - How **source-coord stamping** wires click-to-source from any panel.
 - How to attach your own listener and build a working debug panel in twenty lines.
@@ -41,11 +41,11 @@ A Storybook-flavoured component playground built around re-frame2's frame primit
 
 The design treats each story as a registered frame: declarative controls dispatch events, surfaces render against subscriptions, and per-story time-travel uses the framework's own epoch buffer. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
 
-### `re-frame-causa` — interactive devtools *(in design)*
+### Causa — interactive devtools *(in design)*
 
-The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; the v2-era successor — renamed to `re-frame-causa` — is being built from scratch as a *renderer* of re-frame2's own surfaces: a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Same panels (events, subs, renders, fxs, app-db diff, time-travel), but the substrate underneath is the framework's own, not 10x's bespoke recording machinery.
+The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; the v2-era successor — **Causa** (Maven coord `day8/re-frame2-causa`) — is being built from scratch as a *renderer* of re-frame2's own surfaces: a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Same panels (events, subs, renders, fxs, app-db diff, time-travel), but the substrate underneath is the framework's own, not 10x's bespoke recording machinery.
 
-The payoff: `re-frame-causa` and `re-frame-pair2` coexist as parallel listeners on the same trace bus, neither depending on the other. The runtime's contract is the integration point.
+The payoff: Causa and `re-frame-pair2` coexist as parallel listeners on the same trace bus, neither depending on the other. The runtime's contract is the integration point.
 
 ### Machine visualisers *(in design)*
 
@@ -95,7 +95,7 @@ Here's a working in-app debug panel that listens to the trace bus, tracks the la
               (str (:event-id ep))]])]]))
 ```
 
-That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and (a future) `re-frame-causa` consume — the difference is that they're richer renderers of the same data.
+That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and (a future) Causa consume — the difference is that they're richer renderers of the same data.
 
 A few things to notice:
 
@@ -108,9 +108,9 @@ All of this is **dev-only**. The trace bus is gated on `re-frame.interop/debug-e
 
 ## Click-to-source: the source-coord story
 
-In practice, this is the surface you reach for when a tester drops a screenshot on your desk and says "the wrong number is showing here." You don't grep. You don't binary-search the view tree. You point `re-frame-causa` (or a Playwright locator, or `re-frame-pair2`) at the rendered element, read the coord off the DOM node, and you're inside the function that produced it.
+In practice, this is the surface you reach for when a tester drops a screenshot on your desk and says "the wrong number is showing here." You don't grep. You don't binary-search the view tree. You point Causa (or a Playwright locator, or `re-frame-pair2`) at the rendered element, read the coord off the DOM node, and you're inside the function that produced it.
 
-The second piece of the tooling pitch is **source-coord stamping**. A tool gestures at a button on screen — a click in `re-frame-causa`, a `dom/source-at` call from `re-frame-pair2`, a Playwright locator in an end-to-end test — and asks "where in the code did this come from?" The answer is on the DOM node itself.
+The second piece of the tooling pitch is **source-coord stamping**. A tool gestures at a button on screen — a click in Causa, a `dom/source-at` call from `re-frame-pair2`, a Playwright locator in an end-to-end test — and asks "where in the code did this come from?" The answer is on the DOM node itself.
 
 ```html
 <button data-rf2-source-coord="counter.core:counter:48:5" ...>+</button>
@@ -164,7 +164,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
   (rf/restore-epoch :app/main target))
 ```
 
-That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what `re-frame-causa`'s timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
+That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what Causa's timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
 
 The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb!`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
@@ -210,7 +210,7 @@ For *when* to reach for this channel — and the four shapes of slowness the cur
 The framework commits to stable data shapes and query APIs; tools own presentation, orchestration, and host integration. Outside the framework, in separate artefacts:
 
 - Claude prompts and nREPL middleware in `re-frame-pair2`.
-- The `re-frame-causa` devtools UI, consuming the same trace bus.
+- The Causa devtools UI, consuming the same trace bus.
 - DOM-to-source helpers and the `re-frame-pair-improver2` skill.
 
 ---

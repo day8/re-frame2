@@ -174,9 +174,9 @@ implementation surface, (b) split the maintenance work, (c) drift
 over time. Embedding keeps one source of truth.
 
 **Implication.** Story's `:rf.story/10x-epoch` registration ships
-with v1 but the panel only activates if `day8/re-frame2-10x` is on
-the classpath (per the late-bind hook in spec/002). If 10x is
-absent, the sidebar entry hides. The 10x artefact owns the actual
+with v1 but the panel only activates if `day8/re-frame2-causa` is on
+the classpath (per the late-bind hook in spec/002). If Causa is
+absent, the sidebar entry hides. The Causa artefact owns the actual
 view; Story owns the *integration*. See
 [`005-SOTA-Features.md`](005-SOTA-Features.md) §10x epoch panel
 embed.

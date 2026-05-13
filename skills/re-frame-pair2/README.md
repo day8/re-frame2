@@ -55,7 +55,7 @@ You don't need to make any changes to your code/project to use it, but you will 
 
 re-frame-pair2 does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame-pair2` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)).
 
-If your app uses both re-frame2 *and* a re-frame-10x v2 (when one ships), this skill and that tool will coexist as parallel listeners. Neither depends on the other.
+If your app uses both re-frame2 *and* Causa (when it ships), this skill and that tool will coexist as parallel listeners. Neither depends on the other.
 
 ## Two modes
 

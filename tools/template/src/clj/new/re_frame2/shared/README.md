@@ -36,9 +36,9 @@ state from the previous build. Add new `reg-event-db` / `reg-sub` /
 and the next reload drops the old registration.
 
 Stack traces in dev get click-to-source via the `:rf.trace/trigger-handler`
-preload (auto-wired when the re-frame-causa preload is on the
-classpath) — clicking a frame in the dev console jumps straight to
-the offending form.
+preload (auto-wired when the Causa preload — `day8.re-frame2-causa.preload`
+— is on the classpath) — clicking a frame in the dev console jumps
+straight to the offending form.
 
 ## Build for release
 

@@ -315,7 +315,7 @@ reagent-slim moves the stamping into the renderer itself — a single `assoc` on
 
 re-frame-10x v1 monkey-patches `reagent.impl.batching/{next-tick, render-queue, mark-rendered, queue-render}` and `reagent.impl.component/{wrap-funs, custom-wrapper}` to capture per-render-frame trace data and stamp component IDs. The patches are documented in 10x v1's preload comments. They are also fragile: any change to Reagent's batching internals risks breaking 10x.
 
-reagent-slim emits the trace surface natively. The renderer publishes `:view/render` events to re-frame2's trace bus directly, with the `:render-key` and component identity 10x v2 needs. No monkey-patches. 10x v2's preload reads the trace bus; it does not patch the renderer.
+reagent-slim emits the trace surface natively. The renderer publishes `:view/render` events to re-frame2's trace bus directly, with the `:render-key` and component identity Causa needs. No monkey-patches. Causa's preload reads the trace bus; it does not patch the renderer.
 
 This is one of the surfaces stock Reagent cannot deliver because it requires the renderer to know about re-frame2's trace bus. The bridge artefact does its best with a wrapper layer; the rewrite does it natively.
 
