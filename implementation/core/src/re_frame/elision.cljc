@@ -440,6 +440,117 @@
 
 ;; ---- the walker ----------------------------------------------------------
 
+(defn- walk
+  "Internal recursion driver for `elide-wire-value`. `path` and
+   `frame-id` ride as positional args so the (otherwise stable) `opts`
+   map isn't re-`assoc`'d at every child — meaningful on deep walks
+   (the elision walker fires per event-emit + per sub-return). All
+   public arities funnel through here after one-shot opts decoding."
+  [v path frame-id opts]
+  (cond
+    ;; Nil / scalar fast path — never elidable.
+    (or (nil? v) (number? v) (boolean? v) (keyword? v) (symbol? v))
+    v
+
+    ;; Consult the registry first; declared / schema / runtime-flagged hit?
+    :else
+    (let [as-of-epoch        (:as-of-epoch opts)
+          include-large?     (:rf.size/include-large? opts)
+          include-sensitive? (:rf.size/include-sensitive? opts)
+          include-digests?   (:rf.size/include-digests? opts)
+          threshold          (:rf.size/threshold-bytes opts)
+          reg                (registry-of frame-id)
+          decl               (resolve-declaration reg path)
+          ;; sensitive? — registry may carry it; the rf2-isdwf
+          ;; per-event :sensitive? stamping lands separately. The
+          ;; walker reads it as a regular predicate.
+          sensitive?         (sensitive-decl? decl)
+          ;; large? — declared / schema hit, or auto-detect over threshold.
+          ;;
+          ;; Runtime auto-detect fires on:
+          ;;   - leaf values (strings, scalars whose pr-str over-runs)
+          ;; but NOT on containers (maps/vectors/sets/seqs). Containers
+          ;; get walked; the per-leaf decision is where elision
+          ;; meaningfully shrinks the wire. (A 5MB base64 string lives
+          ;; at a leaf; eliding the wrapping map would discard small
+          ;; siblings unnecessarily.) Declared / schema entries
+          ;; override this and elide at any level.
+          declared-large?    (and (some? decl) (:large? decl))
+          auto-large?        (and (not declared-large?)
+                                  (pos? threshold)
+                                  (not (coll? v))
+                                  (string? v)
+                                  (let [n (pr-str-bytes v)]
+                                    (when (> n threshold)
+                                      n)))
+          large?             (or declared-large? auto-large?)
+          reason             (cond
+                               declared-large? (:source decl)
+                               auto-large?     :runtime-flagged
+                               :else           nil)
+          hint               (when declared-large? (:hint decl))
+          known-bytes        (when (number? auto-large?) auto-large?)]
+      (cond
+        ;; Composition rule: sensitive drop wins on both-flagged value.
+        sensitive?
+        (if include-sensitive?
+          v
+          redacted-sentinel)
+
+        large?
+        (if include-large?
+          v
+          (do
+            ;; First-time auto-flag: persist the heuristic decision
+            ;; and emit the one-shot warning per (path, frame).
+            (when (and auto-large?
+                       (not (get-in reg [:runtime-flagged path])))
+              (write-runtime-flagged! frame-id path
+                                      (or known-bytes (pr-str-bytes v)))
+              (trace/emit! :warning :rf.warning/runtime-large-elision
+                           {:frame    frame-id
+                            :path     path
+                            :bytes    (or known-bytes (pr-str-bytes v))
+                            :reason   :runtime-flagged
+                            :recovery :warned-and-replaced}))
+            (->marker v path
+                      {:reason           reason
+                       :hint             hint
+                       :as-of-epoch      as-of-epoch
+                       :include-digests? include-digests?
+                       :known-bytes      known-bytes})))
+
+        ;; No elision at this level — recurse into containers,
+        ;; preserving the per-key path. Per the short-circuit rule,
+        ;; we only descend when nothing here was substituted.
+        (map? v)
+        (reduce-kv
+         (fn [acc k vv]
+           (assoc acc k (walk vv (conj path k) frame-id opts)))
+         (empty v) v)
+
+        (vector? v)
+        (mapv (fn [idx vv]
+                (walk vv (conj path idx) frame-id opts))
+              (range) v)
+
+        (set? v)
+        ;; Sets don't have indices; walk children with the same path so
+        ;; a registered set-element predicate still applies. Most
+        ;; callers won't declare individual set members.
+        (into #{} (map #(walk % path frame-id opts)) v)
+
+        (seq? v)
+        ;; Sequences (lists / lazy seqs) — walk and return a vector for
+        ;; wire stability. Per Tool-Pair, wire payloads are EDN data;
+        ;; converting seq -> vector is safe.
+        (mapv (fn [idx vv]
+                (walk vv (conj path idx) frame-id opts))
+              (range) v)
+
+        :else
+        v))))
+
 (defn elide-wire-value
   "Walk `v`, eliding values that match an elision predicate. Per
    [API.md §`elide-wire-value`] — the framework primitive every wire-
@@ -478,137 +589,19 @@
    on elided subtrees — once a subtree is elided we don't recurse
    into it."
   ([v]
-   (elide-wire-value v {}))
+   (elide-wire-value v nil))
   ([v opts]
-   (let [path        (or (:path opts) [])
-         frame       (:frame opts)
-         as-of-epoch (:as-of-epoch opts)
-         include-large?     (true? (:rf.size/include-large? opts))
-         include-sensitive? (true? (:rf.size/include-sensitive? opts))
-         include-digests?   (true? (:rf.size/include-digests? opts))
-         threshold-opt      (:rf.size/threshold-bytes opts)
-         frame-id   (or frame (frame/current-frame) :rf/default)
-         threshold  (long (or threshold-opt @re-frame.elision/threshold-bytes))
-         reg        (registry-of frame-id)
-         path-vec   (vec path)]
-     (cond
-       ;; Nil / scalar fast path — never elidable.
-       (or (nil? v) (number? v) (boolean? v) (keyword? v) (symbol? v))
-       v
-
-       ;; Consult the registry first; declared / schema / runtime-flagged hit?
-       :else
-       (let [decl              (resolve-declaration reg path-vec)
-             ;; sensitive? — registry may carry it; the rf2-isdwf
-             ;; per-event :sensitive? stamping lands separately. The
-             ;; walker reads it as a regular predicate.
-             sensitive?        (sensitive-decl? decl)
-             ;; large? — declared / schema hit, or auto-detect over threshold.
-             ;;
-             ;; Runtime auto-detect fires on:
-             ;;   - leaf values (strings, scalars whose pr-str over-runs)
-             ;; but NOT on containers (maps/vectors/sets/seqs). Containers
-             ;; get walked; the per-leaf decision is where elision
-             ;; meaningfully shrinks the wire. (A 5MB base64 string lives
-             ;; at a leaf; eliding the wrapping map would discard small
-             ;; siblings unnecessarily.) Declared / schema entries
-             ;; override this and elide at any level.
-             declared-large?   (and (some? decl) (:large? decl))
-             auto-large?       (and (not declared-large?)
-                                    (pos? threshold)
-                                    (not (coll? v))
-                                    (string? v)
-                                    (let [n (pr-str-bytes v)]
-                                      (when (> n threshold)
-                                        n)))
-             large?            (or declared-large? auto-large?)
-             reason            (cond
-                                 declared-large?    (:source decl)
-                                 auto-large?        :runtime-flagged
-                                 :else              nil)
-             hint              (when declared-large? (:hint decl))
-             known-bytes       (cond
-                                 (number? auto-large?) auto-large?
-                                 declared-large?       nil
-                                 :else                 nil)]
-         (cond
-           ;; Composition rule: sensitive drop wins on both-flagged value.
-           (and sensitive? large?)
-           (if include-sensitive?
-             v
-             redacted-sentinel)
-
-           sensitive?
-           (if include-sensitive?
-             v
-             redacted-sentinel)
-
-           large?
-           (if include-large?
-             v
-             (do
-               ;; First-time auto-flag: persist the heuristic decision
-               ;; and emit the one-shot warning per (path, frame).
-               (when (and auto-large?
-                          (not (get-in reg [:runtime-flagged path-vec])))
-                 (write-runtime-flagged! frame-id path-vec
-                                         (or known-bytes (pr-str-bytes v)))
-                 (trace/emit! :warning :rf.warning/runtime-large-elision
-                              {:frame    frame-id
-                               :path     path-vec
-                               :bytes    (or known-bytes (pr-str-bytes v))
-                               :reason   :runtime-flagged
-                               :recovery :warned-and-replaced}))
-               (->marker v path-vec
-                         {:reason       reason
-                          :hint         hint
-                          :as-of-epoch  as-of-epoch
-                          :include-digests? include-digests?
-                          :known-bytes known-bytes})))
-
-           ;; No elision at this level — recurse into containers,
-           ;; preserving the per-key path. Per the short-circuit rule,
-           ;; we only descend when nothing here was substituted.
-           (map? v)
-           (reduce-kv
-            (fn [acc k vv]
-              (assoc acc k
-                     (elide-wire-value vv
-                                       (assoc opts
-                                              :path (conj path-vec k)
-                                              :frame frame-id))))
-            (empty v) v)
-
-           (vector? v)
-           (mapv (fn [idx vv]
-                   (elide-wire-value vv (assoc opts
-                                               :path (conj path-vec idx)
-                                               :frame frame-id)))
-                 (range) v)
-
-           (set? v)
-           (set (map (fn [vv]
-                       ;; Sets don't have indices; walk children with
-                       ;; the same path so a registered set-element
-                       ;; predicate still applies. Most callers won't
-                       ;; declare individual set members.
-                       (elide-wire-value vv (assoc opts
-                                                   :path path-vec
-                                                   :frame frame-id)))
-                     v))
-
-           (seq? v)
-           ;; Sequences (lists / lazy seqs) — walk and return a vector
-           ;; for wire stability. Per Tool-Pair, wire payloads are EDN
-           ;; data; converting seq -> vector is safe.
-           (mapv (fn [idx vv]
-                   (elide-wire-value vv (assoc opts
-                                               :path (conj path-vec idx)
-                                               :frame frame-id)))
-                 (range) v)
-
-           :else
-           v))))))
+   (let [frame-id  (or (:frame opts) (frame/current-frame) :rf/default)
+         threshold (long (or (:rf.size/threshold-bytes opts)
+                             @re-frame.elision/threshold-bytes))
+         ;; Normalise opts once: defaults coerced, booleans pre-evaluated,
+         ;; resolved frame-id / threshold cached for the whole recursion.
+         opts'     (-> (or opts {})
+                       (assoc :rf.size/threshold-bytes      threshold
+                              :rf.size/include-large?      (true? (:rf.size/include-large? opts))
+                              :rf.size/include-sensitive?  (true? (:rf.size/include-sensitive? opts))
+                              :rf.size/include-digests?    (true? (:rf.size/include-digests? opts))))]
+     (walk v (vec (:path opts)) frame-id opts'))))
 
 ;; ---- introspection sugar --------------------------------------------------
 
