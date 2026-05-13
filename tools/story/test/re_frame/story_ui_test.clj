@@ -525,3 +525,63 @@
   (testing "format-timestamp-ms returns empty string for non-numbers"
     (is (= "" (test-mode/format-timestamp-ms nil)))
     (is (= "" (test-mode/format-timestamp-ms "no")))))
+
+;; ---- step-through scrubber (rf2-lc36w) ----------------------------------
+
+(deftest test-mode-play-step-label-renders-event-id
+  (testing "play-step-label stringifies the event-id only"
+    (is (= ":auth/email-changed"
+           (test-mode/play-step-label [:auth/email-changed "alice@example.com"])))
+    (is (= ":rf.assert/path-equals"
+           (test-mode/play-step-label [:rf.assert/path-equals [[:count] 7]]))))
+  (testing "play-step-label tolerates nil / malformed input"
+    (is (= "" (test-mode/play-step-label nil)))
+    (is (= "" (test-mode/play-step-label [])))
+    (is (= "" (test-mode/play-step-label "not-a-vec")))))
+
+(deftest test-mode-play-step-statuses-maps-events-to-status
+  (testing "non-assertion events get :event status; assertion events get :pass/:fail from records"
+    (let [play       [[:auth/email-changed "alice"]
+                      [:auth/submit]
+                      [:rf.assert/path-equals [[:user :email] "alice"]]
+                      [:rf.assert/path-equals [[:user :submitted?] true]]]
+          assertions [{:assertion :rf.assert/path-equals :passed? true}
+                      {:assertion :rf.assert/path-equals :passed? false}]
+          out        (test-mode/play-step-statuses play assertions)]
+      (is (= 4 (count out)) "one row per :play event")
+      (is (= [:event :event :pass :fail] (mapv :status out)))
+      (is (= [0 1 2 3] (mapv :index out)))
+      (is (= ":auth/email-changed" (-> out (nth 0) :label)))
+      (is (= ":rf.assert/path-equals" (-> out (nth 2) :label)))
+      (is (= [:auth/email-changed "alice"] (-> out (nth 0) :event)))))
+  (testing "play-step-statuses handles :rf.assert/skipped as :skip"
+    (let [play       [[:rf.assert/skipped]]
+          assertions [{:assertion :rf.assert/skipped :passed? false}]
+          out        (test-mode/play-step-statuses play assertions)]
+      (is (= [:skip] (mapv :status out)))))
+  (testing "play-step-statuses tolerates fewer records than assertion events (fail-fast gap)"
+    ;; assertion event with no matching record renders :fail so the user sees the gap.
+    (let [play       [[:rf.assert/path-equals [[:k] 1]]
+                      [:rf.assert/path-equals [[:k] 2]]]
+          assertions [{:assertion :rf.assert/path-equals :passed? true}]
+          out        (test-mode/play-step-statuses play assertions)]
+      (is (= [:pass :fail] (mapv :status out)))))
+  (testing "play-step-statuses handles empty inputs"
+    (is (= [] (test-mode/play-step-statuses [] [])))
+    (is (= [] (test-mode/play-step-statuses nil nil)))))
+
+(deftest test-mode-epoch-id-slice-trailing-window
+  (testing "epoch-id-slice returns the trailing n epoch-ids"
+    (let [history [{:epoch-id 10} {:epoch-id 11} {:epoch-id 12}
+                   {:epoch-id 13} {:epoch-id 14}]]
+      (is (= [12 13 14] (test-mode/epoch-id-slice history 3)))
+      (is (= [10 11 12 13 14] (test-mode/epoch-id-slice history 5)))
+      (is (= [14] (test-mode/epoch-id-slice history 1)))))
+  (testing "epoch-id-slice short-circuits to [] when history is too small"
+    ;; production / ring-buffer-trimmed contexts: degrade gracefully
+    ;; rather than mis-mapping play-steps onto wrong epochs.
+    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] 3))))
+  (testing "epoch-id-slice tolerates nil history and non-positive n"
+    (is (= [] (test-mode/epoch-id-slice nil 3)))
+    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] 0)))
+    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] -2)))))
