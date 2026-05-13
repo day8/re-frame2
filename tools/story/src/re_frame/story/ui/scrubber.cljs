@@ -40,18 +40,42 @@
             [re-frame.story.ui.scrubber-xref :as xref]
             [re-frame.story.ui.state :as state]))
 
-;; ---- per-variant 'live history' ratom ------------------------------------
+;; ---- per-variant state ---------------------------------------------------
+;;
+;; Two pieces of per-variant UI state live in one registry:
+;;
+;;   :history    — r/atom holding the latest epoch-history vector,
+;;                 refreshed by the epoch-cb (every settled epoch).
+;;
+;;   :selection  — r/atom holding the current selected :epoch-id (or
+;;                 nil). Per rf2-sxwvf the trace panel derefs this to
+;;                 filter / highlight the cascade view. We hold the
+;;                 stable :epoch-id (NOT the slider's slot index) so a
+;;                 history-shift evicting older epochs doesn't silently
+;;                 re-point the selection. nil ⇒ no scrub in flight,
+;;                 trace panel renders the full buffer.
+;;
+;; Both slots are keyed by variant-id and torn down together on shell
+;; unmount — one registry, one teardown.
 
-(defonce histories
-  ;; {variant-id → r/atom holding the latest epoch-history vector}
+(defonce per-variant-state
+  ;; {variant-id → {:history <r/atom epoch-history-vec>
+  ;;                :selection <r/atom :epoch-id-or-nil>}}
   (atom {}))
+
+(defn- ensure-slot!
+  "Return the per-variant ratom for `slot-key` (`:history` or
+  `:selection`), creating it on first access via `init-fn` (a 0-arity
+  fn returning the initial value)."
+  [variant-id slot-key init-fn]
+  (or (get-in @per-variant-state [variant-id slot-key])
+      (let [a (r/atom (init-fn))]
+        (swap! per-variant-state assoc-in [variant-id slot-key] a)
+        a)))
 
 (defn- ensure-history-atom!
   [variant-id]
-  (or (get @histories variant-id)
-      (let [a (r/atom (epoch/epoch-history variant-id))]
-        (swap! histories assoc variant-id a)
-        a)))
+  (ensure-slot! variant-id :history #(epoch/epoch-history variant-id)))
 
 (defn- refresh-history!
   "Re-read the framework's epoch history into the local ratom."
@@ -60,22 +84,10 @@
     (reset! a (epoch/epoch-history variant-id))))
 
 (defn drop-history!
-  "Remove the per-variant atom. Called from shell unmount."
+  "Remove the per-variant history ratom. Called from shell unmount."
   [variant-id]
-  (swap! histories dissoc variant-id)
+  (swap! per-variant-state update variant-id dissoc :history)
   nil)
-
-;; ---- per-variant scrubber 'selection' ratom (rf2-sxwvf) ------------------
-;;
-;; The trace panel derefs this slot to know which epoch the user is
-;; currently inspecting. Selection holds the epoch's stable `:epoch-id`
-;; (NOT the slider's slot index) so a history-shift evicting older
-;; epochs doesn't silently re-point the selection. nil ⇒ no scrub in
-;; flight, trace panel renders the full buffer.
-
-(defonce selections
-  ;; {variant-id → r/atom holding the current selected :epoch-id (or nil)}
-  (atom {}))
 
 (defn ensure-selection-atom!
   "Return the per-variant `selection` ratom, creating it on first
@@ -83,28 +95,24 @@
   scrubber commits to (a fresh `r/atom` on each render would break
   Reagent reactivity)."
   [variant-id]
-  (or (get @selections variant-id)
-      (let [a (r/atom nil)]
-        (swap! selections assoc variant-id a)
-        a)))
+  (ensure-slot! variant-id :selection (constantly nil)))
 
 (defn selected-epoch-id
   "Return the currently-scrubbed `:epoch-id` for `variant-id`, or nil.
   Public read surface for the trace panel's cross-reference path."
   [variant-id]
-  (some-> (get @selections variant-id) deref))
+  (some-> (get-in @per-variant-state [variant-id :selection]) deref))
 
 (defn select-epoch!
   "Set the scrubber's selection for `variant-id`. Pass nil to clear."
   [variant-id epoch-id]
-  (let [a (ensure-selection-atom! variant-id)]
-    (reset! a epoch-id))
+  (reset! (ensure-selection-atom! variant-id) epoch-id)
   nil)
 
 (defn drop-selection!
-  "Remove the per-variant selection atom. Called from shell unmount."
+  "Remove the per-variant selection ratom. Called from shell unmount."
   [variant-id]
-  (swap! selections dissoc variant-id)
+  (swap! per-variant-state update variant-id dissoc :selection)
   nil)
 
 (defn cascade-id-for-epoch
@@ -226,7 +234,7 @@
             shell     @state/shell-state-atom
             pinned    (get-in shell [:pinned-snapshots variant-id] [])
             selection @selection-atom
-            pos       (or @slider-pos (dec n) 0)]
+            pos       (or @slider-pos (max 0 (dec n)))]
         [:div {:style (:panel styles)
                :data-test "story-scrubber"}
          [:div {:style (:title styles)}
