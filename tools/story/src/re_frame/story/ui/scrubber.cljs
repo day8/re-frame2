@@ -19,7 +19,7 @@
 
   ## Cross-reference to the trace panel (rf2-sxwvf)
 
-  Per `spec/011-Trace-Scrubber-Cross-Ref.md` (rf2-sxwvf), the scrubber's
+  Per `spec/012-Trace-Scrubber-Cross-Ref.md` (rf2-sxwvf), the scrubber's
   current selection is exported as a shared per-variant ratom
   (`selections`) keyed by variant-id. The trace panel derefs this slot
   to filter / highlight the cascade view. The selection is held as a

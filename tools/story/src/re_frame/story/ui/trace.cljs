@@ -38,7 +38,7 @@
 
   ## Cross-reference with the scrubber (rf2-sxwvf)
 
-  Per `spec/011-Trace-Scrubber-Cross-Ref.md` the trace panel
+  Per `spec/012-Trace-Scrubber-Cross-Ref.md` the trace panel
   cross-references the scrubber's current scrub. When the scrubber's
   selection is non-nil for the focused variant:
 

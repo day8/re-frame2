@@ -14,7 +14,7 @@
   fn) and `re-frame.story.ui.trace` (the `panel` fn that derefs the
   selection ratom + renders the highlighted row).
 
-  See `tools/story/spec/011-Trace-Scrubber-Cross-Ref.md` for the
+  See `tools/story/spec/012-Trace-Scrubber-Cross-Ref.md` for the
   normative contract.")
 
 ;; ---- cascade-id resolution (epoch → cascade) -----------------------------
