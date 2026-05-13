@@ -141,7 +141,8 @@
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/sensitive.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools.cljc"]
-               :causa-mcp ["tools/causa-mcp/spec/Principles.md"]}
+               :causa-mcp ["tools/causa-mcp/spec/Principles.md"
+                           "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
                default-drop on `:sensitive? true` items. Default false."}
 
@@ -151,7 +152,8 @@
     :sources  {:pair2-mcp ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/descriptors_knobs.cljs"
                            "tools/pair2-mcp/src/re_frame_pair2_mcp/tools/cap.cljs"]
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"]
-               :causa-mcp ["tools/causa-mcp/spec/Principles.md"]}
+               :causa-mcp ["tools/causa-mcp/spec/Principles.md"
+                           "tools/causa-mcp/spec/004-Wire-Pipeline.md"]}
     :doc      "Override integer — per-call wire-cap override (default 5,000).
                `0` disables the cap. Triggers an `:rf.mcp/overflow` marker
                when the rendered payload exceeds the cap (cross-server)."}])
@@ -173,7 +175,8 @@
 (def ^:private elision-arg-divergence
   {:canonical :include-large?
    :servers   {:causa-mcp {:slot    :include-large?
-                           :sources ["tools/causa-mcp/spec/Principles.md"]
+                           :sources ["tools/causa-mcp/spec/Principles.md"
+                                     "tools/causa-mcp/spec/004-Wire-Pipeline.md"]
                            :status  :spec-only}
                :pair2-mcp {:slot    :elision
                            :sources ["tools/pair2-mcp/src/re_frame_pair2_mcp/tools/elision.cljs"

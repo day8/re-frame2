@@ -74,10 +74,11 @@
 
   causa-mcp's implementation has not landed yet (its `tools/` entry
   is `README.md` + `spec/`, no `src/`). The fixtures and the spec
-  grep step against `tools/causa-mcp/spec/Principles.md` cover the
-  vocabulary today; when impl lands, a follow-up bead extends this
-  test to grep `tools/causa-mcp/src/` and add live-emission fixtures
-  if their shape diverges from the spec snippets."
+  grep step against `tools/causa-mcp/spec/Principles.md` +
+  `tools/causa-mcp/spec/004-Wire-Pipeline.md` cover the vocabulary
+  today; when impl lands, a follow-up bead extends this test to
+  grep `tools/causa-mcp/src/` and add live-emission fixtures if
+  their shape diverges from the spec snippets."
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
@@ -507,6 +508,7 @@
                "tools/pair2-mcp/spec/Principles.md"
                "tools/pair2-mcp/spec/003-Tool-Catalogue.md"]
    :causa-mcp ["tools/causa-mcp/spec/Principles.md"
+               "tools/causa-mcp/spec/004-Wire-Pipeline.md"
                "tools/causa-mcp/spec/DESIGN-RATIONALE.md"]
    ;; story-mcp does not currently emit any cross-MCP wire markers
    ;; (it uses its own :rf.story/* + :rf.assert/* + :rf.error/*

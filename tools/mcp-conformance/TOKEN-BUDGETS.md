@@ -191,7 +191,7 @@ is reserved cross-server.
 ### causa-mcp — spec-locked, impl pending
 
 The cap is **spec-locked** in
-[`tools/causa-mcp/spec/Principles.md` §"Tight token budget per response"](../causa-mcp/spec/Principles.md#tight-token-budget-per-response)
+[`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"Tight token budget per response"](../causa-mcp/spec/004-Wire-Pipeline.md#tight-token-budget-per-response)
 with **six normative mechanisms**:
 
 1. **Token budget cap** (5,000-token default, `:max-tokens`
@@ -348,7 +348,7 @@ cross-server contract exists to enforce.
   — pair2-mcp's eight mechanisms, in pipeline order.
 - [`tools/story-mcp/spec/Principles.md` §"Tight token budget per response"](../story-mcp/spec/Principles.md#tight-token-budget-per-response)
   — story-mcp's three-axis discipline.
-- [`tools/causa-mcp/spec/Principles.md` §"Tight token budget per response"](../causa-mcp/spec/Principles.md#tight-token-budget-per-response)
+- [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §"Tight token budget per response"](../causa-mcp/spec/004-Wire-Pipeline.md#tight-token-budget-per-response)
   — causa-mcp's six mechanisms.
 - [`spec/Conventions.md` §"Reserved namespaces (framework-owned)"](../../spec/Conventions.md)
   — the `:rf.mcp/*` / `:rf.size/*` keyword discipline this contract

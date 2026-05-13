@@ -414,8 +414,8 @@ maven coord shape?
   [`tools/story-mcp/spec/000-Vision.md`](../../story-mcp/spec/000-Vision.md));
   future MCP artefacts inherit this shape, not pair2-mcp's. The
   symmetry posture (per
-  [`Principles.md`](./Principles.md) §"Tight token budget per
-  response" and §"Cross-server alignment", and Spec
+  [`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md) §"Tight token budget per
+  response" and [`Principles.md`](./Principles.md) §"Wire pipeline", and Spec
   [`Principles.md`](../../../spec/Principles.md)) is that agents
   "learn the slot on one server, get the same on the others" —
   the maven/npm coord is one of those slots.
@@ -629,7 +629,7 @@ the same drift?
 ### Pick
 
 **Bake all five mechanisms into the spec now.** The
-[`Principles.md`](./Principles.md) §"Tight token budget per
+[`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md) §"Tight token budget per
 response" section enumerates each mechanism with normative MUST
 wording, a reserved `:rf.mcp/overflow` / `:rf.mcp/summary` /
 `:rf.mcp/dedup-table` payload shape, and a catalogue-entry
@@ -798,8 +798,9 @@ catalogue contract".
   wire.
 - causa-mcp alignment pass (rf2-04ozp, PR #709) — the
   preceding edit that landed the marker references in the
-  streaming section and in §"Tight token budget per
-  response"; Lock #10 promotes those references to a top-level
+  streaming section and in [`004-Wire-Pipeline.md`](./004-Wire-Pipeline.md)
+  §"Tight token budget per response" (split out of `Principles.md`
+  by rf2-erimb); Lock #10 promotes those references to a top-level
   mechanism.
 
 ---
@@ -992,8 +993,8 @@ The band split becomes **9 inspection + 3 mutation + 3 stream +
 ### Why
 
 - **Cross-server symmetry is load-bearing.** Causa-MCP's
-  [`Principles.md` §"Privacy: default-drop `:sensitive?` events
-  at the MCP boundary"](./Principles.md#privacy-default-drop-sensitive-events-at-the-mcp-boundary)
+  [`004-Wire-Pipeline.md` §"Privacy: default-drop `:sensitive?` events
+  at the MCP boundary"](./004-Wire-Pipeline.md#privacy-default-drop-sensitive-events-at-the-mcp-boundary)
   declares: "an agent that learns the slot on one server gets
   the same slot on the others." pair2-mcp's `subscription-info`
   is in that "slot" today (rf2-zjz9q, sub-id / queue-depth /
@@ -1128,8 +1129,8 @@ this lock picks 18 with the conformant-verb name
 - Lock #9 mechanism #1 (this doc) — the per-tool
   token-budget contract that `list-subscriptions` binds and
   `eval-cljs` doesn't.
-- [`Principles.md` §"Privacy: default-drop `:sensitive?`
-  events at the MCP boundary"](./Principles.md#privacy-default-drop-sensitive-events-at-the-mcp-boundary)
+- [`004-Wire-Pipeline.md` §"Privacy: default-drop `:sensitive?`
+  events at the MCP boundary"](./004-Wire-Pipeline.md#privacy-default-drop-sensitive-events-at-the-mcp-boundary)
   — the cross-server symmetry posture quoted in the Why
   section.
 - rf2-m9yoi (the audit that surfaced the gap).

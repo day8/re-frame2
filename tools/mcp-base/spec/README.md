@@ -61,7 +61,7 @@ The marker family is documented in the consumer-side principles
 files:
 
 - [`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
-- [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
+- [`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md) (defers to [`004-Wire-Pipeline.md`](../../causa-mcp/spec/004-Wire-Pipeline.md))
 
 ## Adding to the base
 

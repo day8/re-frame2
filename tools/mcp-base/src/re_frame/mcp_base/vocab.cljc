@@ -63,7 +63,7 @@
   Shape: `{:rf.mcp/dedup-table <cache-map>}`. Per rf2-obpa9.
 
   causa-mcp uses the same key for its mechanism-5 dedup
-  (cross-MCP-conventions, per causa-mcp/spec/Principles.md §5)."
+  (cross-MCP-conventions, per causa-mcp/spec/004-Wire-Pipeline.md §5)."
   :rf.mcp/dedup-table)
 
 (def diff-from-key

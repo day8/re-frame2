@@ -49,7 +49,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Canonical homes.**
 - [`tools/pair2-mcp/spec/Principles.md` §Tight token budget per response](../tools/pair2-mcp/spec/Principles.md) — the 5,000-token default, the per-call `max-tokens` override slot, the `{:rf.mcp/overflow ...}` over-budget shape, the egress-centralised enforcement decision, and the eight mechanisms (wire-boundary cap → path slicing → per-tool budget → diff encoding → dedup → size elision → cursor pagination → streaming subscribe byte+event budget) in order.
 - [`tools/pair2-mcp/spec/DESIGN-RATIONALE.md` §Lock #7 — Wire-boundary token cap](../tools/pair2-mcp/spec/DESIGN-RATIONALE.md) — the locked decision record (rf2-rvyzy): egress-centralised, pluggable strategy, truncate-with-marker, default 5K, per-tool override, cumulative across multi-content responses.
-- [`tools/causa-mcp/spec/Principles.md` §Tight token budget per response](../tools/causa-mcp/spec/Principles.md) — sibling lock with the same shape; causa-mcp inherits the cap, the `:max-tokens` override, and the overflow marker keyword from pair2-mcp's design rationale.
+- [`tools/causa-mcp/spec/004-Wire-Pipeline.md` §Tight token budget per response](../tools/causa-mcp/spec/004-Wire-Pipeline.md) — sibling lock with the same shape; causa-mcp inherits the cap, the `:max-tokens` override, and the overflow marker keyword from pair2-mcp's design rationale.
 
 **Consumers.**
 - `tools/pair2-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; ten tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
