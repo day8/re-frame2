@@ -156,3 +156,33 @@ Single source of truth for the per-leaf size ceiling — per-skill
 
 Corpus stats supporting these numbers: `ai/findings/skill-leaf-size-audit-20260513.md`
 (local-only; max 203 L, p95 148 L, median 88 L).
+
+### Test-fixture discipline — only `re-frame-pair2/` ships tests
+
+Of the skills in this corpus, **only [`re-frame-pair2/`](./re-frame-pair2/)
+ships a `tests/` directory** (see [`re-frame-pair2/tests/`](./re-frame-pair2/tests/)
+— `e2e/`, `fixture/`, `prompts/`, `runtime/`, `shim/`). The asymmetry is
+intentional, not an oversight. Future skill-authors: do not add a `tests/`
+dir to a pure-doc skill on cargo-cult grounds.
+
+**Why pair2 is the exception.** `re-frame-pair2` is the only skill that
+drives a **live runtime** — it attaches to a running shadow-cljs nREPL,
+mutates `app-db`, dispatches events, hot-swaps handlers, and reads from
+the epoch buffer. That behaviour is testable in the conventional sense:
+spin up a fixture app, run the tool surface, assert observable effects.
+Regressions in the runtime helper namespace or the Tool-Pair consumer
+contract show up as test failures; the fixtures exist to catch them.
+
+**Why the other skills don't ship tests.** Every other skill in this
+corpus is **pure documentation** — orchestrator `SKILL.md` plus reference
+leaves under `reference/`, `patterns/`, `decision-trees/`, etc. There is
+no runtime surface to assert against. The quality gate for pure-doc
+skills is the authoring conventions catalogued elsewhere in this README
+(leaf size discipline, single-source routing, no SKILL → A → B chains)
+plus orchestrator review against the bead corpus. Adding a `tests/`
+directory to a pure-doc skill would test prose, not behaviour.
+
+**Rule of thumb.** A skill warrants a `tests/` dir iff it ships an
+executable surface (scripts, MCP server, runtime helpers, structured
+tool-call shapes). If the skill is leaves-plus-orchestrator, the
+authoring conventions are the test.
