@@ -248,7 +248,28 @@
 ;; ---------------------------------------------------------------------------
 ;; Near-miss variants — spellings that look right but aren't. A rename
 ;; to any of these MUST NOT slip through.
+;;
+;; Each variant is matched with a regex that compiles a trailing
+;; negative-lookahead so we only match the variant when it's NOT
+;; immediately followed by a keyword-extender character. Plain
+;; `str/includes?` on a substring would false-positive: the variant
+;; `:include-sensitive` is technically a substring of the canonical
+;; `:include-sensitive?`, so a naive check would always trip even in
+;; a clean codebase. The regex form pins the variant as a full
+;; keyword token — followed by whitespace, paren, brace, colon, comma,
+;; etc — anything that isn't a keyword-extender.
 ;; ---------------------------------------------------------------------------
+
+(defn- variant-regex
+  "Build a Java regex that matches `variant-str` only when it is NOT
+  immediately followed by a character that would extend it into a
+  longer keyword. `[\\w\\-?/!*+'<>=]` is the conservative set of
+  characters Clojure allows mid-keyword; matching one of those after
+  the variant means we're actually looking at a longer keyword that
+  happens to share a prefix with the variant — not the variant itself."
+  [variant-str]
+  (re-pattern (str (java.util.regex.Pattern/quote variant-str)
+                   "(?![\\w\\-?/!*+'<>=])")))
 
 (defn- near-miss-variants
   "Generate near-miss spellings of a slot keyword. Conservative — we
@@ -257,7 +278,7 @@
   curated so a docstring or unrelated symbol can't trip a false
   positive."
   [slot]
-  (let [nm  (name slot)
+  (let [nm       (name slot)
         nm-no-q  (str/replace nm #"\?$" "")           ; strip predicate `?`
         nm-snake (str/replace nm #"-" "_")]           ; kebab→snake
     (cond-> []
@@ -343,8 +364,9 @@
             rel                files
             :when              (seq files)]
       (testing (str server " — " rel " — near-miss " variant " for " slot)
-        (let [src (read-source rel)]
-          (is (not (str/includes? src variant))
+        (let [src    (read-source rel)
+              pat    (variant-regex variant)]
+          (is (not (re-find pat src))
               (str "Found near-miss variant " variant " for slot " slot
                    " in " server "/" rel
                    ".\nThis is a slot-name drift bug. The canonical "
