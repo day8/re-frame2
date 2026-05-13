@@ -26,6 +26,7 @@
   routes every inbound event through it before the machine's normal `:on`
   lookup."
   (:require [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -33,21 +34,19 @@
   "Helper for `find-active-invoke-all`. Given a machine-like map with
   `:states` (for a non-parallel machine, the machine itself; for a
   region of a parallel machine, the region body) and a path inside
-  that tree, walk leaf→root looking for an `:invoke-all`-bearing state
-  whose `:on-child-done` or `:on-child-error` matches inner-event-id."
+  that tree, walk leaf→root for an `:invoke-all`-bearing state whose
+  `:on-child-done` or `:on-child-error` matches inner-event-id (the
+  deepest-wins rule named in `path-walk/walk-path-leaf-to-root`)."
   [tree path inner-event-id]
-  (loop [i (dec (count path))]
-    (when (>= i 0)
-      (let [prefix (vec (take (inc i) path))
-            n      (transition/node-at tree prefix)
-            ia     (:invoke-all n)]
+  (path-walk/walk-path-leaf-to-root
+    tree path
+    (fn [prefix n]
+      (when-let [ia (:invoke-all n)]
         (cond
-          (and ia (= inner-event-id (:on-child-done ia)))
+          (= inner-event-id (:on-child-done ia))
           {:invoke-id prefix :spec ia :kind :done}
-          (and ia (= inner-event-id (:on-child-error ia)))
-          {:invoke-id prefix :spec ia :kind :failed}
-          :else
-          (recur (dec i)))))))
+          (= inner-event-id (:on-child-error ia))
+          {:invoke-id prefix :spec ia :kind :failed})))))
 
 (defn- find-active-invoke-all
   "Walk the snapshot's `:state` path leaf→root looking for an
