@@ -42,6 +42,9 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
+            ;; ── effects panel begin ──
+            [day8.re-frame2-causa.panels.effects :as effects]
+            ;; ── effects panel end ──
             [day8.re-frame2-causa.panels.flows :as flows]
             [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
@@ -86,7 +89,9 @@
    {:id :app-db       :label "App-db"        :bead "rf2-jps1o" :live? true}
    {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
    {:id :subs         :label "Subscriptions" :bead "rf2-x0f5v" :live? true}
-   {:id :fx           :label "Effects"       :bead "rf2-xxx"}
+   ;; ── effects panel begin ──
+   {:id :fx           :label "Effects"       :bead "rf2-ts41u" :live? true}
+   ;; ── effects panel end ──
    {:id :trace        :label "Trace"         :bead "rf2-argrj" :live? true}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
    {:id :flows        :label "Flows"         :bead "rf2-83irn" :live? true}
@@ -277,6 +282,9 @@
       :time-travel  [time-travel/time-travel-view]
       :app-db       [app-db-diff/app-db-diff-view]
       :causality    [causality-graph/causality-graph-view]
+      ;; ── effects panel begin ──
+      :fx           [effects/effects-view]
+      ;; ── effects panel end ──
       :flows        [flows/flows-view]
       :schemas      [schema-violation-timeline/schema-violation-timeline-view]
       :subs         [subscriptions/subscriptions-view]
