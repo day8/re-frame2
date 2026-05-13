@@ -176,6 +176,7 @@ that axis"):
 | `:dispatch-id`   | `(get-in ev [:tags :dispatch-id])`                                |
 | `:since-ms`      | `(> (:time ev) since-ms)` — strict-greater-than host-clock ms.    |
 | `:between`       | `[t0 t1]` — `(<= t0 (:time ev) t1)` host-clock ms.                |
+| `:sensitive?`    | `(:sensitive? ev)` — boolean. **Default forwarder posture:** events with `:sensitive? true` are dropped at the MCP boundary before any data reaches the agent surface (per [spec/009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)). The runtime stamps the flag on every trace event emitted inside a `:sensitive? true` registration's handler scope. Opt back in per-call with `include-sensitive? true` (an MCP tool arg on `trace-window`, `watch-epochs`, `snapshot`, `subscribe`). Dropped count surfaces as `:dropped-sensitive` on the result / progress payload when non-zero. |
 
 For `topic :epoch`, the filter map mirrors `epoch-matches?` (same
 vocab `watch-epochs` already accepts):
@@ -211,6 +212,13 @@ vocab `watch-epochs` already accepts):
   client cancels.
 - `max-events` (integer, default `0` = unbounded) — terminate after
   this many events have been delivered.
+- `include-sensitive?` (boolean, default `false`) — opt back in to
+  forwarding events carrying `:sensitive? true`. Per [spec/009
+  §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
+  the forwarder default-drops these events at the MCP boundary; pass
+  `true` to disable the gate for this subscription. Dropped count
+  surfaces as `:dropped-sensitive` on each progress payload (when
+  non-zero) and the final summary.
 - `build` (string, default `"app"`) — shadow-cljs build id.
 
 ### Returns

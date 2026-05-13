@@ -199,6 +199,53 @@ agents through Chrome MCP's `evaluate_script` (which loses the
 
 Captured as Lock #5 in [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md).
 
+## Privacy: default-drop `:sensitive?` events at the MCP boundary
+
+Per [spec/009 §Privacy / sensitive data in traces](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces)
+(rf2-a32kd):
+
+> Framework-published listener integrations (Sentry/Honeybadger
+> forwarders, pair2 server, Causa-MCP server) MUST default-suppress
+> `:sensitive? true`.
+
+This is a normative MUST for Causa-MCP. When implementation lands,
+every tool that surfaces trace-stream-shaped payloads — the canonical
+list is `get-trace-buffer`, `subscribe`, and any tool whose return
+includes raw `:rf/trace-event` items or epoch-records carrying the
+flag (`get-epoch-history`, `get-causality-graph` when it walks raw
+traces) — MUST apply the default-suppress filter at the MCP boundary
+before any data crosses into the agent surface.
+
+The contract, identical to `tools/pair2-mcp/`'s implementation
+(rf2-zq0n1) and `tools/story-mcp/`'s `re-frame.story-mcp.sensitive`
+helper:
+
+- **Default**: events with `:sensitive? true` at the top level are
+  dropped. Dropped count surfaces as `:dropped-sensitive` on the
+  result (or on each `notifications/progress` payload for streaming
+  tools) when non-zero.
+- **Opt-in**: per-call `:include-sensitive? true` MCP arg disables
+  the gate. The arg name is fixed cross-server (pair2-mcp + story-mcp
+  + causa-mcp) so an agent that learns the slot on one server gets
+  the same slot on the others.
+- **Scope**: only the trace-stream surface. Mutating ops (`dispatch`,
+  `restore-epoch`, `reset-frame-db`) and read-mostly per-frame state
+  ops (`get-app-db`, `app-db-diff`, `get-machine-snapshot`) don't
+  carry `:sensitive?` stamps — payload redaction in those slots is
+  the `with-redacted` interceptor's job, not the forwarder's.
+
+The wiring pattern (when implementation lands) mirrors
+[`tools/pair2-mcp/src/re_frame_pair2_mcp/tools.cljs`](../../pair2-mcp/src/re_frame_pair2_mcp/tools.cljs)'s
+`strip-sensitive` helper + `:include-sensitive?` arg + descriptor
+slot on each affected tool. Cross-server symmetry is load-bearing —
+an agent that knows the slot on pair2-mcp gets the same slot on
+causa-mcp.
+
+The trust boundary is the MCP stdio channel: data that crosses it
+reaches the agent host, and from there potentially the LLM provider.
+The `:sensitive?` flag is the registrar's "do not ship this
+unredacted across that boundary" signal; Causa-MCP honours it.
+
 ## Bash-shim back-compat is *not* a goal
 
 Unlike pair2-mcp (which mirrors a pre-existing bash-shim
