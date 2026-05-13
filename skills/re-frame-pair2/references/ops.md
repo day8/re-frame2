@@ -53,6 +53,7 @@ Read-only from the trace stream + epoch history.
 | `trace/find-where` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/find-where <pred>)'` | Most recent epoch matching a predicate — primary forensic op for "when did X happen?" post-mortems |
 | `trace/find-all-where` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/find-all-where <pred>)'` | Every matching epoch, newest first — for trajectories rather than single transitions |
 | `trace/cascade` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/cascade-of <dispatch-id>)'` | Walk `:dispatch-id` / `:parent-dispatch-id` (Spec 009 §Dispatch correlation) to reconstruct the full cascade tree from a root dispatch |
+| `trace/configure-privacy` | `scripts/eval-cljs.sh '(re-frame-pair2.runtime/configure-privacy! {:include-sensitive? true})'` | Set the privacy posture for the streaming subscription surface. Default: `{:include-sensitive? false}` — drops `:sensitive? true` trace events before they reach the LLM-facing queue, per [Spec 009 §Privacy](../../../spec/009-Instrumentation.md). Resets on page reload. See [references/vocabulary.md §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-streaming-surface). |
 
 ## DOM source bridge
 

@@ -526,6 +526,68 @@
 
 (def ^:private default-max-buffered 500)
 
+;; ---------------------------------------------------------------------------
+;; Privacy posture for the streaming surface (rf2-3cted)
+;; ---------------------------------------------------------------------------
+;;
+;; Per Spec 009 §Privacy / sensitive data: framework-published listener
+;; integrations — including the pair2 server — MUST default-suppress
+;; `:sensitive? true` trace events before forwarding to the AI surface.
+;;
+;; The trust boundary is "any trace data that leaves the browser tab and
+;; reaches the LLM-facing channel". Streaming subscriptions are how that
+;; happens in pair2: the MCP server registers a subscription, polls
+;; `drain-subscription!`, and forwards every drained event back to the
+;; agent as a `notifications/progress` payload. The retain-N ring buffer
+;; reached via `(rf/trace-buffer)` is a separate, explicit read surface;
+;; agents asking for it are making a deliberate request and the filter
+;; vocabulary already exposes `:sensitive? false` for tools that want to
+;; pre-filter (see Spec 009 §Filter vocabulary).
+;;
+;; The default is **drop**. Apps that need sensitive cascades visible to
+;; the pair tool (rare; only when the tool is itself the trust boundary)
+;; opt in explicitly via `configure-privacy!`.
+;;
+;; The flag is consulted at `on-trace-streaming` entry — before any
+;; subscription's queue sees the event. Dropped events still update the
+;; `last-trace-id` cursor (so `last-trace-event-id` keeps incrementing
+;; monotonically) and still ride `(rf/trace-buffer)` unchanged — only
+;; the streaming dispatch is gated.
+
+(defonce ^:private privacy-config
+  ;; {:include-sensitive? bool}
+  ;; Default: false — suppress `:sensitive? true` events from the
+  ;; streaming dispatch path. See namespace docs above.
+  (atom {:include-sensitive? false}))
+
+(defn configure-privacy!
+  "Set the privacy posture for the streaming surface. Opts:
+
+     :include-sensitive?  boolean — when true, `:sensitive? true` trace
+                          events ride the streaming dispatch unchanged.
+                          Default: **false** (drop) per Spec 009 §Privacy.
+
+   Returns the merged config map. Idempotent. Use sparingly — the
+   default exists because pair2 forwards events to an LLM-facing
+   channel, and the framework's privacy contract is that sensitive
+   data does not cross that boundary by accident."
+  [{:keys [include-sensitive?] :as opts}]
+  (swap! privacy-config merge (select-keys opts [:include-sensitive?]))
+  (assoc @privacy-config :ok? true))
+
+(defn privacy-config-snapshot
+  "Return the current privacy config — diagnostic helper."
+  []
+  (assoc @privacy-config :ok? true))
+
+(defn- streaming-drop?
+  "True when the streaming surface should drop `ev` for privacy reasons.
+   Today: any trace event stamped `:sensitive? true` at the top level
+   unless the operator has opted in via `configure-privacy!`."
+  [ev]
+  (and (true? (:sensitive? ev))
+       (not (true? (:include-sensitive? @privacy-config)))))
+
 (defn- topic->base-filter
   "Map a topic keyword to its base trace-filter constraints. `:fx` and
    `:error` are sugar over `:op-type`; `:trace` and `:epoch` add no
@@ -625,11 +687,19 @@
 
 (defn- on-trace-streaming
   "Replacement raw-trace listener that drives both the last-trace-id
-   cursor (legacy) and the streaming subs dispatch."
+   cursor (legacy) and the streaming subs dispatch.
+
+   Privacy filter (rf2-3cted): trace events stamped `:sensitive? true`
+   at the top level are dropped from the streaming dispatch by default,
+   per Spec 009 §Privacy. The `last-trace-id` cursor still advances so
+   the legacy `since`-based ring-buffer reads remain monotonic — only
+   the LLM-facing streaming surface is gated. Opt in via
+   `(configure-privacy! {:include-sensitive? true})`."
   [ev]
   (when-let [id (:id ev)]
     (when (number? id) (reset! last-trace-id id)))
-  (dispatch-trace-to-subs! ev))
+  (when-not (streaming-drop? ev)
+    (dispatch-trace-to-subs! ev)))
 
 (defn- on-epoch-streaming
   "Replacement assembled-epoch listener that drives both the observed

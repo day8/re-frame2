@@ -49,3 +49,51 @@ A bare mention of any of these terms does **not** mean the skill should
 activate. Activation depends on whether the user is *operating on a running
 app* or *reading source / spec*. The former is this skill's job; the latter
 belongs to `skills/re-frame2/` (authoring) or direct spec reading.
+
+## Privacy posture — `:sensitive?` and the streaming surface
+
+Per [Spec 009 §Privacy / sensitive data](../../../spec/009-Instrumentation.md), trace
+events carry an optional top-level `:sensitive?` boolean stamped by the
+runtime when the in-scope handler's registration metadata declared
+`:sensitive? true`. The framework contract is that **framework-published
+listener integrations — including the pair2 server — MUST default-suppress
+`:sensitive? true` events before forwarding to the AI surface.**
+
+This skill honours that contract. The preload's streaming dispatch
+(`on-trace-streaming` → `dispatch-trace-to-subs!`, fed by every
+`subscribe!`) drops `:sensitive? true` events before any subscription
+queue sees them. The retain-N ring buffer reached via
+`(rf/trace-buffer)` is unaffected — agents asking for it are making a
+deliberate request and can pre-filter with `(rf/trace-buffer {:sensitive? false})`.
+
+### What gets dropped, what doesn't
+
+- **Dropped from streaming subs by default**: any trace event whose
+  top-level `:sensitive?` is `true`. The legacy `last-trace-event-id`
+  cursor still advances over them so `:since`-based ring-buffer reads
+  remain monotonic.
+- **Not dropped**: events with `:sensitive? false` or no `:sensitive?`
+  key, the underlying `rf/trace-buffer` ring, and `:rf/epoch-record`
+  values surfaced via `epoch-history` / the `:epoch` streaming topic.
+  Epoch records do not carry a top-level `:sensitive?` stamp per spec —
+  if the app needs the per-event payload redacted inside an epoch, the
+  authoring side must use `(rf/with-redacted [...])` in the handler's
+  interceptor chain.
+- **Sentinel-aware**: `:rf/redacted` keywords still appear in event
+  vectors and db snapshots that rode through `with-redacted` —
+  redaction is a separate, orthogonal mechanism (the payload value is
+  replaced), `:sensitive?` is the routing flag (the event is dropped).
+
+### Asking for the unmasked view
+
+When the user explicitly wants sensitive cascades visible to the pair
+tool — rare; only when the pair tool is itself the trust boundary, e.g.
+a self-hosted MCP server inside a private network — they opt in via:
+
+```clojure
+(re-frame-pair2.runtime/configure-privacy! {:include-sensitive? true})
+```
+
+The setting persists for the session; the next page reload resets it
+to the default-suppress posture. State the trade-off plainly when
+proposing the change; this is not a knob to flip casually.
