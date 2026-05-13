@@ -13,8 +13,12 @@
        framework-reserved `:rf/redacted` sentinel.
     2. The Malli explainer output (`:explain` / `:malli-error`) is
        redacted — it carries the failing value verbatim.
-    3. The trace event's `:tags` are stamped `:sensitive? true` so
-       consumers route on it.
+    3. The trace event's TOP-LEVEL `:sensitive?` field is stamped
+       `true` so consumers route on it. (Per Spec 009 §Trace-event
+       field: `:sensitive?` at the top level, rf2-isdwf — the
+       schemas-side emit-site stamps `:tags :sensitive? true`; the
+       runtime's `emit-error!` promotes it to the top-level slot per
+       Spec 009 line 1175 'hoisted to top-level, not :tags'.)
 
   Structural slots (`:path`, `:failing-id`, `:spec-id`, `:reason`) ride
   unchanged — consumers need them to locate the broken slot without
@@ -31,8 +35,8 @@
        `validate-sub-return!` against a `:sensitive?`-bearing schema
        fires a trace with the redaction shape pinned.
     3. **Backward-compat** — non-sensitive validation failures emit
-       unchanged (`:value`, `:explain` ride verbatim; no
-       `:sensitive?` stamp on the tags)."
+       unchanged (`:value`, `:explain` ride verbatim; no top-level
+       `:sensitive?` stamp on the event)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -167,8 +171,8 @@
         (is (= 1 (count violations))
             "exactly one schema-validation-failure trace fired")
         (let [v (first violations)]
-          (is (true? (-> v :tags :sensitive?))
-              ":tags :sensitive? true — consumers can filter")
+          (is (true? (:sensitive? v))
+              "top-level :sensitive? true — consumers can filter (hoisted from :tags per Spec 009 §Trace-event field: `:sensitive?` at the top level)")
           (is (= :rf/redacted (-> v :tags :value))
               ":value is the :rf/redacted sentinel — original value scrubbed")
           (is (= :rf/redacted (-> v :tags :explain))
@@ -205,8 +209,8 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a trace fired")
-        (is (true? (-> v :tags :sensitive?))
-            "the registered schema contains a :sensitive? slot — the failure is redacted")
+        (is (true? (:sensitive? v))
+            "the registered schema contains a :sensitive? slot — the failure is redacted (top-level stamp per Spec 009 hoist)")
         (is (= :rf/redacted (-> v :tags :value)))
         (is (= :rf/redacted (-> v :tags :explain)))))))
 
@@ -221,8 +225,10 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
+        (is (not (contains? v :sensitive?))
+            "no top-level :sensitive? stamp on non-sensitive validation")
         (is (not (contains? (:tags v) :sensitive?))
-            "no :sensitive? stamp on non-sensitive validation")
+            ":tags :sensitive? also absent — the stamp lives at top-level only")
         (is (= "not-an-int" (-> v :tags :value))
             ":value rides verbatim — legacy behaviour preserved")
         (is (some? (-> v :tags :explain))
@@ -248,8 +254,8 @@
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
-          (is (true? (-> v :tags :sensitive?))
-              ":sensitive? stamp present — consumers filter on this")
+          (is (true? (:sensitive? v))
+              "top-level :sensitive? stamp present — consumers filter on this (per Spec 009 hoist)")
           (is (= :rf/redacted (-> v :tags :event))
               ":event slot — the event vector — is the redacted sentinel")
           (is (= :rf/redacted (-> v :tags :received))
@@ -279,8 +285,10 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
+        (is (not (contains? v :sensitive?))
+            "no top-level :sensitive? stamp on non-sensitive handler")
         (is (not (contains? (:tags v) :sensitive?))
-            "no sensitive stamp on non-sensitive handler")
+            ":tags :sensitive? also absent — the stamp lives at top-level only")
         (is (= [:user/register {:email "carol@example.com" :age "no"}]
                (-> v :tags :event))
             ":event rides verbatim")))))
@@ -305,7 +313,8 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
-        (is (true? (-> v :tags :sensitive?)))
+        (is (true? (:sensitive? v))
+            "top-level :sensitive? stamp on cofx validation (per Spec 009 hoist)")
         (is (= :rf/redacted (-> v :tags :value)))
         (is (= :rf/redacted (-> v :tags :received)))
         (is (= :rf/redacted (-> v :tags :explain)))
@@ -330,8 +339,8 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
-        (is (true? (-> v :tags :sensitive?))
-            "container-level :sensitive? on the schema triggered redaction")
+        (is (true? (:sensitive? v))
+            "container-level :sensitive? on the schema triggered redaction (top-level stamp per Spec 009 hoist)")
         (is (= :rf/redacted (-> v :tags :value)))))))
 
 ;; ---- redaction at sub-return validation site -----------------------------
@@ -358,8 +367,8 @@
                                @traces)]
         (is (pos? (count violations)))
         (let [v (first violations)]
-          (is (true? (-> v :tags :sensitive?))
-              ":sensitive? stamp on sub-return validation")
+          (is (true? (:sensitive? v))
+              "top-level :sensitive? stamp on sub-return validation (per Spec 009 hoist)")
           (is (= :rf/redacted (-> v :tags :value))
               ":value redacted")
           (is (= :rf/redacted (-> v :tags :received)))
@@ -389,8 +398,8 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
-        (is (true? (-> v :tags :sensitive?))
-            "the slot's :sensitive? flag claims the trace")
+        (is (true? (:sensitive? v))
+            "the slot's :sensitive? flag claims the trace (top-level stamp per Spec 009 hoist)")
         (is (= :rf/redacted (-> v :tags :value))
             "sensitive drop wins on a both-flagged slot")
         ;; No size marker leaked into the value slot — the redaction
