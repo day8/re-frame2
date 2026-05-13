@@ -371,6 +371,15 @@ Per [009 §What IS available in production](009-Instrumentation.md#what-is-avail
 | `register-event-emit-listener!` | Fn | `(register-event-emit-listener! id listener-fn)` — `listener-fn` receives one event-record per processed event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
 | `unregister-event-emit-listener!` | Fn | `(unregister-event-emit-listener! id)` → nil | v1 | 009 |
 
+## Error-emit (always-on, production-survivable)
+
+Per [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production) (#2 second paragraph). Sibling of the event-emit surface above (rf2-bacs4); runs through the SAME always-on error-emit substrate as the per-frame `:on-error` slot ([§Frames](#frames)) but along an INDEPENDENT corpus-wide fan-out path. Survives `:advanced` + `goog.DEBUG=false`. Intended consumers are hosted error monitors (Sentry, Honeybadger, Rollbar). One tight record per `:rf.error/*` event the router emits through the handler-exception path; record shape `{:error :event :event-id :frame :time :exception :elapsed-ms}`. The `:event` slot is passed through [`rf/elide-wire-value`](#size-elision-wire-boundary-walker) once before fan-out, so `:sensitive?` paths land as `:rf/redacted` and `:large?` paths land as `:rf.size/large-elided`. The two paths from the substrate (corpus-wide listeners AND the per-frame `:on-error` policy fn) are mutually isolated; either may throw without affecting the other.
+
+| API | M/Fn | Signature | Status | Spec |
+|---|---|---|---|---|
+| `register-error-emit-listener!` | Fn | `(register-error-emit-listener! id listener-fn)` — `listener-fn` receives one error-record per `:rf.error/*` event (shape above). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`. | v1 | 009 |
+| `unregister-error-emit-listener!` | Fn | `(unregister-error-emit-listener! id)` → nil | v1 | 009 |
+
 ## Tracing
 
 All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Instrumentation.md) for emit semantics and synchronous listener delivery.

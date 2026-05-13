@@ -53,6 +53,14 @@
             ;; Survives `:advanced` + `goog.DEBUG=false` — see
             ;; `re-frame.event-emit` docstring.
             [re-frame.event-emit :as event-emit]
+            ;; Always-on error-emit substrate (rf2-hqbeh per-frame
+            ;; `:on-error` + rf2-bacs4 corpus-wide listener registry).
+            ;; Required eagerly so the
+            ;; `register-error-emit-listener!` surface and the
+            ;; `:error-emit/dispatch-on-error` late-bind hook are
+            ;; populated before any dispatch can fire. Survives
+            ;; `:advanced` + `goog.DEBUG=false`.
+            [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
             [re-frame.substrate.adapter :as adapter]
             ;; Optional-artefact wrappers (rf2-hoiu). Each ns wraps a
@@ -1018,6 +1026,24 @@
 
 (def register-event-emit-listener!   event-emit/register-event-emit-listener!)
 (def unregister-event-emit-listener! event-emit/unregister-event-emit-listener!)
+
+;; ---- always-on error-emit (Spec 009 §Error-emit listener; rf2-bacs4) -----
+;;
+;; Production-survivable listener registry for `:rf.error/*` events.
+;; Sibling of `register-event-emit-listener!` (rf2-rirbq); independent
+;; from the per-frame `:on-error` policy fn (rf2-hqbeh) — both fire
+;; from one normative emission site in `router.cljc` along two
+;; independent fan-out paths. Survives `:advanced` + `goog.DEBUG=false`
+;; — the canonical wire-up point for Sentry / Honeybadger / Rollbar
+;; forwarders that need handler-exception observability without
+;; preserving the full trace surface. Listener bodies receive a tight
+;; record whose `:event` vector has already been passed through
+;; `elide-wire-value` with off-box defaults; see `re-frame.error-emit`
+;; for the full record shape and registration-site `goog.DEBUG` belt-
+;; and-braces pattern.
+
+(def register-error-emit-listener!   error-emit/register-error-emit-listener!)
+(def unregister-error-emit-listener! error-emit/unregister-error-emit-listener!)
 
 ;; ---- size-elision wire-boundary walker (rf2-v9tw2; Spec 009) -------------
 ;;

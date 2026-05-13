@@ -10,6 +10,13 @@
   forwarder went silent on the production-build path it was written
   for. This file pins the fix.
 
+  Per rf2-bacs4 — the corpus-wide
+  `register-error-emit-listener!` registry is the second always-on
+  fan-out path from the same error-emit substrate; off-box
+  observability shippers (Sentry / Honeybadger / Rollbar) wire through
+  it. This file pins that the listener registry survives elision
+  alongside the per-frame `:on-error` policy.
+
   Companion to `re-frame.trace-listener-elision-prod-test` (rf2-2zdu)
   and `re-frame.source-coord-dom-elision-prod-test` (rf2-uwg5). The
   shared runner is `re-frame.prod-elision-runner`; the shadow-cljs
@@ -22,12 +29,17 @@
   this suffix, so these tests run only under prod-mode compilation."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+    {:adapter reagent-adapter/adapter
+     :init-fn (fn []
+                ;; Per rf2-bacs4: clear the listener registry between
+                ;; tests — defonce means it would otherwise leak.
+                (error-emit/clear-error-emit-listeners!))}))
 
 ;; ---- :on-error survives goog.DEBUG=false ----------------------------------
 
@@ -94,3 +106,75 @@
     ;; error-emit/dispatch-on-error!.
     (is (nil? (rf/dispatch-sync [:prod/policy-throw]))
         "dispatch-sync returned nil despite both handler AND policy throwing")))
+
+;; ---- rf2-bacs4 corpus-wide listener survives goog.DEBUG=false -----------
+
+(deftest error-emit-listener-fires-under-prod
+  (testing "Per rf2-bacs4: under `:advanced` + `goog.DEBUG=false`, a
+            registered corpus-wide error-emit listener MUST fire for
+            every handler exception — the trace surface is gone but
+            the always-on error-emit substrate delivers the tight
+            record so off-box observability shippers (Sentry /
+            Honeybadger / Rollbar) still see every framework error."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :prod/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :prod/err-throw
+                       (fn [_db _]
+                         (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/dispatch-sync [:prod/err-throw])
+      (is (= 1 (count @seen))
+          "listener fired exactly once — prod-elision contract holds")
+      (let [r (first @seen)]
+        (is (= :rf.error/handler-exception (:error r)))
+        (is (= [:prod/err-throw] (:event r)))
+        (is (= :prod/err-throw   (:event-id r)))
+        (is (= :rf/default       (:frame r)))
+        (is (number? (:time r)))
+        (is (integer? (:elapsed-ms r))
+            ":elapsed-ms is an integer under :advanced + goog.DEBUG=false
+             — the substrate boundary rounds the CLJS float-precision
+             performance.now() value")))))
+
+(deftest error-emit-listener-exception-swallowed-under-prod
+  (testing "A buggy listener cannot break the cascade under prod. The
+            substrate catches listener throws silently — the dispatch
+            settles and sibling listeners still run. Mirrors the dev-
+            mode contract from `re-frame.on-error-test`; pinned here
+            so the prod-build behaviour is locked too."
+    (let [seen (atom [])]
+      (rf/register-error-emit-listener!
+        :prod/throws
+        (fn [_record] (throw (ex-info "listener went boom" {}))))
+      (rf/register-error-emit-listener!
+        :prod/sibling
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-event-db :prod/two-listeners
+                       (fn [_db _] (throw (ex-info "handler boom" {}))))
+      (is (nil? (rf/dispatch-sync [:prod/two-listeners]))
+          "dispatch-sync returned nil despite the listener throw")
+      (is (= 1 (count @seen))
+          "the sibling listener still received the record under prod"))))
+
+(deftest listener-and-policy-fire-independently-under-prod
+  (testing "Per rf2-bacs4 §independent paths under prod: when both a
+            per-frame `:on-error` policy fn AND a corpus-wide listener
+            are registered, BOTH fire on a handler exception. Neither
+            blocks the other under `:advanced` + `goog.DEBUG=false`."
+    (let [listener-saw (atom nil)
+          policy-saw   (atom nil)]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [ev] (reset! policy-saw ev) nil)})
+      (rf/register-error-emit-listener!
+        :prod/recorder
+        (fn [record] (reset! listener-saw record)))
+      (rf/reg-event-db :prod/both
+                       (fn [_db _] (throw (ex-info "boom" {}))))
+      (rf/dispatch-sync [:prod/both])
+      (is (some? @policy-saw)
+          "per-frame :on-error fired under prod")
+      (is (some? @listener-saw)
+          "corpus-wide listener fired under prod — both paths survive elision")
+      (is (= :rf.error/handler-exception (:error @listener-saw)))
+      (is (= :prod/both (:event-id @listener-saw))))))

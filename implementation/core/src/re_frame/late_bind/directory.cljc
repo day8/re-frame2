@@ -460,6 +460,12 @@
     :design-bead "rf2-rirbq"
     :description "Always-on per-event fan-out for production observability (Datadog / Honeycomb / Sentry). Survives `:advanced` + `goog.DEBUG=false`; parallel to (not a fallback for) the dev-only trace surface. Router invokes once per processed event after the cascade settles."}
 
+   ;; ---- re-frame.error-emit (rf2-bacs4 — always-on error observability) -----
+   {:key         :error-emit/dispatch-on-error
+    :producer-ns 're-frame.error-emit
+    :design-bead "rf2-bacs4"
+    :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out to BOTH the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers) AND the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery). Both fan-out paths independent and try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Router invokes from the handler-exception path."}
+
    ;; ---- re-frame.privacy (rf2-isdwf — sensitive-without-redaction cache) ----
    {:key         :privacy/clear-suppression-cache!
     :producer-ns 're-frame.privacy
