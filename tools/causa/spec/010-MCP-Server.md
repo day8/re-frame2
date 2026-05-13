@@ -5,10 +5,26 @@ server exposes Causa's surfaces as MCP tools so AI agents (Claude
 Code, Cursor, Copilot) can read and write a live re-frame2 runtime
 without opening Causa's UI.
 
+> **Canonical spec home.** The per-tool spec scaffold for the MCP
+> server lives at [`tools/causa-mcp/spec/`](../../causa-mcp/spec/) —
+> see [`000-Vision.md`](../../causa-mcp/spec/000-Vision.md),
+> [`Principles.md`](../../causa-mcp/spec/Principles.md), and
+> [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md).
+> The design locks accumulated in this file have been lifted there;
+> citations point to their canonical homes. This file remains the
+> **catalogue prose** (the eighteen tools enumerated with signatures
+> and return shapes); when implementation lands and
+> `tools/causa-mcp/spec/003-Tool-Catalogue.md` is authored, the
+> catalogue prose migrates there and this file shrinks to a pointer.
+
 The architecture mirrors `tools/pair2-mcp/` (per
 [`tools/pair2-mcp/spec/`](../../pair2-mcp/spec/)): a Node-based stdio
 JSON-RPC server, written in ClojureScript, compiled via shadow-cljs
-to a single `.js` file. One persistent nREPL socket per session.
+to a single `.js` file (per
+[`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-1--implementation-language)
+Lock #1, [Lock #2](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-2--agent-host-transport)).
+One persistent nREPL socket per session (per
+[Lock #3](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-3--connection-model)).
 Different tool catalogue.
 
 ## Every MCP-driven mutation leaves a visible footprint
@@ -17,10 +33,14 @@ A defining property of Causa-MCP — and a first-class differentiator
 against generalist agent surfaces like Chrome DevTools MCP's
 `evaluate_script` — is that **every dispatch, every `reset-frame-db`,
 every `restore-epoch` issued through this server is tagged
-`:origin :causa-mcp` on the trace bus**. The agent driving the server
-leaves an audit trail; its mutations are filterable, separable from
-the user's, and distinguishable from `:app` / `:pair` / `:story` /
-`:test` mutations in the same session.
+`:origin :causa-mcp` on the trace bus** (per
+[`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-4--origin-tagging-is-the-convention)
+Lock #4 and
+[`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
+§Origin tagging is the convention, not a suggestion). The agent
+driving the server leaves an audit trail; its mutations are
+filterable, separable from the user's, and distinguishable from
+`:app` / `:pair` / `:story` / `:test` mutations in the same session.
 
 Chrome's `evaluate_script` is untagged: an agent that hand-rolls
 `js/window.dispatch(...)` is **indistinguishable** in the trace from
@@ -41,10 +61,15 @@ surfaces split:
   Pulled by `:preloads`. Browser-side artefact.
 - **`tools/causa-mcp/`** — `day8/re-frame2-causa-mcp`. The MCP server.
   Pulled by `npm install`. Node-side artefact, attached over nREPL.
+  The npm coord is locked at
+  [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-6--npm-package-coord)
+  Lock #6.
 
 Both consume the same re-frame2 instrumentation surface (Spec 009
 trace bus, Tool-Pair epoch history, registrar query API). Neither
-depends on the other.
+depends on the other. Further detail on the split lives at
+[`tools/causa-mcp/spec/000-Vision.md`](../../causa-mcp/spec/000-Vision.md)
+§Why a separate jar.
 
 ## Transport
 
@@ -70,9 +95,14 @@ Causa-MCP follows the same lifecycle:
 
 Same as `tools/pair2-mcp/spec/002-nREPL-Transport.md`:
 
-- One TCP socket to `127.0.0.1:<nrepl-port>` held for the session.
+- One TCP socket to `127.0.0.1:<nrepl-port>` held for the session
+  (per
+  [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-3--connection-model)
+  Lock #3).
 - bencode framing via `bencode@2.0.x` (pinned for CommonJS
-  compatibility).
+  compatibility — per
+  [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-8--bencode-pinning)
+  Lock #8).
 - Multiplexing by UUID id over the socket's `pending` map.
 - Port discovery via `$SHADOW_CLJS_NREPL_PORT` → `target/shadow-cljs/nrepl.port`
   → `.shadow-cljs/nrepl.port` → `.nrepl-port`.
@@ -87,11 +117,21 @@ the actual op runs. Mirrors the bash-shim chain's
 
 ## Tool catalogue
 
-Eighteen MCP tools across four bands: inspection (read-only),
+Eighteen MCP tools across five bands: inspection (read-only),
 mutation (user-confirmed equivalents in the UI), streaming
-(`notifications/progress`-shaped), and meta (session-lifecycle).
-Each maps to a Causa surface; together they let an agent observe,
-dispatch, time-travel, stream, and inspect.
+(`notifications/progress`-shaped), an escape hatch, and meta
+(session-lifecycle). Each maps to a Causa surface; together they let
+an agent observe, dispatch, time-travel, stream, and inspect.
+
+The eighteen-tool cardinality and closed-set policy are locked at
+[`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-5--tool-catalogue-cardinality-and-shape)
+Lock #5; the closed-set discipline and `eval-cljs` escape valve
+posture live at
+[`tools/causa-mcp/spec/Principles.md`](../../causa-mcp/spec/Principles.md)
+§Closed-set tool catalogue, deliberate escape valve. The
+**catalogue prose itself** (the tables below) remains here until
+implementation lands and migrates it to
+`tools/causa-mcp/spec/003-Tool-Catalogue.md`.
 
 ### Inspection (read-only)
 
@@ -326,10 +366,12 @@ they don't even *have* a structured trace bus to tag.
 
 Causa-MCP and [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp)
 (v0.26.0, May 2026 — 46 tools across 8 categories) are
-**complementary, not competitive**. Causa-MCP owns the *app-domain*
-(re-frame2 events, subs, machines, app-db, epochs); Chrome MCP owns
-the *browser-substrate* (screenshots, DOM, network, memory,
-performance). An agent debugging a real bug typically wants both.
+**complementary, not competitive** (per
+[`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-7--chrome-devtools-mcp-is-complementary-not-competitive)
+Lock #7). Causa-MCP owns the *app-domain* (re-frame2 events, subs,
+machines, app-db, epochs); Chrome MCP owns the *browser-substrate*
+(screenshots, DOM, network, memory, performance). An agent debugging
+a real bug typically wants both.
 
 We recommend agent host setups load both, side-by-side.
 
@@ -440,10 +482,37 @@ catalogue is its surface.
 
 ## Spec scope
 
-This doc is the **contract**, not the implementation. The
-implementation details (shadow-cljs build, the bencode pin, the
+This doc is the **contract** between Causa-the-panel and its
+agent-facing MCP surface — the catalogue prose, the panel-to-tool
+map, and the cross-server posture vs. Chrome DevTools MCP. It is
+**not** the implementation, and (as of the
+[`tools/causa-mcp/spec/`](../../causa-mcp/spec/) scaffold landing)
+it is no longer the canonical home for the design decisions either.
+
+The MCP server's per-tool spec scaffold now lives at
+[`tools/causa-mcp/spec/`](../../causa-mcp/spec/):
+
+- [`000-Vision.md`](../../causa-mcp/spec/000-Vision.md) — what
+  Causa-MCP is, what it isn't, relationships to Causa, pair2-mcp,
+  and Chrome DevTools MCP.
+- [`Principles.md`](../../causa-mcp/spec/Principles.md) — the
+  load-bearing tie-breakers (origin tagging is the convention;
+  EDN canonical; closed-set catalogue with `eval-cljs` escape valve;
+  stage-marker-independent; degraded boot).
+- [`DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md)
+  — eight locks (implementation language, transport, connection
+  model, origin tagging, catalogue cardinality, npm coord, Chrome
+  MCP posture, bencode pin) with question / options / pick / why /
+  date locked.
+
+The four pair2-mcp-shape capability files
+([`001-Wire-Protocol.md`](../../pair2-mcp/spec/001-Wire-Protocol.md),
+[`002-nREPL-Transport.md`](../../pair2-mcp/spec/002-nREPL-Transport.md),
+[`003-Tool-Catalogue.md`](../../pair2-mcp/spec/003-Tool-Catalogue.md),
+plus an `API.md`) will land at implementation time and complete the
+parameterisation. Until then, the catalogue prose stays here; the
+locks are cited above.
+
+The implementation details (shadow-cljs build, the bencode pin, the
 specific tools.cljs shape) follow `tools/pair2-mcp/spec/`'s structure
-and prose; replicating them here would be redundant. When
-`tools/causa-mcp/` lands, it will carry its own `spec/` folder with
-the four pair2-mcp-shape files (000-Vision, 001-Wire-Protocol,
-002-nREPL-Transport, 003-Tool-Catalogue) parameterised for Causa.
+and prose; replicating them here would be redundant.
