@@ -25,6 +25,17 @@ allowed-tools:
   - mcp__re-frame-pair2__get-path
   - mcp__re-frame-pair2__subscribe
   - mcp__re-frame-pair2__unsubscribe
+  # story-mcp — live-session tools only (rf2-1v7tu HYBRID). The
+  # authoring-side surface (register-variant, get-variant,
+  # preview-variant, list-stories, …) is allow-listed by the
+  # `re-frame2` skill. These entries cover running a variant against
+  # the live runtime, inspecting failures, and capturing the cascade
+  # back into a `:play` snippet from within a pair-session.
+  - mcp__re-frame2-story-mcp__run-variant
+  - mcp__re-frame2-story-mcp__read-failures
+  - mcp__re-frame2-story-mcp__snapshot-identity
+  - mcp__re-frame2-story-mcp__run-a11y
+  - mcp__re-frame2-story-mcp__record-as-variant
   - Read
   - Edit
   - Write
@@ -127,6 +138,7 @@ Read the leaf that matches the task. Each reference file is ≤250 lines.
 |---|---|
 | Pick a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |
+| Drive a Story variant from a pair-session — variant-id ↔ frame-id identity, per-variant isolation, the four-phase lifecycle | [references/variant-as-frame.md](references/variant-as-frame.md) |
 | Open a push-mode subscription on the trace or epoch bus (topics, filters, termination) | [references/streaming-subscriptions.md](references/streaming-subscriptions.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
 | Inspect, propose, or hot-swap a frame's `:on-error` policy — the closed return-map contract | [references/on-error.md](references/on-error.md) |
