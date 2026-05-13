@@ -241,11 +241,11 @@
 ;; ---- standard cofx --------------------------------------------------------
 
 (reg-cofx :db
-  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the drain loop before the interceptor chain runs; explicit `(inject-cofx :db)` is rarely needed and is a no-op. Exists for symmetry with `:event` and v1 idioms."}
+  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the drain loop before the interceptor chain runs; explicit `(inject-cofx :db)` is rarely needed and is a no-op. Exists for symmetry with `:event`."}
   (fn [ctx]
     ;; The drain loop has already populated :coeffects :db with the frame's
     ;; current app-db value before invoking the chain — so this cofx is
-    ;; usually a no-op. It exists for symmetry with v1.
+    ;; usually a no-op. It exists for symmetry with `:event`.
     ctx))
 
 (reg-cofx :event

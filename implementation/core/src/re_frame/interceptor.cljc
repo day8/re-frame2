@@ -9,12 +9,11 @@
 
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
-  reverse order (the standard interceptor pattern from Pedestal / re-frame v1).")
+  reverse order.")
 
 (defn ->interceptor
-  "Build an interceptor map from kwargs. The primitive for custom
-  interceptors — v2 trims the v1 stdlib helpers in favour of this one
-  entry point.
+  "Build an interceptor map from kwargs. The primitive entry point for
+  custom interceptors.
 
   Kwargs:
     :id      keyword name (default `:unnamed`); appears in error traces.

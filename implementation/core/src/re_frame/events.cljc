@@ -64,8 +64,7 @@
 ;; The runtime polices this contract: any non-:db / non-:fx top-level key
 ;; emits a structured :rf.error/effect-map-shape trace per Spec 009 §Error
 ;; contract, with :recovery :logged-and-skipped. The offending key is dropped
-;; (NOT merged silently nor routed through the fx machinery) — silently
-;; routing a top-level :dispatch was the v1 behaviour M-8 explicitly removes.
+;; (NOT merged silently nor routed through the fx machinery).
 
 (defn- police-effect-map-shape!
   "Emit :rf.error/effect-map-shape for each non-:db / non-:fx top-level key

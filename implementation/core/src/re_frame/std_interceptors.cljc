@@ -2,13 +2,10 @@
   "Standard interceptors. Per Spec 002 / API.md §Standard interceptors and
   Spec 001 §Hot-reload semantics M-21.
 
-  v2 ships THREE specific helpers plus the ->interceptor primitive:
+  Ships THREE specific helpers plus the ->interceptor primitive:
     inject-cofx — in re-frame.cofx (cofx-registry lookup)
     path        — focus a handler on an app-db sub-slice (this ns)
     unwrap      — assert [id payload-map] event shape (this ns)
-
-  v2 DROPS five v1 helpers (per M-21):
-    debug, trim-v, on-changes, enrich, after.
 
   The principle: keep helpers that do specific, non-trivial work; drop
   those that are just (->interceptor :before f) or (->interceptor :after f)
