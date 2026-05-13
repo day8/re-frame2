@@ -49,6 +49,7 @@
             [re-frame.story.ui.help :as help]
             [re-frame.story.ui.mode-tabs :as mode-tabs]
             [re-frame.story.ui.panels :as panels]
+            [re-frame.story.ui.recorder :as recorder-ui]
             [re-frame.story.ui.scrubber :as scrubber]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.ui.state :as state]
@@ -354,12 +355,19 @@
          (toolbar/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
+         ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
+         ;; listener once at shell mount. The listener short-circuits
+         ;; on every emit when no recording is in flight, so leaving
+         ;; it installed is free; we only need to make sure it
+         ;; exists before the user clicks REC.
+         (recorder-ui/install-trace-listener!)
          (when-let [vid (:selected-variant @state/shell-state-atom)]
            (ensure-listeners-for-variant! vid))))
      :component-will-unmount
      (fn [_]
        (stop-hot-reload-poll!)
        (remove-selection-watcher!)
+       (recorder-ui/remove-trace-listener!)
        (teardown-all-listeners!))
      :reagent-render
      (fn []
@@ -377,7 +385,13 @@
         ;; right inspector pane regardless of which panels are visible.
         [:div {:style (:help-slot styles)}
          [help/help-button]]
-        [help/help-host]])}))
+        [help/help-host]
+        ;; rf2-5fc15: Test Codegen recording overlay (top-right banner
+        ;; while a recording is in flight) + save-as-variant dialog
+        ;; (opens after stop). Both are fixed-position so they float
+        ;; above the three-pane layout.
+        [recorder-ui/recording-overlay]
+        [recorder-ui/save-dialog]])}))
 
 ;; ---- mount / unmount surface ---------------------------------------------
 

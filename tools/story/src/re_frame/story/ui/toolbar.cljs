@@ -49,6 +49,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [re-frame.story.registrar :as registrar]
+            [re-frame.story.ui.recorder :as ui-recorder]
             [re-frame.story.ui.state :as state]))
 
 ;; ---- localStorage --------------------------------------------------------
@@ -320,6 +321,10 @@
                ^{:key mid}
                [chip mid (get modes mid) (contains? active mid)])]])))
      [:span {:style (:spacer styles)}]
+     ;; rf2-5fc15 — Test Codegen REC chip. Lives just before the reset
+     ;; affordance so the chrome-wide recorder is reachable regardless of
+     ;; which variant the user has focused.
+     [ui-recorder/rec-chip]
      (when (seq (:active-modes shell))
        [:button
         {:style     (:reset styles)

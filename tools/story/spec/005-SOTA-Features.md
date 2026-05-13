@@ -106,6 +106,105 @@ hides. The Causa artefact owns the actual view; Story owns the
 *integration*. See [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
 §10x-embed.
 
+### Test Codegen — record-as-`:play` (rf2-5fc15)
+
+Storybook 9's killer feature is the record-and-save workflow: the
+user interacts with the canvas, the tool watches the event bus, and
+on 'stop' the user gets a code snippet they paste into the variant.
+Story's `:play` body is **already** a vector of EDN event vectors
+(per [`004-Assertions.md`](004-Assertions.md) §Play sequence
+execution), so the captured trace IS the codegen output — no
+Testing-Library/page-object translation layer needed.
+
+The recorder is a chrome-wide toolbar affordance. A REC chip sits at
+the right of the [toolbar](010-Toolbar.md), just before `[reset]`:
+
+```
+[chip] [chip]   ●dark ●mobile         [● REC 7]  [reset]
+```
+
+Click toggles. With a variant selected and no recording in flight,
+clicking starts capture against that variant's frame. With a recording
+in flight, clicking stops + opens a save-as-variant modal carrying the
+generated `(reg-variant ...)` form:
+
+```clojure
+(story/reg-variant :story.counter/recorded-739221
+  {:extends :story.counter/happy-path
+   :play [[:counter/inc]
+          [:counter/inc]
+          [:counter/by 7]]})
+```
+
+#### Capture boundary
+
+The recorder consumes Story's existing trace-bus listener primitive
+(per [`003-Render-Shell.md`](003-Render-Shell.md) §Trace bus + the
+`re-frame.trace/register-trace-cb!` API per Spec 009 §Listener
+contract). One process-wide callback installed at shell mount; per
+emit it short-circuits when no recording is in flight, so leaving it
+installed is free.
+
+Three filter layers:
+
+1. **Op-type** — only `:event/dispatched` emissions qualify (skip
+   `:fx` / `:sub` / `:view` / `:cofx` traffic).
+2. **Frame scope** — the emission's `:frame` tag must match the
+   recording's target variant. Cross-frame dispatches (typing in
+   another canvas while a recording is active) are dropped.
+3. **Event vocabulary** — `:rf.assert/*` events and Story-internal
+   helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Authored
+   assertions are deliberate; recorded `:play` bodies capture user
+   intent, and assertions get added by hand.
+
+#### Public API
+
+```clojure
+;; In re-frame.story
+(start-recording!  variant-id)        ; returns recorder state
+(stop-recording!)                     ; returns captured state map
+(recording?)                          ; boolean
+(recorder-state)                      ; current state — read-only view
+(clear-recording!)                    ; drop captured trace, return to idle
+(gen-play-snippet events opts)        ; render `(reg-variant ... :play [...])`
+```
+
+`opts` for `gen-play-snippet`:
+
+- `:variant-id` (required) — keyword id for the new variant.
+- `:doc`        (optional) — docstring.
+- `:extends`    (optional) — variant id to `:extends` from (carries
+                              `:component`, `:args`, `:decorators`).
+- `:alias`      (optional) — short alias for the form (default `story`).
+
+Pure data → string; the emitted form is `read-string`-able and
+round-trips through re-frame's registrar machinery.
+
+#### Why this is structurally simpler than Storybook's recorder
+
+Storybook 9 records DOM events (`click`, `fill`, `select`) and emits
+Testing Library calls (`fireEvent.click(...)`, `await userEvent.fill(...)`),
+which then have to translate back through React's reconciliation. Story
+records re-frame events directly: every user interaction in a Story
+canvas eventually lands as a `dispatch` on the variant's router, and
+the trace bus already projects those dispatches with `:event/dispatched`
+emissions per Spec 009. Capturing the right value is one filter on the
+existing emit; the output shape is the exact vector the runtime will
+re-dispatch under `:play`. The recorder is one screenful of code.
+
+#### MCP wiring (adjacent bead)
+
+The story-mcp `record-as-variant` tool consumes the same recorder
+state through the cross-process Tool-Pair bridge (per
+[`006-MCP-Surface.md`](006-MCP-Surface.md)): the agent calls
+`start-recording!`, drives interactions via the existing MCP write
+surface (or asks the user to interact with the canvas), calls
+`stop-recording!`, and the snippet emitted by `gen-play-snippet` is
+returned as the tool's structured output for the agent to write
+back to the user's stories namespace. That bead is filed separately
+as a P2 follow-up; this spec locks the recorder's runtime contract
+so the MCP side can build against a stable surface.
+
 ## v1.1 deferrals
 
 ### Live performance ribbon
@@ -255,6 +354,7 @@ phase-2 SOTA adds that are cheap.
 | Per-variant QR code in share menu | Stage 6 |
 | Multi-substrate side-by-side pane (substrate-failures inline) | Stage 6 |
 | 10x epoch panel embed (stub + contract) | Stage 6 |
+| Test Codegen — record canvas dispatches as `:play` (rf2-5fc15) | Stage 6 |
 
 ## v1.1 ship list (first follow-up)
 

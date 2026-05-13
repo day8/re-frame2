@@ -1,0 +1,456 @@
+(ns re-frame.story.ui.recorder
+  "Test Codegen UI surface — toolbar REC chip + recording overlay.
+
+  Per bead rf2-5fc15. Wires the pure recorder
+  (`re-frame.story.recorder`) to:
+
+  - The chrome-level toolbar — a REC chip lives at the right of the
+    toolbar (just left of the `[reset]` button) so the affordance is
+    chrome-wide and visually unmistakable.
+  - The trace bus — installs a per-process listener that filters
+    `:event/dispatched` events targeting the currently-focused variant
+    frame and feeds them into `recorder/record-event!`.
+  - A save-as-variant dialog — when the user stops recording, a modal
+    surfaces the captured EDN snippet (the `(reg-variant ...)` form
+    they paste into source).
+
+  ## State source
+
+  The recorder UI reads `re-frame.story.recorder/state` directly — it's
+  a `clojure.core/atom` (NOT a `r/atom`), so component re-renders are
+  driven via `r/track!`-style polling against the recorder state
+  combined with the shell's existing `:hot-reload-tick` poll. v1 keeps
+  it simple: the toolbar's REC chip and the recording overlay both
+  consume the recorder state through Reagent's auto-tracking by
+  reading the recorder's CLJS-side mirror ratom (`ui-state`) — a thin
+  `r/atom` we keep in sync with the pure atom via `add-watch`. Tests
+  drive the pure atom directly without going through the mirror.
+
+  ## Listener integration
+
+  The listener lives behind a single `install-trace-listener!` call
+  the shell makes once at mount. Events with `:op-type :event` +
+  `:operation :event/dispatched` whose `:frame` tag matches the
+  recorder's `:variant-id` slot pipe through `record-event!`. The
+  pure predicate (`recordable-event?`) drops `:rf.assert/*` and
+  internal Story events.
+
+  ## UX
+
+  Toolbar REC chip:
+
+      [● REC]   while recording — red dot, white text on `#b91c1c`
+      [REC]     idle — neutral chip styling
+
+  Click toggles. When idle, clicking starts a recording targeting the
+  currently-focused variant; when active, clicking stops + opens the
+  snippet dialog.
+
+  Recording overlay — a fixed-position banner at the top-right of the
+  shell, visible while recording, naming the target variant and the
+  current event count.
+
+  Save-as-variant dialog — full-screen modal with:
+    - editable text field for the new variant id;
+    - the generated EDN snippet, copy-to-clipboard affordance;
+    - 'discard' / 'close' buttons.
+
+  ## Elision
+
+  Every public fn opens with `(when config/enabled? ...)` so production
+  CLJS builds short-circuit before any DOM call. The listener install
+  is also gated."
+  (:require [clojure.string :as str]
+            [reagent.core :as r]
+            [re-frame.story.config :as config]
+            [re-frame.story.recorder :as recorder]
+            [re-frame.story.ui.state :as state]))
+
+;; ---------------------------------------------------------------------------
+;; Reagent mirror of the recorder state
+;;
+;; `recorder/state` is a plain `atom` so JVM tests can exercise the state
+;; machine. CLJS-side we mirror it into a `r/atom` so the toolbar chip /
+;; overlay auto-re-render on every transition. A `add-watch` on the
+;; pure atom keeps the mirror in sync.
+;; ---------------------------------------------------------------------------
+
+(defonce ui-state
+  (r/atom (recorder/current-state)))
+
+(defonce ^:private mirror-installed?
+  (atom false))
+
+(defn- install-mirror! []
+  (when (and config/enabled? (not @mirror-installed?))
+    (reset! mirror-installed? true)
+    (add-watch recorder/state ::ui-mirror
+               (fn [_ _ _ new-state]
+                 (reset! ui-state new-state)))
+    ;; Seed once at install time so the mirror starts in sync.
+    (reset! ui-state (recorder/current-state))))
+
+;; ---------------------------------------------------------------------------
+;; Trace-bus listener wiring
+;;
+;; The actual listener lives in `re-frame.story.recorder` (cljc) so JVM
+;; integration tests can exercise the full record-from-trace path. The
+;; UI surface just delegates here and seeds the Reagent mirror so chip
+;; / overlay re-render on every transition.
+;; ---------------------------------------------------------------------------
+
+(defn install-trace-listener!
+  "Install the recorder's trace-bus listener + seed the Reagent state
+  mirror. Idempotent."
+  []
+  (when config/enabled?
+    (install-mirror!)
+    (recorder/install-trace-listener!)
+    nil))
+
+(defn remove-trace-listener!
+  "Tear down the recorder's trace-bus listener. Idempotent."
+  []
+  (when config/enabled?
+    (recorder/remove-trace-listener!)
+    nil))
+
+;; ---------------------------------------------------------------------------
+;; Toolbar REC chip
+;; ---------------------------------------------------------------------------
+
+(def ^:private styles
+  {:chip-idle   {:display         "inline-flex"
+                 :align-items     "center"
+                 :gap             "5px"
+                 :padding         "3px 10px"
+                 :background      "#37373d"
+                 :color           "#cccccc"
+                 :border          "none"
+                 :border-radius   "10px"
+                 :cursor          "pointer"
+                 :font-family     "monospace"
+                 :font-size       "11px"
+                 :user-select     "none"
+                 :letter-spacing  "0.4px"}
+   :chip-active {:display         "inline-flex"
+                 :align-items     "center"
+                 :gap             "5px"
+                 :padding         "3px 10px"
+                 :background      "#b91c1c"
+                 :color           "white"
+                 :border          "none"
+                 :border-radius   "10px"
+                 :cursor          "pointer"
+                 :font-family     "monospace"
+                 :font-size       "11px"
+                 :user-select     "none"
+                 :font-weight     "bold"
+                 :letter-spacing  "0.4px"
+                 :animation       "rf-story-rec-pulse 1.4s ease-in-out infinite"}
+   :chip-disabled {:display       "inline-flex"
+                 :align-items     "center"
+                 :gap             "5px"
+                 :padding         "3px 10px"
+                 :background      "#2d2d30"
+                 :color           "#777"
+                 :border          "none"
+                 :border-radius   "10px"
+                 :cursor          "not-allowed"
+                 :font-family     "monospace"
+                 :font-size       "11px"
+                 :user-select     "none"
+                 :letter-spacing  "0.4px"}
+   :dot         {:width        "8px"
+                 :height       "8px"
+                 :border-radius "50%"
+                 :background    "#ef4444"
+                 :box-shadow    "0 0 6px #ef4444"}
+   :overlay     {:position     "fixed"
+                 :top          "44px"
+                 :right        "12px"
+                 :z-index      1600
+                 :background   "#1f1f1f"
+                 :border       "1px solid #b91c1c"
+                 :color        "#fdd"
+                 :padding      "6px 10px"
+                 :border-radius "4px"
+                 :font-family  "monospace"
+                 :font-size    "11px"
+                 :box-shadow   "0 4px 10px rgba(0,0,0,0.6)"
+                 :display      "flex"
+                 :align-items  "center"
+                 :gap          "8px"}
+   :modal-back  {:position "fixed"
+                 :top "0" :left "0" :right "0" :bottom "0"
+                 :background "rgba(0,0,0,0.55)"
+                 :z-index 1700
+                 :display "flex"
+                 :align-items "center"
+                 :justify-content "center"}
+   :modal       {:width        "640px"
+                 :max-width    "90vw"
+                 :max-height   "80vh"
+                 :background   "#1e1e1e"
+                 :color        "#ddd"
+                 :border       "1px solid #444"
+                 :border-radius "6px"
+                 :padding      "16px"
+                 :font-family  "monospace"
+                 :font-size    "12px"
+                 :display      "flex"
+                 :flex-direction "column"
+                 :gap          "12px"
+                 :box-shadow   "0 12px 32px rgba(0,0,0,0.7)"
+                 :overflow     "hidden"}
+   :modal-title {:font-weight "bold"
+                 :color "#9cdcfe"
+                 :font-size "13px"}
+   :id-input    {:padding "6px 8px"
+                 :background "#252526"
+                 :color "white"
+                 :border "1px solid #444"
+                 :border-radius "3px"
+                 :font-family "monospace"
+                 :font-size "12px"
+                 :width "100%"
+                 :box-sizing "border-box"}
+   :snippet     {:background "#0e0e10"
+                 :color "#dcdcaa"
+                 :padding "10px"
+                 :border "1px solid #333"
+                 :border-radius "4px"
+                 :white-space "pre"
+                 :overflow "auto"
+                 :max-height "44vh"
+                 :font-family "monospace"
+                 :font-size "11px"
+                 :line-height "1.45"
+                 :flex "1 1 auto"}
+   :btn-row     {:display "flex"
+                 :gap "8px"
+                 :justify-content "flex-end"}
+   :btn         {:padding "5px 12px"
+                 :background "#0e639c"
+                 :color "white"
+                 :border "none"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :font-family "monospace"
+                 :font-size "11px"}
+   :btn-muted   {:padding "5px 12px"
+                 :background "transparent"
+                 :color "#cccccc"
+                 :border "1px solid #444"
+                 :border-radius "3px"
+                 :cursor "pointer"
+                 :font-family "monospace"
+                 :font-size "11px"}
+   :hint        {:color "#9a9a9a"
+                 :font-style "italic"
+                 :font-size "10px"}})
+
+;; ---------------------------------------------------------------------------
+;; Modal state — a single flag for whether the save-as-variant dialog
+;; is open + a draft variant id the user types into.
+;;
+;; The dialog opens automatically when the user STOPS recording and
+;; there are captured events; it can also be reopened from the toolbar
+;; chip's secondary "snippet" affordance (v1 ships the auto-open path
+;; only — re-open is a v1.1 polish).
+;; ---------------------------------------------------------------------------
+
+(defonce ui-dialog
+  (r/atom {:open? false
+           :draft-id nil}))
+
+(defn- default-variant-id
+  "Derive a sensible default id for the new variant. Uses the recorded
+  variant's namespace + '/recorded-N' where N is a wall-clock-derived
+  short suffix so multiple recordings against the same variant don't
+  clobber each other."
+  [source-variant-id]
+  (when (and source-variant-id (qualified-keyword? source-variant-id))
+    (let [suffix (-> (.now js/Date)
+                     (mod 1000000)
+                     str)]
+      (keyword (namespace source-variant-id)
+               (str "recorded-" suffix)))))
+
+(defn- open-dialog! [source-variant-id]
+  (swap! ui-dialog assoc
+         :open? true
+         :draft-id (default-variant-id source-variant-id)))
+
+(defn- close-dialog! []
+  (swap! ui-dialog assoc :open? false))
+
+(defn- set-draft-id! [s]
+  (let [k (try
+            (let [stripped (cond-> s
+                             (and (string? s)
+                                  (re-find #"^:" s))
+                             (subs 1))]
+              (when (and (string? stripped) (seq stripped))
+                (if (re-find #"/" stripped)
+                  (let [[ns nm] (str/split stripped #"/" 2)]
+                    (keyword ns nm))
+                  (keyword stripped))))
+            (catch :default _ nil))]
+    (swap! ui-dialog assoc :draft-id (or k s))))
+
+;; ---------------------------------------------------------------------------
+;; Toolbar chip + overlay components
+;; ---------------------------------------------------------------------------
+
+(defn- can-record?
+  "True iff a recording can be started. Requires a selected variant —
+  the recorder targets exactly one frame."
+  [shell]
+  (some? (:selected-variant shell)))
+
+(defn rec-chip
+  "Toolbar chip rendered by the toolbar strip. Click toggles recording.
+
+  States:
+    - no variant selected → disabled (the recorder needs a target).
+    - idle               → [REC]   click to start.
+    - recording          → [● REC] click to stop + open snippet
+                            dialog.
+
+  Public so tests can introspect the chip-level hiccup without
+  driving the full toolbar."
+  []
+  (let [shell      @state/shell-state-atom
+        rec        @ui-state
+        rec?       (:recording? rec)
+        target     (:selected-variant shell)
+        enabled?   (or rec? (can-record? shell))
+        on-click   (fn [_]
+                     (cond
+                       (and (not rec?) target)
+                       (recorder/start-recording! target)
+
+                       rec?
+                       (let [{:keys [variant-id events]} (recorder/stop-recording!)]
+                         (when (seq events)
+                           (open-dialog! variant-id)))))]
+    [:button
+     {:style        (cond
+                      (not enabled?) (:chip-disabled styles)
+                      rec?           (:chip-active styles)
+                      :else          (:chip-idle styles))
+      :disabled     (not enabled?)
+      :data-test    "story-toolbar-rec"
+      :data-recording (if rec? "true" "false")
+      :aria-pressed (if rec? "true" "false")
+      :title        (cond
+                      (not enabled?)
+                      "Select a variant to record canvas interactions"
+                      rec?
+                      (str "Recording " (count (:events rec))
+                           " events — click to stop and save as variant")
+                      :else
+                      "Record canvas dispatches as a :play body (Test Codegen)")
+      :on-click     on-click}
+     (when rec? [:span {:style (:dot styles)}])
+     "REC"
+     (when rec?
+       [:span {:style {:opacity "0.85"}}
+        (str "  " (count (:events rec)))])]))
+
+(defn recording-overlay
+  "Fixed-position banner that floats at the top-right of the shell
+  while a recording is in flight. Surfaces the target variant + the
+  running event count."
+  []
+  (let [{:keys [recording? variant-id events]} @ui-state]
+    (when recording?
+      [:div
+       {:style       (:overlay styles)
+        :role        "status"
+        :aria-live   "polite"
+        :data-test   "story-recorder-overlay"}
+       [:span {:style (:dot styles)}]
+       [:span "REC"]
+       [:span {:style {:color "#fff"}}
+        (pr-str variant-id)]
+       [:span {:style {:color "#9a9a9a"}}
+        (str (count events) " event" (when (not= 1 (count events)) "s"))]
+       [:button
+        {:style    (:btn-muted styles)
+         :data-test "story-recorder-stop"
+         :on-click (fn [_]
+                     (let [{:keys [variant-id events]} (recorder/stop-recording!)]
+                       (when (seq events)
+                         (open-dialog! variant-id))))}
+        "stop"]])))
+
+;; ---------------------------------------------------------------------------
+;; Save-as-variant dialog
+;; ---------------------------------------------------------------------------
+
+(defn- copy-to-clipboard! [snippet]
+  (try
+    (when (and (exists? js/navigator) (.-clipboard js/navigator))
+      (.writeText (.-clipboard js/navigator) snippet))
+    (catch :default _ nil)))
+
+(defn save-dialog
+  "Modal dialog rendered after the user stops a non-empty recording.
+  Shows the EDN snippet — `(reg-variant <id> {... :play [...]})` —
+  and a 'copy to clipboard' affordance.
+
+  The user edits the variant id inline; the snippet re-generates on
+  every keystroke. Discard / close drop the captured events."
+  []
+  (let [{:keys [open? draft-id]}      @ui-dialog
+        {:keys [variant-id events]}   @ui-state]
+    (when open?
+      (let [snippet (recorder/gen-play-snippet
+                      events
+                      {:variant-id (or draft-id :story.recorded/example)
+                       :extends    variant-id})]
+        [:div {:style (:modal-back styles)
+               :data-test "story-recorder-dialog"
+               :on-click  (fn [e]
+                            (when (= (.-target e) (.-currentTarget e))
+                              (close-dialog!)))}
+         [:div {:style (:modal styles)
+                :on-click (fn [e] (.stopPropagation e))}
+          [:div {:style (:modal-title styles)}
+           "Test Codegen — save recording as variant"]
+          [:div {:style (:hint styles)}
+           "EDN snippet generated from "
+           (count events) " captured event"
+           (when (not= 1 (count events)) "s")
+           " against " (pr-str variant-id) ". Edit the variant id then "
+           "copy + paste into your stories namespace."]
+          [:input
+           {:type       "text"
+            :style      (:id-input styles)
+            :data-test  "story-recorder-id-input"
+            :default-value (pr-str (or draft-id :story.recorded/example))
+            :on-change  (fn [e] (set-draft-id! (.. e -target -value)))
+            :placeholder ":story.your-story/recorded-flow"}]
+          [:pre {:style (:snippet styles)
+                 :data-test "story-recorder-snippet"}
+           snippet]
+          [:div {:style (:btn-row styles)}
+           [:button
+            {:style    (:btn-muted styles)
+             :data-test "story-recorder-discard"
+             :on-click (fn [_]
+                         (recorder/clear!)
+                         (close-dialog!))}
+            "discard"]
+           [:button
+            {:style     (:btn styles)
+             :data-test "story-recorder-copy"
+             :on-click  (fn [_] (copy-to-clipboard! snippet))}
+            "copy to clipboard"]
+           [:button
+            {:style    (:btn-muted styles)
+             :data-test "story-recorder-close"
+             :on-click (fn [_] (close-dialog!))}
+            "close"]]]]))))
