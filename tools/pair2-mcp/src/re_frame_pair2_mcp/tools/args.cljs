@@ -40,27 +40,25 @@
 (defn coerce-path-segment
   "Coerce one segment of a JS-array path argument.
 
-  Heuristic: an EDN-shaped string is parsed (`\":cart\"` ⇒ `:cart`,
-  `\"0\"` ⇒ `0`, `\"-1\"` ⇒ `-1`), but a bare identifier
-  (`\"items\"`, `\"bare-key\"`) stays a string — the default reader
-  would otherwise coerce it to a symbol, which is a different
-  `get-in` key. Trigger characters are the EDN literal openers `:`
-  (keyword), a leading digit, or `-`/`+` (signed number); anything
-  else falls through as a plain string."
+  Try `read-string`; on any failure (the bare identifier case —
+  `\"items\"` would otherwise read as a symbol, which is the wrong
+  `get-in` key) fall through as the original string. `read-string`
+  parses EDN literals (`\":cart\"` ⇒ `:cart`, `\"0\"` ⇒ `0`,
+  `\"-1\"` ⇒ `-1`) and rejects anything else, so the catch-fallback
+  IS the discriminator — no first-char heuristic needed."
   [s]
   (if-not (string? s)
     s
-    (let [trimmed   (str/trim s)
-          fc        (when (pos? (count trimmed)) (.charAt trimmed 0))
-          edn-shape (and fc
-                         (or (= ":" fc)
-                             (= "-" fc)
-                             (= "+" fc)
-                             (boolean (re-matches #"\d" fc))))]
-      (if edn-shape
-        (try (cljs.reader/read-string trimmed)
-             (catch :default _ s))
-        s))))
+    (let [trimmed (str/trim s)
+          parsed  (try (cljs.reader/read-string trimmed)
+                       (catch :default _ ::reader-fail))]
+      (cond
+        (= ::reader-fail parsed) s
+        ;; Symbols are the reader's "bare identifier" outcome — not a
+        ;; valid `get-in` key on a map keyed by strings or keywords;
+        ;; keep the original string instead so `{"items" ...}` works.
+        (symbol? parsed)         s
+        :else                    parsed))))
 
 (defn parse-path-arg
   "Normalise the `path` MCP arg into a CLJS vector suitable for

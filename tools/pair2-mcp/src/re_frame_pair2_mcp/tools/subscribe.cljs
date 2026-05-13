@@ -44,13 +44,10 @@
             [re-frame-pair2-mcp.tools.subscribe-emit :as emit]))
 
 (def ^:private default-poll-ms 100)
-(def ^:private default-max-buffered-events 500)
-(def ^:private default-max-buffered-bytes
-  ;; ~5 MB — see runtime.cljs's identical default for the rationale.
-  ;; Mirrored here so the MCP server can fill in the slot before the
-  ;; nREPL call if the caller omits it; the runtime still applies the
-  ;; same default if the slot is `nil`.
-  5000000)
+;; `:max-buffered-events` / `:max-buffered-bytes` are NOT mirrored here
+;; (rf2-ambfv): the runtime applies its own defaults when the slot is
+;; nil, and mirroring forces a two-file sync on every runtime tweak
+;; (e.g. rf2-ho4ve raising the byte cap). Pass nil → runtime defaults.
 
 (def ^:private initial-state
   "The rolling per-stream accounting map (rf2-w5etd). Held inside one
@@ -181,10 +178,8 @@
   (let [build-id           (wire/arg-build raw-args)
         topic              (some-> (wire/arg raw-args :topic) keyword)
         filter-map         (args/parse-filter-arg (wire/arg raw-args :filter))
-        max-buf-events     (or (wire/arg raw-args :max-buffered-events)
-                               default-max-buffered-events)
-        max-buf-bytes      (or (wire/arg raw-args :max-buffered-bytes)
-                               default-max-buffered-bytes)
+        max-buf-events     (wire/arg raw-args :max-buffered-events)
+        max-buf-bytes      (wire/arg raw-args :max-buffered-bytes)
         poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
         max-ms             (or (wire/arg raw-args :max-ms) 0)
         max-events         (or (wire/arg raw-args :max-events) 0)
@@ -203,10 +198,13 @@
       (let [subscribe-form
             (ef/emit
               (ef/rt-call 'subscribe!
-                          (cond-> {:topic               topic
-                                   :max-buffered-events max-buf-events
-                                   :max-buffered-bytes  max-buf-bytes}
-                            filter-map (assoc :filter filter-map))))]
+                          ;; Only inline slots the caller actually
+                          ;; supplied — the runtime applies its own
+                          ;; defaults for absent budget knobs (rf2-ambfv).
+                          (cond-> {:topic topic}
+                            max-buf-events (assoc :max-buffered-events max-buf-events)
+                            max-buf-bytes  (assoc :max-buffered-bytes  max-buf-bytes)
+                            filter-map     (assoc :filter              filter-map))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id subscribe-form)))
             (.then

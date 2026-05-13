@@ -81,32 +81,60 @@
 ;; Server boot.
 ;; ---------------------------------------------------------------------------
 
+(defn build-server
+  "Build an MCP `Server` instance with `tools/list` wired to the static
+  descriptors and `tools/call` routed to `call-handler` (a `(req,
+  extra) → Promise<result>` fn). Shared by the success-path boot and
+  the degraded-mode boot (rf2-ambfv) so the two share one Server
+  shape — a future descriptor / capability change lands once."
+  [call-handler]
+  (let [Server          (j/get mcp-server :Server)
+        ListToolsSchema (j/get mcp-types :ListToolsRequestSchema)
+        CallToolSchema  (j/get mcp-types :CallToolRequestSchema)
+        server          (Server.
+                          #js {:name server-name :version server-version}
+                          #js {:capabilities #js {:tools #js {}}})]
+    (j/call server :setRequestHandler ListToolsSchema handle-list)
+    (j/call server :setRequestHandler CallToolSchema call-handler)
+    server))
+
 (defn boot!
   "Build the MCP server, register handlers, and return it. Exposed for
   tests so they can drive the dispatcher without taking over stdin/out."
   [conn]
-  (let [Server          (j/get mcp-server :Server)
-        ListToolsSchema (j/get mcp-types :ListToolsRequestSchema)
-        CallToolSchema  (j/get mcp-types :CallToolRequestSchema)
-        server (Server.
-                 #js {:name server-name :version server-version}
-                 #js {:capabilities #js {:tools #js {}}})]
-    (j/call server :setRequestHandler ListToolsSchema handle-list)
-    (j/call server :setRequestHandler CallToolSchema
-            (fn [req extra] (handle-call conn req extra)))
-    server))
+  (build-server (fn [req extra] (handle-call conn req extra))))
+
+(defn- connect-transport!
+  "Connect `server` to a fresh stdio transport. Logs `ready-msg` on
+  success; logs and exits on transport-connect failure."
+  [server ready-msg]
+  (let [StdioTransport (j/get mcp-stdio :StdioServerTransport)]
+    (-> (j/call server :connect (StdioTransport.))
+        (.then (fn [_] (log! ready-msg)))
+        (.catch (fn [err]
+                  (log! "transport.connect failed:" (.-message err))
+                  (js/process.exit 1))))))
+
+(defn- degraded-handler
+  "Build a `tools/call` handler that surfaces the boot-error structurally
+  on every call. Used when the nREPL port couldn't be resolved — the
+  MCP client can still discover tools and gets a typed error on first
+  invocation rather than a transport-level failure."
+  [boot-error]
+  (fn [_req]
+    (js/Promise.resolve
+      #js {:isError true
+           :content #js [#js {:type "text"
+                              :text (pr-str {:ok? false
+                                             :reason :nrepl-port-not-found
+                                             :hint   (-> boot-error ex-data :hint)})}]})))
 
 (defn main [& _args]
   (try
     (let [conn   (new-conn)
-          server (boot! conn)
-          StdioTransport (j/get mcp-stdio :StdioServerTransport)]
+          server (boot! conn)]
       (log! "starting stdio transport")
-      (-> (j/call server :connect (StdioTransport.))
-          (.then (fn [_] (log! "ready — awaiting MCP frames on stdin")))
-          (.catch (fn [err]
-                    (log! "transport.connect failed:" (.-message err))
-                    (js/process.exit 1)))))
+      (connect-transport! server "ready — awaiting MCP frames on stdin"))
     (catch :default e
       (log! "boot failed:" (.-message e))
       ;; Even on boot failure (e.g. nREPL port missing) we keep the
@@ -114,23 +142,5 @@
       ;; and surface a structured error from the first tool call. The
       ;; bash-shim chain had the same semantics — the error came back
       ;; as `{:ok? false :reason :nrepl-port-not-found}`.
-      (let [Server          (j/get mcp-server :Server)
-            ListToolsSchema (j/get mcp-types :ListToolsRequestSchema)
-            CallToolSchema  (j/get mcp-types :CallToolRequestSchema)
-            StdioTransport  (j/get mcp-stdio :StdioServerTransport)
-            server (Server. #js {:name server-name :version server-version}
-                            #js {:capabilities #js {:tools #js {}}})]
-        (j/call server :setRequestHandler ListToolsSchema handle-list)
-        (j/call server :setRequestHandler CallToolSchema
-          (fn [_req]
-            (js/Promise.resolve
-              #js {:isError true
-                   :content #js [#js {:type "text"
-                                      :text (pr-str {:ok? false
-                                                     :reason :nrepl-port-not-found
-                                                     :hint (-> e ex-data :hint)})}]})))
-        (-> (j/call server :connect (StdioTransport.))
-            (.then (fn [_] (log! "ready (degraded — no nREPL port)")))
-            (.catch (fn [err]
-                      (log! "transport.connect failed:" (.-message err))
-                      (js/process.exit 1))))))))
+      (let [server (build-server (degraded-handler e))]
+        (connect-transport! server "ready (degraded — no nREPL port)")))))

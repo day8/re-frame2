@@ -187,6 +187,13 @@
 
 (defn- new-id [] (str (random-uuid)))
 
+(def ^:private default-timeout-ms
+  "Per-op timeout when the caller doesn't override. 30s is generous
+  for shadow-cljs cljs-eval round-trips; heavy forms (e.g. a
+  trace-window walk over the full epoch ring under load) can pass
+  `:timeout-ms` for longer."
+  30000)
+
 (defn send-op!
   "Send a single nREPL op over the persistent socket. `op-map` is a
   bencode-able map like `{\"op\" \"eval\" \"code\" \"...\"}`. Returns a
@@ -194,20 +201,32 @@
   once a frame with `\"status\":[\"done\"]` arrives for this id.
 
   Auto-(re)connects if the socket has dropped. Caller manages the
-  reinjection sentinel — see `tools.cljs`."
-  [conn-atom op-map]
+  reinjection sentinel — see `tools.cljs`.
+
+  ## Options (rf2-ambfv)
+
+  Optional second arg:
+
+      :timeout-ms <ms>  per-op deadline. Defaults to
+                        `default-timeout-ms` (30s). Heavy forms can
+                        raise this rather than collapsing under the
+                        generic ceiling."
+  ([conn-atom op-map] (send-op! conn-atom op-map nil))
+  ([conn-atom op-map {:keys [timeout-ms]}]
   (-> (connect! conn-atom)
       (.then
         (fn [_]
           (js/Promise.
             (fn [resolve reject]
-              (let [id     (new-id)
-                    state  (atom {:out "" :err "" :status #{} :value nil :ex nil})
-                    timer  (js/setTimeout
-                             (fn []
-                               (swap! conn-atom update :pending dissoc id)
-                               (reject (js/Error. (str "nREPL op " (j/get op-map "op") " timed out after 30s"))))
-                             30000)
+              (let [id        (new-id)
+                    state     (atom {:out "" :err "" :status #{} :value nil :ex nil})
+                    deadline  (or timeout-ms default-timeout-ms)
+                    timer     (js/setTimeout
+                                (fn []
+                                  (swap! conn-atom update :pending dissoc id)
+                                  (reject (js/Error. (str "nREPL op " (j/get op-map "op")
+                                                          " timed out after " deadline "ms"))))
+                                deadline)
                     on-frame
                     (fn [^js frame]
                       (let [v   (j/get frame "value")
@@ -229,7 +248,7 @@
                 (let [op (j/assoc! (clj->js op-map) "id" id)
                       ^js sock (:socket @conn-atom)]
                   (.write sock (bencode/encode op))))))))
-      (.catch (fn [err] (js/Promise.reject err)))))
+      (.catch (fn [err] (js/Promise.reject err))))))
 
 ;; ---------------------------------------------------------------------------
 ;; nREPL → CLJS eval bridge (mirrors ops.clj's cljs-eval / cljs-eval-value).
@@ -237,20 +256,24 @@
 
 (defn jvm-eval
   "Evaluate a Clojure form on the JVM side of nREPL. Returns a Promise
-  resolving to a combined response map."
-  [conn-atom form-str]
-  (send-op! conn-atom {"op" "eval" "code" form-str}))
+  resolving to a combined response map. Optional `opts` passes
+  through to [[send-op!]] (e.g. `{:timeout-ms 60000}`)."
+  ([conn-atom form-str] (jvm-eval conn-atom form-str nil))
+  ([conn-atom form-str opts]
+   (send-op! conn-atom {"op" "eval" "code" form-str} opts)))
 
 (defn cljs-eval
   "Evaluate a ClojureScript form through shadow-cljs's `cljs-eval` API.
-  Returns a Promise resolving to a combined response map."
-  [conn-atom build-id form-str]
-  (let [build-pr  (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))
-        ;; pr-str CLJS form: use double-quote-escaped string literal.
-        code-pr   (pr-str form-str)
-        wrapped   (str "(shadow.cljs.devtools.api/cljs-eval "
-                       build-pr " " code-pr " {})")]
-    (jvm-eval conn-atom wrapped)))
+  Returns a Promise resolving to a combined response map. Optional
+  `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline."
+  ([conn-atom build-id form-str] (cljs-eval conn-atom build-id form-str nil))
+  ([conn-atom build-id form-str opts]
+   (let [build-pr  (if (keyword? build-id) (str build-id) (str ":" (name (or build-id :app))))
+         ;; pr-str CLJS form: use double-quote-escaped string literal.
+         code-pr   (pr-str form-str)
+         wrapped   (str "(shadow.cljs.devtools.api/cljs-eval "
+                        build-pr " " code-pr " {})")]
+     (jvm-eval conn-atom wrapped opts))))
 
 (defn- read-edn-safe [s]
   (try (edn/read-string s) (catch :default _ s)))
@@ -262,9 +285,13 @@
   and read it as EDN.
 
   Returns a Promise resolving to the unwrapped value (or rejecting
-  with an Error if the eval threw or returned an error map)."
-  [conn-atom build-id form-str]
-  (-> (cljs-eval conn-atom build-id form-str)
+  with an Error if the eval threw or returned an error map). Optional
+  `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline —
+  heavy forms (full-epoch-ring walks) can raise it past the 30s
+  default."
+  ([conn-atom build-id form-str] (cljs-eval-value conn-atom build-id form-str nil))
+  ([conn-atom build-id form-str opts]
+  (-> (cljs-eval conn-atom build-id form-str opts)
       (.then
         (fn [resp]
           (cond
@@ -287,4 +314,4 @@
                 (js/Promise.reject
                   (js/Error. (str "cljs eval error: " (:err outer))))
 
-                :else outer)))))))
+                :else outer))))))))

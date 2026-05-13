@@ -110,14 +110,8 @@
     (let [cache (dedup/de-dupe-eq v)]
       {base-vocab/dedup-table-key cache})))
 
-(defn dedup-expand
-  "Reverse `dedup-value`. Given a value possibly wrapped in the
-  `:rf.mcp/dedup-table` marker, reconstruct the original structure
-  via `de-dupe.core/expand`. Idempotent on already-expanded values
-  (the marker check returns the input unchanged when the wrapper
-  isn't present). Provided for round-trip parity and for the unit
-  tests; the agent host can call the same shape locally."
-  [v]
-  (if (and (map? v) (contains? v base-vocab/dedup-table-key))
-    (dedup/expand (get v base-vocab/dedup-table-key))
-    v))
+;; `dedup-expand` (the inverse of `dedup-value`) has moved to
+;; `re-frame-pair2-mcp.test-utils/dedup-expand` (rf2-ambfv). It's
+;; never called by the MCP server itself — only by tests asserting
+;; round-trip exactness. The agent host calls `de-dupe.core/expand`
+;; directly on the wire payload.
