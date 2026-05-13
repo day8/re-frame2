@@ -31,9 +31,9 @@ Each leaf carries the same five sections:
 
 When a new anti-pattern surfaces across 3+ review sessions, add it as a new leaf and a new row above. Mirrors how `re-frame-pair-improver2/references/known-frictions.md` grows organically. Anti-patterns flagged in `ai/findings/improver-architecture-20260513-1752.md` §Angle 2 as "bonus" candidates (view renders only happy state; effect handlers writing to foreign frames) are deferred until they surface in real reviews.
 
-## Planned shared leaf (rf2-dhe9v will land)
+## Shared retro protocol (rf2-dhe9v)
 
-- `retro-protocol.md` — diagnosis-first workflow, evidence-citation discipline, layer-routing rules. Extracted from `re-frame-pair-retro2`. Consumed by both this skill and `re-frame-pair-retro2`.
+- [`../../shared/retro-protocol.md`](../../shared/retro-protocol.md) — seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol. Extracted from `re-frame-pair-retro2`; consumed by both this skill and `re-frame-pair-retro2`. The SKILL.md loads it; per-leaf detection rules below assume the protocol is already in scope.
 
 ## Cross-references
 

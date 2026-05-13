@@ -76,7 +76,7 @@ If 1 holds but 2 doesn't: ask for a snippet or a directory to read. Decline rath
 5. **Propose fixes.** Grounded mechanical rewrites can use `Edit` when the agent is confident. Higher-leverage redesigns stay as suggestions — present the option, let the user decide.
 6. **Surface findings** in the output shape below.
 
-The diagnosis-first discipline, evidence-citation rules, and layer-routing heuristics are shared with the retro skills — see [`references/retro-protocol.md`](references/retro-protocol.md) (rf2-dhe9v will extract this as a shared protocol leaf consumed by both `re-frame2-improver` and the renamed `re-frame-pair-retro2`).
+The diagnosis-first discipline, evidence-citation rules, layer-routing heuristics, and opt-in bead protocol are shared with `re-frame-pair-retro2` — load the shared leaf at [`../shared/retro-protocol.md`](../shared/retro-protocol.md). The workflow above is the consuming view; the protocol leaf is the normative source.
 
 ## Output format
 
@@ -104,4 +104,4 @@ If the in-scope code is too thin for findings, say so plainly and ask for a wide
 ## Reference files
 
 - [`references/`](references/) — anti-pattern catalogue (6 leaves at launch; populated by rf2-bquci). Each leaf carries: detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, cross-link to `skills/re-frame2/patterns/` or `spec/`.
-- [`references/retro-protocol.md`](references/retro-protocol.md) — shared retro protocol (diagnosis-first workflow, evidence-citation discipline, layer-routing rules). Extracted by rf2-dhe9v from `re-frame-pair-retro2`; consumed by both this skill and `re-frame-pair-retro2`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Extracted by rf2-dhe9v; consumed by both this skill and `re-frame-pair-retro2`.
