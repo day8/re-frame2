@@ -9,10 +9,11 @@ This chapter is the human-facing version of that pitch. What you actually get, w
 You'll come away knowing:
 
 - What re-frame2 commits to as a *tooling substrate*, in narrative form.
-- Which tools already exist (`re-frame-pair2`) and which are in design (`re-frame2-story`, Causa, machine visualisers).
+- Which tools already exist (`re-frame-pair2`, Causa, `re-frame2-story`, `story-mcp`) and which are in design (`causa-mcp`, machine visualisers).
 - Why the **trace bus** and **per-cascade epoch records** are the architectural punchline — one observation surface, every tool consumes it.
 - How **source-coord stamping** wires click-to-source from any panel.
 - How to attach your own listener and build a working debug panel in twenty lines.
+- How off-box trace forwarding to APM platforms attaches to the same listener API — see [ch.22 — Trace to Datadog](22-trace-to-datadog.md).
 - Where to look when you need the contract reference (it's still here, just positioned at the end).
 
 ## The architectural punchline: one observation surface
@@ -27,7 +28,7 @@ The integration is *deep*, not bolt-on. The trace events aren't a sidecar log fi
 
 ## The tools — evidence the surface works
 
-Four tools, at different stages of life. They all attach to the one substrate above; none of them reach for a privileged hook. That's the proof the contract works: it already carries multiple consumers with non-overlapping shapes.
+Several tools, at different stages of life. They all attach to the one substrate above; none of them reach for a privileged hook. That's the proof the contract works: it already carries multiple consumers with non-overlapping shapes.
 
 ### `re-frame-pair2` — the AI pair-programming companion
 
@@ -35,17 +36,40 @@ Four tools, at different stages of life. They all attach to the one substrate ab
 
 You'd use `re-frame-pair2` when you want an AI agent that can do experimentally what a human REPL session would: try a thing, see the trace, decide what's next. The skill's transcripts are kept structured precisely so [`re-frame-pair-retro2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair-retro2) — a sibling retrospective skill — can review them and propose improvements to the pair tool itself.
 
-### `re-frame2-story` — Storybook for frames *(in design)*
+### `re-frame2-story` — Storybook for frames
 
 A Storybook-flavoured component playground built around re-frame2's frame primitive. Each story is a frame, with controls that dispatch events and surfaces that watch subscriptions. Machine-state visualisation, per-story time-travel, frame-aware fixture data — the same machinery the runtime uses for the live app, scoped to a single component.
 
-The design treats each story as a registered frame: declarative controls dispatch events, surfaces render against subscriptions, and per-story time-travel uses the framework's own epoch buffer. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
+Each story is a registered frame: declarative controls dispatch events, surfaces render against subscriptions, and per-story time-travel uses the framework's own epoch buffer. You'd use this for catalogue-style visual development: drive a component through every state it can reach, snapshot the rendered tree, document the controls in the same file as the implementation.
 
-### Causa — interactive devtools *(in design)*
+### `story-mcp` — the agent surface for Story
 
-The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; the v2-era successor — **Causa** (Maven coord `day8/re-frame2-causa`) — is being built from scratch as a *renderer* of re-frame2's own surfaces: a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. Same panels (events, subs, renders, fxs, app-db diff, time-travel), but the substrate underneath is the framework's own, not 10x's bespoke recording machinery.
+[**`story-mcp`**](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) (coord `day8/re-frame2-story-mcp`) is the sibling MCP server that exposes Story's read (and gated write) surface to AI agents as a tool catalogue. An agent host (Claude Code, Cursor, Copilot) launches the JVM server as a subprocess, performs the standard MCP `initialize` handshake, then calls tools like `list-stories`, `run-variant`, `snapshot-identity`, `register-variant` to navigate, drive, and *author* the Story library.
 
-The payoff: Causa and `re-frame-pair2` coexist as parallel listeners on the same trace bus, neither depending on the other. The runtime's contract is the integration point.
+The catalogue is 17 tools across four categories — Dev (agent onboarding + preview), Docs (introspect the library), Testing (run variants, capture identity snapshots, run a11y, read failures), and Write (gated `register-variant` / `unregister-variant`). The Write surface is what enables the agent **self-healing loop**: write a story variant, run it, assert against the canonical assertions, refine and re-register until green — all inside the runtime, no source-file write needed until the agent is confident.
+
+`story-mcp` is the third Tool-Pair MCP server in flight alongside `re-frame-pair2` (the editor-driven nREPL surface) and the planned `causa-mcp` (Causa's tool catalogue). Each consumes the same instrumentation substrate; each packages a different slice for its consumer.
+
+### Causa — interactive devtools
+
+The next generation of the in-browser devtools panel. The v1 tool ([`re-frame-10x`](https://github.com/day8/re-frame-10x)) was built against re-frame v1 and ships its own epoch buffer; the v2-era successor — **Causa** (Maven coord `day8/re-frame2-causa`) — is a *renderer* of re-frame2's own surfaces: a registered trace listener, a consumer of `epoch-history`, a query consumer of the registrar, a UI on top. No bespoke recording machinery — same panels (events, subs, renders, fxs, app-db diff, time-travel), substrate is the framework's own.
+
+Causa **ships in dev builds today** via shadow-cljs's `:devtools/preloads` hook on `day8.re-frame2-causa.preload`. The Phase 5 sprint landed the full sidebar — Event detail, Time travel, App-db, Causality, Subscriptions, Effects, Trace, Machines, Flows, Routes, Performance, Issues, Schemas, Hydration, MCP, Co-pilot — 16 first-class panels grouped into always-active, conditional-with-activity, and AI-surface bands, all consuming the trace bus and `register-epoch-cb!` projections. Causa is built on the [`day8/reagent-slim`](https://github.com/day8/re-frame2/tree/main/implementation/adapters/reagent-slim) adapter (per [rf2-wl5pa](https://github.com/day8/re-frame2)) — the slimmed Reagent rewrite that drops the legacy `tag-name`-as-coll API in favour of `:>` host-component heads.
+
+To drive Causa against an example app:
+
+```bash
+cd implementation
+npx shadow-cljs watch examples/counter   # dev build with Causa preloaded
+npx http-server -p 8080 examples/counter # in another terminal
+# then in the browser: load http://localhost:8080 and press Ctrl+Shift+C
+```
+
+The shell mounts lazily on first `Ctrl+Shift+C` (the preload just registers listeners; the React tree pays construction cost only on first open, keeping first paint under 80ms). `Esc` or `Ctrl+Shift+C` closes; `Ctrl+Shift+P` pops the panel into a second browser window via `window.opener`; `Ctrl+Shift+/` toggles the AI co-pilot rail; `Ctrl+K` opens the command palette.
+
+A planned `causa-mcp` jar will expose Causa's same surfaces as MCP tools — the same architecture as `pair2-mcp` and `story-mcp`, a different tool catalogue. The artefact doesn't exist on disk yet; the contract is being designed in [`tools/causa/spec/010-MCP-Server.md`](https://github.com/day8/re-frame2/blob/main/tools/causa/spec/010-MCP-Server.md).
+
+The payoff: Causa, `re-frame-pair2`, and `story-mcp` coexist as parallel listeners on the same trace bus, none depending on any other. The runtime's contract is the integration point.
 
 ### Machine visualisers *(in design)*
 
@@ -64,6 +88,8 @@ A re-frame2 app, in dev mode, is **inspectable by default**. Without you writing
 - **Static topology you can query.** The sub-graph is buildable from the registry without running the app. So is the registered-machine inventory. So is the fx index. Tools render dependency graphs, state-diagram visualisations, "what depends on this sub?" navigation — all off the same source-of-truth registries the runtime itself uses.
 
 These surfaces exist for **tools** to consume — not for you to consume by hand, although you can. The framework's job is to keep the data shapes stable and well-named. The tools' job is to present them.
+
+The same surfaces carry beyond the developer's browser too. For an off-box, production-shaped consumer — forwarding the trace bus through an interceptor and `rf/elide-wire-value` to Datadog, Honeycomb, Sentry, or any APM that takes structured events — see [ch.22 — Trace to Datadog](22-trace-to-datadog.md). Same listener pattern; just a different endpoint at the other end.
 
 ## Attaching a tool, concretely
 
@@ -95,7 +121,7 @@ Here's a working in-app debug panel that listens to the trace bus, tracks the la
               (str (:event-id ep))]])]]))
 ```
 
-That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and (a future) Causa consume — the difference is that they're richer renderers of the same data.
+That's the whole shape. The trace listener is a function. The epoch list is a query. The restore is a single call. No framework extension, no plugin contract. The panel composes from the same surfaces `re-frame-pair2` and Causa consume — the difference is that they're richer renderers of the same data.
 
 A few things to notice:
 
@@ -164,7 +190,7 @@ Here's the canonical pair-tool gesture — "rewind to before that event" — in 
   (rf/restore-epoch :app/main target))
 ```
 
-That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what Causa's timeline scrub will do, what a story-tool's "back to the previous frame state" affordance will do. One surface, many tools.
+That same gesture — under different UI — is what `re-frame-pair2`'s "rewind past this event" action does, what Causa's Time-travel scrubber does, what a story-tool's "back to the previous frame state" affordance does. One surface, many tools.
 
 The time-travel surface ships in `day8/re-frame2-epoch`. Apps that want time-travel add it alongside core; apps that don't, omit it and the read-shaped surfaces (`epoch-history`, `register-epoch-cb!`) degrade silently to empty / no-op. Mutating surfaces (`reset-frame-db!`, `restore-epoch`) raise structurally when the artefact is missing — a silent no-op on a mutation would lie.
 
@@ -211,7 +237,9 @@ The framework commits to stable data shapes and query APIs; tools own presentati
 
 - Claude prompts and nREPL middleware in `re-frame-pair2`.
 - The Causa devtools UI, consuming the same trace bus.
+- The `story-mcp` JVM server (and the planned `causa-mcp`) packaging the surface as MCP tools for AI agents.
 - DOM-to-source helpers and the `re-frame-pair-retro2` skill.
+- APM-shipper wiring — see [ch.22 — Trace to Datadog](22-trace-to-datadog.md) for the canonical recipe.
 
 ---
 
@@ -442,4 +470,8 @@ Why "silencing" is a trace and not a return value: the `register-epoch-cb!` call
 
 - [16 — Performance](16-performance.md) — when to reach for the `rf:` channel, and the four shapes of slowness the framework has answers for.
 - [17 — Routing](17-routing.md) — the URL ↔ state contract.
+- [21 — Stories](21-stories.md) — the Storybook-flavoured component playground built on the frame primitive.
+- [22 — Trace to Datadog](22-trace-to-datadog.md) — off-box trace forwarding via interceptor + elision, using the same listener pattern.
 - [`re-frame-pair2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-pair2) — the AI pair-programming skill, today.
+- [`tools/causa/`](https://github.com/day8/re-frame2/tree/main/tools/causa) — the devtools panel, preloaded into dev builds.
+- [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the MCP server packaging Story's surface for AI agents.
