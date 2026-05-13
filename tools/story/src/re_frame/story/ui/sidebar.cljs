@@ -392,32 +392,14 @@
   (let [opts (run-opts-for-variant (state/get-state) vid)]
     (-> (runtime/run-variant vid opts)
         (async/then  (fn [result]
-                       ;; The aggregate-summary helper lives in
-                       ;; `test-mode.pure` but we can't require that ns
-                       ;; here (cyclic: test-mode.state requires this
-                       ;; ns's parent shell-state, which would loop back
-                       ;; through sidebar's requires). Inline the same
-                       ;; six-line fold here — total / passed / failed /
-                       ;; skipped — and let `record-test-run` do the
-                       ;; rest. Two trivially-equal folds is cheaper
-                       ;; than threading another module.
-                       (let [assertions (or (:assertions result) [])
-                             skipped?   (fn [r] (= :rf.assert/skipped
-                                                   (:assertion r)))
-                             n-skip     (count (filter skipped? assertions))
-                             active     (remove skipped? assertions)
-                             n-pass     (count (filter :passed? active))
-                             n-fail     (- (count active) n-pass)
-                             total      (count assertions)
-                             summary    {:total       total
-                                         :passed      n-pass
-                                         :failed      n-fail
-                                         :skipped     n-skip
-                                         :all-passed? (and (pos? total)
-                                                           (zero? n-fail)
-                                                           (zero? n-skip))
-                                         :elapsed-ms  (:elapsed-ms result)
-                                         :ran-at-ms   nil}]
+                       ;; `state/aggregate-summary` is the canonical fold
+                       ;; (rf2-khmon); it lives in shell-state so both
+                       ;; this widget AND the `:test` mode pane share one
+                       ;; impl without a require cycle.
+                       (let [summary (-> (state/aggregate-summary
+                                           (:assertions result))
+                                         (assoc :elapsed-ms (:elapsed-ms result)
+                                                :ran-at-ms  nil))]
                          (state/swap-state! state/record-test-run vid summary))
                        nil))
         (async/catch* (fn [_]

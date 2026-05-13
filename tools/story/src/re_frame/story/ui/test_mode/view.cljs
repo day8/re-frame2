@@ -39,9 +39,10 @@
   namespaces:
 
   - `re-frame.story.ui.test-mode.pure`  — JVM-testable pure data → data
-    helpers (`variant-has-tests?`, `aggregate-summary`, `assertion-row`,
-    `play-step-statuses`, `epoch-id-slice`, `format-elapsed-ms`,
-    `format-timestamp-ms`).
+    helpers (`variant-has-tests?`, `assertion-row`, `play-step-statuses`,
+    `epoch-id-slice`, `format-elapsed-ms`, `format-timestamp-ms`). The
+    `aggregate-summary` fold lives in `re-frame.story.ui.state` so the
+    sidebar / chrome-level test widget can share it (rf2-khmon).
   - `re-frame.story.ui.test-mode.state` — CLJS-only `results-atom` +
     the `begin-run!` / `store-result!` / `select-step!` /
     `toggle-expanded!` / `run-variant-pane!` mutators.
@@ -53,6 +54,7 @@
   never invoke it — closure DCEs the lot."
   (:require [reagent.core                       :as r]
             [re-frame.story.ui.open-in-editor   :as open-in-editor]
+            [re-frame.story.ui.state            :as shell-state]
             [re-frame.story.ui.test-mode.pure   :as pure]
             [re-frame.story.ui.test-mode.state  :as state]))
 
@@ -288,7 +290,7 @@
   (let [slot   (get @state/results-atom variant-id)
         result (:result slot)]
     (when result
-      (let [summary (pure/aggregate-summary (:assertions result))
+      (let [summary (shell-state/aggregate-summary (:assertions result))
             {:keys [total passed failed skipped all-passed?]} summary
             pill-style (cond
                          (zero? total)  (:pill-empty styles)

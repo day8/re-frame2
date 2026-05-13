@@ -419,9 +419,9 @@
   (testing "variant-has-tests? returns false for an unknown variant-id"
     (is (not (test-mode/variant-has-tests? :story.tm/unknown)))))
 
-(deftest test-mode-aggregate-summary-counts-pass-fail-skip
+(deftest shell-state-aggregate-summary-counts-pass-fail-skip
   (testing "aggregate-summary tallies passed / failed / skipped"
-    (let [s (test-mode/aggregate-summary
+    (let [s (state/aggregate-summary
               [{:assertion :rf.assert/path-equals :passed? true}
                {:assertion :rf.assert/path-equals :passed? false}
                {:assertion :rf.assert/sub-equals  :passed? true}
@@ -433,19 +433,19 @@
       (is (false? (:all-passed? s)))))
   (testing "aggregate-summary's :all-passed? is true only when every
             non-skipped record passed AND no records were skipped"
-    (let [all-pass (test-mode/aggregate-summary
+    (let [all-pass (state/aggregate-summary
                      [{:assertion :rf.assert/path-equals :passed? true}
                       {:assertion :rf.assert/sub-equals  :passed? true}])]
       (is (true?  (:all-passed? all-pass)))
       (is (= 0   (:failed all-pass)))
       (is (= 0   (:skipped all-pass))))
-    (let [with-skip (test-mode/aggregate-summary
+    (let [with-skip (state/aggregate-summary
                       [{:assertion :rf.assert/path-equals :passed? true}
                        {:assertion :rf.assert/skipped     :passed? false}])]
       (is (false? (:all-passed? with-skip))
           "a skipped record disqualifies :all-passed?")))
   (testing "aggregate-summary on an empty vector returns zeros + :all-passed? false"
-    (let [s (test-mode/aggregate-summary [])]
+    (let [s (state/aggregate-summary [])]
       (is (= 0 (:total s)))
       (is (= 0 (:passed s)))
       (is (= 0 (:failed s)))
@@ -453,7 +453,7 @@
       (is (false? (:all-passed? s))
           "zero records = not 'all passed' (the variant ran nothing)")))
   (testing "aggregate-summary tolerates nil"
-    (let [s (test-mode/aggregate-summary nil)]
+    (let [s (state/aggregate-summary nil)]
       (is (= 0 (:total s)))
       (is (false? (:all-passed? s))))))
 
