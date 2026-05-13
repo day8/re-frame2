@@ -8,7 +8,7 @@
 
 re-frame2 is the same axe as [before](https://github.com/day8/re-frame), but made from different bits and with new ornamentation.
 
-## What is it?
+# What is it?
 
 re-frame2 is an architectural pattern for building Single Page Apps that target a virtual-DOM substrate — React, in practice.
 
@@ -16,7 +16,7 @@ re-frame2 is an architectural pattern for building Single Page Apps that target 
 
 Five things:
 
-**1. The spec is the artefact. The code is downstream.** 
+### **1. The spec is the artefact. The code is downstream.** 
 
 This one is a little nerdy. 
 
@@ -28,7 +28,7 @@ The implication, which I'd like you to sit with for a moment, is this: if you do
 
 Yes, I know how that sounds. Don't shoot the messenger. Let's keep going.
 
-**2. Views are derivative, not central.** 
+### **2. Views are derivative, not central.** 
 
 This is the one that bites every React-shaped brain on first contact, so let me set it up properly.
 
@@ -47,7 +47,7 @@ re-frame rejects that. Instead, events update centralised state. Subscriptions d
 > 
 > — Alan Perlis, apparently equally furious
 
-**3. Tooling is first-class.** 
+### **3. Tooling is first-class.** 
 
 re-frame2's predictable computational pipeline has a single, deeply integrated trace bus. 
 
@@ -57,7 +57,7 @@ Every tool attaches to that trace bus and gets the whole picture for free. Sourc
 
 And, yes, relax, you can set policies to elide sensitive things, as well as too-large binary blobs.
 
-**4. Managed external effects.**
+### **4. Managed external effects.**
 
 Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
@@ -67,7 +67,7 @@ re-frame2 has the **managed external effect** — one primitive shape every outb
 
 And the external story composes naturally with the *internal* management primitives that handle, say, the Nine States Of GUIs problems in an unsuspenceful way. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
 
-**5. Lisp's quiet advantage.**
+### **5. Lisp's quiet advantage.**
 
 Apologies for the nerd snipe, but ...
 
@@ -75,13 +75,13 @@ re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay
 
 Having said that, if living in a washing machine is more your thing, you can roll your own version of re-frame2 in JS, TS, Reason, etc.  :-)
 
-### Novelty, bah humbug!
+## Novelty, bah humbug!
 
 Who cares about novelty? I just want a feature-rich, excellent, productive framework!
 
 Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
 
-  - **[Causa](https://day8.github.io/re-frame2/guide/15-devtools-and-pair-tools/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and I believe it.
+  - **[Causa](https://day8.github.io/re-frame2/guide/15-devtools-and-pair-tools/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
   - **[re-frame-pair](https://day8.github.io/re-frame2/guide/15-devtools-and-pair-tools/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
   - **[Story](https://day8.github.io/re-frame2/guide/21-stories/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/17-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
@@ -89,26 +89,32 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[State Machines](https://day8.github.io/re-frame2/guide/08-state-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. We skip XState's history states in favour of snapshot-as-value capture — a strict superset for any codebase already using re-frame2's revertibility.
   - **[Flows](https://day8.github.io/re-frame2/guide/18-from-re-frame-v1/#flows--the-replacement-for-on-changes)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
-  - **Reagent-slim** — a re-frame2-optimised Reagent rewrite. React 19 native, **3,954 bytes smaller** than stock Reagent, drop-in via a one-line `deps.edn` coord swap. Substrate-adapter contract proved itself when Causa migrated to Reagent-slim with zero code changes outside the dep declaration.
+
   - **Privacy + Size Elision** — `:sensitive?` (drop-and-forget) and `:large?` (elide-with-fetch-handle) traverse the same boundary walker. Composition rule: sensitive wins. End-to-end stack — cap × path-slice × diff-encode (50%) × dedup (89.5%) × elision (99.985%) × lazy-summary — produces a **38,689× wire-payload shrink** on the worked example. Sensitive things stay out of trace, story, MCP transports, and remote logs by default.
   - **MCP triplet** — three Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/), [story-mcp](tools/story-mcp/), [causa-mcp](tools/causa-mcp/)) that expose the running app, the story playground, and the devtools surface to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
-  - **[Migration tooling](spec/MIGRATION.md)** — re-frame v1.x → re-frame2 is a 40+ rule AI-driven rewrite. Mechanical where the transform can be mechanical, flagged-for-review where the rewrite depends on intent. Ship via the `re-frame-migration` Claude skill.
+  - 
+## The Reference Implementation 
+
+The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end.
+
+This implementation includes all of the above, plus:
+  - **view substrate adaptors** for three popular CLJS-flavoured libraries and one new one:
+    - **Reagent** — canonical.
+    - **UIx** — modern hooks-based React layer.
+    - **Helix** — minimal React wrapper.
+    - **Reagent-slim** — a re-frame2-optimised Reagent rewrite with a reducdused API surface. React 19 native.
+  - **[Migration tooling](spec/MIGRATION.md)** — re-frame v1.x → re-frame2 shipped via the `re-frame-migration` Claude skill.
 
 ## Status
 
 **Beta adjacent** 
 
-The specification has been audited end-to-end endless times — precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
-
-The repo ships a working **ClojureScript reference implementation** that validates the spec end-to-end. And this implementation has view substrate adaptors for three popular CLJS-flavoured libraries:
-
-- **Reagent** — canonical.
-- **UIx** — modern hooks-based React layer.
-- **Helix** — minimal React wrapper.
+The specification itself is pretty stable now. It has been audited end-to-end endless times — precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
 
 To smoke test, we are building apps on the reference implementation today however out of an abundance of caution we have not yet published artifacts to Clojars and NPM. Soon.
 
-You should absolutely not use it yet - it is changing by the minute.  But if you did want to, add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. 
+You should absolutely not use it yet - it is certainly stabilising but it yet may change at any time.  If you are a dare deveil,  add as a `:git/sha` coordinate in `deps.edn` and hold on for dear life. After using re-frame-migration, use [re-frame-pair] and then [re-frame-pair-retro] to file issues.
+
 
 ## AI first
 

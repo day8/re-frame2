@@ -1,126 +1,98 @@
-# 22 — Trace forwarding to Datadog
+# 22 — Production observability (Datadog, Sentry, Honeycomb)
 
-> **If you're skipping this chapter, the upshot:** the trace bus you met in [ch.15](15-devtools-and-pair-tools.md) is your observability surface. Register a listener, filter to `:op-type :event`, run every captured event through `rf/elide-wire-value` to drop sensitive payloads and elide large ones, then POST to Datadog via [`:rf.http/managed`](10-doing-http-requests.md) (free retry, free abort-on-destroy, redaction-friendly). The recipe is Datadog-shaped; the shape is generic — Honeycomb, Sentry, Mezmo, Mixpanel, your in-house pipeline all attach the same way.
+> **If you're skipping this chapter, the upshot:** production observability uses two **always-on listener APIs** that survive `goog.DEBUG=false` — `register-event-emit-listener!` (one record per dispatched event) and `register-error-emit-listener!` (one record per runtime error). Each record runs through `rf/elide-wire-value` for privacy + size elision, then ships to Datadog via [`:rf.http/managed`](10-doing-http-requests.md) for free retry + abort-on-destroy. Datadog is **production-only**; in dev you have Causa, pair2, and story. The recipe is Datadog-shaped; the shape is generic — Honeycomb, Sentry, Mezmo, Mixpanel, your in-house pipeline all attach the same way.
 
-Real apps need observability. You want to know, in production, which events are firing on which page, how often, against what cohort. You want a dashboard that lights up when a release stops dispatching `:checkout/submit` at the rate it used to. You want SLO alerts you can trust.
+Real apps need observability. You want to know, in production, which events are firing on which page, how often, against what cohort. You want a dashboard that lights up when a release stops dispatching `:checkout/submit` at the rate it used to. You want SLO alerts you can trust. You want to see errors with their event-context, so when something fails at 3am you know what the user was doing.
 
-[ch.15](15-devtools-and-pair-tools.md) made the architectural pitch: re-frame2 commits to **one observation surface**, and every tool — devtools, pair programmers, story playgrounds, an in-app debug panel — consumes it through the same listener API. This chapter is the same idea, pointed at a third-party observability platform: hook a listener up to the trace bus, transform each event into a Datadog Event Submission payload, ship it.
+re-frame2 ships two **always-on listener substrates** for exactly that, parallel to the dev-only trace bus:
 
-The chapter spends most of its length on the two things the bead listing of "register and POST" hides: **privacy** (your event vectors carry passwords, payment details, PII) and **size** (a single `app-db` slice can be 5MB of base64 PDF). Both are framework primitives. You consume them through one function — `rf/elide-wire-value` — at the wire boundary.
+| Substrate | What fires | Public API |
+|---|---|---|
+| `event_emit` | once per **dispatched event** (success or error outcome) | `register-event-emit-listener!` |
+| `error_emit` | once per **runtime error** (handler exception, machine fault, etc.) | `register-error-emit-listener!` |
+
+Both substrates are **production-survivable** — they survive `:advanced` compilation with `goog.DEBUG=false`. Both apply `rf/elide-wire-value` to every record before fan-out. Both have zero cost when no listener is registered.
+
+> **What about the trace bus?** The trace bus you met in [ch.15](15-devtools-and-pair-tools.md) is dev-only. It dead-code-eliminates in production. It exists so Causa, pair2-mcp, and story can show you everything that happens — every sub recompute, every fx, every interceptor — at the cost of bundle size and hot-path overhead you don't want in shipped code. Production has no trace bus. Production has these two listener APIs instead — narrow shapes, always-on, observability-only.
 
 You'll know:
 
-- How to register a trace listener that fires on every event, and filter it to the slice you want to ship.
-- How to run each event through `rf/elide-wire-value` to honour the privacy and size elision flags.
-- How to translate a trace event into Datadog's Event API shape.
+- The two record shapes you'll receive — tight, purpose-shaped, no trace plumbing.
+- How `rf/elide-wire-value` honours `:sensitive?` and `:large?` flags before your listener gets the record.
+- How to translate each record into Datadog's Event API shape.
 - How to send the payload via `:rf.http/managed` so you get retry, abort-on-actor-destroy, and middleware redaction for free.
-- The operational caveats — batching, env gating, the failure-feedback loop.
+- The operational caveats — batching, registration gating, the failure-feedback loop.
 
-The Datadog listener you'll register below fires **once per managed-external-effect emit** — once per `:rf.http/managed` request, once per `:rf.ws/*` connection transition, once per state-machine `:invoke` lifecycle event, once per SSR per-request fx. That uniform observation surface is property four of the eight-property managed-effect contract in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md); the consequence at this end of the wire is that one listener, one filter, one elision pass, one POST recipe covers every framework-owned async surface the app issues.
+## Why production has no trace bus
 
-## The substrate: one trace bus, every tool attaches
+The trace bus is the right surface for dev tooling. It emits *everything*: every sub computation, every fx call, every machine transition, every interceptor step, every registration. Causa scrubs through it. pair2-mcp queries it. story plays it back. The fidelity is the point.
 
-A re-frame2 dev build emits a structured trace event for every meaningful runtime moment — every dispatch, every handler invocation, every sub recomputation, every fx, every error. Each event is a map with stable, named keys: `:id`, `:op-type`, `:operation`, `:tags`, `:source`, `:time`, sometimes `:sensitive?`, sometimes `:rf.trace/trigger-handler`. The shape is the contract.
+That fidelity costs bundle bytes (the trace machinery itself) and hot-path cycles (every sub recompute emits a structured event). Production cannot afford either. So the trace bus dead-code-eliminates: when `goog.DEBUG=false`, the runtime calls that emit trace events evaporate at compile time, leaving zero overhead.
 
-```clojure
-;; The canonical attach:
-(rf/register-trace-cb!
-  :my-app/datadog-shipper
-  (fn [trace-event]
-    ;; one call per emitted trace event, synchronously, on the runtime's emit stack
-    (do-something-with! trace-event)))
-```
+But you still need observability in production. Not "everything that happened" — just **which events fired** and **which errors fired**, with their elapsed time, outcome, and surrounding event context. That's two tight surfaces, each with one job, each surviving `goog.DEBUG=false` because the records are small and the listeners are opt-in.
 
-Two rules from the listener contract worth pinning before we go further:
+`event_emit` and `error_emit` are those surfaces. They're not a fallback from trace — they're a deliberate, separate production primitive.
 
-- **The callback runs synchronously.** It sits inside the framework's emit loop — return fast or you'll slow every event in the cascade. Anything I/O-bound (HTTP, file write, channel publish) belongs on the other side of an async hop. Dispatching a re-frame2 event from the callback is the canonical async hop: the dispatch enters the queue, the callback returns, the runtime continues, and the dispatched event runs the I/O on a fresh cascade.
-- **Exceptions are caught.** A throw inside your listener is logged and discarded — it does not propagate to the framework or break other listeners. That's a kindness (one broken integration can't break the app) but it also means **silent failures are easy**. Wire your Datadog send to *trace its own failure*, so you can see the integration's health on the same dashboard.
+## The event-emit record
 
-The trace surface is **dev-only by default**. In production builds (`:advanced` + `goog.DEBUG=false`), the trace bus is dead-code-eliminated entirely. If you want production telemetry through this channel, see [§Per-environment gating](#per-environment-gating) at the bottom of the chapter; the short version is "guard your registration on `re-frame.interop/debug-enabled?` and accept that the channel only fires when that flag is true."
-
-## Filtering — events only
-
-The trace bus emits *everything*. Subs running, fxs firing, machine transitions, error events, registration metadata changes, frame creates. For a Datadog event-volume dashboard you almost certainly want the slice that maps cleanly to "the user did a thing" — the dispatched events.
-
-The universal discriminator is `:op-type`, and the value you want is `:event`:
+Every time an event finishes (successfully or with an error), the runtime invokes every registered event-emit listener with a single record:
 
 ```clojure
-(when (= :event (:op-type trace-event))
-  (forward-to-datadog! trace-event))
+{:event       <vector>     ;; e.g. [:checkout/submit {:cart-id 42}]
+ :event-id    <kw>         ;; the first element of :event
+ :frame       <kw>         ;; e.g. :rf/default
+ :time        <inst>       ;; (js/Date.) at dispatch start
+ :outcome     :ok | :error ;; whether the handler threw
+ :elapsed-ms  <int>}        ;; wall-clock duration in handler
 ```
 
-Two notes on filter design:
+No `:op-type`, no `:operation`, no `:tags`, no `:source`. Those are trace-bus shape. Production observability doesn't need them.
 
-- **Filter inside the callback, not at registration.** The framework's listener registration is shape-agnostic — every listener sees every event; the filter is yours to apply. Cheap predicate, fast bail, no allocation in the bail path. The same shape every tool in [ch.15](15-devtools-and-pair-tools.md) uses.
-- **`:op-type :event` includes the inner `:event/dispatched`, `:event/db-changed`, and `:event` lifecycle phase events.** You usually want `:event/dispatched` only (one per user action) — adding `(= :event/dispatched (:operation trace-event))` narrows further. The `:operation` field is the *category*; the `:op-type` is the *severity*.
+The record passes through `rf/elide-wire-value` **before** your listener sees it — so any `:sensitive?` handler drops the entire record, and any `:large?` payload (e.g., a 5MB base64 PDF in `:event`) is replaced with a `:rf.size/large-elided` marker. See [ch.23 — Privacy + Size Elision](23-privacy-and-elision.md) for the full elision contract.
 
-If you want errors too — and most observability dashboards do — broaden:
+## The error-emit record
+
+Every time the runtime catches an error, the runtime invokes every registered error-emit listener with:
 
 ```clojure
-(when (#{:event :error :warning} (:op-type trace-event))
-  ...)
+{:error      <kw>          ;; e.g. :rf.error/handler-exception
+ :event      <vector>      ;; the event that was being processed
+ :event-id   <kw>
+ :frame      <kw>
+ :time       <inst>
+ :exception  <ex-data>     ;; structured exception data — message, stack, ex-data slot
+ :elapsed-ms <int>}
 ```
 
-That's the shape: events for behaviour, errors for alerting. Run them through the same Datadog pipeline; let Datadog's `alert_type` field discriminate at the dashboard end.
+Same elision pass; same `:sensitive?` drop semantics; same `:large?` substitution. The `:exception` slot is `ex-data` from the thrown exception — no raw stack traces with PII embedded.
 
-## The critical step: `rf/elide-wire-value`
+`:on-error` per-frame policy ([ch.14](14-errors.md)) is the **in-app recovery** path — your frame says "if this fails, do X". `register-error-emit-listener!` is the **observability** path — every error gets logged to Datadog regardless of per-frame recovery. The two are orthogonal; both fire on the same exception.
 
-Trace events carry dispatched event vectors and (under `:event/db-changed`) `app-db` snapshots. Both can contain user input that has no business leaving the developer's machine: passwords, auth tokens, payment details, the PII captured in a form. They can also contain values that are *enormous* — a base64-encoded PDF preview under `[:user :uploaded-pdf]` is a 5MB string that will blow every wire cap downstream.
+## Registration
 
-The framework's answer is a **unified wire-boundary walker** — one function that consults two orthogonal predicates (`:sensitive?` for privacy; `:large?` for size) and substitutes the appropriate placeholder. Same function, two flags, one helper:
+Datadog is production-only. Dev gets Causa + pair2 + story. Your registration site should reflect that:
 
 ```clojure
-(rf/elide-wire-value trace-event {})
-;; → the same trace event, but
-;;     - sensitive values dropped (replaced with :rf/redacted, or the whole event filtered)
-;;     - large values replaced with a :rf.size/large-elided marker
+(when (and (= "production" (:env config))
+           (not ^boolean re-frame.interop/debug-enabled?)
+           (:api-key config))
+  (rf/register-event-emit-listener!
+    :my-app/datadog-events
+    (fn [record] ...))
+  (rf/register-error-emit-listener!
+    :my-app/datadog-errors
+    (fn [record] ...)))
 ```
 
-The opts map carries the elision policy:
+Three gates, AND'd together:
 
-```clojure
-{:rf.size/include-large?     false   ;; default false — large values elide to markers
- :rf.size/include-sensitive? false   ;; default false — sensitive events drop entirely
- :rf.size/include-digests?   false   ;; default false — no sha256 in the marker
- :rf.size/threshold-bytes    16384   ;; auto-flag any value over this pr-str byte count
- :frame                      :rf/default}
-```
+1. **Your config** says this is a production deploy.
+2. **`goog.DEBUG=false`** — belt-and-braces against a dev bundle being accidentally deployed with prod config baked in. If `goog.DEBUG=true` somehow snuck through, the listener silently refuses to register, and you notice on the Datadog dashboard (no events appearing) rather than at 3am when prod is leaking dev-only verbose data.
+3. **API key present** — no point registering if the shipper can't actually send.
 
-**Off-box shippers (you, today) MUST default both `include-*` flags to `false`.** The Sentry / Honeybadger / pair2 / Causa-MCP forwarders that ship with re-frame2 all default to maximum elision. Off-box means "the data is leaving your trust boundary" — and Datadog's trust boundary is not yours.
+All three predicates are cheap. The conservative default protects against accidental dev-laptop traffic to your production Datadog org.
 
-What the walker does on a real trace event:
-
-```clojure
-;; Input — the runtime emitted this when :auth/sign-in fired:
-{:operation :event/dispatched
- :op-type   :event
- :tags      {:event-id :auth/sign-in
-             :event    [:auth/sign-in {:username "ada" :password "shhh"}]
-             :frame    :rf/default}
- :sensitive? true}                   ;; the handler was registered with :sensitive? true
-
-;; Output of (rf/elide-wire-value ev {}):
-;; nil      — the whole event is dropped; sensitive drops before anything else.
-
-;; The same handler with :sensitive? UNSET but with [:auth :otp-image] declared :large?:
-{:operation :event/db-changed
- :tags      {:app-db-after
-             {:auth {:otp-image
-                     {:rf.size/large-elided
-                      {:path   [:auth :otp-image]
-                       :bytes  524288
-                       :type   :string
-                       :reason :declared
-                       :hint   "OTP QR code"
-                       :handle [:rf.elision/at [:auth :otp-image]]}}}}}}
-;; The marker rides where the value was; the rest of the event survives.
-```
-
-The composition rule is **sensitive drop wins**. If both predicates match, the value is dropped, not marker-substituted — because the marker itself would leak `:path` and `:bytes` (structural information about the redacted slot). One walker, two flags, deterministic precedence.
-
-A practical note on the source of the flags: `:sensitive?` is declared as a metadata key on the `reg-event-*` registration (chapter 14 introduces it; the [ch.14 privacy section](14-errors.md) is the deep dive). `:large?` is declared three ways — on a Malli schema slot, via the framework fx `:rf.size/declare-large` from any event handler, or auto-detected by a runtime byte-count heuristic. You consume the result. You don't have to teach Datadog what's sensitive or large; the framework already knows.
-
-## Mapping a trace event to Datadog's wire shape
+## Mapping each record to Datadog's wire shape
 
 Datadog's [Event Submission API](https://docs.datadoghq.com/api/latest/events/) takes a POST with a JSON body and a `DD-API-KEY` header:
 
@@ -130,35 +102,41 @@ Headers:
   DD-API-KEY: <your-key>
   Content-Type: application/json
 Body:
-  {"title":       "<short string, indexed>",
-   "text":        "<longer body, supports markdown>",
-   "alert_type":  "info" | "warning" | "error" | "success",
-   "tags":        ["env:prod", "service:checkout", ...],
-   "date_happened": <unix-seconds>,
+  {"title":            "<short string, indexed>",
+   "text":             "<longer body, supports markdown>",
+   "alert_type":       "info" | "warning" | "error" | "success",
+   "tags":             ["env:prod", "service:checkout", ...],
+   "date_happened":    <unix-seconds>,
    "source_type_name": "re-frame2"}
 ```
 
-A trace event maps cleanly onto this shape:
+Each of the two record shapes maps cleanly:
 
 ```clojure
-(defn trace-event->datadog [{:keys [operation op-type tags time] :as ev}]
-  {:title            (str operation)                 ;; e.g. ":event/dispatched"
-   :text             (pr-str (select-keys tags [:event-id :event :frame]))
-   :alert_type       (case op-type
-                       :error   "error"
-                       :warning "warning"
-                       :event   "info"
-                       "info")
-   :tags             [(str "operation:" operation)
-                      (str "op_type:" op-type)
-                      (str "frame:" (:frame tags))
-                      (str "event_id:" (:event-id tags))
-                      (str "env:" js/process.env.NODE_ENV)]
-   :date_happened    (quot time 1000)                ;; ms → s
+(defn event-record->datadog [{:keys [event-id event frame time outcome elapsed-ms]}]
+  {:title            (str event-id)
+   :text             (pr-str {:event event :elapsed-ms elapsed-ms})
+   :alert_type       (case outcome :ok "info" :error "error")
+   :tags             [(str "event_id:" event-id)
+                      (str "frame:" frame)
+                      (str "outcome:" (name outcome))
+                      (str "env:" (:env config))]
+   :date_happened    (quot (.getTime time) 1000)
+   :source_type_name "re-frame2"})
+
+(defn error-record->datadog [{:keys [error event-id event frame time exception elapsed-ms]}]
+  {:title            (str error)
+   :text             (pr-str {:event event :exception exception :elapsed-ms elapsed-ms})
+   :alert_type       "error"
+   :tags             [(str "error:" error)
+                      (str "event_id:" event-id)
+                      (str "frame:" frame)
+                      (str "env:" (:env config))]
+   :date_happened    (quot (.getTime time) 1000)
    :source_type_name "re-frame2"})
 ```
 
-Notice: every tag is a string. Datadog's tag dimensions are flat — colons are conventional separator, not nested addressing. Keep cardinality low on tag values you index on (don't ship `event_id:` if you have a million distinct event ids; do ship `frame:` and `op_type:` because they're small enumerations).
+Notice: every Datadog tag is a string. Tag dimensions are flat — colons are the conventional separator, not nested addressing. Keep cardinality low on tag values you index on (don't ship `event_id:` if you have a million distinct event ids; do ship `frame:` and `outcome:` because they're small enumerations).
 
 ## Sending via `:rf.http/managed`
 
@@ -180,19 +158,15 @@ The full recipe:
    :env     "production"
    :service "my-app"})
 
-(rf/reg-event-fx :my-app.observability/ship-event
-  {:doc "POST one trace event to Datadog. Retry on transport / 5xx."}
-  (fn [{:keys [db]} [_ {:keys [datadog-event] :as msg}]]
+(rf/reg-event-fx :my-app.observability/ship
+  {:doc "POST one Datadog event. Retry on transport / 5xx."}
+  (fn [_ [_ {:keys [datadog-event] :as msg}]]
     (if-let [reply (:rf/reply msg)]
-      ;; Reply path — log failures back through the trace stream so the
-      ;; integration's health is visible on the same dashboard.
       (case (:kind reply)
-        :success {}                              ;; happy path; nothing to update
+        :success {}
         :failure {:fx [[:rf.fx/emit-trace!
                        [:warning :my-app.observability/datadog-send-failed
                         {:failure (:failure reply)}]]]})
-
-      ;; Initial dispatch — issue the POST.
       {:fx [[:rf.http/managed
              {:request {:method  :post
                         :url     "https://api.datadoghq.com/api/v1/events"
@@ -205,36 +179,36 @@ The full recipe:
               :timeout-ms 10000
               :request-id [:my-app.observability/dd (random-uuid)]}]]})))
 
-(defn install-datadog-shipper!
-  "Attach the Datadog forwarder. Idempotent. Dev-only — the trace surface
-   elides in production builds with goog.DEBUG=false."
+(defn install-datadog-shippers!
+  "Attach both Datadog forwarders. Idempotent. Production-only by triple-gate."
   []
-  (when ^boolean re-frame.interop/debug-enabled?
-    (rf/register-trace-cb!
-      :my-app/datadog-shipper
-      (fn [trace-event]
-        (when (#{:event :error :warning} (:op-type trace-event))
-          (when-let [elided (rf/elide-wire-value trace-event {})]
-            ;; Self-trace-loop guard — never ship our own failure events.
-            (when-not (= :my-app.observability/datadog-send-failed
-                         (:operation elided))
-              (rf/dispatch
-                [:my-app.observability/ship-event
-                 {:datadog-event (trace-event->datadog elided)}]))))))))
+  (when (and (= "production" (:env dd-config))
+             (not ^boolean re-frame.interop/debug-enabled?)
+             (:api-key dd-config))
+
+    (rf/register-event-emit-listener!
+      :my-app/datadog-events
+      (fn [record]
+        (rf/dispatch [:my-app.observability/ship
+                      {:datadog-event (event-record->datadog record)}])))
+
+    (rf/register-error-emit-listener!
+      :my-app/datadog-errors
+      (fn [record]
+        (rf/dispatch [:my-app.observability/ship
+                      {:datadog-event (error-record->datadog record)}])))))
 ```
 
-Six things worth pointing at in that snippet:
+A few things worth pointing at:
 
-1. **`when-let` on the elision return.** Sensitive events return `nil` — the binding fails and the ship is skipped. The framework already made the privacy call; we just honour it.
-2. **The self-trace-loop guard.** Logging the Datadog send failure as `:my-app.observability/datadog-send-failed` is great for visibility — until the *very next* trace emit picks it up and tries to ship it, fails, emits another failure, and you've built a heartbeat. The exclusion is one line; skip it and you'll see the heartbeat in production at 3am.
+1. **No filter inside the listener.** `event_emit` only fires on dispatched events; `error_emit` only fires on runtime errors. There's no sub recompute or fx-execute event to filter out — that's the whole point of these substrates being narrower than the trace bus.
+2. **No `rf/elide-wire-value` call in user code.** The framework runs every record through elision *before* invoking your listener. By the time you see the record, sensitive values are dropped and large values are marker-substituted. (Compare to ch.15's trace-bus consumers, where elision is the consumer's job because trace events are emitted before any elision pass.)
 3. **`:request-id` is unique per send.** A UUID per request lets the managed-HTTP in-flight registry track the POSTs independently. If you reuse an id, the second send aborts the first ([ch.10](10-doing-http-requests.md) covers the rules).
-4. **`re-frame.interop/debug-enabled?` gates the registration.** In a production `:advanced` build with `goog.DEBUG=false`, the entire `(when ^boolean ...)` body is dead-code-eliminated; no registration, no listener function, no `rf/elide-wire-value` call survives. If you want Datadog telemetry from a production bundle, see [§Per-environment gating](#per-environment-gating).
-5. **The reply path traces its own failure.** `rf.fx/emit-trace!` lets you fire a structured trace event from `:fx` — the same channel everything else rides. Now your Datadog dashboard sees `:my-app.observability/datadog-send-failed` events at the same place it sees the events that didn't ship, with the same shape. The shipper's health is monitored by the shipper's monitor — observability is self-applying.
-6. **No `console.log`.** If you're tempted to `js/console.log` a Datadog failure: trace it instead. The trace stream is your one channel — sending one piece of failure data through a different channel splits your monitoring story.
+4. **The triple-gate is conservative on purpose.** If you forget any one of the three predicates, the integration silently no-ops. Configure thoughtfully; deploy carefully; the Datadog dashboard will tell you if events stop arriving.
 
 ## Batching
 
-Datadog accepts one event per POST, and that gets expensive fast on a busy app. The right shape is to **batch in your listener** — collect events into a small buffer, flush periodically or when the buffer fills.
+Datadog accepts one event per POST, and that gets expensive fast on a busy app. The right shape is to **batch in your listener** — collect records into a small buffer, flush periodically or when the buffer fills.
 
 A sketch:
 
@@ -242,8 +216,8 @@ A sketch:
 (defonce ^:private buffer (atom []))
 
 (defn- enqueue! [dd-event]
-  (let [batch (swap! buffer (fn [b] (conj b dd-event)))]
-    (when (>= (count batch) 20)                    ;; flush at 20 events
+  (let [batch (swap! buffer conj dd-event)]
+    (when (>= (count batch) 20)
       (let [to-send @buffer]
         (reset! buffer [])
         (rf/dispatch [:my-app.observability/ship-batch {:events to-send}])))))
@@ -252,42 +226,22 @@ A sketch:
 ;; (every 30s) → :my-app.observability/flush-buffer.
 ```
 
-`ship-batch` POSTs the array as a single Datadog v2 batch submission — same retry policy, same elision, lower request volume. Tune the buffer size and flush interval against your dispatch frequency and Datadog's [API rate limits](https://docs.datadoghq.com/api/latest/rate-limits/).
-
-## Per-environment gating
-
-The trace surface is dev-only. That's a deliberate framework choice — it costs zero bytes in shipped binaries and avoids the entire "production-only side-channel that someone forgot to test" failure mode. But it also means the recipe above is, by default, a *dev-environment* observability story.
-
-Two workable patterns for production telemetry:
-
-- **Ship with `goog.DEBUG=true` in production.** Flip the closure-define in your release build's `shadow-cljs.edn` and the trace surface stays live. The bundle grows (trace machinery is back in); listener registrations run; the dashboard works. The tradeoff is the bundle size and the hot-path cost of trace emission — measurable on heavy apps; usually fine. This is the approach Datadog-shaped consumers reach for first.
-- **Use the `rf:` User Timing channel instead.** [ch.16](16-performance.md) covers the parallel observability channel that *is* prod-safe by design — User Timing entries land in browser performance APIs and any APM consumer with a `PerformanceObserver` reads them with no framework call needed. The shapes are coarser (timings, not full trace events) but the budget is permanent.
-
-In a config-driven build, gate the registration on a config knob, not just on `debug-enabled?`:
-
-```clojure
-(when (and ^boolean re-frame.interop/debug-enabled?
-           (= "production" (:env dd-config))
-           (:api-key dd-config))
-  (rf/register-trace-cb! :my-app/datadog-shipper ...))
-```
-
-Three predicates. Three ways the integration silently no-ops if something's missing. The conservative default protects against accidental dev-laptop traffic to your production Datadog org.
+`ship-batch` POSTs the array as a single Datadog v2 batch submission — same retry policy, same elision (already applied per-record before they reached the buffer), lower request volume. Tune the buffer size and flush interval against your dispatch frequency and Datadog's [API rate limits](https://docs.datadoghq.com/api/latest/rate-limits/).
 
 ## The shape is generic
 
-The recipe is Datadog-shaped, but the structure isn't Datadog-specific. **The four moves — register a listener, filter the trace stream, run through `rf/elide-wire-value`, POST via `:rf.http/managed`** — work against any observability platform. Swap the URL, the auth header, and the event mapper and you have:
+The recipe is Datadog-shaped, but the structure isn't Datadog-specific. **The four moves — register both listeners, map each record to the wire shape, POST via `:rf.http/managed`, repeat** — work against any observability platform. Swap the URL, the auth header, and the event mapper and you have:
 
-- **Honeycomb** — POST to `https://api.honeycomb.io/1/events/<dataset>`, swap `DD-API-KEY` for `X-Honeycomb-Team`, drop the `:date_happened` (Honeycomb takes ISO-8601 in `time`).
-- **Sentry** — POST to the Sentry [Store API](https://develop.sentry.dev/sdk/store/), wrap events in the Sentry envelope shape, switch the `:alert_type` mapping to Sentry's `level` enum. Chapter 14 has a ready-made sketch.
-- **Mezmo / Logz / Splunk** — same listener, different endpoint, log-shaped body.
-- **Your in-house pipeline** — POST to your own ingestion service. The listener doesn't care.
+- **Honeycomb** — POST to `https://api.honeycomb.io/1/events/<dataset>`, swap `DD-API-KEY` for `X-Honeycomb-Team`, drop `:date_happened` (Honeycomb takes ISO-8601 in `time`).
+- **Sentry** — POST to the Sentry [Store API](https://develop.sentry.dev/sdk/store/), wrap events in the Sentry envelope shape, switch the `:alert_type` mapping to Sentry's `level` enum.
+- **Mezmo / Logz / Splunk** — same listeners, different endpoint, log-shaped body.
+- **Your in-house pipeline** — POST to your own ingestion service. The listeners don't care.
 
-The point of the trace bus is that the framework owns the shape and tools own the rendering. Datadog is one renderer. So is a dev panel. So is `re-frame-pair2`. So is the off-box error-monitor forwarder. Same surface; different consumers. The pitch from [ch.15](15-devtools-and-pair-tools.md) plays through here in full.
+The point: the framework owns the production-observability shape and tools own the rendering. Datadog is one renderer. So is your in-house pipeline. So is Sentry. Same two substrates, different consumers.
 
 ## Next
 
 - [10 — Doing HTTP requests](10-doing-http-requests.md) — the managed-fx that does the actual POST, with retry and abort-on-destroy.
-- [14 — Errors and how to handle them](14-errors.md) — the `:sensitive?` registration flag and the `with-redacted` interceptor in full; the Sentry-bridge pattern this chapter is a sibling of.
-- [15 — Tooling](15-devtools-and-pair-tools.md) — the architectural pitch this chapter rides on: one trace bus, every tool consumes it.
-- [16 — Performance](16-performance.md) — the parallel `rf:` User Timing channel, prod-safe by design.
+- [14 — Errors and how to handle them](14-errors.md) — the `:on-error` per-frame recovery policy that pairs with `register-error-emit-listener!`.
+- [15 — Tooling](15-devtools-and-pair-tools.md) — the dev-only trace bus and the tools (Causa, pair2, story) that consume it.
+- [23 — Privacy + Size Elision](23-privacy-and-elision.md) — the `:sensitive?` + `:large?` machinery the framework applies to every record before your listener sees it.
