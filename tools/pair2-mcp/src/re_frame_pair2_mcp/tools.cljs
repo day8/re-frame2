@@ -18,6 +18,8 @@
   | subscribe     | Streaming trace/epoch channel — push-mode replacement for |
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
+  | subscription-info | List active streaming subscriptions + queue stats     |
+  |               | (rf2-zjz9q)                                               |
 
   ## Diff-encoded epoch slice (rf2-1wdzp)
 
@@ -2012,6 +2014,47 @@
             (.catch (fn [err] (err->result :unsubscribe-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
+;; Tool: subscription-info — list active streaming subscriptions (rf2-zjz9q).
+;;
+;; Wraps the `re-frame-pair2.runtime/subscription-info` diagnostic so AI
+;; clients don't need an `eval-cljs` round-trip just to ask "what
+;; streams are currently open?". One cheap nREPL eval — the runtime fn
+;; is a pure read over the in-memory `subscriptions` atom and does NOT
+;; drain queues. Useful when a streaming probe seems to have gone quiet
+;; (confirm the sub is still registered, check `:queue-depth` /
+;; `:overflow-reason` for evidence of a dead consumer).
+;;
+;; Args (all optional):
+;;   :topic   keyword or string — filter to a single topic
+;;            (`:trace` / `:epoch` / `:fx` / `:error`).
+;;   :sub-id  string uuid — return only the matching sub. Convenient
+;;            for "is this specific stream still alive?" checks.
+;;
+;; Returns `{:ok? true :subs [{:id :topic :filter :queue-depth
+;; :queue-bytes :dropped-events :dropped-bytes :overflow-reason
+;; :created-at}]}`. Empty `:subs` vector when no streams are open (or
+;; when the filter matches nothing).
+;; ---------------------------------------------------------------------------
+
+(defn- subscription-info-tool [conn args]
+  (let [build-id (arg-build args)
+        topic    (some-> (arg args :topic) keyword)
+        sub-id   (arg args :sub-id)
+        form     (str "(let [r (re-frame-pair2.runtime/subscription-info)"
+                      "      subs (:subs r)"
+                      "      f1 (if " (pr-str topic)
+                      "           (filterv #(= (:topic %) " (pr-str topic) ") subs)"
+                      "           subs)"
+                      "      f2 (if " (pr-str sub-id)
+                      "           (filterv #(= (:id %) " (pr-str sub-id) ") f1)"
+                      "           f1)]"
+                      "  (assoc r :subs f2))")]
+    (-> (ensure-runtime! conn build-id)
+        (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+        (.then (fn [v] (ok-text (if (map? v) v {:ok? true :subs []}))))
+        (.catch (fn [err] (err->result :subscription-info-failed err))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool descriptors — exposed via tools/list.
 ;;
 ;; Every descriptor gets a universal `max-tokens` property bolted on
@@ -2403,6 +2446,27 @@
                                         :description "The uuid returned by `subscribe`."}
                                :build  {:type "string"}}
                   :required ["sub-id"]
+                  :additionalProperties false}}
+   {:name "subscription-info"
+    :description (str "List active streaming subscriptions opened via `subscribe`, with per-sub queue depth, "
+                      "drop counts, and overflow-reason — without draining any queues. Diagnostic for "
+                      "'what streams are currently open?' and 'is my probe still alive?'. Wraps the "
+                      "`re-frame-pair2.runtime/subscription-info` runtime fn directly (no eval-cljs round-trip). "
+                      "Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes "
+                      ":dropped-events :dropped-bytes :overflow-reason :created-at}]}` — one entry per "
+                      "currently-registered subscription. Empty `:subs` vector when no streams are open. "
+                      "Optional filters: `topic` (one of `:trace` / `:epoch` / `:fx` / `:error`) narrows to "
+                      "a single topic; `sub-id` returns only the matching sub. A non-nil `:overflow-reason` "
+                      "indicates the queue has been evicting older events to stay inside its budget — tune "
+                      "`max-buffered-events` / `max-buffered-bytes` on the next `subscribe` call.")
+    :typicalTokens 500
+    :inputSchema {:type "object"
+                  :properties {:topic  {:type "string"
+                                        :description "Optional filter — only return subs on this topic. One of trace, epoch, fx, error."
+                                        :enum ["trace" "epoch" "fx" "error"]}
+                               :sub-id {:type "string"
+                                        :description "Optional filter — only return the sub with this uuid."}
+                               :build  {:type "string"}}
                   :additionalProperties false}}])
 
 (defn tool-descriptors-js []
@@ -2424,6 +2488,7 @@
     "get-path"         (get-path-tool  conn args)
     "subscribe"        (subscribe-tool conn args extra)
     "unsubscribe"      (unsubscribe-tool conn args)
+    "subscription-info" (subscription-info-tool conn args)
     (js/Promise.resolve
       (err-text {:ok? false :reason :unknown-tool :tool name}))))
 

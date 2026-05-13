@@ -54,6 +54,7 @@ The server auto-discovers the nREPL port from (in order):
 | _(none — MCP-only)_                | `get-path`     | `{path: "[:cart :items 0 :sku]", frame: ":rf/default"}` — targeted-read primitive (rf2-tygdv). Returns `{ok? true :exists? true :value <subtree>}` or `{ok? false :reason :path-not-found :deepest-valid-prefix [...]}`. `:exists?` distinguishes a path that legitimately points at `nil` from a missing path. |
 | _(none — MCP-only, push-mode)_     | `subscribe`    | `{topic: "trace"\|"epoch"\|"fx"\|"error", filter: {...}, max-events: 0, max-ms: 0}` — emits `notifications/progress` ticks; resolves on cancel / `max-events` / `max-ms` / `unsubscribe`. See `references/streaming-subscriptions.md`. |
 | _(none — MCP-only)_                | `unsubscribe`  | `{sub-id: "<uuid>"}` — idempotent close. |
+| _(none — MCP-only)_                | `subscription-info` | `{}` (or `{topic: "epoch"}` / `{sub-id: "<uuid>"}`) — list active streaming subscriptions with `:queue-depth`, `:dropped-events`, `:overflow-reason` without draining queues. Diagnostic for "is my probe still alive?". |
 
 The `subscribe` / `unsubscribe` pair is the **push-mode** replacement for `watch-epochs`. Each batch of matching events arrives as a `notifications/progress` notification correlated by the call's `progressToken`; the tool's final result is a summary. Use `subscribe` whenever you want a live narration; fall back to `watch-epochs` (pull-mode) when the agent host doesn't surface progress notifications to the model.
 

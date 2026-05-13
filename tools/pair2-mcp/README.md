@@ -37,6 +37,7 @@ cljs-eval compile.
 | `get-path`     | _(new — no bash equivalent)_ | Read a single value at `path` from a frame's app-db (rf2-tygdv). Minimal targeted-read primitive; server-side `get-in` so only the addressed subtree crosses the wire. Distinguishes a path that points at `nil` from a path that doesn't resolve, and attaches `deepest-valid-prefix` on misses so the agent can re-aim. |
 | `subscribe`    | _(new — no bash equivalent)_ | Streaming subscription on the trace / epoch bus (rf2-hq49). Push-mode replacement for `watch-epochs`; each matching event arrives as a `notifications/progress` notification. Topics: `trace`, `epoch`, `fx`, `error`. |
 | `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
+| `subscription-info` | _(new — no bash equivalent)_ | List active streaming subscriptions with per-sub queue depth, drop counts, and `:overflow-reason` (rf2-zjz9q). Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps the runtime fn directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. |
 
 ## Quick start
 

@@ -25,6 +25,7 @@ allowed-tools:
   - mcp__re-frame-pair2__get-path
   - mcp__re-frame-pair2__subscribe
   - mcp__re-frame-pair2__unsubscribe
+  - mcp__re-frame-pair2__subscription-info
   # story-mcp — live-session tools only (rf2-1v7tu HYBRID). The
   # authoring-side surface (register-variant, get-variant,
   # preview-variant, list-stories, …) is allow-listed by the
