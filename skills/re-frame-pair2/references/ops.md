@@ -14,6 +14,7 @@ Most ops wrap a call into `re-frame-pair2.runtime`; for those, the MCP form is `
 - [Hot-reload coordination](#hot-reload-coordination)
 - [Time-travel (epoch restore)](#time-travel-epoch-restore)
 - [Bash-shim back-compat appendix](#bash-shim-back-compat-appendix)
+- [Dropped from v1 (re-frame-pair) — surfaces with no v2 equivalent](#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent)
 
 ## Read
 
@@ -112,7 +113,12 @@ The watch transport polls the assembled-epoch stream by tracking the last seen `
 
 ## Hot-reload coordination
 
-After any source edit, before the next dispatch or trace:
+Editing source is legitimate and often correct. The protocol is strict — after any source edit, before the next `dispatch` / `trace/*`:
+
+1. Make the edit with `Edit` / `Write`.
+2. Call `mcp__re-frame-pair2__tail-build` with a `probe` that verifies the browser has the new code (legacy fallback: `scripts/tail-build.sh --probe '...'`).
+3. Only after the probe succeeds do you proceed to `dispatch`, `trace/*`, etc.
+4. If the probe times out, treat that as a compile error in the user's code — read the tail output, report it to the user, do *not* retry dispatching.
 
 ```
 mcp__re-frame-pair2__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
@@ -120,14 +126,12 @@ mcp__re-frame-pair2__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
 
 `probe` is a CLJS form chosen to change when the edited code reloads. Good probes for re-frame2:
 
-- After editing a `reg-*` handler: `(rf/handler-meta :event :foo)` — the `:line` / `:column` / `:handler-fn` change after re-registration. Capture the meta map's hash before the edit, compare after.
-- After editing a `reg-machine`: `(rf/machine-meta :auth)` — same comparison.
-- After editing a view: pick a CLJS form that derefs the view's namespace var (e.g. `(some-ns/my-view)` or `(meta #'some-ns/my-view)`).
+- After editing a `reg-*` handler: `(re-frame-pair2.runtime/registrar-handler-ref :event <id>)` — compares a hash over `handler-meta`. The underlying `(rf/handler-meta :event :foo)` `:line` / `:column` / `:handler-fn` change after re-registration; capture the meta map's hash before the edit, compare after.
+- After editing a `reg-machine`: same shape against `:event` (machines register under `:event` per Spec 005); `(rf/machine-meta :auth)` is the equivalent direct read.
+- After editing a view or helper: pick a CLJS form that derefs the view's namespace var (e.g. `(some-ns/my-view)` or `(meta #'some-ns/my-view)`).
 - If you don't know a good probe, omit `probe` and the tool falls back to a 300ms timer; the result includes `:soft? true` so you know it's timer-based.
 
 A successful probe-flip also coincides with a `:rf.registry/handler-replaced` trace event arriving in the buffer, so an alternative confirmation is `(filter #(= :rf.registry/handler-replaced (:operation %)) (rf/trace-buffer {:since <pre-edit-id>}))`. Use whichever fits — they're not exclusive.
-
-For the strict source-edit protocol (when to call this, what to do if the probe times out), see [hot-reload-protocol.md](hot-reload-protocol.md).
 
 ## Time-travel (epoch restore)
 
@@ -182,3 +186,16 @@ Map MCP tools to bash shims:
 | `subscribe` / `unsubscribe` | _MCP-only_ (push-mode requires `notifications/progress`; under the bash shim use `scripts/watch-epochs.sh --stream` for the pull-mode approximation) |
 
 For full transport mechanics and the `:app-db` slice modes that only the MCP `snapshot` tool exposes, see [`mcp-transport.md`](mcp-transport.md).
+
+## Dropped from v1 (re-frame-pair) — surfaces with no v2 equivalent
+
+The v1 `re-frame-pair` skill carried a few surfaces that have no direct re-frame2 equivalent today. They have been **dropped** rather than ported:
+
+- **`subs/live` (10x's "currently subscribed query vectors" view)** — replaced by `subs/cache` (`rf/sub-cache`), which is the public Tool-Pair-pinned shape `{query-v {:value v :ref-count n}}`. Same need, different surface.
+- **10x's internal epoch-buffer accessor + ring-rollover detection** — gone; replaced by `(rf/epoch-history frame-id)` which is bounded and self-describing (size = `(count history)`, depth = `(:depth (epoch/current-config))`).
+- **10x's internal undo / step-back navigation** — gone; replaced by first-class `(rf/restore-epoch frame-id epoch-id)` with six documented failure modes (see [Time-travel](#time-travel-epoch-restore)).
+- **`re-com-debug-disabled` heuristic** — kept (re-com is still a valid source-coord source), but the source-coord story now leads with re-frame2's own `:annotate-dom?` annotation; re-com's `data-rc-src` is a fallback rather than the only path.
+- **`trace-enabled?` discovery check** — replaced by `interop/debug-enabled?` (the `goog.DEBUG` mirror per Spec 009 §Production builds). Same gate, framework-canonical name.
+- **Version-floor enforcement against re-frame-10x / re-com / re-frame** — gone (no re-frame-10x dependency; re-com is optional; re-frame2's version is implicit in the loaded ns).
+
+If during real-world use a surface re-frame2 currently lacks would unblock a recipe (e.g. successful-fx attribution in `:effects` projection, or a stable `:render-key` shape), file a `bd` bead against the spec rather than working around in this skill.

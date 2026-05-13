@@ -45,7 +45,7 @@ The MCP-vs-shim mapping lives in `references/mcp-transport.md`. The frontmatter 
 - **REPL changes** are ephemeral; survive hot-reloads of unaffected namespaces but lost on full page reload. Use for probes / experiments / throwaway fixes.
 - **Source edits** are permanent; after any source edit, the AI **must** call `hot-reload/wait` before dispatching or tracing. Otherwise it interacts with pre-reload code and reports misleading results.
 
-This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol lives in `references/hot-reload-protocol.md`.
+This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol lives in `references/ops.md` §Hot-reload coordination.
 
 ### L5 — Connect first, every session
 
@@ -111,11 +111,9 @@ skills/re-frame-pair2/
 ├── package.json                        (npm metadata)
 ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
 ├── references/
-│   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel)
+│   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map appendix)
 │   ├── recipes.md                      (named procedures — "explain this dispatch", post-mortem, etc.)
 │   ├── errors.md                       (structured error → English + recovery)
-│   ├── hot-reload-protocol.md          (source-edit → wait-for-reload → re-trace protocol)
-│   ├── migration-from-v1.md            (re-frame-pair v1 → v2 surface map)
 │   └── mcp-transport.md                (MCP install + bash-shim → MCP tool name map)
 ├── scripts/                            (bash shims — deprecated, kept for back-compat)
 ├── tests/                              (skill smoke tests)
@@ -126,7 +124,7 @@ skills/re-frame-pair2/
     └── authoring-prompt.md             (one-shot reauthor prompt)
 ```
 
-SKILL.md (~130) + 6 references (~1,000) + spec (~300) ≈ ~1,430 LoC. Typical session reads SKILL.md (~130) + one or two references (~150-300 each) = ~430-720 LoC.
+SKILL.md (~175) + references (~1,100) + spec (~300) ≈ ~1,575 LoC. Typical session reads SKILL.md + one or two references (~150-300 each) = ~430-800 LoC. The hot-reload protocol and v1 → v2 surface-map both live in `ops.md` as sections rather than separate leaves.
 
 ## 6. Discovery surface (frontmatter `description`)
 

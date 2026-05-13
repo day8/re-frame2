@@ -108,8 +108,9 @@ page-refresh + re-injection, multi-frame routing. See
 **Status: scaffolded — 8 tests, 27 assertions, runs per-push.**
 
 Table-driven structural regression against `references/recipes.md`,
-`references/ops.md`, `references/errors.md`,
-`references/hot-reload-protocol.md`, and `SKILL.md`. The canonical-
+`references/ops.md` (which now also carries the hot-reload-coordination
+section and the v1 surface-map appendix), `references/errors.md`, and
+`SKILL.md`. The canonical-
 prompts table at the top of `tests/prompts/prompt_regression_test.clj`
 binds each representative user prompt to the recipe heading that
 covers it AND the ops the recipe is expected to name.
