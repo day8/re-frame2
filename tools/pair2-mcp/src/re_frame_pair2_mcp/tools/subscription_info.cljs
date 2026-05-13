@@ -25,27 +25,30 @@
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.probe :as probe]))
 
+(defn- filter-form
+  "Build the per-sub `filterv` body — `subs` when no filters apply, a
+  one-predicate `filterv` when exactly one, an `and`-combined chain
+  when both. The form is composed Clojure-side (rf2-ambfv) so the
+  runtime never sees `(if nil ...)` no-op branches for absent
+  filters."
+  [topic sub-id]
+  (let [preds (cond-> []
+                topic  (conj (str "(= (:topic %) " (pr-str topic) ")"))
+                sub-id (conj (str "(= (:id %) "    (pr-str sub-id) ")")))]
+    (case (count preds)
+      0 "subs"
+      1 (str "(filterv #" (first preds) " subs)")
+      (str "(filterv #(and " (str/join " " preds) ") subs)"))))
+
 (defn subscription-info-tool [conn args]
   (let [build-id (wire/arg-build args)
         topic    (some-> (wire/arg args :topic) keyword)
         sub-id   (wire/arg args :sub-id)
-        ;; Build the filter chain Clojure-side (audit T19): only inline
-        ;; the predicates that actually apply, so the runtime sees the
-        ;; minimum form. The pre-DSL shape always shipped both `(if
-        ;; topic ... subs)` branches even when the slot was nil — wasted
-        ;; bytes the runtime then no-op'd.
-        preds    (cond-> []
-                   topic  (conj (str "(= (:topic %) " (pr-str topic) ")"))
-                   sub-id (conj (str "(= (:id %) "    (pr-str sub-id) ")")))
-        filtered (case (count preds)
-                   0 "subs"
-                   1 (str "(filterv #" (first preds) " subs)")
-                   (str "(filterv #(and " (str/join " " preds) ") subs)"))
         form     (ef/emit
                    (ef/rt-let ['r    (ef/rt-call 'subscription-info)
                                'subs (ef/rt-raw "(:subs r)")]
                               (ef/rt-raw
-                                (str "(assoc r :subs " filtered ")"))))]
+                                (str "(assoc r :subs " (filter-form topic sub-id) ")"))))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))

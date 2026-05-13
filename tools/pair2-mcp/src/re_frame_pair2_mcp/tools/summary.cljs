@@ -33,7 +33,11 @@
   over the top-level structure, no deep walk. The marker itself is
   bounded: long key lists are truncated to `summary-keys-cap` entries
   and flagged via `:keys-truncated? true` so the marker can never
-  blow the wire cap."
+  blow the wire cap.
+
+  Scalars are returned unchanged (rf2-ambfv): they already fit the
+  wire cap by definition, so wrapping them in a summary marker would
+  add tokens without saving any."
   [v]
   (cond
     (map? v)
@@ -60,10 +64,7 @@
     {:rf.mcp/summary {:type  :seq
                       :count (count v)
                       :bytes (count (pr-str v))}}
-    :else
-    {:rf.mcp/summary {:type  :scalar
-                      :value v
-                      :bytes (count (pr-str v))}}))
+    :else v))
 
 (defn deepest-valid-prefix
   "Walk `path` against `db` and return the deepest prefix that

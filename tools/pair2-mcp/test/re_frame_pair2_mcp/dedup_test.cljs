@@ -11,7 +11,7 @@
 
   Tests pin the public helpers directly from their owning namespaces:
   `tools.dedup/parse-dedup-arg`, `tools.dedup/empty-payload?`,
-  `tools.dedup/dedup-value`, `tools.dedup/dedup-expand`,
+  `tools.dedup/dedup-value`, `test-utils/dedup-expand`,
   `tools.snapshot-pipeline/dedup-epochs-in-snapshot`. A rename or
   signature change surfaces as a failing test rather than a silent
   contract drift.
@@ -22,7 +22,8 @@
   reduction-ratio sanity check."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame-pair2-mcp.tools.dedup :as dedup]
-            [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]))
+            [re-frame-pair2-mcp.tools.snapshot-pipeline :as pipeline]
+            [re-frame-pair2-mcp.test-utils :as tu]))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-dedup-arg — MCP-arg normalisation.
@@ -120,14 +121,14 @@
                  {:id 2 :payload shared}
                  {:id 3 :payload shared}]
         wrapped (dedup/dedup-value payload true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest round-trip-already-expanded-is-noop
   ;; A payload that was never deduped (caller passed `dedup false`)
   ;; round-trips identity through expand.
   (let [payload [{:a 1} {:b 2}]]
-    (is (= payload (dedup/dedup-expand payload)))))
+    (is (= payload (tu/dedup-expand payload)))))
 
 (deftest round-trip-nested-shared-subtrees
   ;; The load-bearing case: epoch slice where every record carries
@@ -144,13 +145,13 @@
                                    :patches [[[(keyword (str "k" i)) :v]
                                               :assoc (str "new-" i)]]}}))
         wrapped (dedup/dedup-value epochs true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= epochs restored))))
 
 (deftest round-trip-empty-collections-inside-payload
   (let [payload [{:items [] :state {}} {:items [] :state {}}]
         wrapped (dedup/dedup-value payload true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest round-trip-deeply-nested-uniform-records
@@ -162,7 +163,7 @@
                 :ui {:loading? false :error nil}}
         payload (vec (repeat 50 record))
         wrapped (dedup/dedup-value payload true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= payload restored))
     (is (= 50 (count restored)))))
 
@@ -210,7 +211,7 @@
                ") should be < 50% of raw (" raw-size
                "). Ratio: " (/ wrapped-size raw-size 1.0))))
     (testing "round-trip still reconstructs every epoch"
-      (let [restored (dedup/dedup-expand wrapped)]
+      (let [restored (tu/dedup-expand wrapped)]
         (is (= epochs restored))))))
 
 ;; ---------------------------------------------------------------------------
@@ -227,7 +228,7 @@
   ;; ships only the root entry; round-trip still exact.
   (let [payload [{:a 1} {:b 2} {:c 3}]
         wrapped (dedup/dedup-value payload true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= payload restored))))
 
 (deftest edge-case-one-big-repeated-subtree
@@ -237,7 +238,7 @@
                           [(keyword (str "k" i)) i]))
         payload (vec (repeat 20 shared))
         wrapped (dedup/dedup-value payload true)
-        restored (dedup/dedup-expand wrapped)]
+        restored (tu/dedup-expand wrapped)]
     (is (= payload restored))
     (is (= 20 (count restored)))
     (is (every? #(= shared %) restored))))
@@ -297,7 +298,7 @@
                    (fn [m fid fmap]
                      (assoc m fid
                             (if (contains? fmap :epochs)
-                              (update fmap :epochs dedup/dedup-expand)
+                              (update fmap :epochs tu/dedup-expand)
                               fmap)))
                    {}
                    wrapped)]

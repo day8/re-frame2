@@ -109,12 +109,15 @@
     (is (< (cap/token-estimate (pr-str marker)) 5000)
         "Marker for a 5k-entry map MUST still fit the wire cap")))
 
-(deftest tree-summary-scalar-keeps-the-value
-  ;; Scalars are cheap; summarising would lose information without
-  ;; saving any tokens.
-  (let [marker (:rf.mcp/summary (summary/tree-summary 42))]
-    (is (= :scalar (:type marker)))
-    (is (= 42 (:value marker)))))
+(deftest tree-summary-scalar-returns-value-unchanged
+  ;; rf2-ambfv: scalars already fit the wire cap by definition, so
+  ;; wrapping them in a summary marker would add tokens without saving
+  ;; any. The fn returns the scalar unchanged — no `:rf.mcp/summary`
+  ;; wrapper, no `:type :scalar` marker.
+  (is (= 42 (summary/tree-summary 42)))
+  (is (= "hello" (summary/tree-summary "hello")))
+  (is (= :a-keyword (summary/tree-summary :a-keyword)))
+  (is (nil? (summary/tree-summary nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; deepest-valid-prefix — the error-recovery breadcrumb.
