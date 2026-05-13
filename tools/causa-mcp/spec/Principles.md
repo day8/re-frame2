@@ -265,8 +265,8 @@ Lock #6.
 
 Each MCP tool response is bounded at **≤ 5,000 tokens** by
 default. The cap is normative, not aspirational: a tool that
-cannot answer inside the budget MUST trim, summarise, or
-paginate rather than over-spend.
+cannot answer inside the budget MUST trim, summarise, slice,
+paginate, or dedupe rather than over-spend.
 
 The motivation is the 2026 trend axis. Microsoft's April 2026
 recommendation (Playwright CLI **over** Playwright MCP for
@@ -281,55 +281,148 @@ triplet because its catalogue includes
 the `subscribe` stream, all of which return payloads whose
 size scales with runtime state.
 
-The discipline applies across three axes:
+The discipline rests on **five normative mechanisms**, each
+catalogued below. Every catalogue entry (when
+`003-Tool-Catalogue.md` lands) MUST declare which of the five
+apply to that tool, with a **typical-token** hint
+(`~1.2k`, `~3k under :sample`) and a **cap-reached** behaviour
+note. The hints surface in `list-tools` so the agent can plan
+ahead. The cap is enforced at the runtime boundary, not just
+documented.
 
-- **Pagination / cursor for unbounded surfaces.**
-  `get-trace-buffer`, `get-epoch-history`,
-  `list-subscriptions`, `get-causality-graph`, and any read
-  tool whose return size is a function of trace-bus depth
-  MUST accept a `:limit` argument and return a `:cursor` for
-  continuation. The default `:limit` MUST keep the response
-  under the cap. No unbounded list responses; no
-  "best-effort" omission of pagination. The `:since-ms` and
-  `:filter` arguments are not substitutes for pagination —
-  an active app can still blow the budget inside a 5-second
-  window.
-- **Summarisation modes for rich payloads.** Ops with rich
-  per-item shape (`app-db-diff`, `get-causality-graph`,
-  `get-epoch`, `get-machine-snapshot`) MUST expose a `:mode`
-  argument with at least `:count` (return totals only),
-  `:sample` (return a bounded prefix or stratified sample
-  with sizes attached), and `:full` (return everything,
-  paginated). The default MUST be `:sample` for any op whose
-  `:full` payload can exceed the cap. `app-db-diff` in
-  particular MUST default to a path-summary mode (changed
-  paths + cardinalities) rather than the full nested diff.
-- **Streaming over batch where appropriate.** The
-  `subscribe` stream returns one event per JSON-RPC
-  notification, not a buffered batch. The cap applies per
-  notification; the agent host meters consumption. A
-  `subscribe` topic whose individual events can exceed the
-  cap (e.g., a trace event with a large coeffect payload)
-  MUST attach a server-side trimmer (drop the heavy fields,
-  attach a `:elided [:cofx :db]` marker, surface a follow-up
-  `get-trace-buffer` cursor).
+The wording below aligns deliberately with
+[`tools/pair2-mcp/spec/Principles.md`](../../pair2-mcp/spec/Principles.md)
+§Tight token budget per response so that an agent learning the
+slot on one server gets the same slot on the others.
 
-The cap is enforced at the runtime boundary, not just
-documented. Each tool's reference entry in the catalogue
-carries a **typical-token** hint (e.g., `~1.5k`,
-`~3k under :sample`) and a **cap-reached** behaviour note
-(truncate-with-cursor, return `:ok? false :reason
-:budget-exceeded` with a hint to narrow the filter, switch
-mode, or paginate). The hints surface in `list-tools` so the
-agent can plan ahead.
+### 1. Token budget cap
 
-This is the load-bearing budget posture for Causa-MCP's
-agent-host workflow: keep the per-op cost predictable, push
-the agent to ask for what it actually needs, and never let a
-single op blow the session. Causa-MCP's value over a
-generalist surface (Chrome DevTools MCP's
-`evaluate_script`) collapses if the agent can't afford to
-call the tools.
+The **5,000-token default** is the per-response budget. Every
+tool that returns to the agent MUST measure the rendered
+payload (post-EDN-encoding, post-JSON-wrap) against the cap
+before returning. Each call MAY override via a `:max-tokens`
+integer argument (server clamps to `[1, 50000]`).
+
+A tool that would exceed the cap MUST NOT silently truncate.
+Instead it MUST return a structured overflow marker at the top
+of the payload:
+
+```clojure
+{:rf.mcp/overflow {:cap         5000
+                   :would-be    ~12400
+                   :hint        :switch-mode  ; or :paginate, :slice, :narrow-filter
+                   :continuation {:cursor "opaque…" :next-args {...}}}
+ …trimmed-payload…}
+```
+
+The `:rf.mcp/overflow` key is reserved cross-server (pair2-mcp,
+story-mcp, causa-mcp use the same shape) so an agent that
+recognises it once recognises it everywhere.
+
+### 2. Path slicing
+
+Tools returning rich nested values (`get-app-db`,
+`get-machine-snapshot`, `get-epoch`, `get-causality-graph`)
+MUST accept an optional `:path` argument — an EDN-encoded
+vector of keys (e.g. `"[:cart :items 3 :sku]"`) addressing a
+subtree.
+
+The default behaviour **without** a `:path` argument MUST be a
+tree-summary (per mechanism 4), not the full payload. With
+`:path`, the tool returns the addressed subtree subject to the
+remaining mechanisms (still budgeted, still summarised at the
+leaf if rich). Out-of-range paths return
+`:ok? false :reason :path-not-found` with the deepest valid
+prefix attached so the agent can re-aim. This is the same
+slicing convention pair2-mcp's `snapshot` op already uses.
+
+### 3. Cursor pagination
+
+Sequence-returning tools (`get-trace-buffer`,
+`get-epoch-history`, `list-subscriptions`,
+`get-causality-graph` when walking trace events, and any read
+tool whose return size is a function of trace-bus depth) MUST
+accept `:cursor` (opaque server-managed string, omitted on the
+first call) and `:limit` (integer, default chosen so the
+response fits the cap).
+
+Responses MUST carry `:next-cursor` (an opaque string for the
+next page, or `nil` when exhausted) and `:remaining` (count or
+estimate). Cursors are server-managed — the agent does not
+inspect them. The `:since-ms` and `:filter` arguments are NOT
+substitutes for pagination; an active app can blow the budget
+inside a 5-second window. No unbounded list responses; no
+"best-effort" omission of pagination.
+
+### 4. Lazy summary (default mode for rich values)
+
+The **default response mode** for any tool returning a rich
+nested value is a **summary**, not the full payload. A summary
+declares the shape without committing the budget:
+
+```clojure
+{:rf.mcp/summary {:type   :map        ; :map | :vector | :set | :scalar
+                  :keys   [:cart :user :ui :…]
+                  :counts {:cart 47 :user 3 :ui 12 :…}
+                  :bytes  ~12400}}
+```
+
+Tools MUST expose a `:mode` argument with at least `:summary`
+(default), `:sample` (bounded prefix or stratified sample with
+sizes attached), and `:full` (paginated complete payload).
+Agents drill down via `:path` (mechanism 2) or `:cursor`
+(mechanism 3); `:full` is opt-in for the cases where the agent
+genuinely needs everything. `app-db-diff` in particular MUST
+default to changed-paths-with-cardinalities, not the nested
+diff.
+
+### 5. Structural dedup (trace burst compaction)
+
+The wire format for sequence-returning tools whose items can
+repeat structural prefixes (trace bursts where many events
+share the same `:event-id` / `:handler-id` / `:source-coord`
+backbone) MAY apply **structural dedup** before counting
+tokens: shared subtrees are emitted once and referenced by an
+integer id; the wire payload carries
+`{:rf.mcp/dedup-table {1 {...} 2 {...}} :items [{:rf.mcp/ref 1 …} …]}`.
+
+The dedup algorithm is the
+[`day8/de-dupe`](https://github.com/day8/de-dupe) substitution
+table — proven on re-frame-10x's epoch payloads, where it
+typically compresses trace bursts 3-5× without semantic loss.
+The agent reconstructs the full structure with a one-pass walk
+substituting refs against the table. Dedup is **opt-out** per
+call (`:dedup? false`); on by default for trace-shaped
+sequences and off for everything else.
+
+The five mechanisms together are the load-bearing budget
+posture for Causa-MCP's agent-host workflow: keep the per-op
+cost predictable, push the agent to ask for what it actually
+needs, and never let a single op blow the session. Causa-MCP's
+value over a generalist surface (Chrome DevTools MCP's
+`evaluate_script`) collapses if the agent can't afford to call
+the tools.
+
+The **catalogue-entry contract** (binding on
+`003-Tool-Catalogue.md` when it lands): every tool entry MUST
+declare which mechanisms apply, the **typical-token** hint, the
+**cap-reached** behaviour, and the default `:mode` /
+`:limit` / `:dedup?` values. No tool ships without these slots.
+
+### Streaming over batch (cross-cutting)
+
+The `subscribe` stream returns one event per JSON-RPC
+`notifications/progress`, not a buffered batch. The cap applies
+per notification; the agent host meters consumption. A
+`subscribe` topic whose individual events can exceed the cap
+(a trace event with a large coeffect payload) MUST attach a
+server-side trimmer (drop the heavy fields, attach an
+`:elided [:cofx :db]` marker, surface a follow-up
+`get-trace-buffer` cursor). Mechanisms 1, 4, and 5 apply
+per-notification; mechanisms 2 and 3 are inapplicable inside a
+single notification but DO apply to the `subscribe` call's own
+arguments (e.g., a `:path` filter on the topic, a `:limit` on
+total notifications before auto-unsubscribe).
 
 ## Backed by Causa's and the framework's principles
 
