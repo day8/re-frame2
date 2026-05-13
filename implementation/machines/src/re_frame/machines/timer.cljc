@@ -289,7 +289,7 @@
 
 (defn cancel-all-timers!
   "Cancel every in-flight :after timer the runtime is currently tracking
-  and reset the timer table. Used by `reset-counters!` in fixture
+  and reset the timer table. Used by `reset-timers!` in fixture
   teardown."
   []
   (doseq [[_ entry] @after-timers]

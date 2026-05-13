@@ -25,7 +25,7 @@
 ;; from core to machines (e.g. `re-frame.core`'s `reg-machine` /
 ;; `create-machine-handler` / `machine-transition` re-exports,
 ;; `re-frame.test-support`'s reset-runtime fixture's
-;; `(machines/reset-counters!)` step) flow through `re-frame.late-bind`
+;; `(machines/reset-timers!)` step) flow through `re-frame.late-bind`
 ;; exactly as the schemas / router / flows hooks already do.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}

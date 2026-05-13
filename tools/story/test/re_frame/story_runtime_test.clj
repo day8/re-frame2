@@ -54,7 +54,7 @@
   ;; Re-require machines so its `reg-sub :rf/machine` survives the
   ;; registrar/clear-all! call. Mirrors the machines test fixtures.
   (require 're-frame.machines :reload)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   ;; Re-install the canonical vocabulary (tags + lifecycle machine).

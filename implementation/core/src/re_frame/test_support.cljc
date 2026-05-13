@@ -64,10 +64,9 @@
             ;; cancels in-flight `:after` wall-clock timers through the
             ;; late-bind hook table when the artefact is loaded, no-ops
             ;; when not. Per rf2-gr8q the per-process spawn-counter atom
-            ;; was replaced by in-snapshot allocation; the same late-
-            ;; bind hook name (`:machines/reset-counters!`) is preserved
-            ;; for fixture back-compat but now resets only the wall-
-            ;; clock-timer table.
+            ;; was replaced by in-snapshot allocation; the late-bind
+            ;; hook `:machines/reset-timers!` now resets only the
+            ;; wall-clock-timer table.
             ;; re-frame.schemas (Spec 010) ships as a separate artefact
             ;; (day8/re-frame2-schemas, rf2-p7va). The reset fixture
             ;; touches the per-frame schema registry through the
@@ -258,10 +257,9 @@
          ;; the hook returns nil and this is a no-op (correct: there is
          ;; no timer state to clear). Per rf2-xbtj — machines ships in
          ;; day8/re-frame2-machines. Per rf2-gr8q — the spawn-counter
-         ;; atom is gone; this hook now resets only the timer table.
-         ;; The hook name is preserved for fixture-surface back-compat.
-         (when-let [reset-counters! (late-bind/get-fn :machines/reset-counters!)]
-           (reset-counters!))
+         ;; atom is gone; this hook resets only the timer table.
+         (when-let [reset-timers! (late-bind/get-fn :machines/reset-timers!)]
+           (reset-timers!))
          ;; Late-bind: when the routing artefact is loaded, reset the
          ;; route registration counter so reg-index is deterministic
          ;; across fixture runs. When it isn't, the hook returns nil

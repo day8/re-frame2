@@ -44,7 +44,7 @@
   (reset! frame/frames {})
   (try (rf/init! plain-atom/adapter) (catch :default _ nil))
   (frame/ensure-default-frame!)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (loaders/clear-watchers!)
   (reset! assertions/warnings-accumulator          {})
   (reset! assertions/emitted-fx-accumulator        {})

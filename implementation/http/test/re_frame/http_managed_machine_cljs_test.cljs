@@ -33,7 +33,7 @@
   (test-support/reset-runtime-fixture
     {:adapter reagent-adapter/adapter
      :init-fn (fn []
-                (machines/reset-counters!)
+                (machines/reset-timers!)
                 (http-managed/clear-all-in-flight!))}))
 
 (defn- snapshot [machine-id]

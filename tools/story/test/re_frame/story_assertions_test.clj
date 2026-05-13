@@ -38,7 +38,7 @@
   (try (rf/init! plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   (require 're-frame.machines :reload)
-  (machines/reset-counters!)
+  (machines/reset-timers!)
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
