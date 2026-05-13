@@ -127,9 +127,10 @@ overlap is contract-identical; the plumbing underneath is different.
 ## Tight token budget per response
 
 Each MCP tool response is bounded at **≤ 5,000 tokens** by
-default. The cap is normative, not aspirational: a tool that
-cannot answer inside the budget MUST trim, summarise, or
-paginate rather than over-spend.
+default. The cap is normative AND enforced: every `tools/call`
+response passes through a wire-boundary check before egress,
+and over-budget payloads are replaced — not silently truncated —
+with a structured `{:rf.mcp/overflow ...}` marker.
 
 The motivation is the 2026 trend axis. Microsoft's April 2026
 recommendation (Playwright CLI **over** Playwright MCP for
@@ -143,7 +144,58 @@ dozens of tool calls — pair2-mcp's `snapshot` mega-op and the
 single oversized response burns the budget the agent needs
 for the next ten ops.
 
-The discipline applies across three axes:
+### The wire-boundary cap (enforced, rf2-rvyzy)
+
+The cap is enforced in `tools.cljs` at the `invoke` boundary,
+applied as the final step after every per-tool function
+resolves. Per-tool functions emit the same shapes they always
+did; the cap is a property of the egress, not of each tool's
+internals.
+
+- **Token rule**: `token-estimate s = (quot (count s) 4)` —
+  cheap character→token approximation aligned with the
+  published Anthropic rule-of-thumb for English / EDN. Not
+  exact; the goal is a bounded wire payload, not a precise
+  per-token meter.
+- **Per serialised response**: the cap applies to the sum of
+  every `:text` slot in the assembled MCP
+  `{:content [{:type "text" :text ...} ...]}` shape.
+  Multi-part responses share one cumulative budget rather
+  than per-key.
+- **Default cap**: `5000` tokens.
+- **Per-call override**: every tool accepts a `max-tokens`
+  MCP arg — integer cap, `0` disables (escape hatch for
+  callers that have already paginated or genuinely need the
+  full payload). The knob surfaces in `tools/list` so clients
+  can discover it.
+- **Overflow shape**: an over-budget payload is replaced with
+
+  ```clojure
+  {:rf.mcp/overflow
+   {:limit       :reached
+    :token-count <integer>   ; estimate of the original (over-budget) payload
+    :cap-tokens  <integer>   ; the cap that tripped
+    :tool        "<tool-name>"
+    :hint        "<tool-specific next-step hint>"}}
+  ```
+
+  The agent host MUST treat `{:rf.mcp/overflow {:limit :reached}}`
+  as a structured retry signal — narrow args, drop slices, or
+  pass `max-tokens 0` if the full payload is genuinely needed.
+- **Pluggable strategy**: the wrapper dispatches on a
+  `:strategy` keyword. Today only `:truncate-with-marker` is
+  implemented (replace the payload with the overflow marker).
+  Future strategies — path-slicing, lazy summary, diff
+  encoding — slot in here without touching per-tool functions.
+- **Silent truncation is not allowed**: a payload that exceeds
+  the cap MUST NOT be shipped in any partial form that would
+  let the agent host parse it as a valid response. The marker
+  is the only over-budget response shape.
+
+### Per-tool budget discipline
+
+In addition to the wire-cap (a backstop), tools are designed to
+stay inside the budget by construction:
 
 - **Pagination / cursor for unbounded surfaces.** Any op that
   returns a list whose size is a function of runtime state
@@ -168,13 +220,13 @@ The discipline applies across three axes:
   meters consumption. Batching is reserved for ops whose
   payload is naturally bounded and small.
 
-The cap is enforced at the runtime boundary, not just
-documented. Each op's reference entry in
+Each op's reference entry in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) carries a
 **typical-token** hint (e.g., `~1.2k`, `~3k under :sample`)
-and a **cap-reached** behaviour note (truncate-with-cursor,
-return `:reason :budget-exceeded` with a hint, etc.). The
-hints surface in `list-tools` so the agent can plan ahead.
+and a **cap-reached** behaviour note (the structured-overflow
+marker described above, optionally with tool-specific hint
+text). The hints surface in `list-tools` so the agent can
+plan ahead.
 
 This is the load-bearing budget posture for pair2-mcp's
 agent-host workflow: keep the per-op cost predictable, push

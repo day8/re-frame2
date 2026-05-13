@@ -72,6 +72,143 @@
       (default-build-id)))
 
 ;; ---------------------------------------------------------------------------
+;; Wire-boundary token-budget cap (rf2-rvyzy).
+;;
+;; Per `spec/Principles.md` §"Tight token budget per response", every
+;; MCP `tools/call` response is bounded at ~5,000 tokens by default.
+;; The cap is enforced here, not just documented: when the serialised
+;; response would exceed the cap, the wrapper replaces the payload
+;; with a structured `{:rf.mcp/overflow {...}}` marker and emits
+;; that instead. Silent truncation is unacceptable — it corrupts the
+;; agent's conversation without telling the agent.
+;;
+;; Design notes:
+;;
+;; - **Token rule**: `token-estimate s = (quot (count s) 4)`. Cheap
+;;   character→token approximation aligned with Anthropic's
+;;   rule-of-thumb for English / EDN. Not exact; the goal is a
+;;   bounded wire payload, not a precise meter.
+;; - **Per serialised response**: the cap is applied AFTER pr-str on
+;;   the assembled `{:content [...]}` shape's text slots. Multi-part
+;;   responses share one cumulative budget rather than per-key.
+;; - **Per-call override**: every tool accepts a `max-tokens` arg —
+;;   integer cap, `0` disables (escape hatch for callers that have
+;;   already paginated). Default `5000`.
+;; - **Pluggable strategy**: `apply-cap!` dispatches on a strategy
+;;   keyword. Today only `:truncate-with-marker` is implemented —
+;;   replace the payload with the overflow marker. Future strategies
+;;   (path-slicing rf2-tygdv, lazy summary rf2-u2029, diff encoding
+;;   rf2-rl7y, etc.) compose here without rebuilding the wrapper.
+;; - **Centralised**: applied as the final step in `invoke`. Per-tool
+;;   functions are untouched; they emit the same shapes they always
+;;   did. The wire-cap is a property of the egress boundary, not of
+;;   each tool's internals.
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-max-tokens 5000)
+
+(defn- token-estimate
+  "Cheap character→token approximation: `(quot (count s) 4)`. Aligned
+  with the published Anthropic rule-of-thumb for English / EDN. The
+  goal is a bounded wire payload, not a precise per-token meter."
+  [s]
+  (quot (count s) 4))
+
+(defn- max-tokens-arg
+  "Resolve the per-call cap from MCP args. Returns the integer cap in
+  tokens, or `nil` when the cap is disabled (caller passed `0`).
+  Defaults to `default-max-tokens` when absent or not a number."
+  [args]
+  (let [raw (when args (j/get args "max-tokens"))]
+    (cond
+      (or (nil? raw) (undefined? raw)) default-max-tokens
+      (and (number? raw) (zero? raw))  nil
+      (number? raw)                    (long raw)
+      :else                            default-max-tokens)))
+
+(def ^:private overflow-hints
+  "Tool-specific next-step hints for the overflow marker. Generic
+  fallback when a tool isn't listed."
+  {"snapshot"      "Narrow scope: pass `frames` to a single frame, or `include` to a single slice (one of app-db, sub-cache, machines, epochs, traces). Combine with future path-slicing args when available."
+   "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
+   "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or stream via `subscribe` with `max-events`."
+   "subscribe"     "Tighten `filter`, lower `max-buffered`, set `max-events` so each tick stays small."
+   "eval-cljs"     "Slice the value at the call-site (`get-in`, `take`, project to fewer keys) before returning."
+   "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame-pair2.runtime/health)` directly via `eval-cljs` with a projection."
+   "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
+
+(def ^:private overflow-hint-fallback
+  "Response over budget. Re-call with narrower args, or raise `max-tokens` (0 disables the cap).")
+
+(defn- overflow-payload
+  "Build the structured overflow marker that replaces an over-budget
+  response. Shape is stable per spec/Principles.md §Tight token
+  budget: callers pattern-match on the top-level `:rf.mcp/overflow`
+  key. `:limit :reached` is a fixed sentinel; `:token-count` is the
+  estimate that tripped the cap; `:hint` is tool-specific."
+  [{:keys [tool token-count cap]}]
+  {:rf.mcp/overflow {:limit       :reached
+                     :token-count token-count
+                     :cap-tokens  cap
+                     :tool        tool
+                     :hint        (get overflow-hints tool overflow-hint-fallback)}})
+
+(defn- sum-text-tokens
+  "Sum `token-estimate` across every `:text` slot in the MCP
+  `{:content [{:type \"text\" :text ...} ...]}` result. The
+  serialised response's wire size is dominated by these slots; the
+  JSON envelope is bounded and ignored."
+  [result-js]
+  (let [content (j/get result-js :content)
+        n      (if (array? content) (.-length content) 0)]
+    (loop [i 0 sum 0]
+      (if (< i n)
+        (let [item (aget content i)
+              text (when item (j/get item :text))
+              t    (if (string? text) (token-estimate text) 0)]
+          (recur (inc i) (+ sum t)))
+        sum))))
+
+(defn- overflow-result
+  "Build a fresh MCP result carrying the overflow marker, preserving
+  the `:isError` flag of the original result (an over-budget error
+  stays an error; an over-budget success becomes a non-error overflow
+  signal — the marker is itself a structured response)."
+  [tool token-count cap]
+  #js {:content #js [#js {:type "text"
+                          :text (pr-str (overflow-payload
+                                          {:tool        tool
+                                           :token-count token-count
+                                           :cap         cap}))}]})
+
+(defn- apply-cap
+  "Wire-boundary cap enforcement. Returns either `result-js` unchanged
+  (when under the cap or cap disabled) or a fresh result carrying the
+  overflow marker.
+
+  Pluggable on `strategy`:
+  - `:truncate-with-marker` (default, today the only option): drop
+    the payload, emit `{:rf.mcp/overflow ...}` instead.
+
+  Future strategies — path-slicing (rf2-tygdv), lazy summary
+  (rf2-u2029), diff encoding (rf2-rl7y) — slot in here without
+  touching per-tool functions or the `invoke` glue."
+  [result-js {:keys [tool cap strategy]
+              :or   {strategy :truncate-with-marker}}]
+  (cond
+    (nil? cap)        result-js
+    (nil? result-js)  result-js
+    :else
+    (let [tokens (sum-text-tokens result-js)]
+      (if (<= tokens cap)
+        result-js
+        (case strategy
+          :truncate-with-marker
+          (overflow-result tool tokens cap)
+          ;; Unknown strategy: degrade safely.
+          (overflow-result tool tokens cap))))))
+
+;; ---------------------------------------------------------------------------
 ;; Preload probe.
 ;; ---------------------------------------------------------------------------
 
@@ -697,7 +834,32 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Tool descriptors — exposed via tools/list.
+;;
+;; Every descriptor gets a universal `max-tokens` property bolted on
+;; by `with-budget-knob` before `tools/list` returns it. The cap is a
+;; wire-boundary concern (see `apply-cap` above), not a per-tool one;
+;; surfacing the knob universally means clients can discover and
+;; override it without per-tool documentation drift.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private max-tokens-property
+  {:type        "integer"
+   :description (str "Wire-boundary token-budget cap (default "
+                     default-max-tokens
+                     "). Per spec/Principles.md §Tight token budget, "
+                     "responses serialising over this estimate are "
+                     "replaced with an `{:rf.mcp/overflow ...}` "
+                     "marker. Pass 0 to disable the cap.")})
+
+(defn- with-budget-knob
+  "Splice `max-tokens` into a tool descriptor's inputSchema.properties.
+  No-op if the descriptor already declares it (forward-compat)."
+  [desc]
+  (let [props (get-in desc [:inputSchema :properties])]
+    (if (contains? props :max-tokens)
+      desc
+      (assoc-in desc [:inputSchema :properties :max-tokens]
+                max-tokens-property))))
 
 (def tool-descriptors
   [{:name "discover-app"
@@ -822,17 +984,12 @@
                   :additionalProperties false}}])
 
 (defn tool-descriptors-js []
-  (clj->js tool-descriptors))
+  (clj->js (mapv with-budget-knob tool-descriptors)))
 
-(defn invoke
-  "Dispatch a `tools/call` invocation to the right tool implementation.
-  Returns a Promise resolving to the MCP result object. Unknown tools
+(defn- dispatch-tool*
+  "Route a `tools/call` to the per-tool implementation. Unknown tools
   resolve to an isError result rather than throwing — keeps the server
-  loop simple.
-
-  `extra` carries the MCP `extra` payload (signal + sendNotification +
-  _meta.progressToken) for streaming tools. Non-streaming tools
-  ignore it."
+  loop simple."
   [conn name args extra]
   (case name
     "discover-app"     (discover-app   conn args)
@@ -846,3 +1003,24 @@
     "unsubscribe"      (unsubscribe-tool conn args)
     (js/Promise.resolve
       (err-text {:ok? false :reason :unknown-tool :tool name}))))
+
+(defn invoke
+  "Dispatch a `tools/call` invocation to the right tool implementation.
+  Returns a Promise resolving to the MCP result object.
+
+  Every result passes through `apply-cap` at the wire boundary —
+  responses whose serialised size exceeds the per-call cap (default
+  5,000 tokens, configurable via the `max-tokens` MCP arg) are
+  replaced with an `{:rf.mcp/overflow ...}` marker. The cap is
+  enforced here, not just documented; see the `apply-cap` docstring
+  for the pluggable-strategy design.
+
+  `extra` carries the MCP `extra` payload (signal + sendNotification +
+  _meta.progressToken) for streaming tools. Non-streaming tools
+  ignore it."
+  [conn name args extra]
+  (let [cap-opts {:tool     name
+                  :cap      (max-tokens-arg args)
+                  :strategy :truncate-with-marker}]
+    (-> (dispatch-tool* conn name args extra)
+        (.then (fn [result] (apply-cap result cap-opts))))))
