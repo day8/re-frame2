@@ -106,9 +106,9 @@
   "#4 Machines under SSR (allowed-subset) — under UIx."
   (rf/reg-frame :req {:preset :ssr-server})
   (let [meta (rf/frame-meta :req)]
-    (is (= :server (get-in meta [:config :platform]))
-        ":ssr-server preset sets :platform :server on the frame config")
-    (is (= :rf.error/server-projection (get-in meta [:config :on-error]))
+    (is (= :server (:platform meta))
+        ":ssr-server preset sets :platform :server on the frame metadata")
+    (is (= :rf.error/server-projection (:on-error meta))
         ":ssr-server preset wires :on-error to :rf.error/server-projection"))
   (rf/reg-machine :ssr/timed
     {:initial :idle

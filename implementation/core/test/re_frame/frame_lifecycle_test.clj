@@ -605,7 +605,9 @@
           "frame-ids excludes ids that were never registered"))))
 
 (deftest frame-meta-round-trip
-  (testing "(rf/frame-meta id) returns the registered metadata map shape"
+  (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape
+            per Spec-Schemas §:rf/frame-meta — user-supplied metadata,
+            preset-expansion keys, and lifecycle fields all at the top level"
     (rf/reg-frame :tenants/acme {:doc          "acme tenant"
                                  :preset       :default
                                  :fx-overrides {:rf.http/managed
@@ -614,17 +616,40 @@
       (is (map? m) "frame-meta returns a map")
       (is (= :tenants/acme (:id m))
           ":id reflects the registered frame id")
-      (is (map? (:config m))
-          ":config slot is the metadata map merged into the frame record")
-      (is (= "acme tenant" (get-in m [:config :doc]))
-          "user-supplied :doc round-trips through :config")
+      (is (= "acme tenant" (:doc m))
+          "user-supplied :doc is at the top level of the flat shape")
+      (is (= :default (:preset m))
+          ":preset is preserved verbatim per Spec 002 §Frame presets")
       (is (= {:rf.http/managed :rf.http/managed-canned-success}
-             (get-in m [:config :fx-overrides]))
-          ":fx-overrides round-trips through :config")
-      (is (map? (:lifecycle m))
-          ":lifecycle slot carries the frame's lifecycle map")
-      (is (number? (get-in m [:lifecycle :created-at]))
-          ":lifecycle :created-at is the host clock at reg-frame time"))))
+             (:fx-overrides m))
+          ":fx-overrides is at the top level of the flat shape")
+      (is (number? (:created-at m))
+          ":created-at is the host clock at reg-frame time — flat, not nested
+           under any :lifecycle sub-map")
+      (is (false? (:destroyed? m))
+          ":destroyed? is at the top level of the flat shape")
+      (is (nil? (:config m))
+          "no internal :config grouping leaks through — flat shape only")
+      (is (nil? (:lifecycle m))
+          "no internal :lifecycle grouping leaks through — flat shape only"))))
+
+(deftest frame-meta-preset-expansion-flat-shape
+  (testing "(rf/frame-meta id) on a preset frame returns the preset expansion
+            merged flat per Spec 002 §Expansion algorithm worked example:
+              {:preset       :test
+               :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
+               :drain-depth  100}"
+    (rf/reg-frame :test/auth-flow {:preset :test})
+    (let [m (rf/frame-meta :test/auth-flow)]
+      (is (= :test (:preset m))
+          ":preset key preserved verbatim")
+      (is (= {:rf.http/managed :rf.http/managed-canned-success}
+             (:fx-overrides m))
+          ":test preset's :fx-overrides expansion lifted to top level")
+      (is (= 100 (:drain-depth m))
+          ":test preset's :drain-depth expansion lifted to top level")
+      (is (= :test/auth-flow (:id m))
+          ":id reflects the registered frame id"))))
 
 (deftest frame-meta-nonexistent-is-nil
   (testing "(rf/frame-meta id) on an unregistered id returns nil cleanly

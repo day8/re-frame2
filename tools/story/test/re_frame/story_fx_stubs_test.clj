@@ -119,7 +119,7 @@
        :events     []})
     (let [r (async/deref-blocking (story/run-variant :story.fxstub-frame/v) 5000)]
       (is (= :ready (:lifecycle r)))
-      (let [overrides (-> (rf/frame-meta :story.fxstub-frame/v) :config :fx-overrides)]
+      (let [overrides (:fx-overrides (rf/frame-meta :story.fxstub-frame/v))]
         (is (map? overrides))
         (is (contains? overrides :http)
             "the :http fx is redirected to the stub event")))

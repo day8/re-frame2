@@ -861,7 +861,7 @@ response with no body."
   "Read the :ssr config's :public-error-id for a frame, falling back
   to :rf.ssr/default-error-projector when no config / no id."
   [frame-id]
-  (or (get-in (frame/frame-meta frame-id) [:config :ssr :public-error-id])
+  (or (get-in (frame/frame-meta frame-id) [:ssr :public-error-id])
       :rf.ssr/default-error-projector))
 
 (defn- frame-dev-error-detail?
@@ -870,7 +870,7 @@ response with no body."
   :details key with the raw trace event."
   [frame-id]
   (boolean
-    (get-in (frame/frame-meta frame-id) [:config :ssr :dev-error-detail?])))
+    (get-in (frame/frame-meta frame-id) [:ssr :dev-error-detail?])))
 
 (defn project-error
   "Resolve the active projector for the given frame and apply it to
@@ -931,7 +931,7 @@ response with no body."
   "True when the frame's :platform is :server. The error-projection
   hook only fires for server frames."
   [frame-id]
-  (= :server (get-in (frame/frame-meta frame-id) [:config :platform])))
+  (= :server (:platform (frame/frame-meta frame-id))))
 
 (defn- candidate-frame-for-error
   "Select the frame to project against for a trace-event. Prefer the

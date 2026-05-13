@@ -785,7 +785,7 @@
             ;; fx handlers to address the runtime-owned [:rf/spawned
             ;; <parent-id> <invoke-id>] registry slot).
             frame-id   (or frame :rf/default)
-            platform   (or (get-in (frame/frame-meta frame-id) [:config :platform])
+            platform   (or (:platform (frame/frame-meta frame-id))
                            :client)
             machine    (assoc machine
                               :rf/frame     frame-id

@@ -414,9 +414,9 @@
     (let [r (story/resolve-decorators :story.fm/v)]
       (frames/allocate! :story.fm/v r)
       (let [m (rf/frame-meta :story.fm/v)]
-        (is (true?              (get-in m [:config :rf/story?])))
-        (is (= :story.fm/v      (get-in m [:config :rf/variant])))
-        (is (= :story           (get-in m [:config :preset]))))
+        (is (true?              (:rf/story? m)))
+        (is (= :story.fm/v      (:rf/variant m)))
+        (is (= :story           (:preset m))))
       (is (contains? (story/variant-frames) :story.fm/v))
       (is (true? (story/variant-frame? :story.fm/v)))
       (frames/destroy! :story.fm/v))))
