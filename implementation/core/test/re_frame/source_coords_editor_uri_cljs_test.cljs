@@ -19,6 +19,13 @@
     (is (= "idea://open?file=src/app/views.cljs&line=42&column=7"
            (eu/editor-uri :idea coord)))))
 
+(deftest windsurf-zed-portable-shape
+  (testing ":windsurf / :zed produce the documented URIs under CLJS"
+    (is (= "windsurf://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :windsurf coord)))
+    (is (= "zed://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :zed coord)))))
+
 (deftest custom-template-on-cljs
   (testing ":custom template substitutes placeholders identically on CLJS"
     (is (= "x://file/src/app/views.cljs?line=42"

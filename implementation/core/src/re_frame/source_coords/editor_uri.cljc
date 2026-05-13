@@ -9,6 +9,8 @@
 
       vscode://file/<path>:<line>:<column>
       cursor://file/<path>:<line>:<column>
+      windsurf://file/<path>:<line>:<column>
+      zed://file/<path>:<line>:<column>
       idea://open?file=<path>&line=<line>&column=<column>
 
   No single scheme covers every editor; the user picks one at boot via a
@@ -20,6 +22,11 @@
 
   - `:vscode` (default) — VS Code, the most-installed editor.
   - `:cursor` — Cursor (the VS Code fork).
+  - `:windsurf` — Windsurf (a VS Code fork; registers its own
+                `windsurf://` handler distinct from VS Code's).
+  - `:zed`    — Zed (the `zed://` handler is registered via the
+                editor's 'Register Zed Scheme' action; accepts the
+                same `file/<path>:<line>:<column>` grammar).
   - `:idea`   — IntelliJ family (IDEA, WebStorm, PyCharm). The single
                 `idea://` handler dispatches across all JetBrains IDEs.
   - `{:custom <uri-template>}` — user-supplied template with the
@@ -78,7 +85,7 @@
 (def ^:const known-editors
   "The keyword set of built-in editor schemes. The `:custom` form is
   not a member — `editor-uri` matches it via map-shape detection."
-  #{:vscode :cursor :idea})
+  #{:vscode :cursor :windsurf :zed :idea})
 
 (def ^:private default-editor
   "Default editor when no `:editor` config key is set. VS Code is the
@@ -124,6 +131,20 @@
   [path line column]
   (str "cursor://file/" path ":" line ":" column))
 
+(defn- windsurf-uri
+  "Build a `windsurf://file/<path>:<line>:<column>` URI. Windsurf is a
+  VS Code fork that registers its own URI handler — same colon-suffix
+  grammar, distinct scheme."
+  [path line column]
+  (str "windsurf://file/" path ":" line ":" column))
+
+(defn- zed-uri
+  "Build a `zed://file/<path>:<line>:<column>` URI. Zed's `zed://`
+  handler accepts the VS Code colon-suffix grammar (registered via
+  Zed's 'Register Zed Scheme' action)."
+  [path line column]
+  (str "zed://file/" path ":" line ":" column))
+
 (defn- idea-uri
   "Build an `idea://open?file=<path>&line=<line>&column=<column>` URI.
   The JetBrains scheme uses query parameters rather than the
@@ -160,6 +181,8 @@
   `editor` accepts:
     - `:vscode` (default when nil) — `vscode://file/<path>:<line>:<column>`
     - `:cursor`                    — `cursor://file/<path>:<line>:<column>`
+    - `:windsurf`                  — `windsurf://file/<path>:<line>:<column>`
+    - `:zed`                       — `zed://file/<path>:<line>:<column>`
     - `:idea`                      — `idea://open?file=<path>&line=<line>&column=<column>`
     - `{:custom <template>}`       — user template with `{path}` / `{file}`
                                      / `{line}` / `{column}` placeholders.
@@ -186,6 +209,12 @@
 
         (= :cursor editor)
         (cursor-uri path line column)
+
+        (= :windsurf editor)
+        (windsurf-uri path line column)
+
+        (= :zed editor)
+        (zed-uri path line column)
 
         (= :idea editor)
         (idea-uri path line column)
