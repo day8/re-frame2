@@ -916,11 +916,34 @@
    (frame-container variant-id)
    new-db))
 
+(defn- ensure-variant-frame!
+  "Allocate `variant-id`'s frame if it doesn't already exist. The fixture
+  only `reg-variant`s the variant body; the variant's *frame* is
+  allocated lazily by `run-variant` / `preview-variant`. The privacy
+  tests need the frame up-front so they can write into its app-db
+  before the tool call runs."
+  [variant-id]
+  (when (nil? (frame-container variant-id))
+    (rf/reg-frame variant-id
+                  {:doc        (str "test frame for " variant-id)
+                   :rf/story?  true
+                   :rf/variant variant-id})))
+
+(defn- destroy-variant-frame!
+  "Tear down `variant-id`'s frame so the next test starts fresh. The
+  `frames` atom is per-process (not cleared by `story/clear-all!`); a
+  seeded `:rf.story/assertions` or `[:rf/elision :declarations]` slot
+  would otherwise bleed across tests."
+  [variant-id]
+  (when (some? (frame-container variant-id))
+    ((requiring-resolve 're-frame.frame/destroy-frame!) variant-id)))
+
 (defn- declare-sensitive!
   "Write a `{:sensitive? true}` entry into `[:rf/elision :declarations
   <path>]` on the named variant's frame. The walker reads this on the
   next call to `elide-wire-value` and emits `:rf/redacted` at the slot."
   [variant-id path]
+  (ensure-variant-frame! variant-id)
   (let [db (or (read-frame-db variant-id) {})]
     (replace-frame-db! variant-id
                        (assoc-in db
@@ -931,11 +954,23 @@
   "Write `db` into `variant-id`'s frame app-db. Helper for the privacy
   tests so we can populate slots without invoking a full `run-variant`."
   [variant-id db]
+  (ensure-variant-frame! variant-id)
   (replace-frame-db! variant-id db))
+
+(defmacro ^:private with-clean-frame
+  "Bind `vid` to `variant-kw`, run `body` against a clean variant frame,
+  and tear the frame down on exit so the next test sees no residue. The
+  `frames` atom is per-process and survives `story/clear-all!`; the
+  seeded `:rf.story/assertions` and `[:rf/elision :declarations]` slots
+  would otherwise leak."
+  [[vid variant-kw] & body]
+  `(let [~vid ~variant-kw]
+     (try ~@body
+          (finally (destroy-variant-frame! ~vid)))))
 
 (deftest preview-variant-app-db-redacts-sensitive-by-default
   (testing "sensitive path in variant frame's app-db lands :rf/redacted in the response"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
       (let [r (invoke "preview-variant" {:variant-id "story.button/primary"})
@@ -948,7 +983,7 @@
 
 (deftest preview-variant-app-db-includes-sensitive-when-opted-in
   (testing ":include-sensitive? true forwards the raw value through the walker"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
       (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
@@ -960,7 +995,7 @@
 
 (deftest run-variant-app-db-redacts-sensitive-by-default
   (testing "run-variant's :app-db slot routes through the wire-egress walker"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
       (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
@@ -974,7 +1009,7 @@
 
 (deftest run-variant-app-db-includes-sensitive-when-opted-in
   (testing "run-variant's :include-sensitive? true forwards the raw value"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
       (declare-sensitive! vid [:secret])
       (let [r (invoke "run-variant" {:variant-id "story.button/primary"
@@ -985,7 +1020,7 @@
 
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       ;; Seed assertion accumulator with one sensitive failure + one
       ;; benign passing record. The default-drop filter (strip-sensitive
       ;; from mcp-base.sensitive) must remove only the sensitive one.
@@ -1008,7 +1043,7 @@
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (testing ":include-sensitive? true preserves sensitive records"
-    (let [vid :story.button/primary]
+    (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid
                     {:rf.story/assertions
                      [{:assertion :rf.assert/path-equals
