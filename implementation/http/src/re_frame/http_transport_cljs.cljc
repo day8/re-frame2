@@ -321,7 +321,8 @@
                                            :decode    decode
                                            :decode-supplied? decode-supplied?
                                            :request-id request-id
-                                           :url        url})
+                                           :url        url
+                                           :sensitive? (:sensitive? ctx')})
                                 accepted (encoding/run-accept accept decoded {:status status})]
                             (cond
                               (contains? accepted :ok)
