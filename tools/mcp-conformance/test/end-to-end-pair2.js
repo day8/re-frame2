@@ -35,7 +35,9 @@ const SERVER = path.resolve(__dirname, '..', '..', 'pair2-mcp', 'out', 'server.j
 
 // Expected tools advertised by pair2-mcp's tools/list. Pinned exact so
 // accidental renames / additions / deletions surface here. Mirrors the
-// upstream stdio-roundtrip baseline (ten tools, post-rf2-tygdv).
+// upstream stdio-roundtrip baseline (eleven tools post-rf2-zjz9q, which
+// added `subscription-info` as a dedicated read-side wrapper around
+// `re-frame-pair2.runtime/subscription-info`).
 const EXPECTED_TOOLS = [
   'discover-app',
   'dispatch',
@@ -43,6 +45,7 @@ const EXPECTED_TOOLS = [
   'get-path',
   'snapshot',
   'subscribe',
+  'subscription-info',
   'tail-build',
   'trace-window',
   'unsubscribe',
@@ -194,6 +197,35 @@ async function main() {
       );
     }
     console.log('OK   tools/call subscribe (degraded) -> isError + nrepl-port-not-found');
+
+    // 3c. subscription-info — added by rf2-zjz9q as a dedicated MCP
+    // wrapper around `re-frame-pair2.runtime/subscription-info` so AI
+    // clients can list active streaming subscriptions without an
+    // eval-cljs round-trip. Pure-read tool, no required arguments —
+    // optional :topic / :sub-id filters narrow the result. In degraded
+    // mode it returns the same nrepl-port-not-found envelope as every
+    // other live-runtime tool; covering it here proves the dispatch
+    // table is wired and the descriptor reaches the SDK.
+    const subInfoResp = await client.callTool({
+      name: 'subscription-info',
+      arguments: {},
+    });
+    if (!subInfoResp.isError) {
+      throw new Error(
+        'subscription-info in degraded mode should isError; got: ' +
+          JSON.stringify(subInfoResp),
+      );
+    }
+    const subInfoText = subInfoResp.content?.[0]?.text || '';
+    if (!subInfoText.includes('nrepl-port-not-found')) {
+      throw new Error(
+        'subscription-info degraded text should mention :nrepl-port-not-found; got: ' +
+          subInfoText,
+      );
+    }
+    console.log(
+      'OK   tools/call subscription-info (degraded) -> isError + nrepl-port-not-found',
+    );
 
     // 4. Clean disconnect. The SDK closes the transport which kills
     // the child process. If the server hangs on shutdown the harness
