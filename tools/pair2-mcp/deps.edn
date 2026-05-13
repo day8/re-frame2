@@ -42,11 +42,27 @@
 ;; The `:test` alias here is a thin shim for habit / IDE consistency:
 ;; `clojure -M:test` still routes through shadow-cljs because the
 ;; sources are .cljs and need a CLJS compiler.
-{:paths ["src"]
+;; `:paths` includes "test" so shadow-cljs's `:server-test` build sees
+;; the unit-test namespaces when classpath resolution goes through this
+;; file (rf2-obpa9 flipped shadow-cljs.edn to `:deps true`). The
+;; production `:server` build doesn't pull test code — shadow-cljs only
+;; compiles what its entry-point graph requires.
+{:paths ["src" "test"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
          org.clojure/clojurescript {:mvn/version "1.12.145"}
          applied-science/js-interop {:mvn/version "0.4.2"}
-         thheller/shadow-cljs      {:mvn/version "3.4.10"}}
+         thheller/shadow-cljs      {:mvn/version "3.4.10"}
+         ;; day8/de-dupe — structural dedup of persistent data structures
+         ;; (rf2-obpa9). The library substitutes repeated subtrees with
+         ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
+         ;; flat cache map round-trips back through `expand`. Applied at
+         ;; the MCP wire boundary BEFORE the wire-cap check (rf2-rvyzy)
+         ;; so dedup gets to shrink first. Git-coord pinned to the
+         ;; latest master commit because the library has no recent
+         ;; Clojars release that matches the alive 2026 codebase
+         ;; (project.clj declares 0.2.2 but the master HEAD is past it).
+         day8/de-dupe              {:git/url "https://github.com/day8/de-dupe.git"
+                                    :git/sha "a2be701ddf42d94218116eda9e9ca822cef035bc"}}
 
  :aliases
  {:test {:extra-paths ["test"]

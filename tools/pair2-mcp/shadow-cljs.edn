@@ -9,8 +9,16 @@
 ;;
 ;; Source for the pilot lives under pilot/ (kept for reference and as
 ;; an end-to-end smoke harness). Production source lives under src/.
-{:source-paths ["src" "test"]
- :dependencies [[applied-science/js-interop "0.4.2"]]
+;; `:deps true` routes classpath resolution through deps.edn (rf2-obpa9).
+;; The earlier shape duplicated `:dependencies` here AND `:deps` in
+;; deps.edn — the deps.edn comment-block already declared that file the
+;; source of truth; this slot now actually honours that. The switch was
+;; forced by day8/de-dupe being shipped via git-coord only (no Clojars
+;; release of the post-2026 master HEAD); shadow-cljs's own
+;; `:dependencies` slot supports Maven coords only, not `:git/sha`.
+;; NOTE: `:source-paths` lives in deps.edn `:paths` when `:deps true`
+;; is active — shadow-cljs warns and ignores any `:source-paths` here.
+{:deps true
  :builds {:server      {:target :node-script
                         :output-to "out/server.js"
                         :main re-frame-pair2-mcp.server/main

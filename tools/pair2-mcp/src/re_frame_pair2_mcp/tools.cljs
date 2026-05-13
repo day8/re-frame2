@@ -58,6 +58,7 @@
   (:require [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]
+            [de-dupe.core :as dedup]
             [re-frame-pair2-mcp.nrepl :as nrepl]))
 
 ;; ---------------------------------------------------------------------------
@@ -404,6 +405,135 @@
     :else              :diff))
 
 ;; ---------------------------------------------------------------------------
+;; Structural dedup at the wire boundary (rf2-obpa9).
+;;
+;; Persistent data structures share subtrees in memory; `pr-str` flattens
+;; the sharing and writes every shared node out in full. For the epoch
+;; slice — where the diff-encoder (rf2-1wdzp) has already collapsed
+;; each `:db-after` against its own `:db-before` — the `:db-before`
+;; reference still rides per-record verbatim; a 10-epoch window over a
+;; 1MB app-db is ~10MB on the wire after diff-encoding (the diff itself
+;; is tiny, but every record still carries a full `:db-before`).
+;;
+;; `day8/de-dupe` walks a persistent data structure, hash-identifies
+;; repeated subtrees, and rewrites the structure as a flat cache map
+;; whose entries are keyed by `de-dupe.cache/cache-N` namespaced
+;; symbols. The library guarantees round-trip exactness via the
+;; companion `expand` function; the agent host can decode locally.
+;;
+;; ## When dedup runs
+;;
+;; - **Inside the epoch encoder**: the `:epochs` slice on `snapshot`,
+;;   `trace-window`, and `watch-epochs` is wrapped after diff-encoding
+;;   and before the wire-cap check (rf2-rvyzy). Order matters: the
+;;   diff-encoder shrinks each record's `:db-after`; the deduper then
+;;   pools repeated subtrees across records (most importantly the
+;;   `:db-before` reference, which is the dominant cost after
+;;   diff-encoding).
+;; - **Inside subscribe streaming**: each emitted progress frame's
+;;   `:events` vector is deduped per-tick. The cache is per-tick
+;;   (not per-subscription) — see §Table reset policy below.
+;;
+;; ## Why `de-dupe-eq` (equality), not `de-dupe` (identity)
+;;
+;; Data arrives at the MCP server via bencode over nREPL; CLJS values
+;; reconstructed from EDN on the way through don't share identity with
+;; values the runtime emitted earlier. Equality is what makes the
+;; cross-record share-pooling actually fire on the wire boundary, even
+;; though identity would be the cheaper rule if we had it.
+;;
+;; ## Wire shape
+;;
+;; A deduped payload is wrapped in a top-level marker:
+;;
+;;   {:rf.mcp/dedup-table <cache-map>}
+;;
+;; where `<cache-map>` is the de-dupe library's flat
+;; `{:de-dupe.cache/cache-0 <root> :de-dupe.cache/cache-N <subtree> ...}`
+;; output. Agents reconstruct by calling `de-dupe.core/expand` on the
+;; cache-map value, which returns the original structure with sharing
+;; restored. The marker key is the cross-MCP-convention vocabulary
+;; from causa-mcp's [`Principles.md`](../../causa-mcp/spec/Principles.md)
+;; §"5. Structural dedup" and aligns with the `:rf.mcp/*` family
+;; (`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/diff-from`).
+;;
+;; ## Table reset policy
+;;
+;; The cache is built **per dedup call** (per `:epochs` slice, per
+;; subscribe tick). Cross-call carry-over would require a stateful
+;; per-subscription cache and a wire shape that references entries
+;; from previous frames — a non-trivial protocol change for a marginal
+;; gain (the dominant within-call savings are already captured). If a
+;; future findings doc shows cross-tick share-pooling matters, that's
+;; a separate bead.
+;;
+;; ## Opt-out
+;;
+;; `dedup` MCP arg (boolean). Default `true`. `false` skips dedup
+;; entirely — the encoder emits the un-deduped value. Useful for ad-hoc
+;; reads where the agent host hasn't been taught to call `expand`, or
+;; for round-trip debugging.
+;;
+;; ## Idempotence on no-dedup-opportunity
+;;
+;; A payload with no repeated subtrees deduplicates to a one-entry
+;; cache (`{:de-dupe.cache/cache-0 <original>}`) — the wire shape is
+;; very slightly larger than the input. The encoder skips wrapping in
+;; that case via an `empty-payload?` short-circuit: nil / `[]` / `{}`
+;; inputs return the original value, so the marker only appears when
+;; there's actual work to undo.
+;; ---------------------------------------------------------------------------
+
+(defn- parse-dedup-arg
+  "Normalise the `dedup` MCP arg into a boolean. Accepts booleans,
+  strings (`\"true\"`/`\"false\"`), keywords (`:true`/`:false`), or
+  nil (default `true`). Unrecognised values default to `true` —
+  the budget-sensitive default fires dedup."
+  [raw]
+  (cond
+    (nil? raw)             true
+    (true? raw)            true
+    (false? raw)           false
+    (= raw "false")        false
+    (= raw :false)         false
+    (= raw "true")         true
+    (= raw :true)          true
+    :else                  true))
+
+(defn- empty-payload?
+  "True for values where dedup yields no win — nil, empty collections,
+  scalars. Skipping the wrap avoids the trivial cache-of-one shape
+  bloating the wire for empty / single-record responses."
+  [v]
+  (or (nil? v)
+      (and (coll? v) (empty? v))
+      (not (coll? v))))
+
+(defn- dedup-value
+  "Apply structural dedup to `v` and wrap the result in the cross-MCP
+  marker. Returns `v` unchanged when `enabled?` is false or when
+  `v` is empty / scalar (no dedup opportunity). Uses `de-dupe-eq`
+  (equality-based) — see the section header for the identity-vs-equality
+  rationale."
+  [v enabled?]
+  (if (or (not enabled?) (empty-payload? v))
+    v
+    (let [cache (dedup/de-dupe-eq v)]
+      {:rf.mcp/dedup-table cache})))
+
+(defn- dedup-expand
+  "Reverse `dedup-value`. Given a value possibly wrapped in the
+  `:rf.mcp/dedup-table` marker, reconstruct the original structure
+  via `de-dupe.core/expand`. Idempotent on already-expanded values
+  (the marker check returns the input unchanged when the wrapper
+  isn't present). Provided for round-trip parity and for the unit
+  tests; the agent host can call the same shape locally."
+  [v]
+  (if (and (map? v) (contains? v :rf.mcp/dedup-table))
+    (dedup/expand (:rf.mcp/dedup-table v))
+    v))
+
+;; ---------------------------------------------------------------------------
 ;; Preload probe.
 ;; ---------------------------------------------------------------------------
 
@@ -612,6 +742,7 @@
         frame     (some-> (arg args :frame) keyword)
         incl?     (include-sensitive? args)
         mode      (parse-epochs-mode (arg args :epochs-mode))
+        dedup?    (parse-dedup-arg (arg args :dedup))
         form      (if frame
                     (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms " " (pr-str frame) ")")
                     (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms ")"))]
@@ -619,12 +750,14 @@
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [epochs]
                  (let [[kept dropped] (strip-sensitive (vec epochs) incl?)
-                       encoded         (diff-encode-epochs kept mode)]
+                       encoded         (diff-encode-epochs kept mode)
+                       deduped         (dedup-value encoded dedup?)]
                    (ok-text (cond-> {:ok? true
                                      :window-ms ms
                                      :count (count encoded)
                                      :epochs-mode mode
-                                     :epochs encoded}
+                                     :dedup dedup?
+                                     :epochs deduped}
                               (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :trace-failed err))))))
 
@@ -642,6 +775,7 @@
         since-id  (arg args :since-id)
         incl?     (include-sensitive? args)
         mode      (parse-epochs-mode (arg args :epochs-mode))
+        dedup?    (parse-dedup-arg (arg args :dedup))
         pred-map  (when-let [p (arg args :pred)] (js->clj p :keywordize-keys true))
         frame-arg (if frame (str " " (pr-str frame)) "")
         form      (str "(let [r (re-frame-pair2.runtime/epochs-since "
@@ -657,9 +791,13 @@
                  (let [matches        (when (map? v) (:matches v))
                        [kept dropped] (strip-sensitive (vec matches) incl?)
                        encoded        (diff-encode-epochs kept mode)
+                       deduped        (dedup-value encoded dedup?)
                        base           (cond-> {:ok? true}
                                         (map? v) (merge v))]
-                   (ok-text (cond-> (assoc base :matches encoded :epochs-mode mode)
+                   (ok-text (cond-> (assoc base
+                                           :matches deduped
+                                           :epochs-mode mode
+                                           :dedup dedup?)
                               (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :watch-failed err))))))
 
@@ -1018,6 +1156,26 @@
                  fmap)))
       {} snapshot)))
 
+(defn- dedup-epochs-in-snapshot
+  "Walk the per-frame snapshot map and apply structural dedup
+  (rf2-obpa9) to every frame's `:epochs` slice. Dedup is per-frame —
+  cross-frame share-pooling would require a single table spanning
+  every frame's slice, which is a follow-on optimisation; per-frame
+  is the safe default and matches the table-reset policy
+  (per-call, not per-stream)."
+  [snapshot enabled?]
+  (cond
+    (or (not enabled?) (not (map? snapshot)))
+    snapshot
+    :else
+    (reduce-kv
+      (fn [m fid fmap]
+        (assoc m fid
+               (if (and (map? fmap) (contains? fmap :epochs))
+                 (update fmap :epochs dedup-value enabled?)
+                 fmap)))
+      {} snapshot)))
+
 (defn- snapshot-tool [conn args]
   (let [build-id (arg-build args)
         frames   (parse-frames-arg (arg args :frames))
@@ -1025,6 +1183,7 @@
         incl?    (include-sensitive? args)
         path     (parse-path-arg (arg args :path))
         mode     (parse-epochs-mode (arg args :epochs-mode))
+        dedup?   (parse-dedup-arg (arg args :dedup))
         opts     {:frames frames :include include}
         form     (str "(re-frame-pair2.runtime/snapshot-state "
                       (pr-str opts) ")")]
@@ -1033,13 +1192,15 @@
         (.then (fn [v]
                  (let [[scrubbed dropped]    (scrub-snapshot-sensitive v incl?)
                        [sliced path-status]  (slice-app-db-in-snapshot scrubbed path)
-                       diff-encoded          (diff-encode-epochs-in-snapshot sliced mode)]
+                       diff-encoded          (diff-encode-epochs-in-snapshot sliced mode)
+                       deduped               (dedup-epochs-in-snapshot diff-encoded dedup?)]
                    (ok-text (cond-> {:ok?         true
                                      :frames      (if (= :all frames) :all (vec frames))
                                      :include     include
                                      :mode        (if (nil? path) :summary :path-sliced)
                                      :epochs-mode mode
-                                     :snapshot    diff-encoded}
+                                     :dedup       dedup?
+                                     :snapshot    deduped}
                               path                  (assoc :path path)
                               (seq path-status)     (assoc :path-not-found path-status)
                               (pos? dropped)        (assoc :dropped-sensitive dropped))))))
@@ -1180,6 +1341,7 @@
         max-ms      (or (arg args :max-ms) 0)    ;; 0 = no upper bound
         max-events  (or (arg args :max-events) 0) ;; 0 = no upper bound
         incl?       (include-sensitive? args)
+        dedup?      (parse-dedup-arg (arg args :dedup))
         progress-tk (some-> extra
                             (j/get :_meta)
                             (j/get :progressToken))
@@ -1282,7 +1444,8 @@
                                                                      @tick
                                                                      (pr-str
                                                                        (cond-> {:sub-id sub-id
-                                                                                :events evts
+                                                                                :events (dedup-value evts dedup?)
+                                                                                :dedup dedup?
                                                                                 :overflow ov}
                                                                          (pos? dropped)
                                                                          (assoc :dropped-sensitive dropped)))
@@ -1338,6 +1501,23 @@
                      "replaced with an `{:rf.mcp/overflow ...}` "
                      "marker. Pass 0 to disable the cap.")})
 
+(def ^:private dedup-property
+  "Per-tool descriptor slot for the `:dedup` opt-out (rf2-obpa9).
+  Applied to surfaces that ship epoch slices (`snapshot`,
+  `trace-window`, `watch-epochs`) and to the `subscribe` streaming
+  channel — the surfaces where repeated subtrees dominate the wire
+  cost. Default `true`."
+  {:type        "boolean"
+   :description (str "Apply structural dedup (day8/de-dupe) to the "
+                     "epoch slice / event vector before the wire-cap "
+                     "check. Default true. When deduped, the slot is "
+                     "wrapped as `{:rf.mcp/dedup-table <cache-map>}` "
+                     "and the agent host reconstructs via "
+                     "`(de-dupe.core/expand cache-map)`. Pass false "
+                     "to skip dedup — useful for ad-hoc reads when "
+                     "the agent host hasn't been taught to call "
+                     "`expand`.")})
+
 (defn- with-budget-knob
   "Splice `max-tokens` into a tool descriptor's inputSchema.properties.
   No-op if the descriptor already declares it (forward-compat)."
@@ -1380,13 +1560,17 @@
                       "at the top level; opt back in with `include-sensitive? true`. Dropped count surfaces "
                       "as `:dropped-sensitive` on the result when non-zero. "
                       "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
-                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape (needed for time-travel restore).")
+                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape (needed for time-travel restore). "
+                      "The epoch vector is structurally deduped by default (rf2-obpa9) — repeated subtrees "
+                      "(notably the per-record `:db-before` reference) collapse to a `{:rf.mcp/dedup-table ...}` "
+                      "wrapper; the agent host calls `(de-dupe.core/expand cache)` to reconstruct. Pass `dedup false` to skip.")
     :inputSchema {:type "object"
                   :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000)"}
                                :frame {:type "string"}
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
                                              :enum ["diff" "full"]}
+                               :dedup dedup-property
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build {:type "string"}}
@@ -1397,7 +1581,8 @@
                       ":touches-path, :sub-ran, :render, :origin, :frame. Per spec/009 §Privacy this forwarder "
                       "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
                       "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
-                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape.")
+                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape. "
+                      "The matches vector is structurally deduped by default (rf2-obpa9); pass `dedup false` to skip.")
     :inputSchema {:type "object"
                   :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh)"}
                                :pred     {:type "object" :description "Filter map"}
@@ -1405,6 +1590,7 @@
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (legacy, opt-in for time-travel restore)."
                                              :enum ["diff" "full"]}
+                               :dedup    dedup-property
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build    {:type "string"}}
@@ -1434,7 +1620,11 @@
                       "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                       "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
                       "machines slices pass through unchanged — payload redaction is the `with-redacted` "
-                      "interceptor's job, not the forwarder's.")
+                      "interceptor's job, not the forwarder's. "
+                      "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
+                      "repeated subtrees (notably the per-record `:db-before` reference) collapse to a "
+                      "`{:rf.mcp/dedup-table ...}` wrapper; agent host reconstructs via `de-dupe.core/expand`. "
+                      "Pass `dedup false` to skip.")
     :inputSchema {:type "object"
                   :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
                                          :oneOf [{:type "string"}
@@ -1455,6 +1645,7 @@
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
                                              :enum ["diff" "full"]}
+                               :dedup   dedup-property
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
@@ -1492,7 +1683,12 @@
                       ":sub-ran :render :origin :frame). Pass `filter` either as a JSON object or as an EDN-encoded string. "
                       "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
                       "level; opt back in with `include-sensitive? true`. Dropped count surfaces as `:dropped-sensitive` "
-                      "on each progress payload (when non-zero) and the final summary.")
+                      "on each progress payload (when non-zero) and the final summary. "
+                      "Each progress payload's `:events` vector is structurally deduped by default (rf2-obpa9) — "
+                      "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
+                      "agent host reconstructs via `(de-dupe.core/expand cache-map)`. Dedup is per-tick, not "
+                      "per-stream — each notifications/progress frame carries its own cache, no cross-tick "
+                      "references. Pass `dedup false` to skip.")
     :inputSchema {:type "object"
                   :properties {:topic   {:type "string"
                                          :description "Topic name. Required."
@@ -1508,6 +1704,7 @@
                                          :description "Hard upper-bound on how long the subscription stays open, ms. 0 = unbounded (close on cancel only). Default 0."}
                                :max-events {:type "integer"
                                             :description "Terminate after this many events have been delivered. 0 = unbounded. Default 0."}
+                               :dedup    dedup-property
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build   {:type "string"}}

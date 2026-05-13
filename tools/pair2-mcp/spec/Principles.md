@@ -185,15 +185,16 @@ internals.
 - **Pluggable strategy**: the wrapper dispatches on a
   `:strategy` keyword. Today only `:truncate-with-marker` is
   implemented (replace the payload with the overflow marker).
-  Future strategies — structural dedup — slot in here without
-  touching per-tool functions. Path-slicing and lazy-summary
-  already landed (rf2-tygdv) but as per-tool input-shape
-  concerns: the `snapshot` and `get-path` tools accept a
-  `:path` arg and default to a `{:rf.mcp/summary ...}` response
-  for the unbounded `:app-db` slice, so the cap stays a backstop
-  rather than the primary mechanism for the common case.
-  Diff-encoded `:db-after` (rf2-1wdzp) also lives at the tool
-  surface — see the dedicated mechanism below.
+  Path-slicing and lazy-summary already landed (rf2-tygdv) but
+  as per-tool input-shape concerns: the `snapshot` and
+  `get-path` tools accept a `:path` arg and default to a
+  `{:rf.mcp/summary ...}` response for the unbounded `:app-db`
+  slice, so the cap stays a backstop rather than the primary
+  mechanism for the common case. Diff-encoded `:db-after`
+  (rf2-1wdzp) and structural dedup (rf2-obpa9) also live at the
+  tool surface — see the dedicated mechanisms below. They run
+  BEFORE the cap so the wrapper measures the already-shrunk
+  payload.
 - **Silent truncation is not allowed**: a payload that exceeds
   the cap MUST NOT be shipped in any partial form that would
   let the agent host parse it as a valid response. The marker
@@ -315,11 +316,12 @@ from ~20MB to ~10MB. Combined with the `:app-db` slice's
 `:summary` default (rf2-tygdv), the agent's typical
 `investigate-X` workflow stays well inside the 5,000-token
 cap without further drill-down. The `:db-before` reference is
-deliberately NOT deduplicated across records — that would
-introduce cross-record dependencies and break the
-self-containment property. Cross-record dedup is in scope for
-the future `:strategy :dedup` mechanism (rf2-lwgg8 mechanism
-5), not for this one.
+deliberately NOT deduplicated by this mechanism — diff-encoding
+keeps each record self-contained — but the next mechanism in
+this pipeline (structural dedup, rf2-obpa9) DOES collapse the
+shared `:db-before` references at the slice boundary via an
+explicit substitution table; round-trip remains exact via the
+de-dupe library's companion `expand` function.
 
 **Cross-MCP vocabulary**. The `:rf.mcp/diff-from` marker key
 follows the `:rf.mcp/*` namespace convention shared with
@@ -327,6 +329,97 @@ follows the `:rf.mcp/*` namespace convention shared with
 and causa-mcp's `:rf.mcp/dedup-table` (rf2-lwgg8 mechanism 5).
 Agents recognise the family once and pattern-match on the
 prefix.
+
+### Structural dedup (rf2-obpa9)
+
+The fourth wire-protocol mechanism. Persistent data structures
+share subtrees in memory; `pr-str` flattens the sharing and
+writes every shared node out in full. After diff-encoding
+(above) collapses each `:db-after`, the dominant remaining cost
+is the per-record `:db-before` reference — a 10-epoch window
+over a 1MB app-db is still ~10MB on the wire. Structural dedup
+collapses repeated subtrees by emitting them once into a
+substitution table and replacing later occurrences with
+references.
+
+**The transform**. After diff-encoding, every epoch slice
+shipping through `trace-window`, `watch-epochs`, or the
+`:epochs` slot of `snapshot` is passed through
+[`day8/de-dupe`](https://github.com/day8/de-dupe)
+(MIT, ClojureScript, alive 2026; pinned via git-coord in
+[`deps.edn`](../deps.edn)) and wrapped in the cross-MCP
+substitution-table marker:
+
+```clojure
+;; Wire shape
+{:rf.mcp/dedup-table
+ {:de-dupe.cache/cache-0 <root-with-refs>
+  :de-dupe.cache/cache-1 <shared-subtree>
+  :de-dupe.cache/cache-2 <shared-subtree>
+  ...}}
+```
+
+The cache map is the de-dupe library's flat output: cache-0 is
+the root structure (with namespaced-symbol references to other
+cache entries inline), and the remaining entries are the
+extracted shared subtrees. The agent host reconstructs by
+calling `(de-dupe.core/expand cache-map)` — one library call,
+exact round-trip. The marker key
+(`:rf.mcp/dedup-table`) matches the cross-MCP vocabulary
+declared in
+[causa-mcp `Principles.md` §5 Structural dedup](../../causa-mcp/spec/Principles.md);
+an agent that learned the slot on causa-mcp sees the same slot
+here.
+
+**Why `de-dupe-eq` (equality), not `de-dupe` (identity)**. Data
+arrives at the MCP server via bencode over nREPL; CLJS values
+reconstructed on the way through don't share identity with the
+runtime's in-memory originals. Equality is what makes the
+cross-record share-pooling actually fire on the wire boundary.
+
+**Where in the pipeline**. Dedup runs AFTER diff-encoding and
+BEFORE the wire-cap check (rf2-rvyzy). Order matters: the
+diff-encoder shrinks each record's `:db-after`; the deduper
+then pools repeated subtrees across records (most importantly
+the `:db-before` reference, which is the dominant cost after
+diff-encoding). The wire-cap then measures the deduped payload,
+not the raw, so dedup gets to shrink first.
+
+**Table reset policy**. The cache is built **per dedup call**
+(per `:epochs` slice, per subscribe-tick events vector).
+Cross-call carry-over would require a stateful per-subscription
+cache and a wire shape that references entries from previous
+frames — a non-trivial protocol change for a marginal gain (the
+dominant within-call savings are already captured). If a future
+findings doc shows cross-tick share-pooling matters, that is a
+separate bead.
+
+**Idempotence on no-dedup-opportunity**. A payload with no
+repeated subtrees deduplicates to a one-entry cache — the wire
+shape is slightly larger than the input. The encoder
+short-circuits on nil / empty-collection / scalar inputs so the
+marker only appears when there's actual work to undo.
+
+**`dedup` arg**. Every tool that ships epoch slices or events
+accepts a `dedup` arg (boolean, default `true`). Passing
+`false` skips the wrap — useful for ad-hoc reads when the
+agent host hasn't been taught to call `expand`, or for
+round-trip debugging.
+
+**Wire-byte impact**. Measured: a 10-epoch window over a
+256-key map (each value a 256-char string ⇒ 683KB raw)
+compresses to 72KB after dedup — a 89.5% reduction. The exact
+ratio depends on shape (subtree cardinality, map fan-out,
+value sizes); the floor is **≥50%** on any payload where the
+`:db-before` reference is shared across multiple records, which
+is the rule rather than the exception for diff-encoded epoch
+slices.
+
+**Subscribe streaming**. The `subscribe` tool's
+`notifications/progress` frames apply the same wrap per-tick.
+The cache is per-tick (no cross-tick refs); each `:events`
+vector in the progress payload is a self-contained deduped
+blob.
 
 ## Backed by the framework's principles
 
