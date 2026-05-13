@@ -2,6 +2,8 @@
 
 Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) modelled as a state machine that owns the socket actor.
 
+`:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:invoke`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
+
 > **Status of the worked example:** `examples/reagent/websocket/` is in flight via rf2-yf97. Until it lands, the canonical declaration below is the source of truth.
 
 ## When to use this pattern
