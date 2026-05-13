@@ -135,6 +135,18 @@
     :producer-ns 're-frame.schemas.malli
     :design-bead "rf2-t0hq"
     :description "Default-installed Malli explainer (malli.core/explain)."}
+   {:key         :schemas/extract-large-paths-from-schema
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-nwv63"
+    :description "Walk a Malli EDN form at a base-path; return {path declaration} entries for :large? true slots."}
+   {:key         :schemas/frame-elision-declarations
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-nwv63"
+    :description "Merged {path declaration} for every :large? slot in every app-schema registered against a frame."}
+   {:key         :schemas/populate-elision-declarations
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-nwv63"
+    :description "Idempotent: hydrate app-db [:rf/elision :declarations] from a frame's schema-derived large-path declarations."}
 
    ;; ---- re-frame.machines (rf2-xbtj / rf2-8bp3) ------------------------------
    {:key         :machines/reg-machine
