@@ -116,6 +116,72 @@
   [rel-path]
   (slurp (io/file repo-root rel-path)))
 
+(defn- strip-comments-and-strings
+  "Return `src` with Clojure line comments (`;` to EOL) and string
+  literals (`\"...\"`, including docstrings) replaced by single
+  spaces. Preserves line structure for accurate error reporting up
+  the stack.
+
+  Used by the `story-mcp-still-emits-zero-cross-mcp-markers` tripwire
+  (and any other absence-pin that wants to distinguish *emissions*
+  from *documentation*). story-mcp re-uses mcp-base's overflow
+  machinery — the marker IS emitted on its wire, but not via an
+  inline literal in story-mcp's own source. Docstring/comment
+  references to `:rf.mcp/overflow` and `:rf.size/large-elided`
+  (rf2-7dnct introduced them, rf2-xx42k filed the drift) are
+  documentation, not emissions; this helper lets the absence-pin
+  ignore them.
+
+  Implementation: simple state machine over the raw text. Tracks two
+  states (in-string vs in-comment) with `\\` escape handling inside
+  strings. Not a full Clojure reader — character literals (`\\;`),
+  regex literals (`#\"...\"`), and `#_` reader-discards are not
+  modelled. Those edge cases don't matter for our pin: we strip
+  conservatively (false-positive whitelisting would be the bug; a
+  missed string is OK because the marker still wouldn't appear in a
+  bare character literal or a regex pattern targeting it)."
+  [src]
+  (let [n  (count src)
+        sb (StringBuilder. n)]
+    (loop [i 0, in-string? false, in-comment? false]
+      (if (>= i n)
+        (.toString sb)
+        (let [c (.charAt ^String src i)]
+          (cond
+            in-comment?
+            (do (.append sb (if (= c \newline) c \space))
+                (recur (inc i) false (not= c \newline)))
+
+            in-string?
+            (cond
+              ;; escape: skip the next char (consume both as space, preserving newlines)
+              (= c \\)
+              (do (.append sb \space)
+                  (when (< (inc i) n)
+                    (let [nx (.charAt ^String src (inc i))]
+                      (.append sb (if (= nx \newline) nx \space))))
+                  (recur (+ i 2) true false))
+
+              (= c \")
+              (do (.append sb \space)
+                  (recur (inc i) false false))
+
+              :else
+              (do (.append sb (if (= c \newline) c \space))
+                  (recur (inc i) true false)))
+
+            (= c \;)
+            (do (.append sb \space)
+                (recur (inc i) false true))
+
+            (= c \")
+            (do (.append sb \space)
+                (recur (inc i) true false))
+
+            :else
+            (do (.append sb c)
+                (recur (inc i) false false))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Canonical schemas. Single source of truth.
 ;;
@@ -530,21 +596,32 @@
 
 (deftest story-mcp-still-emits-zero-cross-mcp-markers
   ;; Self-documenting tripwire: the day story-mcp adopts ANY of the
-  ;; cross-MCP markers, this test flips RED — at which point the
-  ;; reviewer adds story-mcp to the `:servers` set on the affected
-  ;; marker, adds a fixture, and extends `server-source-files`. That's
-  ;; the right friction; conformance is not free.
+  ;; cross-MCP markers as an INLINE EMISSION, this test flips RED —
+  ;; at which point the reviewer adds story-mcp to the `:servers` set
+  ;; on the affected marker, adds a fixture, and extends
+  ;; `server-source-files`. That's the right friction; conformance is
+  ;; not free.
+  ;;
+  ;; Comment- and docstring-only mentions are stripped before the
+  ;; check (via `strip-comments-and-strings`). story-mcp re-uses
+  ;; mcp-base's overflow / elision machinery; its tools.cljc
+  ;; documents `:rf.mcp/overflow` and `:rf.size/large-elided` in
+  ;; docstrings without inline-emitting either. Documentation is not
+  ;; an emission — this tripwire fires only on bare-code occurrences
+  ;; (rf2-xx42k).
   (let [story-files ["tools/story-mcp/src/re_frame/story_mcp/tools.cljc"
                      "tools/story-mcp/src/re_frame/story_mcp/protocol.cljc"]]
     (doseq [{:keys [key]} canonical-markers
             rel           story-files]
       (testing (str "story-mcp source " rel " — " key " absence")
-        (is (not (str/includes? (read-source rel) (marker-key->literal key)))
-            (str key " literal found in " rel
-                 ".\nIf story-mcp now emits this marker, update "
-                 "`canonical-markers` to include :story-mcp in "
-                 ":servers, add a story-mcp fixture, and extend "
-                 "`server-source-files`."))))))
+        (let [stripped (strip-comments-and-strings (read-source rel))]
+          (is (not (str/includes? stripped (marker-key->literal key)))
+              (str key " literal found in " rel
+                   " (in code, after stripping comments/docstrings).\n"
+                   "If story-mcp now emits this marker, update "
+                   "`canonical-markers` to include :story-mcp in "
+                   ":servers, add a story-mcp fixture, and extend "
+                   "`server-source-files`.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field gate (rf2-2499j MUST-level pin).
