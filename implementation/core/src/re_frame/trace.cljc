@@ -535,18 +535,139 @@
       (capture event)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
+;; ---- shared emit substrate (rf2-xwp6o) -----------------------------------
+;;
+;; `emit!` (success path) and `emit-error!` (error path) share an identical
+;; envelope-construction core and an identical delivery path. The shared
+;; pieces live in `build-event` (pure construction; reads the four
+;; handler-scope dynamic Vars internally) and `deliver!` (side-effect
+;; dispatch: ring buffer push + epoch capture + listener fan-out). The
+;; two public emit fns reduce to ~8-line wrappers carrying the prod-DCE
+;; outer gate.
+;;
+;; The outer `(when interop/debug-enabled? ...)` and inner `(when-not
+;; *current-no-emit?* ...)` guards stay in the wrappers — NOT in
+;; `build-event` — because Spec 009 §Production builds mandates the
+;; outermost form of an emit call be `(when interop/debug-enabled? ...)`
+;; alone for Closure DCE to elide the whole expression in `:advanced`
+;; builds with `goog.DEBUG=false`.
+
+(defn- compute-sensitive?
+  "Per rf2-isdwf: hoist `:sensitive?` to the top level of the trace
+  event when the in-scope handler's registration meta carries
+  `:sensitive? true`. Caller-supplied `:sensitive?` in tags wins (e.g.
+  `emit-dispatched-trace!` computes its own reading at queue time,
+  before the handler-scope binding exists)."
+  [tags]
+  (let [tag-sensitive? (:sensitive? tags)]
+    (cond
+      (some? tag-sensitive?) (true? tag-sensitive?)
+      :else                  (true? *current-sensitive?*))))
+
+(defn- stamp-cascade-id
+  "Per rf2-g6ih4: stamp the cascade's :dispatch-id on every event
+  emitted inside the drain so consumers can group raw trace events by
+  cascade without inferring from sequence. Caller-supplied
+  :dispatch-id wins (`:event/dispatched` and any future emit that
+  needs to override)."
+  [base-tags cascade-id]
+  (if (and cascade-id (not (contains? base-tags :dispatch-id)))
+    (assoc base-tags :dispatch-id cascade-id)
+    base-tags))
+
+(defn- build-event
+  "Assemble the trace envelope. Pure construction — reads the four
+  handler-scope dynamic Vars (`*current-trigger-handler*`,
+  `*current-call-site*`, `*current-dispatch-id*`, `*current-sensitive?*`)
+  and returns the map. No side-effects. Op-type discriminates the
+  divergent top-level hoists between success and error paths:
+
+    - success (op-type ≠ :error): hoists `:source` and `:recovery` from
+      tags when present; `:rf.trace/call-site` is NOT read (success
+      traces don't carry it).
+    - error (op-type = :error): always stamps `:recovery` (defaulting
+      to `:no-recovery`); hoists `:rf.trace/call-site` from
+      `*current-call-site*` when bound; merges `{:category operation}`
+      into tags.
+
+  The shared core — id, time, tags+, trigger-handler, sensitive? — is
+  identical across both paths. Per rf2-xwp6o."
+  [op-type operation tags]
+  (let [trigger     *current-trigger-handler*
+        cascade-id  *current-dispatch-id*
+        sensitive?  (compute-sensitive? tags)
+        error?      (= op-type :error)
+        ;; Source and recovery are caller-supplied through `tags` on
+        ;; the success path; on the error path `:recovery` defaults
+        ;; to `:no-recovery` per Spec 009 §Error contract.
+        source      (when-not error? (:source tags))
+        recovery    (if error?
+                      (:recovery tags :no-recovery)
+                      (:recovery tags))
+        call-site   (when error? *current-call-site*)
+        ;; Per Spec 009 §Required top-level fields: :source and
+        ;; :recovery (when present) live at the top level of the
+        ;; trace event, NOT inside :tags. Strip them from base-tags
+        ;; so the hoisted copies don't double-up. `:sensitive?` is
+        ;; hoisted too (rf2-isdwf). Error path additionally merges
+        ;; its `:category` slot from `operation`.
+        base-tags   (cond-> (dissoc tags :source :recovery :sensitive?)
+                      error? (->> (merge {:category operation})))
+        tags+       (stamp-cascade-id base-tags cascade-id)]
+    (cond-> {:operation operation
+             :op-type   op-type
+             :id        (next-event-id)
+             :time      (interop/now-ms)
+             :tags      tags+}
+      source     (assoc :source source)
+      ;; Success path: hoist :recovery only when caller supplied
+      ;; one. Error path: always stamp (default :no-recovery).
+      (or error? recovery) (assoc :recovery recovery)
+      ;; Per rf2-lf84g: hoist the in-scope handler's registration
+      ;; coord onto every trace event emitted inside a handler's
+      ;; scope. Symmetric across success and error paths per
+      ;; rf2-3nn8.
+      trigger    (assoc :rf.trace/trigger-handler trigger)
+      ;; Per rf2-ts1a: error path only — hoist the compile-time
+      ;; call-site of the surface that was reached through its
+      ;; macro form. Absent on the success path (call-site rides
+      ;; only error traces).
+      call-site  (assoc :rf.trace/call-site call-site)
+      ;; Per rf2-isdwf: top-level `:sensitive? true` stamp. Absent
+      ;; (NOT `:sensitive? false`) when the in-scope handler is not
+      ;; sensitive — per Spec 009 line 1176 "Consumers treat absent
+      ;; as false."
+      sensitive? (assoc :sensitive? true))))
+
+(defn- deliver!
+  "Side-effect dispatch for an assembled trace envelope: ring-buffer
+  push (Spec 009 §Retain-N), epoch-capture fan-out (Tool-Pair
+  §Time-travel), and listener fan-out (Spec 009 §Listener invocation
+  rules). Delivery is synchronous — listeners SHOULD be fast.
+  Listeners that throw don't break the runtime; the stream continues.
+  Per rf2-xwp6o."
+  [event]
+  (push-to-buffer! event)
+  (deliver-to-epoch-capture! event)
+  (doseq [[_ f] @listeners]
+    (try
+      (f event)
+      (catch #?(:clj Throwable :cljs :default) _ nil))))
+
 (defn emit!
   "Emit a trace event. In production builds (when interop/debug-enabled?
   is false at compile time), Closure DCE removes the body and the call
   becomes a no-op.
 
-  In dev / JVM: builds the envelope and delivers to all registered
-  listeners. Delivery is synchronous — listeners SHOULD be fast; per
-  Spec 009 §Listener invocation rules, batching is the listener's choice.
+  In dev / JVM: builds the envelope (via `build-event`) and delivers
+  it (via `deliver!`) to the ring buffer, epoch-capture, and all
+  registered listeners. Delivery is synchronous — listeners SHOULD be
+  fast; per Spec 009 §Listener invocation rules, batching is the
+  listener's choice.
 
-  Per Spec 009 §Core fields: :source is hoisted to the top level of the
-  envelope (origin of the trigger — :ui :timer :http :repl :machine).
-  Tags retain everything else.
+  Per Spec 009 §Core fields: :source is hoisted to the top level of
+  the envelope (origin of the trigger — :ui :timer :http :repl
+  :machine). Tags retain everything else.
 
   Per rf2-g6ih4: when `*current-dispatch-id*` is bound (the runtime is
   inside a drain processing a dispatch), the in-flight cascade's id is
@@ -579,60 +700,8 @@
     ;; `interop/debug-enabled?` gate (Spec 009 §Production builds
     ;; mandates the outermost form be that gate alone — `(when
     ;; (and X interop/debug-enabled?) ...)` defeats Closure DCE).
-   (when-not (true? *current-no-emit?*)
-    (let [source       (:source tags)
-          recovery     (:recovery tags)
-          ;; Per Spec 009 §Required top-level fields: :source and
-          ;; :recovery (when present) live at the top level of the
-          ;; trace event, NOT inside :tags. Hoist them here.
-          cascade-id   *current-dispatch-id*
-          trigger      *current-trigger-handler*
-          ;; Per rf2-isdwf: hoist `:sensitive?` to the top level of
-          ;; the trace event when the in-scope handler's registration
-          ;; meta carries `:sensitive? true`. Caller-supplied
-          ;; `:sensitive?` in tags wins (e.g. `emit-dispatched-trace!`
-          ;; computes its own reading at queue time, before the
-          ;; handler-scope binding exists).
-          tag-sensitive? (:sensitive? tags)
-          sensitive?     (cond
-                           (some? tag-sensitive?) (true? tag-sensitive?)
-                           :else                  (true? *current-sensitive?*))
-          base-tags    (dissoc tags :source :recovery :sensitive?)
-          ;; Per rf2-g6ih4: stamp the cascade's :dispatch-id on every
-          ;; event emitted inside the drain so consumers can group raw
-          ;; trace events by cascade without inferring from sequence.
-          ;; Caller-supplied :dispatch-id wins (`:event/dispatched` and
-          ;; any future emit that needs to override).
-          tags+        (if (and cascade-id (not (contains? base-tags :dispatch-id)))
-                         (assoc base-tags :dispatch-id cascade-id)
-                         base-tags)
-          event    (cond-> {:operation operation
-                            :op-type   op
-                            :id        (next-event-id)
-                            :time      (interop/now-ms)
-                            :tags      tags+}
-                     source   (assoc :source source)
-                     recovery (assoc :recovery recovery)
-                     ;; Per rf2-lf84g: hoist the in-scope handler's
-                     ;; registration coord onto every trace event
-                     ;; emitted inside a handler's scope. Symmetric
-                     ;; with `emit-error!` per rf2-3nn8.
-                     trigger  (assoc :rf.trace/trigger-handler trigger)
-                     ;; Per rf2-isdwf: top-level `:sensitive? true`
-                     ;; stamp. Absent (NOT `:sensitive? false`) when
-                     ;; the in-scope handler is not sensitive — per
-                     ;; Spec 009 line 1176 "Consumers treat absent
-                     ;; as false."
-                     sensitive? (assoc :sensitive? true))]
-      (push-to-buffer! event)
-      (deliver-to-epoch-capture! event)
-      (doseq [[_ f] @listeners]
-        (try
-          (f event)
-          (catch #?(:clj Throwable :cljs :default) _
-            ;; Listeners that throw don't break the runtime; the stream
-            ;; continues. Per Spec 009: listener failures are isolated.
-            nil)))))))
+    (when-not (true? *current-no-emit?*)
+      (deliver! (build-event op operation tags)))))
 
 (defn emit-error!
   "Emit a structured error trace event. Per Spec 009 §Error contract:
@@ -670,41 +739,12 @@
   §Trace-emission opt-out."
   [error-operation tags]
   (when interop/debug-enabled?
-   ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
-   ;; out of trace emission. Guard sits *inside* the outer
-   ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
-   ;; (the outer gate must stand alone for Closure DCE).
-   (when-not (true? *current-no-emit?*)
-    (let [trigger    *current-trigger-handler*
-          call-site  *current-call-site*
-          cascade-id *current-dispatch-id*
-          ;; Per rf2-isdwf: hoist `:sensitive?` to top-level on error
-          ;; events too. Caller-supplied tag wins (e.g. callers that
-          ;; need to force-stamp regardless of in-scope handler).
-          tag-sensitive? (:sensitive? tags)
-          sensitive?     (cond
-                           (some? tag-sensitive?) (true? tag-sensitive?)
-                           :else                  (true? *current-sensitive?*))
-          base-tags  (merge {:category error-operation}
-                            (dissoc tags :sensitive?))
-          tags+      (if (and cascade-id (not (contains? base-tags :dispatch-id)))
-                       (assoc base-tags :dispatch-id cascade-id)
-                       base-tags)
-          event      (cond-> {:operation error-operation
-                              :op-type   :error
-                              :id        (next-event-id)
-                              :time      (interop/now-ms)
-                              :tags      tags+
-                              :recovery  (:recovery tags :no-recovery)}
-                       trigger    (assoc :rf.trace/trigger-handler trigger)
-                       call-site  (assoc :rf.trace/call-site       call-site)
-                       sensitive? (assoc :sensitive? true))]
-      (push-to-buffer! event)
-      (deliver-to-epoch-capture! event)
-      (doseq [[_ f] @listeners]
-        (try
-          (f event)
-          (catch #?(:clj Throwable :cljs :default) _ nil)))))))
+    ;; Per rf2-qsjda: short-circuit when the in-scope handler opted
+    ;; out of trace emission. Guard sits *inside* the outer
+    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
+    ;; (the outer gate must stand alone for Closure DCE).
+    (when-not (true? *current-no-emit?*)
+      (deliver! (build-event :error error-operation tags)))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
