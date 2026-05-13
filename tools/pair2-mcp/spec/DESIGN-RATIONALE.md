@@ -391,6 +391,143 @@ changes.
 
 ---
 
+## Lock #7 — Wire-boundary token cap (egress-centralised + pluggable strategy + truncate-with-marker)
+
+**Locked 2026-05-13 (Mike).** **Enforce the 5K-token response cap
+at the `invoke` (wire) boundary, as a single wrapper around every
+per-tool function, dispatched on a `:strategy` keyword. Over-budget
+payloads are replaced with a `{:rf.mcp/overflow {...}}` marker —
+not silently truncated, not refused with an error.**
+
+### Question
+
+pair2-mcp tool responses can balloon — `snapshot` over a rich
+`app-db`, `trace-window` over a busy session, `eval-cljs` returning
+a large value. Where in the stack should the token cap be enforced,
+how should it be configured per-tool without scattering cap-logic,
+and what shape should an over-budget response take?
+
+### Options considered
+
+- **(a) Per-tool enforcement.** Each tool function knows its own
+  cap, runs its own check, returns its own overflow shape.
+  Maximum locality; each tool owns its response budget end-to-end.
+- **(b) Egress-centralised + pluggable strategy (CHOSEN).** A
+  single wrapper at the `invoke` boundary applies the cap to the
+  serialised MCP `{:content [...]}` shape after the per-tool
+  function resolves. The wrapper dispatches on a `:strategy`
+  keyword so new trim mechanisms (path slicing, lazy summary,
+  diff encoding, structural dedup, pagination) plug in without a
+  rebuild. Today only `:truncate-with-marker` lives in the
+  wrapper; the other mechanisms compose either as input-shape
+  concerns at the tool surface or as additional strategy values.
+- **(c) Caller-side enforcement.** The agent declares and
+  enforces its own budget; pair2-mcp returns whatever the tool
+  produced. Smallest server surface.
+- **Overflow shape sub-decision: silent truncation.** Trim the
+  payload to fit; ship the head bytes; no marker.
+- **Overflow shape sub-decision: refuse-with-error.** Return a
+  JSON-RPC error code; the call has no payload, the agent retries
+  with narrower args.
+- **Overflow shape sub-decision: truncate + structured marker
+  (CHOSEN).** Replace the over-budget payload with
+  `{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens
+  … :tool … :hint …}}`. The marker is the only over-budget shape.
+
+### Pick
+
+**(b) egress-centralised + pluggable strategy, with
+truncate-with-marker as the only shipped strategy.** Token rule
+is `(quot (count s) 4)` applied to the serialised response,
+summed across every `:text` slot of the assembled `:content`
+vector. Default cap 5000 tokens. Every tool accepts a `max-tokens`
+arg (integer; `0` disables the cap for explicit escape).
+
+### Why
+
+- **Centralised composition.** Per-tool enforcement (option a)
+  scatters cap-logic across the tool catalogue. Every new tool
+  reinvents the budget check; every new trim mechanism (path
+  slicing, lazy summary, diff encoding, dedup) requires editing
+  every tool to opt in. The egress wrapper is the single
+  composition point: a strategy keyword swaps the trim algorithm
+  without touching any per-tool function.
+- **Tool functions stay shape-pure.** Per-tool functions emit
+  their natural data shape; serialisation, sizing, and trim are
+  the wrapper's concern. This preserves the testability of each
+  tool's response shape without the noise of cap-arithmetic.
+- **Caller-side rejected.** Option (c) only works if the budget
+  is enforced before the agent host has already parsed the
+  response — by which point the agent context is already
+  corrupted. The cap exists precisely because the agent can't
+  unsee a 50K-token blob; making the agent the enforcer defeats
+  the purpose.
+- **Silent truncation rejected.** A truncated EDN/JSON payload is
+  a malformed payload — the agent host's parser either fails or
+  silently consumes a partial structure. Both outcomes are worse
+  than the marker: parse failure is a hard stop on the call;
+  silent partial-consume corrupts the agent's model of the world
+  with no signal that it happened.
+- **Refuse-with-error rejected.** An error response carries no
+  payload the agent can use to decide what to do next. The
+  marker carries the original token count, the cap that tripped,
+  the tool name, and a tool-specific hint — enough for the agent
+  to either narrow args automatically or surface a meaningful
+  message. The marker is a *structured retry signal*, not a
+  failure.
+- **Token rule is deliberately cheap.** `(quot (count s) 4)` is
+  the published Anthropic English/EDN rule-of-thumb. It's not
+  exact; the goal is a bounded wire payload, not a precise
+  meter. The cheap rule lets the wrapper run on every response
+  without measurable cost.
+- **Cumulative across `:content` slots.** Multi-part responses
+  share one cumulative budget, not per-part. This is the only
+  way the cap composes with multi-content tools (e.g. a snapshot
+  that ships a text part plus a resource link).
+- **The strategy seam is the forward-compatibility surface.**
+  The five in-flight wire-protocol beads — rf2-tygdv (path
+  slicing on `snapshot`/`get-path`), rf2-1wdzp (diff-encode
+  `:db-after`), rf2-obpa9 (structural dedup), rf2-u2029 (lazy
+  `:summary` mode), rf2-kbqq3 (opaque-cursor pagination) — all
+  compose without rebuilding the wrapper. Path slicing and
+  lazy-summary land as input-shape concerns at the tool
+  surface; diff-encoding lives at the tool surface; dedup and
+  alternate trim algorithms slot in as additional `:strategy`
+  values. The cap stays the backstop; the mechanisms keep the
+  common case well inside it.
+
+### Date locked
+
+2026-05-13 (Mike). Locked at rf2-rvyzy PR #641 merge. The cap
+itself landed in [`Principles.md`](Principles.md#tight-token-budget-per-response)
+with MUST wording; this lock captures the comparative reasoning
+that the principle alone doesn't carry. Causa-MCP's parallel
+[Lock #9 — Wire-protocol budget posture](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-five-mechanisms)
+(rf2-lwgg8) bakes the same five mechanisms into the Causa-MCP
+spec before its impl exists, deliberately aligned with the
+posture locked here.
+
+### Trail-of-thought citations
+
+- rf2-rvyzy PR #641 — the `tools.cljs` invoke-boundary wrapper.
+- [`tools/pair2-mcp/spec/Principles.md`](Principles.md#tight-token-budget-per-response)
+  §"Tight token budget per response" — the normative MUST
+  wording for the cap, the token rule, the override knob, and
+  the overflow shape.
+- [`tools/pair2-mcp/spec/003-Tool-Catalogue.md`](003-Tool-Catalogue.md)
+  §The universal `max-tokens` arg — the per-tool surface for
+  the override.
+- [`tools/causa-mcp/spec/DESIGN-RATIONALE.md`](../../causa-mcp/spec/DESIGN-RATIONALE.md#lock-9--wire-protocol-budget-posture-five-mechanisms)
+  Lock #9 — the aligned posture on the Causa-MCP side; the two
+  servers share the `:rf.mcp/overflow` / `:rf.mcp/summary` /
+  `:rf.mcp/dedup-table` reserved keys.
+- `ai/findings/wire-protocol-bigapp-20260513-1541.md` — the
+  source investigation (local-only) that motivated baking the
+  posture into spec instead of leaving it as in-flight impl
+  drift.
+
+---
+
 ## Summary table
 
 | # | Question | Pick | Date |
@@ -401,10 +538,15 @@ changes.
 | 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to nine** (mirror the shim catalogue + `snapshot` + `subscribe`/`unsubscribe`) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
+| 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
 
-These six locks together define pair2-mcp's v0.1.0 surface. Anything
-outside these decisions is up for design discussion; anything inside
-is direction-set and shipped. Lock #4's cardinality has since grown
-additively (see its *Subsequent evolution* note); the load-bearing
-direction — mirror the shim catalogue, prefer mode flags over op
-decomposition, keep the surface bounded — still holds.
+These seven locks together define pair2-mcp's shipped surface.
+Anything outside these decisions is up for design discussion;
+anything inside is direction-set and shipped. Lock #4's
+cardinality has since grown additively (see its *Subsequent
+evolution* note); the load-bearing direction — mirror the shim
+catalogue, prefer mode flags over op decomposition, keep the
+surface bounded — still holds. Lock #7 sets the wire-budget
+posture that subsequent trim-mechanism beads (path slicing,
+diff encoding, lazy summary, structural dedup, pagination)
+compose against without rebuilding the wrapper.
