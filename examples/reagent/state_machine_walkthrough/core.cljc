@@ -90,7 +90,11 @@
                               :action :clear-error}}}
 
     :submitting
-    {:entry :issue-request
+    ;; :auth/busy tag — views query (rf/has-tag? :auth.login/flow
+    ;; :auth/busy) to disable inputs and re-label the submit button
+    ;; while the request is in flight (ch.08 §State tags).
+    {:tags  #{:auth/busy}
+     :entry :issue-request
      :on    {:auth.login/success {:target :authed
                                   :action :store-session}
              :auth.login/failure [{:target :error-shown
@@ -103,8 +107,18 @@
     {:on {:auth.login/dismiss {:target :idle}
           :auth.login/submit  {:target :submitting}}}
 
-    :authed      {:meta {:terminal? true}}
-    :locked-out  {:meta {:terminal? true}}}})
+    :authed
+    ;; :auth/authenticated tag — views query
+    ;; (rf/has-tag? :auth.login/flow :auth/authenticated) once the
+    ;; flow reaches this terminal state.
+    {:tags #{:auth/authenticated}
+     :meta {:terminal? true}}
+
+    :locked-out
+    ;; :auth/locked tag — root-view swaps the form for the locked-out
+    ;; panel when (rf/has-tag? :auth.login/flow :auth/locked) is true.
+    {:tags #{:auth/locked}
+     :meta {:terminal? true}}}})
 
 ;; ============================================================================
 ;; FX — chapter §Wiring a machine into the rest of re-frame
@@ -135,19 +149,18 @@
 ;; SUBSCRIPTIONS — chapter §Reading a machine: sub-machine
 ;; ============================================================================
 
+;; The machine snapshot lives at [:rf/machines :auth.login/flow] (per
+;; Spec 005). These named subs project out the convenient pieces. The
+;; "in :submitting?" / "in :authed?" / "in :locked-out?" predicates
+;; moved to the `rf/has-tag?` queries in views.cljs (ch.08 §State
+;; tags) — discriminating on the machine's runtime-projected `:tags`
+;; set decouples view code from individual state-keyword identity.
+
 (rf/reg-sub :auth.login/state
   (fn [db _] (get-in db [:rf/machines :auth.login/flow :state])))
 
 (rf/reg-sub :auth.login/error
   (fn [db _] (get-in db [:rf/machines :auth.login/flow :data :error])))
-
-(rf/reg-sub :auth.login/submitting?
-  :<- [:auth.login/state]
-  (fn [state _] (= :submitting state)))
-
-(rf/reg-sub :auth.login/authenticated?
-  :<- [:auth.login/state]
-  (fn [state _] (= :authed state)))
 
 ;; ============================================================================
 ;; TEST STUBS — per-test wrappers that delegate to the framework-shipped

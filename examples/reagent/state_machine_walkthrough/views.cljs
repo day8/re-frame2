@@ -24,30 +24,33 @@
 
 (reg-view ^{:doc "The login form view. Captures email + password in a Reagent
                   atom across renders (Form-2 outer/inner shape) and dispatches
-                  :auth.login/flow → :auth.login/submit on submit."}
+                  :auth.login/flow → :auth.login/submit on submit.
+
+                  View-side discriminators read the machine's runtime-projected
+                  `:tags` set (ch.08 §State tags) via `rf/has-tag?`, not boolean
+                  state-predicate subs."}
           login-form []
   (let [state (atom {:email "" :password ""})]
     (fn []
-      (let [submitting? @(subscribe [:auth.login/submitting?])
-            err         @(subscribe [:auth.login/error])
-            login-state @(subscribe [:auth.login/state])
-            locked?     (= :locked-out login-state)]
+      (let [busy?   @(rf/has-tag? :auth.login/flow :auth/busy)
+            locked? @(rf/has-tag? :auth.login/flow :auth/locked)
+            err     @(subscribe [:auth.login/error])]
         [:form.login-form
          {:on-submit (fn [e]
                        (.preventDefault e)
-                       (when-not (or submitting? locked?)
+                       (when-not (or busy? locked?)
                          (dispatch [:auth.login/flow
                                     [:auth.login/submit @state]])))}
          [:input  {:type        "email"
                    :placeholder "Email"
-                   :disabled    (or submitting? locked?)
+                   :disabled    (or busy? locked?)
                    :on-change   #(swap! state assoc :email (.. % -target -value))}]
          [:input  {:type        "password"
                    :placeholder "Password"
-                   :disabled    (or submitting? locked?)
+                   :disabled    (or busy? locked?)
                    :on-change   #(swap! state assoc :password (.. % -target -value))}]
-         [:button {:type "submit" :disabled (or submitting? locked?)}
-          (if submitting? "Signing in…" "Sign in")]
+         [:button {:type "submit" :disabled (or busy? locked?)}
+          (if busy? "Signing in…" "Sign in")]
          (when (and err (not locked?))
            [:div.error-row
             [:p.error err]
@@ -73,7 +76,7 @@
    [:p "Three failed attempts. Contact support to unlock."]])
 
 (reg-view root-view []
-  (let [locked? (= :locked-out @(subscribe [:auth.login/state]))]
+  (let [locked? @(rf/has-tag? :auth.login/flow :auth/locked)]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]
      [status-banner]
