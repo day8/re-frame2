@@ -11,8 +11,8 @@
 
     1. The failing value (`:value` / `:received`) is replaced with the
        framework-reserved `:rf/redacted` sentinel.
-    2. The Malli explainer output (`:explain` / `:malli-error`) is
-       redacted — it carries the failing value verbatim.
+    2. The Malli explainer output (`:explain`) is redacted — it
+       carries the failing value verbatim.
     3. The trace event's TOP-LEVEL `:sensitive?` field is stamped
        `true` so consumers route on it. (Per Spec 009 §Trace-event
        field: `:sensitive?` at the top level, rf2-isdwf — the
@@ -262,14 +262,16 @@
           (is (some? v))
           (is (true? (:sensitive? v))
               "top-level :sensitive? stamp present — consumers filter on this (per Spec 009 hoist)")
-          (is (= :rf/redacted (-> v :tags :event))
-              ":event slot — the event vector — is the redacted sentinel")
           (is (= :rf/redacted (-> v :tags :received))
-              ":received — duplicate of the event — also redacted")
+              ":received — the event vector — is the redacted sentinel")
+          (is (= :rf/redacted (-> v :tags :value))
+              ":value — failing-value mirror — also redacted")
           (is (= :rf/redacted (-> v :tags :explain))
               ":explain — Malli explanation re-leaks the values")
-          (is (= :rf/redacted (-> v :tags :malli-error))
-              ":malli-error — duplicate of explain — also redacted")
+          (is (not (contains? (:tags v) :event))
+              ":event slot is gone (rf2-4fbsd) — consumers reach for :received")
+          (is (not (contains? (:tags v) :malli-error))
+              ":malli-error slot is gone (rf2-4fbsd) — consumers reach for :explain")
           ;; Structural slots survive.
           (is (= :event (-> v :tags :where)))
           (is (= :auth/sign-in (-> v :tags :event-id)))
@@ -296,8 +298,11 @@
         (is (not (contains? (:tags v) :sensitive?))
             ":tags :sensitive? also absent — the stamp lives at top-level only")
         (is (= [:user/register {:email "carol@example.com" :age "no"}]
-               (-> v :tags :event))
-            ":event rides verbatim")))))
+               (-> v :tags :received))
+            ":received rides verbatim")
+        (is (= [:user/register {:email "carol@example.com" :age "no"}]
+               (-> v :tags :value))
+            ":value rides verbatim")))))
 
 ;; ---- redaction at cofx validation site -----------------------------------
 

@@ -406,7 +406,8 @@
 (deftest fx-args-validation-redacts-when-sensitive
   (testing "validate-fx! consults `:sensitive?` on the fx-meta AND on the schema
             tree; on redaction it scrubs `:value`/`:received`/`:explain`/
-            `:malli-error`/`:fx-args` and stamps `:sensitive? true`"
+            `:fx-args` and stamps `:sensitive? true`. Per rf2-4fbsd the
+            earlier `:malli-error` duplicate slot is gone."
     (let [traces (atom [])]
       (rf/register-trace-cb! ::fxv5 (fn [ev] (swap! traces conj ev)))
       (is (false? (schemas/validate-fx! :my/secret
@@ -428,7 +429,8 @@
           (is (= :rf/redacted (-> v :tags :received)))
           (is (= :rf/redacted (-> v :tags :fx-args)))
           (is (= :rf/redacted (-> v :tags :explain)))
-          (is (= :rf/redacted (-> v :tags :malli-error)))
+          (is (not (contains? (:tags v) :malli-error))
+              ":malli-error slot is gone (rf2-4fbsd)")
           ;; Non-redacted slots survive redaction.
           (is (= :my/secret (-> v :tags :fx-id)))
           (is (= :my/secret (-> v :tags :failing-id)))
@@ -493,7 +495,7 @@
     (let [trace-event {:operation :rf.error/schema-validation-failure
                        :op-type   :error
                        :tags      {:where :event :event-id :user/register
-                                   :event [:user/register {:age "no"}]}
+                                   :received [:user/register {:age "no"}]}
                        :recovery  :no-recovery}
           public      (default-error-projector trace-event)]
       (is (= 400 (:status public)))
@@ -1002,7 +1004,12 @@
           (is (= :api/strict (-> v :tags :spec-id)))
           (is (= :boundary (-> v :tags :source))
               ":source :boundary tags this as the boundary emission")
-          (is (= [:api/strict "not-an-int"] (-> v :tags :event)))
+          (is (= [:api/strict "not-an-int"] (-> v :tags :received))
+              ":received carries the failing event vector verbatim")
+          (is (= [:api/strict "not-an-int"] (-> v :tags :value))
+              ":value mirrors :received per Spec 010 §`:sensitive?`")
+          (is (not (contains? (:tags v) :event))
+              ":event slot is gone (rf2-4fbsd) — consumers reach for :received")
           (is (string? (-> v :tags :reason))
               ":reason carries a human-readable explanation per Spec 009 §Style rubric")
           (is (= :no-recovery (:recovery v))
