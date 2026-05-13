@@ -19,6 +19,24 @@
   |               | watch-epochs (rf2-hq49)                                   |
   | unsubscribe   | Close a streaming subscription                            |
 
+  ## Diff-encoded epoch slice (rf2-1wdzp)
+
+  By default, every `:rf/epoch-record` shipped over the wire (in the
+  `:epochs` slice of `snapshot`, in `trace-window`, and in
+  `watch-epochs` matches) has its `:db-after` replaced with a structural
+  diff against its own `:db-before` — `pr-str` doesn't preserve
+  structural sharing across records, so the wire payload would otherwise
+  carry two near-identical copies of the whole app-db per epoch. The
+  default depth (50 epochs) ⇒ up to 100× app-db per `:epochs` slice. The
+  diff transform compresses that to ~1% of the size in the typical case
+  (single-key change against an otherwise-unchanged db).
+
+  Opt-back-in to the full pair via `epochs-mode \"full\"` (snapshot,
+  trace-window, watch-epochs) — agents that need both halves for
+  time-travel restore call out explicitly. The in-memory schema
+  (`spec/Spec-Schemas.md` §`:rf/epoch-record`) is unchanged; only the
+  wire projection here in `tools.cljs` shifts.
+
   ## Preload probe (no per-session inject)
 
   The `re-frame-pair2.runtime` namespace ships into the consumer app via
@@ -209,6 +227,181 @@
           (overflow-result tool tokens cap)
           ;; Unknown strategy: degrade safely.
           (overflow-result tool tokens cap))))))
+
+;; ---------------------------------------------------------------------------
+;; Diff-encoded epoch slice (rf2-1wdzp).
+;;
+;; Each `:rf/epoch-record` carries `:db-before` and `:db-after` —
+;; near-identical full app-db snapshots. `pr-str` doesn't preserve
+;; structural sharing, so on the wire the pair is roughly 2× app-db per
+;; epoch; a 50-epoch default `:epochs` slice ⇒ up to 100× app-db.
+;;
+;; The transform replaces `:db-after` with a path-keyed structural diff
+;; against `:db-before`:
+;;
+;;   {:db-before <full>
+;;    :db-after  {:rf.mcp/diff-from :db-before
+;;                :patches [[<path> :assoc <new-value>]
+;;                          [<path> :dissoc]]}}
+;;
+;; A patch is a 2- or 3-element vector — `[path :assoc v]` for new /
+;; changed leaves, `[path :dissoc]` for keys that disappeared. The
+;; decoder applies each patch in order via `assoc-in` / `update-in` to
+;; reconstruct `:db-after`.
+;;
+;; The diff is intra-record (each epoch's `:db-after` is encoded
+;; against the SAME record's `:db-before`); records remain
+;; self-contained and decodable without reference to siblings. The
+;; slice can be reordered, paginated, or filtered without breaking
+;; decode.
+;;
+;; Why not `clojure.data/diff`? Its parallel-vector sparse form for
+;; vector diffs (with `nil` placeholders meaning \"common at this
+;; position\") loses information once you only carry one half plus the
+;; original — you can't tell `nil` (the leaf value `nil`) apart from
+;; `nil` (the no-change sentinel). Path-keyed patches are unambiguous
+;; for any value the runtime can produce.
+;;
+;; Opt-back-in to the full pair via `:full` mode (an `epochs-mode` MCP
+;; arg on snapshot / trace-window / watch-epochs). Default is `:diff`.
+;;
+;; Cross-MCP vocabulary: the `:rf.mcp/diff-from` key follows the same
+;; `:rf.mcp/*` namespace convention as `:rf.mcp/overflow` (rf2-rvyzy),
+;; `:rf.mcp/summary` (rf2-tygdv), and causa-mcp's `:rf.mcp/dedup-table`
+;; (rf2-lwgg8 mechanism 5). Agents recognise the family once.
+;; ---------------------------------------------------------------------------
+
+(declare collect-patches)
+
+(defn- collect-map-patches
+  "Generate patches that transform map `a` into map `b` at `path`.
+  Recurses into sub-maps; vectors and scalars are treated as leaves
+  (replaced wholesale via `:assoc` rather than re-diffed element-wise
+  — element-wise vector diff doesn't shrink the wire for the typical
+  app-db where vector values are short)."
+  [a b path]
+  (let [ks (into #{} (concat (keys a) (keys b)))]
+    (reduce
+      (fn [acc k]
+        (let [av (get a k ::absent)
+              bv (get b k ::absent)
+              p  (conj path k)]
+          (cond
+            ;; Key removed.
+            (= bv ::absent)
+            (conj acc [p :dissoc])
+            ;; Key added.
+            (= av ::absent)
+            (conj acc [p :assoc bv])
+            ;; Unchanged — skip.
+            (= av bv)
+            acc
+            ;; Both maps: recurse.
+            (and (map? av) (map? bv))
+            (into acc (collect-patches av bv p))
+            ;; Otherwise: leaf replacement.
+            :else
+            (conj acc [p :assoc bv]))))
+      []
+      ks)))
+
+(defn- collect-patches
+  "Patch-list factory. Two maps recurse via `collect-map-patches`; any
+  other shape change is a single root-level `:assoc` replacement."
+  [a b path]
+  (cond
+    (= a b) []
+    (and (map? a) (map? b)) (collect-map-patches a b path)
+    :else [[path :assoc b]]))
+
+(defn- apply-patches
+  "Apply a vector of patches to `base`, returning the reconstructed
+  value. Patches are `[path :assoc v]` or `[path :dissoc]`. Root-path
+  patches (path `[]`) replace `base` outright (for `:assoc`) or are a
+  no-op (for `:dissoc`, by convention)."
+  [base patches]
+  (reduce
+    (fn [acc patch]
+      (let [[path op v] patch]
+        (cond
+          (empty? path)
+          (if (= op :assoc) v acc)
+          (= op :assoc)
+          (assoc-in acc path v)
+          (= op :dissoc)
+          (let [parent-path (vec (butlast path))
+                k           (last path)]
+            (if (empty? parent-path)
+              (dissoc acc k)
+              (update-in acc parent-path dissoc k)))
+          :else acc)))
+    base
+    patches))
+
+(defn- diff-encode-db-after
+  "Replace an epoch's `:db-after` with a path-keyed structural diff
+  against its own `:db-before`. Returns the epoch with `:db-after`
+  shaped as `{:rf.mcp/diff-from :db-before :patches [...]}`.
+
+  When `:db-before` is missing (older epoch from a runtime that
+  pruned it, or a synthetic record), the function leaves the epoch
+  unchanged — there's nothing to diff against and silently shipping a
+  half-shape would corrupt the agent's view."
+  [epoch]
+  (if-not (and (map? epoch)
+               (contains? epoch :db-before)
+               (contains? epoch :db-after))
+    epoch
+    (let [patches (collect-patches (:db-before epoch) (:db-after epoch) [])]
+      (assoc epoch :db-after
+             {:rf.mcp/diff-from :db-before
+              :patches          patches}))))
+
+(defn- decode-db-after
+  "Reverse `diff-encode-db-after`. Given an epoch whose `:db-after` is
+  a `{:rf.mcp/diff-from :db-before :patches [...]}` marker,
+  reconstruct the full `:db-after` from the epoch's `:db-before` and
+  the patch list. Idempotent on already-full epochs (the marker check
+  returns the input unchanged when `:db-after` isn't a diff).
+  Provided for agent-host round-trip parity and for the unit tests."
+  [epoch]
+  (let [da (when (map? epoch) (:db-after epoch))]
+    (if-not (and (map? da)
+                 (= :db-before (:rf.mcp/diff-from da)))
+      epoch
+      (let [patches   (:patches da)
+            db-before (:db-before epoch)
+            rebuilt   (apply-patches db-before (or patches []))]
+        (assoc epoch :db-after rebuilt)))))
+
+(defn- diff-encode-epochs
+  "Apply `diff-encode-db-after` to every epoch in `epochs` unless
+  `mode` is `:full` (in which case the vector passes through
+  unchanged). Each record is encoded against ITS OWN `:db-before` —
+  no cross-record dependency; the slice can be reordered, paginated,
+  or filtered without breaking decode.
+
+  `mode` is one of:
+    :diff — default. Each `:db-after` becomes a structural diff.
+    :full — pass through (legacy behaviour, opt-in)."
+  [epochs mode]
+  (if (= mode :full)
+    epochs
+    (mapv diff-encode-db-after epochs)))
+
+(defn- parse-epochs-mode
+  "Normalise the `epochs-mode` MCP arg into the keyword the encoder
+  expects. Accepts strings (`\"diff\"` / `\"full\"`), keywords
+  (`:diff` / `:full`), or nil (default `:diff`). Unrecognised values
+  fall back to `:diff` — least surprise on a budget-sensitive default."
+  [raw]
+  (cond
+    (nil? raw)         :diff
+    (= raw :full)      :full
+    (= raw "full")     :full
+    (= raw :diff)      :diff
+    (= raw "diff")     :diff
+    :else              :diff))
 
 ;; ---------------------------------------------------------------------------
 ;; Preload probe.
@@ -418,17 +611,20 @@
         build-id  (arg-build args)
         frame     (some-> (arg args :frame) keyword)
         incl?     (include-sensitive? args)
+        mode      (parse-epochs-mode (arg args :epochs-mode))
         form      (if frame
                     (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms " " (pr-str frame) ")")
                     (str "(re-frame-pair2.runtime/epochs-in-last-ms " ms ")"))]
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [epochs]
-                 (let [[kept dropped] (strip-sensitive (vec epochs) incl?)]
+                 (let [[kept dropped] (strip-sensitive (vec epochs) incl?)
+                       encoded         (diff-encode-epochs kept mode)]
                    (ok-text (cond-> {:ok? true
                                      :window-ms ms
-                                     :count (count kept)
-                                     :epochs kept}
+                                     :count (count encoded)
+                                     :epochs-mode mode
+                                     :epochs encoded}
                               (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :trace-failed err))))))
 
@@ -445,6 +641,7 @@
         frame     (some-> (arg args :frame) keyword)
         since-id  (arg args :since-id)
         incl?     (include-sensitive? args)
+        mode      (parse-epochs-mode (arg args :epochs-mode))
         pred-map  (when-let [p (arg args :pred)] (js->clj p :keywordize-keys true))
         frame-arg (if frame (str " " (pr-str frame)) "")
         form      (str "(let [r (re-frame-pair2.runtime/epochs-since "
@@ -459,9 +656,10 @@
         (.then (fn [v]
                  (let [matches        (when (map? v) (:matches v))
                        [kept dropped] (strip-sensitive (vec matches) incl?)
+                       encoded        (diff-encode-epochs kept mode)
                        base           (cond-> {:ok? true}
                                         (map? v) (merge v))]
-                   (ok-text (cond-> (assoc base :matches kept)
+                   (ok-text (cond-> (assoc base :matches encoded :epochs-mode mode)
                               (pos? dropped) (assoc :dropped-sensitive dropped))))))
         (.catch (fn [err] (err->result :watch-failed err))))))
 
@@ -802,12 +1000,31 @@
                                {} snapshot)]
       [processed @status*])))
 
+(defn- diff-encode-epochs-in-snapshot
+  "Walk the per-frame snapshot map and diff-encode every frame's
+  `:epochs` slice (rf2-1wdzp). `mode :full` short-circuits — the
+  snapshot passes through unchanged. Other slices are untouched; only
+  the `:epochs` slot of each frame map is rewritten."
+  [snapshot mode]
+  (cond
+    (or (= mode :full) (not (map? snapshot)))
+    snapshot
+    :else
+    (reduce-kv
+      (fn [m fid fmap]
+        (assoc m fid
+               (if (and (map? fmap) (contains? fmap :epochs))
+                 (update fmap :epochs diff-encode-epochs mode)
+                 fmap)))
+      {} snapshot)))
+
 (defn- snapshot-tool [conn args]
   (let [build-id (arg-build args)
         frames   (parse-frames-arg (arg args :frames))
         include  (parse-include-arg (arg args :include))
         incl?    (include-sensitive? args)
         path     (parse-path-arg (arg args :path))
+        mode     (parse-epochs-mode (arg args :epochs-mode))
         opts     {:frames frames :include include}
         form     (str "(re-frame-pair2.runtime/snapshot-state "
                       (pr-str opts) ")")]
@@ -815,12 +1032,14 @@
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
                  (let [[scrubbed dropped]    (scrub-snapshot-sensitive v incl?)
-                       [sliced path-status]  (slice-app-db-in-snapshot scrubbed path)]
-                   (ok-text (cond-> {:ok?      true
-                                     :frames   (if (= :all frames) :all (vec frames))
-                                     :include  include
-                                     :mode     (if (nil? path) :summary :path-sliced)
-                                     :snapshot sliced}
+                       [sliced path-status]  (slice-app-db-in-snapshot scrubbed path)
+                       diff-encoded          (diff-encode-epochs-in-snapshot sliced mode)]
+                   (ok-text (cond-> {:ok?         true
+                                     :frames      (if (= :all frames) :all (vec frames))
+                                     :include     include
+                                     :mode        (if (nil? path) :summary :path-sliced)
+                                     :epochs-mode mode
+                                     :snapshot    diff-encoded}
                               path                  (assoc :path path)
                               (seq path-status)     (assoc :path-not-found path-status)
                               (pos? dropped)        (assoc :dropped-sensitive dropped))))))
@@ -1159,10 +1378,15 @@
     :description (str "Return the :rf/epoch-records added in the last N ms for the operating frame. "
                       "Per spec/009 §Privacy this forwarder default-drops items carrying `:sensitive? true` "
                       "at the top level; opt back in with `include-sensitive? true`. Dropped count surfaces "
-                      "as `:dropped-sensitive` on the result when non-zero.")
+                      "as `:dropped-sensitive` on the result when non-zero. "
+                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
+                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape (needed for time-travel restore).")
     :inputSchema {:type "object"
                   :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000)"}
                                :frame {:type "string"}
+                               :epochs-mode {:type "string"
+                                             :description "How :db-after rides the wire: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
+                                             :enum ["diff" "full"]}
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build {:type "string"}}
@@ -1171,11 +1395,16 @@
     :description (str "Pull-mode poll: returns the epochs matching `pred` that landed after `since-id`. "
                       "Call repeatedly to live-watch. Predicate keys: :event-id, :event-id-prefix, :effects, "
                       ":touches-path, :sub-ran, :render, :origin, :frame. Per spec/009 §Privacy this forwarder "
-                      "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`.")
+                      "default-drops items carrying `:sensitive? true`; opt back in with `include-sensitive? true`. "
+                      "Each epoch's :db-after is diff-encoded against its own :db-before by default (rf2-1wdzp) "
+                      "— pass `epochs-mode \"full\"` for the legacy full-pair shape.")
     :inputSchema {:type "object"
                   :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh)"}
                                :pred     {:type "object" :description "Filter map"}
                                :frame    {:type "string"}
+                               :epochs-mode {:type "string"
+                                             :description "How :db-after rides the wire: \"diff\" (default) or \"full\" (legacy, opt-in for time-travel restore)."
+                                             :enum ["diff" "full"]}
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
                                :build    {:type "string"}}
@@ -1197,8 +1426,11 @@
                       "vector of keys, e.g. \"[:cart :items 0]\"). With `path`, returns the addressed subtree. "
                       "Without `path`, returns a `{:rf.mcp/summary ...}` marker for the `:app-db` slice "
                       "(top-level keys + count + bytes) rather than the full value — keeps the response "
-                      "under the wire cap by default. Agents drill down by re-calling with `path`. The "
-                      "other slices (:sub-cache, :machines, :epochs, :traces) pass through unchanged. "
+                      "under the wire cap by default. Agents drill down by re-calling with `path`. "
+                      "Diff-encoded epochs (rf2-1wdzp): each epoch in the `:epochs` slice has its `:db-after` "
+                      "replaced with a structural diff against its own `:db-before` by default — pass "
+                      "`epochs-mode \"full\"` for legacy full-pair shape (opt-in for time-travel restore). "
+                      "The other slices (:sub-cache, :machines, :traces) pass through unchanged. "
                       "Per spec/009 §Privacy the `:traces` and `:epochs` slices default-drop items carrying "
                       "`:sensitive? true`; opt back in with `include-sensitive? true`. App-db / sub-cache / "
                       "machines slices pass through unchanged — payload redaction is the `with-redacted` "
@@ -1220,6 +1452,9 @@
                                                            "`{:rf.mcp/summary ...}` marker (mode :summary).")
                                          :oneOf [{:type "string"}
                                                  {:type "array" :items {:type "string"}}]}
+                               :epochs-mode {:type "string"
+                                             :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
+                                             :enum ["diff" "full"]}
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
