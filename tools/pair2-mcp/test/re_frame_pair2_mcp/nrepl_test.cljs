@@ -4,32 +4,22 @@
   The hard bug we fixed during the pilot — bencode@2 storing the
   post-decode cursor on `bencode.decode.position` rather than the
   module-level export — is the kind of regression that's easy to
-  reintroduce, so the multi-frame walker gets a thorough test."
+  reintroduce, so the multi-frame walker gets a thorough test.
+
+  Tests pin `decode-all-frames` directly from
+  `re-frame-pair2-mcp.nrepl` — the source ns is the contract."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [applied-science.js-interop :as j]
-            ["bencode" :as bencode]))
-
-;; The actual `decode-all-frames` is private; re-implement the contract
-;; here so we test what callers see — and so the test breaks if the
-;; semantics drift.
+            ["bencode" :as bencode]
+            [re-frame-pair2-mcp.nrepl :as nrepl]))
 
 (defn- decode-all
+  "Wrap `nrepl/decode-all-frames` returning `[clj-vec rest-buf]`.
+  Source returns `[js-array rest-buf]` for hot-path perf; tests want a
+  CLJS vector to walk."
   [^js buf]
-  (let [frames (array)]
-    (loop [^js b buf]
-      (if (zero? (.-length b))
-        [(vec (array-seq frames)) b]
-        (let [decoded  (try (bencode/decode b "utf8") (catch :default _ nil))
-              consumed (or (j/get-in bencode [:decode :position])
-                           (j/get-in bencode [:decode :bytes])
-                           0)]
-          (cond
-            (nil? decoded)        [(vec (array-seq frames)) b]
-            (zero? consumed)      (do (.push frames decoded)
-                                      [(vec (array-seq frames)) (js/Buffer.alloc 0)])
-            :else
-            (do (.push frames decoded)
-                (recur (.slice b consumed)))))))))
+  (let [[js-frames rest] (nrepl/decode-all-frames buf)]
+    [(vec (array-seq js-frames)) rest]))
 
 (deftest single-frame-decodes
   (let [buf      (js/Buffer.from "d3:foo3:bare" "utf8")

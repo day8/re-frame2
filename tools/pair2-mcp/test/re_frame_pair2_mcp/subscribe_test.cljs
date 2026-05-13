@@ -9,49 +9,40 @@
   against a real shadow-cljs build."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
-            [clojure.string :as str]
             [applied-science.js-interop :as j]
+            [re-frame-pair2-mcp.tools.args :as args]
             [re-frame-pair2-mcp.tools.eval-form :as ef]))
 
-;; Mirror of `parse-filter-arg` from tools.cljs (private). Keeping a
-;; parallel test fixture documents the contract and pins the semantics —
-;; a rename in the source surfaces as a failing test rather than a
-;; silent contract drift.
-
-(defn- parse-filter [raw]
-  (cond
-    (nil? raw)    nil
-    (string? raw) (try (cljs.reader/read-string raw)
-                       (catch :default _
-                         {:invalid-filter-edn raw}))
-    (map? raw)    raw
-    :else         (js->clj raw :keywordize-keys true)))
+;; The MCP-arg filter parser lives in
+;; `re-frame-pair2-mcp.tools.args/parse-filter-arg`. Tests pin the
+;; public surface directly so a rename or signature change surfaces
+;; as a failing test rather than a silent contract drift.
 
 (deftest filter-arg-nil-passes-through
-  (is (nil? (parse-filter nil))))
+  (is (nil? (args/parse-filter-arg nil))))
 
 (deftest filter-arg-edn-string-reads
   (is (= {:op-type :error}
-         (parse-filter "{:op-type :error}"))))
+         (args/parse-filter-arg "{:op-type :error}"))))
 
 (deftest filter-arg-edn-string-with-touches-path
   (is (= {:touches-path [:cart :items]}
-         (parse-filter "{:touches-path [:cart :items]}"))))
+         (args/parse-filter-arg "{:touches-path [:cart :items]}"))))
 
 (deftest filter-arg-malformed-edn-surfaces-marker
   (is (= {:invalid-filter-edn "((("}
-         (parse-filter "(((")))) ;; unbalanced delimiters
+         (args/parse-filter-arg "(((")))) ;; unbalanced delimiters
 
 (deftest filter-arg-js-object-keywordises
   (let [obj #js {:op-type "error" :event-id "user/login"}
-        out (parse-filter obj)]
+        out (args/parse-filter-arg obj)]
     (is (map? out))
     (is (= "error" (:op-type out)))
     (is (= "user/login" (:event-id out)))))
 
 (deftest filter-arg-clj-map-passes-through
   (is (= {:op-type :error}
-         (parse-filter {:op-type :error}))))
+         (args/parse-filter-arg {:op-type :error}))))
 
 ;; The subscribe-form constructor is private. Re-implement here over
 ;; the eval-form DSL to pin the IR + emitted source we send to the

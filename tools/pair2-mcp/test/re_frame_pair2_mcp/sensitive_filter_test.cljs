@@ -8,64 +8,39 @@
   the flag at the top level of every emitted trace event; the
   forwarder's job is to gate egress on it.
 
-  These tests mirror the private `sensitive-event?` / `strip-sensitive`
-  helpers from `tools.cljs` — a rename or signature change surfaces as
-  a failing test rather than a silent contract drift."
-  (:require [cljs.test :refer-macros [deftest is testing]]))
-
-;; ---------------------------------------------------------------------------
-;; Mirrors of the private helpers in tools.cljs. Keep in lockstep.
-;; ---------------------------------------------------------------------------
-
-(defn- sensitive-event? [ev]
-  (and (map? ev)
-       (true? (:sensitive? ev))))
-
-(defn- sensitive-epoch?
-  "Defense-in-depth (rf2-re2s3): an epoch record is sensitive if its
-  top-level `:sensitive?` is `true` OR if any constituent trace event
-  carries `:sensitive? true`. Mirrors the helper in tools.cljs."
-  [epoch]
-  (and (map? epoch)
-       (or (true? (:sensitive? epoch))
-           (boolean (some sensitive-event? (:trace-events epoch))))))
-
-(defn- strip-sensitive [items include?]
-  (cond
-    include?         [items 0]
-    (empty? items)   [items 0]
-    :else
-    (let [drop? (fn [x] (or (sensitive-event? x) (sensitive-epoch? x)))
-          kept  (filterv (complement drop?) items)
-          n     (- (count items) (count kept))]
-      [kept n])))
+  These tests pin `sensitive-event?` / `sensitive-epoch?` /
+  `strip-sensitive` / `scrub-snapshot-sensitive` directly from
+  `re-frame-pair2-mcp.tools.sensitive` — a rename or signature change
+  surfaces as a failing test rather than a silent contract drift."
+  (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame-pair2-mcp.tools.sensitive :as sensitive]))
 
 ;; ---------------------------------------------------------------------------
 ;; sensitive-event? — the boolean predicate.
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-event-true-stamp-detected
-  (is (sensitive-event? {:operation :event/dispatched :sensitive? true})))
+  (is (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? true})))
 
 (deftest sensitive-event-false-stamp-passes
-  (is (not (sensitive-event? {:operation :event/dispatched :sensitive? false}))))
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? false}))))
 
 (deftest sensitive-event-absent-stamp-passes
   ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (sensitive-event? {:operation :event/dispatched}))))
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched}))))
 
 (deftest sensitive-event-non-true-truthy-passes
   ;; Conservative: only the literal `true` triggers the drop. A string
   ;; or non-boolean value passes through (the `:rf/trace-event` schema
   ;; types `:sensitive?` as a boolean — any other value is a contract
   ;; violation we surface rather than silently treat as sensitive).
-  (is (not (sensitive-event? {:operation :event/dispatched :sensitive? "true"})))
-  (is (not (sensitive-event? {:operation :event/dispatched :sensitive? :yes}))))
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? "true"})))
+  (is (not (sensitive/sensitive-event? {:operation :event/dispatched :sensitive? :yes}))))
 
 (deftest sensitive-event-non-map-input-passes
-  (is (not (sensitive-event? nil)))
-  (is (not (sensitive-event? [:sensitive? true])))
-  (is (not (sensitive-event? "anything"))))
+  (is (not (sensitive/sensitive-event? nil)))
+  (is (not (sensitive/sensitive-event? [:sensitive? true])))
+  (is (not (sensitive/sensitive-event? "anything"))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.
@@ -76,7 +51,7 @@
               {:id 2 :sensitive? true}
               {:id 3}
               {:id 4 :sensitive? true}]
-        [kept dropped] (strip-sensitive evts false)]
+        [kept dropped] (sensitive/strip-sensitive evts false)]
     (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
     (is (= 2 dropped))))
 
@@ -84,18 +59,18 @@
   (let [evts [{:id 1 :sensitive? true}
               {:id 2 :sensitive? false}
               {:id 3 :sensitive? true}]
-        [kept dropped] (strip-sensitive evts true)]
+        [kept dropped] (sensitive/strip-sensitive evts true)]
     (is (= evts kept))
     (is (zero? dropped))))
 
 (deftest strip-sensitive-empty-batch-zero-overhead
-  (let [[kept dropped] (strip-sensitive [] false)]
+  (let [[kept dropped] (sensitive/strip-sensitive [] false)]
     (is (= [] kept))
     (is (zero? dropped))))
 
 (deftest strip-sensitive-no-sensitive-events-zero-drop
   (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
-        [kept dropped] (strip-sensitive evts false)]
+        [kept dropped] (sensitive/strip-sensitive evts false)]
     (is (= evts kept))
     (is (zero? dropped))))
 
@@ -103,7 +78,7 @@
   (let [evts [{:id 1 :sensitive? true}
               {:id 2 :sensitive? true}
               {:id 3 :sensitive? true}]
-        [kept dropped] (strip-sensitive evts false)]
+        [kept dropped] (sensitive/strip-sensitive evts false)]
     (is (= [] kept))
     (is (= 3 dropped))))
 
@@ -116,14 +91,14 @@
     (let [sensitive-batch [{:operation :event/dispatched
                             :tags      {:event-id :auth/sign-in}
                             :sensitive? true}]
-          [kept dropped] (strip-sensitive sensitive-batch false)]
+          [kept dropped] (sensitive/strip-sensitive sensitive-batch false)]
       (is (= [] kept) "sensitive event must NOT reach the agent surface by default")
       (is (= 1 dropped))))
   (testing "include-sensitive? true is the documented opt-in"
     (let [sensitive-batch [{:operation :event/dispatched
                             :tags      {:event-id :auth/sign-in}
                             :sensitive? true}]
-          [kept dropped] (strip-sensitive sensitive-batch true)]
+          [kept dropped] (sensitive/strip-sensitive sensitive-batch true)]
       (is (= sensitive-batch kept))
       (is (zero? dropped)))))
 
@@ -131,26 +106,6 @@
 ;; Snapshot scrubber — sensitive trace events stripped from per-frame
 ;; :traces / :epochs slices; other slices pass through unchanged.
 ;; ---------------------------------------------------------------------------
-
-(defn- scrub-snapshot-sensitive
-  [snapshot include?]
-  (if (or include? (not (map? snapshot)))
-    [snapshot 0]
-    (let [dropped (atom 0)
-          scrub-slice
-          (fn [items]
-            (let [[kept n] (strip-sensitive (vec items) false)]
-              (swap! dropped + n)
-              kept))
-          scrub-frame
-          (fn [frame-map]
-            (cond-> frame-map
-              (contains? frame-map :traces) (update :traces scrub-slice)
-              (contains? frame-map :epochs) (update :epochs scrub-slice)))
-          scrubbed (reduce-kv (fn [m k v]
-                                (assoc m k (if (map? v) (scrub-frame v) v)))
-                              {} snapshot)]
-      [scrubbed @dropped])))
 
 (deftest snapshot-scrubber-strips-sensitive-from-traces
   (let [snap {:rf/default
@@ -162,7 +117,7 @@
                :machines {}}
               :stories
               {:app-db {} :traces [{:id 10 :sensitive? true}]}}
-        [out dropped] (scrub-snapshot-sensitive snap false)]
+        [out dropped] (sensitive/scrub-snapshot-sensitive snap false)]
     (is (= 3 dropped))
     (is (= [{:id 1 :sensitive? false} {:id 3}]
            (get-in out [:rf/default :traces])))
@@ -179,7 +134,7 @@
                :sub-cache {:user/profile {:sensitive? true :data "x"}}
                :machines  {:auth {:state :idle}}
                :traces    [{:id 1}]}}
-        [out _] (scrub-snapshot-sensitive snap false)]
+        [out _] (sensitive/scrub-snapshot-sensitive snap false)]
     (is (= {:password "still-here" :sensitive? true}
            (get-in out [:rf/default :app-db])))
     (is (= {:user/profile {:sensitive? true :data "x"}}
@@ -190,12 +145,12 @@
 (deftest snapshot-scrubber-include-opt-in-passes-everything
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true}
                                     {:id 2 :sensitive? true}]}}
-        [out dropped] (scrub-snapshot-sensitive snap true)]
+        [out dropped] (sensitive/scrub-snapshot-sensitive snap true)]
     (is (= snap out))
     (is (zero? dropped))))
 
 (deftest snapshot-scrubber-non-map-input-passes-through
-  (let [[out dropped] (scrub-snapshot-sensitive nil false)]
+  (let [[out dropped] (sensitive/scrub-snapshot-sensitive nil false)]
     (is (nil? out))
     (is (zero? dropped))))
 
@@ -212,12 +167,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-epoch-top-level-stamp-detected
-  (is (sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :sensitive? true})))
+  (is (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :sensitive? true})))
 
 (deftest sensitive-epoch-constituent-trace-event-detected
   ;; The top-level rollup is absent (older runtime), but a constituent
   ;; trace event carries the stamp — the egress guard must still drop.
-  (is (sensitive-epoch?
+  (is (sensitive/sensitive-epoch?
         {:epoch-id 2
          :event-id :auth/sign-in
          :trace-events [{:op-type :event :operation :run-start}
@@ -225,27 +180,27 @@
                          :sensitive? true}]})))
 
 (deftest sensitive-epoch-no-stamps-passes
-  (is (not (sensitive-epoch?
+  (is (not (sensitive/sensitive-epoch?
              {:epoch-id 3
               :event-id :cart/add
               :trace-events [{:op-type :event :operation :run-start}
                              {:op-type :event :operation :run-end}]}))))
 
 (deftest sensitive-epoch-empty-trace-events-passes
-  (is (not (sensitive-epoch? {:epoch-id 4 :trace-events []})))
-  (is (not (sensitive-epoch? {:epoch-id 5}))))
+  (is (not (sensitive/sensitive-epoch? {:epoch-id 4 :trace-events []})))
+  (is (not (sensitive/sensitive-epoch? {:epoch-id 5}))))
 
 (deftest sensitive-epoch-non-map-input-passes
-  (is (not (sensitive-epoch? nil)))
-  (is (not (sensitive-epoch? [:trace-events [{:sensitive? true}]])))
-  (is (not (sensitive-epoch? "anything"))))
+  (is (not (sensitive/sensitive-epoch? nil)))
+  (is (not (sensitive/sensitive-epoch? [:trace-events [{:sensitive? true}]])))
+  (is (not (sensitive/sensitive-epoch? "anything"))))
 
 (deftest sensitive-epoch-explicit-false-rollup-still-walks-trace-events
   ;; A `:sensitive? false` rollup at the top is the assembler's claim
   ;; that no constituent is sensitive. If a constituent disagrees we
   ;; trust the constituent — defense-in-depth means we drop on EITHER
   ;; signal, never silently overrule a sensitive constituent.
-  (is (sensitive-epoch?
+  (is (sensitive/sensitive-epoch?
         {:epoch-id 6
          :sensitive? false
          :trace-events [{:operation :run-end :sensitive? true}]})))
@@ -266,7 +221,7 @@
                 {:epoch-id 2
                  :event-id :auth/sign-in
                  :trace-events [{:operation :run-end :sensitive? true}]}]
-        [kept dropped] (strip-sensitive epochs false)]
+        [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= 1 (count kept)))
     (is (= 1 (:epoch-id (first kept))))
     (is (= 1 dropped))))
@@ -275,7 +230,7 @@
   (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :run-end}]}
                 {:epoch-id 2 :event-id :cart/checkout :trace-events []}
                 {:epoch-id 3 :event-id :nav/route}]
-        [kept dropped] (strip-sensitive epochs false)]
+        [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= epochs kept))
     (is (zero? dropped))))
 
@@ -296,7 +251,7 @@
                  :event-id :cart/add
                  :trace-events [{:operation :run-end}]}
                 {:epoch-id 4 :event-id :nav/route}]
-        [kept dropped] (strip-sensitive epochs false)]
+        [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= [3 4] (mapv :epoch-id kept)))
     (is (= 2 dropped))))
 
@@ -305,6 +260,6 @@
   ;; epochs carrying sensitive constituents pass through unchanged.
   (let [epochs [{:epoch-id 1 :trace-events [{:operation :run-end :sensitive? true}]}
                 {:epoch-id 2 :sensitive? true}]
-        [kept dropped] (strip-sensitive epochs true)]
+        [kept dropped] (sensitive/strip-sensitive epochs true)]
     (is (= epochs kept))
     (is (zero? dropped))))

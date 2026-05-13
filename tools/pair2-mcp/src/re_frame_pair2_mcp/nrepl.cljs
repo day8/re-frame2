@@ -70,10 +70,13 @@
 ;; bencode framing — handle concatenated frames in one TCP packet.
 ;; ---------------------------------------------------------------------------
 
-(defn- decode-all-frames
+(defn decode-all-frames
   "Decode every complete bencode frame from `buf`. Returns
   `[js-array-of-frames trailing-buffer]`. Walks via the package's
-  `position` after-decode marker so multi-frame TCP chunks parse fully."
+  `position` after-decode marker so multi-frame TCP chunks parse fully.
+
+  Public so `nrepl_test.cljs` can pin the contract directly rather than
+  re-implementing a parallel walker."
   [^js buf]
   (let [frames (array)]
     (loop [^js b buf]
