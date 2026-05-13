@@ -196,10 +196,22 @@
   measurement using the host's high-res clock; portable across CLJ /
   CLJS. Used for scaling-ratio assertions (NOT absolute-ms budgets).
 
+  Performs **one discarded warm-up call** before the measured call so
+  JIT-compile and cold-cache costs don't land on the first measurement.
+  Without this, scaling tests can flake on hosts where the smaller
+  `t1` measurement absorbs the JIT cost that the larger `t10` then
+  enjoys for free — producing a spuriously inflated `t10/t1` ratio
+  (observed at exactly 50.0+ε on CI in rf2-pe6rx).
+
   CLJS: `js/performance.now` is unavailable under `:node-test` on
   some shadow versions, so we fall back to `system-time` (also high
   resolution under modern Node)."
   [thunk]
+  ;; Warm-up: discard the first invocation's result so JIT compilation
+  ;; and cold-path allocation don't bias the measurement. This is one
+  ;; extra call per measurement — cheap relative to the scaling-test
+  ;; payload, and the gain in measurement stability is worth it.
+  (thunk)
   (let [t0 #?(:clj  (System/nanoTime)
               :cljs (system-time))
         r  (thunk)
@@ -209,13 +221,34 @@
               :cljs (- t1 t0))]
     [r ms]))
 
+(def ^:private ratio-noise-floor-ms
+  "Minimum reliable wall-clock measurement, in ms, below which the
+  scaling-ratio assertion is treated as a no-op (returns 1.0).
+
+  Rationale: browser `performance.now` is clock-clamped under
+  Chromium — typically ~0.1ms in non-cross-origin-isolated contexts,
+  but as coarse as ~1ms under privacy-mode or container-scheduling
+  jitter (observed on GH Actions ubuntu-latest in rf2-pe6rx where
+  `t10/t1` landed at exactly 50.0+1e-10 — i.e. both measurements
+  rounded to the same clamped grid). A 2ms floor sits comfortably
+  above the worst clamp granularity so micro-measurements don't
+  produce mathematically-tight ratios that whisper past `<=` on
+  float-precision wobble.
+
+  CLJ: `System/nanoTime` is far higher resolution; the 2ms floor is
+  still defensible there as the per-cascade payload is ~µs and a
+  total under 2ms is GC/JIT-dominated noise rather than algorithmic
+  signal."
+  2.0)
+
 (defn- ratio
   "Return `b / a`, guarding against division by ~zero. When `a` is
-  too small to measure reliably (under 0.5ms), returns 1.0 — the
-  ratio is meaningless at that scale, so the slack assertion always
-  passes. Avoids flaky tests on a very fast host."
+  too small to measure reliably (under `ratio-noise-floor-ms`),
+  returns 1.0 — the ratio is meaningless at that scale, so the slack
+  assertion always passes. Avoids flaky tests on a fast host whose
+  high-res clock clamps measurements to a coarse grid."
   [a b]
-  (if (< a 0.5)
+  (if (< a ratio-noise-floor-ms)
     1.0
     (double (/ b a))))
 
