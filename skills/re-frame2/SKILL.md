@@ -75,6 +75,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 |---|---|
 | Declaring a handler or schema slot as containing secrets / PII / large blobs | `reference/cross-cutting/privacy-and-elision.md` |
 | Wiring Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `reference/cross-cutting/production-observability.md` |
+| Authoring head/meta (`reg-head` / `render-head` / `active-head`) or a custom `:rf/hydrate` handler dispatching the version + schema-digest check fxs | `reference/cross-cutting/ssr-authoring.md` |
 
 ## Where the depth lives
 
@@ -86,7 +87,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Tooling — `reference/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play`), `story-mcp-loop.md` (agent self-healing loop over MCP).
 
-**Cross-cutting — `reference/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (`:sensitive?` / `:large?` / `elide-wire-value` / `with-redacted`), `production-observability.md` (`register-event-emit-listener!` / `register-error-emit-listener!`).
+**Cross-cutting — `reference/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (`:sensitive?` / `:large?` / `elide-wire-value` / `with-redacted`), `production-observability.md` (`register-event-emit-listener!` / `register-error-emit-listener!`), `ssr-authoring.md` (`reg-head` / `render-head` / `active-head` / `head-model->html` and the `:rf.ssr/check-version` + `:rf.ssr/check-schema-digest` fxs).
 
 **Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each leaf opens with load triggers, the canonical mini-declaration, the re-frame2 features it uses, trade-offs, and the worked-example link. Cross-reference of pattern → example app: `examples-map.md`.
 
