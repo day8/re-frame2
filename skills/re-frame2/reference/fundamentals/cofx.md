@@ -107,7 +107,7 @@ Two notes on the cofx body:
 
 There is deliberately **no `cofx-from-sub` shortcut helper** in `re-frame.core` (rf2-gw8j closed as won't-ship, 2026-05-13). The five-line `reg-cofx` wrapper above is the canonical shape; collapsing it into a one-liner would imply that subscribing-inside-handlers is the rule and the wrap is the workaround, when it is the other way around.
 
-Narrative treatment of the same pattern (for humans): `SKILL-REDIRECT.md` → **Guide ch.05 §Reading a sub from a handler**.
+Narrative treatment of the same pattern (for humans): [`docs/guide/05-coeffects.md`](../../../../docs/guide/05-coeffects.md) §Reading a sub from a handler.
 
 ## Common gotchas
 
