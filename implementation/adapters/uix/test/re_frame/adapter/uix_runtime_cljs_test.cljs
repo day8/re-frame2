@@ -137,7 +137,7 @@
              {:red    {:on {:tick {:target :green}}}
               :green  {:on {:tick {:target :yellow}}}
               :yellow {:on {:tick {:target :red}}}}}
-          [s _] (machines/machine-transition m {:state :red :data {}} [:tick])]
+          {s :re-frame.machines.result/snap} (machines/machine-transition m {:state :red :data {}} [:tick])]
       (is (= :green (:state s))))))
 
 ;; ---- error paths ----------------------------------------------------------

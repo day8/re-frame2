@@ -19,6 +19,7 @@
             ;; registers its late-bind hooks so rf/reg-machine and
             ;; rf/machine-transition resolve.
             [re-frame.machines]
+            [re-frame.machines.result :as result]
             ;; Managed-HTTP ships in day8/re-frame2-http.
             ;; The login flow's `:auth.login/login-attempt` action
             ;; dispatches `:rf.http/managed` (overridden in tests via
@@ -211,9 +212,10 @@
   frame, no app-db. The chapter's first test."
   []
   (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-        [s1 fx1] (rf/machine-transition login-flow s0
-                                        [:auth.login/submit
-                                         {:email "a@b.com" :password "secret"}])]
+        {s1 ::result/snap fx1 ::result/fx}
+        (rf/machine-transition login-flow s0
+                               [:auth.login/submit
+                                {:email "a@b.com" :password "secret"}])]
     (assert (= :submitting (:state s1))
             (str "expected :submitting, got " (:state s1)))
     ;; Entering :submitting fires the :issue-request action's :fx.
@@ -221,8 +223,8 @@
     (assert (= :rf.http/managed (ffirst fx1))
             (str "expected :rf.http/managed fx-id, got " (ffirst fx1)))
 
-    (let [[s2 _] (rf/machine-transition login-flow s1
-                                        [:auth.login/success {:value {:token "t"}}])]
+    (let [{s2 ::result/snap} (rf/machine-transition login-flow s1
+                                                    [:auth.login/success {:value {:token "t"}}])]
       (assert (= :authed (:state s2))
               (str "expected :authed, got " (:state s2))))
     :ok))
@@ -235,10 +237,11 @@
   first counter value at which the guard rejects."
   []
   (let [snapshot {:state :submitting :data {:attempts 3 :error nil}}
-        [s _fx] (rf/machine-transition login-flow snapshot
-                                       [:auth.login/failure
-                                        {:failure {:kind :rf.http/http-4xx
-                                                   :message "bad creds"}}])]
+        {s ::result/snap}
+        (rf/machine-transition login-flow snapshot
+                               [:auth.login/failure
+                                {:failure {:kind :rf.http/http-4xx
+                                           :message "bad creds"}}])]
     (assert (= :locked-out (:state s))
             (str "expected :locked-out at attempts=3, got " (:state s)))
     :ok))

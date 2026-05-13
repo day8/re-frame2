@@ -10,6 +10,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines :as machines]
+            [re-frame.machines.result :as result]
             [re-frame.routing :as routing]
             ;; Pull http-managed in so its late-bind hooks (in particular
             ;; :http/reg-http-interceptor) are published — the
@@ -488,9 +489,9 @@
              {:red    {:on {:tick {:target :green}}}
               :green  {:on {:tick {:target :yellow}}}
               :yellow {:on {:tick {:target :red}}}}}]
-      (let [[s1 _] (machines/machine-transition m {:state :red :data {}} [:tick])]
+      (let [{s1 ::result/snap} (machines/machine-transition m {:state :red :data {}} [:tick])]
         (is (= :green (:state s1))))
-      (let [[s2 _] (machines/machine-transition m {:state :green :data {}} [:tick])]
+      (let [{s2 ::result/snap} (machines/machine-transition m {:state :green :data {}} [:tick])]
         (is (= :yellow (:state s2)))))))
 
 (deftest machine-always-microstep
@@ -505,7 +506,7 @@
               :idle     {}}}
           ;; Even with a no-op event (no match in :on), :always is checked
           ;; and the guard passes — transition to :authed.
-          [s _] (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
+          {s ::result/snap} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
       (is (= :authed (:state s))))))
 
 (deftest machine-raise-pre-commit
@@ -522,7 +523,7 @@
              {:idle {:on {:start {:target :busy :action :start}
                           :bump  {:action :bump}}}
               :busy {:on {:bump {:action :bump}}}}}
-          [s fx] (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
+          {s ::result/snap fx ::result/fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
       ;; Two raised :bump events should have been processed pre-commit;
       ;; final data :n should be 2.
       (is (= 2 (:n (:data s))))

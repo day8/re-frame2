@@ -31,6 +31,7 @@
   resolved single (or region) machine context, so the parallel layer
   is bypassed for the recursive macrostep call."
   (:require [clojure.set :as set]
+            [re-frame.machines.result :as result]
             [re-frame.machines.transition :as transition]))
 
 (defn parallel?
@@ -138,9 +139,9 @@
 
 (defn apply-initial-entry-cascade
   "Synthesise the bootstrap entry cascade for `machine` against the
-  freshly-synthesised `initial-snapshot`. Returns `[new-snapshot fx-vec]`,
-  or the `[:re-frame.machines.transition/action-failed info]` sentinel
-  if any `:entry` action threw.
+  freshly-synthesised `initial-snapshot`. Returns a `result/ok` Result
+  carrying the new snapshot + fx, or a `result/fail` Result if any
+  `:entry` action threw.
 
   For parallel-region machines (`:type :parallel`), iterates regions in
   declaration order, threading shared `:data` sequentially through regions
@@ -168,7 +169,7 @@
                                    (assoc :data  cur-data))
                          (some? cur-counter)
                          (assoc :rf/spawn-counter cur-counter))]
-            [(commit-tags-parallel machine merged) acc-fx])
+            (result/ok (commit-tags-parallel machine merged) acc-fx))
 
           :else
           (let [rn          (first pending)
@@ -178,10 +179,9 @@
                               (some? cur-counter)
                               (assoc :rf/spawn-counter cur-counter))
                 step-result (apply-initial-entry-cascade-single region-spec region-snap)]
-            (if (and (vector? step-result)
-                     (= :re-frame.machines.transition/action-failed (first step-result)))
+            (if (result/fail? step-result)
               step-result
-              (let [[reg-snap reg-fx] step-result
+              (let [{reg-snap ::result/snap reg-fx ::result/fx} step-result
                     prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
                 (recur (rest pending)
                        (:data reg-snap)
@@ -195,6 +195,8 @@
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, broadcast the event to each region and merge the results.
+  Returns a `result/ok` Result on success or a `result/fail` Result if
+  any region's action threw.
 
   Per Spec 005 §Transition broadcast: each region resolves the event
   through its own active state's deepest-wins lookup; resolved regions
@@ -232,7 +234,7 @@
                                 (some? cur-counter)
                                 (assoc :rf/spawn-counter cur-counter))
               merged-tagged   (commit-tags-parallel machine merged)]
-          [merged-tagged acc-fx])
+          (result/ok merged-tagged acc-fx))
 
         :else
         (let [rn          (first pending)
@@ -242,10 +244,9 @@
                             (some? cur-counter)
                             (assoc :rf/spawn-counter cur-counter))
               step-result (machine-transition region-spec region-snap event)]
-          (if (and (vector? step-result)
-                   (= :re-frame.machines.transition/action-failed (first step-result)))
+          (if (result/fail? step-result)
             step-result
-            (let [[reg-snap reg-fx] step-result
+            (let [{reg-snap ::result/snap reg-fx ::result/fx} step-result
                   prefixed-fx (mapv (partial prefix-region-invoke-id rn) reg-fx)]
               (recur (rest pending)
                      (:data reg-snap)
@@ -255,7 +256,11 @@
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
-  return [new-snapshot effects].
+  return a `re-frame.machines.result/Result` — either a `result/ok`
+  carrying the new snapshot and effects vector, or a `result/fail`
+  carrying diagnostic info if any action / `:data`-fn threw. Use
+  `result/ok?` / `result/fail?` to discriminate and the `::result/snap`
+  / `::result/fx` / `::result/info` keys to destructure.
 
   Per Spec 005 §Drain semantics §Level 3, this is the macrostep:
    1. Pick the matching transition for the event using deepest-wins

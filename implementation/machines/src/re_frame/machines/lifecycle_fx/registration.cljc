@@ -23,6 +23,7 @@
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.result :as result]
             [re-frame.machines.transition :as transition]
             [re-frame.trace :as trace]))
 
@@ -90,8 +91,8 @@
     event))
 
 (defn- trace-action-failure!
-  "Emit `:rf.error/machine-action-exception` for an `[::transition/action-
-  failed info]` step-result. Returns `{}` so the handler short-circuits."
+  "Emit `:rf.error/machine-action-exception` for a `result/fail` Result's
+  `::result/info` map. Returns `{}` so the handler short-circuits."
   [machine-id event frame-id info reason]
   (let [ex         (:exception info)
         ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
@@ -113,11 +114,6 @@
                         :reason            reason
                         :recovery          :no-recovery})
     {}))
-
-(defn- action-failed?
-  [step-result]
-  (and (vector? step-result)
-       (= ::transition/action-failed (first step-result))))
 
 (defn create-machine-handler
   "Returns a function suitable for registration with `reg-event-fx`.
@@ -196,29 +192,32 @@
             ;; user event. Bootstrap fx flow OUT of the handler ahead of
             ;; any fx the user event produces — entry happens-before user
             ;; event handling.
-            [boot-snap boot-fx :as boot-result]
+            boot-result
             (if (and needs-bootstrap? (not intercepted))
               (parallel/apply-initial-entry-cascade machine snapshot)
-              [snapshot []])
-            boot-failed?     (action-failed? boot-result)
+              (result/ok snapshot []))
+            boot-failed?     (result/fail? boot-result)
             post-boot-snap   (when-not boot-failed?
-                               (dissoc boot-snap :rf/bootstrap-pending?))]
+                               (dissoc (::result/snap boot-result)
+                                       :rf/bootstrap-pending?))
+            boot-fx          (when-not boot-failed?
+                               (::result/fx boot-result))]
         (cond
           intercepted
           intercepted
 
           boot-failed?
           (trace-action-failure! machine-id [:rf.machine/bootstrap] frame-id
-                                 (second boot-result)
+                                 (::result/info boot-result)
                                  "Machine initial-entry action threw.")
 
           :else
           (let [step-result (parallel/machine-transition machine post-boot-snap inner-event)]
-            (if (action-failed? step-result)
+            (if (result/fail? step-result)
               (trace-action-failure! machine-id inner-event frame-id
-                                     (second step-result)
+                                     (::result/info step-result)
                                      "Machine action threw.")
-              (let [[next-snapshot fx] step-result
+              (let [{next-snapshot ::result/snap fx ::result/fx} step-result
                     merged-fx (vec (concat boot-fx fx))
                     ;; Per Spec 005 §Final states (rf2-gn80): recompute
                     ;; the finality flag at the lifecycle-handler

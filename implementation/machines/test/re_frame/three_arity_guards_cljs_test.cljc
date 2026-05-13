@@ -58,6 +58,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.machines :as machines]
+   [re-frame.machines.result :as result]
    #?@(:cljs [[re-frame.core :as rf]
               [re-frame.adapter.reagent :as reagent-adapter]
               [re-frame.test-support :as test-support]])))
@@ -215,8 +216,8 @@
                         true)
              machine  (machine-with-guard guard)
              snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
-             [snap-after _fx] (machines/machine-transition
-                                machine snapshot [:go])]
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
          (is (= :gone (:state snap-after))
              "the transition fired (guard returned true), so we landed at :gone")
          (is (= 1 (get-in snap-after [:data :bumps]))
@@ -242,8 +243,8 @@
                         {:data (assoc data :saw-ctx? (some? ctx))})
              machine  (machine-with-action action)
              snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
-             [snap-after _fx] (machines/machine-transition
-                                machine snapshot [:go])]
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
          (is (= :gone (:state snap-after)))
          (is (true? (get-in snap-after [:data :saw-ctx?]))
              "the 3-arity action's ctx was non-nil and its return value
@@ -266,8 +267,8 @@
                transition fires and reaches :gone."
        (let [machine  (machine-with-guard (constantly true))
              snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
-             [snap-after _fx] (machines/machine-transition
-                                machine snapshot [:go])]
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
          (is (= :gone (:state snap-after))
              "(constantly true) returns true regardless of how many args
               it's called with — transition fires either way; the
@@ -290,8 +291,8 @@
                          (= 0 (:bumps data ::missing)))
              machine   (machine-with-guard guard)
              snapshot  {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
-             [snap-after _fx] (machines/machine-transition
-                                machine snapshot [:go])]
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
          (is (= :gone (:state snap-after))
              "transition fired — guard saw data + event correctly")
          (is (or (nil? @seen-rest)
@@ -310,8 +311,8 @@
                         true)
              machine  (machine-with-guard guard)
              snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
-             [snap-after _fx] (machines/machine-transition
-                                machine snapshot [:go])]
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
          (is (= :gone (:state snap-after)))
          (is (= 1 (get-in snap-after [:data :bumps])))
          (let [{:keys [data event argc]} @seen]

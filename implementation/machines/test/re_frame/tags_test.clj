@@ -22,6 +22,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
+            [re-frame.machines.result :as result]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -152,11 +153,11 @@
              :states  {:a {:tags #{:start} :on {:next :b}}
                        :b {:tags #{:middle :transient} :on {:next :c}}
                        :c {:tags #{:end}}}}
-          [snap1 _] (machines/machine-transition m {:state :a :data {}} [:next])]
+          {snap1 ::result/snap} (machines/machine-transition m {:state :a :data {}} [:next])]
       (is (= :b (:state snap1)))
       (is (= #{:middle :transient} (:tags snap1))
           ":tags stamped on the pure-transition output")
-      (let [[snap2 _] (machines/machine-transition m snap1 [:next])]
+      (let [{snap2 ::result/snap} (machines/machine-transition m snap1 [:next])]
         (is (= :c (:state snap2)))
         (is (= #{:end} (:tags snap2))))))
 
@@ -165,7 +166,7 @@
              :data    {}
              :states  {:a {:on {:next :b}}
                        :b {}}}
-          [snap _]  (machines/machine-transition m {:state :a :data {}} [:next])]
+          {snap ::result/snap}  (machines/machine-transition m {:state :a :data {}} [:next])]
       (is (= :b (:state snap)))
       (is (not (contains? snap :tags))
           "empty tag union elided on pure-transition output"))))

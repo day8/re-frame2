@@ -19,6 +19,7 @@
   can be loaded and exercised on the JVM by the conformance fixtures
   (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
+            [re-frame.machines.result :as result]
             [re-frame.trace :as trace]))
 
 (defn- chase-ref
@@ -431,48 +432,51 @@
 (defn- common-prefix-length [a b]
   (count (take-while true? (map = a b))))
 
-;; Sentinel: when an action throws, run-action returns this map instead of
-;; an effects map. collect-actions / apply-transition-once / machine-transition
-;; propagate it; the outer event handler converts it into a no-:db return so
-;; the cascade halts without committing a snapshot. Per Spec 005 §Errors and
-;; Cross-Spec-Interactions §11 — Machine action throws.
-(defn- action-failure?
-  [x]
-  (and (map? x) (contains? x :rf.machine/action-failure)))
+;; When an action throws, `run-action` returns a `result/fail` carrying
+;; `{:action-ref :exception}`. `collect-actions` propagates the failure;
+;; `apply-transition-once` / `machine-transition-single` enrich it with
+;; transition-level context; the outer event handler converts it into a
+;; no-`:db` return so the cascade halts without committing a snapshot.
+;; Per Spec 005 §Errors and Cross-Spec-Interactions §11 — Machine action
+;; throws.
 
-(defn- run-action [machine snap action-ref event]
+(defn- run-action
+  "Run one action ref and return either a plain effects map (success) or a
+  `result/fail` Result (the action threw). Successful actions may return
+  `nil` (treated as `{}`)."
+  [machine snap action-ref event]
   (if action-ref
     (let [f (resolve-action machine action-ref)]
       (try
-        (let [result (call-action f snap event)]
-          (or result {}))
+        (let [r (call-action f snap event)]
+          (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
-          {:rf.machine/action-failure
-           {:action-ref action-ref
-            :exception  e}})))
+          (result/fail {:action-ref action-ref
+                        :exception  e}))))
     {}))
 
 (defn- collect-actions
   "Walk action-refs in order, calling each with snap+event and threading
   the resulting :data updates forward (so each action sees the previous
-  one's data). Returns [final-snapshot fx-vec], or
-  [::action-failed failure-info] if any action threw — per Spec 005
-  §Errors, the cascade halts on the first throw and the snapshot does
-  not commit."
+  one's data). Returns a `result/ok` carrying `[final-snapshot fx-vec]`,
+  or the `result/fail` Result the first throwing action produced — per
+  Spec 005 §Errors, the cascade halts on the first throw and the
+  snapshot does not commit."
   [machine snap event action-refs]
   (reduce
-    (fn [[s fx] aref]
+    (fn [acc aref]
       (if aref
-        (let [r (run-action machine s aref event)]
-          (if (action-failure? r)
-            (reduced [::action-failed (:rf.machine/action-failure r)])
-            (let [new-data   (cond-> (:data s)
-                               (contains? r :data) (merge (:data r)))
-                  new-snap   (assoc s :data new-data)
-                  new-fx     (vec (concat fx (or (:fx r) [])))]
-              [new-snap new-fx])))
-        [s fx]))
-    [snap []]
+        (let [{::result/keys [snap fx]} acc
+              r (run-action machine snap aref event)]
+          (if (result/fail? r)
+            (reduced r)
+            (let [new-data (cond-> (:data snap)
+                             (contains? r :data) (merge (:data r)))
+                  new-snap (assoc snap :data new-data)
+                  new-fx   (vec (concat fx (or (:fx r) [])))]
+              (result/ok new-snap new-fx))))
+        acc))
+    (result/ok snap [])
     action-refs))
 
 ;; ---- apply-transition-once helpers (extracted per rf2-g1s1) ---------------
@@ -489,15 +493,17 @@
   and rf2-h131, `:data` admits a fn form `(fn [snap ev] data)` so the spawn's
   initial data can depend on the parent snapshot at the moment of entry. The
   fn runs against the post-action snapshot (any :action :data writes are
-  visible). Returns `[:ok data]` or `[:fail exception]` — caller surfaces
-  the failure through the `::action-failed` sentinel."
+  visible). Returns `[::ok-data <materialised-data>]` on success, or a
+  `result/fail` Result carrying `{:exception <e>}` if the fn threw —
+  caller stamps `:action-ref` / `:invoke-id` / `:child-id` onto the
+  Result before propagating."
   [d snap event]
   (if (fn? d)
     (try
-      [:ok (d snap event)]
+      [::ok-data (d snap event)]
       (catch #?(:clj Throwable :cljs :default) e
-        [:fail e]))
-    [:ok d]))
+        (result/fail {:exception e})))
+    [::ok-data d]))
 
 (defn- build-after-fx
   "Per Spec 005 §SSR mode and Cross-Spec-Interactions §4 (Machines × SSR):
@@ -613,8 +619,9 @@
   `:rf/invoke-id` / `:rf/spawned-id` so the spawn-fx handler can bind the
   runtime-owned spawn-registry slot (rf2-t07u Option A revised).
 
-  Returns `[snap-after acc-fx']` for the reducer; `[:rf.machine/action-failed
-  info]` (wrapped in `reduced`) if the `:data` fn throws."
+  Returns `[snap-after acc-fx']` for the reducer; a `reduced` wrapper
+  around a `result/fail` Result (stamped with `:action-ref :rf.invoke/data-fn`
+  and `:invoke-id`) if the `:data` fn throws."
   [machine parent-id s acc-fx prefix n event]
   (let [inv         (:invoke n)
         machine-id  (:machine-id inv)
@@ -626,17 +633,16 @@
         (if (:invoke-id inv)
           [s (:invoke-id inv)]
           (allocate-spawned-id s machine-id))
-        [mat-status mat-data]
+        mat-result
         (if (contains? inv :data)
           (materialise-data (:data inv) s-after-alloc event)
-          [:ok nil])]
-    (if (= :fail mat-status)
+          [::ok-data nil])]
+    (if (result/fail? mat-result)
       (reduced
-        [::action-failed
-         {:action-ref :rf.invoke/data-fn
-          :exception  mat-data
-          :invoke-id  invoke-id}])
-      (let [inv'        (if (contains? inv :data)
+        (result/fail-with mat-result {:action-ref :rf.invoke/data-fn
+                                      :invoke-id  invoke-id}))
+      (let [mat-data    (second mat-result)
+            inv'        (if (contains? inv :data)
                           (assoc inv :data mat-data)
                           inv)
             spawn-args  (-> inv'
@@ -673,9 +679,10 @@
 
   Per Spec 005 §Spec-spec keys (rf2-h131): each child invoke-spec admits
   the same `:data` fn-form as a single `:invoke`. Materialisation may
-  throw; surface via the `::action-failed` sentinel.
+  throw; surface via a `result/fail` Result.
 
-  Returns `[snap-after acc-fx']` for the reducer."
+  Returns `[snap-after acc-fx']` for the reducer; a `reduced` wrapper
+  around a `result/fail` Result if any child's `:data` fn throws."
   [machine parent-id s acc-fx prefix n event]
   (let [inv-all     (:invoke-all n)
         children    (:children inv-all)
@@ -708,17 +715,22 @@
                       :rf/invoke-id invoke-id
                       :join-state   join-state}]
         ;; Build per-child spawn-args, materialising any `:data` fn-form
-        ;; (rf2-h131). Materialisation may throw — collect a
-        ;; `[:fail e child-id]` sentinel so the reducer short-circuits.
+        ;; (rf2-h131). Materialisation may throw — short-circuit with a
+        ;; `result/fail` Result (stamped with `:child-id`).
         child-spawn-build
         (reduce
           (fn [acc child]
-            (let [[mat-status mat-data] (if (contains? child :data)
-                                          (materialise-data (:data child) s event)
-                                          [:ok nil])]
-              (if (= :fail mat-status)
-                (reduced [:fail mat-data (:id child)])
-                (let [machine-id (:machine-id child)
+            (let [mat-result (if (contains? child :data)
+                               (materialise-data (:data child) s event)
+                               [::ok-data nil])]
+              (if (result/fail? mat-result)
+                (reduced
+                  (result/fail-with mat-result
+                                    {:action-ref :rf.invoke-all/data-fn
+                                     :invoke-id  invoke-id
+                                     :child-id   (:id child)}))
+                (let [mat-data   (second mat-result)
+                      machine-id (:machine-id child)
                       spawned-id (:rf/spawned-id child)
                       child'     (if (contains? child :data)
                                    (assoc child :data mat-data)
@@ -733,14 +745,8 @@
                   (conj acc [:rf.machine/spawn spawn-args])))))
           []
           children')]
-    (if (and (vector? child-spawn-build)
-             (= :fail (first child-spawn-build)))
-      (reduced
-        [::action-failed
-         {:action-ref :rf.invoke-all/data-fn
-          :exception  (second child-spawn-build)
-          :invoke-id  invoke-id
-          :child-id   (nth child-spawn-build 2)}])
+    (if (result/fail? child-spawn-build)
+      (reduced child-spawn-build)
       (let [child-spawn-fxs child-spawn-build
             s' (reduce
                  (fn [snap child]
@@ -782,7 +788,8 @@
 
 (defn apply-transition-once
   "Apply one transition (exit cascade → action → entry cascade → state
-  change). Returns [new-snapshot fx-vec].
+  change). Returns a `result/ok` Result carrying the new snapshot + fx,
+  or a `result/fail` Result if any action or `:data` fn threw.
 
   Per Spec 005 §Entry/exit cascading along the LCA:
    1. Compute LCA of source-path and target-leaf-path.
@@ -826,13 +833,12 @@
                             (map (fn [[_ n]] (:entry n)))))
         action-refs  [(:action transition)]
         all-refs     (concat exit-refs action-refs entry-refs)
-        result       (collect-actions machine snapshot event all-refs)]
-    (if (and (vector? result) (= ::action-failed (first result)))
-      [::action-failed (assoc (second result)
-                              :decl-path  decl-path
-                              :transition transition
-                              :state-path src-path)]
-      (let [[snap-after fx] result
+        cascade      (collect-actions machine snapshot event all-refs)]
+    (if (result/fail? cascade)
+      (result/fail-with cascade {:decl-path  decl-path
+                                 :transition transition
+                                 :state-path src-path})
+      (let [{snap-after ::result/snap fx ::result/fx} cascade
             ;; Per rf2-t07u (Option A revised) — the runtime carries
             ;; `[prefix-path node]` pairs through here so spawn / destroy
             ;; fx emissions can identify each `:invoke`-bearing state by
@@ -882,6 +888,11 @@
             after-fx        (build-after-fx machine entered-pairs internal? snap-final)
             after-cancel-fx (build-after-cancel-fx parent-id exited-pairs internal?)
             destroy-fx      (build-destroy-fx parent-id exited-pairs internal?)
+            ;; The spawn reducer's accumulator is the live `[s acc-fx]`
+            ;; pair the inner `handle-invoke-spawn` / `-all-spawn`
+            ;; helpers thread; a `reduced` from those helpers short-
+            ;; circuits to a `result/fail` Result, so the final value
+            ;; here is either the pair or the failure map.
             spawn-result
             (if internal?
               [snap-final []]
@@ -898,12 +909,10 @@
                     [s acc-fx]))
                 [snap-final []]
                 entered-pairs))]
-        (if (and (vector? spawn-result)
-                 (= ::action-failed (first spawn-result)))
-          [::action-failed (assoc (second spawn-result)
-                                  :decl-path  decl-path
-                                  :transition transition
-                                  :state-path src-path)]
+        (if (result/fail? spawn-result)
+          (result/fail-with spawn-result {:decl-path  decl-path
+                                          :transition transition
+                                          :state-path src-path})
           (let [[snap-after-spawns spawn-fx] spawn-result
                 all-fx (vec (concat fx
                                     (or after-cancel-fx [])
@@ -918,7 +927,7 @@
             ;; JVM pure-fn tests) stays free of transient runtime
             ;; metadata. The pure function returns the canonical
             ;; `{:state :data}` shape regardless of finality.
-            [snap-after-spawns all-fx]))))))
+            (result/ok snap-after-spawns all-fx)))))))
 
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root
@@ -960,7 +969,9 @@
 (defn- drain-raises
   "Drain the :raise queue inside fx-vec. Each :raise becomes an inline
   recursive machine-transition-single call; non-:raise fx pass through to
-  the accumulator. Returns [new-snapshot accum-fx]."
+  the accumulator. Returns a `result/ok` Result carrying the post-drain
+  `[snap accum-fx]`, or a `result/fail` Result if any recursive step
+  failed."
   [machine snapshot fx-vec depth-limit]
   (loop [pending fx-vec
          accum   []
@@ -971,10 +982,10 @@
       (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
                              {:machine-id (:id machine) :depth depth
                               :recovery :no-recovery})
-          [snap accum])
+          (result/ok snap accum))
 
       (empty? pending)
-      [snap accum]
+      (result/ok snap accum)
 
       :else
       (let [[fx-id args] (first pending)
@@ -982,10 +993,9 @@
         (case fx-id
           :raise
           (let [step-result (machine-transition-single machine snap args)]
-            (if (and (vector? step-result)
-                     (= ::action-failed (first step-result)))
+            (if (result/fail? step-result)
               step-result
-              (let [[snap2 fx2] step-result]
+              (let [{snap2 ::result/snap fx2 ::result/fx} step-result]
                 (recur (concat fx2 rest-pending)
                        accum
                        snap2
@@ -1008,10 +1018,12 @@
       `:always`; apply, drain raises, loop.
    5. Commit (return) the snapshot once `:always` reaches fixed point.
 
-  Bounded by `:raise-depth-limit` and `:always-depth-limit` (both default
-  16). Parallel-region routing lives in `re-frame.machines.parallel`'s
-  `machine-transition` — the dispatch checks `parallel?` and either
-  broadcasts across regions or falls through to this fn."
+  Returns a `result/ok` Result on success or a `result/fail` Result if
+  any action or `:data`-fn threw. Bounded by `:raise-depth-limit` and
+  `:always-depth-limit` (both default 16). Parallel-region routing lives
+  in `re-frame.machines.parallel`'s `machine-transition` — the dispatch
+  checks `parallel?` and either broadcasts across regions or falls
+  through to this fn."
   [machine snapshot event]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
@@ -1045,10 +1057,10 @@
         result-after-event
         (cond
           (and match (:stale? match))
-          [snapshot []]
+          (result/ok snapshot [])
 
           (and match (:guard-suppressed? match))
-          [snapshot []]
+          (result/ok snapshot [])
 
           match
           (apply-transition-once
@@ -1056,47 +1068,50 @@
             (assoc (:transition match) :decl-path (:decl-path match)))
 
           :else
-          [snapshot []])]
-    (if (and (vector? result-after-event)
-             (= ::action-failed (first result-after-event)))
+          (result/ok snapshot []))]
+    (if (result/fail? result-after-event)
       result-after-event
-      (let [[snap-after-event fx-after-event] result-after-event
-            [snap-after-raise fx-after-raise]
-            (drain-raises machine snap-after-event fx-after-event raise-limit)]
-        ;; Step 4: :always microstep loop. Track visited state-paths so that,
-        ;; on depth-limit abort, we can report the path AND fully roll back to
-        ;; the original input snapshot — the macrostep is atomic per Spec 005.
-        (loop [snap    snap-after-raise
-               fx      fx-after-raise
-               depth   0
-               visited [(:state snap-after-raise)]]
-          (cond
-            (>= depth always-limit)
-            (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                   {:machine-id (:id machine)
-                                    :depth      depth
-                                    :path       visited
-                                    :recovery   :no-recovery})
-                [snapshot []])
+      (let [{snap-after-event ::result/snap fx-after-event ::result/fx} result-after-event
+            raised (drain-raises machine snap-after-event fx-after-event raise-limit)]
+        (if (result/fail? raised)
+          raised
+          (let [{snap-after-raise ::result/snap fx-after-raise ::result/fx} raised]
+            ;; Step 4: :always microstep loop. Track visited state-paths so that,
+            ;; on depth-limit abort, we can report the path AND fully roll back to
+            ;; the original input snapshot — the macrostep is atomic per Spec 005.
+            (loop [snap    snap-after-raise
+                   fx      fx-after-raise
+                   depth   0
+                   visited [(:state snap-after-raise)]]
+              (cond
+                (>= depth always-limit)
+                (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                       {:machine-id (:id machine)
+                                        :depth      depth
+                                        :path       visited
+                                        :recovery   :no-recovery})
+                    (result/ok snapshot []))
 
-            :else
-            (let [snap-path (state-path (:state snap))
-                  always-m  (pick-always-transition machine snap-path snap)]
-              (if (nil? always-m)
-                ;; Macrostep fixed-point reached. Recompute the
-                ;; active-configuration tag union on the committed snapshot
-                ;; AFTER the new state is settled but BEFORE traces fire
-                ;; (so the outer handler's `:rf.machine/transition` trace
-                ;; carries the new tag set).
-                [(commit-tags machine snap) fx]
-                (let [step-result (apply-transition-once machine snap nil
-                                                          (:transition always-m))]
-                  (if (and (vector? step-result)
-                           (= ::action-failed (first step-result)))
-                    step-result
-                    (let [[snap2 fx2] step-result
-                          [snap3 fx3] (drain-raises machine snap2 fx2 raise-limit)]
-                      (recur snap3
-                             (vec (concat fx fx3))
-                             (inc depth)
-                             (conj visited (:state snap3))))))))))))))
+                :else
+                (let [snap-path (state-path (:state snap))
+                      always-m  (pick-always-transition machine snap-path snap)]
+                  (if (nil? always-m)
+                    ;; Macrostep fixed-point reached. Recompute the
+                    ;; active-configuration tag union on the committed snapshot
+                    ;; AFTER the new state is settled but BEFORE traces fire
+                    ;; (so the outer handler's `:rf.machine/transition` trace
+                    ;; carries the new tag set).
+                    (result/ok (commit-tags machine snap) fx)
+                    (let [step-result (apply-transition-once machine snap nil
+                                                              (:transition always-m))]
+                      (if (result/fail? step-result)
+                        step-result
+                        (let [{snap2 ::result/snap fx2 ::result/fx} step-result
+                              raised2 (drain-raises machine snap2 fx2 raise-limit)]
+                          (if (result/fail? raised2)
+                            raised2
+                            (let [{snap3 ::result/snap fx3 ::result/fx} raised2]
+                              (recur snap3
+                                     (vec (concat fx fx3))
+                                     (inc depth)
+                                     (conj visited (:state snap3))))))))))))))))))

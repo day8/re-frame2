@@ -1,8 +1,8 @@
 (ns re-frame.machine-transition-purity-test
   "Per rf2-gr8q. Locks in the contract that `machine-transition` is an
   honest pure function — identical (machine, snapshot, event) triples
-  produce identical [next-snapshot effects] pairs INCLUDING the spawn-id
-  sequencing inside emitted `:rf.machine/spawn` fx maps.
+  produce identical Result values (snapshot + effects vector) INCLUDING
+  the spawn-id sequencing inside emitted `:rf.machine/spawn` fx maps.
 
   Pre-rf2-gr8q the spawn-id allocator was a module-level
   `(defonce spawn-counter (atom {}))` keyed on `[frame-id machine-id]`
@@ -22,8 +22,8 @@
 
    1. **Identical args → identical results.** Call
       `machine-transition` twice with the SAME arguments and assert
-      the returned pair (snapshot + effects vector) is `=` to the
-      first call's pair.
+      the returned Result (snapshot + effects vector) is `=` to the
+      first call's Result.
 
    2. **No global state.** The two calls happen in arbitrary order;
       neither alters any module-level state that the other observes.
@@ -31,7 +31,8 @@
       counter 0 still allocates `:worker#1`, not `:worker#3`.
   "
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]))
+            [re-frame.machines :as machines]
+            [re-frame.machines.result :as result]))
 
 (def auth-flow-spec
   "A tiny declarative-`:invoke` machine. On `[:submit]` from `:idle` it
@@ -48,11 +49,11 @@
              :authenticated  {}}})
 
 (deftest machine-transition-is-pure
-  (testing "identical args produce identical [next-snapshot effects] pairs"
+  (testing "identical args produce identical Result values"
     (let [snap     {:state :idle :data {}}
           event    [:submit]
-          [snap1 fx1] (machines/machine-transition auth-flow-spec snap event)
-          [snap2 fx2] (machines/machine-transition auth-flow-spec snap event)]
+          {snap1 ::result/snap fx1 ::result/fx} (machines/machine-transition auth-flow-spec snap event)
+          {snap2 ::result/snap fx2 ::result/fx} (machines/machine-transition auth-flow-spec snap event)]
       (is (= snap1 snap2)
           "two pure-call invocations from the same input produce the same next-snapshot")
       (is (= fx1 fx2)
@@ -80,8 +81,8 @@
     ;; produced `:http/post#2` because the atom carried over.
     (let [snap-a {:state :idle :data {:tag :a}}
           snap-b {:state :idle :data {:tag :b}}
-          [_ fx-a] (machines/machine-transition auth-flow-spec snap-a [:submit])
-          [_ fx-b] (machines/machine-transition auth-flow-spec snap-b [:submit])]
+          {fx-a ::result/fx} (machines/machine-transition auth-flow-spec snap-a [:submit])
+          {fx-b ::result/fx} (machines/machine-transition auth-flow-spec snap-b [:submit])]
       (is (= :http/post#1 (-> fx-a first second :rf/spawned-id))
           "first snapshot's spawn is :http/post#1")
       (is (= :http/post#1 (-> fx-b first second :rf/spawned-id))
@@ -95,7 +96,7 @@
     (let [snap     {:state            :idle
                     :data             {}
                     :rf/spawn-counter {:http/post 3}}
-          [snap' fx] (machines/machine-transition auth-flow-spec snap [:submit])]
+          {snap' ::result/snap fx ::result/fx} (machines/machine-transition auth-flow-spec snap [:submit])]
       (is (= :http/post#4 (-> fx first second :rf/spawned-id))
           "spawn allocates :http/post#4 — bump of the pre-existing 3")
       (is (= {:http/post 4} (:rf/spawn-counter snap'))
@@ -113,6 +114,6 @@
                                        :join     :all}
                                       :on        {:done :ready}}
                           :ready     {}}}
-          [snap' _fx] (machines/machine-transition spec {:state :idle :data {}} [:start])]
+          {snap' ::result/snap} (machines/machine-transition spec {:state :idle :data {}} [:start])]
       (is (= {:worker 3} (:rf/spawn-counter snap'))
           "three :worker children bumped the slot to 3"))))
