@@ -36,7 +36,7 @@ Each entry below is one CP:
 **Pre-flight delta (in addition to the shared preamble above):**
 
 - **Id-shape convention:** `:feature/verb-noun` or `:feature.subfeature/verb-noun`. Examples: `:auth/login`, `:auth.password/reset`, `:cart.item/remove`. The relevant registry kind is `:event`.
-- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope)): `[<id>]` for trivial events, `[<id> <single-scalar>]` for single-argument events, `[<id> {<key> <val> ...}]` for multi-argument events. Multi-positional `[<id> a b c]` is tolerated for v1 compatibility but not what new code should emit.
+- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope)): `[<id>]` for trivial events, `[<id> <single-scalar>]` for single-argument events, `[<id> {<key> <val> ...}]` for multi-argument events. Multi-positional `[<id> a b c]` is accepted by the runtime; the linter nudges new code toward the map shape.
 - **Schema-bound paths.** If the event reads or writes a schema-bound `app-db` path, your handler must produce schema-compliant output (validation runs in dev).
 
 **Template — `reg-event-db` (state-only):**
@@ -113,7 +113,7 @@ Each entry below is one CP:
 **Pre-flight delta (in addition to the shared preamble above):**
 
 - **Id-shape convention:** `:feature/property` or `:feature/computed-value`. Examples: `:cart/total`, `:cart/items-count`, `:auth/logged-in?`. The relevant registry kind is `:sub`.
-- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope), same as for events): `[<id>]` for trivial subs, `[<id> <single-scalar>]` for single-argument subs (`[:user-by-id 42]`), `[<id> {<key> <val> ...}]` for multi-argument subs (`[:items-filtered {:status :pending :limit 20}]`). Multi-positional `[<id> a b c]` is tolerated for v1 compatibility but not what new code should emit.
+- **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope), same as for events): `[<id>]` for trivial subs, `[<id> <single-scalar>]` for single-argument subs (`[:user-by-id 42]`), `[<id> {<key> <val> ...}]` for multi-argument subs (`[:items-filtered {:status :pending :limit 20}]`). Multi-positional `[<id> a b c]` is accepted by the runtime; the linter nudges new code toward the map shape.
 - **Decide the input.** Either reads `app-db` directly (Layer 1 sub) or composes other subs (Layer 2 / signal-graph chained sub via `:<-`).
 - **Check schemas.** If the sub's return value has a registered schema (rare for layer-1, common for layer-2), align the output shape.
 
