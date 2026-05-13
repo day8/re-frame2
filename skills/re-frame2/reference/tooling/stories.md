@@ -80,13 +80,39 @@ Distilled from `examples/reagent/counter_with_stories/stories.cljs` — every ke
 
 - **No fn slots in variant bodies.** `:events`, `:play`, `:decorators`, `:loaders` carry **event-vectors and ids** — never anonymous functions. The `:rf/variant` schema (in `spec/Spec-Schemas.md`) enforces this; macro-time validation rejects with `:rf.error/variant-shape`. The single legal closure site is a `:hiccup`-kind decorator's `:wrap` slot at the decorator's registration site (not the variant body).
 - **`:events` vs `:play`.** `:events` (phase 2) runs before render; the trace-bus accumulator is NOT yet installed, so `:rf.assert/dispatched?` will not see those events. Put events you want to assert against in `:play` (phase 4). Variant 3 in the counter example demonstrates this — three `[:counter/inc]` dispatches in `:play`, then `[:rf.assert/dispatched? [:counter/inc]]`.
-- **Component is an id, not a fn.** `:component :app.views/counter-card` — the keyword id of a `reg-view`. Story consults the view's registered Malli schema (Spec 010) to auto-derive `:argtypes` for the controls panel; supplying `:argtypes` overrides per-key.
+- **Component is an id, not a fn.** `:component :app.views/counter-card` — the keyword id of a `reg-view`. Story consults the view's registered Malli schema (Spec 010) to auto-derive `:argtypes` for the controls panel — see Schema-derivation pipeline below; supplying `:argtypes` overrides per-key.
 - **Reference events / views / decorators by id; require their namespaces only to trigger registration.** The stories namespace does not `:refer` view fns — it `:require`s `[app.events] [app.views]` for side-effect loading and uses the keyword ids.
 - **`:rf.assert/*` events record, they do not throw.** The seven canonical assertions append a record to `:assertions` rather than aborting the play sequence. Use `(story/read-assertions variant-id)` and `(story/assertions-passing? result)` from a test runner. See `tools/story/spec/004-Assertions.md`.
 - **`:extends` is resolved at registration time.** A variant inheriting from another merges the parent's body once; cycles raise `:rf.error/extends-cycle` at `reg-variant` time, not at render.
-- **Modes multiply snapshot identity.** Each `(variant × mode)` cell has an independent `snapshot-identity` — visual-regression services iterate cells, not variants. Precedence (lowest to highest): global `configure!` args < mode args < story args < variant args.
+- **Loaders run before events, in their own phase.** Phase 1 (`:loaders`) seeds remote-data or installs long-lived fx — websocket subscriptions, firestore listeners — *before* phase-2 `:events`. The runtime waits for `:loaders-complete-when` (default: HTTP fx complete on response-event dispatch; long-lived fx complete on first inbound message) before draining `:events`. Authors override the predicate by setting `:loaders-complete-when` to an event id or a literal vector-of-event-vectors. Phase 3 renders; phase 4 runs `:play`. Put fixture seeds in `:loaders`, pre-render setup in `:events`, user interactions to assert against in `:play`.
+- **Modes multiply snapshot identity; args precedence is strict.** Each `(variant × mode)` cell has an independent `snapshot-identity` — visual-regression services iterate cells, not variants. Effective args compose in this order (later wins): global `configure!` args → story `:args` → mode `:args` (deep-merge of nested maps, replace for vectors) → variant `:args` → cell-local overrides from the controls panel (`:story/set-arg`).
 - **Combined form (Form B).** `(reg-story id {:variants {:a {...} :b {...}}})` desugars at macro-expansion time to one `reg-story*` + N `reg-variant*` top-level forms — hot-reload-by-variant still works. The `*`-suffixed runtime helpers are public for programmatic / MCP-driven registration.
 - **Production elision.** Under `:advanced` every `reg-*` and the seven `:rf.assert/*` event-ids drop to `nil` via the `:rf.story/enabled?` goog-define. Do not condition production code on story state.
+
+## Schema-derivation pipeline (controls panel)
+
+The controls panel auto-derives a widget per arg-key by walking the component's Malli schema. `resolve-argtypes` consults, in order:
+
+1. **Explicit `:argtypes`** on the variant body, then the parent story (per-key override).
+2. **Explicit `:schema` slot** on the variant, story, or registered view (forward-compatible — Spec 010 will land `:rf/schema` on variants).
+3. **Value-shape fallback** — infer the widget from the live CLJS value when no schema is available.
+
+Walker output for the common Malli forms (rf2-agshe):
+
+| Schema | Widget |
+|---|---|
+| `:string` / `:keyword` | `:text` (keyword-coercion at edit time) |
+| `:int` / `:double` (optional `:min` / `:max`) | `:number` |
+| `:boolean` | `:boolean` |
+| `[:enum a b c]` | `:select` with `:options [a b c]` |
+| `[:map [k1 s1] [k2 s2] ...]` | `:group` — one nested row per key |
+| `[:vector X]` | `:repeater` — rows of `X` with `[+]` / `[-]` affordances |
+| `[:set X]` | `:repeater` `:kind :set` — values round-trip through `set` |
+| `[:tuple X Y ...]` | `:tuple` — fixed-arity, one row per position |
+
+The walker recurses: `[:map [:meta [:map [:author :string]]]]` yields a `:group` whose `[:meta]` entry is itself a `:group` with one `:author` `:text` row. Editing entry `kN` writes through to `[:cell-overrides variant-id arg-key kN ...]` at the appropriate depth; integer indices for vector/tuple slots.
+
+When no schema is available the fallback infers from the value: maps recurse as `:group`, vectors as `:repeater`, scalars classify by `string?`/`integer?`/`boolean?`. This keeps "zero argtypes" stories from collapsing to inert `:text` widgets for non-trivial shapes. Author-supplied `:argtypes` still wins key-by-key over either derivation path.
 
 ## Stories as a unit-test substrate
 
@@ -97,9 +123,13 @@ For tests that don't need a render shell, run variants headless from a JVM test 
 ## Deeper material
 
 - Authoring grammar in full (every key, every slot) → `SKILL-REDIRECT.md` → *EP — Stories (007)*.
+- Schema-derivation pipeline reference (every collection operator, default-element seeding, path-aware write contract) → `tools/story/spec/001-Authoring.md` §Schema-derivation pipeline.
+- Args precedence + four-phase lifecycle full detail → `tools/story/spec/002-Runtime.md` §Args resolution precedence, §Four-phase lifecycle.
 - Worked example, every macro at least once → `examples/reagent/counter_with_stories/`.
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `SKILL-REDIRECT.md` → *Guide — Stories*.
+- Test Codegen (record canvas interactions as `:play`) → `story-recorder.md` (sibling leaf).
+- Agent self-healing loop over MCP (variant authoring → run → assert → refine) → `story-mcp-loop.md` (sibling leaf).
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
 
 ---

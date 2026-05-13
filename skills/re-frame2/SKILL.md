@@ -61,7 +61,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **State machines — `reference/state-machines/`**: `reg-machine.md`, `regions.md` (parallel), `tags.md`, `invoke.md` (child machines), `cancellation.md`.
 
-**Tooling — `reference/tooling/`**: `stories.md`, `routing.md`.
+**Tooling — `reference/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play`), `story-mcp-loop.md` (agent self-healing loop over MCP).
 
 **Cross-cutting — `reference/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`.
 
