@@ -327,14 +327,18 @@ jobs:
             ${{ runner.os }}-clj-machines-
             ${{ runner.os }}-clj-
 
-      # The machines artefact's :test alias has no JVM-runnable tests of
-      # its own (the machine_cljs_test is CLJS-only). The job exists so
-      # the artefact's deps + classpath wiring stay green and any future
-      # JVM-runnable machine tests land here. Skip-on-empty is acceptable;
-      # the cognitect test-runner returns 0 when there are no test
-      # namespaces matching its pattern.
-      - name: Run JVM tests (machines artefact, classpath probe)
-        run: clojure -M:test || echo "no JVM-runnable tests in machines artefact (expected)"
+      # The machines artefact ships JVM-runnable test namespaces under
+      # implementation/machines/test/ — pure machine-transition tests
+      # (machine_transition_purity_test, after_test, invoke_all_test,
+      # spawn_registry_test, parallel_test, tags_test, initial_entry_test,
+      # …) plus the Mode B conformance corpus runner
+      # (machines_conformance_test) added per rf2-d0wem. The cognitect
+      # test-runner returns non-zero on any failure; the job MUST surface
+      # that so the gate is real. Earlier this step suffixed `|| echo …`
+      # to allow an empty test suite — now that JVM tests exist the
+      # fallback would mask failures, so it's removed.
+      - name: Run JVM tests (machines artefact)
+        run: clojure -M:test
 
   jvm-routing:
     name: JVM routing (clojure -M:test)

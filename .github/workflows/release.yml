@@ -185,9 +185,9 @@ jobs:
         working-directory: implementation/schemas
         run: clojure -M:test
 
-      - name: JVM tests (machines artefact, classpath probe)
+      - name: JVM tests (machines artefact)
         working-directory: implementation/machines
-        run: clojure -M:test || echo "no JVM-runnable tests in machines artefact (expected)"
+        run: clojure -M:test
 
       - name: JVM tests (routing artefact)
         working-directory: implementation/routing
