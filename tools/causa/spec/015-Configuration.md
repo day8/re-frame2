@@ -74,6 +74,14 @@ lives at `re-frame.source-coords.editor-uri` (core artefact, CLJC);
 Causa's open-in-editor chip consumes it via
 `day8.re-frame2-causa.config/editor-uri`.
 
+The full set of URI-construction rules — default-editor behaviour
+when unset, line/column defaults, no-URL-encoding posture, the
+no-handler-installed clean-no-op fallback, the `{:custom …}`
+substitution contract — is normatively specified in
+[`007-UX-IA.md` §URI construction](./007-UX-IA.md#uri-construction-normative).
+The matrix here enumerates the keywords; that section binds them
+into MUSTs.
+
 Causa's `:editor` is **independent** of Story's `:rf.story/editor`
 (per [`spec/007-Stories.md`](../../../spec/007-Stories.md)). Hosts
 running both tools MAY route each to a different editor — e.g.
