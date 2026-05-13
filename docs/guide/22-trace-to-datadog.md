@@ -16,6 +16,8 @@ You'll know:
 - How to send the payload via `:rf.http/managed` so you get retry, abort-on-actor-destroy, and middleware redaction for free.
 - The operational caveats — batching, env gating, the failure-feedback loop.
 
+The Datadog listener you'll register below fires **once per managed-external-effect emit** — once per `:rf.http/managed` request, once per `:rf.ws/*` connection transition, once per state-machine `:invoke` lifecycle event, once per SSR per-request fx. That uniform observation surface is property four of the eight-property managed-effect contract in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md); the consequence at this end of the wire is that one listener, one filter, one elision pass, one POST recipe covers every framework-owned async surface the app issues.
+
 ## The substrate: one trace bus, every tool attaches
 
 A re-frame2 dev build emits a structured trace event for every meaningful runtime moment — every dispatch, every handler invocation, every sub recomputation, every fx, every error. Each event is a map with stable, named keys: `:id`, `:op-type`, `:operation`, `:tags`, `:source`, `:time`, sometimes `:sensitive?`, sometimes `:rf.trace/trigger-handler`. The shape is the contract.

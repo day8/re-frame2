@@ -15,6 +15,8 @@ You'll know:
 - How schema-validation errors interact (sensitive paths in `:explain` traces).
 - How consumer-side flags compose with your writer-side declarations.
 
+The `:sensitive?` + `:large?` composition you'll meet below is **wire-elision over managed external effects** — property five of the eight-property contract in [`spec/Managed-Effects.md`](../../spec/Managed-Effects.md). Every framework-owned async surface (HTTP, WebSocket, state-machine `:invoke`, SSR per-request fxs, managed flows) routes its wire-bearing trace slots through the single shared `rf/elide-wire-value` walker. Surface-specific elision is prohibited; the walker is the one point of truth. This chapter is what you declare so that one walker has something to honour for every surface at once.
+
 ## Why the framework cares
 
 Observability is the third pillar — but observability without privacy is *the leak channel built into the runtime*. The Causa-MCP server (pair2-mcp; the off-box AI surface) reads `app-db`. The Datadog forwarder you saw in [ch.22](22-trace-to-datadog.md) reads `:tags :event`. The Sentry bridge in [ch.14](14-errors.md) ships `:rf.error/*` events whose `:tags` include the event vector that triggered the throw. Every one of those consumers is downstream of the same stream — and every one of them, if it ships your password-bearing sign-in event unmodified, has a security incident.
