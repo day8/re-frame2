@@ -753,7 +753,10 @@
                        "    expected: " (pr-str want) "\n"
                        "    actual:   " (pr-str out)))})
 
-    ;; pure machine-transition call (used by fsm fixtures).
+    ;; pure machine-transition call (used by fsm fixtures). Per
+    ;; rf2-aa2rw the engine returns a `re-frame.machines.result/Result`
+    ;; — we destructure `::snap` / `::fx` directly to avoid a static
+    ;; require on the machines artefact from the conformance test ns.
     :machine-transition
     (let [machine-transition (requiring-resolve 're-frame.machines/machine-transition)
           actions-by-id (or (:actions fixture-machines) {})
@@ -767,13 +770,16 @@
                             (update :actions #(merge actions-by-id %))
                             (update :guards  #(merge guards-by-id %))
                             (update :on-spawn-actions #(merge on-spawn-by-id %)))
-          [snap-out fx-out]
-          (try (machine-transition definition (:snapshot call) (:event call))
-               (catch Throwable e [nil [:error (.getMessage e)]]))
-          want-snap (:expect-next-snapshot call)
-          want-fx   (or (:expect-effects call) [])
-          ok-snap?  (= want-snap snap-out)
-          ok-fx?    (= want-fx (vec fx-out))]
+          r             (try (machine-transition definition (:snapshot call) (:event call))
+                             (catch Throwable e
+                               {:re-frame.machines.result/snap nil
+                                :re-frame.machines.result/fx   [:error (.getMessage e)]}))
+          snap-out      (:re-frame.machines.result/snap r)
+          fx-out        (:re-frame.machines.result/fx r)
+          want-snap     (:expect-next-snapshot call)
+          want-fx       (or (:expect-effects call) [])
+          ok-snap?      (= want-snap snap-out)
+          ok-fx?        (= want-fx (vec fx-out))]
       {:passed? (and ok-snap? ok-fx?)
        :detail  (when (not (and ok-snap? ok-fx?))
                   (str "machine-transition\n"

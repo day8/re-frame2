@@ -340,18 +340,20 @@ Because `machine-transition` is pure — and guards / actions are inline-or-name
 ```clojure
 (deftest login-flow
   (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-        [s1 _fx] (rf/machine-transition login-flow s0
-                                        [:auth.login/submit {:email "a@b.com"
-                                                             :password "..."}])]
+        {s1 ::result/snap} (rf/machine-transition login-flow s0
+                                                  [:auth.login/submit {:email "a@b.com"
+                                                                       :password "..."}])]
     (is (= :submitting (:state s1)))
 
     ;; attempts has already hit the retry limit; the :under-retry-limit guard
     ;; rejects the first clause, the second clause's :locked-out wins.
-    (let [[s2 _fx] (rf/machine-transition login-flow
-                                          {:state :submitting :data {:attempts 3}}
-                                          [:auth.login/failure {:message "wrong creds"}])]
+    (let [{s2 ::result/snap} (rf/machine-transition login-flow
+                                                    {:state :submitting :data {:attempts 3}}
+                                                    [:auth.login/failure {:message "wrong creds"}])]
       (is (= :locked-out (:state s2))))))
 ```
+
+`machine-transition` returns a `re-frame.machines.result/Result` map — destructure `::result/snap` and `::result/fx` (or use `result/ok?` / `result/fail?` to discriminate). Per rf2-aa2rw the engine surfaces action / `:data`-fn throws via `result/fail` rather than the old `[::action-failed info]` sentinel.
 
 JVM-side. No browser, no network, no mocks. Each test runs in microseconds; you can have hundreds. This is the testing experience for *flows that are non-trivial* — exactly the case where unit testing usually gets hard.
 

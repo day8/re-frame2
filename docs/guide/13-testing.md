@@ -174,15 +174,15 @@ Three levels of machine testing, in order of unit-cost:
 ```clojure
 (deftest login-flow-happy-path
   (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-        [s1 _fx] (rf/machine-transition login-flow s0
-                                        [:auth.login/submit {:email "a@b.c"
-                                                             :password "..."}])]
+        {s1 ::result/snap} (rf/machine-transition login-flow s0
+                                                  [:auth.login/submit {:email "a@b.c"
+                                                                       :password "..."}])]
     (is (= :submitting (:state s1)))))
 
 (deftest login-flow-lockout
   (let [snap {:state :submitting :data {:attempts 3}}
-        [s _fx] (rf/machine-transition login-flow snap
-                                       [:auth.login/failure {:message "wrong"}])]
+        {s ::result/snap} (rf/machine-transition login-flow snap
+                                                 [:auth.login/failure {:message "wrong"}])]
     (is (= :locked-out (:state s)))))
 ```
 
