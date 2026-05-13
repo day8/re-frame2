@@ -556,40 +556,6 @@
           (is (= 1 (:version-recorded (:tags ev))))
           (is (= 2 (:version-current  (:tags ev)))))))))
 
-(deftest restore-version-legacy-snapshot-slot-tolerated
-  (testing "snapshots written before :rf/snapshot-version moved into :meta
-  remain comparable. The legacy top-level slot resolves to the same recorded
-  version. Per rf2-ocg1 (back-compat tolerance)."
-    (rf/reg-frame :test/main {})
-    (rf/reg-machine :machine/tl
-      {:initial :red
-       :meta    {:rf/snapshot-version 1}
-       :states  {:red {} :green {}}})
-    ;; Commit a snapshot with the LEGACY top-level slot.
-    (rf/reg-event-db :put-snap
-      (fn [db _]
-        (assoc-in db [:rf/machines :machine/tl]
-                  {:state :red :data {} :rf/snapshot-version 1})))
-    (rf/dispatch-sync [:put-snap] {:frame :test/main})
-
-    (let [target (last (rf/epoch-history :test/main))]
-      ;; Bump definition version.
-      (rf/reg-machine :machine/tl
-        {:initial :red
-         :meta    {:rf/snapshot-version 2}
-         :states  {:red {} :green {}}})
-
-      (let [recorded (record-trace!)
-            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
-        (is (false? ok?))
-        (let [ev (some (fn [ev]
-                         (when (= :rf.epoch/restore-version-mismatch (:operation ev))
-                           ev))
-                       @recorded)]
-          (is (some? ev))
-          (is (= 1 (:version-recorded (:tags ev))))
-          (is (= 2 (:version-current  (:tags ev)))))))))
-
 (deftest restore-failure-during-drain
   (testing "restore-epoch called from inside a drain fires :rf.epoch/restore-during-drain"
     (rf/reg-frame :test/main {})

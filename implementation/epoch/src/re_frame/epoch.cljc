@@ -557,12 +557,9 @@
 (defn- snapshot-version
   "Read the recorded snapshot's `:rf/snapshot-version`. Per
   Spec-Schemas §`:rf/machine-snapshot` and Spec 005 §Snapshot shape,
-  the canonical slot is `[:meta :rf/snapshot-version]`. Tolerates
-  the legacy top-level `:rf/snapshot-version` slot for snapshots
-  written before the meta-nesting was finalised."
+  the canonical slot is `[:meta :rf/snapshot-version]`."
   [snapshot]
-  (or (get-in snapshot [:meta :rf/snapshot-version])
-      (:rf/snapshot-version snapshot)))
+  (get-in snapshot [:meta :rf/snapshot-version]))
 
 (defn- machine-definition-version
   "Read the currently-registered machine definition's
@@ -612,9 +609,7 @@
 
   Per rf2-ocg1: both versions are read through the public Spec 005
   §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`
-  and the registered machine's `[:meta :rf/snapshot-version]`. The
-  legacy top-level `:rf/snapshot-version` slot on the snapshot is
-  tolerated for back-compat."
+  and the registered machine's `[:meta :rf/snapshot-version]`."
   [db]
   (some (fn [[machine-id snapshot]]
           (let [recorded (snapshot-version snapshot)]
