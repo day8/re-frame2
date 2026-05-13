@@ -107,7 +107,13 @@
     :actor/invoke
     :actor/spawn-and-join
     :actor/system-id
-    :actor/timeout
+    ;; :actor/timeout retired per rf2-3y3y — :fsm/delayed-after subsumes
+    ;; it. The state-level :after primitive covers wall-clock-timeout
+    ;; semantics for both pure timed-transition states and :invoke-bearing
+    ;; states; the after-*.edn fixtures (after-single-delay, after-hierarchy,
+    ;; after-stale-detection, parallel-after-scoped-to-region) exercise the
+    ;; canonical primitive. See [spec/005-StateMachines.md §Capability matrix]
+    ;; and [spec/MIGRATION.md §M-44].
     :flow/basic
     :flow/topo
     :flow/dirty-check
