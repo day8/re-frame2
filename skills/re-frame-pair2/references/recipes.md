@@ -185,7 +185,7 @@ Fallback: `mcp__re-frame-pair2__watch-epochs {stream: true, pred: {"event-id-pre
 
 ### Inspect what's currently subscribed
 
-`re-frame-pair2.runtime/subscription-info` reports every open subscription's `{:id :topic :filter :queue-depth :overflow :created-at}` without draining the queues. To list active streams:
+`re-frame-pair2.runtime/subscription-info` reports every open subscription's `{:id :topic :filter :queue-depth :queue-bytes :dropped-events :dropped-bytes :overflow-reason :created-at}` without draining the queues. To list active streams:
 
 ```
 mcp__re-frame-pair2__eval-cljs {form: "(re-frame-pair2.runtime/subscription-info)"}

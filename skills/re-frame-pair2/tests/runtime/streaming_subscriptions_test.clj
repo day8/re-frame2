@@ -28,7 +28,8 @@
 ;; Mirror of the subscription registry + helpers.
 ;; ---------------------------------------------------------------------------
 
-(def default-max-buffered 500)
+(def default-max-buffered-events 500)
+(def default-max-buffered-bytes 5000000)
 
 (defn topic->base-filter
   [topic]
@@ -85,14 +86,50 @@
         (if p-fx     (some #(= p-fx (:fx-id %)) effects) true)
         (if p-frame  (= p-frame frame) true)))))
 
+(defn event-byte-size
+  "Mirror of `runtime/event-byte-size` — `pr-str` char count."
+  [event]
+  (count (pr-str event)))
+
+(defn evict-oldest
+  "Mirror of `runtime/evict-oldest`. Drops events from the FRONT of
+   `sub`'s queue until BOTH budgets hold. Drop-oldest is the only
+   sensible policy for a byte budget (a fat newcomer evicts as many
+   small predecessors as it needs to fit)."
+  [sub max-events max-bytes]
+  (loop [q       (:queue sub)
+         bytes   (:queue-bytes sub 0)
+         dropped-n 0
+         dropped-b 0
+         reason    nil]
+    (let [n (count q)
+          over-events? (> n max-events)
+          over-bytes?  (> bytes max-bytes)]
+      (if (and (or over-events? over-bytes?) (pos? n))
+        (let [head    (nth q 0)
+              head-bs (event-byte-size head)]
+          (recur (subvec q 1)
+                 (max 0 (- bytes head-bs))
+                 (inc dropped-n)
+                 (+ dropped-b head-bs)
+                 (cond over-bytes?  :max-buffered-bytes
+                       over-events? :max-buffered-events
+                       :else        reason)))
+        (cond-> (assoc sub :queue q :queue-bytes bytes)
+          (pos? dropped-n)
+          (-> (update :dropped-events (fnil + 0) dropped-n)
+              (update :dropped-bytes  (fnil + 0) dropped-b)
+              (assoc :overflow-reason reason)))))))
+
 (defn enqueue!
   [sub event]
-  (let [q   (:queue sub)
-        n   (count q)
-        cap (:max-buffered sub default-max-buffered)]
-    (if (>= n cap)
-      (update sub :overflow (fnil inc 0))
-      (update sub :queue conj event))))
+  (let [max-events (:max-buffered-events sub default-max-buffered-events)
+        max-bytes  (:max-buffered-bytes  sub default-max-buffered-bytes)
+        ev-bytes   (event-byte-size event)
+        sub'       (-> sub
+                       (update :queue       conj event)
+                       (update :queue-bytes (fnil + 0) ev-bytes))]
+    (evict-oldest sub' max-events max-bytes)))
 
 (defn dispatch-trace-to-subs!
   [subs ev]
@@ -144,25 +181,44 @@
     subs subs))
 
 (defn subscribe!
-  [subs sub-id {:keys [topic filter max-buffered]}]
+  [subs sub-id {:keys [topic filter max-buffered-events max-buffered-bytes]}]
   (let [compiled (when (#{:trace :fx :error} topic)
                    (compose-trace-filter topic filter))
         sub {:id sub-id
              :topic topic
              :filter (or filter {})
              :compiled-filter compiled
-             :queue []
-             :overflow 0
-             :created-at 0
-             :max-buffered (or max-buffered default-max-buffered)}]
+             :queue           []
+             :queue-bytes     0
+             :dropped-events  0
+             :dropped-bytes   0
+             :overflow-reason nil
+             :created-at      0
+             :max-buffered-events (or max-buffered-events
+                                      default-max-buffered-events)
+             :max-buffered-bytes  (or max-buffered-bytes
+                                      default-max-buffered-bytes)}]
     (assoc subs sub-id sub)))
 
 (defn drain-subscription!
   [subs sub-id]
   (if-let [sub (get subs sub-id)]
-    [{:events (:queue sub) :overflow (:overflow sub) :gone? false}
-     (assoc subs sub-id (-> sub (assoc :queue []) (assoc :overflow 0)))]
-    [{:events [] :overflow 0 :gone? true}
+    [{:events          (:queue sub)
+      :dropped-events  (:dropped-events  sub 0)
+      :dropped-bytes   (:dropped-bytes   sub 0)
+      :overflow-reason (:overflow-reason sub)
+      :gone?           false}
+     (assoc subs sub-id (-> sub
+                            (assoc :queue [])
+                            (assoc :queue-bytes 0)
+                            (assoc :dropped-events 0)
+                            (assoc :dropped-bytes 0)
+                            (assoc :overflow-reason nil)))]
+    [{:events []
+      :dropped-events 0
+      :dropped-bytes 0
+      :overflow-reason nil
+      :gone? true}
      subs]))
 
 (defn unsubscribe!
@@ -302,8 +358,22 @@
                  (dispatch-trace-to-subs! ok))]
     (is (= [err] (get-in subs ["err-sub" :queue])))))
 
-(deftest queue-cap-counts-overflow-keeps-oldest
-  (let [subs (-> {} (subscribe! "s" {:topic :trace :max-buffered 2}))
+;; ---------------------------------------------------------------------------
+;; Byte+event overflow budget (rf2-ho4ve)
+;; ---------------------------------------------------------------------------
+;;
+;; Replacement for the pre-budget `:max-buffered` event-count cap. The
+;; runtime now applies an OR-combined byte+event budget on enqueue
+;; with drop-OLDEST semantics, and surfaces `:overflow-reason` so the
+;; AI client knows WHICH budget tripped. The four tests below cover
+;; the four-corner matrix: count-only trip, bytes-only trip, both
+;; with count-first, both with bytes-first.
+
+(deftest overflow-count-only-trip-drops-oldest-and-reports-events-reason
+  ;; bytes budget set generously so it can't trip — count budget = 2.
+  (let [subs (-> {} (subscribe! "s" {:topic :trace
+                                     :max-buffered-events 2
+                                     :max-buffered-bytes  100000000}))
         e1 {:op-type :info :id 1}
         e2 {:op-type :info :id 2}
         e3 {:op-type :info :id 3}
@@ -313,9 +383,101 @@
                  (dispatch-trace-to-subs! e2)
                  (dispatch-trace-to-subs! e3)
                  (dispatch-trace-to-subs! e4))]
-    (is (= 2 (count (get-in subs ["s" :queue]))))
-    (is (= [e1 e2] (get-in subs ["s" :queue])))
-    (is (= 2 (get-in subs ["s" :overflow])))))
+    (testing "queue holds the newest two; oldest were evicted"
+      (is (= 2 (count (get-in subs ["s" :queue]))))
+      (is (= [e3 e4] (get-in subs ["s" :queue]))))
+    (testing "dropped count and reason surface correctly"
+      (is (= 2 (get-in subs ["s" :dropped-events])))
+      (is (= :max-buffered-events (get-in subs ["s" :overflow-reason]))))
+    (testing "drain reports the eviction stats and resets them"
+      (let [[drain subs'] (drain-subscription! subs "s")]
+        (is (= 2 (:dropped-events drain)))
+        (is (pos? (:dropped-bytes drain)))
+        (is (= :max-buffered-events (:overflow-reason drain)))
+        ;; reset on drain
+        (is (zero? (get-in subs' ["s" :dropped-events])))
+        (is (nil?  (get-in subs' ["s" :overflow-reason])))))))
+
+(deftest overflow-bytes-only-trip-drops-oldest-and-reports-bytes-reason
+  ;; event budget set generously — fat events trip the byte budget.
+  (let [;; Each event's pr-str is dominated by :payload's length.
+        fat (apply str (repeat 300 "x"))
+        e1 {:op-type :info :id 1 :payload fat}
+        e2 {:op-type :info :id 2 :payload fat}
+        e3 {:op-type :info :id 3 :payload fat}
+        one-size (event-byte-size e1)
+        ;; Cap that fits ~2 events.
+        byte-cap (int (* one-size 2.5))
+        subs (-> {} (subscribe! "s" {:topic :trace
+                                     :max-buffered-events 1000
+                                     :max-buffered-bytes  byte-cap}))
+        subs (-> subs
+                 (dispatch-trace-to-subs! e1)
+                 (dispatch-trace-to-subs! e2)
+                 (dispatch-trace-to-subs! e3))]
+    (testing "queue holds the newest events that fit; oldest evicted"
+      (is (<= (count (get-in subs ["s" :queue])) 2))
+      (let [q (get-in subs ["s" :queue])]
+        (is (= e3 (last q)))))
+    (testing "byte-budget eviction reports :max-buffered-bytes"
+      (is (pos? (get-in subs ["s" :dropped-events])))
+      (is (pos? (get-in subs ["s" :dropped-bytes])))
+      (is (= :max-buffered-bytes (get-in subs ["s" :overflow-reason]))))))
+
+(deftest overflow-both-budgets-count-trips-first
+  ;; Small events + tight count cap + roomy byte cap = count trips first.
+  ;; The reason MUST be :max-buffered-events when only the event budget
+  ;; was exceeded on the tripping enqueue (bytes are still under cap).
+  (let [tiny {:id 1} ;; pr-str ~= 7 chars
+        events (map #(assoc tiny :id %) (range 1 11)) ;; 10 events
+        byte-cap 1000000 ;; never trips
+        subs (-> {} (subscribe! "s" {:topic :trace
+                                     :max-buffered-events 3
+                                     :max-buffered-bytes  byte-cap}))
+        subs (reduce dispatch-trace-to-subs! subs events)]
+    (testing "queue trimmed to count cap"
+      (is (= 3 (count (get-in subs ["s" :queue])))))
+    (testing "exactly seven events evicted; reason is :max-buffered-events"
+      (is (= 7 (get-in subs ["s" :dropped-events])))
+      (is (= :max-buffered-events (get-in subs ["s" :overflow-reason]))))))
+
+(deftest overflow-both-budgets-bytes-trips-first
+  ;; Fat events + roomy count cap + tight byte cap = bytes trip first.
+  ;; The reason MUST be :max-buffered-bytes since the byte budget is
+  ;; what's forcing eviction.
+  (let [fat (apply str (repeat 1000 "y"))
+        e1  {:id 1 :payload fat}
+        e2  {:id 2 :payload fat}
+        e3  {:id 3 :payload fat}
+        one-size (event-byte-size e1)
+        ;; cap fits ONE event; byte budget trips on the second enqueue.
+        byte-cap (int (* one-size 1.2))
+        subs (-> {} (subscribe! "s" {:topic :trace
+                                     :max-buffered-events 100
+                                     :max-buffered-bytes  byte-cap}))
+        subs (-> subs
+                 (dispatch-trace-to-subs! e1)
+                 (dispatch-trace-to-subs! e2)
+                 (dispatch-trace-to-subs! e3))]
+    (testing "queue holds only the newest event — byte cap forces eviction"
+      (is (= 1 (count (get-in subs ["s" :queue]))))
+      (is (= [e3] (get-in subs ["s" :queue]))))
+    (testing "bytes-budget eviction reports :max-buffered-bytes"
+      (is (= 2 (get-in subs ["s" :dropped-events])))
+      (is (= :max-buffered-bytes (get-in subs ["s" :overflow-reason]))))))
+
+(deftest overflow-defaults-honour-runtime-defaults
+  ;; Subscribe with neither budget specified — defaults populate from
+  ;; the runtime constants. A queue under both caps takes no eviction.
+  (let [subs (-> {} (subscribe! "s" {:topic :trace}))
+        sub  (get subs "s")]
+    (is (= default-max-buffered-events (:max-buffered-events sub)))
+    (is (= default-max-buffered-bytes  (:max-buffered-bytes  sub)))
+    (let [subs (reduce dispatch-trace-to-subs! subs
+                       (map #(assoc {:id %} :ix %) (range 100)))]
+      (is (= 100 (count (get-in subs ["s" :queue]))))
+      (is (zero? (get-in subs ["s" :dropped-events])))
+      (is (nil?  (get-in subs ["s" :overflow-reason]))))))
 
 (deftest unknown-topic-rejected-at-subscribe-level
   ;; The runtime's `subscribe!` returns {:ok? false :reason :unknown-topic}

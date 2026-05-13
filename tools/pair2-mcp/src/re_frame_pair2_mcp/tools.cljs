@@ -153,7 +153,7 @@
    "get-path"      "Narrow the path further — pass a deeper segment so the addressed subtree is smaller. Or call `snapshot` with no `path` first for a tree-summary, then re-aim."
    "trace-window"  "Reduce `ms` to a smaller window, narrow with `frame`, or fetch incrementally via `watch-epochs` + `since-id`."
    "watch-epochs"  "Narrow `pred` (e.g. `:event-id-prefix`, `:effects`), pass `frame`, or stream via `subscribe` with `max-events`."
-   "subscribe"     "Tighten `filter`, lower `max-buffered`, set `max-events` so each tick stays small."
+   "subscribe"     "Tighten `filter`, lower `max-buffered-events` / `max-buffered-bytes`, set `max-events` so each tick stays small."
    "eval-cljs"     "Slice the value at the call-site (`get-in`, `take`, project to fewer keys) before returning."
    "discover-app"  "Unusual — the health summary should be small. Inspect `(re-frame-pair2.runtime/health)` directly via `eval-cljs` with a projection."
    "dispatch"      "Trace mode is returning a full epoch — re-run with `trace false` and read the epoch via `watch-epochs`/`snapshot` with a narrower path."})
@@ -1843,11 +1843,15 @@
 ;; `tools/call` result is a summary `{:ok? true :sub-id :delivered N
 ;; :overflow N :reason <terminated-reason>}`.
 ;;
-;; The runtime queue is bounded (default 500); overflow events get
-;; counted in a per-sub `:overflow` slot and surfaced verbatim. The
-;; server's poll cadence (`:poll-ms`, default 100) is well below the
-;; agent-loop perceptual threshold and costs one bencode round-trip
-;; per tick.
+;; The runtime queue is bounded by a byte+event budget (rf2-ho4ve):
+;; default 500 events OR ~5 MB of pr-str bytes, whichever trips
+;; first. On overflow the OLDEST queued events are evicted
+;; (drop-oldest FIFO). The drain payload carries `:dropped-events`,
+;; `:dropped-bytes`, and `:overflow-reason`
+;; (`:max-buffered-events` / `:max-buffered-bytes`) so the AI
+;; client knows which budget to tune. The server's poll cadence
+;; (`:poll-ms`, default 100) is well below the agent-loop
+;; perceptual threshold and costs one bencode round-trip per tick.
 ;;
 ;; Filter vocabulary (server-side normalisation happens on the runtime).
 ;;
@@ -1870,8 +1874,12 @@
 (defn- progress-payload
   "Build the JSON params payload for one `notifications/progress` tick.
   `events` is the EDN-printed string of the batch (kept as a string so
-  the agent host sees the same shape as `tools/call` results)."
-  [progress-token tick events overflow]
+  the agent host sees the same shape as `tools/call` results). The
+  `:data` slot carries the structured drop counts and the
+  `:overflow-reason` keyword (per rf2-ho4ve) so AI clients can
+  pattern-match on which budget tripped without re-parsing the EDN
+  message."
+  [progress-token tick events dropped-events dropped-bytes overflow-reason]
   #js {:progressToken progress-token
        :progress      tick
        ;; `message` is the human-readable slot. We stash an EDN form
@@ -1880,7 +1888,15 @@
        ;; additionally inspect the `data` slot for the structured
        ;; counts.
        :message       events
-       :data          #js {:overflow overflow}})
+       :data          #js {:dropped-events  dropped-events
+                           :dropped-bytes   dropped-bytes
+                           ;; `overflow-reason` is an EDN keyword on
+                           ;; the runtime side — stringify here so it
+                           ;; rides JSON-RPC cleanly. The runtime
+                           ;; sentinels are `:max-buffered-events` /
+                           ;; `:max-buffered-bytes`.
+                           :overflow-reason (when overflow-reason
+                                              (pr-str overflow-reason))}})
 
 (defn- parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
@@ -1896,21 +1912,32 @@
     (map? raw)        raw
     :else             (js->clj raw :keywordize-keys true)))
 
+(def ^:private default-max-buffered-events 500)
+(def ^:private default-max-buffered-bytes
+  ;; ~5 MB — see runtime.cljs's identical default for the rationale.
+  ;; Mirrored here so the MCP server can fill in the slot before the
+  ;; nREPL call if the caller omits it; the runtime still applies
+  ;; the same default if the slot is `nil`.
+  5000000)
+
 (defn- subscribe-tool [conn args extra]
-  (let [build-id    (arg-build args)
-        topic       (some-> (arg args :topic) keyword)
-        filter-map  (parse-filter-arg (arg args :filter))
-        max-buf     (or (arg args :max-buffered) 500)
-        poll-ms     (or (arg args :poll-ms) default-poll-ms)
-        max-ms      (or (arg args :max-ms) 0)    ;; 0 = no upper bound
-        max-events  (or (arg args :max-events) 0) ;; 0 = no upper bound
-        incl?       (include-sensitive? args)
-        dedup?      (parse-dedup-arg (arg args :dedup))
-        progress-tk (some-> extra
-                            (j/get :_meta)
-                            (j/get :progressToken))
-        send-note   (some-> extra (j/get :sendNotification))
-        signal      (some-> extra (j/get :signal))]
+  (let [build-id           (arg-build args)
+        topic              (some-> (arg args :topic) keyword)
+        filter-map         (parse-filter-arg (arg args :filter))
+        max-buf-events     (or (arg args :max-buffered-events)
+                               default-max-buffered-events)
+        max-buf-bytes      (or (arg args :max-buffered-bytes)
+                               default-max-buffered-bytes)
+        poll-ms            (or (arg args :poll-ms) default-poll-ms)
+        max-ms             (or (arg args :max-ms) 0)    ;; 0 = no upper bound
+        max-events         (or (arg args :max-events) 0) ;; 0 = no upper bound
+        incl?              (include-sensitive? args)
+        dedup?             (parse-dedup-arg (arg args :dedup))
+        progress-tk        (some-> extra
+                                   (j/get :_meta)
+                                   (j/get :progressToken))
+        send-note          (some-> extra (j/get :sendNotification))
+        signal             (some-> extra (j/get :signal))]
     (cond
       (or (nil? topic)
           (not (#{:trace :epoch :fx :error} topic)))
@@ -1922,8 +1949,9 @@
       :else
       (let [subscribe-form
             (str "(re-frame-pair2.runtime/subscribe! "
-                 (pr-str (cond-> {:topic topic
-                                  :max-buffered max-buf}
+                 (pr-str (cond-> {:topic               topic
+                                  :max-buffered-events max-buf-events
+                                  :max-buffered-bytes  max-buf-bytes}
                            filter-map (assoc :filter filter-map)))
                  ")")]
         (-> (ensure-runtime! conn build-id)
@@ -1938,7 +1966,17 @@
                       (fn [resolve _reject]
                         (let [tick               (atom 0)
                               delivered          (atom 0)
-                              overflow*          (atom 0)
+                              ;; Total events evicted from the runtime
+                              ;; queue across the lifetime of this
+                              ;; subscription (rf2-ho4ve, replacing the
+                              ;; pre-byte-budget `:overflow` counter).
+                              dropped-events*    (atom 0)
+                              dropped-bytes*     (atom 0)
+                              ;; Last-trip reason — the keyword sticks
+                              ;; on the final summary so the AI client
+                              ;; gets a clear signal about which budget
+                              ;; tripped most recently.
+                              overflow-reason*   (atom nil)
                               dropped-sensitive* (atom 0)
                               terminate
                               (fn [reason]
@@ -1955,13 +1993,16 @@
                                       (fn [_]
                                         (resolve
                                           (ok-text
-                                            (cond-> {:ok?        true
-                                                     :sub-id     sub-id
-                                                     :topic      topic
-                                                     :delivered  @delivered
-                                                     :overflow   @overflow*
-                                                     :ticks      @tick
-                                                     :reason     reason}
+                                            (cond-> {:ok?            true
+                                                     :sub-id         sub-id
+                                                     :topic          topic
+                                                     :delivered      @delivered
+                                                     :dropped-events @dropped-events*
+                                                     :dropped-bytes  @dropped-bytes*
+                                                     :ticks          @tick
+                                                     :reason         reason}
+                                              @overflow-reason*
+                                              (assoc :overflow-reason @overflow-reason*)
                                               (pos? @dropped-sensitive*)
                                               (assoc :dropped-sensitive @dropped-sensitive*))))))))
                               poll
@@ -1989,14 +2030,21 @@
 
                                             :else
                                             (let [raw-evts       (:events drain-resp)
-                                                  ov             (:overflow drain-resp 0)
+                                                  ev-dropped     (:dropped-events  drain-resp 0)
+                                                  by-dropped     (:dropped-bytes   drain-resp 0)
+                                                  ov-reason      (:overflow-reason drain-resp)
                                                   [evts dropped] (strip-sensitive
                                                                    (vec raw-evts) incl?)
                                                   n              (count evts)]
-                                              (swap! overflow* + ov)
+                                              (when (pos? ev-dropped)
+                                                (swap! dropped-events* + ev-dropped))
+                                              (when (pos? by-dropped)
+                                                (swap! dropped-bytes* + by-dropped))
+                                              (when ov-reason
+                                                (reset! overflow-reason* ov-reason))
                                               (when (pos? dropped)
                                                 (swap! dropped-sensitive* + dropped))
-                                              (when (or (pos? n) (pos? ov))
+                                              (when (or (pos? n) (pos? ev-dropped))
                                                 (swap! tick inc)
                                                 (swap! delivered + n)
                                                 (when (and send-note progress-tk)
@@ -2010,10 +2058,15 @@
                                                                        (cond-> {:sub-id sub-id
                                                                                 :events (dedup-value evts dedup?)
                                                                                 :dedup dedup?
-                                                                                :overflow ov}
+                                                                                :dropped-events ev-dropped
+                                                                                :dropped-bytes  by-dropped}
+                                                                         ov-reason
+                                                                         (assoc :overflow-reason ov-reason)
                                                                          (pos? dropped)
                                                                          (assoc :dropped-sensitive dropped)))
-                                                                     ov)})
+                                                                     ev-dropped
+                                                                     by-dropped
+                                                                     ov-reason)})
                                                     (catch :default _ nil))))
                                               (js/setTimeout poll poll-ms)))))
                                       (.catch
@@ -2361,8 +2414,10 @@
                                :filter  {:description "Filter map (JSON object) or EDN string. Vocab depends on topic."
                                          :oneOf [{:type "object"}
                                                  {:type "string"}]}
-                               :max-buffered {:type "integer"
-                                              :description "Runtime-side queue cap. Default 500. Overflow is counted, not blocked."}
+                               :max-buffered-events {:type "integer"
+                                                     :description "Runtime-side queue cap in EVENTS. Default 500. On overflow the OLDEST events are evicted (drop-oldest FIFO) and reported as `:dropped-events` / `:overflow-reason :max-buffered-events` on the next progress tick. OR-combined with :max-buffered-bytes — whichever trips first evicts."}
+                               :max-buffered-bytes  {:type "integer"
+                                                     :description "Runtime-side queue cap in BYTES (pr-str char count). Default 5_000_000 (~5 MB). Same drop-oldest policy; reports `:dropped-bytes` / `:overflow-reason :max-buffered-bytes`. Sized to fit the 5,000-token wire-cap posture across a normal poll cadence."}
                                :poll-ms {:type "integer"
                                          :description "Server poll cadence in ms. Default 100."}
                                :max-ms  {:type "integer"

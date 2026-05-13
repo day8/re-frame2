@@ -474,7 +474,8 @@ replacement for the polling-shaped `watch-epochs` op. The MCP
 each batch of matching events is emitted as a
 `notifications/progress` notification correlated to the original call
 via `extra._meta.progressToken`. The final `tools/call` result is a
-summary `{:ok? true :sub-id :delivered N :overflow N :ticks K :reason
+summary `{:ok? true :sub-id :delivered N :dropped-events N
+:dropped-bytes M :overflow-reason <kw> :ticks K :reason
 <terminated-reason>}`.
 
 ### Topics
@@ -535,10 +536,20 @@ vocab `watch-epochs` already accepts):
   a JSON object or an EDN-encoded string. EDN is preferred when the
   filter carries keywords or namespaced ids (a JSON object can't
   carry `:cart/add` natively).
-- `max-buffered` (integer, default `500`) — runtime-side queue cap.
-  When full, new events are dropped and the count is reported in
-  `:overflow`. The dropped events are the *newest* — keeping the
-  oldest lets you reconstruct the start of a storm.
+- `max-buffered-events` (integer, default `500`) — runtime-side queue
+  cap in EVENTS. OR-combined with `max-buffered-bytes` — whichever
+  budget trips first evicts. On overflow the OLDEST events are
+  evicted (drop-oldest FIFO); the count and which budget tripped
+  surface on the next progress tick as `:dropped-events` and
+  `:overflow-reason :max-buffered-events`.
+- `max-buffered-bytes` (integer, default `5_000_000` ≈ 5 MB) —
+  runtime-side queue cap in BYTES (pr-str char count, the same
+  unit as the wire-boundary cap). Same drop-oldest policy; reports
+  `:dropped-bytes` and `:overflow-reason :max-buffered-bytes`. This
+  exists (rf2-ho4ve) because an event-count-only budget can't bound
+  memory pressure under large payloads — 500 small events fit in a
+  few KB, while 500 large events can be tens of MB. The byte budget
+  is the load-bearing bound; the event budget is a coarse backstop.
 - `poll-ms` (integer, default `100`) — server-side poll cadence. The
   MCP server polls the runtime's drain at this interval and emits a
   progress notification per non-empty batch.
@@ -571,16 +582,24 @@ While the subscription is open, each non-empty batch tick emits
   "params": {
     "progressToken": "<token>",  // echoed from the call's _meta
     "progress": <tick-number>,   // monotonic, 1-based
-    "message": "{:sub-id \"...\" :events [...] :overflow 0}",
-    "data": { "overflow": 0 }
+    "message": "{:sub-id \"...\" :events [...] :dropped-events 0 :dropped-bytes 0}",
+    "data": {
+      "dropped-events": 0,                    // events evicted this tick
+      "dropped-bytes":  0,                    // bytes evicted this tick (pr-str)
+      "overflow-reason": null                 // ":max-buffered-events" | ":max-buffered-bytes" | null
+    }
   }
 }
 ```
 
 `message` is an EDN-printed string carrying the event batch — the
 same shape the runtime's `drain-subscription!` returns. Capable MCP
-clients can also inspect `data.overflow` for the count of dropped
-events on this tick.
+clients can also inspect the `data` slot for the structured drop
+counts. `overflow-reason` carries the stringified EDN keyword of the
+budget that tripped LAST (`":max-buffered-events"` or
+`":max-buffered-bytes"` — see [`Principles.md` §Streaming subscribe
+byte+event budget](Principles.md#streaming-subscribe-byteevent-budget-rf2-ho4ve)
+for the policy). `null` when no eviction happened on this tick.
 
 On termination, the `tools/call` result is
 
@@ -588,8 +607,10 @@ On termination, the `tools/call` result is
 {:ok? true
  :sub-id <uuid>
  :topic  <keyword>
- :delivered <integer>
- :overflow  <integer>
+ :delivered      <integer>
+ :dropped-events <integer>   ; total events evicted from the runtime queue
+ :dropped-bytes  <integer>   ; total bytes evicted
+ :overflow-reason :max-buffered-events | :max-buffered-bytes | (key absent)
  :ticks     <integer>
  :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached}
 ```
