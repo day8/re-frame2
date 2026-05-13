@@ -131,5 +131,5 @@ If you want the precise contracts before the prose, the [specification](../../sp
 
 [^app-db]: You'll meet `app-db` properly in [chapter 02](02-app-db.md) — it's the single immutable map every re-frame2 app pivots around.
 [^machines]: State machines get their own treatment in [chapter 08](08-state-machines.md).
-[^frames]: Frames — re-frame2's unit of isolated state and dispatch — are introduced in [chapter 06](06-views-and-frames.md).
+[^frames]: Frames — re-frame2's unit of isolated state and dispatch — are introduced in [chapter 06](06-views-and-frames.md), with a dedicated walk-through in [chapter 06a](06a-frames.md).
 [^causa]: Causa is the re-frame2 devtools UI (Maven coord `day8/re-frame2-causa`); it's covered in [chapter 15](15-devtools-and-pair-tools.md).

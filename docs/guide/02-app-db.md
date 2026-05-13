@@ -92,31 +92,6 @@ Everything to the left of the new app-db is a *transformation*; everything to th
 
 That's the whole picture. There aren't more steps; there aren't different kinds of state moving differently. A click produces an event, an event produces a new app-db, a new app-db produces a new view. The loop closes on the next user action.
 
-## Per-frame, not global
-
-A subtle but load-bearing point: in re-frame v1, there was *one* app-db per process — a single global. In re-frame2, app-db is **per-frame**.
-
-A **frame** is an isolated runtime boundary — its own app-db, its own event queue, its own subscription cache. Every re-frame2 app has at least one frame; most have exactly one (the implicit `:rf/default`).
-
-The reason for the change is composition. Multi-instance scenarios — devcards on a documentation page, a story-tool playground with twenty variants on screen, server-side rendering where each request gets its own frame, isolated widgets embedded in a host page — all need *independent* app-dbs. v1 papered over this with explicit reset patterns; v2 names the boundary.
-
-For everyday code, this changes very little: there's still one app-db you read from and write to. You just don't have to invent the isolation when you finally need it. Chapter [06 — Views and frames](06-views-and-frames.md) introduces the multi-frame story in the context of views; chapter [06a — Frames](06a-frames.md) is the dedicated deep-dive — motivation, lifecycle, `:rf/default`, the per-test / per-story / per-request shapes. Until then, mentally substitute "app-db" with "the default frame's app-db" and you'll be right every time.
-
-The minimal API for reading the value of a frame's app-db at the REPL or in a test:
-
-```clojure
-(rf/get-frame-db :rf/default)   ;; → the current app-db value of the default frame
-```
-
-In tests with `rf/with-frame`, the frame id is bound for you:
-
-```clojure
-(rf/with-frame [f (rf/make-frame {:on-create [:counter/initialise]})]
-  (rf/get-frame-db f))           ;; → {:count 5}
-```
-
-You almost never write `get-frame-db` in application code — your event handlers receive `db` as their first argument, your subscriptions receive it implicitly. `get-frame-db` is for tests, the REPL, and tools.
-
 ## Where does *this kind of state* go in app-db?
 
 A question new readers ask early: "Where does X go in app-db?"
@@ -166,4 +141,4 @@ That's app-db.
 
 Chapter [03 — Your first app](03-your-first-app.md) walks a counter end-to-end and shows app-db in motion: the `:on-create` event seeds the initial value, three event-handlers transform it, one subscription reads from it, one view renders.
 
-If you're migrating from re-frame v1 and the per-frame model is the most surprising delta, [18 — From re-frame v1](18-from-re-frame-v1.md) covers the migration shape; the v1 "single global app-db" maps cleanly to the v2 "default frame's app-db" — most v1 apps move over with no shape change.
+If you're migrating from re-frame v1, [18 — From re-frame v1](18-from-re-frame-v1.md) covers the migration shape — the v1 mental model maps cleanly across, and most v1 apps move over with no shape change to `app-db`.

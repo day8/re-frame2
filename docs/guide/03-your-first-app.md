@@ -158,22 +158,19 @@ This is the only piece with substantive shape. Let's look at it carefully.
 
 Inside the body, two names are available that you didn't define:
 
-- **`subscribe`** — frame-bound. `@(subscribe [:count])` reads the current value of the `:count` subscription, scoped to the surrounding frame.
-- **`dispatch`** — frame-bound. `(dispatch [:counter/inc])` dispatches the event to the surrounding frame.
+- **`subscribe`** — `@(subscribe [:count])` reads the current value of the `:count` subscription.
+- **`dispatch`** — `(dispatch [:counter/inc])` puts an event on the queue.
 
-These are *injected* by `reg-view`. The reason: views need to know which frame they belong to (so that dispatching from a story-tool variant doesn't spam the production frame, for instance), and the cleanest way to make that work without forcing every view to take a frame argument is to inject the frame-bound versions implicitly.
-
-The body uses them just like the original re-frame's `subscribe` and `dispatch`. No ceremony. The `@(...)` syntax is Clojure's "unwrap this reactive value to its current contents" — it's how Reagent (the underlying view substrate) tracks dependencies.
+These are *injected* by `reg-view`. The body uses them just like the original re-frame's `subscribe` and `dispatch`. No ceremony. The `@(...)` syntax is Clojure's "unwrap this reactive value to its current contents" — it's how Reagent (the underlying view substrate) tracks dependencies.
 
 ### Why register views?
 
-Three reasons:
+Two reasons:
 
-1. **Frame routing**. As above — registered views know their frame.
-2. **AI inspection**. `(rf/handlers :view)` returns every registered view in the app. An AI can list, filter, and inspect them without parsing source files.
-3. **Hot reload that works**. Re-evaluating the `reg-view` form replaces the registered view; mounted instances pick up the new code on next render.
+1. **AI inspection**. `(rf/handlers :view)` returns every registered view in the app. An AI can list, filter, and inspect them without parsing source files.
+2. **Hot reload that works**. Re-evaluating the `reg-view` form replaces the registered view; mounted instances pick up the new code on next render.
 
-There's a tradeoff: plain Reagent functions also work, but they don't get frame-routing for free. If you're writing a single-frame app, you can use plain `defn` views with no observable difference; if you're writing anything that might end up multi-frame (which, increasingly, is everything — stories, devcards, SSR), `reg-view` is the safer default.
+There's a tradeoff: plain Reagent functions also work, but they don't get registry introspection. For a small app you can use plain `defn` views with no observable difference; `reg-view` is the safer default.
 
 ## The mount
 
@@ -217,24 +214,22 @@ That's the entire dynamic story. Five steps, all named, no surprises.
 
 ## Testing what we just built
 
+The handler is a pure function — given `db` and `event`, return new `db`. That alone is testable directly:
+
 ```clojure
-(deftest counter-flow
-  (rf/dispatch-sync [:counter/initialise])
-  (is (= 5 (:count (rf/get-frame-db :rf/default))))
-  (rf/dispatch-sync [:counter/inc])
-  (is (= 6 (:count (rf/get-frame-db :rf/default))))
-  (rf/dispatch-sync [:counter/dec])
-  (rf/dispatch-sync [:counter/dec])
-  (is (= 4 (:count (rf/get-frame-db :rf/default)))))
+(deftest counter-handlers
+  (let [inc-handler (:handler-fn (rf/handler-meta :event :counter/inc))
+        dec-handler (:handler-fn (rf/handler-meta :event :counter/dec))]
+    (is (= {:count 6} (inc-handler {:count 5} [:counter/inc])))
+    (is (= {:count 4} (dec-handler {:count 5} [:counter/dec])))))
 ```
 
-That test runs on the JVM. There's no browser. There's no React. It's the same two calls you saw at mount — `dispatch-sync` to run an event synchronously, plus `get-frame-db` to read the resulting `app-db` *value* off the default frame — with `is` assertions threaded between them. The test reads as the production code does. Tests like this run in milliseconds and you can have thousands of them. [Chapter 13 — Testing](13-testing.md) covers the richer testing primitives (isolated frames, sub computation without dispatch, fixtures) for when the shape above isn't enough.
+That test runs on the JVM. There's no browser, no React, no runtime needed — `handler-meta` looks up the registered function, you call it with a value, you assert on the return. Tests like this run in milliseconds and you can have thousands of them. [Chapter 13 — Testing](13-testing.md) covers the richer testing primitives (driving a full event through the dispatch loop, sub computation, fixtures) for when "call the handler as a function" isn't enough.
 
 ## What the example covered
 
 We touched every load-bearing primitive at least once:
 
-- ✓ A frame.
 - ✓ Three event handlers.
 - ✓ A subscription.
 - ✓ A view.
@@ -243,7 +238,6 @@ We touched every load-bearing primitive at least once:
 What we didn't cover yet:
 
 - **Effects** that aren't state changes — HTTP, navigation, localStorage. Coming in [04 — Events, state, and the cycle](04-events-state-cycle.md).
-- **Multiple frames** — you only need them when you need them. Coming in [06 — Views and frames](06-views-and-frames.md).
 - **State machines** — for flows where "what's the next state?" is the load-bearing question. Coming in [08 — State machines](08-state-machines.md).
 - **HTTP requests, the canonical way** — the `:rf.http/managed` fx with retry, abort, decode, and reply addressing. Coming in [10 — Doing HTTP requests](10-doing-http-requests.md).
 

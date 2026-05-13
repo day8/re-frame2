@@ -23,7 +23,7 @@ Read these in order. Each chapter assumes the previous one.
 | # | Chapter | What it covers |
 |---|---|---|
 | 01 | [Why re-frame2](01-why-re-frame2.md) | The argument. What problem this solves. Why it works. |
-| 02 | [app-db](02-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, why per-frame. |
+| 02 | [app-db](02-app-db.md) | The single immutable map every re-frame2 app pivots around — what it is, why immutable, the consequences. |
 | 03 | [Your first app](03-your-first-app.md) | The counter, walked through in narrative. |
 | 04 | [Events, state, and the cycle](04-events-state-cycle.md) | The core loop, with side-effects-as-data. |
 | 04a | [Schemas](04a-schemas.md) | The Malli warmup — `reg-app-schema`, event `:spec`, dev-vs-production timing. Read before forms or HTTP, where schemas show up in volume. |

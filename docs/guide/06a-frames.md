@@ -2,7 +2,7 @@
 
 > **If you're skipping this chapter, the upshot:** A **frame** is an *isolated runtime boundary* — its own `app-db`, its own event queue, its own subscription cache, identified by a keyword. Every re-frame2 app has at least one frame; single-frame apps run inside an invisible default frame called `:rf/default` and never name it. Reach for multiple frames when you need *multiple instances of the same app's handlers with different state* — a split-screen widget, a story variant, a per-test fixture, a per-request server-side render. Create them with `(rf/reg-frame :id {...})` or `(rf/make-frame {...})`; scope a subtree to one with `[rf/frame-provider {:frame :id} ...]`. The full normative surface lives in [Spec 002](../../spec/002-Frames.md); this chapter is the motivation.
 
-Up to this point in the guide, the word *frame* has been a quiet presence — chapter 02 named it as a per-app boundary, chapter 06 mentioned it whenever `dispatch` or `subscribe` came up. The mental model you've been carrying is "one app, one `app-db`, one queue, one sub-cache." That mental model is right for 90% of apps. This chapter is for the other 10%, and for the small piece of vocabulary even the 90% case has to recognise — `:rf/default`.
+Up to this point in the guide, the word *frame* has barely appeared — [chapter 06](06-views-and-frames.md) introduced it as the boundary `reg-view` routes against, with a split-counter example. The mental model you've been carrying is "one app, one `app-db`, one queue, one sub-cache." That mental model is right for 90% of apps. This chapter is for the other 10%, and for the small piece of vocabulary even the 90% case has to recognise — `:rf/default`.
 
 ## The motivating need
 
@@ -154,7 +154,7 @@ That's the whole thing. Same registered handlers. Same registered sub. Same regi
 
 ## `:rf/default` — the frame you've been using all along
 
-Every example before this chapter — the counter in chapter 02, the events-and-effects walkthrough in chapter 04, the schema-bound counter in 04a, the views in 06 — has been running inside a frame. You just didn't see it. The framework pre-registers a frame called `:rf/default` at load time, and every `dispatch` / `subscribe` that doesn't specify a `:frame` resolves against it.
+Every example before this chapter — the counter in chapter 03, the events-and-effects walkthrough in chapter 04, the schema-bound counter in 04a, the views in 06 — has been running inside a frame. You just didn't see it. The framework pre-registers a frame called `:rf/default` at load time, and every `dispatch` / `subscribe` that doesn't specify a `:frame` resolves against it.
 
 ```clojure
 ;; What you've been writing:
@@ -215,7 +215,6 @@ Each preset's intent is **visible at the call site** — a reader of the source 
 ## Cross-references
 
 - [Spec 002 — Frames](../../spec/002-Frames.md) — the full normative surface: lifecycle, surgical re-registration, the preset expansion table, the dispatch envelope, the per-instance `make-frame` shape, drain semantics, destroyed-frame behaviour.
-- [chapter 02 — app-db](02-app-db.md#per-frame-not-global) — where the per-frame story was first named.
 - [chapter 06 — Views and frames](06-views-and-frames.md) — `reg-view`, `frame-provider`, and the split-counter in context.
 - [chapter 13 — Testing](13-testing.md) — `with-frame`/`make-frame` as the per-test fixture; the `:test` preset.
 - [chapter 21 — Stories](21-stories.md) — frame-per-variant; the `:story` preset.
