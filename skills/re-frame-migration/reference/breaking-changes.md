@@ -67,6 +67,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | Machine `:tags` slot and `:rf/machine-has-tag?` sub | M-47 | — | Additive. No user-side action. |
 | `:type :parallel` machines with map-shaped `:state` | M-48 | — | Additive. No user-side action. |
 | Snapshot `:state` reader pattern-matching against the third arm (map) | M-49 | — | Additive; widens to a third arm. Readers that pattern-match exhaustively on `:state` may need to widen the dispatch. |
+| Unary `reg-fx` handler `(fn [args] ...)` | **M-51** | A | Mechanical: `(fn [args] body)` → `(fn [_ args] body)`. The unary back-compat path is cut; the runtime invokes every fx with two args. Async handlers should additionally capture `(rf/dispatcher)` for frame-aware callbacks. |
 
 The M-numbered slots that are "informational only" / "additive" / "—" still appear so an agent walking the rule list doesn't get confused by gaps. There is no user-side action required for those rules.
 
@@ -80,7 +81,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 | Adopt `reg-view` for plain Reagent fns | **O-2** | Drop `defn`; replace with `(rf/reg-view view-name [args] body)`. Frame-aware. |
 | Add Malli schemas on `app-db` paths and on event payloads | **O-3** | Pull `day8/re-frame2-schemas`; register via `reg-app-schema`. Boundary-only — don't schema-fence every internal key. |
 | Lift a namespaced sub-tree of `app-db` into its own frame | **O-4** | Use `reg-frame :feature-name`; existing `:rf/default`-targeted events stay where they are. Multi-instance enabler. |
-| Update fx handlers to binary form `(fn [m _] ...)` | **O-5** | Future-proofs fx for full multi-frame support; both forms work today. |
+| Update fx handlers to binary form `(fn [m _] ...)` | O-5 | Promoted to M-51; now a required mechanical rewrite, not opt-in. |
 | Future-proof code that introspected Reagent-reaction subscription return types | **O-6** | Drop type checks; use `(rf/subscribe-value [...])` if you need the value outside a reactive context. |
 | `:dispatch-n` to `:fx` | O-7 | Absorbed into M-8 (no longer opt-in). |
 | Adopt the Spec 012 routing surface | **O-8** | If you have a third-party router (reitit/secretary/bidi), this is the move-to-`reg-route` rewrite. Pairs with M-14. |
@@ -96,7 +97,7 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 ## Type A vs Type B — at a glance
 
-**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42.
+**Type A — apply automatically.** The pattern is unambiguous, the rewrite is structural, the result is observably identical (or strictly better). M-0, M-1, M-4, M-5 (direct half), M-6, M-7, M-8, M-9, M-16, M-17 (single-frame half), M-20, M-21 (`debug` / `trim-v` half), M-22, M-23 (the find-and-replace half), M-24, M-25, M-26 (most), M-27 through M-40 (mostly dep-only adds), M-42, M-50, M-51.
 
 **Type B — ask before applying.** The rewrite depends on intent the agent cannot recover statically. M-3, M-5 (Var-aliasing half), M-10, M-11, M-12, M-13, M-14, M-15, M-17 (multi-frame half), M-18, M-19, M-21 (`on-changes` / `enrich` / `after` half), M-23 (lifecycle policy half), M-26 (`add-post-event-callback` / error-handler half).
 

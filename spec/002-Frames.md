@@ -12,7 +12,7 @@ A **frame** is an **isolated runtime boundary**, identified by keyword, that own
 
 All frames share **one global handler registrar**. Multi-frame means "multiple instances of the same app's handlers" — devcards, isolated widgets, story variants, test fixtures — not "multiple different apps with different handler sets on one page." The latter use case (micro-frontends, embedded white-label widgets) is out of scope; iframes already serve it.
 
-**Backwards compatibility:** existing single-frame apps need no migration. A pre-registered `:rf/default` catches every dispatch and subscription that doesn't specify a frame; today's re-frame is structurally re-frame2 with only the default frame in play.
+**Single-frame is one shape of multi-frame.** A pre-registered `:rf/default` catches every dispatch and subscription that doesn't specify a frame. An app that only ever uses `:rf/default` is a multi-frame app with one frame in play — same runtime, same routing, same drain loop. The default isn't a migration shim; it's the no-ceremony case of the canonical addressing model.
 
 ## Goals
 
@@ -328,15 +328,15 @@ Tests use this pattern as their fixture lifecycle:
 
 The mechanism that gets a dispatch to the right frame is **frame identity carried on the in-flight event**.
 
-User-facing event shape stays a vector — `[:add-todo "milk"]` — for backwards compat. The **canonical call shapes** are:
+User-facing event shape is a vector — `[:add-todo "milk"]` — id-first, polymorphic on the head keyword. The **canonical call shapes** are:
 
 | Arity | Canonical | Tolerated (discouraged) |
 |---|---|---|
 | Trivial — id only | `[:counter/inc]` | (same) |
 | Single argument | `[:user-by-id 42]` | (same) |
-| Multi-argument | `[:user/login {:email e :password p}]` (single map payload) | `[:user/login e p]` (multi-positional; linter nudges; existing v1 codebases unaffected) |
+| Multi-argument | `[:user/login {:email e :password p}]` (single map payload) | `[:user/login e p]` (multi-positional; linter nudges) |
 
-The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe takes the same shape (`[:items-filtered {:status :pending :limit 20}]`). The full rationale is in [Principles §Name over place](Principles.md#name-over-place); the migration rule for legacy multi-positional code is [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). The v1 `unwrap` interceptor (which required this exact `[event-id payload-map]` shape) ships unchanged in v2 as opt-in handler-side sugar; v1 `trim-v` is dropped because its purpose was the multi-positional form v2 leaves behind.
+The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe takes the same shape (`[:items-filtered {:status :pending :limit 20}]`). The full rationale is in [Principles §Name over place](Principles.md#name-over-place); the migration rule for v1 multi-positional code is [MIGRATION §M-19](MIGRATION.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in). The v1 `unwrap` interceptor (which required this exact `[event-id payload-map]` shape) ships in v2 as opt-in handler-side sugar; v1 `trim-v` is dropped because its purpose was the multi-positional form v2 leaves behind.
 
 *Internally*, every dispatch becomes a **dispatch envelope**:
 
@@ -537,7 +537,7 @@ Sometimes a function created during render isn't a hiccup callback but is invoke
 
 `bound-fn` produces a `(fn ...)` that, when called, runs in a `binding [*current-frame* <captured-frame>]` block — `*current-frame*` is the dynamic-binding tier of the resolution chain (above), so plain `dispatch`/`subscribe` inside the closure pick up the right frame.
 
-The dynamic var (`*current-frame*`) plays two roles, which can read as contradictory if not separated. For `bound-fn` and `with-frame`, it is the **primary mechanism**: these constructs deliberately use the dynamic-binding tier as their definition. For the unary-fx fallback path (per [§Async effects — backwards compatibility](#backwards-compatibility--legacy-unary-fx-handlers) below), it is a **compatibility shim** — `do-fx` wraps unary handlers in a binding so legacy `(rf/dispatch ev)` calls inside them remain frame-aware. Same Clojure construct, used at different layers; the primary-mechanism vs. shim distinction is about *intent*, not implementation.
+The dynamic var (`*current-frame*`) is the primary mechanism for `bound-fn`, `with-frame`, and the router's per-handler binding: these constructs deliberately use the dynamic-binding tier as their definition, so synchronous dispatches inside their bodies pick up the right frame without an explicit `:frame` opt at the call site. Async callbacks that escape the binding (timers, promises, websocket messages) need an explicit hand-off — capture `(rf/dispatcher)` inside the body or thread `{:frame frame}` into the callback.
 
 ### Subscriptions composing across the signal graph
 
@@ -626,21 +626,6 @@ A closure over `(:frame m)` keeps each call site terse:
           (.then  #(d on-success))
           (.catch #(d on-failure))))))
 ```
-
-#### Backwards compatibility — legacy unary fx handlers
-
-Existing fx libraries shipping unary handlers `(fn [args] (rf/dispatch ...))` continue to work without update:
-
-```clojure
-;; legacy unary, no update needed for re-frame2 to compile or run
-(reg-fx :dispatch
-  (fn [event]
-    (rf/dispatch event)))
-```
-
-`do-fx` detects arity at registration. When invoking a unary handler, it wraps the call in `(binding [*current-frame* (:frame m)] ...)`, so any internal `(rf/dispatch event)` is frame-aware via the dynamic-var fallback. **The dynamic var is a compatibility shim, not the primary mechanism** — new fx code uses the binary form.
-
-The async case is the one place where unary legacy handlers can still get multi-frame routing wrong: if the library captures a callback that fires after the handler returns, the dynamic-var binding has unwound. Library authors targeting re-frame2's multi-frame use cases should update to binary; swap `(rf/dispatch ev)` for `(rf/dispatch ev {:frame frame})` or capture `(rf/dispatcher)` inside the binary handler's body where `*current-frame*` is bound.
 
 #### What library authors of async fx have to know
 
@@ -1211,7 +1196,7 @@ Library authors **do not need to know about frames** if they only register handl
 - **re-frame-async-flow** schedules events via the standard `:dispatch` effect; frame propagation is automatic per the rule above.
 - **re-pressed**, **re-frame-http-fx**, etc. — same story, provided their fx implementations use the standard dispatch effect or capture a frame-bound dispatch fn via `(rf/dispatcher)`.
 
-Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/dispatcher)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as opt-in rule O-5 in [MIGRATION.md](MIGRATION.md).
+Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/dispatcher)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as required rule M-51 in [MIGRATION.md](MIGRATION.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).
 
 ## Tooling and agent-amenability
 

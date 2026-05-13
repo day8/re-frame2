@@ -1685,6 +1685,64 @@ Body, override-map shape, precedence rules, and composition with `with-frame` ar
 
 **Cross-references.** [API.md §Testing](API.md#testing) for the row; [Spec 002 §`:fx-overrides`](002-Frames.md#fx-overrides--replace-fx-handlers) for the override-value shapes the macro honours.
 
+### M-51. `reg-fx` handlers are binary — rewrite unary handlers to take an unused first arg
+
+**Type A — pre-1.0 spec lock; mechanical rewrite.** The v1 spec is pre-release; no back-compat constraint applies. Codebases that registered unary fx handlers under v1 (`(fn [args] body)`) rewrite mechanically to the binary form (`(fn [_ args] body)`).
+
+Per [rf2-j9cm2](#), the canonical `reg-fx` signature is binary: `(fn [m args] body)` where `m` carries `:frame`, `:event`, and (per [Spec 014 §Reply addressing](014-HTTPRequests.md#reply-addressing)) any cofx the handler needs to address replies. The v1 unary signature `(fn [args] body)` and the runtime arity-detect / `*current-frame*`-wrapping shim that supported it are dropped. The runtime invokes every registered fx handler with two args; a unary handler raises a language-level arity error at the call site (`ArityException` on JVM, `TypeError` / "Cannot read … of undefined" or similar on CLJS depending on shape).
+
+**Why.** Pre-alpha cuts the v1 compat tax: one signature, no arity branch in `do-fx`, no `*current-frame*` dynamic-var binding to maintain just for the unary path. The dynamic-var was only ever a shim for sync paths — it could not cover async callbacks (the binding has unwound by then), so library authors targeting multi-frame had to update to binary anyway. Cutting the shim shortens the path and removes a footgun (unary handler that *appears* to work in sync tests but silently routes to `:rf/default` from async callbacks).
+
+**Migration recipe.** For every `reg-fx` call site whose handler is unary, prepend an unused first parameter:
+
+Before:
+
+```clojure
+(rf/reg-fx :http-xhrio
+  (fn [request]                                       ;; unary v1
+    (let [{:keys [on-success on-failure]} request]
+      (ajax/ajax-request
+        {:handler (fn [[ok? response]]
+                    (rf/dispatch (conj (if ok? on-success on-failure) response)))}))))
+```
+
+After (mechanical):
+
+```clojure
+(rf/reg-fx :http-xhrio
+  (fn [_ request]                                     ;; binary; `m` ignored
+    (let [{:keys [on-success on-failure]} request]
+      (ajax/ajax-request
+        {:handler (fn [[ok? response]]
+                    (rf/dispatch (conj (if ok? on-success on-failure) response)))}))))
+```
+
+The simple ignore-`m` rewrite preserves v1 sync semantics — the handler runs and any dispatches it issues default to `:rf/default`. For multi-frame correctness in async callbacks, follow up with the frame-bound dispatcher pattern:
+
+```clojure
+(rf/reg-fx :http-xhrio
+  (fn [m request]                                     ;; binary; frame-aware
+    (let [d (rf/dispatcher)                           ;; *current-frame* bound to (:frame m)
+          {:keys [on-success on-failure]} request]
+      (ajax/ajax-request
+        {:handler (fn [[ok? response]]
+                    (d (conj (if ok? on-success on-failure) response)))}))))
+```
+
+The dispatcher-capture step is needed only for async-dispatching fx that target multi-frame use; sync-only handlers are correct after the mechanical `_`-prepend.
+
+**What to look for.** Greps for `reg-fx` followed by a one-arg `fn` literal:
+
+```
+rg -U 'reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]'
+```
+
+Library packages (`re-frame-http-fx`, `re-frame-async-flow-fx`, etc.) and apps that defined their own fx handlers are the typical hits. Single-frame apps that only used the reserved `:dispatch` / `:dispatch-later` / `:db` / `:fx` effects have no `reg-fx` call sites and need no change.
+
+**Apply to:** every unary `reg-fx` handler in the codebase. The runtime no longer accepts the unary shape.
+
+**Cross-references.** [Spec 002 §Async effects and frame propagation](002-Frames.md#async-effects-and-frame-propagation) for the binary signature's contract; [Spec 002 §What library authors of async fx have to know](002-Frames.md#what-library-authors-of-async-fx-have-to-know) for the async-correctness checklist.
+
 ---
 
 ## Opt-in modernisation (only if asked)
@@ -1750,52 +1808,9 @@ Apply only with explicit user direction; this is a real authoring exercise, not 
 
 If the codebase has a self-contained subsystem under a single `app-db` path (e.g. all `:auth/*` keys, with corresponding events/subs all namespaced `:auth/...`), it can be reorganised as a separate frame for cleaner isolation. This is a meaningful architectural change, not a mechanical migration. **Do not apply unless explicitly asked.**
 
-### O-5. Update fx handlers to binary form for full multi-frame support
+### O-5. ~~Update fx handlers to binary form for full multi-frame support~~ — *promoted to [M-51](#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).*
 
-re-frame2's primary `reg-fx` signature is binary: `(fn [m fx-arg] ...)`, where `m` is the same context the originating event handler received (with `:db`, `:event`, `:frame`, `:trace-id`, `:source`, and any cofx). Legacy unary handlers `(fn [fx-arg] ...)` continue to work — `do-fx` detects arity and wraps unary handlers in a `*current-frame*` binding so internal `rf/dispatch` calls still route correctly in single-frame contexts and most sync multi-frame cases.
-
-The case where unary fx handlers go wrong is **async dispatch**: if the handler captures a callback that fires after it returns (HTTP response, timer fire, websocket message), the dynamic-var binding has unwound and the callback's `rf/dispatch` defaults to `:rf/default`. Libraries that dispatch asynchronously (re-frame-http-fx, re-frame-async-flow-fx, etc.) need updating to be fully multi-frame-correct.
-
-**What to look for** in the codebase (this rule mostly applies to library authors and to apps that registered their own async fx):
-
-```clojure
-;; legacy unary fx with async dispatch — works in single-frame, leaks to default in multi-frame
-(rf/reg-fx :http-xhrio
-  (fn [request]
-    (let [{:keys [on-success on-failure]} request]
-      (ajax/ajax-request 
-        {:handler (fn [[ok? response]]
-                    (rf/dispatch (conj (if ok? on-success on-failure) response)))}))))
-```
-
-**What to do:**
-
-```clojure
-;; binary, frame-aware
-(rf/reg-fx :http-xhrio
-  (fn [m request]
-    (let [d (rf/dispatcher)                               ;; *current-frame* bound to (:frame m)
-          {:keys [on-success on-failure]} request]
-      (ajax/ajax-request 
-        {:handler (fn [[ok? response]]
-                    (d (conj (if ok? on-success on-failure) response)))}))))
-```
-
-The change is mechanical:
-
-1. Add `m` as the first arg.
-2. At handler entry, capture a frame-bound dispatch fn: `(let [d (rf/dispatcher)] ...)` — the binary handler's body runs with `*current-frame*` bound to `(:frame m)`, so `(rf/dispatcher)` captures that frame.
-3. In every async callback, replace `rf/dispatch` with `d`.
-
-**Apply only if:**
-
-- The codebase ships an fx that dispatches asynchronously, AND
-- It is intended to support re-frame2 multi-frame use, AND
-- The user has asked for this change explicitly.
-
-For sync-only fx (most user-defined fx) and for apps that don't use multi-frame, no change is required.
-
-**Why:** see [002-Frames.md §Async effects and frame propagation](002-Frames.md). The binary signature gives explicit data flow for the frame; the dynamic-var fallback covers legacy unary handlers in sync paths but cannot cover async ones.
+Per [rf2-j9cm2](#) the unary-fx-handler back-compat path was cut from the runtime; the binary signature is the only signature `do-fx` accepts. What was an opt-in modernisation under v1 compat is now a required mechanical rewrite — see M-51 above.
 
 ### O-6. Future-proof against Reagent-specific subscription return types
 

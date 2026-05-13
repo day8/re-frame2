@@ -57,7 +57,7 @@ Six phases. Each links to a leaf for the detail; the SKILL.md carries only the w
 
 **Phase 4 — Verify.** Recompile, re-run unit tests, smoke-test boot / dispatch / sub / hot-reload. If a step fails, find the rule, apply it, re-verify. The skill does not run tests for the author.
 
-**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-5 binary fx, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:invoke-all`, etc.). Never auto-applied as part of a routine migration.
+**Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:invoke-all`, etc.). Never auto-applied as part of a routine migration. (O-5 was promoted to M-51 under rf2-j9cm2 — binary fx is now required, not opt-in.)
 
 **Phase 6 — Report.** Produce the migration report per `MIGRATION.md` Part 2 §"Output format for your report". → [`reference/output-format.md`](reference/output-format.md) — the format restated with one filled-in example.
 

@@ -168,7 +168,7 @@ For arbitrary fx, override the registered handler from inside the test — the f
 
 ```clojure
 (let [calls (atom [])]
-  (rf/reg-fx :app/persist (fn [v] (swap! calls conj v)))
+  (rf/reg-fx :app/persist (fn [_ v] (swap! calls conj v)))
   (rf/dispatch-sync [:cart/save])
   (is (= [{:items [...]}] @calls)))
 ```

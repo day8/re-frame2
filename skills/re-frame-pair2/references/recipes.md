@@ -146,7 +146,7 @@ Per Spec 002 §Per-frame and per-call overrides, dispatches can carry `:fx-overr
 scripts/dispatch.sh '[:cart/checkout]' --fx-override :http=:stub-http
 ```
 
-The stub must already be registered via `(rf/reg-fx :stub-http (fn [v] ...))`. The override applies for this dispatch only; subsequent dispatches use the canonical `:http` again.
+The stub must already be registered via `(rf/reg-fx :stub-http (fn [_ v] ...))`. The override applies for this dispatch only; subsequent dispatches use the canonical `:http` again.
 
 For `:rf.http/managed` failure-category experiments (Spec 014 §Failure categories), stub `:http` to fire one of the canonical failure traces directly.
 
