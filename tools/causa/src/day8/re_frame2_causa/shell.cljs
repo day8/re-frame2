@@ -40,9 +40,8 @@
             [day8.re-frame2-causa.panels.event-detail :as event-detail]
             [day8.re-frame2-causa.panels.time-travel :as time-travel]
             [day8.re-frame2-causa.panels.causality-graph :as causality-graph]
-            ;; ── subscriptions panel begin ──
+            [day8.re-frame2-causa.panels.hydration-debugger :as hydration-debugger]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
-            ;; ── subscriptions panel end ──
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
@@ -76,9 +75,7 @@
    {:id :time-travel  :label "Time travel"  :bead "rf2-t53ze" :live? true}
    {:id :app-db       :label "App-db"        :bead "rf2-xxx"}
    {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
-   ;; ── subscriptions panel begin ──
    {:id :subs         :label "Subscriptions" :bead "rf2-x0f5v" :live? true}
-   ;; ── subscriptions panel end ──
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
    {:id :trace        :label "Trace"         :bead "rf2-xxx"}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
@@ -86,7 +83,12 @@
    {:id :performance  :label "Performance"   :bead "rf2-xxx"}
    {:id :issues       :label "Issues"        :bead "rf2-xxx"}
    {:id :schemas      :label "Schemas"       :bead "rf2-xxx"}
-   {:id :hydration    :label "Hydration"     :bead "rf2-xxx"}
+   ;; Phase 5 (rf2-pzxsr). Per spec/006-Hydration-Debugger.md §Visibility
+   ;; the panel is dormant until at least one :rf.ssr/hydration-mismatch
+   ;; trace lands. The sidebar entry's `:dormant?` flag drives the `◌`
+   ;; marker; once a mismatch fires the entry lights up and the entry
+   ;; behaves like every other live panel.
+   {:id :hydration    :label "Hydration"     :bead "rf2-pzxsr" :live? true :dormant? true}
    {:id :copilot      :label "Co-pilot"      :bead "rf2-xxx"}])
 
 ;; ---- regions -------------------------------------------------------------
@@ -117,7 +119,7 @@
     [:span {:style {:color       (:text-tertiary tokens)
                     :font-size   "12px"
                     :font-weight 400}}
-     "Phase 4 (rf2-4rqs1)"]]
+     "Phase 5 (rf2-pzxsr)"]]
    [:div {:style {:display "flex" :align-items "center" :gap "12px"
                   :color    (:text-secondary tokens)
                   :font-size "12px"
@@ -127,25 +129,37 @@
 (defn- sidebar-item
   "Render one sidebar item. Clicking the row fires
   `:rf.causa/select-panel`; the live row highlights based on the
-  `:rf.causa/selected-panel` sub the parent reads."
-  [{:keys [id label live?]} active?]
+  `:rf.causa/selected-panel` sub the parent reads.
+
+  ## Dormant marker (rf2-pzxsr — hydration-debugger panel visibility)
+
+  Per `tools/causa/spec/006-Hydration-Debugger.md` §Visibility a
+  panel can be marked `:dormant?` — the entry then renders the `◌`
+  marker instead of `○` until activity wakes it. The dormant fn
+  passes `dormant?` here so the visibility gate is one place; the
+  parent decides per-row what 'awake' means."
+  [{:keys [id label live? dormant?]} active?]
   [:li {:data-testid (str "rf-causa-sidebar-item-" (name id))
         :on-click    #(rf/dispatch [:rf.causa/select-panel id])
         :style       {:padding         "6px 16px"
                       :cursor          "pointer"
                       :background      (if active? (:bg-active tokens) "transparent")
                       :color           (cond
-                                         active? (:text-primary tokens)
-                                         live?   (:text-secondary tokens)
-                                         :else   (:text-tertiary tokens))
+                                         active?  (:text-primary tokens)
+                                         dormant? (:text-tertiary tokens)
+                                         live?    (:text-secondary tokens)
+                                         :else    (:text-tertiary tokens))
                       :font-weight     (if active? 600 400)}}
    [:span {:style {:margin-right "8px"
                    :color        (if active?
                                    (:accent-violet tokens)
                                    (:text-tertiary tokens))}}
-    (if active? "◉" "○")]
+    (cond
+      active?  "◉"
+      dormant? "◌"   ; per spec/006-Hydration-Debugger.md §Visibility
+      :else    "○")]
    label
-   (when (and (not active?) live?)
+   (when (and (not active?) live? (not dormant?))
      [:span {:style {:margin-left "8px"
                      :color       (:accent-violet tokens)
                      :font-size   "10px"
@@ -159,10 +173,31 @@
   conditional-with-activity, dormant) divider-separated.
 
   Phase 2: the active panel is driven by `:rf.causa/selected-panel`.
-  Clicking a row dispatches `:rf.causa/select-panel`."
+  Clicking a row dispatches `:rf.causa/select-panel`.
+
+  ## Hydration dormant gate (rf2-pzxsr)
+
+  Per `tools/causa/spec/006-Hydration-Debugger.md` §Visibility the
+  Hydration sidebar entry is dormant (`◌`) until at least one
+  `:rf.ssr/hydration-mismatch` trace lands. The gate reads the
+  panel's composite — if `:has-mismatch?` is truthy the dormant flag
+  is dropped and the entry behaves like every other live panel.
+
+  The lift here is intentionally a one-line override rather than a
+  per-item subscribe — the composite already exists for the panel,
+  re-using it keeps the reactive graph minimal."
   []
   (let [active (or @(rf/subscribe [:rf.causa/selected-panel])
-                   registry/default-panel-id)]
+                   registry/default-panel-id)
+        hydration-awake? (boolean
+                           (get @(rf/subscribe [:rf.causa/hydration-debugger-data])
+                                :has-mismatch?))
+        items-resolved
+        (mapv (fn [item]
+                (cond-> item
+                  (and (= :hydration (:id item)) hydration-awake?)
+                  (assoc :dormant? false)))
+              sidebar-items)]
     [:nav {:style {:width            "192px"
                    :flex-shrink      0
                    :background       (:bg-1 tokens)
@@ -174,7 +209,7 @@
      (into [:ul {:style {:list-style    "none"
                          :margin        0
                          :padding       "8px 0"}}]
-           (for [{:keys [id] :as item} sidebar-items]
+           (for [{:keys [id] :as item} items-resolved]
              ^{:key id}
              [sidebar-item item (= id active)]))]))
 
@@ -218,9 +253,8 @@
       :event-detail [event-detail/event-detail-view]
       :time-travel  [time-travel/time-travel-view]
       :causality    [causality-graph/causality-graph-view]
-      ;; ── subscriptions panel begin ──
       :subs         [subscriptions/subscriptions-view]
-      ;; ── subscriptions panel end ──
+      :hydration    [hydration-debugger/hydration-debugger-view]
       [stub-panel (or item {:label "Unknown panel"
                             :bead  "rf2-xxx"})])))
 
