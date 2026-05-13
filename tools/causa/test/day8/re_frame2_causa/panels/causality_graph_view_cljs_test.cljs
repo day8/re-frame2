@@ -67,13 +67,19 @@
 
 (defn- seed-buffer!
   "Wire the trace collector (preload-style) and push the supplied
-  events through it so the Causa buffer matches the production
-  delivery path."
+  events through Causa's reactive trace-buffer slot.
+
+  Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off Causa's
+  app-db, not the trace-bus atom. Tests use `dispatch-sync` of
+  `:rf.causa/note-trace-event` to mirror what production's
+  `trace-bus/collect-trace!` does (async dispatch), driving the
+  sub re-fire synchronously before the next subscribe."
   [evs]
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {})
-  (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+  (rf/with-frame :rf/causa
+    (doseq [ev evs]
+      (rf/dispatch-sync [:rf.causa/note-trace-event ev]))))
 
 (defn- expand-fn-component [node]
   (if (and (vector? node) (fn? (first node)))

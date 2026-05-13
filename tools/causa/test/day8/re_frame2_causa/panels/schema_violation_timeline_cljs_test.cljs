@@ -92,8 +92,13 @@
                 :frame  :rf/default}}))
 
 (defn- push-failures! [evs]
-  (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+  ;; Per rf2-iw5ym: `:rf.causa/trace-buffer` is reactive off Causa's
+  ;; app-db, not the trace-bus atom. Tests drive the reactive write
+  ;; path directly via `dispatch-sync` so the composite sub re-fires
+  ;; synchronously on the next subscribe.
+  (rf/with-frame :rf/causa
+    (doseq [ev evs]
+      (rf/dispatch-sync [:rf.causa/note-trace-event ev]))))
 
 ;; ---- (1) registry wires subs / events -----------------------------------
 

@@ -35,9 +35,29 @@
   events bump a per-frame counter that drives the bottom-rail's
   `[● REDACTED N]` hint. An engineer debugging redaction policy
   opts in via `(causa-config/configure! {:trace/show-sensitive?
-  true})`."
+  true})`.
+
+  ## Reactive container (rf2-iw5ym)
+
+  Per rf2-iw5ym (same recipe as rf2-0vxdn's `suppressed-counters`
+  fix): the buffer is also mirrored into Causa's app-db at
+  `[:rf/causa db :trace-buffer]` via dispatch (CLJS only) so the
+  `:rf.causa/trace-buffer` sub fires on the standard reactive
+  write path — panels reading the buffer re-render IMMEDIATELY on
+  every push, with no dependency on a sibling sub recomputing. The
+  `buffer-state` atom here remains as the JVM-runnable data
+  primitive (`push` algebra, depth-shrink algebra, `clear-buffer!`)
+  so trace_bus's pure-data shape is testable without a CLJS runtime
+  + re-frame frame; the CLJS path dual-writes via dispatch. The
+  dispatch is async — production reads see a one-tick lag,
+  invisible at trace-rate UI cadence; tests that need the reactive
+  surface to settle synchronously dispatch the new
+  `:rf.causa/note-trace-event` / `:rf.causa/clear-trace-buffer`
+  events directly via `dispatch-sync`."
   (:require [re-frame.interop :as interop]
-            [day8.re-frame2-causa.config :as config]))
+            [day8.re-frame2-causa.config :as config]
+            #?@(:cljs [[re-frame.core :as rf]
+                       [re-frame.frame :as frame]])))
 
 ;; ---- ring-buffer state ----------------------------------------------------
 
@@ -91,7 +111,15 @@
   suppressed!` itself dispatches `:rf.causa/note-sensitive-suppressed`
   into `:rf/causa` (CLJS) so the sub reads `:suppressed-counters`
   off Causa's app-db on the standard write path. The buffer state
-  here is unchanged; the dispatch happens one stack frame deeper."
+  here is unchanged; the dispatch happens one stack frame deeper.
+
+  Per rf2-iw5ym the buffer push is the same shape: the atom swap
+  remains (JVM-runnable data primitive) and CLJS also dispatches
+  `:rf.causa/note-trace-event` into `:rf/causa` so the
+  `:rf.causa/trace-buffer` sub fires on the standard write path.
+  Guarded on the `:rf/causa` frame's existence — production preload
+  always installs it, but tests / hot-reload windows may emit
+  trace events before the frame registers."
   [event]
   (when interop/debug-enabled?
     (cond
@@ -99,7 +127,12 @@
       (config/note-suppressed! (get-in event [:tags :frame]))
 
       :else
-      (swap! buffer-state push @buffer-depth event))))
+      (do
+        (swap! buffer-state push @buffer-depth event)
+        #?(:cljs
+           (when (frame/frame :rf/causa)
+             (binding [frame/*current-frame* :rf/causa]
+               (rf/dispatch [:rf.causa/note-trace-event event]))))))))
 
 ;; ---- read-side accessors -------------------------------------------
 
@@ -109,6 +142,15 @@
   `interop/debug-enabled?` is false at compile time)."
   []
   @buffer-state)
+
+(defn current-depth
+  "Return the configured buffer depth (`default-buffer-depth` until
+  `set-buffer-depth!` rewrites it). Public so the registry's
+  `:rf.causa/note-trace-event` event-db handler can mirror the
+  same eviction-on-overflow algebra `collect-trace!` uses (per
+  rf2-iw5ym)."
+  []
+  @buffer-depth)
 
 ;; ---- consumer-side filter (rf2-qi8au) -----------------------------------
 ;;
@@ -214,17 +256,31 @@
 
   Per rf2-0vxdn `config/reset-suppressed-count!` itself dispatches
   `:rf.causa/reset-suppressed-counters` in CLJS so the reactive
-  app-db slot clears in lockstep with the atom."
+  app-db slot clears in lockstep with the atom.
+
+  Per rf2-iw5ym the buffer's app-db mirror also clears in lockstep
+  — the CLJS path dispatches `:rf.causa/clear-trace-buffer` so the
+  `:rf.causa/trace-buffer` sub re-fires off the standard write
+  path and panels reading the buffer drop to empty immediately."
   []
   (when interop/debug-enabled?
     (reset! buffer-state [])
-    (config/reset-suppressed-count!))
+    (config/reset-suppressed-count!)
+    #?(:cljs
+       (when (frame/frame :rf/causa)
+         (binding [frame/*current-frame* :rf/causa]
+           (rf/dispatch [:rf.causa/clear-trace-buffer])))))
   nil)
 
 (defn set-buffer-depth!
   "Set the buffer's depth. `depth=0` keeps the collector wired (so the
   callback can be replaced or augmented) but flushes the buffer to
-  empty and prevents further accumulation. No-op in production."
+  empty and prevents further accumulation. No-op in production.
+
+  Per rf2-iw5ym: when the new depth shrinks the buffer, the app-db
+  mirror is re-synced via `:rf.causa/sync-trace-buffer` so the
+  reactive `:rf.causa/trace-buffer` sub reflects the truncated
+  shape rather than the pre-shrink contents."
   [depth]
   (when (and interop/debug-enabled? (number? depth) (not (neg? depth)))
     (reset! buffer-depth depth)
@@ -234,5 +290,9 @@
                (cond
                  (zero? depth) []
                  (> n depth)   (subvec v (- n depth))
-                 :else         v)))))
+                 :else         v))))
+    #?(:cljs
+       (when (frame/frame :rf/causa)
+         (binding [frame/*current-frame* :rf/causa]
+           (rf/dispatch [:rf.causa/sync-trace-buffer @buffer-state])))))
   nil)

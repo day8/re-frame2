@@ -102,7 +102,12 @@
   (frame/reg-frame :rf/causa {}))
 
 (defn- push-trace! [ev]
-  (trace-bus/collect-trace! ev))
+  ;; Per rf2-iw5ym: `:rf.causa/trace-buffer` is reactive off Causa's
+  ;; app-db, not the trace-bus atom. Tests drive the reactive write
+  ;; path directly via `dispatch-sync` so the composite sub re-fires
+  ;; synchronously on the next subscribe.
+  (rf/with-frame :rf/causa
+    (rf/dispatch-sync [:rf.causa/note-trace-event ev])))
 
 ;; Construct a synthetic trace event with the canonical 9-axis tags.
 (defn- mk-trace

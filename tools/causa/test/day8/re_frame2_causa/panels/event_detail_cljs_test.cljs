@@ -71,14 +71,23 @@
     :tags {:dispatch-id dispatch-id :render-key [:app/root nil]}}])
 
 (defn- seed-buffer!
-  "Wire the trace collector (preload-style) and push the supplied
-  events through it so the Causa buffer matches the production
-  delivery path."
+  "Register Causa's handlers, allocate the :rf/causa frame, then push
+  the supplied events through Causa's reactive trace-buffer slot.
+
+  Per rf2-iw5ym `:rf.causa/trace-buffer` is reactive off Causa's
+  app-db; the buffer-bus atom is no longer the sub's source of
+  truth. Tests drive the new reactive write path via `dispatch-sync`
+  of `:rf.causa/note-trace-event` so the composite sub re-fires
+  synchronously before the view is rendered. (Production wiring
+  still goes through `trace-bus/collect-trace!`; that path is
+  covered by sensitive_trace_cljs_test + filter_vocab_consumer_
+  cljs_test.)"
   [evs]
   (registry/register-causa-handlers!)
   (frame/reg-frame :rf/causa {})
-  (doseq [ev evs]
-    (trace-bus/collect-trace! ev)))
+  (rf/with-frame :rf/causa
+    (doseq [ev evs]
+      (rf/dispatch-sync [:rf.causa/note-trace-event ev]))))
 
 (defn- expand-fn-component
   "When `node` is a hiccup-style `[fn-component args...]` vector
