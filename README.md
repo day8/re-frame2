@@ -1,5 +1,16 @@
 <p align="center"><img src="docs/images/logo/re-frame-colour.png?raw=true" alt="re-frame2 logo"></p>
 
+<p align="center">
+  <a href="https://github.com/day8/re-frame2/actions/workflows/docs.yml"><img src="https://github.com/day8/re-frame2/actions/workflows/docs.yml/badge.svg?branch=main" alt="Docs build"></a>
+  <a href="https://day8.github.io/re-frame2/"><img src="https://img.shields.io/badge/docs-day8.github.io/re--frame2-blue" alt="Docs"></a>
+  <img src="https://img.shields.io/badge/status-pre--alpha-orange" alt="Pre-alpha">
+  <img src="https://img.shields.io/badge/spec-22K%20lines%20%C2%B7%2035%2B%20docs-purple" alt="Spec corpus">
+  <a href="license.txt"><img src="https://img.shields.io/github/license/day8/re-frame2" alt="License"></a>
+  <img src="https://img.shields.io/badge/AI--first-yes-brightgreen" alt="AI-first">
+</p>
+
+> **Install (pre-alpha, pre-Clojars):** add as a `:git/sha` coordinate in `deps.edn` — see [Getting started](docs/guide/01-getting-started.md). Maven/Clojars + npm artefacts are coming once the spec stabilises.
+
 > *This, milord, is my family's axe. We have owned it for almost nine hundred years, see. Of course, sometimes it needed a new blade. And sometimes it has required a new handle, new designs on the metalwork, a little refreshing of the ornamentation ... but is this not the nine hundred-year-old axe of my family? And because it has changed gently over time, it is still a pretty good axe, y'know. Pretty good.*
 >
 > — Terry Pratchett, *The Fifth Elephant* — reflecting on identity, flow, and derived values (aka [the Ship of Theseus](https://en.wikipedia.org/wiki/Ship_of_Theseus))
@@ -59,21 +70,19 @@ And, yes, relax, you can set policies to elide sensitive things, as well as too-
 
 Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
-re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
+re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, fannout, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
 
 `:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:invoke` / `:invoke-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
 
-And the external story composes naturally with the *internal* management primitives — events, subs, state machines, flows — that handle the 7Guis-class problems. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
+And the external story composes naturally with the *internal* management primitives that handle, say, the Nine States Of GUIs problems in an unsuspenceful way. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
 
 **5. Lisp's quiet advantage.**
 
 Apologies for the nerd snipe, but ...
 
-re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like being on the top of a mountain, meditating. 
+re-frame was born out of Clojure's ethos, and Clojure is a modern Lisp. Alan Kay once described Lisp as "Maxwell's equations of software," and Paul Graham wrote at length about Lisp as a competitive advantage. I'm not going to relitigate those essays here. I'll just note that Lisp, and by extension re-frame2, inherits 50 years of foliated excellence from some of the best minds the field has produced, and a thriving ClojureScript community alongside it. Unlike TS or JS, Lisp went through its painful growing pains and industrial-level churn 40 years ago. It is a peaceful place now. Like meditating in a Zen garden.
 
-Having said that, if you love living in a washing machine, you can roll your own version of re-frame2 in JS, TS, Reason, etc.
-
-I'm glad I got that off my chest.
+Having said that, if living in a washing machine is more your thing, you can roll your own version of re-frame2 in JS, TS, Reason, etc.  :-)
 
 ### Novelty, bah humbug!
 
@@ -89,6 +98,10 @@ Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimension
   - **[State Machines](https://day8.github.io/re-frame2/guide/08-state-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, `:after`, `:always`, declarative `:invoke`, spawn-and-join, actor model, `:tags` query layer. We skip XState's history states in favour of snapshot-as-value capture — a strict superset for any codebase already using re-frame2's revertibility.
   - **[Flows](https://day8.github.io/re-frame2/guide/18-from-re-frame-v1/#flows--the-replacement-for-on-changes)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/04a-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
+  - **Reagent-slim** — a re-frame2-optimised Reagent rewrite. React 19 native, **3,954 bytes smaller** than stock Reagent, drop-in via a one-line `deps.edn` coord swap. Substrate-adapter contract proved itself when Causa migrated to Reagent-slim with zero code changes outside the dep declaration.
+  - **Privacy + Size Elision** — `:sensitive?` (drop-and-forget) and `:large?` (elide-with-fetch-handle) traverse the same boundary walker. Composition rule: sensitive wins. End-to-end stack — cap × path-slice × diff-encode (50%) × dedup (89.5%) × elision (99.985%) × lazy-summary — produces a **38,689× wire-payload shrink** on the worked example. Sensitive things stay out of trace, story, MCP transports, and remote logs by default.
+  - **MCP triplet** — three Model Context Protocol servers ([pair2-mcp](tools/pair2-mcp/), [story-mcp](tools/story-mcp/), [causa-mcp](tools/causa-mcp/)) that expose the running app, the story playground, and the devtools surface to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
+  - **[Migration tooling](spec/MIGRATION.md)** — re-frame v1.x → re-frame2 is a 40+ rule AI-driven rewrite. Mechanical where the transform can be mechanical, flagged-for-review where the rewrite depends on intent. Ship via the `re-frame-migration` Claude skill.
 
 ## Status
 
