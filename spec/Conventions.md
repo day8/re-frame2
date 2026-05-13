@@ -18,6 +18,7 @@ The previous v1-and-early-v2 scheme used 14 separate top-level prefixes (`:regis
 | `:rf.frame/<operation>` | Frame-lifecycle trace-operation namespace, owned by the router and frame lifecycle (e.g. `:rf.frame/drain-interrupted`, `:rf.frame/destroyed`). | 002 / 009 |
 | `:rf.registry/*` | Registrar mutation trace operations (`:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced`) | 001 / 009 |
 | `:rf.fx/*` | Effect-resolution advisories (`:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`); reserved fx-ids in machine `:fx` (`:rf.fx/spawn-args`) | 002 / 009 |
+| `:rf.cofx/*` | Cofx-resolution advisories — cofx-substrate events that ride the error envelope but are not necessarily failures. Reserved members: `:rf.cofx/skipped-on-platform` (emitted as a `:warning` with `:recovery :skipped` when a registered cofx's `:platforms` set excludes the active platform; mirror of `:rf.fx/skipped-on-platform`). Per [009 §Error namespace convention](009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) and [011 §Effect handling on the server](011-SSR.md#effect-handling-on-the-server). | 009 / 011 |
 | `:rf.error/*` | Error trace operations (handler exception, sub exception, fx exception, etc.) | 009 |
 | `:rf.warning/*` | Warning trace operations (e.g. `:rf.warning/plain-fn-under-non-default-frame-once`) | 009 |
 | `:rf.machine/*` | Machine lifecycle and transition trace operations (`:rf.machine/transition`, `:rf.machine/snapshot-updated`); machine framework subs (`[:rf/machine <id>]`) | 005 |
