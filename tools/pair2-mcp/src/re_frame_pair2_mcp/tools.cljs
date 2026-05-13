@@ -2498,22 +2498,136 @@
     (js/Promise.resolve
       (err-text {:ok? false :reason :unknown-tool :tool name}))))
 
+;; ---------------------------------------------------------------------------
+;; Cache precheck — rf2-36xod. Server-side cheap-hash probe.
+;;
+;; The original rf2-3rt1f cache decides a hit AFTER running the tool by
+;; hashing the result text. That saves wire bytes but still pays the
+;; full nREPL round-trip + path-slice + transform pipeline. The rf2-36xod
+;; precheck moves the decision EARLIER: one bencode round-trip asks the
+;; runtime for `(hash (re-frame-pair2.runtime/snapshot frame))`. If the
+;; hash matches the stored entry for `(tool, args)`, we emit the cache-
+;; hit marker WITHOUT running the tool — saving both the wire bytes AND
+;; the full tool eval.
+;;
+;; Eligibility (today): single-frame `snapshot` and `get-path`. Their
+;; result is a function of `(frame, args, app-db@frame)`; same frame +
+;; same args + same db-hash ⇒ same result. Multi-frame `snapshot`
+;; (`:frames :all` or a vector) is NOT eligible because we'd need to
+;; hash every frame's db separately and combine — out of scope; the
+;; legacy post-eval `apply-cache` path still catches those.
+;;
+;; Trace tools (`trace-window`, `watch-epochs`, `discover-app`) are not
+;; eligible — their result depends on the epoch ring / health surface,
+;; not just `(hash app-db)`. Plumbing a per-surface hash is the
+;; follow-on work (see `cache.cljs` docstring).
+;; ---------------------------------------------------------------------------
+
+(defn- precheck-frame
+  "Resolve the frame to use for a single-frame precheck. Returns the
+  frame keyword (e.g. `:rf/default`) or nil if the tool isn't
+  precheck-eligible.
+
+  `snapshot` is eligible only when `:frames` resolves to a single frame
+  (an explicit one-element vector or a single scalar). `:all` or a
+  multi-element vector returns nil — those callers fall back to the
+  post-eval cache.
+
+  `get-path` is always eligible (its `:frame` slot is single-valued by
+  contract; absent means \"operating frame\")."
+  [tool args]
+  (case tool
+    "snapshot"
+    (let [raw-frames (when args (j/get args "frames"))
+          frames     (parse-frames-arg raw-frames)]
+      (cond
+        ;; explicit single-frame vector
+        (and (vector? frames) (= 1 (count frames)))
+        (first frames)
+        ;; vector with multiple frames — not eligible
+        (vector? frames)
+        nil
+        ;; :all — not eligible
+        (= :all frames)
+        nil
+        :else nil))
+
+    "get-path"
+    ;; nil-frame is allowed — runtime resolves to operating frame, so
+    ;; the eval form computes the hash over whichever frame the runtime
+    ;; picks. The hash still keys on (tool, args), so the cache slot is
+    ;; consistent.
+    (or (some-> (arg args :frame) ->frame-keyword)
+        :rf.mcp.cache/operating-frame)
+
+    ;; Other tools — not precheck-eligible yet.
+    nil))
+
+(defn- precheck-form
+  "The CLJS eval form for the runtime-side cheap hash. We hash the
+  full per-frame snapshot — `(hash db)` is O(n) on the persistent map
+  but the wire payload is a single integer, and the alternative
+  (running the full tool + transform pipeline) is strictly more
+  expensive. A cheaper O(1) hash kept at mutation time is the
+  follow-on optimisation (filed separately)."
+  [frame]
+  (cond
+    (= frame :rf.mcp.cache/operating-frame)
+    "(hash (re-frame-pair2.runtime/snapshot))"
+
+    (keyword? frame)
+    (str "(hash (re-frame-pair2.runtime/snapshot " (pr-str frame) "))")
+
+    :else nil))
+
+(defn- fetch-precheck-hash
+  "Issue the one-bencode-round-trip eval to fetch the runtime-side
+  hash. Returns a Promise resolving to an integer hash, or `nil` on
+  any failure (the caller treats nil as 'no precheck — proceed').
+
+  Errors are swallowed by design: a failed precheck must NEVER block
+  the actual tool call. The worst case is we lose the optimisation
+  for this call; the post-eval cache still catches the wire-bytes
+  saving."
+  [conn args frame]
+  (if-let [form (precheck-form frame)]
+    (let [build-id (arg-build args)]
+      (-> (nrepl/cljs-eval-value conn build-id form)
+          (.then (fn [v]
+                   (cond
+                     (integer? v) v
+                     (number? v)  (long v)
+                     :else        nil)))
+          (.catch (fn [_] nil))))
+    (js/Promise.resolve nil)))
+
 (defn invoke
   "Dispatch a `tools/call` invocation to the right tool implementation.
   Returns a Promise resolving to the MCP result object.
 
   ## Wire-boundary pipeline
 
-  Each result passes through two egress transforms in order:
+  When the per-call `cache` arg is enabled, the invocation runs the
+  following:
+
+  0. `cache/precheck` (rf2-36xod) — for precheck-eligible tools
+     (`snapshot` single-frame; `get-path`) issue one cheap nREPL eval
+     `(hash (re-frame-pair2.runtime/snapshot frame))` and compare to
+     the stored `:precheck-hash` for `(tool, args)`. On a match,
+     short-circuit with `{:rf.mcp/cache-hit ... :via :precheck}` —
+     the tool eval is SKIPPED entirely. Saves the full pipeline cost.
+     On a miss (or for tools without precheck wiring), fall through.
 
   1. `cache/apply-cache` (rf2-3rt1f) — per-session response cache
      keyed on a hash of the result's text payload. On a hit (same
      hash for `(tool, args)` as the prior call) the full payload is
-     replaced with a tiny `{:rf.mcp/cache-hit ...}` marker; the
-     agent host already has the byte-identical bytes from the prior
-     `tools/call`. Opt-in via the per-call `cache` arg (default
-     `false`); read-only tools only; `:isError` results bypass
-     entirely. See `cache/apply-cache` for the LRU policy.
+     replaced with a tiny `{:rf.mcp/cache-hit ... :via :result-hash}`
+     marker; the agent host already has the byte-identical bytes
+     from the prior `tools/call`. Read-only tools only; `:isError`
+     results bypass entirely. See `cache/apply-cache` for the LRU
+     policy. When a precheck-hash was fetched in step 0, it's
+     recorded alongside the result hash so the NEXT call can
+     short-circuit via the precheck path.
 
   2. `apply-cap` (rf2-rvyzy) — responses whose serialised size
      exceeds the per-call cap (default 5,000 tokens, configurable
@@ -2531,13 +2645,32 @@
   _meta.progressToken) for streaming tools. Non-streaming tools
   ignore it."
   [conn name args extra]
-  (let [cap-opts   {:tool     name
-                    :cap      (max-tokens-arg args)
-                    :strategy :truncate-with-marker}
-        cache-opts {:tool     name
-                    :args     args
-                    :enabled? (cache/parse-cache-arg
-                                (when args (j/get args "cache")))}]
-    (-> (dispatch-tool* conn name args extra)
-        (.then (fn [result] (cache/apply-cache result cache-opts)))
+  (let [cap-opts    {:tool     name
+                     :cap      (max-tokens-arg args)
+                     :strategy :truncate-with-marker}
+        enabled?    (cache/parse-cache-arg
+                      (when args (j/get args "cache")))
+        cache-opts  {:tool     name
+                     :args     args
+                     :enabled? enabled?}
+        ;; Step 0: precheck — only fetch a hash when cache is enabled
+        ;; AND the tool has precheck wiring. Otherwise resolve a
+        ;; sentinel pair `[nil nil]` immediately and skip the round-trip.
+        precheck-pr (if-let [frame (and enabled? (precheck-frame name args))]
+                      (-> (fetch-precheck-hash conn args frame)
+                          (.then (fn [h]
+                                   [h (cache/precheck cache-opts h)])))
+                      (js/Promise.resolve [nil nil]))]
+    (-> precheck-pr
+        (.then (fn [[h hit]]
+                 (if hit
+                   ;; Short-circuit — skip the tool entirely.
+                   hit
+                   ;; Miss / no precheck — run the tool and feed the
+                   ;; result + (any) precheck-hash into apply-cache.
+                   (-> (dispatch-tool* conn name args extra)
+                       (.then (fn [result]
+                                (cache/apply-cache
+                                  result
+                                  (assoc cache-opts :precheck-hash h))))))))
         (.then (fn [result] (apply-cap result cap-opts))))))
