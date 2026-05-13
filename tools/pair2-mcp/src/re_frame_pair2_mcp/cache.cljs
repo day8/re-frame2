@@ -95,7 +95,8 @@
   (rf2-obpa9), `:rf.mcp/summary` (rf2-tygdv), `:rf.size/large-elided`
   (rf2-urjnc). Agents that learned the family see one more slot."
   (:require [applied-science.js-interop :as j]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame-pair2-mcp.tools.registry :as registry]))
 
 ;; ---------------------------------------------------------------------------
 ;; LRU state — module-level atom; one MCP server process = one session.
@@ -282,18 +283,15 @@
 ;; The wire-boundary entry-point.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private cacheable-tools
-  "Tools whose return value is a read of state — re-asking with the
-  same args against unchanged state legitimately returns the same
-  bytes. Action tools (`dispatch`, `eval-cljs`, `tail-build`) and
-  streaming tools (`subscribe`, `unsubscribe`) are excluded — their
-  return value is the result of an action, not a read."
-  #{"snapshot" "get-path" "trace-window" "watch-epochs" "discover-app"})
+(def cacheable?
+  "Predicate — should this tool ever consult the cache?
 
-(defn cacheable?
-  "Predicate — should this tool ever consult the cache?"
-  [tool]
-  (contains? cacheable-tools tool))
+  Forwarded to `registry/cacheable?` (rf2-47g8l) — the cacheable-bool
+  is stored on each entry in the single-source-of-truth registry, so
+  cache.cljs doesn't redeclare the allowlist. Keeping the name here
+  preserves the call-site vocabulary (`cache/cacheable?`) for existing
+  tests and for the `apply-cache` / `precheck` use sites below."
+  registry/cacheable?)
 
 (defn apply-cache
   "Wire-boundary cache check (rf2-3rt1f match-after-eval path). Returns
