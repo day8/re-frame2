@@ -373,7 +373,7 @@ The `:spec/validate-at-boundary` interceptor (when attached) emits:
              :failing-id  :cart/set-quantity
              :path        [1]
              :value       "not-a-uuid"
-             :explanation {...}                ;; Malli explanation map
+             :explain     {...}                ;; Malli explanation map
              :reason      "Event vector for `:cart/set-quantity` failed schema at path [1]: expected :uuid, got \"not-a-uuid\"."}}
 ```
 

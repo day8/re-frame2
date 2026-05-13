@@ -17,7 +17,7 @@ validation failure emits a trace event:
              :path   <path-into-app-db-or-event>
              :value  <the offending value>
              :schema <the schema id>
-             :explanation <Malli explanation>
+             :explain <Malli explanation>
              :frame  <frame-id>}
  :time      <ms>}
 ```

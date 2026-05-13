@@ -37,11 +37,11 @@
   "Build a minimal `:rf.error/schema-validation-failure` trace event
   fixture. Mirrors the shape Spec 009's error-event catalogue
   documents: `:op-type :error`, top-level `:recovery`,
-  `:tags {:where :path :value :schema :explanation :frame
+  `:tags {:where :path :value :schema :explain :frame
   :dispatch-id}`."
   ([id schema-id recovery]
    (failure-ev id schema-id recovery {}))
-  ([id schema-id recovery {:keys [where path value explanation frame dispatch-id time]
+  ([id schema-id recovery {:keys [where path value explain frame dispatch-id time]
                            :or {where :app-db
                                 path  [:auth :email]
                                 value nil
@@ -57,7 +57,7 @@
                                 :value  value
                                 :schema schema-id
                                 :frame  frame}
-                         explanation  (assoc :explanation explanation)
+                         explain      (assoc :explain explain)
                          dispatch-id  (assoc :dispatch-id dispatch-id))})))
 
 ;; ---- (1) recovery → colour mapping --------------------------------------
@@ -126,7 +126,7 @@
     (let [ev  (failure-ev 99 :schema/user-auth :replaced-with-default
                           {:path [:user :email]
                            :value nil
-                           :explanation {:message "missing required key"}
+                           :explain {:message "missing required key"}
                            :dispatch-id 42
                            :time 12345})
           row (h/project-violation ev)]
@@ -137,7 +137,7 @@
       (is (= :app-db (:where row)))
       (is (= [:user :email] (:path row)))
       (is (nil? (:value row)))
-      (is (= {:message "missing required key"} (:explanation row)))
+      (is (= {:message "missing required key"} (:explain row)))
       (is (= :rf/default (:frame row)))
       (is (= 42 (:dispatch-id row)))
       (is (= ev (:raw row))
@@ -331,14 +331,14 @@
   (testing "tooltip carries path + value when both present"
     (let [t (h/format-tooltip {:path [:auth :email]
                                :value nil
-                               :explanation nil})]
+                               :explain nil})]
       (is (some? t))
       (is (re-find #"\[:auth :email\]" t))
       (is (re-find #"got nil" t))))
-  (testing "tooltip surfaces an :explanation :message slot when present"
+  (testing "tooltip surfaces an :explain :message slot when present"
     (let [t (h/format-tooltip {:path [:user]
                                :value 42
-                               :explanation {:message "expected string"}})]
+                               :explain {:message "expected string"}})]
       (is (re-find #"expected string" t)))))
 
 (deftest schema-row-label-renders-paths-and-keywords
