@@ -55,6 +55,42 @@ vocabulary declared in
 an agent that learned the slot on causa-mcp sees the same slot
 here.
 
+## Universal: size-elision on `:app-db` slots
+
+Every tool that surfaces `:app-db` — `snapshot` (each frame's
+`:app-db` slice) and `get-path` (the resolved value) — runs
+the slot through `re-frame.core/elide-wire-value` (rf2-v9tw2)
+server-side before the EDN crosses the wire (see
+[`Principles.md` §Size-elision wire markers](Principles.md#size-elision-wire-markers-rf2-urjnc)).
+Each affected tool accepts an `elision` arg (boolean,
+default `true`). Declared paths
+(`rf/declare-large-path!`), schema-driven paths (`:large?
+true`), and over-threshold leaves are substituted with
+
+```clojure
+{:rf.size/large-elided
+ {:path   [<segment>...]
+  :bytes  <int>
+  :type   :map | :vector | :set | :string | :scalar
+  :reason :declared | :schema | :runtime-flagged
+  :hint   <string-or-nil>
+  :handle [:rf.elision/at <path>]}}
+```
+
+The substitution is at the elided slot — small siblings ride
+verbatim. Agents drill into the slot via `get-path` using the
+handle's path, or pass `elision false` to bypass the walker
+and receive the raw value. Markers fire BEFORE the
+path-slicing / diff-encode / dedup / wire-cap pipeline, so
+cap measures post-elision bytes — a single declared-large
+slot can no longer blow the cap on its own.
+
+The marker key `:rf.size/large-elided` and the handle
+vocabulary `[:rf.elision/at <path>]` are reserved per
+[`Conventions §Reserved namespaces`](../../../spec/Conventions.md)
+and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md);
+the shape is shared across pair2-mcp, story-mcp, and causa-mcp.
+
 ## discover-app
 
 Verify the shadow-cljs nREPL is reachable, confirm the
@@ -193,7 +229,9 @@ strings — path-slicing for the `:app-db` slice, rf2-tygdv),
 §Diff-encoded `:db-after`; controls the `:epochs` slice's wire shape,
 rf2-1wdzp), `dedup` (boolean, default `true` — applies structural dedup
 per-frame to each `:epochs` slot; see §Structural dedup at the top of
-this catalogue), `build` (string).
+this catalogue), `elision` (boolean, default `true` — applies the
+size-elision walker to each frame's `:app-db` slice; see §Size-elision
+at the top of this catalogue, rf2-urjnc), `build` (string).
 
 **Returns**:
 
@@ -203,8 +241,10 @@ this catalogue), `build` (string).
  :include [:app-db :sub-cache :machines :epochs :traces]
  :mode :summary | :path-sliced
  :epochs-mode :diff | :full
+ :dedup   true | false
+ :elision true | false
  :path  [<segment>...]              ; only when `path` arg was supplied
- :snapshot {<frame-id> {:app-db    <slice>
+ :snapshot {<frame-id> {:app-db    <slice>          ; large slots → :rf.size/large-elided marker
                         :sub-cache {<query-v> {:value v :ref-count n}}
                         :machines  {:ids [<machine-id>...]
                                     :state {<machine-id> <snapshot>}}
@@ -277,7 +317,10 @@ the wire (rf2-tygdv).
 
 **Args**: `path` (string — EDN-encoded vector, e.g. `"[:cart :items 0
 :sku]"` — or JSON array of segment strings; required), `frame`
-(string — frame-id, default operating frame), `build` (string).
+(string — frame-id, default operating frame), `elision` (boolean,
+default `true` — applies the size-elision walker to the resolved
+value; see §Size-elision at the top of this catalogue, rf2-urjnc),
+`build` (string).
 
 **Returns** on success:
 
@@ -285,8 +328,9 @@ the wire (rf2-tygdv).
 {:ok?     true
  :exists? true
  :path    [<segment>...]
- :value   <subtree>
- :frame   <frame-id>}     ; only when frame arg was supplied
+ :value   <subtree>            ; may be `:rf.size/large-elided` marker when elision applies
+ :elision true | false
+ :frame   <frame-id>}          ; only when frame arg was supplied
 ```
 
 When the path doesn't resolve:
@@ -303,6 +347,12 @@ When the path doesn't resolve:
 value (`:exists? true :value nil`) from a path that doesn't resolve
 (`:ok? false :reason :path-not-found`). The deepest-valid-prefix lets
 the agent re-aim without a binary search.
+
+When `elision` is enabled (default), a declared / schema-`:large?`
+path or an over-threshold leaf returns a `:rf.size/large-elided`
+marker (with a `:handle [:rf.elision/at <path>]` fetch handle) in
+place of the raw bytes. Drill into a non-elided child by re-calling
+with a deeper `path`. Pass `elision false` to bypass the walker.
 
 `get-path` is the read-by-path surface for when `snapshot`'s
 `:summary` mode tells the agent which key carries the answer.

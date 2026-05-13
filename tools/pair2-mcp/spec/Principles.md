@@ -421,6 +421,113 @@ The cache is per-tick (no cross-tick refs); each `:events`
 vector in the progress payload is a self-contained deduped
 blob.
 
+### Size-elision wire markers (rf2-urjnc)
+
+The fifth wire-protocol mechanism. After diff-encoding
+(rf2-1wdzp) collapses each `:db-after` and dedup (rf2-obpa9)
+pools repeated subtrees, a single large slot — say a 100KB
+uploaded PDF base64 on `[:user :uploaded-pdf]` — still rides
+the wire verbatim. The framework's size-elision walker
+(`re-frame.core/elide-wire-value`, rf2-v9tw2) substitutes
+such slots with a marker carrying a fetch handle.
+
+**The transform**. Each frame's `:app-db` slice (in
+`snapshot`) and each get-path resolved value (in `get-path`)
+is run through the walker server-side, inside the eval form
+sent over nREPL. The walker reads the per-frame
+`[:rf/elision]` registry — populated at boot from
+`:large? true` schema metadata (rf2-nwv63) and at runtime via
+`rf/declare-large-path!` — and substitutes registered paths
+plus over-threshold leaves:
+
+```clojure
+;; Wire shape (substitution at a single elidable slot)
+{:rf.size/large-elided
+ {:path   [<segment>...]            ; address of the elided slot
+  :bytes  <int>                     ; pr-str byte count
+  :type   :map | :vector | :set | :string | :scalar
+  :reason :declared | :schema | :runtime-flagged
+  :hint   <string-or-nil>           ; from the registry entry
+  :handle [:rf.elision/at <path>]}} ; agent re-fetches via get-path
+```
+
+The marker is a SUBSTITUTION at the elided slot — not a
+wrapper around the response. A 1MB app-db with a 100KB
+`:large?` slot at `[:user :uploaded-pdf]` returns the
+small siblings verbatim and the marker at the elided slot.
+The walker recurses past containers and only elides at the
+declared path (or at a leaf over threshold) — drilling INTO
+the elided subtree via `get-path [:user :uploaded-pdf
+:metadata]` returns the small metadata directly.
+
+**Why server-side, not wire-side**. The walker reads the
+`[:rf/elision]` registry from the live app-db. The MCP server
+is a Node process that doesn't have direct access to the
+running re-frame frame; the registry is reachable only inside
+the eval form. The walker is the single normative emission
+site for the marker — per Spec API §`elide-wire-value`,
+per-tool reimplementation is prohibited. So pair2-mcp's
+snapshot and get-path tools include the walker call in the
+EDN form they send over nREPL.
+
+**Where in the pipeline**. Elision runs FIRST. The downstream
+pipeline (`scrub-sensitive` → `slice-app-db-in-snapshot` →
+`diff-encode-epochs` → `dedup-epochs` → wire-cap) operates on
+the post-elision payload. Cap measures post-elision bytes —
+a single declared-`:large?` slot can no longer blow the cap
+on its own. The cap stays a backstop, not the primary
+mechanism for the common case.
+
+**Composition**:
+
+- *Path-slicing × elision*. The walker substitutes at the
+  declared path; the path-slicer then drills into the
+  already-substituted value. A `snapshot {:path [:user
+  :uploaded-pdf]}` against a declared-large path returns
+  the marker. A `snapshot {:path [:user :uploaded-pdf
+  :metadata]}` against a non-elided child returns the small
+  metadata directly — the walker emits at containers it
+  recognises in the registry, not at every descendent.
+- *Diff-encode × elision*. Elision applies to the `:app-db`
+  slice only. The `:epochs` slice (where diff-encode lives)
+  is unaffected; the `:db-before` reference inside each
+  epoch record is the dedup mechanism's domain, not the
+  elision mechanism's.
+- *Cap × elision*. Cap measures post-elision payload. When
+  elision is on and a `:large?` path matches, the response
+  shrinks to the marker and cap stays a backstop. When
+  elision is off, the raw payload rides and cap may still
+  trip — that's the rf2-rvyzy fallback.
+
+**`elision` arg**. Every tool that surfaces `:app-db`
+(snapshot, get-path) accepts an `elision` arg (boolean,
+default `true`). Pass `false` to bypass the walker entirely —
+useful for agents with explicit override permission that
+need the full payload (e.g. a debug session inspecting the
+elided slot itself, or a runtime that hasn't been taught the
+registry shape yet). The default-on posture matches the
+privacy / dedup defaults: shrink first, opt out explicitly.
+
+**Cross-MCP vocabulary**. The marker key
+`:rf.size/large-elided` and the handle vocabulary
+`[:rf.elision/at <path>]` are reserved per
+[`Conventions §Reserved namespaces / app-db keys / fx-ids`](../../../spec/Conventions.md)
+and [`Spec 009 §Size elision in traces`](../../../spec/009-Instrumentation.md).
+The shape is shared across pair2-mcp, story-mcp, and causa-mcp
+— an agent that learned the slot on causa-mcp sees the same
+slot here. The `:rf.size/*` family sits alongside the
+`:rf.mcp/*` family (per-tool wire-mechanism markers like
+`:rf.mcp/overflow`, `:rf.mcp/summary`, `:rf.mcp/diff-from`,
+`:rf.mcp/dedup-table`).
+
+**Wire-byte impact**. A 100KB declared `:large?` slot in a
+1MB app-db compresses to ~150-byte marker on the wire — a
+99.985% reduction at that slot. The rest of the slice rides
+verbatim; the dominant cost falls to the surrounding small
+siblings. Combined with path-slicing (`:summary` default on
+snapshot), the typical `investigate-X` workflow stays well
+inside the 5,000-token cap without further drill-down.
+
 ## Backed by the framework's principles
 
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):

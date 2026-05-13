@@ -534,6 +534,109 @@
     v))
 
 ;; ---------------------------------------------------------------------------
+;; Size-elision wire markers (rf2-urjnc).
+;;
+;; The fifth wire-protocol mechanism. After diff-encoding (rf2-1wdzp)
+;; collapses each `:db-after`, and dedup (rf2-obpa9) pools repeated
+;; subtrees, a single large slot — say a 100KB uploaded PDF base64 on
+;; `[:user :uploaded-pdf]` — still rides the wire verbatim. The
+;; framework's size-elision walker (`rf/elide-wire-value`, rf2-v9tw2)
+;; substitutes such slots with a `{:rf.size/large-elided {...}}` marker
+;; carrying a fetch handle (`[:rf.elision/at <path>]`). Agents drill
+;; back into the slot via `get-path` using the handle's path.
+;;
+;; ## Where in the pipeline
+;;
+;; Elision runs FIRST — server-side inside the eval form, where the
+;; frame's `[:rf/elision]` registry is reachable. The MCP server gets
+;; back data that already carries `:rf.size/large-elided` markers in
+;; place of declared / over-threshold slots. The downstream pipeline
+;; (path-slicing → diff-encode → dedup → wire-cap) operates on the
+;; post-elision payload — cap measures post-elision bytes, so a single
+;; declared-large slot can't blow the cap on its own.
+;;
+;; ## Where it fires
+;;
+;; - `snapshot` tool: each frame's `:app-db` slice is run through the
+;;   walker before slice-app-db-in-snapshot sees it. The walker handles
+;;   both declared paths (registry-driven) and runtime over-threshold
+;;   leaves (auto-detect). Path-slicing then drills into the
+;;   already-elided value — drilling into a non-elided sibling returns
+;;   the small slot directly; drilling into the elided subtree returns
+;;   the marker.
+;; - `get-path` tool: the value at the requested path is run through
+;;   the walker before pr-str. A small slot returns directly; a large
+;;   slot returns the marker with a handle the agent can use for a
+;;   subsequent narrower fetch.
+;;
+;; ## `:elision` MCP arg
+;;
+;; Each surfacing tool accepts an `:elision` arg (boolean, default
+;; `true`). Pass `false` to bypass elision entirely — useful for
+;; agents with explicit override permission that need the full
+;; payload (e.g. a debug session inspecting the elided slot itself).
+;; The default-on posture matches the privacy / dedup defaults: shrink
+;; first, opt out explicitly.
+;;
+;; Per the spec's `:elision` configure key (Conventions / API.md), the
+;; underlying knobs are `:rf.size/include-large?`,
+;; `:rf.size/include-sensitive?`, `:rf.size/include-digests?`, and
+;; `:rf.size/threshold-bytes`. Today we surface the simple boolean
+;; (`:elision true|false`); finer-grained control is a follow-on bead
+;; (the bead's acceptance pins the simple-boolean shape).
+;;
+;; ## Cross-MCP vocabulary
+;;
+;; The marker key `:rf.size/large-elided` and the handle vocabulary
+;; `[:rf.elision/at <path>]` are reserved per
+;; [Conventions §Reserved namespaces / app-db keys / fx-ids] and
+;; [Spec 009 §Size elision in traces]. They are the cross-MCP wire
+;; vocabulary — story-mcp, causa-mcp, and pair2-mcp emit the same
+;; shape so an agent learns the slot once. The `:rf.size/*` family
+;; sits alongside `:rf.mcp/*` (the per-tool wire-mechanism family).
+;;
+;; ## Handle round-trip
+;;
+;; An agent that receives a marker on `snapshot {:path [:a :b]}`
+;; — say `{:rf.size/large-elided {... :handle [:rf.elision/at [:a :b]]}}`
+;; — calls `get-path {:path [:a :b]}` next. With `elision true`
+;; (default), the walker runs again and returns the same marker
+;; (handle-emitter idempotence). With `elision false`, the call
+;; returns the un-elided value. Drilling INTO the elided subtree
+;; (e.g. `get-path {:path [:a :b :metadata]}` when only `[:a :b]` is
+;; declared-large) returns the small metadata directly — the walker
+;; recurses past containers and only elides at the declared path
+;; or at a leaf over threshold.
+;; ---------------------------------------------------------------------------
+
+(defn- parse-elision-arg
+  "Normalise the `elision` MCP arg into a boolean. Accepts booleans,
+  strings (`\"true\"`/`\"false\"`), keywords (`:true`/`:false`), or
+  nil (default `true`). Unrecognised values default to `true` —
+  least-surprise on the budget-sensitive default fires elision."
+  [raw]
+  (cond
+    (nil? raw)             true
+    (true? raw)            true
+    (false? raw)           false
+    (= raw "false")        false
+    (= raw :false)         false
+    (= raw "true")         true
+    (= raw :true)          true
+    :else                  true))
+
+(defn- elision-opts-edn
+  "Render the elision opts map as an EDN string for inlining into a
+  CLJS eval form sent over nREPL. Today the only knob is the
+  on/off boolean (`:rf.size/include-large?`): when elision is enabled
+  we pass `{:rf.size/include-large? false}` so the walker emits
+  markers; when disabled we set `:rf.size/include-large? true` so
+  values pass through unmodified. `:frame` and `:path` are
+  caller-supplied at the call-site inside the form."
+  [enabled?]
+  (pr-str {:rf.size/include-large? (not enabled?)}))
+
+;; ---------------------------------------------------------------------------
 ;; Preload probe.
 ;; ---------------------------------------------------------------------------
 
@@ -1177,16 +1280,42 @@
       {} snapshot)))
 
 (defn- snapshot-tool [conn args]
-  (let [build-id (arg-build args)
-        frames   (parse-frames-arg (arg args :frames))
-        include  (parse-include-arg (arg args :include))
-        incl?    (include-sensitive? args)
-        path     (parse-path-arg (arg args :path))
-        mode     (parse-epochs-mode (arg args :epochs-mode))
-        dedup?   (parse-dedup-arg (arg args :dedup))
-        opts     {:frames frames :include include}
-        form     (str "(re-frame-pair2.runtime/snapshot-state "
-                      (pr-str opts) ")")]
+  (let [build-id  (arg-build args)
+        frames    (parse-frames-arg (arg args :frames))
+        include   (parse-include-arg (arg args :include))
+        incl?     (include-sensitive? args)
+        path      (parse-path-arg (arg args :path))
+        mode      (parse-epochs-mode (arg args :epochs-mode))
+        dedup?    (parse-dedup-arg (arg args :dedup))
+        elision?  (parse-elision-arg (arg args :elision))
+        opts      {:frames frames :include include}
+        ;; Eval form composition (rf2-urjnc). The snapshot composer
+        ;; returns a per-frame map; we wrap each frame's `:app-db`
+        ;; slice with `re-frame.core/elide-wire-value` so large /
+        ;; sensitive slots get the `:rf.size/large-elided` marker
+        ;; server-side, before the EDN crosses the wire. The walker
+        ;; reads the `[:rf/elision]` registry from the live app-db
+        ;; — it has to run app-side, where the registry is reachable.
+        ;; When elision is disabled the eval form skips the walk
+        ;; entirely (a value pass-through is cheaper than walking
+        ;; with `:rf.size/include-large? true`).
+        elision-opts-form (elision-opts-edn elision?)
+        form     (if elision?
+                   (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
+                        (pr-str opts) ")]"
+                        "  (reduce-kv"
+                        "    (fn [m fid fmap]"
+                        "      (assoc m fid"
+                        "             (if (and (map? fmap) (contains? fmap :app-db))"
+                        "               (update fmap :app-db"
+                        "                       (fn [db] (re-frame.core/elide-wire-value db"
+                        "                                  (merge {:frame fid} "
+                        elision-opts-form
+                        "))))"
+                        "               fmap)))"
+                        "    {} snap))")
+                   (str "(re-frame-pair2.runtime/snapshot-state "
+                        (pr-str opts) ")"))]
     (-> (ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]
@@ -1200,6 +1329,7 @@
                                      :mode        (if (nil? path) :summary :path-sliced)
                                      :epochs-mode mode
                                      :dedup       dedup?
+                                     :elision     elision?
                                      :snapshot    deduped}
                               path                  (assoc :path path)
                               (seq path-status)     (assoc :path-not-found path-status)
@@ -1221,9 +1351,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- get-path-tool [conn args]
-  (let [build-id (arg-build args)
-        frame    (some-> (arg args :frame) ->frame-keyword)
-        path     (parse-path-arg (arg args :path))]
+  (let [build-id  (arg-build args)
+        frame     (some-> (arg args :frame) ->frame-keyword)
+        path      (parse-path-arg (arg args :path))
+        elision?  (parse-elision-arg (arg args :elision))]
     (cond
       (nil? path)
       (js/Promise.resolve
@@ -1236,10 +1367,28 @@
       ;; `path-not-found` from a path that legitimately points at nil.
       ;; The deepest-valid-prefix loop is inlined so a stale runtime
       ;; (no helper) still answers correctly.
+      ;;
+      ;; Elision wiring (rf2-urjnc): once `get-in` resolves the value,
+      ;; we run it through `re-frame.core/elide-wire-value` so a
+      ;; large / sensitive slot returns the marker (with a handle the
+      ;; agent can drill into) rather than the raw bytes. The walker
+      ;; reads the live `[:rf/elision]` registry from the frame's
+      ;; app-db, so it must run app-side. Passing `:path path` makes
+      ;; the marker's `:handle` slot carry `[:rf.elision/at <path>]`
+      ;; — the agent can re-call `get-path` with a deeper segment to
+      ;; drill into a non-elided child, or pass `elision false` to
+      ;; bypass the walk entirely.
       (let [path-edn      (pr-str path)
             snapshot-call (if frame
                             (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
                             "(re-frame-pair2.runtime/snapshot)")
+            frame-edn     (if frame (pr-str frame) "(re-frame-pair2.runtime/current-frame)")
+            elision-opts  (elision-opts-edn elision?)
+            elide-call    (if elision?
+                            (str "(re-frame.core/elide-wire-value v"
+                                 "  (merge {:path path :frame " frame-edn "}"
+                                 "         " elision-opts "))")
+                            "v")
             form (str "(let [db " snapshot-call
                       "      path " path-edn
                       "      missing #js {}"
@@ -1257,12 +1406,13 @@
                       "              (<= 0 (first rem) (dec (count cur))))"
                       "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
                       "         :else acc))}"
-                      "    {:ok? true :exists? true :path path :value v}))")]
+                      "    {:ok? true :exists? true :path path :value " elide-call "}))")]
         (-> (ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v]
                      (ok-text (cond-> v
-                                frame (assoc :frame frame)))))
+                                frame     (assoc :frame frame)
+                                (:ok? v)  (assoc :elision elision?)))))
             (.catch (fn [err] (err->result :get-path-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -1518,6 +1668,30 @@
                      "the agent host hasn't been taught to call "
                      "`expand`.")})
 
+(def ^:private elision-property
+  "Per-tool descriptor slot for the `:elision` opt-out (rf2-urjnc).
+  Applied to surfaces that surface `:app-db` slots (`snapshot` and
+  `get-path`) — the surfaces where a declared-`:large?` slot or an
+  over-threshold leaf can blow the wire cap on its own. Default
+  `true`."
+  {:type        "boolean"
+   :description (str "Apply the size-elision walker "
+                     "(`re-frame.core/elide-wire-value`, rf2-v9tw2) "
+                     "to the `:app-db` slot server-side, before the "
+                     "EDN crosses the wire. Default true. Declared "
+                     "(`rf/declare-large-path!`) or schema-driven "
+                     "(`:large? true`) paths get substituted with a "
+                     "`{:rf.size/large-elided {:path [...] :bytes N "
+                     ":type ... :handle [:rf.elision/at <path>]}}` "
+                     "marker; the agent re-fetches via `get-path` "
+                     "using the handle's path. Auto-detect fires on "
+                     "leaf strings over the configured "
+                     "`:rf.size/threshold-bytes`. Pass false to "
+                     "bypass elision and receive the raw value — "
+                     "useful when the agent has explicit override "
+                     "permission for the slot (e.g. debugging the "
+                     "elided value itself).")})
+
 (defn- with-budget-knob
   "Splice `max-tokens` into a tool descriptor's inputSchema.properties.
   No-op if the descriptor already declares it (forward-compat)."
@@ -1624,7 +1798,14 @@
                       "Each frame's `:epochs` slice is structurally deduped (rf2-obpa9) after diff-encoding — "
                       "repeated subtrees (notably the per-record `:db-before` reference) collapse to a "
                       "`{:rf.mcp/dedup-table ...}` wrapper; agent host reconstructs via `de-dupe.core/expand`. "
-                      "Pass `dedup false` to skip.")
+                      "Pass `dedup false` to skip. "
+                      "Size-elision (rf2-urjnc): each frame's `:app-db` slice is run through "
+                      "`re-frame.core/elide-wire-value` server-side before crossing the wire — declared / "
+                      "schema-`:large?` paths and over-threshold leaves are substituted with a "
+                      "`{:rf.size/large-elided {:path [...] :handle [:rf.elision/at <path>] ...}}` marker. "
+                      "Agent drills into the handle via `get-path` (or `snapshot {:path ...}` with a "
+                      "non-elided sibling subpath). Pass `elision false` to bypass the walk and receive "
+                      "the raw value.")
     :inputSchema {:type "object"
                   :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
                                          :oneOf [{:type "string"}
@@ -1645,7 +1826,8 @@
                                :epochs-mode {:type "string"
                                              :description "How :db-after rides the wire in the :epochs slice: \"diff\" (default, intra-record structural diff against :db-before) or \"full\" (legacy full snapshot, opt-in for time-travel)."
                                              :enum ["diff" "full"]}
-                               :dedup   dedup-property
+                               :dedup    dedup-property
+                               :elision  elision-property
                                :include-sensitive? {:type "boolean"
                                                     :description "Opt back in to forwarding `:sensitive? true` items in the :traces / :epochs slices. Default false."}
                                :build   {:type "string" :description "shadow-cljs build id (default: app)"}}
@@ -1658,7 +1840,13 @@
                       "`{:ok? false :reason :path-not-found :path [...] :deepest-valid-prefix [...]}` "
                       "when the path doesn't resolve. The deepest-valid-prefix lets the agent re-aim "
                       "without a binary search. Use this when `snapshot`'s summary mode (default) "
-                      "tells you which key carries the answer.")
+                      "tells you which key carries the answer. "
+                      "Size-elision (rf2-urjnc): the resolved value is run through "
+                      "`re-frame.core/elide-wire-value` server-side — a declared / schema-`:large?` "
+                      "slot or an over-threshold leaf returns a `{:rf.size/large-elided ...}` marker "
+                      "with a `:handle [:rf.elision/at <path>]` fetch handle, not the raw bytes. Drill "
+                      "into a non-elided child by re-calling with a deeper `path`. Pass `elision false` "
+                      "to bypass the walk and receive the raw value.")
     :inputSchema {:type "object"
                   :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
                                                          "(e.g. \"[:cart :items 0 :sku]\") or a JSON array "
@@ -1666,9 +1854,10 @@
                                                          "strings stay as map-key strings).")
                                        :oneOf [{:type "string"}
                                                {:type "array" :items {:type "string"}}]}
-                               :frame {:type "string"
-                                       :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
-                               :build {:type "string"}}
+                               :frame   {:type "string"
+                                         :description "Frame-id (e.g. \":rf/default\"). Defaults to the operating frame."}
+                               :elision elision-property
+                               :build   {:type "string"}}
                   :required ["path"]
                   :additionalProperties false}}
    {:name "subscribe"
