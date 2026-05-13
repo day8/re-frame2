@@ -18,3 +18,18 @@
     (println :cljs-hash h)
     (is (= "9d7457ef" h)
         "CLJS hash should equal the JVM hash for the same render tree")))
+
+(deftest jvm-cljs-hash-parity-non-ascii
+  ;; Per rf2-t7ktb: fnv-1a-32 now hashes the UTF-8 byte sequence on
+  ;; BOTH sides (JVM via String.getBytes(UTF_8); CLJS via TextEncoder).
+  ;; UTF-8 is byte-deterministic so both sides MUST agree on non-ASCII
+  ;; content. The expected value below is the JVM-computed hash for the
+  ;; canonical-EDN of the tree containing 'café'; CLJS must reproduce it
+  ;; byte-for-byte. Without this pin a future regression that flipped
+  ;; one side back to UTF-16 code units would only fail on multi-byte
+  ;; codepoints — silently shipping a hash mismatch in production for
+  ;; non-English content.
+  (let [h (#'ssr/fnv-1a-32 "café")]
+    (println :cljs-hash-cafe h)
+    (is (= "a82b5049" h)
+        "CLJS UTF-8 byte hash of 'café' must equal JVM UTF-8 byte hash")))
