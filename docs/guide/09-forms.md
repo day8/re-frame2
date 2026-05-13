@@ -92,7 +92,7 @@ The form's *value* — the actual shape it's collecting — is a separate schema
 (rf/reg-app-schema [:auth :login :draft] LoginForm)
 ```
 
-Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the schema mechanics in general, see [chapter 04's app-db note](04-events-state-cycle.md).
+Two schemas, two jobs. `FormSlice` constrains the shape of the slice itself (a slot for `:draft`, a slot for `:status`, etc.). `LoginForm` constrains the shape of the value the user is filling in (must have an email and a password, both meeting their constraints). They compose: writes through `[:auth :login :draft]` are validated against `LoginForm`; writes through `[:auth :login]` are validated against `FormSlice`. For the Malli vocabulary (`[:map ...]`, `[:enum ...]`, `[:re #...]`, `[:string {:min N}]`) and the `reg-app-schema` / event `:spec` surfaces in general, see [chapter 04a — Schemas](04a-schemas.md).
 
 ## Error visibility — touched OR submit-attempted
 

@@ -333,7 +333,7 @@ A frame's `app-db` is "your app's state, in one map." There's no required schema
  :ui       {:sidebar-open? true :modal nil}}
 ```
 
-The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, you can attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 11](11-server-side.md) shows this when SSR enters the picture.
+The same **id-prefix-as-namespace** convention extends to the registry: events for the cart feature live under `:cart/...`, subs under `:cart/items`/`:cart/total`, views under `:cart/summary`. The whole feature is identifiable by its prefix. For complex schemas, you can attach Malli schemas to `app-db` paths so validation happens automatically in dev — [chapter 04a](04a-schemas.md) is the next stop for that surface.
 
 ## A note on naming
 
@@ -347,5 +347,6 @@ You don't have to follow this. But every re-frame2 codebase that does looks the 
 
 ## Next
 
+- [04a — Schemas](04a-schemas.md) — the Malli warmup: `reg-app-schema`, event `:spec`, dev-vs-production timing. Short core-path chapter before [09 — Forms](09-forms.md) and [10 — Doing HTTP requests](10-doing-http-requests.md), where schemas show up in volume.
 - [06 — Views and frames](06-views-and-frames.md) — what's on the screen and how to keep different parts isolated.
 - The same pattern that handles `:rf.http/managed` handles every external-world interaction. Once you've internalised "side-effects are data the runtime interprets," you're ready for everything else.
