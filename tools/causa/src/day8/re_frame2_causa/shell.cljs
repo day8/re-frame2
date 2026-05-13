@@ -46,6 +46,7 @@
             [day8.re-frame2-causa.panels.issues-ribbon :as issues-ribbon]
             [day8.re-frame2-causa.panels.schema-violation-timeline :as schema-violation-timeline]
             [day8.re-frame2-causa.panels.subscriptions :as subscriptions]
+            [day8.re-frame2-causa.panels.trace :as trace]
             [day8.re-frame2-causa.registry :as registry]
             [day8.re-frame2-causa.open-in-editor :as open-in-editor]))
 
@@ -81,7 +82,7 @@
    {:id :causality    :label "Causality"     :bead "rf2-4rqs1" :live? true}
    {:id :subs         :label "Subscriptions" :bead "rf2-x0f5v" :live? true}
    {:id :fx           :label "Effects"       :bead "rf2-xxx"}
-   {:id :trace        :label "Trace"         :bead "rf2-xxx"}
+   {:id :trace        :label "Trace"         :bead "rf2-argrj" :live? true}
    {:id :machines     :label "Machines"      :bead "rf2-xxx"}
    {:id :flows        :label "Flows"         :bead "rf2-xxx"}
    {:id :performance  :label "Performance"   :bead "rf2-xxx"}
@@ -268,6 +269,7 @@
       :subs         [subscriptions/subscriptions-view]
       :hydration    [hydration-debugger/hydration-debugger-view]
       :issues       [issues-ribbon/issues-ribbon-view]
+      :trace        [trace/trace-view]
       ;; Sidebar Co-pilot row renders the panel-style view in the
       ;; canvas; the rail still lives in the shell's right margin per
       ;; spec/007-UX-IA.md §The five regions item 4.
