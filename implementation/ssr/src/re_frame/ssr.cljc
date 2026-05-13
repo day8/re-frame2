@@ -476,12 +476,159 @@
 
 (events/reg-event-fx :rf/hydrate
   (fn [{:keys [db]} [_ payload]]
-    (let [new-db   (or (:rf/app-db payload) (:app-db payload) db)
-          metadata (cond-> {}
-                     (:rf/render-hash payload) (assoc :server-hash (:rf/render-hash payload))
-                     (:rf/version payload)     (assoc :version     (:rf/version payload)))]
+    (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
+          version       (:rf/version payload)
+          schema-digest (:rf/schema-digest payload)
+          metadata      (cond-> {}
+                          (:rf/render-hash payload) (assoc :server-hash (:rf/render-hash payload))
+                          version                   (assoc :version     version))]
+      ;; Per Spec 011 §The :rf/hydrate event: dispatch the compatibility-
+      ;; check fxs as part of `:fx` so a mismatch surfaces a structured
+      ;; trace event without crashing the hydration path. Both fxs gate on
+      ;; payload-key presence — the scalar form passed here is the
+      ;; server's value (the "expected"); the fx looks up the client-side
+      ;; "actual" via late-bind. Per rf2-69ad2.
       {:db (cond-> new-db
-             (seq metadata) (assoc :rf/hydration metadata))})))
+             (seq metadata) (assoc :rf/hydration metadata))
+       :fx (cond-> []
+             version       (conj [:rf.ssr/check-version       version])
+             schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))})))
+
+;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
+;;
+;; Per Spec 011 §The :rf/hydrate event (rf2-69ad2). The :rf/hydrate handler
+;; dispatches these two fxs after replacing the client app-db with the
+;; server's authoritative slice. They are best-effort compatibility checks:
+;; a mismatch emits a structured warning trace and the hydration proceeds.
+;; The runtime never throws on a mismatch — degraded-but-running beats
+;; a crashed boot.
+;;
+;; Arg shape (clarified per rf2-69ad2 because Spec 011 only pinned the
+;; trace shape, not the fx-input shape):
+;;
+;;   - SCALAR — `[:rf.ssr/check-version <server-value>]` per the spec's
+;;     reference :rf/hydrate handler. The fx treats the scalar as the
+;;     "expected" (server-side) value and looks up the client-side
+;;     "actual" via a late-bind hook (`:rf2/runtime-version` for version,
+;;     `:schemas/app-schemas-digest` for schema-digest). When the hook is
+;;     unavailable (e.g. version-pinning not yet implemented, or schemas
+;;     artefact not on the classpath), the fx emits a
+;;     `:rf.ssr/compatibility-check-skipped` trace and no-ops the
+;;     comparison.
+;;
+;;   - MAP — `[:rf.ssr/check-version {:expected ... :actual ...}]` for
+;;     callers that compute both sides explicitly (test harnesses, hosts
+;;     that pin their own version constant). The fx compares the two
+;;     values directly.
+;;
+;; Gating: `:platforms #{:client}` — these checks only make sense on the
+;; hydration side. Server-side dispatches no-op via the standard fx-
+;; gating contract (`:rf.fx/skipped-on-platform`).
+
+(defn- check-args
+  "Normalise the fx argument to `{:expected <server-value> :actual <client-value>}`.
+  Returns nil when the argument doesn't carry an `:expected` value the
+  fx can compare against. The `actual-lookup-fn` is a 0-arity fn called
+  to resolve the client-side value when the caller passed a scalar; it
+  may return nil to signal `:lookup-unavailable`."
+  [arg actual-lookup-fn]
+  (cond
+    (and (map? arg) (contains? arg :expected))
+    (cond-> {:expected (:expected arg)}
+      (contains? arg :actual) (assoc :actual (:actual arg))
+      ;; map without :actual falls back to the lookup
+      (not (contains? arg :actual)) (assoc :actual (actual-lookup-fn)))
+
+    (nil? arg) nil
+
+    :else
+    {:expected arg :actual (actual-lookup-fn)}))
+
+(defn- runtime-version-lookup
+  "Look up the client-side runtime version. No constant is pinned in
+  re-frame.core today (per rf2-69ad2 scope); the value is sourced via
+  the optional `:rf2/runtime-version` late-bind hook — a host that
+  bundles a version-stamp registers it at boot. When the hook is
+  absent, returns nil and the check emits
+  `:rf.ssr/compatibility-check-skipped`."
+  []
+  (when-let [f (late-bind/get-fn :rf2/runtime-version)]
+    (f)))
+
+(defn- schema-digest-lookup
+  "Look up the active frame's `app-schemas-digest`. Sourced via the
+  schemas artefact's `:schemas/app-schemas-digest` late-bind hook so
+  re-frame.ssr does not statically `:require` the schemas artefact —
+  in builds where schemas is absent the lookup returns nil and the
+  check emits `:rf.ssr/compatibility-check-skipped`."
+  []
+  (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
+    (f)))
+
+(fx/reg-fx :rf.ssr/check-version
+  {:doc       "Compare the payload's :rf/version (server) against the
+client runtime's version. A mismatch emits a structured
+:rf.ssr/version-mismatch trace; the hydration handler still applies
+(best-effort). Per Spec 011 §The :rf/hydrate event."
+   :platforms #{:client}}
+  (fn [{:keys [frame]} arg]
+    (let [{:keys [expected actual]} (check-args arg runtime-version-lookup)]
+      (cond
+        (nil? expected)
+        nil                                          ;; nothing to check
+
+        (nil? actual)
+        (trace/emit! :warning :rf.ssr/compatibility-check-skipped
+                     {:check    :rf.ssr/check-version
+                      :expected expected
+                      :reason   "No runtime version available for comparison (no :rf2/runtime-version hook registered)."
+                      :frame    frame
+                      :recovery :skipped})
+
+        (not= expected actual)
+        (trace/emit! :warning :rf.ssr/version-mismatch
+                     {:expected expected
+                      :actual   actual
+                      :frame    frame
+                      :reason   (str "Hydration version-mismatch: server '"
+                                     expected "' != client '" actual
+                                     "'. Hydrating anyway (best-effort).")
+                      :recovery :warned-and-applied})
+
+        :else nil))))                                ;; match → silent
+
+(fx/reg-fx :rf.ssr/check-schema-digest
+  {:doc       "Compare the payload's :rf/schema-digest (server) against
+the client's registered app-schema digest. A mismatch emits a structured
+:rf.ssr/schema-digest-mismatch trace — surfaces deploy-drift where
+the server is rendering against a different schema set than the
+client's bundle. Per Spec 011 §The :rf/hydrate event."
+   :platforms #{:client}}
+  (fn [{:keys [frame]} arg]
+    (let [{:keys [expected actual]} (check-args arg schema-digest-lookup)]
+      (cond
+        (nil? expected)
+        nil                                          ;; nothing to check
+
+        (nil? actual)
+        (trace/emit! :warning :rf.ssr/compatibility-check-skipped
+                     {:check    :rf.ssr/check-schema-digest
+                      :expected expected
+                      :reason   "No schema digest available for comparison (schemas artefact not on classpath, or :schemas/app-schemas-digest hook absent)."
+                      :frame    frame
+                      :recovery :skipped})
+
+        (not= expected actual)
+        (trace/emit! :warning :rf.ssr/schema-digest-mismatch
+                     {:expected expected
+                      :actual   actual
+                      :frame    frame
+                      :reason   (str "Hydration schema-digest mismatch: server '"
+                                     expected "' != client '" actual
+                                     "'. Deploy drift — server and client are running different schema sets. Hydrating anyway (best-effort).")
+                      :recovery :warned-and-applied})
+
+        :else nil))))                                ;; match → silent
 
 (defn verify-hydration!
   "Per Spec 011 §Hydration-mismatch detection. Called by client code
