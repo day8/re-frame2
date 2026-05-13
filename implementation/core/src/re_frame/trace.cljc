@@ -537,22 +537,37 @@
         cascade-id  (some-> scope :dispatch-id)
         sensitive?  (compute-sensitive? tags scope)
         error?      (= op-type :error)
-        ;; Source and recovery are caller-supplied through `tags` on
-        ;; the success path; on the error path `:recovery` defaults
-        ;; to `:no-recovery` per Spec 009 §Error contract.
-        source      (when-not error? (:source tags))
+        ;; `:source` and `:recovery` are caller-supplied through
+        ;; `tags`. On the error path `:recovery` defaults to
+        ;; `:no-recovery` per Spec 009 §Error contract; `:source` is
+        ;; hoisted to top-level on both paths when present so
+        ;; consumers can filter on the top-level slot uniformly per
+        ;; Spec 009 L792 (`:source` ... top-level on every error
+        ;; event when present).
+        source      (:source tags)
         recovery    (if error?
                       (:recovery tags :no-recovery)
                       (:recovery tags))
         call-site   (when error? (some-> scope :call-site))
-        ;; Per Spec 009 §Required top-level fields: :source and
-        ;; :recovery (when present) live at the top level of the
-        ;; trace event, NOT inside :tags. Strip them from base-tags
-        ;; so the hoisted copies don't double-up. `:sensitive?` is
-        ;; hoisted too (rf2-isdwf). Error path additionally merges
-        ;; its `:category` slot from `operation`.
-        base-tags   (cond-> (dissoc tags :source :recovery :sensitive?)
-                      error? (->> (merge {:category operation})))
+        ;; Per Spec 009 §Required top-level fields: `:source` and
+        ;; `:recovery` (when present) live at the top level. On the
+        ;; success path we strip both from `:tags` so the hoisted
+        ;; copies don't double-up. On the error path we KEEP
+        ;; `:source` in `:tags` as well — the boundary interceptor
+        ;; (Spec 010 §Production builds, rf2-r2uh) and other
+        ;; error-emit sites use `:source` as an emission-site
+        ;; discriminator (e.g. `:boundary` distinguishes the
+        ;; production-side boundary trace from a dev-mode step-1
+        ;; trace) that callers and tests read off `(:tags :source)`,
+        ;; and Causa-style consumers already fall back from
+        ;; top-level to `:tags :source` (tools/causa
+        ;; `filter_vocab_consumer_cljs_test`). `:sensitive?` is
+        ;; hoisted regardless (rf2-isdwf). The error path
+        ;; additionally merges its `:category` slot from
+        ;; `operation`.
+        base-tags   (cond-> (dissoc tags :recovery :sensitive?)
+                      (not error?) (dissoc :source)
+                      error?       (->> (merge {:category operation})))
         tags+       (stamp-cascade-id base-tags cascade-id)]
     (cond-> {:operation operation
              :op-type   op-type
