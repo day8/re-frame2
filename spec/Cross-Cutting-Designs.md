@@ -54,7 +54,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 **Consumers.**
 - `tools/pair2-mcp/` — enforces the cap in `tools.cljs` at the `invoke` boundary; ten tools each declare their typical-token hint and cap-reached behaviour in their tool spec.
 - `tools/causa-mcp/` (planned impl) — adopts the same cap, the same override slot, the same overflow shape per its Principles lock #1.
-- `tools/story-mcp/` — exception: its surface is JVM-side; the cap mechanism is not yet ported but the per-tool budget discipline carries.
+- `tools/story-mcp/` — enforces the cap in `tools.cljc` at the `invoke-tool` egress (rf2-zavp5); seventeen tools each declare their typical-token hint and inherit the `:max-tokens` per-call override.
 
 **The result.** Cross-MCP, the token-cap shape is one decision applied uniformly. New MCP tools land against the catalogued cap (5K default), the catalogued override slot (`:max-tokens` per-call, `0` to disable), and the catalogued overflow marker shape (`{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}`). The mechanisms above the cap (path slicing, lazy summary, dedup, pagination) shape the response so the cap rarely trips; the cap stays the backstop.
 

@@ -37,6 +37,7 @@
   (:require [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.string :as str]
+            [re-frame.mcp-base.overflow :as overflow]
             [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async :as async]
@@ -687,6 +688,20 @@
   {:type "string"
    :description "A Clojure keyword id, as a string. Either `:story.foo/bar` or `story.foo/bar` is accepted."})
 
+(def ^:private max-tokens-schema
+  "Recurring JSON-schema fragment — every tool accepts a per-call
+  `:max-tokens` override of the wire-boundary cap (rf2-rvyzy /
+  rf2-zavp5). `0` disables the cap; default is
+  `re-frame.mcp-base.overflow/default-max-tokens` (5000)."
+  {:type "integer" :minimum 0
+   :description "Per-call wire-boundary token cap. 0 disables; default 5000 (per `spec/Cross-Cutting-Designs.md §3`)."})
+
+(defn- with-max-tokens
+  "Inject the `:max-tokens` slot into a tool's `:properties` map. Every
+  tool inherits the slot so the cap is uniformly overrideable per call."
+  [props]
+  (assoc props :max-tokens max-tokens-schema))
+
 (def tool-registry
   "The full tool registry. Order matters for `tools/list` output —
   agents tend to scan top-to-bottom — so we list categories in the
@@ -696,7 +711,7 @@
     :category       :dev
     :description    "Return Story's authoring conventions in agent-friendly form (the seven reg-* macros, hard rules, lifecycle, snapshots)."
     :typicalTokens  1500
-    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :inputSchema    {:type "object" :properties (with-max-tokens {}) :additionalProperties false}
     :handler        tool-get-story-instructions}
 
    {:name           "preview-variant"
@@ -704,12 +719,13 @@
     :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL."
     :typicalTokens  2000
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string
-                               :substrate kw-or-string
-                               :active-modes {:type "array" :items kw-or-string}
-                               :cell-overrides {:type "object"}
-                               :base-url {:type "string"
-                                          :description "Optional base URL for the share link (no default)."}}
+                  :properties (with-max-tokens
+                                {:variant-id kw-or-string
+                                 :substrate kw-or-string
+                                 :active-modes {:type "array" :items kw-or-string}
+                                 :cell-overrides {:type "object"}
+                                 :base-url {:type "string"
+                                            :description "Optional base URL for the share link (no default)."}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-preview-variant}
@@ -718,7 +734,7 @@
     :category       :dev
     :description    "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host)."
     :typicalTokens  100
-    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :inputSchema    {:type "object" :properties (with-max-tokens {}) :additionalProperties false}
     :handler        tool-list-substrates}
 
    ;; ---- Docs ------------------------------------------------------------
@@ -727,8 +743,9 @@
     :description    "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids."
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties {:tags {:type "array" :items kw-or-string
-                                      :description "Optional tag filter; story `:tags` set must intersect."}}
+                  :properties (with-max-tokens
+                                {:tags {:type "array" :items kw-or-string
+                                        :description "Optional tag filter; story `:tags` set must intersect."}})
                   :additionalProperties false}
     :handler     tool-list-stories}
 
@@ -737,7 +754,7 @@
     :description    "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids)."
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties {:story-id kw-or-string}
+                  :properties (with-max-tokens {:story-id kw-or-string})
                   :required ["story-id"]
                   :additionalProperties false}
     :handler     tool-get-story}
@@ -747,7 +764,7 @@
     :description    "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time)."
     :typicalTokens  1000
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string}
+                  :properties (with-max-tokens {:variant-id kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-get-variant}
@@ -756,21 +773,21 @@
     :category       :docs
     :description    "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project."
     :typicalTokens  100
-    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :inputSchema    {:type "object" :properties (with-max-tokens {}) :additionalProperties false}
     :handler        tool-list-tags}
 
    {:name           "list-modes"
     :category       :docs
     :description    "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`."
     :typicalTokens  200
-    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :inputSchema    {:type "object" :properties (with-max-tokens {}) :additionalProperties false}
     :handler        tool-list-modes}
 
    {:name           "list-assertions"
     :category       :docs
     :description    "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids."
     :typicalTokens  500
-    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :inputSchema    {:type "object" :properties (with-max-tokens {}) :additionalProperties false}
     :handler        tool-list-assertions}
 
    {:name           "variant->edn"
@@ -778,7 +795,7 @@
     :description    "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN."
     :typicalTokens  1000
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string}
+                  :properties (with-max-tokens {:variant-id kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-variant->edn}
@@ -789,12 +806,13 @@
     :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`)."
     :typicalTokens  2000
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string
-                               :substrate kw-or-string
-                               :active-modes {:type "array" :items kw-or-string}
-                               :cell-overrides {:type "object"}
-                               :timeout-ms {:type "integer" :minimum 1
-                                            :description "JVM blocking timeout. Default 10000."}}
+                  :properties (with-max-tokens
+                                {:variant-id kw-or-string
+                                 :substrate kw-or-string
+                                 :active-modes {:type "array" :items kw-or-string}
+                                 :cell-overrides {:type "object"}
+                                 :timeout-ms {:type "integer" :minimum 1
+                                              :description "JVM blocking timeout. Default 10000."}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-run-variant}
@@ -804,9 +822,10 @@
     :description    "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression."
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string
-                               :substrate kw-or-string
-                               :active-modes {:type "array" :items kw-or-string}}
+                  :properties (with-max-tokens
+                                {:variant-id kw-or-string
+                                 :substrate kw-or-string
+                                 :active-modes {:type "array" :items kw-or-string}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-snapshot-identity}
@@ -816,7 +835,7 @@
     :description    "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated."
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string}
+                  :properties (with-max-tokens {:variant-id kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-run-a11y}
@@ -826,7 +845,7 @@
     :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`."
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string}
+                  :properties (with-max-tokens {:variant-id kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-read-failures}
@@ -837,10 +856,11 @@
     :description    "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix."
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string
-                               :body {:oneOf [{:type "object"}
-                                              {:type "string"
-                                               :description "EDN-encoded variant body, parsed via clojure.edn/read-string."}]}}
+                  :properties (with-max-tokens
+                                {:variant-id kw-or-string
+                                 :body {:oneOf [{:type "object"}
+                                                {:type "string"
+                                                 :description "EDN-encoded variant body, parsed via clojure.edn/read-string."}]}})
                   :required ["variant-id" "body"]
                   :additionalProperties false}
     :handler     tool-register-variant}
@@ -850,7 +870,7 @@
     :description    "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`."
     :typicalTokens  100
     :inputSchema {:type "object"
-                  :properties {:variant-id kw-or-string}
+                  :properties (with-max-tokens {:variant-id kw-or-string})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-unregister-variant}
@@ -860,19 +880,20 @@
     :description    "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
     :typicalTokens  1500
     :inputSchema {:type "object"
-                  :properties {:variant-id     kw-or-string
-                               :duration-ms    {:type "integer" :minimum 0
-                                                :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
-                               :new-variant-id (assoc kw-or-string
-                                                 :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
-                               :doc            {:type "string"
-                                                :description "Optional docstring embedded in the rendered snippet."}
-                               :extends        (assoc kw-or-string
-                                                 :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
-                               :alias          {:type "string"
-                                                :description "Short ns alias for the rendered form (default \"story\")."}
-                               :write-back?    {:type "boolean"
-                                                :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}}
+                  :properties (with-max-tokens
+                                {:variant-id     kw-or-string
+                                 :duration-ms    {:type "integer" :minimum 0
+                                                  :description "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op)."}
+                                 :new-variant-id (assoc kw-or-string
+                                                   :description "When `:write-back?` is true, register the captured `:play` body under this id. Defaults to the source `:variant-id` (overwrites in place).")
+                                 :doc            {:type "string"
+                                                  :description "Optional docstring embedded in the rendered snippet."}
+                                 :extends        (assoc kw-or-string
+                                                   :description "Variant id embedded as `:extends` in the snippet. Defaults to the source `:variant-id`.")
+                                 :alias          {:type "string"
+                                                  :description "Short ns alias for the rendered form (default \"story\")."}
+                                 :write-back?    {:type "boolean"
+                                                  :description "When true, also re-register the variant with the captured `:play`. Requires `allow-writes?`."}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-record-as-variant}])
@@ -902,21 +923,133 @@
   [tool-name]
   (some (fn [t] (when (= tool-name (:name t)) t)) tool-registry))
 
+;; ---------------------------------------------------------------------------
+;; Wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5).
+;;
+;; Per `spec/Cross-Cutting-Designs.md §3 Token budgets` every MCP
+;; `tools/call` response is bounded at ~5,000 tokens by default. The cap
+;; is enforced HERE (at the wire egress, after the handler runs), not in
+;; each handler — that keeps tool bodies free of token-accounting noise
+;; and pins one cross-MCP shape. When the serialised response would
+;; exceed the cap, the payload is replaced with a structured
+;; `{:rf.mcp/overflow {...}}` marker emitted via
+;; `re-frame.mcp-base.overflow/overflow-payload`.
+;;
+;; Sized via `overflow/token-estimate` (the `(quot (count s) 4)` rule
+;; aligned with Anthropic's character→token rule-of-thumb). The cap is
+;; cumulative across every `:text` slot in the response's `:content`
+;; vector (multi-part responses share one budget, mirroring pair2-mcp).
+;;
+;; `:max-tokens` per-call override is read from `arguments`: integer
+;; cap, `0` disables (escape hatch when the caller has already
+;; paginated), absent ⇒ default. Lives on every tool's input schema
+;; via `with-max-tokens`.
+;; ---------------------------------------------------------------------------
+
+(def ^:private overflow-hints
+  "Tool-specific next-step hints for the overflow marker. Generic
+  fallback (from `mcp-base.overflow`) when a tool isn't listed.
+
+  Mirrors pair2-mcp's local hint table — the hint is the agent's
+  shortest path back into budget."
+  {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+   "run-variant"       "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+   "get-story"         "Story body is large — request `list-stories` for a slimmer overview, or raise `max-tokens` (0 disables)."
+   "get-variant"       "Variant body is large — request `variant->edn` if you want EDN-only, or raise `max-tokens` (0 disables)."
+   "variant->edn"      "Variant EDN body is large — narrow the variant or raise `max-tokens` (0 disables)."
+   "list-stories"      "Story registry is large — narrow with `:tags`, or raise `max-tokens` (0 disables)."
+   "read-failures"     "Failure log is large — assertions accumulator may be deep; clear with a fresh `run-variant`, or raise `max-tokens` (0 disables)."
+   "record-as-variant" "Captured event stream is large — shorten `:duration-ms`, or raise `max-tokens` (0 disables)."})
+
+(defn- max-tokens-arg
+  "Resolve the per-call cap from MCP arguments. Returns an integer cap
+  in tokens, or `nil` when the cap is disabled (`:max-tokens 0`).
+  Defaults to `overflow/default-max-tokens` when absent or not a number."
+  [arguments]
+  (let [raw (get arguments :max-tokens)]
+    (cond
+      (nil? raw)                  overflow/default-max-tokens
+      (and (integer? raw) (zero? raw)) nil
+      (integer? raw)              raw
+      :else                       overflow/default-max-tokens)))
+
+(defn- sum-text-tokens
+  "Sum `token-estimate` across every `:text` slot in the
+  `{:content [{:type \"text\" :text ...} ...]}` result. The serialised
+  response's wire size is dominated by these slots; the JSON envelope
+  is bounded and ignored."
+  [result]
+  (transduce (comp (map :text)
+                   (filter string?)
+                   (map overflow/token-estimate))
+             +
+             0
+             (:content result)))
+
+(defn- overflow-result
+  "Build a fresh result carrying the overflow marker, mirroring
+  pair2-mcp's `overflow-result`. Drops the over-budget payload entirely
+  and emits the structured marker as the sole `:text` slot.
+
+  The overflow marker is itself the response — `:isError` is NOT set
+  (an over-budget success is a signal to retry with narrower args, not
+  a tool-execution failure)."
+  [tool-name token-count cap]
+  (let [marker (overflow/overflow-payload
+                 {:tool        tool-name
+                  :token-count token-count
+                  :cap         cap
+                  :hint        (get overflow-hints tool-name)})]
+    {:content          [{:type "text" :text (pr-edn marker)}]
+     :structuredContent marker}))
+
+(defn- apply-cap
+  "Wire-boundary cap enforcement. Returns either `result` unchanged
+  (under the cap, or cap disabled via `:max-tokens 0`) or a fresh
+  result carrying the overflow marker.
+
+  Cap is cumulative across every `:text` slot in `:content`. Mirrors
+  pair2-mcp's `apply-cap` — the same `:truncate-with-marker` strategy
+  is the only one wired today; future strategies (path-slicing, lazy
+  summary) slot in here without touching tool bodies."
+  [result tool-name cap]
+  (cond
+    (nil? cap)        result
+    (nil? result)     result
+    :else
+    (let [tokens (sum-text-tokens result)]
+      (if (<= tokens cap)
+        result
+        (overflow-result tool-name tokens cap)))))
+
 (defn invoke-tool
   "Invoke `tool-name` with `arguments` (a map of keyword-keyed args).
   Returns the tool's result map, or nil if no such tool. The caller
   serialises the result into a `tools/call` JSON-RPC response.
 
+  ## Wire-boundary pipeline
+
+  1. Dispatch the handler with `arguments`.
+  2. `apply-cap` (rf2-rvyzy / rf2-zavp5) — when the serialised response
+     exceeds the per-call cap (`:max-tokens` arg, default
+     `overflow/default-max-tokens`, `0` disables), the payload is
+     replaced with a structured `{:rf.mcp/overflow ...}` marker. Per
+     `spec/Cross-Cutting-Designs.md §3 Token budgets`.
+
   Catches any throw from the handler and returns it as a tool-execution
   error (`isError: true`) per MCP §Error Handling — handlers SHOULD
   return error-results themselves, but this is the belt-and-braces
-  catch."
+  catch. The cap applies to error results too (large `:data` slots in
+  an `ex-data` blow-up shouldn't bypass the budget)."
   [tool-name arguments]
   (when-let [t (tool-by-name tool-name)]
-    (try
-      ((:handler t) (or arguments {}))
-      (catch Throwable e
-        (error-result (str "Tool handler threw: " (ex-message e))
-                      {:tool      tool-name
-                       :exception (.getName (class e))
-                       :data      (ex-data e)})))))
+    (let [args   (or arguments {})
+          cap    (max-tokens-arg args)
+          result (try
+                   ((:handler t) args)
+                   (catch Throwable e
+                     (error-result (str "Tool handler threw: " (ex-message e))
+                                   {:tool      tool-name
+                                    :exception (.getName (class e))
+                                    :data      (ex-data e)})))]
+      (apply-cap result tool-name cap))))

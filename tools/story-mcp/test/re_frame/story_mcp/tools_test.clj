@@ -6,8 +6,11 @@
   registrar carries the seven canonical tags + the lifecycle machine,
   then register a small fixture story + variant so each tool has
   something to read."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.mcp-base.overflow :as overflow]
+            [re-frame.mcp-base.vocab :as vocab]
             [re-frame.story :as story]
             [re-frame.story.recorder :as recorder]
             [re-frame.story-mcp.config :as config]
@@ -707,3 +710,74 @@
   (testing "--allow-writes flips the gate"
     (let [cfg (#'server/parse-args ["--allow-writes"])]
       (is (true? (:allow-writes? cfg))))))
+
+;; ---------------------------------------------------------------------------
+;; Wire-boundary token-budget cap (rf2-rvyzy / rf2-zavp5).
+;;
+;; The cap is applied at `invoke-tool` egress — the cumulative
+;; `:text`-slot byte count is compared against `:max-tokens` (default
+;; `overflow/default-max-tokens`; `0` disables). Over-budget responses
+;; are replaced with `{:rf.mcp/overflow {...}}` per the cross-MCP shape
+;; pinned in `re-frame.mcp-base.overflow/overflow-payload`.
+;; ---------------------------------------------------------------------------
+
+(defn- overflow-marker?
+  "Does `result` carry the `{:rf.mcp/overflow {:limit :reached ...}}`
+  marker shape? Both the structured-content and the text slot should
+  reflect it. The text slot prints via `pr-str` which renders the
+  namespaced key as the `#:rf.mcp{:overflow ...}` namespace-map form
+  (round-trippable EDN); `read-string`-ing it round-trips to the same
+  key. We check the structured shape and that the text slot is the
+  round-trippable EDN form."
+  [result]
+  (and (map? result)
+       (= :reached (get-in result [:structuredContent vocab/overflow-key :limit]))
+       (string? (-> result :content first :text))
+       (let [round-tripped (try (edn/read-string
+                                  (-> result :content first :text))
+                                (catch Throwable _ nil))]
+         (= :reached (get-in round-tripped [vocab/overflow-key :limit])))))
+
+(deftest cap-fires-when-response-exceeds-budget
+  (testing "get-story-instructions response is large enough to exceed a 1-token cap"
+    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 1})]
+      (is (overflow-marker? r))
+      (let [body (get-in r [:structuredContent vocab/overflow-key])]
+        (is (= 1 (:cap-tokens body)))
+        (is (= "get-story-instructions" (:tool body)))
+        (is (pos? (:token-count body)))
+        (is (string? (:hint body)))))))
+
+(deftest cap-zero-disables-the-cap
+  (testing "`:max-tokens 0` bypasses the cap; the full payload returns intact"
+    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 0})]
+      (is (not (overflow-marker? r)))
+      (is (clojure.string/includes? (-> r :content first :text)
+                                    "re-frame2-story authoring conventions"))))
+  (testing "default cap (no `:max-tokens` arg) leaves a small response intact"
+    (let [r (tools/invoke-tool "list-tags" {})]
+      (is (not (overflow-marker? r))))))
+
+(deftest cap-honours-default-when-omitted
+  (testing "absent `:max-tokens` falls back to `overflow/default-max-tokens` (5000)"
+    ;; A tiny payload like `list-tags` is well under 5K tokens; verify
+    ;; the cap does not trip on routine reads.
+    (let [r (tools/invoke-tool "list-tags" {})
+          tokens (#'tools/sum-text-tokens r)]
+      (is (not (overflow-marker? r)))
+      (is (< tokens overflow/default-max-tokens)))))
+
+(deftest cap-marker-shape-is-mcp-base-overflow
+  (testing "marker is byte-identical to mcp-base/overflow-payload's shape"
+    (let [r (tools/invoke-tool "get-story-instructions" {:max-tokens 1})
+          body (get-in r [:structuredContent vocab/overflow-key])]
+      (is (= #{:limit :token-count :cap-tokens :tool :hint}
+             (set (keys body)))))))
+
+(deftest every-tool-schema-accepts-max-tokens
+  (testing "every tool's input schema carries the `:max-tokens` slot"
+    (doseq [t tools/tool-registry]
+      (is (contains? (-> t :inputSchema :properties) :max-tokens)
+          (str "tool " (:name t) " missing :max-tokens slot"))
+      (is (= "integer" (-> t :inputSchema :properties :max-tokens :type))
+          (str "tool " (:name t) " :max-tokens slot is not integer-typed")))))
