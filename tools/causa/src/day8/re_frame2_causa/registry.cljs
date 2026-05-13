@@ -126,6 +126,7 @@
             [day8.re-frame2-causa.panels.app-db-diff-helpers :as diff-helpers]
             [day8.re-frame2-causa.panels.hydration-debugger-helpers :as hd-helpers]
             [day8.re-frame2-causa.panels.issues-ribbon-helpers :as issues-helpers]
+            [day8.re-frame2-causa.panels.performance-helpers :as perf-helpers]
             [day8.re-frame2-causa.panels.schema-violation-timeline-helpers :as svt-helpers]
             [day8.re-frame2-causa.panels.subscriptions-helpers :as subs-helpers]
             [day8.re-frame2-causa.panels.trace-helpers :as trace-helpers]))
@@ -1181,6 +1182,49 @@
     (rf/reg-event-db :rf.causa/clear-trace-filters
       (fn [db _event]
         (dissoc db :trace-filters)))
+
+    ;; ---- Phase 5 (rf2-75121) — Performance panel -----------------------
+    ;;
+    ;; Per `tools/causa/spec/000-Vision.md` L92 the Performance panel
+    ;; surfaces per-cascade duration capture, perf-tier colour mapping,
+    ;; and budget-warning markers. The runtime substrate is
+    ;; `spec/009-Instrumentation.md §Performance instrumentation` (the
+    ;; default-off User Timing channel); v1 reads the dev-build trace
+    ;; stream's `:time` deltas instead so the panel works against the
+    ;; same buffer every other Causa panel consumes.
+    ;;
+    ;; Shape of `:rf.causa/performance-data`:
+    ;;
+    ;;     {:rows               [<row> ...]    ;; newest first
+    ;;      :total              <int>
+    ;;      :tier-counts        {tier count}
+    ;;      :over-budget-count  <int>
+    ;;      :budget-ms          <number>
+    ;;      :empty?             <bool>}
+    ;;
+    ;; No new events are required — the panel reuses
+    ;; `:rf.causa/select-dispatch-id` + `:rf.causa/select-panel` for the
+    ;; pivot-into-event-detail affordance (parity with the Issues
+    ;; ribbon's row-click). The over-budget threshold is sub-readable
+    ;; via `:rf.causa/performance-budget-ms` so a follow-on bead can
+    ;; surface a slider in the panel header without rewiring consumers.
+    (rf/reg-sub :rf.causa/performance-budget-ms
+      (fn [db _query]
+        (get db :performance-budget-ms perf-helpers/default-budget-ms)))
+
+    (rf/reg-sub :rf.causa/performance-data
+      :<- [:rf.causa/trace-buffer]
+      :<- [:rf.causa/performance-budget-ms]
+      (fn [[buffer budget-ms] _query]
+        (let [cascades (projection/group-cascades buffer)]
+          (perf-helpers/project-feed cascades budget-ms))))
+
+    ;; Set the over-budget threshold. Pass nil to reset to default.
+    (rf/reg-event-db :rf.causa/set-performance-budget-ms
+      (fn [db [_ budget-ms]]
+        (if (and (number? budget-ms) (pos? budget-ms))
+          (assoc db :performance-budget-ms budget-ms)
+          (dissoc db :performance-budget-ms))))
 
     ;; ---- Phase 5 (rf2-rccf3) — AI Co-Pilot panel -----------------------
     ;;
