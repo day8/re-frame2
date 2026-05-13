@@ -51,6 +51,30 @@
   []
   (or *current-frame* :rf/default))
 
+(defn resolve-current-frame
+  "Resolve the active frame at a no-explicit-frame call site. The
+  3-tier resolution chain — dynamic var → React context → `:rf/default` —
+  per Spec 002 §Reading the frame from React context and Spec 006
+  §Lookup algorithm.
+
+  Per rf2-d4sf, on CLJS this consults the `:adapter/current-frame`
+  late-bind hook so the React-context tier is LIVE — adapters publish
+  their React-context-aware impl through the hook at ns-load time.
+  When the hook is unbound (no adapter loaded yet, or JVM build) the
+  fallback is `current-frame` which honours the dynamic-var tier and
+  the `:rf/default` tier; the React-context tier silently no-ops in
+  that case.
+
+  This is the canonical 3-tier resolver — `subs/subscribe`,
+  `router/dispatch*`'s default-frame computation, and
+  `core/current-frame` all delegate here so the React-context tier is
+  single-sourced (rf2-jj8xf)."
+  []
+  #?(:cljs (if-let [f (late-bind/get-fn :adapter/current-frame)]
+             (f)
+             (current-frame))
+     :clj  (current-frame)))
+
 ;; ---- lookup ---------------------------------------------------------------
 
 (defn frame
