@@ -28,6 +28,26 @@ All seven macros live in `re-frame.story`. All elide to `nil` under `:advanced`.
 
 Variant `id` grammar: `:story.<dotted.path>/<variant-name>`. Story `id`: `:story.<dotted.path>` (no `/<variant>` suffix). The seven canonical tags — `:dev :docs :test :screenshot :experimental :internal :agent` — register automatically when `re-frame.story` loads; project tags must `reg-tag` before any variant references them, or registration throws `:rf.error/unknown-tag`.
 
+### `reg-tag` body slots — `:axis` and `:default-filter` (SB9 parity)
+
+Project tag registrations may carry two optional body slots that drive the sidebar tag-filter UI:
+
+```clojure
+(story/reg-tag :auth/regression-set
+  {:doc  "Auth regression-suite variants."
+   :axis :team})                          ; facet grouping hint
+
+(story/reg-tag :alpha
+  {:doc            "Pre-release status."
+   :axis           :status
+   :default-filter :exclude})             ; pre-excluded at boot
+```
+
+- **`:axis :keyword`** — facet classifier (e.g. `:status` / `:role` / `:team` / `:feature`). Tags sharing an axis render as one collapsible row in the sidebar tag-filter; tags without `:axis` render in a trailing un-grouped row. Purely a UI grouping hint — does not affect variant `:tags` set semantics or `variants-with-tags` filtering. Query via `(story/tags-by-axis :status)` / `(story/tags-without-axis)`. Mirrors the same body-shape extension on `reg-mode` (toolbar grouping).
+- **`:default-filter :include|:exclude`** — initial sidebar filter state. `:include` (default) leaves the tag's variants visible; `:exclude` pre-hides them at boot (use for `:internal` / `:experimental` style tags). Query the boot-exclusion set via `(story/tags-default-excluded)`.
+
+Both slots are opt-in. The seven canonical tags register without `:axis` or `:default-filter`; project tags may opt in. Canonical home: `tools/story/spec/010-Toolbar.md` §Optional grouping (mirrors `reg-mode`); SB9 parity tracker `tools/story/spec/005-SOTA-Features.md`.
+
 ## Canonical mini-example
 
 Distilled from `examples/reagent/counter_with_stories/stories.cljs` — every key shape in one variant per slot.
@@ -119,6 +139,17 @@ When no schema is available the fallback infers from the value: maps recurse as 
 A variant's `:play` slot IS the test. `(story/run-variant :story.counter/loaded)` returns a result map; `(story/read-assertions :story.counter/loaded)` returns the assertion records; `(story/assertions-passing? result)` is the boolean. The play-runner stamps each `:rf.assert/*` entry with its source coord so failures point at the variant body line.
 
 For tests that don't need a render shell, run variants headless from a JVM test (`shadow-cljs run`, deps.edn alias) — the play-runner is platform-agnostic per Spec 011.
+
+## Test-pane dev UX — SB9-parity affordances
+
+The dev shell's Test pane and recorder ship ergonomic affordances that consume what the author writes — none are new authoring surfaces, but knowing they exist helps when recommending the right tool. All are dev-shell scoped and elided in production.
+
+- **Chrome test widget + sidebar status dots.** A Vitest-style widget at the foot of the sidebar; per-variant status dots render next to each row. Aggregates pass/fail across the `:test`-tagged set — any variant carrying `:test` participates. See `tools/story/spec/009-Test-Mode.md` §Chrome-level test widget.
+- **Watch mode.** The eye-icon chip on the test widget toggles watch mode; when on, the shell re-runs the focused `:test` variant on every hot-reload of its content. Scoped to one variant to keep noise low. See `tools/story/spec/009-Test-Mode.md` §Watch mode.
+- **`:play` step-through scrubber.** The play-stepper UI pauses between events in a `:play` sequence, surfaces the intermediate `:assertions` list per step, and offers a re-dispatch hook — useful for diagnosing which event flipped which assertion. See `tools/story/spec/004-Assertions.md` §play-stepper.
+- **Save-as-variant modal.** When the chrome-toolbar REC chip stops a recording, the shell opens a modal that renders the captured trace as a `(reg-variant ...)` form (with `:extends` from the source variant) — one-click to paste into the stories namespace. See `tools/story/spec/005-SOTA-Features.md` §Save-as-variant.
+- **Mid-recording assertion inserter.** The recording overlay carries an `+ assert` button next to `stop` that opens a picker over the canonical seven `:rf.assert/*` ids with EDN payload prompts; inserted assertions interleave with captured dispatches in-place. Pure helpers (`make-assertion`, `append-assertion`, `insert-assertion!`) live in `re-frame.story.recorder` (JVM-testable). See `tools/story/spec/005-SOTA-Features.md` §Mid-recording assertion insertion and `story-recorder.md` (sibling leaf).
+- **Sidebar tag-as-badge.** Variant rows render their `:tags` set as small badges — fastest way to see which variants carry `:test` / `:experimental` / `:internal` at a glance. Composes with `:default-filter :exclude` on `reg-tag` to hide noisy tags by default.
 
 ## Deeper material
 
