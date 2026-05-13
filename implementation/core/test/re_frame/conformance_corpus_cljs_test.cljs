@@ -113,6 +113,10 @@
     :flow/dirty-check
     :flow/toggle
     :flow/hot-reload
+    ;; Spec 009 §Flow trace events / Spec 013 §Flow tracing (rf2-2s1o) —
+    ;; the runtime emits the :rf.flow/* lifecycle events. Claimed so
+    ;; `flow-lifecycle-emits-traces.edn` runs on CLJS too (rf2-efjs6).
+    :flow/trace
     :rf.http/managed})
 
 (def claimed-spec-versions
