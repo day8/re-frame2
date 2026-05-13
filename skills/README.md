@@ -137,3 +137,22 @@ Skills do not run independently of re-frame2's CI; their workflows have
 been removed in favour of release coordination through re-frame2's own
 release pipeline. See each skill's `RELEASING.md` (where present) for
 historical npm publish mechanics.
+
+### Leaf size discipline
+
+Single source of truth for the per-leaf size ceiling — per-skill
+`spec/authoring-prompt.md` files defer here instead of restating.
+
+- Each leaf file SHOULD be **≤250 lines AND ≤16 KB** (target ~150 lines /
+  ~10 KB). The byte ceiling catches leaves whose long unwrapped prose
+  lines fit under the line count but still bloat the per-session token
+  load.
+- `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400).
+- No SKILL → A → B chains; routing is one level deep.
+- Catalogue-shaped leaves (e.g. `re-frame-pair2/references/recipes.md`)
+  may exceed the ceiling if splitting would multiply file-handle overhead
+  without reducing tokens-per-session. Test: would splitting reduce total
+  tokens loaded per session?
+
+Corpus stats supporting these numbers: `ai/findings/skill-leaf-size-audit-20260513.md`
+(local-only; max 203 L, p95 148 L, median 88 L).
