@@ -2,6 +2,7 @@
   "Tool: dispatch — fire an event."
   (:require [clojure.string :as str]
             [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.probe :as probe]))
 
@@ -22,13 +23,14 @@
       (let [opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides))
-            form (cond
-                   trace?
-                   (str "(re-frame-pair2.runtime/dispatch-and-collect " event-str " " (pr-str opts-form) ")")
-                   sync?
-                   (str "(re-frame-pair2.runtime/pair-dispatch-sync! " event-str " " (pr-str opts-form) ")")
-                   :else
-                   (str "(re-frame-pair2.runtime/pair-dispatch! " event-str " " (pr-str opts-form) ")"))
+            ;; The agent passes `event-str` as raw CLJS source (e.g.
+            ;; "[:my/event arg]"); wrap with `rt-raw` so `emit` inlines
+            ;; it verbatim instead of `pr-str`'ing the outer string.
+            event-form (ef/rt-raw event-str)
+            fn-sym     (cond trace? 'dispatch-and-collect
+                             sync?  'pair-dispatch-sync!
+                             :else  'pair-dispatch!)
+            form (ef/emit (ef/rt-call fn-sym event-form opts-form))
             mode (cond trace? :trace sync? :sync :else :queued)]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))

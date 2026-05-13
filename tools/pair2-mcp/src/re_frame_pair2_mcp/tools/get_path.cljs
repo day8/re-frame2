@@ -17,6 +17,7 @@
   `:scalar-value` arm of `run-wire-pipeline` just counts the
   resulting `:rf.size/large-elided` markers."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
@@ -51,35 +52,39 @@
       ;; — the agent can re-call `get-path` with a deeper segment to
       ;; drill into a non-elided child, or pass `elision false` to
       ;; bypass the walk entirely.
-      (let [path-edn      (pr-str path)
-            snapshot-call (if frame
-                            (str "(re-frame-pair2.runtime/snapshot " (pr-str frame) ")")
-                            "(re-frame-pair2.runtime/snapshot)")
-            frame-edn     (if frame (pr-str frame) "(re-frame-pair2.runtime/current-frame)")
+      (let [snapshot-call (if frame
+                            (ef/rt-call 'snapshot frame)
+                            (ef/rt-call 'snapshot))
+            frame-edn     (if frame
+                            (pr-str frame)
+                            (ef/emit (ef/rt-call 'current-frame)))
             elision-opts  (elision/elision-opts-edn elision?)
             elide-call    (if elision?
                             (str "(re-frame.core/elide-wire-value v"
                                  "  (merge {:path path :frame " frame-edn "}"
                                  "         " elision-opts "))")
                             "v")
-            form (str "(let [db " snapshot-call
-                      "      path " path-edn
-                      "      missing #js {}"
-                      "      v (get-in db path missing)]"
-                      "  (if (identical? v missing)"
-                      "    {:ok? false :reason :path-not-found"
-                      "     :path path"
-                      "     :deepest-valid-prefix"
-                      "     (loop [acc [] cur db rem path]"
-                      "       (cond"
-                      "         (empty? rem) acc"
-                      "         (and (map? cur) (contains? cur (first rem)))"
-                      "         (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
-                      "         (and (sequential? cur) (integer? (first rem))"
-                      "              (<= 0 (first rem) (dec (count cur))))"
-                      "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
-                      "         :else acc))}"
-                      "    {:ok? true :exists? true :path path :value " elide-call "}))")]
+            form (ef/emit
+                   (ef/rt-let
+                     ['db      snapshot-call
+                      'path    path
+                      'missing (ef/rt-raw "#js {}")
+                      'v       (ef/rt-raw "(get-in db path missing)")]
+                     (ef/rt-raw
+                       (str "(if (identical? v missing)"
+                            "  {:ok? false :reason :path-not-found"
+                            "   :path path"
+                            "   :deepest-valid-prefix"
+                            "   (loop [acc [] cur db rem path]"
+                            "     (cond"
+                            "       (empty? rem) acc"
+                            "       (and (map? cur) (contains? cur (first rem)))"
+                            "       (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
+                            "       (and (sequential? cur) (integer? (first rem))"
+                            "            (<= 0 (first rem) (dec (count cur))))"
+                            "       (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
+                            "       :else acc))}"
+                            "  {:ok? true :exists? true :path path :value " elide-call "})"))))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v]

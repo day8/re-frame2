@@ -10,6 +10,7 @@
   builds the eval form, awaits the runtime response, and routes the
   result through `run-wire-pipeline` with `:kind :snapshot-map`."
   (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.wire-pipeline :as wp]
             [re-frame-pair2-mcp.tools.probe :as probe]
@@ -46,21 +47,22 @@
         ;; with `:rf.size/include-large? true`).
         elision-opts-form (elision/elision-opts-edn elision?)
         form     (if elision?
-                   (str "(let [snap (re-frame-pair2.runtime/snapshot-state "
-                        (pr-str opts) ")]"
-                        "  (reduce-kv"
-                        "    (fn [m fid fmap]"
-                        "      (assoc m fid"
-                        "             (if (and (map? fmap) (contains? fmap :app-db))"
-                        "               (update fmap :app-db"
-                        "                       (fn [db] (re-frame.core/elide-wire-value db"
-                        "                                  (merge {:frame fid} "
-                        elision-opts-form
-                        "))))"
-                        "               fmap)))"
-                        "    {} snap))")
-                   (str "(re-frame-pair2.runtime/snapshot-state "
-                        (pr-str opts) ")"))]
+                   (ef/emit
+                     (ef/rt-let
+                       ['snap (ef/rt-call 'snapshot-state opts)]
+                       (ef/rt-raw
+                         (str "(reduce-kv"
+                              " (fn [m fid fmap]"
+                              "   (assoc m fid"
+                              "          (if (and (map? fmap) (contains? fmap :app-db))"
+                              "            (update fmap :app-db"
+                              "                    (fn [db] (re-frame.core/elide-wire-value db"
+                              "                               (merge {:frame fid} "
+                              elision-opts-form
+                              "))))"
+                              "            fmap)))"
+                              " {} snap)"))))
+                   (ef/emit (ef/rt-call 'snapshot-state opts)))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v]

@@ -23,6 +23,7 @@
   follow-on work (see `cache.cljs` docstring)."
   (:require [applied-science.js-interop :as j]
             [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.args :as args]))
 
@@ -76,10 +77,10 @@
   [frame]
   (cond
     (= frame :rf.mcp.cache/operating-frame)
-    "(hash (re-frame-pair2.runtime/snapshot))"
+    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot)))
 
     (keyword? frame)
-    (str "(hash (re-frame-pair2.runtime/snapshot " (pr-str frame) "))")
+    (ef/emit (ef/rt-call* 'hash (ef/rt-call 'snapshot frame)))
 
     :else nil))
 

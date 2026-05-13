@@ -2,6 +2,7 @@
   "Tool: unsubscribe — close a streaming subscription."
   (:require [clojure.string :as str]
             [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.probe :as probe]))
 
@@ -15,8 +16,7 @@
                         :hint "usage: unsubscribe {sub-id '<uuid>'}"}))
 
       :else
-      (let [form (str "(re-frame-pair2.runtime/unsubscribe! "
-                      (pr-str sub-id) ")")]
+      (let [form (ef/emit (ef/rt-call 'unsubscribe! sub-id))]
         (-> (probe/ensure-runtime! conn build-id)
             (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
             (.then (fn [v] (wire/ok-text (merge {:ok? true :sub-id sub-id}

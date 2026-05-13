@@ -19,7 +19,9 @@
   :queue-bytes :dropped-events :dropped-bytes :overflow-reason
   :created-at}]}`. Empty `:subs` vector when no streams are open (or
   when the filter matches nothing)."
-  (:require [re-frame-pair2-mcp.nrepl :as nrepl]
+  (:require [clojure.string :as str]
+            [re-frame-pair2-mcp.nrepl :as nrepl]
+            [re-frame-pair2-mcp.tools.eval-form :as ef]
             [re-frame-pair2-mcp.tools.wire :as wire]
             [re-frame-pair2-mcp.tools.probe :as probe]))
 
@@ -27,15 +29,23 @@
   (let [build-id (wire/arg-build args)
         topic    (some-> (wire/arg args :topic) keyword)
         sub-id   (wire/arg args :sub-id)
-        form     (str "(let [r (re-frame-pair2.runtime/subscription-info)"
-                      "      subs (:subs r)"
-                      "      f1 (if " (pr-str topic)
-                      "           (filterv #(= (:topic %) " (pr-str topic) ") subs)"
-                      "           subs)"
-                      "      f2 (if " (pr-str sub-id)
-                      "           (filterv #(= (:id %) " (pr-str sub-id) ") f1)"
-                      "           f1)]"
-                      "  (assoc r :subs f2))")]
+        ;; Build the filter chain Clojure-side (audit T19): only inline
+        ;; the predicates that actually apply, so the runtime sees the
+        ;; minimum form. The pre-DSL shape always shipped both `(if
+        ;; topic ... subs)` branches even when the slot was nil — wasted
+        ;; bytes the runtime then no-op'd.
+        preds    (cond-> []
+                   topic  (conj (str "(= (:topic %) " (pr-str topic) ")"))
+                   sub-id (conj (str "(= (:id %) "    (pr-str sub-id) ")")))
+        filtered (case (count preds)
+                   0 "subs"
+                   1 (str "(filterv #" (first preds) " subs)")
+                   (str "(filterv #(and " (str/join " " preds) ") subs)"))
+        form     (ef/emit
+                   (ef/rt-let ['r    (ef/rt-call 'subscription-info)
+                               'subs (ef/rt-raw "(:subs r)")]
+                              (ef/rt-raw
+                                (str "(assoc r :subs " filtered ")"))))]
     (-> (probe/ensure-runtime! conn build-id)
         (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
         (.then (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))
