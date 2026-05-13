@@ -365,6 +365,133 @@
                     {:reason   ":on-create must be a vector (event)"
                      :received on-create}))))
 
+;; ---- handler defaults ----------------------------------------------------
+;;
+;; Merged into caller-supplied opts once at handler-construction time
+;; so the pipeline helpers below can destructure a single uniform
+;; `opts` map without re-stating the defaults.
+
+(defn- default-on-error
+  "Minimal 500 response used when the caller doesn't supply `:on-error`.
+  The SSR runtime's error projector handles trace-emitted errors
+  during drain; this hook covers exceptions the projector can't see
+  (Ring-layer throws, render-time CLJ exceptions)."
+  [_request ^Throwable t]
+  {:status  500
+   :headers {"Content-Type" "text/plain; charset=utf-8"}
+   :body    (str "SSR error: " (.getMessage t))})
+
+(def ^:private handler-defaults
+  {:emit-hash?   true
+   :html-shell   default-html-shell
+   :content-type "text/html; charset=utf-8"
+   :on-error     default-on-error})
+
+;; ---- request lifecycle pipeline ------------------------------------------
+;;
+;; The Ring handler is a 4-step pipeline:
+;;
+;;   1. setup-request-frame! — gensym frame-id, populate request slot,
+;;      register the per-request frame (which drains :on-create
+;;      synchronously). On failure, returns a {:short-circuit ring-resp}
+;;      map so the outer pipeline emits the on-error response without
+;;      attempting render.
+;;   2. ssr/get-response       — read the resolved response accumulator
+;;      (flushes any pending error projection).
+;;   3. branch on :redirect    — short-circuit to a Location response,
+;;      OR build-full-response — render the root-view, build the
+;;      hydration payload, wrap in the html-shell, materialise to Ring.
+;;   4. destroy-frame-quietly! in `finally` — `:ssr/on-frame-destroyed`
+;;      (rf2-fcj33) clears the per-frame request slot.
+
+(defn- ensure-content-type
+  "If the response's header pairs already declare Content-Type
+  (case-insensitive), return them unchanged; otherwise append a
+  pair carrying `content-type`. Pure helper."
+  [pairs content-type]
+  (let [m (headers->ring-map pairs)]
+    (if (or (get m "content-type")
+            (get m "Content-Type"))
+      pairs
+      (conj (vec pairs) ["Content-Type" content-type]))))
+
+(defn- setup-request-frame!
+  "Register a per-request frame and populate the request slot. Returns
+  `{:frame-id fid}` on success, or `{:short-circuit ring-response}` when
+  setup fails (the caller short-circuits to that response, skipping
+  render).
+
+  The slot is populated BEFORE `reg-frame` so the synchronous
+  `:on-create` drain can resolve the `:rf.server/request` cofx (Spec
+  011 §Request storage substrate). `make-frame` gensyms the id
+  internally and would return only after the drain, so we inline its
+  (gensym + reg-frame) shape here and call `ssr/set-request!` between
+  them. The assembled config is identical to what `make-frame` would
+  have submitted.
+
+  On failure mid-drain, the request slot AND any partial frame
+  registration are cleared so neither leaks across requests. The frame
+  may be registered in the `frames` atom (see frame.cljc — `swap!
+  frames` happens before `dispatch-sync`), so the best-effort destroy
+  is required even though `reg-frame` threw."
+  [{:keys [on-create fx-overrides ssr on-error]} request]
+  (let [fid (keyword "rf.frame" (str (gensym "")))]
+    (ssr/set-request! fid request)
+    (try
+      (rf/reg-frame fid
+        (cond-> {:doc       "ssr-ring per-request frame"
+                 :platform  :server
+                 :on-create (on-create-with-request on-create request)}
+          fx-overrides (assoc :fx-overrides fx-overrides)
+          ssr          (assoc :ssr           ssr)))
+      {:frame-id fid}
+      (catch Throwable t
+        (ssr/clear-request! fid)
+        (destroy-frame-quietly! fid)
+        {:short-circuit (on-error request t)}))))
+
+(defn- build-full-response
+  "Render the caller's `:root-view` against `frame-id`, build the
+  hydration payload, wrap in the html-shell, and materialise to a Ring
+  response.
+
+  Per rf2-6t36h the root-view resolves EXACTLY ONCE per request — both
+  the wire HTML (via `render-to-string` + its embedded
+  `data-rf-render-hash`) and the payload's `:rf/render-hash` derive
+  from the same hiccup tree, so a non-idempotent fn-form root-view
+  cannot fire a spurious `:rf.ssr/hydration-mismatch` on a successful
+  hydration."
+  [frame-id response
+   {:keys [root-view emit-hash? version schema-digest payload-keys
+           html-shell content-type]
+    :as   opts}]
+  (let [hiccup      (rf/with-frame frame-id (resolve-root-view root-view))
+        body-html   (rf/with-frame frame-id
+                      (ssr/render-to-string hiccup
+                                            {:doctype?   false
+                                             :emit-hash? emit-hash?}))
+        hash-str    (ssr/render-tree-hash hiccup)
+        app-db      (rf/get-frame-db frame-id)
+        payload     (build-payload frame-id app-db hash-str
+                                   {:version       version
+                                    :schema-digest schema-digest
+                                    :payload-keys  payload-keys})
+        payload-edn (pr-str payload)
+        ;; rf2-4dra9: resolve the active route's :head (or
+        ;; default-head fallback) and pass the rendered fragment as
+        ;; the :head opt. Callers that supplied an explicit :head opt
+        ;; take precedence — they chose to bypass route-driven head
+        ;; resolution.
+        head-html   (or (:head opts) (resolve-head-html frame-id))
+        shell-opts  (assoc opts :head head-html)
+        html        (html-shell body-html payload-edn shell-opts)
+        ;; Ensure Content-Type is set; the SSR runtime defaults
+        ;; [:rf/response :headers] to include content-type so this is
+        ;; usually a no-op, but we let opts override and trust the
+        ;; runtime's default in absence.
+        response*   (update response :headers ensure-content-type content-type)]
+    (ssr-response->ring-response response* html)))
+
 (defn ssr-handler
   "Return a Ring-shaped (synchronous) handler that renders one
   re-frame2 SSR request per call.
@@ -439,122 +566,34 @@
                              :root-view [:app/root]
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
-  [{:keys [on-create root-view fx-overrides ssr emit-hash?
-           version schema-digest payload-keys html-shell content-type
-           on-error]
-    :or   {emit-hash?    true
-           html-shell    default-html-shell
-           content-type  "text/html; charset=utf-8"
-           on-error      (fn default-on-error [_req ^Throwable t]
-                           {:status  500
-                            :headers {"Content-Type" "text/plain; charset=utf-8"}
-                            :body    (str "SSR error: " (.getMessage t))})}
-    :as   opts}]
+  [{:keys [on-create root-view] :as raw-opts}]
   (when-not on-create
     (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
                     {:reason "ssr-handler requires :on-create (an event vector)"})))
   (when-not root-view
     (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
                     {:reason "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"})))
-  (fn ring-handler [request]
-    ;; Per Spec 011 §Request storage substrate, the slot MUST be
-    ;; populated before the drain begins — `:on-create` runs
-    ;; synchronously inside `reg-frame`, so we must know the frame-id
-    ;; BEFORE the call that drains. `make-frame` gensyms the id
-    ;; internally and would return only after the drain, so we inline
-    ;; its (gensym + reg-frame) shape here and call `ssr/set-request!`
-    ;; between them. The assembled config is identical to what
-    ;; `make-frame` would have submitted.
-    (let [fid (keyword "rf.frame" (str (gensym "")))
-          _   (ssr/set-request! fid request)
-          frame-id
+  ;; Merge defaults once at construction time so the pipeline helpers
+  ;; (`setup-request-frame!`, `build-full-response`) can destructure
+  ;; without re-stating the `:or` map. Caller-supplied values win.
+  (let [opts        (merge handler-defaults raw-opts)
+        {:keys [on-error]} opts]
+    (fn ring-handler [request]
+      (let [{:keys [frame-id short-circuit]} (setup-request-frame! opts request)]
+        (if short-circuit
+          short-circuit
           (try
-            (rf/reg-frame fid
-              (cond-> {:doc       "ssr-ring per-request frame"
-                       :platform  :server
-                       :on-create (on-create-with-request on-create request)}
-                fx-overrides (assoc :fx-overrides fx-overrides)
-                ssr          (assoc :ssr           ssr)))
+            (let [response (ssr/get-response frame-id)]
+              (if (some? (:redirect response))
+                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
+                (ssr-response->ring-response response nil)
+                (build-full-response frame-id response opts)))
             (catch Throwable t
-              ;; reg-frame threw mid-drain. The frame may be registered
-              ;; in the `frames` atom (see frame.cljc — `swap! frames`
-              ;; happens before `dispatch-sync`). Clear the request
-              ;; slot ourselves AND best-effort destroy the partially-
-              ;; built frame so neither the slot nor the registry
-              ;; leaks across the failing request.
-              (ssr/clear-request! fid)
-              (destroy-frame-quietly! fid)
-              (on-error request t)))]
-      (cond
-        ;; on-error returned a Ring response (frame creation threw).
-        (map? frame-id) frame-id
-
-        (nil? frame-id)
-        (do (ssr/clear-request! fid)
-            (on-error request (ex-info ":rf.error/ssr-ring-reg-frame-returned-nil"
-                                       {:reason "reg-frame returned nil"})))
-
-        :else
-        (try
-          (let [response (ssr/get-response frame-id)
-                ;; rf/get-frame-db returns the value (plain map), not
-                ;; the container. Per
-                ;; implementation/core/src/re_frame/core.cljc:889 —
-                ;; value-form accessor; no deref needed.
-                app-db   (rf/get-frame-db frame-id)]
-            (cond
-              ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-              (some? (:redirect response))
-              (ssr-response->ring-response response nil)
-
-              :else
-              ;; rf2-6t36h: resolve root-view EXACTLY ONCE per request.
-              ;; Both the wire HTML (via render-to-string + its embedded
-              ;; data-rf-render-hash) and the payload's :rf/render-hash
-              ;; must derive from the same hiccup tree, otherwise a
-              ;; non-idempotent fn-form root-view produces two trees and
-              ;; the on-client mismatch check fires on a successful
-              ;; hydration. `with-frame` binds *current-frame* for the
-              ;; view-time subscribes / view-registry lookups.
-              (let [hiccup      (rf/with-frame frame-id (resolve-root-view root-view))
-                    body-html   (rf/with-frame frame-id
-                                  (ssr/render-to-string hiccup
-                                                        {:doctype?   false
-                                                         :emit-hash? emit-hash?}))
-                    hash-str    (ssr/render-tree-hash hiccup)
-                    payload     (build-payload frame-id app-db hash-str
-                                               {:version       version
-                                                :schema-digest schema-digest
-                                                :payload-keys  payload-keys})
-                    payload-edn (pr-str payload)
-                    ;; rf2-4dra9: resolve the active route's :head
-                    ;; (or default-head fallback) and pass the rendered
-                    ;; fragment as the :head opt. Callers that supplied
-                    ;; an explicit :head opt take precedence — they
-                    ;; chose to bypass route-driven head resolution.
-                    head-html   (or (:head opts) (resolve-head-html frame-id))
-                    shell-opts  (assoc opts :head head-html)
-                    html        (html-shell body-html payload-edn shell-opts)
-                    ;; Ensure Content-Type is set; the SSR runtime
-                    ;; defaults [:rf/response :headers] to include
-                    ;; content-type so this is usually a no-op, but
-                    ;; we let opts override and we trust the runtime's
-                    ;; default in absence.
-                    response*   (update response :headers
-                                        (fn [pairs]
-                                          (let [m (headers->ring-map pairs)]
-                                            (if (or (get m "content-type")
-                                                    (get m "Content-Type"))
-                                              pairs
-                                              (conj (vec pairs)
-                                                    ["Content-Type" content-type])))))]
-                (ssr-response->ring-response response* html))))
-          (catch Throwable t
-            (on-error request t))
-          (finally
-            ;; `destroy-frame!` invokes `:ssr/on-frame-destroyed`
-            ;; (rf2-fcj33), which clears the per-frame request slot.
-            (destroy-frame-quietly! frame-id)))))))
+              (on-error request t))
+            (finally
+              ;; `destroy-frame!` invokes `:ssr/on-frame-destroyed`
+              ;; (rf2-fcj33), which clears the per-frame request slot.
+              (destroy-frame-quietly! frame-id))))))))
 
 ;; ---- middleware ----------------------------------------------------------
 
