@@ -165,6 +165,20 @@
 
 ;; ---- public surface -------------------------------------------------------
 
+(def ^:private kind->bucket
+  "Map a decorator body's `:kind` to the result bucket it lands in.
+  Used by `resolve-decorators`'s reducer to dispatch via `case` rather
+  than a multi-arm `cond` cascade."
+  {:hiccup       :hiccup
+   :frame-setup  :frame-setup
+   :fx-override  :fx-override})
+
+(defn- classify-kind
+  "Return the bucket keyword for a resolved-decorator's `:body :kind`,
+  or `:unknown-kind` if it isn't one of the three canonical kinds."
+  [r]
+  (or (kind->bucket (:kind (:body r))) :unknown-kind))
+
 (defn resolve-decorators
   "Per IMPL-SPEC §5.3 — collect, classify, and order the decorator stack
   for the variant. Returns:
@@ -197,27 +211,19 @@
          {:keys [hiccup frame-setup fx-override errors]}
          (reduce
            (fn [acc r]
-             (cond
-               (:error r)
+             (if (:error r)
                (update acc :errors conj (:error r))
-
-               (= :hiccup (:kind (:body r)))
-               (update acc :hiccup conj r)
-
-               (= :frame-setup (:kind (:body r)))
-               (update acc :frame-setup conj r)
-
-               (= :fx-override (:kind (:body r)))
-               (update acc :fx-override conj r)
-
-               :else
-               (update acc :errors conj
-                       {:rf.error :rf.error/decorator-unknown-kind
-                        :id       (:id r)
-                        :kind     (:kind (:body r))
-                        :reason   (str "decorator " (:id r)
-                                       " has unrecognised :kind "
-                                       (pr-str (:kind (:body r))))})))
+               (case (classify-kind r)
+                 :hiccup       (update acc :hiccup       conj r)
+                 :frame-setup  (update acc :frame-setup  conj r)
+                 :fx-override  (update acc :fx-override  conj r)
+                 :unknown-kind (update acc :errors conj
+                                       {:rf.error :rf.error/decorator-unknown-kind
+                                        :id       (:id r)
+                                        :kind     (:kind (:body r))
+                                        :reason   (str "decorator " (:id r)
+                                                       " has unrecognised :kind "
+                                                       (pr-str (:kind (:body r))))}))))
            {:hiccup [] :frame-setup [] :fx-override [] :errors []}
            resolved)]
      {:hiccup        hiccup
@@ -266,6 +272,25 @@
 
 ;; ---- fx-override materialisation -----------------------------------------
 
+(defn synthesise-stub-id
+  "Build the deterministic stub-fx id for a `:fx-override` decorator
+  resolution. Returns a keyword in the reserved
+  `:rf.story.fx-stub/<dec-id>[+ns.name]` namespace per Conventions.md.
+
+  When `fx-id` is set, the stub-id carries it as a `+ns.name` suffix —
+  so the ref-args-driven `:rf.story/force-fx-stub` decorator can
+  register distinct stubs for distinct fx-ids referenced from the same
+  decorator id. When `fx-id` is nil (a body-supplied `:fx-id` is
+  unset — unusual but legal), only the decorator id is encoded.
+
+  Pure data → keyword; JVM-testable. Stage 5 (rf2-h8et)."
+  [decorator-id fx-id]
+  (let [base (name decorator-id)
+        suffix (when fx-id
+                 (str "+" (when-let [ns (namespace fx-id)] (str ns "."))
+                      (name fx-id)))]
+    (keyword "rf.story.fx-stub" (str base suffix))))
+
 (defn fx-overrides-map
   "Materialise the `:fx-overrides` map a `:fx-override`-decorator stack
   contributes to the variant frame's `:config`. The runtime threads
@@ -290,17 +315,7 @@
   (let [pairs (mapv (fn [r]
                       (let [fx-id    (-> r :body :fx-id)
                             response (-> r :body :response)
-                            ;; Include fx-id in the stub-event-id so the
-                            ;; ref-args-driven `:rf.story/force-fx-stub`
-                            ;; decorator can synthesise distinct stubs
-                            ;; for distinct fx-ids referenced from the
-                            ;; same decorator id. Stage 5 (rf2-h8et).
-                            stub-id  (keyword "rf.story.fx-stub"
-                                              (str (name (:id r))
-                                                   (when fx-id
-                                                     (str "+"
-                                                          (when-let [ns (namespace fx-id)] (str ns "."))
-                                                          (name fx-id)))))]
+                            stub-id  (synthesise-stub-id (:id r) fx-id)]
                         {:fx-id        fx-id
                          :stub-id      stub-id
                          :response     response
