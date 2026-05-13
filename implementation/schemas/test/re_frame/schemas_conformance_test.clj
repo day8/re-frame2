@@ -84,6 +84,12 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
+            ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
+            ;; required at boot to publish the late-bind hook the
+            ;; default validator routes through. The conformance corpus
+            ;; expects Malli-backed validation outcomes; absent the
+            ;; require the validator soft-passes (no failure traces).
+            [re-frame.schemas.malli]
             [re-frame.spec :as spec]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]

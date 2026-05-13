@@ -28,16 +28,14 @@
   to whatever's published; absent any publisher they soft-pass per the
   Spec 010 §Recommended soft-pass rule.
 
-  CLJS users opt in by requiring this namespace at app boot:
+  Users opt in by requiring this namespace at app boot — same pattern
+  on both CLJS and the JVM (rf2-qyfie removed the JVM `requiring-resolve`
+  fallback so the contract is symmetrical):
 
       (ns my-app.core
         (:require [re-frame.core :as rf]
                   [re-frame.schemas]         ;; load the schemas artefact
                   [re-frame.schemas.malli])) ;; publish Malli into the hook table
-
-  On the JVM the schemas artefact's `default-malli-validate` already
-  works via `requiring-resolve` — but loading this namespace at boot
-  is harmless and symmetrical (CLJS + JVM bundles look identical).
 
   Apps that want to drop the Malli surface entirely (per rf2-qnxf
   bundle audit) do NOT require this namespace and either:
