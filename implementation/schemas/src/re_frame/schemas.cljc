@@ -573,6 +573,150 @@
   [schema base-path]
   (walk-schema schema base-path {}))
 
+;; ---- sensitive-declaration walker (rf2-kj51z) ----------------------------
+;;
+;; Parallel to the `:large?` walker above. Per Spec 010 §`:sensitive?`
+;; — privacy in schema-validation error traces (rf2-kj51z) and per
+;; Spec-Schemas §`:rf/app-schema-meta`, any Malli slot carrying
+;; `:sensitive? true` in its per-slot properties (or container-level
+;; props when the schema is registered at the path directly) declares
+;; that slot's value as sensitive. The schema-validation emit-site
+;; consults this walker on every failure to decide whether to redact
+;; the failing value before stamping the trace event.
+;;
+;; Implementation mirrors `extract-large-paths-from-schema` byte for
+;; byte — same structural recognition (`:map` name-bearing,
+;; `:multi`/`:orn`/`:catn`/`:altn` dispatch-bearing, positional
+;; combinators descend at the same base-path) so the two flags compose
+;; cleanly under the same Malli EDN shape.
+
+(defn- sensitive-declaration-from-props
+  "Build a `{:sensitive? true}` declaration map from a slot's per-slot
+  props, or nil if `:sensitive? true` is not set. Per Spec 010
+  §`:sensitive?` and Spec 009 §Privacy — the declaration shape is the
+  minimum signal a downstream consumer needs to redact."
+  [props]
+  (when (true? (:sensitive? props))
+    {:sensitive? true}))
+
+(declare walk-sensitive-schema)
+
+(defn- walk-sensitive-map-children
+  [children base-path acc]
+  (reduce
+    (fn [acc child]
+      (if-not (and (vector? child) (>= (count child) 2))
+        acc
+        (let [k          (nth child 0)
+              maybe-prop (nth child 1)
+              has-prop?  (map? maybe-prop)
+              slot-props (when has-prop? maybe-prop)
+              child-tail (if has-prop?
+                           (when (>= (count child) 3) (nth child 2))
+                           maybe-prop)
+              slot-path  (conj base-path k)
+              slot-decl  (sensitive-declaration-from-props slot-props)
+              acc'       (if slot-decl
+                           (assoc acc slot-path slot-decl)
+                           acc)]
+          (if (some? child-tail)
+            (walk-sensitive-schema child-tail slot-path acc')
+            acc'))))
+    acc
+    children))
+
+(defn- walk-sensitive-multi-children
+  [children base-path acc]
+  (reduce
+    (fn [acc child]
+      (cond
+        (vector? child)
+        (let [maybe-prop  (when (>= (count child) 2) (nth child 1))
+              has-prop?   (map? maybe-prop)
+              tail-idx    (if has-prop? 2 1)
+              tail        (when (> (count child) tail-idx) (nth child tail-idx))
+              branch-decl (when has-prop? (sensitive-declaration-from-props maybe-prop))
+              acc'        (if branch-decl
+                            (assoc acc base-path branch-decl)
+                            acc)]
+          (if (some? tail) (walk-sensitive-schema tail base-path acc') acc'))
+        :else acc))
+    acc
+    children))
+
+(defn- walk-sensitive-positional-children
+  [children base-path acc]
+  (reduce (fn [acc c] (walk-sensitive-schema c base-path acc)) acc children))
+
+(defn walk-sensitive-schema
+  "Walk a Malli EDN schema form at `base-path`, populating `acc` with
+  `{path {:sensitive? true}}` entries for every `:sensitive? true`
+  slot found. Pure; same input always produces the same output.
+  Public so tools and validation emit-sites can re-use it.
+
+  Returns the accumulator map. Use `extract-sensitive-paths-from-schema`
+  for the seeded-empty-accumulator entry point."
+  ([schema base-path]
+   (walk-sensitive-schema schema base-path {}))
+  ([schema base-path acc]
+   (cond
+     (keyword? schema) acc
+
+     (schema-vector? schema)
+     (let [op    (nth schema 0)
+           props (extract-props schema)
+           acc'  (if-let [decl (sensitive-declaration-from-props props)]
+                   (assoc acc base-path decl)
+                   acc)]
+       (cond
+         (contains? name-bearing-ops op)
+         (walk-sensitive-map-children (drop-op+props schema) base-path acc')
+
+         (contains? dispatch-bearing-ops op)
+         (walk-sensitive-multi-children (drop-op+props schema) base-path acc')
+
+         :else
+         (walk-sensitive-positional-children (drop-op+props schema) base-path acc')))
+
+     :else acc)))
+
+(defn extract-sensitive-paths-from-schema
+  "Walk a registered Malli schema form at `base-path` and return a
+  `{path {:sensitive? true}}` map for every `:sensitive? true` slot
+  found. Convenience wrapper over `walk-sensitive-schema` that seeds
+  the empty accumulator. Per Spec 010 §`:sensitive?` — privacy in
+  schema-validation error traces.
+
+  Used by the validation emit-sites (`validate-app-db!` and the
+  per-step `validate-event!` / `validate-cofx!` /
+  `validate-sub-return!` helpers) to decide whether the failing slot's
+  value MUST be redacted before the trace event ships."
+  [schema base-path]
+  (walk-sensitive-schema schema base-path {}))
+
+(defn schema-has-sensitive?
+  "True when the registered schema declares ANY slot sensitive —
+  either:
+
+    (a) the schema's container-level props carry `:sensitive? true`
+        (covers the whole registered slot); or
+    (b) any nested `:sensitive? true` slot lives anywhere inside the
+        schema.
+
+  Per Spec 010 §`:sensitive?` — privacy in schema-validation error
+  traces. The schema-validation emit-sites ship the WHOLE registered
+  slot's value (not just a failing leaf) in the trace's `:value` /
+  `:received` / `:explain` slots; a sensitive child slot still leaks
+  if the value rides verbatim. Conservative redaction — when any
+  slot in the schema is sensitive, the whole trace's value-bearing
+  slots are redacted.
+
+  Returns boolean. Pure; same input always produces the same output."
+  [schema]
+  (-> (extract-sensitive-paths-from-schema schema [])
+      seq
+      boolean))
+
 (defn frame-elision-declarations
   "Return the merged `{path declaration}` map for every `:large? true`
   slot in every app-schema registered against `frame-id`. Composes
@@ -805,6 +949,52 @@
 
 ;; ---- validation entry points ----------------------------------------------
 
+;; Per Spec 010 §`:sensitive?` — privacy in schema-validation error
+;; traces (rf2-kj51z). The validation emit-sites redact the failing
+;; value before stamping a trace event when either:
+;;   1. The schema slot at the failing path (or a containing slot)
+;;      carries `:sensitive? true` in its Malli props.
+;;   2. The surrounding registration metadata (handler-meta / cofx-meta /
+;;      sub-meta) carries `:sensitive? true` — applies to every
+;;      validation failure in that handler's scope as a coarse fallback.
+;; The substitution sentinel is `:rf/redacted` (the framework-reserved
+;; keyword per Spec 009 §`with-redacted`). The trace event's `:tags`
+;; map is stamped with `:sensitive? true` so consumers can route on it
+;; (until rf2-isdwf's top-level hoisting lands in core).
+;;
+;; The `:value`, `:received`, and `:explain` slots are redacted; the
+;; structural / categorical slots (`:path`, `:failing-id`, `:spec-id`,
+;; `:reason`) are kept — consumers need them to locate the broken slot
+;; without leaking user data.
+
+(def ^:private redacted-sentinel
+  "The `:rf/redacted` privacy sentinel emitted by validation traces
+  for slots matching the `:sensitive?` predicate. Per Spec 009
+  §`with-redacted` — the framework-reserved keyword that cannot
+  collide with an app-defined value."
+  :rf/redacted)
+
+(defn- meta-sensitive?
+  "True when the registration metadata (handler / cofx / sub) carries
+  `:sensitive? true`. Per Spec 009 §`:sensitive?` registration
+  metadata key — the coarse, handler-level signal."
+  [m]
+  (true? (:sensitive? m)))
+
+(defn- redact-tags
+  "Replace value-bearing slots in a tags map with the `:rf/redacted`
+  sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
+  error traces. Stamps `:sensitive? true` so consumers filter
+  correctly. Idempotent — safe to call on an already-redacted map."
+  [tags]
+  (cond-> tags
+    (contains? tags :value)       (assoc :value       redacted-sentinel)
+    (contains? tags :received)    (assoc :received    redacted-sentinel)
+    (contains? tags :explain)     (assoc :explain     redacted-sentinel)
+    (contains? tags :malli-error) (assoc :malli-error redacted-sentinel)
+    (contains? tags :event)       (assoc :event       redacted-sentinel)
+    true                          (assoc :sensitive?  true)))
+
 (defn- type-of-value [v]
   (cond
     (string? v)  "string"
@@ -852,24 +1042,34 @@
          (let [val-at (get-in db path)
                schema (:schema m)]
            (when-not (run-validator schema val-at)
-             (trace/emit-error! :rf.error/schema-validation-failure
-                                (cond-> {:where    :app-db
-                                         :path     path
-                                         :value    val-at
-                                         :frame    frame-id
-                                         :explain  (run-explainer schema val-at)
-                                         :reason   (str "App-db at path " path
-                                                        " failed schema " schema
-                                                        ": expected "
-                                                        (cond
-                                                          (and (vector? schema)
-                                                               (= 1 (count schema))
-                                                               (keyword? (first schema)))
-                                                          (first schema)
-                                                          :else schema)
-                                                        ", got " (type-of-value val-at) ".")
-                                         :recovery :no-recovery}
-                                  event-id (assoc :failing-id event-id))))))))))
+             ;; Per Spec 010 §`:sensitive?` — privacy in schema-
+             ;; validation error traces (rf2-kj51z). Consult the
+             ;; schema's per-slot `:sensitive?` props before
+             ;; including the failing value. The failing path is
+             ;; the reg-app-schema path itself (per-path validation
+             ;; only flags the whole registered slot); the walker
+             ;; checks for container-level OR any nested slot the
+             ;; failure path crosses.
+             (let [sensitive? (schema-has-sensitive? schema)
+                   base-tags  (cond-> {:where    :app-db
+                                       :path     path
+                                       :value    val-at
+                                       :frame    frame-id
+                                       :explain  (run-explainer schema val-at)
+                                       :reason   (str "App-db at path " path
+                                                      " failed schema " schema
+                                                      ": expected "
+                                                      (cond
+                                                        (and (vector? schema)
+                                                             (= 1 (count schema))
+                                                             (keyword? (first schema)))
+                                                        (first schema)
+                                                        :else schema)
+                                                      ", got " (type-of-value val-at) ".")
+                                       :recovery :no-recovery}
+                                event-id (assoc :failing-id event-id))
+                   tags       (if sensitive? (redact-tags base-tags) base-tags)]
+               (trace/emit-error! :rf.error/schema-validation-failure tags)))))))))
 
 (defn validate-event!
   "Per Spec 010 §Validation order step 1 — before an event handler runs,
@@ -895,21 +1095,28 @@
       (if-let [schema (:spec handler-meta)]
         (if (run-validator schema event)
           true
-          (let [explanation (run-explainer schema event)]
-            (trace/emit-error! :rf.error/schema-validation-failure
-                               {:where       :event
-                                :event-id    event-id
-                                :failing-id  event-id
-                                :spec-id     event-id
-                                :received    event
-                                :event       event
-                                :malli-error explanation
-                                :explain     explanation
-                                :reason      (str "Event " event-id
-                                                  " payload failed schema "
-                                                  schema ", got "
-                                                  (type-of-value event) ".")
-                                :recovery    :no-recovery})
+          (let [explanation (run-explainer schema event)
+                ;; Per Spec 010 §`:sensitive?` — privacy in
+                ;; schema-validation error traces (rf2-kj51z).
+                ;; Consult the handler's registration meta —
+                ;; `:sensitive? true` on the reg-event-* declares
+                ;; the whole event vector sensitive.
+                sensitive? (meta-sensitive? handler-meta)
+                base-tags  {:where       :event
+                            :event-id    event-id
+                            :failing-id  event-id
+                            :spec-id     event-id
+                            :received    event
+                            :event       event
+                            :malli-error explanation
+                            :explain     explanation
+                            :reason      (str "Event " event-id
+                                              " payload failed schema "
+                                              schema ", got "
+                                              (type-of-value event) ".")
+                            :recovery    :no-recovery}
+                tags       (if sensitive? (redact-tags base-tags) base-tags)]
+            (trace/emit-error! :rf.error/schema-validation-failure tags)
             false))
         true)
       true)
@@ -937,22 +1144,31 @@
       (if-let [schema (:spec sub-meta)]
         (if (run-validator schema value)
           true
-          (let [explanation (run-explainer schema value)]
-            (trace/emit-error! :rf.error/schema-validation-failure
-                               {:where       :sub-return
-                                :sub-id      sub-id
-                                :failing-id  sub-id
-                                :spec-id     sub-id
-                                :query-v     query-v
-                                :received    value
-                                :value       value
-                                :malli-error explanation
-                                :explain     explanation
-                                :reason      (str "Subscription " sub-id
-                                                  " return value failed schema "
-                                                  schema ", got "
-                                                  (type-of-value value) ".")
-                                :recovery    :replaced-with-default})
+          (let [explanation (run-explainer schema value)
+                ;; Per Spec 010 §`:sensitive?` — privacy in
+                ;; schema-validation error traces (rf2-kj51z).
+                ;; Two sources: the sub's registration meta
+                ;; (`:sensitive?` on reg-sub) and the schema's own
+                ;; per-slot `:sensitive?` (a container-level flag
+                ;; on the spec covers every failing return).
+                sensitive? (or (meta-sensitive? sub-meta)
+                               (schema-has-sensitive? schema))
+                base-tags  {:where       :sub-return
+                            :sub-id      sub-id
+                            :failing-id  sub-id
+                            :spec-id     sub-id
+                            :query-v     query-v
+                            :received    value
+                            :value       value
+                            :malli-error explanation
+                            :explain     explanation
+                            :reason      (str "Subscription " sub-id
+                                              " return value failed schema "
+                                              schema ", got "
+                                              (type-of-value value) ".")
+                            :recovery    :replaced-with-default}
+                tags       (if sensitive? (redact-tags base-tags) base-tags)]
+            (trace/emit-error! :rf.error/schema-validation-failure tags)
             false))
         true)
       true)
@@ -980,22 +1196,29 @@
       (if-let [schema (:spec cofx-meta)]
         (if (run-validator schema value)
           true
-          (let [explanation (run-explainer schema value)]
-            (trace/emit-error! :rf.error/schema-validation-failure
-                               {:where       :cofx
-                                :cofx-id     cofx-id
-                                :event-id    event-id
-                                :failing-id  event-id
-                                :spec-id     cofx-id
-                                :received    value
-                                :value       value
-                                :malli-error explanation
-                                :explain     explanation
-                                :reason      (str "Coeffect " cofx-id
-                                                  " injected value failed schema "
-                                                  schema ", got "
-                                                  (type-of-value value) ".")
-                                :recovery    :no-recovery})
+          (let [explanation (run-explainer schema value)
+                ;; Per Spec 010 §`:sensitive?` — privacy in
+                ;; schema-validation error traces (rf2-kj51z).
+                ;; Cofx-meta or container-level schema-prop both
+                ;; trigger redaction.
+                sensitive? (or (meta-sensitive? cofx-meta)
+                               (schema-has-sensitive? schema))
+                base-tags  {:where       :cofx
+                            :cofx-id     cofx-id
+                            :event-id    event-id
+                            :failing-id  event-id
+                            :spec-id     cofx-id
+                            :received    value
+                            :value       value
+                            :malli-error explanation
+                            :explain     explanation
+                            :reason      (str "Coeffect " cofx-id
+                                              " injected value failed schema "
+                                              schema ", got "
+                                              (type-of-value value) ".")
+                            :recovery    :no-recovery}
+                tags       (if sensitive? (redact-tags base-tags) base-tags)]
+            (trace/emit-error! :rf.error/schema-validation-failure tags)
             false))
         true)
       true)
@@ -1088,6 +1311,15 @@
                    frame-elision-declarations)
 (late-bind/set-fn! :schemas/populate-elision-declarations
                    populate-elision-declarations)
+
+;; Sensitive-paths walker (rf2-kj51z) — published so the rf2-c1l4d
+;; follow-on (which extends the unified elision registry to recognise
+;; schema `:sensitive?` slots) can consume it without statically
+;; requiring the schemas artefact.
+(late-bind/set-fn! :schemas/extract-sensitive-paths-from-schema
+                   extract-sensitive-paths-from-schema)
+(late-bind/set-fn! :schemas/schema-has-sensitive?
+                   schema-has-sensitive?)
 
 ;; Test-support hooks (consumed by re-frame.test-support's
 ;; reset-runtime-fixture). The fixture wants to capture and restore
