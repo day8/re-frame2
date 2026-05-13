@@ -54,6 +54,12 @@ on the server side surfaces as an SDK parse-error.
 - `package.json` — depends on `@modelcontextprotocol/sdk` only
 - `test/end-to-end-pair2.js` — pair2-mcp conformance (degraded mode,
   no nREPL needed — same shape as pair2-mcp's stdio-roundtrip)
+- `test/live-pair2-overflow.js` — pair2-mcp **live**-runtime variant
+  (rf2-ynaoc) that exercises the wire-cap `:rf.mcp/overflow` marker
+  under a real over-budget eval. **Gated on `$SHADOW_CLJS_NREPL_PORT`**:
+  unset = clean SKIP (degraded mode can't trip the cap naturally),
+  set = full live-runtime cap-trigger conformance against the
+  canonical `OverflowBody` schema pinned by `wire-vocab/`.
 - `test/end-to-end-story.js` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled)
 - `test/end-to-end-causa.js` — placeholder; exits 0 with a `SKIP`
@@ -99,6 +105,35 @@ npm test
 Runs without an nREPL on `$SHADOW_CLJS_NREPL_PORT`, so it's
 self-contained and reproducible.
 
+### `live-pair2-overflow.js`  (rf2-ynaoc)
+
+Live-runtime variant — fills the gap left by the degraded-mode
+sibling above. Gated on `$SHADOW_CLJS_NREPL_PORT`; unset = clean
+SKIP. When attached:
+
+1. Connect — full SDK handshake.
+2. `tools/call eval-cljs` with `(apply str (repeat 25000 "x"))` —
+   25,000-char return ⇒ ~6,250 token-estimate ⇒ over the 5,000-token
+   default cap.
+3. SDK's `CallToolResultSchema` accepts the envelope; `isError` is
+   `false` (overflow is a signal, not an error).
+4. Response text carries `:rf.mcp/overflow`.
+5. Marker body validates against canonical `OverflowBody` schema
+   pinned by `wire-vocab/`: `:limit :reached`, integer `:cap-tokens`
+   and `:token-count` with `:token-count > :cap-tokens`, string
+   `:tool` and `:hint`.
+6. Pin per-tool facts: `:cap-tokens = 5000` (default), `:tool =
+   "eval-cljs"`, `:hint` contains "Slice" (per-tool entry from
+   pair2-mcp's `overflow-hints` table).
+7. Recursion-safety: the marker itself fits under the cap.
+8. Clean `Client.close()`.
+
+Catches: cap-trigger threshold drift; marker shape regressions that
+only fire on real payloads; client-side parse failures on cap-marker
+shapes the SDK's strict `CallToolResultSchema` doesn't yet
+recognise; keyword renames (`:cap-tokens` → `:cap_tokens`,
+`:rf.mcp/overflow` → `:rf.mcp/overflows`) at the live emission site.
+
 ### `end-to-end-story.js`
 
 1. Connect — `clojure -M -m re-frame.story-mcp.server --allow-writes`
@@ -121,7 +156,11 @@ documents the expected shape.
 `.github/workflows/test.yml` runs each of the three scripts in its own
 `mcp-conformance-{pair2,story,causa}` job, parallel to the existing
 `node-test-tools-{pair2,story}-mcp` jobs. Same Node 24 + JDK 21 setup
-as those jobs.
+as those jobs. The `mcp-conformance-pair2` job runs both the
+degraded-mode `test:pair2` and the live-runtime `test:pair2-live-overflow`
+steps; the latter is gated on `$SHADOW_CLJS_NREPL_PORT` and SKIPs on CI
+(no real shadow-cljs runtime), exercising the live overflow path only
+locally where Mike's machine has a runtime attached.
 
 ## Why a separate artefact?
 

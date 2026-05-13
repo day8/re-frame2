@@ -6,9 +6,10 @@
   "license": "MIT",
   "scripts": {
     "test:pair2": "node test/end-to-end-pair2.js",
+    "test:pair2-live-overflow": "node test/live-pair2-overflow.js",
     "test:story": "node test/end-to-end-story.js",
     "test:causa": "node test/end-to-end-causa.js",
-    "test": "node test/end-to-end-pair2.js && node test/end-to-end-story.js && node test/end-to-end-causa.js"
+    "test": "node test/end-to-end-pair2.js && node test/live-pair2-overflow.js && node test/end-to-end-story.js && node test/end-to-end-causa.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
