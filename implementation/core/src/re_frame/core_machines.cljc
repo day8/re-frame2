@@ -10,51 +10,53 @@
   Per-feature carve-out: the machines artefact pulls the machine
   registry, the entry/exit cascade engine, and the `:rf/machine` /
   `:rf/machine-has-tag?` framework subs — none of which appear on a
-  consumer's classpath when this wrapper's hooks are unregistered."
-  (:require [re-frame.late-bind :as late-bind]
+  consumer's classpath when this wrapper's hooks are unregistered.
+
+  Per rf2-h824v the canonical late-bind wrappers below are emitted by
+  the `re-frame.core-artefact/defwrapper` factory. `reg-machine` /
+  `reg-machine*` keep a bespoke shape — they share the `:where`-symbol
+  parameter via `reg-machine-impl` so the macro and the plain-fn
+  surface raise with their own faithful `:where` symbol. Sugar fns
+  (`dispatch-to-system`, `sub-machine`, `has-tag?`) are not late-bind
+  surfaces — they layer over `router/dispatch!` / `subs/subscribe`."
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
+                                        :cljs [:refer-macros [defwrapper]])]
+            [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
             [re-frame.subs :as subs]))
 
-(defn create-machine-handler
+(def ^:private machines-artefact
+  {:error-keyword :rf.error/machines-artefact-missing
+   :maven         "day8/re-frame2-machines"
+   :require-ns    "re-frame.machines"})
+
+(defwrapper create-machine-handler
   "Build an event-fx handler from a machine spec. Per Spec 005
   §Registration. Late-bound via :machines/create-machine-handler."
-  [machine]
-  (if-let [f (late-bind/get-fn :machines/create-machine-handler)]
-    (f machine)
-    (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'rf/create-machine-handler
-                     :recovery :no-recovery
-                     :reason   "rf/create-machine-handler requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+  {:hook :machines/create-machine-handler :artefact machines-artefact :on-absent :throw}
+  ([machine] :delegate))
 
-(defn machine-transition
+(defwrapper machine-transition
   "Pure (machine, snapshot, event) -> [snapshot fx]. Per Spec 005
   §Drain semantics §Level 3. Late-bound via :machines/machine-transition."
-  [machine snapshot event]
-  (if-let [f (late-bind/get-fn :machines/machine-transition)]
-    (f machine snapshot event)
-    (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where    'rf/machine-transition
-                     :recovery :no-recovery
-                     :reason   "rf/machine-transition requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."}))))
+  {:hook :machines/machine-transition :artefact machines-artefact :on-absent :throw}
+  ([machine snapshot event] :delegate))
 
-(defn machines
+(defwrapper machines
   "Return a sequence of registered machine ids. Per Spec 005
   §Querying machines. Returns `[]` when the machines artefact is not
   on the classpath."
-  []
-  (if-let [f (late-bind/get-fn :machines/machines)]
-    (f)
-    []))
+  {:hook :machines/machines :artefact machines-artefact :on-absent :empty-vec}
+  ([] :delegate))
 
-(defn machine-meta
+(defwrapper machine-meta
   "Return the registered machine spec map for machine-id, or nil. Per
   Spec 005 §Querying machines. Returns nil when the machines artefact
   is not on the classpath."
-  [machine-id]
-  (when-let [f (late-bind/get-fn :machines/machine-meta)]
-    (f machine-id)))
+  {:hook :machines/machine-meta :artefact machines-artefact :on-absent :nil}
+  ([machine-id] :delegate))
 
-(defn machine-by-system-id
+(defwrapper machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
   active frame's `[:rf/system-ids]` reverse index, or nil. The optional
   `frame-id` arg targets an explicit frame; without it, resolution uses
@@ -63,12 +65,15 @@
 
   Per Spec 005 §Named addressing via :system-id. Returns nil when the
   machines artefact is not on the classpath."
-  ([system-id]
-   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
-     (f system-id)))
-  ([system-id frame-id]
-   (when-let [f (late-bind/get-fn :machines/machine-by-system-id)]
-     (f system-id frame-id))))
+  {:hook :machines/machine-by-system-id :artefact machines-artefact :on-absent :nil}
+  ([system-id]          :delegate)
+  ([system-id frame-id] :delegate))
+
+;; ---- reg-machine* / reg-machine — bespoke per rf2-8bp3 -------------------
+;;
+;; Both surfaces share the late-bind throw via `reg-machine-impl` but stamp
+;; their own `:where` symbol on the missing-artefact ex-info so the trace
+;; matches what the user wrote at the call site.
 
 (defn ^:private reg-machine-impl
   "Shared impl behind both `reg-machine*` (plain-fn surface) and the
@@ -76,14 +81,12 @@
   arg lets each user-facing surface stamp its own symbol on the
   missing-artefact error trace so `:where` matches what the user
   wrote at the call site."
-  [where-sym reason machine-id machine]
-  (if-let [f (late-bind/get-fn :machines/reg-machine)]
-    (f machine-id machine)
-    (throw (ex-info ":rf.error/machines-artefact-missing"
-                    {:where      where-sym
-                     :machine-id machine-id
-                     :recovery   :no-recovery
-                     :reason     reason}))))
+  [where-sym machine-id machine]
+  ((late-bind/require-fn! :machines/reg-machine
+                          where-sym
+                          machines-artefact
+                          {:machine-id machine-id})
+   machine-id machine))
 
 (defn reg-machine*
   "Plain-fn surface for machine registration. Per Spec 005 §reg-machine
@@ -93,10 +96,7 @@
   per-element source-coord index (only the macro can walk the literal
   spec at expansion time). Late-bound via :machines/reg-machine."
   [machine-id machine]
-  (reg-machine-impl
-    'rf/reg-machine*
-    "rf/reg-machine* requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."
-    machine-id machine))
+  (reg-machine-impl 'rf/reg-machine* machine-id machine))
 
 (defn reg-machine
   "Fn-form delegate the `re-frame.core/reg-machine` macro routes through
@@ -109,10 +109,9 @@
   (macro) or `rf/reg-machine*` (plain fn). It is public only because
   the macro emits a reference to it."
   [machine-id machine]
-  (reg-machine-impl
-    'rf/reg-machine
-    "rf/reg-machine requires day8/re-frame2-machines on the classpath; add it to deps and require re-frame.machines at app boot."
-    machine-id machine))
+  (reg-machine-impl 'rf/reg-machine machine-id machine))
+
+;; ---- sugar surfaces — not late-bind wrappers -----------------------------
 
 (defn dispatch-to-system
   "Sugar: dispatch `event` to the spawned-machine bound to `system-id`

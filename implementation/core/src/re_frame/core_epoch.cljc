@@ -17,51 +17,55 @@
   Absent-artefact behaviour: wrappers degrade silently (empty vector /
   `false` / no-op) so a release build that omits the artefact does not
   raise. `reset-frame-db!` is the exception — it records an epoch as
-  part of its contract and raises `:rf.error/epoch-artefact-missing`."
-  (:require [re-frame.late-bind :as late-bind]))
+  part of its contract and raises `:rf.error/epoch-artefact-missing`.
 
-(defn epoch-history
+  Per rf2-h824v the wrappers below are emitted by the
+  `re-frame.core-artefact/defwrapper` factory from a declarative table —
+  one row per public surface."
+  (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
+                                        :cljs [:refer-macros [defwrapper]])]))
+
+(def ^:private epoch-artefact
+  {:error-keyword :rf.error/epoch-artefact-missing
+   :maven         "day8/re-frame2-epoch"
+   :require-ns    "re-frame.epoch"})
+
+(defwrapper epoch-history
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs, when the
   ring buffer's depth is 0 (recording disabled), or when the
   `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
   via `:epoch/epoch-history`."
-  [frame-id]
-  (if-let [f (late-bind/get-fn :epoch/epoch-history)]
-    (f frame-id)
-    []))
+  {:hook :epoch/epoch-history :artefact epoch-artefact :on-absent :empty-vec}
+  ([frame-id] :delegate))
 
-(defn restore-epoch
+(defwrapper restore-epoch
   "Rewind the named frame's `app-db` to the named epoch's `:db-after`.
   Per Tool-Pair §Time-travel: returns `true` on success, `false` on any
   of the six documented failure modes (each emits a structured
   `:rf.epoch/*` error trace and leaves `app-db` unchanged) and `false`
   when the `day8/re-frame2-epoch` artefact is not on the classpath.
   Late-bound via `:epoch/restore-epoch`."
-  [frame-id epoch-id]
-  (if-let [f (late-bind/get-fn :epoch/restore-epoch)]
-    (f frame-id epoch-id)
-    false))
+  {:hook :epoch/restore-epoch :artefact epoch-artefact :on-absent :false}
+  ([frame-id epoch-id] :delegate))
 
-(defn register-epoch-cb!
+(defwrapper register-epoch-cb!
   "Register a callback fired once per drain-settle with the assembled
   `:rf/epoch-record`. Per Spec 009 §`register-epoch-cb!`. Same-id
   registrations replace; listener exceptions are isolated. Returns the
   id. No-op (returns nil) when the `day8/re-frame2-epoch` artefact is
   not on the classpath. Late-bound via `:epoch/register-epoch-cb`."
-  [id f]
-  (when-let [g (late-bind/get-fn :epoch/register-epoch-cb)]
-    (g id f)))
+  {:hook :epoch/register-epoch-cb :artefact epoch-artefact :on-absent :nil}
+  ([id f] :delegate))
 
-(defn remove-epoch-cb!
+(defwrapper remove-epoch-cb!
   "Remove the listener registered under id. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath. Late-bound
   via `:epoch/remove-epoch-cb`."
-  [id]
-  (when-let [f (late-bind/get-fn :epoch/remove-epoch-cb)]
-    (f id)))
+  {:hook :epoch/remove-epoch-cb :artefact epoch-artefact :on-absent :nil}
+  ([id] :delegate))
 
-(defn reset-frame-db!
+(defwrapper reset-frame-db!
   "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
   loop. Per Tool-Pair §Pair-tool writes (rf2-zq55).
 
@@ -88,10 +92,5 @@
   caller's invariant is 'undo works after this call').
 
   Returns `true` on success, `false` on any failure."
-  [frame-id new-db]
-  (if-let [f (late-bind/get-fn :epoch/reset-frame-db!)]
-    (f frame-id new-db)
-    (throw (ex-info ":rf.error/epoch-artefact-missing"
-                    {:where    'rf/reset-frame-db!
-                     :recovery :no-recovery
-                     :reason   "rf/reset-frame-db! requires day8/re-frame2-epoch on the classpath; add it to deps and require re-frame.epoch at app boot."}))))
+  {:hook :epoch/reset-frame-db! :artefact epoch-artefact :on-absent :throw}
+  ([frame-id new-db] :delegate))
