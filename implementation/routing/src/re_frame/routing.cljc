@@ -749,15 +749,13 @@
                                  (not= (:fragment prev) fragment))]
       (cond
         fragment-only?
+        ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
+        ;; :rf.route/url-changed is the canonical op-name for fragment-only
+        ;; navigation; consumers discriminate full vs fragment-only by
+        ;; :tags (the fragment-only emission carries :prev-fragment /
+        ;; :next-fragment and never coincides with a
+        ;; :route.nav-token/allocated on the same drain).
         (do (trace/emit! :event :rf.route/url-changed
-                         {:route-id      (:id prev)
-                          :prev-fragment (:fragment prev)
-                          :next-fragment fragment})
-            ;; Per Spec 009 §:op-type vocabulary: :route.url/fragment-changed
-            ;; is the canonical op-type for fragment-only navigation. Spec 012
-            ;; §Fragments references this name directly. Emitted alongside the
-            ;; legacy :rf.route/url-changed pending its eventual removal.
-            (trace/emit! :event :route.url/fragment-changed
                          {:route-id      (:id prev)
                           :prev-fragment (:fragment prev)
                           :next-fragment fragment})

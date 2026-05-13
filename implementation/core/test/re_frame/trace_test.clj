@@ -373,11 +373,11 @@
             (is (some?    (:nav-token t)))))
 
         (testing ":event :rf.route/url-changed fires on fragment-only navigation"
-          ;; NOTE: Spec 009 §:op-type vocabulary documents this as
-          ;; :route.url/fragment-changed, but the implementation uses
-          ;; :rf.route/url-changed. Tracked in rf2-hyxg.
+          ;; Per Spec 009 §:op-type vocabulary and Spec 012 §Fragments:
+          ;; :rf.route/url-changed is the canonical op-name for fragment-only
+          ;; navigation. Consumers discriminate full vs fragment-only by :tags.
           (is (has-op? events :event :rf.route/url-changed)
-              "expected :event :rf.route/url-changed (impl name; see rf2-hyxg)")
+              "expected :event :rf.route/url-changed")
           (let [t (:tags (find-op events :event :rf.route/url-changed))]
             (is (keyword? (:route-id t)))
             (is (string?  (:next-fragment t)))))
@@ -478,9 +478,7 @@
             (gap-check :rf.machine/event-received     :rf.machine/event-received)
             (gap-check :rf.machine/snapshot-updated   :rf.machine/snapshot-updated)
             (gap-check :registry :rf.registry/handler-registered)
-            (gap-check :registry :rf.registry/handler-cleared)
-            ;; Reachable but unexercised here:
-            (gap-check :event :route.url/fragment-changed)))
+            (gap-check :registry :rf.registry/handler-cleared)))
 
         (testing "diagnostic: every (op-type, operation) pair the flow produced"
           ;; Always passes; printing only when test verbosity helps.
