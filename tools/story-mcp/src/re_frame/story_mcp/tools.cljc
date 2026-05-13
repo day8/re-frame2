@@ -143,6 +143,45 @@
       [nil (error-result (str "Missing required argument: " (name k)))]
       [v nil])))
 
+(defn- with-variant
+  "Resolve `:variant-id` from `arguments` (required), parse it as a
+  keyword, and probe `story/variant->edn` for the body. When both
+  succeed, returns `(f vk body)`. Otherwise short-circuits with an
+  error result:
+
+    - Missing/blank `:variant-id` ⇒ `Missing required argument: …`
+      (the shape `required-arg` emits).
+    - Unregistered variant ⇒ `Variant not found: <vk>`.
+
+  Crystallises the four-line prelude shared by six tool handlers
+  (`preview-variant`, `get-variant`, `variant->edn`, `run-variant`,
+  `snapshot-identity`, `record-as-variant`). Tools that tolerate
+  unregistered variants (`run-a11y`, `read-failures`,
+  `unregister-variant`) reach for `with-variant-id` instead."
+  [arguments f]
+  (let [[vid err] (required-arg arguments :variant-id)]
+    (if err
+      err
+      (let [vk   (args/parse-keyword vid)
+            body (story/variant->edn vk)]
+        (if (nil? body)
+          (error-result (str "Variant not found: " (pr-str vk)))
+          (f vk body))))))
+
+(defn- with-variant-id
+  "Resolve `:variant-id` from `arguments` (required) and parse it as a
+  keyword. Returns `(f vk)` when the arg is present, the
+  `required-arg` error result otherwise. For tools that tolerate
+  unregistered variants — they read whatever the registry currently
+  holds and report on it (`run-a11y`, `read-failures`,
+  `unregister-variant`). Tools that demand a registered body use
+  `with-variant` instead."
+  [arguments f]
+  (let [[vid err] (required-arg arguments :variant-id)]
+    (if err
+      err
+      (f (args/parse-keyword vid)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress scrubbers (rf2-73wuj). See ns docstring for the spec
 ;; references and design rationale.
@@ -245,41 +284,37 @@
   filtered through `strip-sensitive`. Off-box defaults apply unless
   the caller passes `:include-sensitive? true`."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk        (args/parse-keyword vid)
-            body      (story/variant->edn vk)]
-        (if (nil? body)
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (let [opts       (cond-> {}
-                             (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
-                             (some? (:active-modes args)) (assoc :active-modes
-                                                                 (mapv args/parse-keyword (:active-modes args)))
-                             (some? (:cell-overrides args)) (assoc :cell-overrides
-                                                                   (:cell-overrides args)))
-                base-url   (or (:base-url args) "")
-                share-url  (story/variant-share-url vk base-url opts)
-                result     (try
-                             (async/deref-blocking (story/run-variant vk opts)
-                                                   ;; Default 5s — preview is a snapshot,
-                                                   ;; not a long-running load.
-                                                   5000)
-                             (catch Throwable e
-                               {:lifecycle :error
-                                :assertions [{:assertion :rf.error/run-failed
-                                              :passed? false
-                                              :reason (ex-message e)}]}))
-                incl?      (include-sensitive? args)
-                payload    {:variant-id   vk
-                            :share-url    share-url
-                            :lifecycle    (:lifecycle result)
-                            :elapsed-ms   (:elapsed-ms result)
-                            :app-db       (elide-app-db (:app-db result) vk incl?)
-                            :assertions   (scrub-assertions (:assertions result) incl?)
-                            :rendered-hiccup (:rendered-hiccup result)
-                            :snapshot     (:snapshot result)
-                            :effective-args (:effective-args result)}]
-            (text-result (pr-edn payload) payload)))))))
+  (with-variant args
+    (fn [vk _body]
+      (let [opts       (cond-> {}
+                         (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
+                         (some? (:active-modes args)) (assoc :active-modes
+                                                             (mapv args/parse-keyword (:active-modes args)))
+                         (some? (:cell-overrides args)) (assoc :cell-overrides
+                                                               (:cell-overrides args)))
+            base-url   (or (:base-url args) "")
+            share-url  (story/variant-share-url vk base-url opts)
+            result     (try
+                         (async/deref-blocking (story/run-variant vk opts)
+                                               ;; Default 5s — preview is a snapshot,
+                                               ;; not a long-running load.
+                                               5000)
+                         (catch Throwable e
+                           {:lifecycle :error
+                            :assertions [{:assertion :rf.error/run-failed
+                                          :passed? false
+                                          :reason (ex-message e)}]}))
+            incl?      (include-sensitive? args)
+            payload    {:variant-id   vk
+                        :share-url    share-url
+                        :lifecycle    (:lifecycle result)
+                        :elapsed-ms   (:elapsed-ms result)
+                        :app-db       (elide-app-db (:app-db result) vk incl?)
+                        :assertions   (scrub-assertions (:assertions result) incl?)
+                        :rendered-hiccup (:rendered-hiccup result)
+                        :snapshot     (:snapshot result)
+                        :effective-args (:effective-args result)}]
+        (text-result (pr-edn payload) payload)))))
 
 (defn- tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
@@ -345,14 +380,10 @@
 (defn- tool-get-variant
   "Docs: one variant's full body (`handler-meta :variant id`)."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk   (args/parse-keyword vid)
-            body (story/variant->edn vk)]
-        (if (nil? body)
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (let [payload {:id vk :body body}]
-            (text-result (pr-edn payload) payload)))))))
+  (with-variant args
+    (fn [vk body]
+      (let [payload {:id vk :body body}]
+        (text-result (pr-edn payload) payload)))))
 
 (defn- tool-list-tags
   "Docs: canonical tags + custom tags."
@@ -412,13 +443,9 @@
   to `get-variant` but framed as EDN-only — the `structuredContent`
   slot is omitted so agents that want strict EDN parse the text."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk   (args/parse-keyword vid)
-            body (story/variant->edn vk)]
-        (if (nil? body)
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (text-result (pr-edn body)))))))
+  (with-variant args
+    (fn [_vk body]
+      (text-result (pr-edn body)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Testing tools (execution)
@@ -439,53 +466,47 @@
     :include-sensitive? optional — opt out of wire-egress redaction
                                    (default false; rf2-73wuj)"
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk   (args/parse-keyword vid)]
-        (if (nil? (story/variant->edn vk))
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (let [opts     (cond-> {}
-                           (some? (:substrate args))     (assoc :substrate (args/parse-keyword (:substrate args)))
-                           (some? (:active-modes args))  (assoc :active-modes
-                                                                (mapv args/parse-keyword (:active-modes args)))
-                           (some? (:cell-overrides args)) (assoc :cell-overrides
-                                                                 (:cell-overrides args)))
-                timeout  (args/parse-positive-int (:timeout-ms args) 10000)
-                result   (try
-                           (async/deref-blocking (story/run-variant vk opts) timeout)
-                           (catch Throwable e
-                             {:lifecycle :error
-                              :variant-id vk
-                              :assertions [{:assertion :rf.error/run-failed
-                                            :passed? false
-                                            :reason (ex-message e)}]}))
-                incl?    (include-sensitive? args)
-                payload  {:frame           (:frame result vk)
-                          :app-db          (elide-app-db (:app-db result) vk incl?)
-                          :assertions      (scrub-assertions (:assertions result) incl?)
-                          :rendered-hiccup (:rendered-hiccup result)
-                          :elapsed-ms      (:elapsed-ms result)
-                          :snapshot        (:snapshot result)
-                          :lifecycle       (:lifecycle result)
-                          :passing?        (story/assertions-passing? result)}]
-            (text-result (pr-edn payload) payload)))))))
+  (with-variant args
+    (fn [vk _body]
+      (let [opts     (cond-> {}
+                       (some? (:substrate args))     (assoc :substrate (args/parse-keyword (:substrate args)))
+                       (some? (:active-modes args))  (assoc :active-modes
+                                                            (mapv args/parse-keyword (:active-modes args)))
+                       (some? (:cell-overrides args)) (assoc :cell-overrides
+                                                             (:cell-overrides args)))
+            timeout  (args/parse-positive-int (:timeout-ms args) 10000)
+            result   (try
+                       (async/deref-blocking (story/run-variant vk opts) timeout)
+                       (catch Throwable e
+                         {:lifecycle :error
+                          :variant-id vk
+                          :assertions [{:assertion :rf.error/run-failed
+                                        :passed? false
+                                        :reason (ex-message e)}]}))
+            incl?    (include-sensitive? args)
+            payload  {:frame           (:frame result vk)
+                      :app-db          (elide-app-db (:app-db result) vk incl?)
+                      :assertions      (scrub-assertions (:assertions result) incl?)
+                      :rendered-hiccup (:rendered-hiccup result)
+                      :elapsed-ms      (:elapsed-ms result)
+                      :snapshot        (:snapshot result)
+                      :lifecycle       (:lifecycle result)
+                      :passing?        (story/assertions-passing? result)}]
+        (text-result (pr-edn payload) payload)))))
 
 (defn- tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
   visual-regression). Returns
   `{:variant-id :active-modes :substrate :content-hash}`."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk   (args/parse-keyword vid)]
-        (if (nil? (story/variant->edn vk))
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (let [opts    (cond-> {}
-                          (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
-                          (some? (:active-modes args)) (assoc :active-modes
-                                                              (mapv args/parse-keyword (:active-modes args))))
-                payload (story/snapshot-identity vk opts)]
-            (text-result (pr-edn payload) payload)))))))
+  (with-variant args
+    (fn [vk _body]
+      (let [opts    (cond-> {}
+                      (some? (:substrate args))    (assoc :substrate (args/parse-keyword (:substrate args)))
+                      (some? (:active-modes args)) (assoc :active-modes
+                                                          (mapv args/parse-keyword (:active-modes args))))
+            payload (story/snapshot-identity vk opts)]
+        (text-result (pr-edn payload) payload)))))
 
 (defn- tool-run-a11y
   "Testing: run axe-core against a variant, return violations.
@@ -505,10 +526,9 @@
   When the server is JVM-standalone (no co-hosted CLJS runtime) this
   returns an empty result with a hint."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk    (args/parse-keyword vid)
-            atomv (try
+  (with-variant-id args
+    (fn [vk]
+      (let [atomv (try
                     (let [v (resolve 're-frame.story.ui.a11y/violations-by-frame)]
                       (when v (deref @v)))
                     (catch Throwable _ nil))
@@ -535,10 +555,9 @@
   quietly flip `:passing?` to true. Default off; opt out with
   `:include-sensitive? true`."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk         (args/parse-keyword vid)
-            incl?      (include-sensitive? args)
+  (with-variant-id args
+    (fn [vk]
+      (let [incl?      (include-sensitive? args)
             raw        (assertions/read-assertions vk)
             all        (scrub-assertions raw incl?)
             failures   (filterv (complement :passed?) all)
@@ -617,10 +636,9 @@
   `allow-writes?`."
   [args]
   (or (assert-writes-allowed)
-      (let [[vid err] (required-arg args :variant-id)]
-        (if err err
-          (let [vk    (args/parse-keyword vid)
-                had?  (some? (story/variant->edn vk))]
+      (with-variant-id args
+        (fn [vk]
+          (let [had? (some? (story/variant->edn vk))]
             (story/unregister! :variant vk)
             (let [payload {:variant-id vk :unregistered? had?}]
               (text-result (pr-edn payload) payload)))))))
@@ -711,64 +729,60 @@
   tool does not expose a free-form filter knob — the recorder owns that
   contract."
   [args]
-  (let [[vid err] (required-arg args :variant-id)]
-    (if err err
-      (let [vk           (args/parse-keyword vid)
-            body         (story/variant->edn vk)]
-        (if (nil? body)
-          (error-result (str "Variant not found: " (pr-str vk)))
-          (let [write-back?   (args/parse-boolean (:write-back? args) false)
-                gate-err      (when write-back? (assert-writes-allowed))]
-            (if gate-err gate-err
-              (let [duration-ms (args/parse-non-negative-int (:duration-ms args) 0)
-                    new-vid     (some-> (:new-variant-id args) args/parse-keyword)
-                    target-vid  (or new-vid vk)
-                    doc         (:doc args)
-                    extends     (or (some-> (:extends args) args/parse-keyword) vk)
-                    alias-arg   (:alias args)
-                    started     (now-ms)
-                    _           (story/start-recording! vk)
-                    _           (sleep-ms duration-ms)
-                    final-state (story/stop-recording!)
-                    actual-ms   (- (now-ms) started)
-                    events      (vec (:events final-state))
-                    snippet-opts (cond-> {:variant-id target-vid
-                                          :extends    extends}
-                                   (string? doc)       (assoc :doc doc)
-                                   (string? alias-arg) (assoc :alias alias-arg))
-                    snippet     (story/gen-play-snippet events snippet-opts)
-                    base-payload {:variant-id           vk
-                                  :play-snippet         snippet
-                                  :recorded-event-count (count events)
-                                  :duration-ms          actual-ms
-                                  :captured             events
-                                  :written-back?        false}]
-                (if-not write-back?
-                  (text-result (pr-edn base-payload) base-payload)
-                  ;; Write-back: re-register the target variant with the
-                  ;; captured :play body. We preserve the source variant's
-                  ;; existing body keys (so :component, :args, :decorators
-                  ;; survive) and overwrite :play with the captured events.
-                  ;; Stamp `:origin :story-mcp` per
-                  ;; spec/Cross-Cutting-Designs.md §5 — the write-back
-                  ;; produces a new variant body, and the origin tag
-                  ;; identifies the MCP write surface as its producer.
-                  (try
-                    (let [new-body (-> body
-                                       (assoc :play events)
-                                       (assoc :origin config/origin))
-                          id       (story/reg-variant* target-vid new-body)
-                          payload  (assoc base-payload
-                                          :written-back?   true
-                                          :new-variant-id  id)]
-                      (text-result (pr-edn payload) payload))
-                    (catch #?(:clj Throwable :cljs :default) e
-                      (error-result (str "Write-back failed: " (ex-message e))
-                                    (merge base-payload
-                                           {:written-back? false
-                                            :new-variant-id target-vid}
-                                           (select-keys (ex-data e)
-                                                        [:rf.error :explain]))))))))))))))
+  (with-variant args
+    (fn [vk body]
+      (let [write-back? (args/parse-boolean (:write-back? args) false)
+            gate-err    (when write-back? (assert-writes-allowed))]
+        (if gate-err gate-err
+          (let [duration-ms (args/parse-non-negative-int (:duration-ms args) 0)
+                new-vid     (some-> (:new-variant-id args) args/parse-keyword)
+                target-vid  (or new-vid vk)
+                doc         (:doc args)
+                extends     (or (some-> (:extends args) args/parse-keyword) vk)
+                alias-arg   (:alias args)
+                started     (now-ms)
+                _           (story/start-recording! vk)
+                _           (sleep-ms duration-ms)
+                final-state (story/stop-recording!)
+                actual-ms   (- (now-ms) started)
+                events      (vec (:events final-state))
+                snippet-opts (cond-> {:variant-id target-vid
+                                      :extends    extends}
+                               (string? doc)       (assoc :doc doc)
+                               (string? alias-arg) (assoc :alias alias-arg))
+                snippet     (story/gen-play-snippet events snippet-opts)
+                base-payload {:variant-id           vk
+                              :play-snippet         snippet
+                              :recorded-event-count (count events)
+                              :duration-ms          actual-ms
+                              :captured             events
+                              :written-back?        false}]
+            (if-not write-back?
+              (text-result (pr-edn base-payload) base-payload)
+              ;; Write-back: re-register the target variant with the
+              ;; captured :play body. We preserve the source variant's
+              ;; existing body keys (so :component, :args, :decorators
+              ;; survive) and overwrite :play with the captured events.
+              ;; Stamp `:origin :story-mcp` per
+              ;; spec/Cross-Cutting-Designs.md §5 — the write-back
+              ;; produces a new variant body, and the origin tag
+              ;; identifies the MCP write surface as its producer.
+              (try
+                (let [new-body (-> body
+                                   (assoc :play events)
+                                   (assoc :origin config/origin))
+                      id       (story/reg-variant* target-vid new-body)
+                      payload  (assoc base-payload
+                                      :written-back?   true
+                                      :new-variant-id  id)]
+                  (text-result (pr-edn payload) payload))
+                (catch #?(:clj Throwable :cljs :default) e
+                  (error-result (str "Write-back failed: " (ex-message e))
+                                (merge base-payload
+                                       {:written-back? false
+                                        :new-variant-id target-vid}
+                                       (select-keys (ex-data e)
+                                                    [:rf.error :explain]))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool registry
