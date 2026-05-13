@@ -10,9 +10,10 @@ description: >
   Trigger on phrasing like "port re-frame2", "implement re-frame2 in
   <language>", "second re-frame2 implementation", "implementor checklist",
   "conformance corpus", or any prompt about building re-frame2 itself.
-  Do not use for: writing apps on the CLJS reference (use `re-frame2`),
-  greenfield bootstrap (use `re-frame2-setup`), v1→v2 migration
-  (use `re-frame-migration`), or live-app inspection (use `re-frame-pair2`).
+  **Do not use** for: writing apps on the CLJS reference (use
+  `re-frame2`), greenfield bootstrap (use `re-frame2-setup`), v1→v2
+  migration (use `re-frame-migration`), or live-app inspection (use
+  `re-frame-pair2`).
 allowed-tools:
   - Bash(bd *)
   - Read

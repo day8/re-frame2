@@ -11,8 +11,12 @@ description: >
   project", "scaffold re-frame2", "hello-world re-frame2 app", "new
   re-frame2 app", or a build failure on a freshly-scaffolded project that
   traces to missing `re-frame.core` / `re-frame.adapter.reagent` wiring.
-  Exits once the counter mounts. For full disqualifier list and routing
-  to sibling skills, see `skills/README.md` §Skill routing — single source.
+  Exits once the counter mounts. **Do not use** for writing app code
+  on an already-bootstrapped project (use `re-frame2`), v1→v2 migration
+  (use `re-frame-migration`), live-app inspection (use `re-frame-pair2`),
+  or porting re-frame2 itself (use `re-frame2-implementor`). For the
+  full disqualifier list and routing to sibling skills, see
+  `skills/README.md` §Skill routing — single source.
 allowed-tools:
   - Bash(clojure *)
   - Bash(npm *)
