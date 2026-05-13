@@ -173,6 +173,8 @@ dispatches to the configured editor:
 |---|---|
 | `:vscode` (default) | `vscode://file/<path>:<line>:<column>` |
 | `:cursor`           | `cursor://file/<path>:<line>:<column>` |
+| `:windsurf`         | `windsurf://file/<path>:<line>:<column>` |
+| `:zed`              | `zed://file/<path>:<line>:<column>` |
 | `:idea`             | `idea://open?file=<path>&line=<line>&column=<column>` |
 | `{:custom <tpl>}`   | user template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
 

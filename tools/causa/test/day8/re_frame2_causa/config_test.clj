@@ -19,10 +19,14 @@
   (testing "set-editor! writes and get-editor reads"
     (config/set-editor! :cursor)
     (is (= :cursor (config/get-editor)))
+    (config/set-editor! :windsurf)
+    (is (= :windsurf (config/get-editor)))
+    (config/set-editor! :zed)
+    (is (= :zed (config/get-editor)))
     (config/set-editor! :idea)
     (is (= :idea (config/get-editor)))
-    (config/set-editor! {:custom "zed://file/{path}:{line}"})
-    (is (= {:custom "zed://file/{path}:{line}"} (config/get-editor)))))
+    (config/set-editor! {:custom "helix://file/{path}:{line}"})
+    (is (= {:custom "helix://file/{path}:{line}"} (config/get-editor)))))
 
 (deftest nil-editor-resets-to-vscode
   (testing "set-editor! with nil resets to :vscode"
@@ -50,6 +54,10 @@
       (is (= "vscode://file/src/x.cljs:12:4" (config/editor-uri coord)))
       (config/set-editor! :cursor)
       (is (= "cursor://file/src/x.cljs:12:4" (config/editor-uri coord)))
+      (config/set-editor! :windsurf)
+      (is (= "windsurf://file/src/x.cljs:12:4" (config/editor-uri coord)))
+      (config/set-editor! :zed)
+      (is (= "zed://file/src/x.cljs:12:4" (config/editor-uri coord)))
       (config/set-editor! :idea)
       (is (= "idea://open?file=src/x.cljs&line=12&column=4"
              (config/editor-uri coord))))))
