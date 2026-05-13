@@ -187,3 +187,14 @@
 (deftest copy-to-clipboard!-safe-on-node
   (testing "the shared copy helper is callable + no-ops without a clipboard API"
     (is (nil? (review-dialog/copy-to-clipboard! "anything")))))
+
+;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
+
+(deftest indent-after-matches-prefix-width
+  (testing "indent-after returns \\n + N spaces equal to the prefix length"
+    (is (= "\n" (review-dialog/indent-after "")))
+    (is (= "\n          " (review-dialog/indent-after "   :play [")))
+    (is (= "\n          " (review-dialog/indent-after "   :args {")))
+    (is (= (review-dialog/indent-after "   :play [")
+           (review-dialog/indent-after "   :args {"))
+        "both flows' prefixes collapse to the same indent")))
