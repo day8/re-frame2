@@ -669,10 +669,20 @@ typical-token hint, its cap-reached behaviour, and its default
 - **Structural dedup is the new mechanism.** Mechanisms 1–4 are
   refinements of pair2-mcp's three-axis discipline. Mechanism 5
   (`day8/de-dupe` substitution-table for trace bursts) is novel
-  to Causa-MCP because Causa's catalogue is trace-bus-heavy and
-  trace events share structural prefixes 3–5× under typical
-  load. Dedup is opt-out, not opt-in, so the default agent
-  experience is the compressed wire.
+  to Causa-MCP because Causa's catalogue is trace-bus-heavy.
+  The compression factor was vibes-quoted at "3-5×" when this
+  decision was first written (2026-05-13); rf2-li2cw replaced
+  that with a pinned benchmark
+  ([`tools/pair2-mcp/test/re_frame_pair2_mcp/dedup_benchmark_test.cljs`](../../pair2-mcp/test/re_frame_pair2_mcp/dedup_benchmark_test.cljs)).
+  Measured numbers: raw trace bursts compress **~1.4×** (28-31%
+  reduction), recurring-cascade replays (post lazy-summary)
+  compress **~10×** (~90% reduction), epoch slices compress
+  **5-10×** (already pinned at 89.5% by `dedup_test.cljs` for
+  rf2-obpa9). The catalogue-entry contract in
+  [`003-Tool-Catalogue.md`](#) (when it lands) cites the
+  regime-appropriate factor per tool. Dedup is opt-out, not
+  opt-in, so the default agent experience is the compressed
+  wire.
 - **The catalogue-entry contract is the enforcement.** A
   principle without a per-tool slot is aspirational. Binding
   every catalogue entry to declare its mechanism set turns the
