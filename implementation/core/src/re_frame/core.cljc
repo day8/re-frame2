@@ -1012,9 +1012,10 @@
 
 ;; ---- substrate adapter ----------------------------------------------------
 
-(def install-adapter! adapter/install-adapter!)
-(def dispose-adapter! adapter/dispose-adapter!)
-(def current-adapter  adapter/current-adapter)
+(def install-adapter!    adapter/install-adapter!)
+(def dispose-adapter!    adapter/dispose-adapter!)
+(def current-adapter     adapter/current-adapter)
+(def current-adapter-spec adapter/current-adapter-spec)
 
 ;; ---- boot -----------------------------------------------------------------
 

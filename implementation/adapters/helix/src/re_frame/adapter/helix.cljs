@@ -438,7 +438,8 @@
   Implements the same nine-fn contract as re-frame.adapter.reagent
   and re-frame.adapter.uix. Per rf2-agql there is no default-adapter
   registry — adapter wiring is explicit at the call site."
-  {:make-state-container      make-state-container
+  {:kind                      :helix
+   :make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
    :subscribe-container       subscribe-container

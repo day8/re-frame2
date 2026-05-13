@@ -961,13 +961,23 @@ Other-language ports follow the same pattern: each adapter package exports a pub
 
 ### Adapter introspection
 
-`(rf/current-adapter)` returns a keyword identifying the active adapter:
+Two complementary accessors:
 
-- `:reagent` — CLJS browser default
-- `:plain-atom` — CLJS JVM (SSR, headless tests) or Node-based CLJS
-- `:custom` — user installed a custom adapter (UIx, Helix, hypothetical TS-side adapter)
+- `(rf/current-adapter)` returns a **discriminator keyword** identifying the active adapter (the `:kind` slot of the installed adapter spec map), or `nil` if no adapter is installed. Canonical values:
 
-Tools (10x, re-frame-pair) use this to branch on host capabilities — for instance, the time-travel UI is meaningful in browser-Reagent but not in plain-atom.
+  - `:reagent` — CLJS browser default (bridge adapter)
+  - `:reagent-slim` — CLJS browser, slim adapter (no stock-Reagent dep)
+  - `:uix` — CLJS browser, UIx substrate
+  - `:helix` — CLJS browser, Helix substrate
+  - `:plain-atom` — CLJS JVM headless / tests / Node-based CLJS
+  - `:ssr` — CLJS JVM SSR (re-frame.ssr adapter)
+  - `:custom` — user installed a custom adapter that didn't pick one of the canonical kinds
+
+- `(rf/current-adapter-spec)` returns the **installed adapter spec map** (the value passed to `(rf/init! ...)`), or `nil` if no adapter is installed. This is the map carrying the contract fns (`:make-state-container`, `:replace-container!`, `:make-derived-value`, …) plus the `:kind` discriminator.
+
+Use `current-adapter` for predicate / branch code ("what substrate am I on?"); use `current-adapter-spec` for tool code that needs the adapter fn handles, or for identity checks across the install/dispose lifecycle.
+
+Tools (10x, re-frame-pair) use the keyword to branch on host capabilities — for instance, the time-travel UI is meaningful in browser-Reagent but not in plain-atom.
 
 The keyword is informational. Behaviour-affecting decisions should be based on `:platforms` metadata (per [011 §S-3](011-SSR.md#effect-handling-on-the-server)) or on explicit configuration, not on which adapter is loaded.
 

@@ -31,9 +31,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest adapter-has-9-canonical-keys
-  (testing "the adapter map carries the 9 substrate-shape keys"
+  (testing "the adapter map carries the 9 substrate-shape keys + :kind discriminator"
     (let [k (set (keys reagent-slim/adapter))]
-      (is (= #{:make-state-container
+      (is (= #{:kind
+              :make-state-container
               :read-container
               :replace-container!
               :subscribe-container
@@ -43,11 +44,13 @@
               :register-context-provider
               :dispose-adapter!}
              k)
-          "every slot named in re-frame.substrate.adapter is present"))))
+          "every slot named in re-frame.substrate.adapter is present plus :kind")
+      (is (= :reagent-slim (:kind reagent-slim/adapter))
+          ":kind matches the canonical reagent-slim discriminator"))))
 
 (deftest adapter-slot-fns-callable
-  (testing "every adapter-slot value is a fn"
-    (doseq [[k v] reagent-slim/adapter]
+  (testing "every adapter contract slot value is a fn (excludes the :kind discriminator)"
+    (doseq [[k v] (dissoc reagent-slim/adapter :kind)]
       (is (fn? v) (str "adapter slot " k " is callable")))))
 
 ;; ---------------------------------------------------------------------------

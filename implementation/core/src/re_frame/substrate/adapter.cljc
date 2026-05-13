@@ -16,8 +16,11 @@
   Lifecycle (1):
     dispose-adapter!
 
-  An adapter is a Clojure map with these keys; it is installed into the
-  process via install-adapter! and read via current-adapter.
+  An adapter is a Clojure map with these keys plus a `:kind` discriminator
+  keyword (`:reagent` / `:reagent-slim` / `:uix` / `:helix` / `:plain-atom`
+  / `:ssr` / `:custom`); it is installed into the process via
+  install-adapter! and introspected via current-adapter (keyword) and
+  current-adapter-spec (the full map).
 
   Per rf2-agql (replaces rf2-84po) there is no default-adapter registry
   and no ns-load side-effect. Each adapter ns
@@ -47,7 +50,28 @@
   adapter)
 
 (defn current-adapter
-  "Return the installed adapter, or nil if none."
+  "Return the discriminator keyword identifying the installed adapter, or
+  nil if none. Per Spec 006 §Adapter introspection: one of `:reagent`,
+  `:reagent-slim`, `:uix`, `:helix`, `:plain-atom`, `:ssr`, or `:custom`
+  for user-supplied adapters that didn't pick a canonical kind.
+
+  This answers \"what substrate am I on?\" — predicate / branch code.
+  For \"give me the adapter spec map\" (fn handles, hot-swap, identity
+  checks across install/dispose), use `current-adapter-spec`."
+  []
+  (when-let [a @installed-adapter]
+    (:kind a :custom)))
+
+(defn current-adapter-spec
+  "Return the installed adapter spec map, or nil if none. The map carries
+  the adapter contract fns (`:make-state-container`, `:replace-container!`,
+  `:make-derived-value`, …) per Spec 006 §The reactive-substrate adapter
+  contract plus the `:kind` discriminator keyword (per `current-adapter`).
+
+  This answers \"give me the adapter fns to call\" — tools, routing,
+  identity checks across the install/dispose lifecycle. For the
+  human-readable discriminator (predicate / branch code), use
+  `current-adapter`."
   []
   @installed-adapter)
 
@@ -164,6 +188,6 @@
    (let [previous (late-bind/get-fn hook-key)]
      (late-bind/set-fn! hook-key
        (fn routed-hook [& args]
-         (if (identical? adapter-spec (current-adapter))
+         (if (identical? adapter-spec (current-adapter-spec))
            (apply impl-fn args)
            (if previous (apply previous args) (fallback-fn))))))))

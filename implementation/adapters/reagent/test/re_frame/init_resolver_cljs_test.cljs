@@ -36,16 +36,20 @@
         "ns-load does not install the adapter")
     (is (map? reagent-adapter/adapter)
         "the adapter ns exports its spec as the public `adapter` var")
-    (is (= 9 (count (keys reagent-adapter/adapter)))
-        "the exported adapter map carries the full nine-fn contract")))
+    (is (= 9 (count (filter fn? (vals reagent-adapter/adapter))))
+        "the exported adapter map carries the full nine-fn contract")
+    (is (= :reagent (:kind reagent-adapter/adapter))
+        "the adapter map carries its discriminator keyword under :kind")))
 
 (deftest init-explicit-installs-reagent
   (testing "(rf/init! reagent/adapter) installs the Reagent adapter"
     (is (nil? (adapter/current-adapter))
         "precondition: no adapter installed")
     (rf/init! reagent-adapter/adapter)
-    (is (identical? reagent-adapter/adapter (adapter/current-adapter))
-        "explicit init! installed the Reagent adapter")))
+    (is (identical? reagent-adapter/adapter (adapter/current-adapter-spec))
+        "explicit init! installed the Reagent adapter (map identity)")
+    (is (= :reagent (adapter/current-adapter))
+        "current-adapter returns the discriminator keyword per Spec 006")))
 
 (deftest init-no-arg-raises-arity-error
   (testing "(rf/init!) with no args raises a language-level arity error (rf2-3ubmv — no-arg arity cut)"
