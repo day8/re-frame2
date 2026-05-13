@@ -21,13 +21,23 @@
   (and (map? ev)
        (true? (:sensitive? ev))))
 
-(defn- strip-sensitive [events include?]
+(defn- sensitive-epoch?
+  "Defense-in-depth (rf2-re2s3): an epoch record is sensitive if its
+  top-level `:sensitive?` is `true` OR if any constituent trace event
+  carries `:sensitive? true`. Mirrors the helper in tools.cljs."
+  [epoch]
+  (and (map? epoch)
+       (or (true? (:sensitive? epoch))
+           (boolean (some sensitive-event? (:trace-events epoch))))))
+
+(defn- strip-sensitive [items include?]
   (cond
-    include?         [events 0]
-    (empty? events)  [events 0]
+    include?         [items 0]
+    (empty? items)   [items 0]
     :else
-    (let [kept (filterv (complement sensitive-event?) events)
-          n    (- (count events) (count kept))]
+    (let [drop? (fn [x] (or (sensitive-event? x) (sensitive-epoch? x)))
+          kept  (filterv (complement drop?) items)
+          n     (- (count items) (count kept))]
       [kept n])))
 
 ;; ---------------------------------------------------------------------------
@@ -187,4 +197,114 @@
 (deftest snapshot-scrubber-non-map-input-passes-through
   (let [[out dropped] (scrub-snapshot-sensitive nil false)]
     (is (nil? out))
+    (is (zero? dropped))))
+
+;; ---------------------------------------------------------------------------
+;; sensitive-epoch? — defense-in-depth on the epoch-record shape (rf2-re2s3).
+;;
+;; Spec 009 §Privacy mandates that the runtime's epoch assembler computes a
+;; top-level `:sensitive?` rollup at record-assembly time (rf2-isdwf, the
+;; "epoch is sensitive iff any constituent trace event is sensitive" rule).
+;; This forwarder-side guard is BELT-AND-BRACES on top of that — if the
+;; rollup is absent (older runtime, missing late-bind hook, hand-built
+;; record), we still detect sensitivity by walking the record's
+;; `:trace-events` slot at egress.
+;; ---------------------------------------------------------------------------
+
+(deftest sensitive-epoch-top-level-stamp-detected
+  (is (sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :sensitive? true})))
+
+(deftest sensitive-epoch-constituent-trace-event-detected
+  ;; The top-level rollup is absent (older runtime), but a constituent
+  ;; trace event carries the stamp — the egress guard must still drop.
+  (is (sensitive-epoch?
+        {:epoch-id 2
+         :event-id :auth/sign-in
+         :trace-events [{:op-type :event :operation :run-start}
+                        {:op-type :event :operation :run-end
+                         :sensitive? true}]})))
+
+(deftest sensitive-epoch-no-stamps-passes
+  (is (not (sensitive-epoch?
+             {:epoch-id 3
+              :event-id :cart/add
+              :trace-events [{:op-type :event :operation :run-start}
+                             {:op-type :event :operation :run-end}]}))))
+
+(deftest sensitive-epoch-empty-trace-events-passes
+  (is (not (sensitive-epoch? {:epoch-id 4 :trace-events []})))
+  (is (not (sensitive-epoch? {:epoch-id 5}))))
+
+(deftest sensitive-epoch-non-map-input-passes
+  (is (not (sensitive-epoch? nil)))
+  (is (not (sensitive-epoch? [:trace-events [{:sensitive? true}]])))
+  (is (not (sensitive-epoch? "anything"))))
+
+(deftest sensitive-epoch-explicit-false-rollup-still-walks-trace-events
+  ;; A `:sensitive? false` rollup at the top is the assembler's claim
+  ;; that no constituent is sensitive. If a constituent disagrees we
+  ;; trust the constituent — defense-in-depth means we drop on EITHER
+  ;; signal, never silently overrule a sensitive constituent.
+  (is (sensitive-epoch?
+        {:epoch-id 6
+         :sensitive? false
+         :trace-events [{:operation :run-end :sensitive? true}]})))
+
+;; ---------------------------------------------------------------------------
+;; strip-sensitive on epoch records — the streaming-surface defense-in-depth
+;; scenarios (rf2-re2s3). These match how trace-window-tool / watch-epochs-tool
+;; feed epoch vectors through the same helper.
+;; ---------------------------------------------------------------------------
+
+(deftest strip-sensitive-drops-epoch-with-sensitive-constituent
+  ;; Sensitive epoch (carried by trace-events) drops; non-sensitive
+  ;; epoch passes through. Mirrors a `trace-window` payload where the
+  ;; runtime rollup was absent but a constituent trace was stamped.
+  (let [epochs [{:epoch-id 1
+                 :event-id :cart/add
+                 :trace-events [{:operation :run-end}]}
+                {:epoch-id 2
+                 :event-id :auth/sign-in
+                 :trace-events [{:operation :run-end :sensitive? true}]}]
+        [kept dropped] (strip-sensitive epochs false)]
+    (is (= 1 (count kept)))
+    (is (= 1 (:epoch-id (first kept))))
+    (is (= 1 dropped))))
+
+(deftest strip-sensitive-passes-non-sensitive-epoch-vector-through
+  (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :run-end}]}
+                {:epoch-id 2 :event-id :cart/checkout :trace-events []}
+                {:epoch-id 3 :event-id :nav/route}]
+        [kept dropped] (strip-sensitive epochs false)]
+    (is (= epochs kept))
+    (is (zero? dropped))))
+
+(deftest strip-sensitive-mixed-batch-drops-sensitive-keeps-rest
+  ;; Three sensitivity signals in one batch:
+  ;;   - epoch 1: rollup absent, constituent stamped sensitive  → drop
+  ;;   - epoch 2: rollup stamped sensitive                       → drop
+  ;;   - epoch 3: clean                                          → keep
+  ;;   - epoch 4: clean (no trace-events slot at all)            → keep
+  (let [epochs [{:epoch-id 1
+                 :event-id :auth/sign-in
+                 :trace-events [{:operation :run-end :sensitive? true}]}
+                {:epoch-id 2
+                 :event-id :auth/recover
+                 :sensitive? true
+                 :trace-events [{:operation :run-end}]}
+                {:epoch-id 3
+                 :event-id :cart/add
+                 :trace-events [{:operation :run-end}]}
+                {:epoch-id 4 :event-id :nav/route}]
+        [kept dropped] (strip-sensitive epochs false)]
+    (is (= [3 4] (mapv :epoch-id kept)))
+    (is (= 2 dropped))))
+
+(deftest strip-sensitive-include-opt-in-keeps-epoch-with-sensitive-constituent
+  ;; `:include-sensitive? true` is the documented escape hatch — even
+  ;; epochs carrying sensitive constituents pass through unchanged.
+  (let [epochs [{:epoch-id 1 :trace-events [{:operation :run-end :sensitive? true}]}
+                {:epoch-id 2 :sensitive? true}]
+        [kept dropped] (strip-sensitive epochs true)]
+    (is (= epochs kept))
     (is (zero? dropped))))

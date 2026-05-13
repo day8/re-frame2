@@ -725,17 +725,49 @@
   (and (map? ev)
        (true? (:sensitive? ev))))
 
+(defn- sensitive-epoch?
+  "Does this epoch record carry — or transitively contain — a
+  `:sensitive? true` stamp? Defense-in-depth on top of the per-event
+  filter (rf2-re2s3).
+
+  An epoch is considered sensitive if EITHER:
+
+    1. The top-level `:sensitive?` slot on the record is literal `true`
+       (the spec/009 §Privacy rollup, computed by the epoch assembler
+       once at record-assembly time per rf2-isdwf), OR
+    2. ANY constituent `:trace-events` entry carries `:sensitive? true`
+       — a belt-and-braces walk that catches a sensitive cascade even
+       if the upstream rollup wasn't computed (older runtime, missing
+       late-bind hook, hand-built record in a test fixture).
+
+  The check is short-circuit-cheap on the common path: most epochs have
+  no `:sensitive?` slot and no sensitive `:trace-events`, so `some` over
+  an empty (or all-false) vector returns nil immediately."
+  [epoch]
+  (and (map? epoch)
+       (or (true? (:sensitive? epoch))
+           (boolean (some sensitive-event? (:trace-events epoch))))))
+
 (defn- strip-sensitive
-  "Remove `:sensitive? true` events from `events` unless the caller opted
+  "Remove `:sensitive? true` items from `items` unless the caller opted
   in. Returns `[kept dropped-count]`. Cheap on the common path
-  (no sensitive events ⇒ identical-vector return + zero drop count)."
-  [events include?]
+  (no sensitive items ⇒ identical-vector return + zero drop count).
+
+  Applies the union predicate `sensitive-event? OR sensitive-epoch?`
+  so both trace-event vectors AND epoch-record vectors are gated by
+  the same call site (defense-in-depth per rf2-re2s3). A trace event
+  has no `:trace-events` slot so `sensitive-epoch?` collapses to the
+  same `:sensitive?` top-level check; an epoch record with a
+  sensitive constituent trace event drops even if its top-level
+  rollup is absent."
+  [items include?]
   (cond
-    include?            [events 0]
-    (empty? events)     [events 0]
+    include?            [items 0]
+    (empty? items)      [items 0]
     :else
-    (let [kept (filterv (complement sensitive-event?) events)
-          n    (- (count events) (count kept))]
+    (let [drop? (fn [x] (or (sensitive-event? x) (sensitive-epoch? x)))
+          kept  (filterv (complement drop?) items)
+          n     (- (count items) (count kept))]
       [kept n])))
 
 ;; ---------------------------------------------------------------------------
