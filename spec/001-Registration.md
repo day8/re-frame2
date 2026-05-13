@@ -36,7 +36,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 
 | Key | Type | Required? | Meaning |
 |---|---|---|---|
-| `:doc` | string | recommended | One-sentence description of what this registration does. Surfaced in tooling, agent inspection, error messages. |
+| `:doc` | string | SHOULD (dev-warned) | One-sentence description of what this registration does. Surfaced in tooling, agent inspection, error messages. Absent on a `reg-*` call, the dev-build runtime emits `:rf.warning/missing-doc` once per `(kind, id)` pair (per [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), below). The key is **not** structurally required — the registration succeeds without it; the warning is the nudge, not a gate. Production builds elide the check entirely. |
 | `:spec` | schema | optional | Shape description for the registration's input or output. In dynamic hosts, a Malli/Pydantic/Zod schema; in static hosts, the host's type system. (See [010](010-Schemas.md) for CLJS-specific Malli usage.) |
 | `:ns` | symbol | auto-supplied | Source namespace where the registration occurred. Captured by the macro at compile time (CLJS reference). |
 | `:line` | integer | auto-supplied | Source line. |
@@ -282,19 +282,42 @@ In static hosts, the type system handles shape correctness instead of `:spec`. T
 
 The exact validation timing rules and dev-vs-prod elision live in Spec 010.
 
+## `:doc` is dev-warned when absent
+
+The `:doc` key SHOULD appear on every `reg-*` registration. The metadata-map shape itself does **not** structurally require it (the registration succeeds without `:doc`; the schema marks the key `{:optional true}` per [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata)). What the runtime does require, in dev builds only, is **visibility** — every registration that omits `:doc` MUST emit `:rf.warning/missing-doc` exactly once per `(kind, id)` pair so the omission surfaces in tooling without silently accumulating undocumented handlers.
+
+Normative obligations:
+
+1. **Emission gate.** The warning is emitted on every `reg-*` call whose final metadata-map (after macro merge of source coords) carries no `:doc` key, or where `:doc` is `nil` or an empty string. The emission goes through the trace surface defined in [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) and carries `:op-type :warning`.
+2. **Suppression.** The warning fires at most once per `(kind, id)` pair within a given runtime process. Re-registering the same id (hot-reload save→re-eval) does not re-fire the warning; a different id under the same kind does. The suppression cache lives alongside the existing one-shot warning caches (`:rf.warning/plain-fn-under-non-default-frame-once`, `:rf.warning/boundary-without-spec`); destruction-recreation of the frame resets it as the others do.
+3. **Production elision.** Per [009 §Production builds: zero overhead, zero code](009-Instrumentation.md#production-builds-zero-overhead-zero-code), the dev-only trace surface is gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`). The closure compiler eliminates the gated branch in `:advanced` production builds. Production binaries carry no `:rf.warning/missing-doc` machinery.
+4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:app-schema`, `:head`, `:error-projector`, `:flow`) is in scope. Programmatic re-registrations through internal helpers (`re-frame.core/-reg-event-db` and siblings) that bypass the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
+5. **Trace envelope.** The trace event carries `:operation :rf.warning/missing-doc`, `:tags {:kind <kind> :id <id> :source-coords <captured-coords>}`. Per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) the emission site is the macro-expanded `reg-*` body in `registrar.cljc`. The recovery classification is `:ignored` — the registration completes normally; the warning is a diagnostic surface, not a gate.
+
+The dev nudge is deliberate: documented handlers are the difference between a registry an agent can navigate and a registry it cannot. Making the warning one-shot per `(kind, id)` keeps the dev stream readable while ensuring the omission is visible in 10x, re-frame-pair, and any other consumer of the trace bus.
+
+> **Hot-reload interaction.** The warning is suppressed across re-registrations of the same `(kind, id)` pair — a save→re-eval that re-registers `:cart/add-item` with no `:doc` does not re-emit the warning. The expected workflow is: warning fires once, the developer adds `:doc`, the warning never fires again for that id. Adding then later removing `:doc` re-fires the warning on the *next* dev-process boot (the suppression cache is per-process, not persisted).
+
 ## Open questions
-
-### Should `:doc` be required, not just recommended?
-
-Currently optional. Should the runtime warn (in dev) on registrations without `:doc`?
-
-Lean: yes, in dev. In prod, irrelevant (registrations work either way). The warning gives a gentle nudge toward documented code.
 
 ### Per-kind metadata schemas
 
 The metadata map is open, but each kind has a documented set of keys it cares about. Should each kind ship a Malli schema for its metadata (e.g., `:rf/event-metadata` describing what `reg-event-fx`'s metadata can contain)?
 
 Lean: yes. Add per-kind metadata schemas to [Spec-Schemas.md](Spec-Schemas.md).
+
+## Resolved decisions
+
+A pointer-only index of decisions taken in this Spec. Each entry's load-bearing prose lives in the linked section above (or in the linked sibling Spec).
+
+| Decision | Pointer |
+|---|---|
+| `:doc` is SHOULD (dev-warned) — absent registrations emit `:rf.warning/missing-doc` once per `(kind, id)` pair in dev; production elides the check; the metadata schema keeps `:doc` `{:optional true}` (the warning is the nudge, not a structural gate) | [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives), [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata) |
+| `:interceptors` inside the metadata-map of `reg-event-*` is not a valid position — the chain MUST be the positional vector slot; mis-placement silently drops the chain and emits `:rf.warning/interceptors-in-metadata-map` | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` is positional, not metadata](Conventions.md#interceptors-is-positional-not-metadata-reg-event-) |
+| Every `reg-*` returns its primary id — the keyword (or path, for `reg-app-schema`) the caller registered with | [§Return value](#return-value), [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention) |
+| Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
+| Re-registration with a *different* fn is silent last-write-wins by default; the runtime can warn at registration time via `:rf.warning/registration-collision` (recommended on in dev) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |
+| Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each `create-machine-handler` spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
 
 ## Cross-references
 
