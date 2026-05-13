@@ -1,569 +1,127 @@
 (ns re-frame.ssr
   "Server-side rendering and hydration. Per Spec 011.
 
+  Public façade for the day8/re-frame2-ssr artefact (rf2-uo7v, sixth
+  per-feature split per rf2-5vjj Strategy B). Per Spec 006 §Adapter
+  shipping convention — this artefact depends on core; core never
+  depends on this artefact. The cross-references from core to ssr flow
+  through `re-frame.late-bind`.
+
+  ---- file split (rf2-gxgo7) ----
+
+  Pre-split this namespace was 1380 LoC carrying seven independent
+  concerns enumerated by its own `;; ----` banners. It's now a thin
+  façade over eight flat sub-namespaces:
+
+    - `re-frame.ssr.emit`            — hiccup → HTML emitter,
+                                       `render-to-string`, source-coord
+                                       annotation, substrate-adapter
+                                       wire-up.
+    - `re-frame.ssr.hash`            — `canonical-edn`, `fnv-1a-32`,
+                                       `render-tree-hash`.
+    - `re-frame.ssr.adapter`         — the SSR adapter map + helpers.
+    - `re-frame.ssr.hydrate`         — `:rf/hydrate` handler + the two
+                                       `:rf.ssr/check-*` fx handlers
+                                       (rf2-69ad2), `verify-hydration!`.
+    - `re-frame.ssr.response`        — response accumulator + handler
+                                       fns for the six `:rf.server/*` fxs.
+    - `re-frame.ssr.error-projector` — projector registry + default +
+                                       `project-error`.
+    - `re-frame.ssr.error-listener`  — trace listener + per-frame buffer
+                                       + drain + `get-response`.
+    - `re-frame.ssr.request`         — `request-slots`, set/get/clear
+                                       helpers, `on-frame-destroyed!`,
+                                       the `:rf.server/request` cofx
+                                       handler.
+
+  All `reg-fx` / `reg-cofx` / `reg-event-fx` / `reg-error-projector` /
+  `register-trace-cb!` side-effects fire HERE so a
+  `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)` —
+  the canonical test-fixture reset shape — re-installs every
+  registration. Sub-namespaces export pure handler fns only.
+
   Implements:
-    - Pure hiccup → HTML emitter (HTML5: void elements self-close
-      bare, doctype prefix on demand, full attr/text escaping,
-      :tag#id.cls keyword parsing, registered-view resolution via
-      the :view registry). Per Spec 011 §The render-tree → HTML
-      emitter — render-to-string returns ONE shape: an HTML STRING.
-      The render-tree's structural hash is a separate fn
-      (render-tree-hash) and rides the wire as a data-rf-render-hash
-      attribute on the root element when :emit-hash? is set. The
-      per-request HTTP response (status / headers / cookies /
-      redirect) lives in the response accumulator at [:rf/response]
-      (per §HTTP response contract) — NOT in render-to-string's
-      return value.
-    - :rf/hydrate event with :replace-app-db semantics — the server-
-      supplied payload's :rf/app-db replaces the client app-db. The
-      conformance harness simulates a hydration-mismatch by feeding a
-      :simulated-client-render-hash; the runtime compares against the
-      payload's :rf/render-hash and emits :rf.ssr/hydration-mismatch
-      with :recovery :warned-and-replaced.
-    - :rf.server/* response-shape fx (:rf.server/set-status,
-      :rf.server/set-header, :rf.server/append-header,
-      :rf.server/set-cookie, :rf.server/delete-cookie,
-      :rf.server/redirect) gated by :platforms #{:server} via the
-      per-frame :platform predicate. The accumulator lives in app-db
-      under the reserved path [:rf/response]; the host adapter consumes
-      that slot after drain to build the wire response. Per
-      Spec 011 §HTTP response contract.
-    - reg-error-projector + default :rf.ssr/default-error-projector,
-      plus the runtime's SSR error path that calls the active
-      projector when an error trace fires inside a server frame and
-      writes the public-error's :status to the response accumulator.
-      Per Spec 011 §Server error projection.
-    - :rf.server/request cofx + per-frame request slot
-      (set-request! / get-request / clear-request!) — host adapters
-      populate the slot before drain; event handlers consume via
-      (inject-cofx :rf.server/request). Gated by :platforms #{:server}
-      so client dispatches no-op via :rf.cofx/skipped-on-platform. Per
-      Spec 011 §Server-only reg-cofx for request context.
+    - Pure hiccup → HTML emitter (HTML5 void elements, doctype prefix,
+      attr/text escaping, `:tag#id.cls` parsing, registered-view
+      resolution). Per Spec 011 §The render-tree → HTML emitter.
+    - `:rf/hydrate` event with `:replace-app-db` semantics; the server-
+      supplied payload's `:rf/app-db` replaces the client app-db.
+    - The six `:rf.server/*` response-shape fxs gated by `:platforms
+      #{:server}`; the accumulator at `[:rf/response]` is consumed by
+      the host adapter after drain. Per §HTTP response contract.
+    - `reg-error-projector` + default `:rf.ssr/default-error-projector`,
+      plus the SSR error path that calls the active projector when an
+      error trace fires inside a server frame. Per §Server error
+      projection.
+    - `:rf.server/request` cofx + per-frame request slot
+      (`set-request!` / `get-request` / `clear-request!`). Per
+      §Server-only `reg-cofx` for request context.
 
   Conformance fixtures cover all of the above (ssr/render-to-string,
   ssr/hydrate, ssr/hydration-mismatch, ssr/head-emits, ssr/head-hydration,
   ssr/error-known-mapping, ssr/error-sanitisation, ssr/cookie,
   ssr/redirect, ssr/set-status, fx/platforms)."
   (:require [re-frame.cofx :as cofx]
-            [re-frame.frame :as frame]
+            [re-frame.events :as events]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.events :as events]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.trace :as trace]
+            [re-frame.ssr.adapter :as adapter-ns]
+            [re-frame.ssr.emit :as emit]
+            [re-frame.ssr.error-listener :as error-listener]
+            [re-frame.ssr.error-projector :as error-projector]
             ;; rf2-4dra9 — head/meta contract surface (Spec 011 §Head/meta).
             ;; The head ns publishes its late-bind hooks at ns-load time;
             ;; static `:require` here ensures the hooks are available
             ;; before any user code calls `rf/reg-head` / `rf/render-head`
             ;; / `rf/active-head`. The dependency is acyclic — head.cljc
-            ;; only pulls re-frame.frame / re-frame.registrar (already in
-            ;; this ns's requires).
+            ;; only pulls re-frame.frame / re-frame.registrar.
             re-frame.ssr.head
-            #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
+            [re-frame.ssr.hash :as hash]
+            [re-frame.ssr.hydrate :as hydrate]
+            [re-frame.ssr.request :as request]
+            [re-frame.ssr.response :as response]
+            [re-frame.trace :as trace]))
 
-(defn- escape-html [s]
-  (-> (str s)
-      (clojure.string/replace "&" "&amp;")
-      (clojure.string/replace "<" "&lt;")
-      (clojure.string/replace ">" "&gt;")
-      (clojure.string/replace "\"" "&quot;")
-      (clojure.string/replace "'" "&#39;")))
-
-(defn- escape-attr [s]
-  ;; Less aggressive — attributes don't need < > escaped, but " must
-  ;; be escaped if we use double-quoted values. We use double-quoted
-  ;; values, so escape " and &.
-  (-> (str s)
-      (clojure.string/replace "&" "&amp;")
-      (clojure.string/replace "\"" "&quot;")))
-
-(defn- attr-string [attrs]
-  (if (empty? attrs)
-    ""
-    (str " " (clojure.string/join " "
-               (map (fn [[k v]]
-                      (cond
-                        (true? v)  (name k)             ;; boolean attrs
-                        (false? v) nil
-                        (nil? v)   nil
-                        :else      (str (name k) "=\"" (escape-attr v) "\"")))
-                    attrs)))))
-
-;; Per HTML5 spec, these elements are void — they self-close and have no
-;; closing tag.
-(def ^:private void-elements
-  #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
-    :track :wbr})
-
-;; Tag-name parsing for the :div#id.cls syntax. Reagent / Hiccup convention.
-(defn- parse-tag-name
-  "Split a keyword like :div#main.col-12.bold into [:div {:id \"main\"
-  :class \"col-12 bold\"}] components."
-  [tag-kw]
-  (let [s     (name tag-kw)
-        ;; Match: tag-name optionally followed by #id and .class fragments.
-        [_ tag id classes]
-        #?(:clj  (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s)
-           :cljs (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s))
-        class-list (when (and classes (seq classes))
-                     (->> (clojure.string/split classes #"\.")
-                          (remove empty?)
-                          (clojure.string/join " ")))]
-    [tag
-     (cond-> {}
-       id         (assoc :id id)
-       class-list (assoc :class class-list))]))
-
-(defn- merge-class-attrs
-  "Merge the class from the tag-name into the attrs map's :class."
-  [tag-attrs user-attrs]
-  (let [t-class    (:class tag-attrs)
-        u-class    (:class user-attrs)
-        merged     (cond
-                     (and t-class u-class) (str t-class " " u-class)
-                     t-class                t-class
-                     u-class                u-class)]
-    (cond-> (merge tag-attrs (dissoc user-attrs :class))
-      merged (assoc :class merged))))
-
-(declare emit-element)
-
-(defn- emit-children [children]
-  (clojure.string/join (mapv emit-element children)))
-
-;; ---- source-coord annotation on registered-view roots --------------------
+;; ---- public-surface re-exports --------------------------------------------
 ;;
-;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and Spec 011
-;; §Source-coord annotation under SSR: when emitting HTML for a registered
-;; view, the SSR emitter injects `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"`
-;; on the view's root DOM element. The annotation gives pair-tool consumers
-;; a way to map server-rendered HTML back to the reg-view call site, and
-;; matches the CLJS-side Reagent-adapter behaviour (re-frame.views/reg-view*).
+;; `def`s expose the sub-namespace fns as `re-frame.ssr/<name>` so
+;; consumers see the same surface they did pre-split.
+
+(def render-to-string                emit/render-to-string)
+(def install-render-to-string!       emit/install-render-to-string!)
+(def ^:private format-view-source-coord emit/format-view-source-coord)
+(def render-tree-hash                hash/render-tree-hash)
+;; framework-private: tests reach into `#'ssr/canonical-edn` for the
+;; JVM↔CLJS canonical-EDN parity check (hash_check_cljs_test).
+(def ^:private canonical-edn         hash/canonical-edn)
+(def ^:private fnv-1a-32             hash/fnv-1a-32)
+(def adapter                         adapter-ns/adapter)
+(def verify-hydration!               hydrate/verify-hydration!)
+(def response-path                   response/response-path)
+(def default-response                response/default-response)
+(def public-error-keys               error-projector/public-error-keys)
+(def fallback-public-error           error-projector/fallback-public-error)
+(def default-error-projector-fn      error-projector/default-error-projector-fn)
+(def reg-error-projector             error-projector/reg-error-projector)
+(def project-error                   error-projector/project-error)
+(def apply-error-projection!         error-listener/apply-error-projection!)
+(def apply-pending-error-projection! error-listener/apply-pending-error-projection!)
+(def get-response                    error-listener/get-response)
+;; framework-private at the public surface — Spec 011 §Per-request
+;; frame teardown. Tests reach the var via `(resolve ...)`.
+(def ^:private pending-error-traces  error-listener/pending-error-traces)
+(def request-slots                   request/request-slots)
+(def set-request!                    request/set-request!)
+(def get-request                     request/get-request)
+(def clear-request!                  request/clear-request!)
+(def on-frame-destroyed!             request/on-frame-destroyed!)
+
+;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
-;; The JVM mirror of the CLJS `interop/debug-enabled?` gate is
-;; (interop/debug-enabled?) — true on the JVM (no production-elision
-;; concept on the server). Hosts that need to suppress the annotation
-;; in production can branch on the resolved frame's :ssr config; the
-;; default is to emit (matches Spec 011 §Source-coord annotation under
-;; SSR — emitted when in dev mode).
+;; Spec 011 §The :rf/hydrate event + §Hydration-mismatch detection +
+;; rf2-69ad2 compatibility checks.
 
-(defn- format-view-source-coord
-  "Render the registered view's metadata as the attribute value
-  `<ns>:<sym>:<line>:<col>` per Spec 006 §Source-coord annotation. Returns
-  nil when the slot has no captured coords (programmatic registration that
-  bypassed the macro path) — the emitter then skips the annotation."
-  [id slot]
-  (when (or (:ns slot) (:line slot) (:file slot) (:column slot))
-    (let [ns-part  (or (namespace id) "?")
-          sym-part (name id)
-          line     (:line slot)
-          col      (:column slot)]
-      (str ns-part ":" sym-part ":"
-           (if line (str line) "?")
-           ":"
-           (if col (str col) "?")))))
-
-(defn- inject-coord-on-root-hiccup
-  "Inject :data-rf2-source-coord into the root element of a hiccup form,
-  if the root is a DOM-tag keyword. Mirrors the CLJS-side wrapper in
-  re-frame.views per Spec 006 §Source-coord annotation. Non-DOM roots
-  (fragment :<>, fn-or-component head, lazy-seq) are returned unchanged
-  — pair tools fall back to :rf/id for those (documented exemption)."
-  [coord out]
-  (cond
-    (and (vector? out)
-         (keyword? (first out))
-         (not= :<> (first out))
-         (not= :> (first out)))
-    (let [head        (first out)
-          maybe-attrs (second out)]
-      (if (map? maybe-attrs)
-        (if (contains? maybe-attrs :data-rf2-source-coord)
-          out
-          (into [head (assoc maybe-attrs :data-rf2-source-coord coord)]
-                (drop 2 out)))
-        (into [head {:data-rf2-source-coord coord}] (rest out))))
-
-    :else out))
-
-(defn- emit-element [el]
-  (cond
-    (nil? el)         ""
-    (string? el)      (escape-html el)
-    (number? el)      (str el)
-    (boolean? el)     ""
-    (vector? el)
-    (let [head (first el)]
-      (cond
-        (keyword? head)
-        (let [;; Look up registered view first.
-              maybe-view (registrar/lookup :view head)]
-          (if maybe-view
-            (let [raw   (apply (:handler-fn maybe-view) (rest el))
-                  ;; Spec 006 §Source-coord annotation: inject the
-                  ;; data-rf2-source-coord attribute on the registered
-                  ;; view's root DOM element when the slot's metadata
-                  ;; carries source coords.
-                  coord (format-view-source-coord head maybe-view)
-                  out   (if coord
-                          (inject-coord-on-root-hiccup coord raw)
-                          raw)]
-              (emit-element out))
-            (let [[tag-name tag-attrs] (parse-tag-name head)
-                  [user-attrs children]
-                  (if (map? (second el))
-                    [(second el) (drop 2 el)]
-                    [{} (rest el)])
-                  attrs       (merge-class-attrs tag-attrs user-attrs)
-                  void?       (contains? void-elements (keyword tag-name))]
-              (if void?
-                (str "<" tag-name (attr-string attrs) ">")
-                (str "<" tag-name (attr-string attrs) ">"
-                     (emit-children children)
-                     "</" tag-name ">")))))
-
-        (fn? head)
-        (emit-element (apply head (rest el)))
-
-        :else (str el)))
-
-    (sequential? el) (emit-children el)
-    :else (escape-html el)))
-
-;; ---- render-tree hashing --------------------------------------------------
-;;
-;; Per Spec 011 §Hydration-mismatch detection: the server hashes the
-;; render-tree at SSR time; the client recomputes the hash on first
-;; render and compares. Mismatch = the runtime emits
-;; :rf.ssr/hydration-mismatch with both hashes. We use FNV-1a 32-bit
-;; over the canonical-EDN traversal of the render tree, output as
-;; lowercase hex. Same algorithm both sides → byte-identical hashes
-;; for byte-identical canonical EDN.
-
-(defn- canonical-edn
-  "Print a render-tree node in a stable order. Maps are sorted by key
-  string; sequences keep order. Functions and var-references appear
-  as their toString — stable enough for trees that re-render the same
-  view-fn from the same registry."
-  [x]
-  (cond
-    (map? x)
-    (str "{"
-         (clojure.string/join
-           ","
-           (map (fn [[k v]] (str (canonical-edn k) " " (canonical-edn v)))
-                (sort-by (comp str key) x)))
-         "}")
-
-    (vector? x)
-    (str "[" (clojure.string/join " " (map canonical-edn x)) "]")
-
-    (sequential? x)
-    (str "(" (clojure.string/join " " (map canonical-edn x)) ")")
-
-    (set? x)
-    (str "#{"
-         (clojure.string/join " " (sort (map canonical-edn x)))
-         "}")
-
-    (fn? x)
-    (str "#fn[" (.toString ^Object x) "]")
-
-    :else (pr-str x)))
-
-(defn- fnv-1a-32
-  "FNV-1a 32-bit hash of a string. Returns the lowercase-hex form, no
-  prefix. Stable on JVM and CLJS — uses unchecked 32-bit multiply on
-  both sides (CLJS via Math.imul, JVM via long-multiply-then-mask).
-  Output bytes are byte-identical for byte-identical input strings."
-  [s]
-  (let [offset 2166136261              ;; FNV offset basis
-        prime  16777619]               ;; FNV prime
-    (loop [i 0
-           h offset]
-      (if (>= i (count s))
-        ;; Convert h to unsigned 32-bit and emit lowercase 8-char hex.
-        ;; JS's bitwise ops are 32-bit SIGNED; the `>>> 0` idiom forces
-        ;; unsigned. JVM bit-and-with-0xffffffff suffices.
-        #?(:clj  (format "%08x" (bit-and h 0xffffffff))
-           :cljs (let [u (unsigned-bit-shift-right h 0)
-                       hex (.toString u 16)]
-                   (.padStart hex 8 "0")))
-        (let [c (#?(:clj int :cljs .charCodeAt) (.charAt s i) #?(:cljs 0))
-              x (bit-xor h c)
-              ;; Guaranteed 32-bit multiply.
-              p #?(:clj  (bit-and 0xffffffff
-                                  (unchecked-multiply x prime))
-                   :cljs (js/Math.imul x prime))]
-          (recur (inc i) p))))))
-
-(defn render-tree-hash
-  "Per Spec 011 §Hydration-mismatch detection: a stable structural hash
-  of the render tree. Deterministic across JVM and CLJS for trees with
-  identical canonical-EDN representation."
-  [render-tree]
-  (fnv-1a-32 (canonical-edn render-tree)))
-
-(defn render-to-string
-  "Pure hiccup → HTML string. Per Spec 011 §The render-tree → HTML emitter.
-
-  RETURN SHAPE — STRING. Always. render-to-string emits a single HTML
-  string; it does NOT return a map of {:html ... :hash ... :status ...}.
-  The structural hash is a separate fn (render-tree-hash) that the same
-  render path embeds on the wire as data-rf-render-hash when :emit-hash?
-  is set. The HTTP response triple (:status / :headers / :cookies /
-  :redirect) lives in the per-request response accumulator at
-  [:rf/response] (per §HTTP response contract) — get-response reads the
-  resolved shape after drain. Hosts that want the bundled
-  {:html :payload :response} shape from §Request-handler return shape
-  build it from these three primitives — render-to-string is the
-  string-yielding piece.
-
-  Implements:
-    - HTML5 void elements (no closing tag, no self-close slash).
-    - :tag#id.cls keyword tag-name parsing (id and class merged into attrs).
-    - Boolean attributes (true → bare attr name; false / nil → omitted).
-    - Text and attribute escaping (HTML-entity safe).
-    - :doctype? opt prepends '<!DOCTYPE html>'.
-    - Registered-view resolution (looks up :view kind in the registrar).
-    - Var-reference resolution (calls the fn, recurses on the result).
-    - :emit-hash? opt embeds 'data-rf-render-hash=<hex>' on the root
-      element for client-side mismatch detection (per Spec 011)."
-  [render-tree opts]
-  (let [body (emit-element render-tree)
-        body (if (:emit-hash? opts)
-               (let [h (render-tree-hash render-tree)]
-                 ;; Inject data-rf-render-hash on the FIRST '<tag' opener
-                 ;; — that's the root element. Skip <!DOCTYPE> if present.
-                 (clojure.string/replace-first
-                   body
-                   #"(<[a-zA-Z][^\s>/]*)"
-                   (str "$1 data-rf-render-hash=\"" h "\"")))
-               body)]
-    (if (:doctype? opts)
-      (str "<!DOCTYPE html>" body)
-      body)))
-
-;; Wire our render-to-string into the plain-atom adapter so callers
-;; using rf/render-to-string (which delegates through the substrate
-;; adapter) get this implementation. Per rf2-uo7v the Reagent adapter
-;; (day8/re-frame2-reagent) wires its own set-hiccup-emitter! through
-;; the late-bind hook table (`:reagent/set-hiccup-emitter!`); we
-;; consume that hook below so ssr does not statically :require the
-;; Reagent adapter ns. Core deliberately does *not* :require the
-;; Reagent adapter ns — that ns lives in a separate Maven artefact
-;; and may not be on the classpath.
-#?(:clj
-   (try
-     (require 're-frame.substrate.plain-atom)
-     ((requiring-resolve 're-frame.substrate.plain-atom/set-hiccup-emitter!)
-      render-to-string)
-     (catch Throwable _ nil)))
-
-#?(:cljs
-   (plain-atom-cljs/set-hiccup-emitter! render-to-string))
-
-;; If the Reagent adapter is on the classpath at SSR load time, wire
-;; our render-to-string into its :render-to-string slot via the hook
-;; the adapter registered. This is the load-order-symmetric counterpart
-;; to the plain-atom wiring above. When the Reagent adapter is absent
-;; (e.g. a UIx-only build, a plain-atom-only JVM build, or an app that
-;; runs on a substrate that hasn't loaded yet) the hook is missing and
-;; this branch no-ops cleanly.
-(when-let [reagent-set-emitter! (late-bind/get-fn :reagent/set-hiccup-emitter!)]
-  (reagent-set-emitter! render-to-string))
-
-(defn install-render-to-string!
-  "Install this ns's render-to-string into a substrate adapter's
-  :render-to-string slot. Called by adapter namespaces that ship in
-  their own artefact for hosts that wire a custom adapter directly.
-  Per Spec 006 §Adapter shipping convention (rf2-0hxm).
-
-  The bundled Reagent adapter wires itself via the
-  `:reagent/set-hiccup-emitter!` late-bind hook (rf2-uo7v) — this fn
-  remains as a public surface for non-bundled adapters."
-  [set-hiccup-emitter!-fn]
-  (set-hiccup-emitter!-fn render-to-string)
-  nil)
-
-;; ---- SSR adapter (rf2-agql) ----------------------------------------------
-;;
-;; Per rf2-agql each adapter ns exports an `adapter` var that the consumer
-;; passes to `(rf/init! ...)`. SSR is a server-side adapter — same plain-
-;; atom-shaped state container, no React reactivity, no hooks — but it
-;; binds its own render-to-string directly into the slot so a server-side
-;; bootstrap is one explicit call:
-;;
-;;   (require '[re-frame.core :as rf]
-;;            '[re-frame.ssr :as ssr])
-;;   (rf/init! ssr/adapter)
-;;
-;; The render slot deliberately throws — SSR uses render-to-string
-;; exclusively; see Spec 006 §Plain-atom adapter and rf2-z1ke (substrate
-;; contract portability findings). Eight of the nine contract slots are
-;; implemented cleanly; render is the deliberate exception.
-
-(defn- ssr-make-state-container [initial-value]
-  (atom initial-value))
-
-(defn- ssr-read-container [container]
-  @container)
-
-(defn- ssr-replace-container! [container new-value]
-  (reset! container new-value)
-  nil)
-
-(defn- ssr-subscribe-container [container on-change]
-  (let [k (gensym "rf-ssr-sub-")]
-    (add-watch container k (fn [_ _ prev nu] (on-change prev nu)))
-    (fn unsubscribe [] (remove-watch container k))))
-
-(defn- ssr-make-derived-value [source-containers compute-fn]
-  ;; No caching: SSR runs each sub at most a handful of times per
-  ;; request; mirrors the plain-atom adapter.
-  (reify
-    #?(:clj clojure.lang.IDeref :cljs IDeref)
-    (#?(:clj deref :cljs -deref) [_]
-      (apply compute-fn (map deref source-containers)))))
-
-(defn- ssr-render [_ _ _]
-  ;; SSR uses render-to-string exclusively. Calling render on the SSR
-  ;; adapter is a programmer error worth surfacing loudly. Per Spec 006
-  ;; §Plain-atom adapter and rf2-z1ke.
-  (throw (ex-info ":rf.error/render-on-headless-adapter"
-                  {:reason "render is not supported on the SSR adapter; use render-to-string"})))
-
-(defn- ssr-register-context-provider [_frame-keyword]
-  ;; No React context on the JVM; users thread frames as arguments per
-  ;; Spec 002 §View ergonomics fallback.
-  nil)
-
-(defn- ssr-dispose-adapter! []
-  ;; Watch handles are GC'd with their atoms; nothing else to clean up.
-  nil)
-
-(def adapter
-  "The SSR adapter map. Pass to `(rf/init! ...)` to install:
-
-      (require '[re-frame.core :as rf]
-               '[re-frame.ssr :as ssr])
-      (rf/init! ssr/adapter)
-
-  Server-side and headless processes use this adapter — it carries
-  re-frame.ssr's render-to-string directly in the :render-to-string
-  slot, no late-bind wiring required at the call site. The :render slot
-  throws (`:rf.error/render-on-headless-adapter`) — SSR uses
-  render-to-string exclusively. Per rf2-agql and Spec 011 §init flow."
-  {:kind                      :ssr
-   :make-state-container      ssr-make-state-container
-   :read-container            ssr-read-container
-   :replace-container!        ssr-replace-container!
-   :subscribe-container       ssr-subscribe-container
-   :make-derived-value        ssr-make-derived-value
-   :render                    ssr-render
-   :render-to-string          render-to-string
-   :register-context-provider ssr-register-context-provider
-   :dispose-adapter!          ssr-dispose-adapter!})
-
-;; ---- hydrate event + mismatch detection ----------------------------------
-;;
-;; Per Spec 011 §The :rf/hydrate event and §Hydration-mismatch detection.
-;; The server's payload carries :rf/render-hash; we replace app-db with
-;; :rf/app-db AND stash the server hash under [:rf/hydration :server-hash]
-;; so verify-hydration! can read it after the client's first render.
-
-(events/reg-event-fx :rf/hydrate
-  (fn [{:keys [db]} [_ payload]]
-    (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
-          version       (:rf/version payload)
-          schema-digest (:rf/schema-digest payload)
-          metadata      (cond-> {}
-                          (:rf/render-hash payload) (assoc :server-hash (:rf/render-hash payload))
-                          version                   (assoc :version     version))]
-      ;; Per Spec 011 §The :rf/hydrate event: dispatch the compatibility-
-      ;; check fxs as part of `:fx` so a mismatch surfaces a structured
-      ;; trace event without crashing the hydration path. Both fxs gate on
-      ;; payload-key presence — the scalar form passed here is the
-      ;; server's value (the "expected"); the fx looks up the client-side
-      ;; "actual" via late-bind. Per rf2-69ad2.
-      {:db (cond-> new-db
-             (seq metadata) (assoc :rf/hydration metadata))
-       :fx (cond-> []
-             version       (conj [:rf.ssr/check-version       version])
-             schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))})))
-
-;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
-;;
-;; Per Spec 011 §The :rf/hydrate event (rf2-69ad2). The :rf/hydrate handler
-;; dispatches these two fxs after replacing the client app-db with the
-;; server's authoritative slice. They are best-effort compatibility checks:
-;; a mismatch emits a structured warning trace and the hydration proceeds.
-;; The runtime never throws on a mismatch — degraded-but-running beats
-;; a crashed boot.
-;;
-;; Arg shape (clarified per rf2-69ad2 because Spec 011 only pinned the
-;; trace shape, not the fx-input shape):
-;;
-;;   - SCALAR — `[:rf.ssr/check-version <server-value>]` per the spec's
-;;     reference :rf/hydrate handler. The fx treats the scalar as the
-;;     "expected" (server-side) value and looks up the client-side
-;;     "actual" via a late-bind hook (`:rf2/runtime-version` for version,
-;;     `:schemas/app-schemas-digest` for schema-digest). When the hook is
-;;     unavailable (e.g. version-pinning not yet implemented, or schemas
-;;     artefact not on the classpath), the fx emits a
-;;     `:rf.ssr/compatibility-check-skipped` trace and no-ops the
-;;     comparison.
-;;
-;;   - MAP — `[:rf.ssr/check-version {:expected ... :actual ...}]` for
-;;     callers that compute both sides explicitly (test harnesses, hosts
-;;     that pin their own version constant). The fx compares the two
-;;     values directly.
-;;
-;; Gating: `:platforms #{:client}` — these checks only make sense on the
-;; hydration side. Server-side dispatches no-op via the standard fx-
-;; gating contract (`:rf.fx/skipped-on-platform`).
-
-(defn- check-args
-  "Normalise the fx argument to `{:expected <server-value> :actual <client-value>}`.
-  Returns nil when the argument doesn't carry an `:expected` value the
-  fx can compare against. The `actual-lookup-fn` is a 0-arity fn called
-  to resolve the client-side value when the caller passed a scalar; it
-  may return nil to signal `:lookup-unavailable`."
-  [arg actual-lookup-fn]
-  (cond
-    (and (map? arg) (contains? arg :expected))
-    (cond-> {:expected (:expected arg)}
-      (contains? arg :actual) (assoc :actual (:actual arg))
-      ;; map without :actual falls back to the lookup
-      (not (contains? arg :actual)) (assoc :actual (actual-lookup-fn)))
-
-    (nil? arg) nil
-
-    :else
-    {:expected arg :actual (actual-lookup-fn)}))
-
-(defn- runtime-version-lookup
-  "Look up the client-side runtime version. No constant is pinned in
-  re-frame.core today (per rf2-69ad2 scope); the value is sourced via
-  the optional `:rf2/runtime-version` late-bind hook — a host that
-  bundles a version-stamp registers it at boot. When the hook is
-  absent, returns nil and the check emits
-  `:rf.ssr/compatibility-check-skipped`."
-  []
-  (when-let [f (late-bind/get-fn :rf2/runtime-version)]
-    (f)))
-
-(defn- schema-digest-lookup
-  "Look up the active frame's `app-schemas-digest`. Sourced via the
-  schemas artefact's `:schemas/app-schemas-digest` late-bind hook so
-  re-frame.ssr does not statically `:require` the schemas artefact —
-  in builds where schemas is absent the lookup returns nil and the
-  check emits `:rf.ssr/compatibility-check-skipped`."
-  []
-  (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
-    (f)))
+(events/reg-event-fx :rf/hydrate hydrate/hydrate-event-handler)
 
 (fx/reg-fx :rf.ssr/check-version
   {:doc       "Compare the payload's :rf/version (server) against the
@@ -571,756 +129,65 @@ client runtime's version. A mismatch emits a structured
 :rf.ssr/version-mismatch trace; the hydration handler still applies
 (best-effort). Per Spec 011 §The :rf/hydrate event."
    :platforms #{:client}}
-  (fn [{:keys [frame]} arg]
-    (let [{:keys [expected actual]} (check-args arg runtime-version-lookup)]
-      (cond
-        (nil? expected)
-        nil                                          ;; nothing to check
-
-        (nil? actual)
-        (trace/emit! :warning :rf.ssr/compatibility-check-skipped
-                     {:check    :rf.ssr/check-version
-                      :expected expected
-                      :reason   "No runtime version available for comparison (no :rf2/runtime-version hook registered)."
-                      :frame    frame
-                      :recovery :skipped})
-
-        (not= expected actual)
-        (trace/emit! :warning :rf.ssr/version-mismatch
-                     {:expected expected
-                      :actual   actual
-                      :frame    frame
-                      :reason   (str "Hydration version-mismatch: server '"
-                                     expected "' != client '" actual
-                                     "'. Hydrating anyway (best-effort).")
-                      :recovery :warned-and-applied})
-
-        :else nil))))                                ;; match → silent
+  hydrate/check-version-fx)
 
 (fx/reg-fx :rf.ssr/check-schema-digest
   {:doc       "Compare the payload's :rf/schema-digest (server) against
 the client's registered app-schema digest. A mismatch emits a structured
-:rf.ssr/schema-digest-mismatch trace — surfaces deploy-drift where
-the server is rendering against a different schema set than the
-client's bundle. Per Spec 011 §The :rf/hydrate event."
+:rf.ssr/schema-digest-mismatch trace. Per Spec 011 §The :rf/hydrate event."
    :platforms #{:client}}
-  (fn [{:keys [frame]} arg]
-    (let [{:keys [expected actual]} (check-args arg schema-digest-lookup)]
-      (cond
-        (nil? expected)
-        nil                                          ;; nothing to check
+  hydrate/check-schema-digest-fx)
 
-        (nil? actual)
-        (trace/emit! :warning :rf.ssr/compatibility-check-skipped
-                     {:check    :rf.ssr/check-schema-digest
-                      :expected expected
-                      :reason   "No schema digest available for comparison (schemas artefact not on classpath, or :schemas/app-schemas-digest hook absent)."
-                      :frame    frame
-                      :recovery :skipped})
-
-        (not= expected actual)
-        (trace/emit! :warning :rf.ssr/schema-digest-mismatch
-                     {:expected expected
-                      :actual   actual
-                      :frame    frame
-                      :reason   (str "Hydration schema-digest mismatch: server '"
-                                     expected "' != client '" actual
-                                     "'. Deploy drift — server and client are running different schema sets. Hydrating anyway (best-effort).")
-                      :recovery :warned-and-applied})
-
-        :else nil))))                                ;; match → silent
-
-(defn verify-hydration!
-  "Per Spec 011 §Hydration-mismatch detection. Called by client code
-  after the first render. Compares the post-render hash to the server
-  hash stashed during :rf/hydrate; on disagreement emits
-  :rf.ssr/hydration-mismatch with :recovery :warned-and-replaced.
-
-  The second arg may be EITHER a render tree (we hash it) OR a
-  pre-computed hash string (used by test harnesses that simulate the
-  client render).
-
-    (verify-hydration! frame-id render-tree)
-    (verify-hydration! frame-id render-tree opts)
-
-  opts may carry :first-diff-path, :failing-id, AND :server-hash.
-  The :server-hash opt overrides the [:rf/hydration :server-hash]
-  slot in app-db — useful when the user's :rf/hydrate handler doesn't
-  populate that slot (e.g. fixture-overridden handlers)."
-  ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
-  ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
-   (let [db          (frame/frame-app-db-value frame-id)
-         server-hash (or server-hash
-                         (get-in db [:rf/hydration :server-hash]))
-         client-hash (cond
-                       (string? tree-or-hash) tree-or-hash
-                       tree-or-hash           (render-tree-hash tree-or-hash))]
-     (when (and server-hash client-hash (not= server-hash client-hash))
-       (let [trace-fn (late-bind/get-fn :trace/emit-error!)]
-         (when trace-fn
-           (trace-fn :rf.ssr/hydration-mismatch
-            (cond-> {:server-hash server-hash
-                     :client-hash client-hash
-                     :frame       frame-id
-                     :failing-id  (or failing-id :rf/hydrate)
-                     :reason      (str "Hydration mismatch: server hash '"
-                                       server-hash
-                                       "' != client hash '"
-                                       client-hash
-                                       "'. Re-rendering client-side.")
-                     :recovery    :warned-and-replaced}
-              first-diff-path (assoc :first-diff-path first-diff-path)))))))))
-
-;; ---- HTTP response accumulator + :rf.server/* fx -------------------------
+;; ---- the six :rf.server/* response-shape fxs ------------------------------
 ;;
-;; Per Spec 011 §HTTP response contract. The runtime owns a per-request
-;; response accumulator at [:rf/response] in the request frame's app-db.
-;; Standard server-only fx populate the slot during the drain; the host
-;; adapter consumes the resolved value after drain to build the wire
-;; response.
-;;
-;; Default shape (Spec 011 §HTTP response contract):
-;;
-;;   {:status   200
-;;    :headers  [["content-type" "text/html; charset=utf-8"]]
-;;    :cookies  []
-;;    :redirect nil}
-;;
-;; Internal-only bookkeeping under :rf.server/_status-writes and
-;; :rf.server/_redirect-writes records every write so the runtime can
-;; emit :rf.warning/multiple-status-set / :rf.warning/multiple-redirects
-;; on the second-and-later write while still preserving last-write-wins
-;; semantics for the public :status / :redirect slots.
-
-(def response-path
-  "App-db path holding the per-request HTTP response accumulator.
-  Per Spec 011 §HTTP response contract."
-  [:rf/response])
-
-(def ^:private status-writes-key  :rf.server/_status-writes)
-(def ^:private redirect-writes-key :rf.server/_redirect-writes)
-
-(defn default-response
-  "The default response accumulator. Spec 011 §Status defaults: status 200,
-  default content-type text/html for HTML responses, no cookies, no redirect."
-  []
-  {:status   200
-   :headers  [["content-type" "text/html; charset=utf-8"]]
-   :cookies  []
-   :redirect nil})
-
-(defn- ensure-response
-  "Return resp with defaults applied. nil-tolerant — a frame whose app-db
-  has never been touched by an :rf.server/* fx still resolves to the
-  default response shape."
-  [resp]
-  (if resp
-    (merge (default-response) resp)
-    (default-response)))
-
-(defn- swap-response!
-  "Mutate the response accumulator in the frame's app-db with f. Returns
-  the post-swap response map. No-op when the frame is unknown / destroyed
-  (an explicit trace fires elsewhere; we don't double-trace here)."
-  [frame-id f]
-  (when-let [container (frame/get-frame-db frame-id)]
-    (let [before (adapter/read-container container)
-          after  (update before :rf/response #(f (ensure-response %)))]
-      (adapter/replace-container! container after)
-      (:rf/response after))))
-
-(defn- response-of
-  "Read the current response accumulator (with defaults applied)."
-  [frame-id]
-  (when-let [container (frame/get-frame-db frame-id)]
-    (ensure-response (:rf/response (adapter/read-container container)))))
-
-;; ---- header helpers ------------------------------------------------------
-
-(defn- replace-header
-  "Replace the (first matching, case-insensitive) header pair with [name value],
-  or append if none matched. Subsequent matches are dropped — set-header
-  replaces the entire header value per Spec 011 §Header replacement vs append."
-  [headers name value]
-  (let [normalised (str name)
-        target     (clojure.string/lower-case normalised)
-        [seen? pruned]
-        (reduce
-          (fn [[seen acc] [h-name _h-val :as pair]]
-            (cond
-              (not= (clojure.string/lower-case (str h-name)) target)
-              [seen (conj acc pair)]
-
-              seen
-              [seen acc]    ;; drop subsequent matches
-
-              :else
-              [true (conj acc [normalised value])]))
-          [false []]
-          headers)]
-    (if seen?
-      pruned
-      (conj pruned [normalised value]))))
-
-(defn- append-header-pair
-  "Append [name value] to headers — preserves any existing header with the
-  same name. Per Spec 011 §Header replacement vs append; required for
-  Set-Cookie-style multi-valued headers."
-  [headers name value]
-  (conj (vec headers) [(str name) value]))
-
-;; ---- standard server-side fx --------------------------------------------
+;; Per Spec 011 §HTTP response contract.
 
 (fx/reg-fx :rf.server/set-status
   {:doc       "Set the HTTP response status. Last-write-wins. A second
 write in the same drain emits :rf.warning/multiple-status-set per
 [Spec 011 §Multiple-status policy]."
    :platforms #{:server}}
-  (fn [{:keys [frame]} status]
-    (let [resp (swap-response!
-                 frame
-                 (fn [r]
-                   (-> r
-                       (update status-writes-key (fnil conj []) status)
-                       (assoc :status status))))]
-      (when (and resp (> (count (get resp status-writes-key)) 1))
-        (let [writes (get resp status-writes-key)]
-          (trace/emit! :warning :rf.warning/multiple-status-set
-                       {:writes       writes
-                        :final-status (last writes)
-                        :frame        frame
-                        :recovery     :warned-and-replaced}))))))
+  response/set-status-fx)
 
 (fx/reg-fx :rf.server/set-header
   {:doc       "Replace any existing header with the same name (case-
 insensitive) and write [name value]. Per Spec 011 §Header replacement
 vs append."
    :platforms #{:server}}
-  (fn [{:keys [frame]} {:keys [name value]}]
-    (swap-response!
-      frame
-      (fn [r] (update r :headers replace-header name value)))))
+  response/set-header-fx)
 
 (fx/reg-fx :rf.server/append-header
   {:doc       "Append [name value] to headers — preserves any existing
 header with the same name. Required for Set-Cookie-style multi-valued
 headers. Per Spec 011 §Header replacement vs append."
    :platforms #{:server}}
-  (fn [{:keys [frame]} {:keys [name value]}]
-    (swap-response!
-      frame
-      (fn [r] (update r :headers append-header-pair name value)))))
+  response/append-header-fx)
 
 (fx/reg-fx :rf.server/set-cookie
   {:doc       "Add a structured cookie to the :cookies vector. Cookie
 attributes are stored as a structured map (RFC 6265 wire-form
 serialisation is host-adapter business). Per Spec 011 §Cookie shape."
    :platforms #{:server}}
-  (fn [{:keys [frame]} cookie-map]
-    (swap-response!
-      frame
-      (fn [r] (update r :cookies (fnil conj []) cookie-map)))))
+  response/set-cookie-fx)
 
 (fx/reg-fx :rf.server/delete-cookie
   {:doc       "Sugar over :rf.server/set-cookie with :max-age 0 and an
 empty :value. The host adapter materialises the delete-marker semantics
 on the wire. Per Spec 011 §Cookie shape."
    :platforms #{:server}}
-  (fn [{:keys [frame]} {:keys [name path domain]}]
-    (let [cookie (cond-> {:name    name
-                          :value   ""
-                          :max-age 0}
-                   path   (assoc :path   path)
-                   domain (assoc :domain domain))]
-      (swap-response!
-        frame
-        (fn [r] (update r :cookies (fnil conj []) cookie))))))
+  response/delete-cookie-fx)
 
 (fx/reg-fx :rf.server/redirect
   {:doc       "Set :redirect on the response accumulator. Defaults
 :status to 302 if absent. Multiple writes emit
-:rf.warning/multiple-redirects (last-write-wins). Truncates HTML body
-per Spec 011 §Redirect precedence — the runtime omits :html / :payload
-when :redirect is set; the host adapter emits a status-and-Location
-response with no body."
+:rf.warning/multiple-redirects (last-write-wins). Per Spec 011
+§Redirect precedence."
    :platforms #{:server}}
-  (fn [{:keys [frame]} redirect-map]
-    (let [;; Spec 011 accepts :location, :url, or :to.
-          location  (or (:location redirect-map)
-                        (:url      redirect-map)
-                        (:to       redirect-map))
-          status    (or (:status redirect-map) 302)
-          normalised (cond-> (assoc redirect-map :status status)
-                       location (assoc :location location))
-          resp (swap-response!
-                 frame
-                 (fn [r]
-                   (-> r
-                       (update redirect-writes-key (fnil conj []) normalised)
-                       (assoc :redirect normalised)
-                       ;; Spec 011 §Redirect precedence step 1: the
-                       ;; redirect's :status flows through to the
-                       ;; response :status so the host adapter writes
-                       ;; the redirect status on the wire even if no
-                       ;; explicit :rf.server/set-status fired.
-                       (assoc :status status))))]
-      (when (and resp (> (count (get resp redirect-writes-key)) 1))
-        (let [writes (get resp redirect-writes-key)]
-          (trace/emit! :warning :rf.warning/multiple-redirects
-                       {:writes         writes
-                        :final-redirect (last writes)
-                        :frame          frame
-                        :recovery       :warned-and-replaced}))))))
+  response/redirect-fx)
 
-(declare apply-pending-error-projection!)
-
-(defn get-response
-  "Read the resolved response accumulator for a frame. Public surface
-  for host adapters that consume the accumulator after drain to build
-  the wire response. The internal :rf.server/_status-writes /
-  :rf.server/_redirect-writes bookkeeping keys are stripped.
-
-  Flushes any pending error projections before reading so the
-  response's :status reflects the active projector's output. Per
-  Spec 011 §Server error projection — \"runtime sets :rf.server/set-
-  status to the public-error's :status\"."
-  [frame-id]
-  (apply-pending-error-projection! frame-id)
-  (-> (response-of frame-id)
-      (dissoc status-writes-key redirect-writes-key)))
-
-;; ---- error projector + default + SSR error path --------------------------
+;; ---- :rf.server/request cofx ----------------------------------------------
 ;;
-;; Per Spec 011 §Server error projection. The trace surface carries
-;; INTERNAL error detail (stack traces, exception messages, internal
-;; codes) for monitoring; the HTTP response carries a PUBLIC projection
-;; — a sanitised, client-safe shape that crawlers / unauthenticated
-;; users may see. The two surfaces have different audiences and
-;; different security profiles. The projector is the boundary.
-;;
-;; A projector is a fn `(trace-event) → public-error-map`. The public
-;; shape is locked to four keys:
-;;
-;;   {:status     500             ;; HTTP status integer
-;;    :code       :internal-error ;; stable category keyword
-;;    :message    "..."           ;; one-sentence human string
-;;    :retryable? false}          ;; boolean
-;;
-;; In dev mode (:dev-error-detail? true via the frame's :ssr config),
-;; the public shape carries an additional :details key with the raw
-;; trace event. In prod (default), :details is absent.
-
-(def public-error-keys
-  "The four locked keys on the :rf/public-error shape per Spec 011
-  §Server error projection. Conformance ensures projector output
-  carries exactly these (plus optional :details in dev mode)."
-  #{:status :code :message :retryable?})
-
-(defn- public-error-shape?
-  "True if x is a conformant :rf/public-error map."
-  [x]
-  (and (map? x)
-       (integer?  (:status     x))
-       (keyword?  (:code       x))
-       (string?   (:message    x))
-       (boolean?  (:retryable? x))))
-
-(def fallback-public-error
-  "The locked generic-500 shape per Spec 011 §Default projector. The
-  runtime falls back to this whenever the active projector throws or
-  returns a non-conforming shape."
-  {:status     500
-   :code       :internal-error
-   :message    "Something went wrong"
-   :retryable? false})
-
-(defn default-error-projector-fn
-  "The runtime's default projector. Implements Spec 011 §Default
-  projector verbatim:
-
-    :rf.error/no-such-handler            → 404 :not-found
-    :rf.error/no-such-route              → 404 :not-found
-    :rf.error/schema-validation-failure  → 400 :bad-request
-    :rf.error/handler-exception          → 500 :internal-error
-    :rf.error/sub-exception              → 500 :internal-error
-    :rf.error/fx-handler-exception       → 500 :internal-error
-    :rf.error/drain-depth-exceeded       → 500 :internal-error
-    anything else                        → 500 :internal-error
-
-  Pure: takes a trace event, returns a public-error map. No I/O, no
-  config. Custom projectors may inject auth-specific 401/403 codes
-  and override the message strings; the runtime's default is the
-  prod-safe baseline."
-  [trace-event]
-  (case (:operation trace-event)
-    (:rf.error/no-such-handler
-      :rf.error/no-such-route)
-    {:status     404
-     :code       :not-found
-     :message    "Page not found"
-     :retryable? false}
-
-    :rf.error/schema-validation-failure
-    {:status     400
-     :code       :bad-request
-     :message    "Invalid input"
-     :retryable? false}
-
-    (:rf.error/handler-exception
-      :rf.error/sub-exception
-      :rf.error/fx-handler-exception
-      :rf.error/drain-depth-exceeded)
-    {:status     500
-     :code       :internal-error
-     :message    "Something went wrong"
-     :retryable? false}
-
-    ;; default — generic 500
-    {:status     500
-     :code       :internal-error
-     :message    "Something went wrong"
-     :retryable? false}))
-
-(defn reg-error-projector
-  "Register a projector under :error-projector kind. The fn maps an
-  internal trace event to the public-error shape:
-
-    (rf/reg-error-projector :myapp/public-error
-      {:doc \"Project internal error trace events to public response shapes.\"}
-      (fn [trace-event]
-        (case (:operation trace-event)
-          :rf.error/no-such-handler           {:status 404 :code :not-found
-                                               :message \"Not found\" :retryable? false}
-          :rf.error/schema-validation-failure {:status 400 :code :bad-request
-                                               :message \"Invalid input\" :retryable? false}
-          ;; ...
-          {:status 500 :code :internal-error
-           :message \"Something went wrong\" :retryable? false})))
-
-  Frames opt into a projector by name in their :ssr config:
-
-    (rf/make-frame {:platform :server
-                    :ssr {:public-error-id   :myapp/public-error
-                          :dev-error-detail? false}})
-
-  When a frame's :ssr config is absent, the runtime falls back to the
-  built-in :rf.ssr/default-error-projector. Per Spec 011 §Server error
-  projection."
-  ([id projector-fn]
-   (reg-error-projector id {} projector-fn))
-  ([id metadata projector-fn]
-   (registrar/register! :error-projector id
-                        (assoc (source-coords/merge-coords metadata)
-                               :handler-fn projector-fn))
-   id))
-
-;; Built-in default projector — always available; user code reaches
-;; it via the :rf.ssr/default-error-projector id.
-(reg-error-projector :rf.ssr/default-error-projector
-                     {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
-                     default-error-projector-fn)
-
-(defn- frame-projector-id
-  "Read the :ssr config's :public-error-id for a frame, falling back
-  to :rf.ssr/default-error-projector when no config / no id."
-  [frame-id]
-  (or (get-in (frame/frame-meta frame-id) [:ssr :public-error-id])
-      :rf.ssr/default-error-projector))
-
-(defn- frame-dev-error-detail?
-  "Read the :ssr config's :dev-error-detail? for a frame. Defaults to
-  false (prod-safe). When true the projection result carries an extra
-  :details key with the raw trace event."
-  [frame-id]
-  (boolean
-    (get-in (frame/frame-meta frame-id) [:ssr :dev-error-detail?])))
-
-(defn project-error
-  "Resolve the active projector for the given frame and apply it to
-  trace-event. Returns a :rf/public-error map. If the projector throws
-  or returns a non-conforming shape, emits :rf.error/sanitised-on-projection
-  and returns the locked generic-500 fallback. Per Spec 011
-  §Server error projection — \"the fallback ensures the boundary
-  cannot be bypassed by a bug in the projector.\""
-  [frame-id trace-event]
-  (let [projector-id  (frame-projector-id frame-id)
-        projector-fn  (registrar/handler :error-projector projector-id)
-        dev-detail?   (frame-dev-error-detail? frame-id)
-        ;; Two failure modes for the projector:
-        ;;   :threw      — the catch path returns this in `result`
-        ;;   conforming  — usable
-        ;;   anything else (nil from no-projector, wrong-shape map, etc.)
-        ;; Both failure modes fall back to the locked-500 shape; the
-        ;; sanitisation trace fires AT MOST ONCE per call.
-        result
-        (try
-          (if projector-fn
-            (projector-fn trace-event)
-            ::no-projector)
-          (catch #?(:clj Throwable :cljs :default) e
-            (trace/emit-error! :rf.error/sanitised-on-projection
-                               {:projector-id      projector-id
-                                :frame             frame-id
-                                :exception         e
-                                :exception-message #?(:clj  (.getMessage e)
-                                                      :cljs (.-message e))
-                                :reason            "Error projector threw — using fallback."
-                                :recovery          :warned-and-replaced})
-            ::threw))
-        public
-        (cond
-          (public-error-shape? result)
-          result
-
-          ;; Already-warned cases (the catch handled the trace) and the
-          ;; no-projector-registered case (silent — the user named an id
-          ;; that doesn't exist; the fallback is the safe behaviour).
-          (or (= ::threw result) (= ::no-projector result))
-          fallback-public-error
-
-          :else
-          (do
-            (trace/emit-error! :rf.error/sanitised-on-projection
-                               {:projector-id      projector-id
-                                :frame             frame-id
-                                :returned          result
-                                :reason            "Error projector returned a non-conforming shape — using fallback."
-                                :recovery          :warned-and-replaced})
-            fallback-public-error))]
-    (cond-> public
-      dev-detail? (assoc :details trace-event))))
-
-(defn- server-frame?
-  "True when the frame's :platform is :server. The error-projection
-  hook only fires for server frames."
-  [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
-
-(defn- candidate-frame-for-error
-  "Select the frame to project against for a trace-event. Prefer the
-  frame named in :tags :frame; otherwise pick a single registered
-  server frame if exactly one exists. Returns nil when no server
-  frame applies (so client-platform errors don't write to a stray
-  response accumulator)."
-  [trace-event]
-  (let [tag-frame (get-in trace-event [:tags :frame])]
-    (cond
-      (and tag-frame (server-frame? tag-frame))
-      tag-frame
-
-      ;; Routing's :rf.error/no-such-handler may not have carried :frame
-      ;; in older code paths. Fall back to the single active server
-      ;; frame if there is exactly one — the canonical SSR-request
-      ;; shape.
-      (nil? tag-frame)
-      (let [server-fids (filter server-frame? (frame/frame-ids))]
-        (when (= 1 (count server-fids))
-          (first server-fids)))
-
-      :else nil)))
-
-;; Per-frame buffer of captured error trace events. The trace listener
-;; appends here synchronously when the error fires; apply-pending-
-;; error-projection! drains the buffer and stamps the projected status
-;; onto :rf/response. We buffer rather than mutating :rf/response inline
-;; because the firing handler's `{:db ...}` return CLOBBERS app-db
-;; (replace-container!) AFTER the trace fired — so an inline write
-;; would be silently overwritten. Buffering + applying at the drain's
-;; settle-point (or via get-response on demand) sidesteps that race.
-(defonce ^:private pending-error-traces (atom {}))
-
-(defn- buffer-error-trace!
-  [frame-id trace-event]
-  (swap! pending-error-traces update frame-id (fnil conj []) trace-event))
-
-(defn- consume-pending-traces!
-  "Atomically pull and clear the pending error traces for frame-id."
-  [frame-id]
-  (let [snap @pending-error-traces
-        traces (get snap frame-id [])]
-    (when (seq traces)
-      (swap! pending-error-traces dissoc frame-id))
-    traces))
-
-(defn apply-pending-error-projection!
-  "Drain frame-id's error-trace buffer, project each trace via the
-  active projector, and stamp the LAST projection's :status onto the
-  response accumulator (last-write-wins, mirroring the multi-status
-  policy). Returns the last public-error projected, or nil when the
-  buffer was empty / frame is not :server.
-
-  Hosts that drive their own SSR loop call this after drain settles
-  so the response carries the projector's status. The runtime also
-  calls it automatically from get-response so a host reading the
-  resolved response always sees up-to-date projection."
-  [frame-id]
-  (when (and frame-id (server-frame? frame-id))
-    (let [traces (consume-pending-traces! frame-id)]
-      (when (seq traces)
-        (let [;; Don't overwrite a redirect's :status — Spec 011
-              ;; §Redirect precedence locks the redirect's status
-              ;; through to the response.
-              existing  (response-of frame-id)
-              redirect? (:redirect existing)
-              last-trace (last traces)
-              public     (project-error frame-id last-trace)]
-          (when-not redirect?
-            (swap-response! frame-id
-                            (fn [r] (assoc r :status (:status public)))))
-          public)))))
-
-(defn apply-error-projection!
-  "Project trace-event via the active projector for frame-id and stamp
-  the public-error's :status onto the response accumulator. Returns
-  the public-error map on success, nil on no-op (frame missing / not
-  server / redirect set).
-
-  Public so host adapters that catch errors outside the trace stream
-  can drive projection explicitly. Most callers want
-  apply-pending-error-projection! instead — that one drains the
-  trace-listener-buffered events and applies them in one shot."
-  [frame-id trace-event]
-  (when (and frame-id (server-frame? frame-id))
-    (let [public    (project-error frame-id trace-event)
-          existing  (response-of frame-id)
-          redirect? (:redirect existing)]
-      (when-not redirect?
-        (swap-response! frame-id
-                        (fn [r] (assoc r :status (:status public)))))
-      public)))
-
-(defn- error-projection-listener
-  "Trace-event listener — captures error trace events bound to a server
-  frame in the per-frame pending-error-traces buffer. Buffering avoids
-  the race where an in-flight handler's `{:db ...}` would clobber an
-  inline :rf/response write. Internal listener; users who want to
-  observe error projection should register their own trace listener."
-  [event]
-  (when (= :error (:op-type event))
-    (let [op (:operation event)]
-      ;; Skip our own sanitisation traces to avoid recursion.
-      (when-not (= :rf.error/sanitised-on-projection op)
-        (when-let [fid (candidate-frame-for-error event)]
-          (buffer-error-trace! fid event))))))
-
-(trace/register-trace-cb! ::error-projection error-projection-listener)
-
-;; ---- :rf.server/request cofx + per-frame request slot ---------------------
-;;
-;; Per Spec 011 §Server-only `reg-cofx` for request context. The
-;; :rf.server/request cofx surfaces the active HTTP request map to
-;; event handlers via `(rf/inject-cofx :rf.server/request)`. Use cases:
-;; reading the URL inside :rf/server-init, pulling a session cookie
-;; in :auth/check-session, branching on :request-method, etc.
-;;
-;; The mechanism is a per-frame slot — NOT a single dynamic var — so
-;; two simultaneous per-request frames (the common SSR shape under
-;; concurrent load) carry independent request data without leaking
-;; into each other. Host adapters (rf2-ny6v7's Ring adapter; future
-;; Pedestal / raw-HTTP / edge-runtime adapters) populate the slot via
-;; `set-request!` before kicking off the drain and clear it via
-;; `clear-request!` after the response is built (typically inside
-;; `frame.cljc`'s `destroy-frame!` teardown — but adapters that re-use
-;; a long-lived frame can clear inline).
-;;
-;; Storage shape: `defonce` side-channel atom keyed by frame-id. This
-;; mirrors `pending-error-traces` rather than living in app-db because
-;; the request map is HOST-CONTROLLED INPUT (the host's wire-shape data
-;; — Ring request map, Pedestal context, etc.); the cofx surfaces it
-;; into the handler's :coeffects map, but it has no place in the
-;; application's serialisable app-db. Storing it outside app-db keeps
-;; it out of the hydration payload (`:rf/app-db` ships to the client)
-;; — server-side request data must never leak into the client's
-;; bootstrap state.
-;;
-;; The cofx is `:platforms #{:server}` so client-side dispatches that
-;; reference it silently no-op via `:rf.cofx/skipped-on-platform`
-;; (the standard cofx-gating contract per Spec 011 §634-642).
-
-(defonce
-  ^{:doc "Per-frame storage for the active HTTP request. Keys are
-  frame-ids; values are the host-supplied request map (Ring shape, or
-  whatever the host adapter normalises to). Side-channel — not in
-  app-db so the request never rides the hydration payload to the
-  client. Host adapters populate via `set-request!` before drain and
-  clear via `clear-request!` after response materialisation."}
-  request-slots
-  (atom {}))
-
-(defn set-request!
-  "Populate the per-frame request slot. Called by an SSR host adapter
-  (rf2-ny6v7 ships the Ring adapter; future Pedestal / raw-HTTP / edge-
-  runtime adapters follow the same contract) once per request, before
-  kicking off the drain.
-
-  The shape of `request` is host-defined: the Ring adapter passes the
-  Ring request map (`:request-method`, `:uri`, `:headers`, `:cookies`,
-  `:body`, `:query-string`, `:server-name`, `:scheme`, etc.); other
-  adapters may pass their native context shape. The cofx surfaces
-  whatever the adapter stored — the runtime never inspects the request.
-
-  Returns `frame-id`."
-  [frame-id request]
-  (swap! request-slots assoc frame-id request)
-  frame-id)
-
-(defn get-request
-  "Read the active request for `frame-id`. Returns nil when no host
-  adapter has populated the slot (e.g. JVM tests that drive the drain
-  directly without a host wrapper, or a client-side dispatch that
-  injected the cofx — in that case the `:platforms` gate fires the
-  `:rf.cofx/skipped-on-platform` trace before this fn is called).
-
-  Public read surface — host adapters and tools may inspect the active
-  request via this fn."
-  [frame-id]
-  (get @request-slots frame-id))
-
-(defn clear-request!
-  "Clear the per-frame request slot. Host adapters call this after
-  building the wire response (typically as part of per-request frame
-  teardown). Safe to call when no slot is populated.
-
-  Returns `frame-id`."
-  [frame-id]
-  (swap! request-slots dissoc frame-id)
-  frame-id)
-
-;; ---- per-request frame teardown (rf2-fcj33) -------------------------------
-;;
-;; Per Spec 011 §Per-request frame teardown contract. The SSR runtime owns
-;; two side-channel `defonce` atoms keyed by frame-id — `pending-error-
-;; traces` (per-frame buffer of captured error trace events) and
-;; `request-slots` (per-frame HTTP-request map). Both live outside app-db
-;; (see the rationale comments above each defonce) and so are NOT cleared
-;; by the frame's app-db / sub-cache teardown in `frame/destroy-frame!`.
-;;
-;; This fn is the cleanup hook. Wired into `frame/destroy-frame!` via the
-;; `:ssr/on-frame-destroyed` late-bind key — `core` calls it from its
-;; ordered teardown step list when the SSR artefact is on the classpath;
-;; the hook resolves to nil and the destroy proceeds without it when the
-;; SSR artefact is absent. Idempotent: tolerates a frame-id with no slot
-;; in either atom.
-
-(defn on-frame-destroyed!
-  "Per Spec 011 §Per-request frame teardown contract (rf2-fcj33). Drop
-  the per-frame entries in `pending-error-traces` and `request-slots`
-  for `frame-id`. Called from `frame/destroy-frame!` via the
-  `:ssr/on-frame-destroyed` late-bind hook. Idempotent — a second call
-  against the same frame-id sees both atoms already cleared and does
-  nothing.
-
-  Per rf2-4dra9 (Spec 011 §Head/meta contract), also invokes any
-  registered `:ssr/head-on-frame-destroyed` hook so `re-frame.ssr.head`
-  can release its per-frame head-snapshot bookkeeping. Hook lookup is
-  late-bound so the call is a no-op when the head ns is absent."
-  [frame-id]
-  (swap! pending-error-traces dissoc frame-id)
-  (swap! request-slots        dissoc frame-id)
-  (when-let [head-cleanup! (late-bind/get-fn :ssr/head-on-frame-destroyed)]
-    (try (head-cleanup! frame-id)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
-  nil)
+;; Per Spec 011 §Server-only `reg-cofx` for request context.
 
 (cofx/reg-cofx :rf.server/request
   {:doc       "The active HTTP request. Server only. Surfaces the
@@ -1338,20 +205,22 @@ and conformance harnesses that drive the drain without a host adapter:
 
 Per Spec 011 §Server-only `reg-cofx` for request context."
    :platforms #{:server}}
-  ;; 1-arity: read from the per-frame slot.
-  (fn
-    ([ctx]
-     (let [frame-id (get-in ctx [:coeffects :frame])
-           request  (get-request frame-id)]
-       (assoc-in ctx [:coeffects :rf.server/request] request)))
-    ;; 2-arity: explicit value override (tests / harnesses).
-    ([ctx request]
-     (assoc-in ctx [:coeffects :rf.server/request] request))))
+  request/request-cofx)
+
+;; ---- error-projector registry + trace-listener ----------------------------
+;;
+;; Per Spec 011 §Default projector + §Server error projection.
+
+(reg-error-projector :rf.ssr/default-error-projector
+                     {:doc "Built-in default projector. Spec 011 §Default projector mapping."}
+                     default-error-projector-fn)
+
+(trace/register-trace-cb! ::error-projection
+                          error-listener/error-projection-listener)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; Per rf2-uo7v (the sixth per-feature artefact split per rf2-5vjj
-;; Strategy B) re-frame.ssr ships in `day8/re-frame2-ssr`. The core
+;; Per rf2-uo7v re-frame.ssr ships in `day8/re-frame2-ssr`. The core
 ;; artefact's `re-frame.core/render-to-string`, `render-tree-hash`,
 ;; `reg-error-projector`, and `project-error` re-exports look the
 ;; producing fns up through this hook table — core never statically
@@ -1365,16 +234,13 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 (late-bind/set-fn! :ssr/project-error       project-error)
 ;; rf2-fcj33 — per-request frame teardown. `frame/destroy-frame!` looks up
 ;; this hook and clears the SSR side-channel atoms (`pending-error-traces`,
-;; `request-slots`) for the destroyed frame. Without this hook, those two
-;; defonce-atoms accumulate one entry per request under SSR load — a slow
-;; leak that compounds over a long-running server process.
+;; `request-slots`) for the destroyed frame.
 (late-bind/set-fn! :ssr/on-frame-destroyed  on-frame-destroyed!)
 
 ;; rf2-4dra9 — `re-frame.ssr.head` is required from the top-of-file ns
 ;; form so its late-bind hooks (`:ssr/reg-head`, `:ssr/render-head`,
-;; `:ssr/active-head`, `:ssr/head-snapshot`, `:ssr/head-model-html`)
-;; AND the per-frame head-snapshot cleanup hook
-;; (`:ssr.head/on-frame-destroyed`) land at ssr-ns load time on both
-;; JVM and CLJS. `on-frame-destroyed!` above invokes the head cleanup
-;; hook by key — load order between this ns and head.cljc is
-;; irrelevant to the call shape. Per Spec 011 §Head/meta contract.
+;; `:ssr/active-head`, `:ssr/head-snapshot`, `:ssr/head-model-html`) AND
+;; the per-frame head-snapshot cleanup hook
+;; (`:ssr.head/on-frame-destroyed`) land at ssr-ns load time on both JVM
+;; and CLJS. `on-frame-destroyed!` above invokes the head cleanup hook
+;; by key — load order between this ns and head.cljc is symmetric.
