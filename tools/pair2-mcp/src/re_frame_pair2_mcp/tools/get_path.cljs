@@ -86,8 +86,9 @@
                      ;; the envelope so the agent sees the elision
                      ;; footprint without diffing the payload.
                      (let [elided (base-vocab/count-elided-markers v)]
-                       (wire/ok-text (cond-> v
-                                       frame          (assoc :frame frame)
-                                       (:ok? v)       (assoc :elision elision?)
-                                       (pos? elided)  (assoc :elided-large elided))))))
+                       (wire/ok-text (wire/with-indicators
+                                       (cond-> v
+                                         frame          (assoc :frame frame)
+                                         (:ok? v)       (assoc :elision elision?))
+                                       {:elided elided})))))
             (.catch (fn [err] (probe/err->result :get-path-failed err))))))))

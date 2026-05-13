@@ -84,15 +84,15 @@
                                                   :head-id       (:head-id v)
                                                   :id-aged-out?  (boolean aged-out?)}
                                            (:requested-id v) (assoc :requested-id (:requested-id v)))]
-                      (wire/ok-text (cond-> (assoc base
-                                                   :matches             deduped
-                                                   :limit               limit
-                                                   :count               (count encoded)
-                                                   :epochs-mode         mode
-                                                   :dedup               dedup?
-                                                   :has-more?           (some? next-cursor)
-                                                   :estimated-remaining remaining
-                                                   :next-cursor         next-cursor)
-                                      (pos? dropped) (assoc :dropped-sensitive dropped)
-                                      (pos? elided)  (assoc :elided-large elided))))))))
+                      (wire/ok-text (wire/with-indicators
+                                      (assoc base
+                                             :matches             deduped
+                                             :limit               limit
+                                             :count               (count encoded)
+                                             :epochs-mode         mode
+                                             :dedup               dedup?
+                                             :has-more?           (some? next-cursor)
+                                             :estimated-remaining remaining
+                                             :next-cursor         next-cursor)
+                                      {:dropped dropped :elided elided})))))))
             (.catch (fn [err] (probe/err->result :watch-failed err))))))))

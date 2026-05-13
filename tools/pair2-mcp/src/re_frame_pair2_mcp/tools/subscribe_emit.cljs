@@ -37,20 +37,18 @@
   [{:keys [sub-id topic delivered tick dropped-events* dropped-bytes*
            overflow-reason* dropped-sensitive* elided-large* reason]}]
   (wire/ok-text
-    (cond-> {:ok?            true
-             :sub-id         sub-id
-             :topic          topic
-             :delivered      @delivered
-             :dropped-events @dropped-events*
-             :dropped-bytes  @dropped-bytes*
-             :ticks          @tick
-             :reason         reason}
-      @overflow-reason*
-      (assoc :overflow-reason @overflow-reason*)
-      (pos? @dropped-sensitive*)
-      (assoc :dropped-sensitive @dropped-sensitive*)
-      (pos? @elided-large*)
-      (assoc :elided-large @elided-large*))))
+    (wire/with-indicators
+      (cond-> {:ok?            true
+               :sub-id         sub-id
+               :topic          topic
+               :delivered      @delivered
+               :dropped-events @dropped-events*
+               :dropped-bytes  @dropped-bytes*
+               :ticks          @tick
+               :reason         reason}
+        @overflow-reason*
+        (assoc :overflow-reason @overflow-reason*))
+      {:dropped @dropped-sensitive* :elided @elided-large*})))
 
 (defn emit-progress-tick!
   "Build the per-tick progress payload and ship it via the MCP
@@ -65,17 +63,15 @@
              :params (progress-payload
                        progress-tk
                        tick
-                       (pr-str (cond-> {:sub-id         sub-id
-                                        :events         dedup-events
-                                        :dedup          dedup?
-                                        :dropped-events ev-dropped
-                                        :dropped-bytes  by-dropped}
-                                 ov-reason
-                                 (assoc :overflow-reason ov-reason)
-                                 (pos? dropped)
-                                 (assoc :dropped-sensitive dropped)
-                                 (pos? tick-elided)
-                                 (assoc :elided-large tick-elided)))
+                       (pr-str (wire/with-indicators
+                                 (cond-> {:sub-id         sub-id
+                                          :events         dedup-events
+                                          :dedup          dedup?
+                                          :dropped-events ev-dropped
+                                          :dropped-bytes  by-dropped}
+                                   ov-reason
+                                   (assoc :overflow-reason ov-reason))
+                                 {:dropped dropped :elided tick-elided}))
                        ev-dropped
                        by-dropped
                        ov-reason)})

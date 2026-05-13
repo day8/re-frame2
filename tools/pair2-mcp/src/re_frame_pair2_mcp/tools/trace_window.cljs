@@ -93,17 +93,17 @@
                                               :frame    sticky-frame}))
                           has-more?      (some? next-cursor)
                           remaining      (or (:remaining v) 0)]
-                      (wire/ok-text (cond-> {:ok?         true
-                                             :window-ms   window-ms
-                                             :until-ms    until-ms
-                                             :count       (count encoded)
-                                             :limit       limit
-                                             :epochs-mode mode
-                                             :dedup       dedup?
-                                             :epochs      deduped
-                                             :has-more?   has-more?
-                                             :estimated-remaining remaining
-                                             :next-cursor next-cursor}
-                                      (pos? dropped) (assoc :dropped-sensitive dropped)
-                                      (pos? elided)  (assoc :elided-large elided))))))))
+                      (wire/ok-text (wire/with-indicators
+                                      {:ok?         true
+                                       :window-ms   window-ms
+                                       :until-ms    until-ms
+                                       :count       (count encoded)
+                                       :limit       limit
+                                       :epochs-mode mode
+                                       :dedup       dedup?
+                                       :epochs      deduped
+                                       :has-more?   has-more?
+                                       :estimated-remaining remaining
+                                       :next-cursor next-cursor}
+                                      {:dropped dropped :elided elided})))))))
             (.catch (fn [err] (probe/err->result :trace-failed err))))))))

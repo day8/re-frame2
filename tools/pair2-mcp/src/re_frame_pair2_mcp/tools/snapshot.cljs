@@ -95,17 +95,17 @@
                        ;; not elision-markers and so don't inflate the
                        ;; count. Omitted when zero per Conventions.
                        elided                (base-vocab/count-elided-markers deduped)]
-                   (wire/ok-text (cond-> {:ok?            true
-                                          :frames         (if (= :all frames) :all (vec frames))
-                                          :include        include
-                                          :mode           response-mode
-                                          :slice-modes    resolved-modes
-                                          :epochs-mode    mode
-                                          :dedup          dedup?
-                                          :elision        elision?
-                                          :snapshot       summarised}
-                                   path                  (assoc :path path)
-                                   (seq path-status)     (assoc :path-not-found path-status)
-                                   (pos? dropped)        (assoc :dropped-sensitive dropped)
-                                   (pos? elided)         (assoc :elided-large elided))))))
+                   (wire/ok-text (wire/with-indicators
+                                   (cond-> {:ok?            true
+                                            :frames         (if (= :all frames) :all (vec frames))
+                                            :include        include
+                                            :mode           response-mode
+                                            :slice-modes    resolved-modes
+                                            :epochs-mode    mode
+                                            :dedup          dedup?
+                                            :elision        elision?
+                                            :snapshot       summarised}
+                                     path                  (assoc :path path)
+                                     (seq path-status)     (assoc :path-not-found path-status))
+                                   {:dropped dropped :elided elided})))))
         (.catch (fn [err] (probe/err->result :snapshot-failed err))))))
