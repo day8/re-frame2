@@ -27,10 +27,62 @@ counter_with_stories/
 ├── subs.cljs                                ; :count, :count-doubled, :count-parity
 ├── views.cljs                               ; counter-card, counter-buttons, parity-badge
 ├── stories.cljs                             ; the seven reg-* calls
+├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit (rf2-vw0to)
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
+├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)
 ├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:examples)
 └── index.html                               ; the host page
 ```
+
+## Privacy + Size elision demo (rf2-vw0to)
+
+The live app embeds an "elision card" underneath the counter. Each
+button drives one branch of the privacy + size elision arc the
+README markets as a headline feature:
+
+- **Sign in (sensitive)** dispatches `:auth/sign-in` — registered
+  with `:sensitive? true` metadata + a `(rf/with-redacted
+  [[:password]])` interceptor. The metadata stamps every trace
+  event emitted inside the handler's scope with `:sensitive? true`
+  (Causa filters those out and surfaces `[● REDACTED N]` in the
+  bottom rail); the interceptor scrubs the password to
+  `:rf/redacted` in every in-chain trace event that copies the
+  event vector.
+- **Upload large avatar (inline)** dispatches `:user/avatar/upload`
+  with a 20 kB string in the event payload. The wire walker's
+  runtime auto-detect (default 16 kB threshold, Spec 009 §Auto-detect)
+  fires at the wire boundary — the always-on event-emit listener
+  receives the blob already substituted with a
+  `:rf.size/large-elided` marker. Open the browser console to see
+  the elided shape.
+- **Set avatar PDF (large)** writes a synthetic blob into
+  `[:user/avatar-pdf]` in app-db — a slot declared `:large?` via
+  `reg-app-schema`. Walking app-db through
+  `rf/elide-wire-value` substitutes the slot with a marker map
+  whose `:hint "Avatar PDF blob"` propagates verbatim from the
+  schema, orienting AI consumers without forcing a drill-down.
+- **Walk app-db through elision** runs the live frame's app-db
+  through `rf/elide-wire-value` and logs the result. The
+  `:user/avatar-pdf` slot shows up as the marker map; everything
+  else passes through.
+
+The example also registers a console-logging
+[`event-emit` listener](../../../docs/guide/22-trace-to-datadog.md)
+at boot via `rf/register-event-emit-listener!`. Every dispatched
+event prints one tight record (`{:event :event-id :frame :time
+:outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
+recipe forwards in production. The substrate is **always-on**: it
+survives `:advanced` + `goog.DEBUG=false` where the trace surface
+DCE's, which is the whole point of the rf2-rirbq carve-out. The
+demo's registration is intentionally ungated so visitors can see
+the listener fire; production deployments AND the registration
+with `(not ^boolean re-frame.interop/debug-enabled?)` per the
+chapter-22 recipe.
+
+Tests at [`elision_demo_cljs_test.cljs`](elision_demo_cljs_test.cljs)
+assert every branch — schema-driven `:large?`, auto-detect
+`:large?`, the `:sensitive?` registration-meta read-back, and the
+event-emit listener firing per dispatch.
 
 ## Running
 
