@@ -2143,14 +2143,24 @@
                 cache-property))))
 
 (def tool-descriptors
+  "MCP `tools/list` descriptors for every pair2-mcp tool.
+
+  Each entry carries `:name`, `:description`, `:inputSchema`, and
+  `:typicalTokens` (rf2-6sddv) — an informational ballpark of the
+  response-payload size in tokens that AI clients use to budget
+  calls and pick size-conscious args (`max-tokens`, `cache`,
+  `cursor`) without trial-and-error. Hint only; the real cap is
+  enforced separately."
   [{:name "discover-app"
     :description "Verify the shadow-cljs nREPL is reachable, confirm the pair2 runtime preload landed, and report a health summary. Run this first every session. Returns :reason :runtime-not-preloaded when the preload entry is missing."
+    :typicalTokens 200
     :inputSchema {:type "object"
                   :properties {:build {:type "string"
                                        :description "shadow-cljs build id (default: app)"}}
                   :additionalProperties false}}
    {:name "eval-cljs"
     :description "Evaluate a ClojureScript form in the connected browser runtime via shadow-cljs's cljs-eval. Returns the EDN value."
+    :typicalTokens 500
     :inputSchema {:type "object"
                   :properties {:form  {:type "string" :description "The CLJS form to evaluate."}
                                :build {:type "string" :description "shadow-cljs build id (default: app)"}}
@@ -2158,6 +2168,7 @@
                   :additionalProperties false}}
    {:name "dispatch"
     :description "Fire a re-frame2 event tagged with :origin :pair. Default mode is queued dispatch. Set `sync` for dispatch-sync, `trace` for synchronous dispatch returning the assembled :rf/epoch-record."
+    :typicalTokens 300
     :inputSchema {:type "object"
                   :properties {:event {:type "string" :description "The event vector, e.g. [:cart/checkout]"}
                                :sync  {:type "boolean"}
@@ -2183,6 +2194,7 @@
                       "pass `cursor` back on the next call to resume. The window's upper bound is sticky across "
                       "pages — fresh epochs landing during pagination don't sneak in mid-iteration. A cursor "
                       "whose epoch-id has aged out of the runtime ring surfaces as `:reason :rf.mcp/cursor-stale`.")
+    :typicalTokens 2000
     :inputSchema {:type "object"
                   :properties {:ms    {:type "integer" :description "Window size in milliseconds (default 1000). Sticky across pagination — encoded into the cursor on the first call."}
                                :frame {:type "string"}
@@ -2209,6 +2221,7 @@
                       "back to consume the next page. The `:cursor` arg overrides `:since-id` when both are "
                       "supplied. A cursor whose epoch-id has aged out of the ring surfaces as "
                       "`:reason :rf.mcp/cursor-stale`.")
+    :typicalTokens 2000
     :inputSchema {:type "object"
                   :properties {:since-id {:type "string" :description "The last epoch id you've seen (omit to start fresh). Supplanted by :cursor when both are passed."}
                                :pred     {:type "object" :description "Filter map"}
@@ -2225,6 +2238,7 @@
                   :additionalProperties false}}
    {:name "tail-build"
     :description "Wait for a hot-reload to land by polling a probe form until its value changes. Returns once changed, or times out."
+    :typicalTokens 100
     :inputSchema {:type "object"
                   :properties {:probe   {:type "string" :description "CLJS form whose value should change after the reload"}
                                :wait-ms {:type "integer" :description "Max wait in ms (default 5000)"}
@@ -2264,6 +2278,7 @@
                       "Agent drills into the handle via `get-path` (or `snapshot {:path ...}` with a "
                       "non-elided sibling subpath). Pass `elision false` to bypass the walk and receive "
                       "the raw value.")
+    :typicalTokens 3000
     :inputSchema {:type "object"
                   :properties {:frames  {:description "Frames to snapshot. Pass \"all\" (default) or an array of frame-id strings like [\":rf/default\", \":stories\"]."
                                          :oneOf [{:type "string"}
@@ -2324,6 +2339,7 @@
                       "with a `:handle [:rf.elision/at <path>]` fetch handle, not the raw bytes. Drill "
                       "into a non-elided child by re-calling with a deeper `path`. Pass `elision false` "
                       "to bypass the walk and receive the raw value.")
+    :typicalTokens 500
     :inputSchema {:type "object"
                   :properties {:path  {:description (str "Path into app-db. EDN-encoded vector of keys "
                                                          "(e.g. \"[:cart :items 0 :sku]\") or a JSON array "
@@ -2355,6 +2371,7 @@
                       "agent host reconstructs via `(de-dupe.core/expand cache-map)`. Dedup is per-tick, not "
                       "per-stream — each notifications/progress frame carries its own cache, no cross-tick "
                       "references. Pass `dedup false` to skip.")
+    :typicalTokens 1000
     :inputSchema {:type "object"
                   :properties {:topic   {:type "string"
                                          :description "Topic name. Required."
@@ -2380,6 +2397,7 @@
                   :additionalProperties false}}
    {:name "unsubscribe"
     :description "Close the subscription with the given sub-id. Idempotent — closing an unknown sub-id returns :existed? false."
+    :typicalTokens 50
     :inputSchema {:type "object"
                   :properties {:sub-id {:type "string"
                                         :description "The uuid returned by `subscribe`."}

@@ -92,6 +92,21 @@
       (is (every? #(not (contains? % :handler)) ds))
       (is (every? #(not (contains? % :category)) ds)))))
 
+(deftest typical-tokens-hint-on-every-tool
+  ;; rf2-6sddv — `:typicalTokens` is an informational ballpark of
+  ;; response-payload size in tokens; AI clients use it to budget calls.
+  ;; Not a cap. Required to be a positive integer on every tool.
+  (testing "registry: every tool carries a positive-integer :typicalTokens"
+    (doseq [t tools/tool-registry]
+      (is (integer? (:typicalTokens t))
+          (str "missing :typicalTokens on " (:name t)))
+      (is (pos? (:typicalTokens t))
+          (str "non-positive :typicalTokens on " (:name t)))))
+  (testing "tool-descriptors surfaces :typicalTokens to the wire"
+    (let [ds (tools/tool-descriptors)]
+      (is (every? #(integer? (:typicalTokens %)) ds))
+      (is (every? #(pos? (:typicalTokens %)) ds)))))
+
 (deftest registry-covers-impl-spec-7-2
   (testing "every tool from IMPL-SPEC §7.2 + §7.3 is present"
     (let [names (set (map :name tools/tool-registry))]

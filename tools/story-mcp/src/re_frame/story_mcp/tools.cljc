@@ -692,15 +692,17 @@
   agents tend to scan top-to-bottom — so we list categories in the
   documented IMPL-SPEC §7.2 order: dev, docs, testing, then write."
   [;; ---- Dev -------------------------------------------------------------
-   {:name        "get-story-instructions"
-    :category    :dev
-    :description "Return Story's authoring conventions in agent-friendly form (the seven reg-* macros, hard rules, lifecycle, snapshots)."
-    :inputSchema {:type "object" :properties {} :additionalProperties false}
-    :handler     tool-get-story-instructions}
+   {:name           "get-story-instructions"
+    :category       :dev
+    :description    "Return Story's authoring conventions in agent-friendly form (the seven reg-* macros, hard rules, lifecycle, snapshots)."
+    :typicalTokens  1500
+    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :handler        tool-get-story-instructions}
 
-   {:name        "preview-variant"
-    :category    :dev
-    :description "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL."
+   {:name           "preview-variant"
+    :category       :dev
+    :description    "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL."
+    :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string
                                :substrate kw-or-string
@@ -712,61 +714,69 @@
                   :additionalProperties false}
     :handler     tool-preview-variant}
 
-   {:name        "list-substrates"
-    :category    :dev
-    :description "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host)."
-    :inputSchema {:type "object" :properties {} :additionalProperties false}
-    :handler     tool-list-substrates}
+   {:name           "list-substrates"
+    :category       :dev
+    :description    "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host)."
+    :typicalTokens  100
+    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :handler        tool-list-substrates}
 
    ;; ---- Docs ------------------------------------------------------------
-   {:name        "list-stories"
-    :category    :docs
-    :description "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids."
+   {:name           "list-stories"
+    :category       :docs
+    :description    "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids."
+    :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties {:tags {:type "array" :items kw-or-string
                                       :description "Optional tag filter; story `:tags` set must intersect."}}
                   :additionalProperties false}
     :handler     tool-list-stories}
 
-   {:name        "get-story"
-    :category    :docs
-    :description "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids)."
+   {:name           "get-story"
+    :category       :docs
+    :description    "Return one story's full body (`:doc`, `:component`, `:decorators`, `:args`, ... + its variant ids)."
+    :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties {:story-id kw-or-string}
                   :required ["story-id"]
                   :additionalProperties false}
     :handler     tool-get-story}
 
-   {:name        "get-variant"
-    :category    :docs
-    :description "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time)."
+   {:name           "get-variant"
+    :category       :docs
+    :description    "Return one variant's full body (the resolved EDN, with `:extends` already applied at registration time)."
+    :typicalTokens  1000
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-get-variant}
 
-   {:name        "list-tags"
-    :category    :docs
-    :description "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project."
-    :inputSchema {:type "object" :properties {} :additionalProperties false}
-    :handler     tool-list-tags}
+   {:name           "list-tags"
+    :category       :docs
+    :description    "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project."
+    :typicalTokens  100
+    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :handler        tool-list-tags}
 
-   {:name        "list-modes"
-    :category    :docs
-    :description "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`."
-    :inputSchema {:type "object" :properties {} :additionalProperties false}
-    :handler     tool-list-modes}
+   {:name           "list-modes"
+    :category       :docs
+    :description    "Registered modes (Chromatic-style saved tuples of args). Each entry is `{:id :doc :args}`."
+    :typicalTokens  200
+    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :handler        tool-list-modes}
 
-   {:name        "list-assertions"
-    :category    :docs
-    :description "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids."
-    :inputSchema {:type "object" :properties {} :additionalProperties false}
-    :handler     tool-list-assertions}
+   {:name           "list-assertions"
+    :category       :docs
+    :description    "The seven canonical `:rf.assert/*` events with payload arity + semantics, plus any project-registered assertion ids."
+    :typicalTokens  500
+    :inputSchema    {:type "object" :properties {} :additionalProperties false}
+    :handler        tool-list-assertions}
 
-   {:name        "variant->edn"
-    :category    :docs
-    :description "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN."
+   {:name           "variant->edn"
+    :category       :docs
+    :description    "Round-trippable EDN of a registered variant. Text result only (no structuredContent); use this when you want byte-stable EDN."
+    :typicalTokens  1000
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
@@ -774,9 +784,10 @@
     :handler     tool-variant->edn}
 
    ;; ---- Testing ---------------------------------------------------------
-   {:name        "run-variant"
-    :category    :testing
-    :description "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`)."
+   {:name           "run-variant"
+    :category       :testing
+    :description    "Execute a variant's four-phase lifecycle (loaders → events → render → play); return the result map (`:frame :app-db :assertions :rendered-hiccup :elapsed-ms :passing?`)."
+    :typicalTokens  2000
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string
                                :substrate kw-or-string
@@ -788,9 +799,10 @@
                   :additionalProperties false}
     :handler     tool-run-variant}
 
-   {:name        "snapshot-identity"
-    :category    :testing
-    :description "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression."
+   {:name           "snapshot-identity"
+    :category       :testing
+    :description    "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression."
+    :typicalTokens  100
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string
                                :substrate kw-or-string
@@ -799,18 +811,20 @@
                   :additionalProperties false}
     :handler     tool-snapshot-identity}
 
-   {:name        "run-a11y"
-    :category    :testing
-    :description "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated."
+   {:name           "run-a11y"
+    :category       :testing
+    :description    "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated."
+    :typicalTokens  500
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-run-a11y}
 
-   {:name        "read-failures"
-    :category    :testing
-    :description "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`."
+   {:name           "read-failures"
+    :category       :testing
+    :description    "Accumulated assertion failures for a variant frame (since the most recent `run-variant`). Returns `{:total :failures :passing?}`."
+    :typicalTokens  500
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
@@ -818,9 +832,10 @@
     :handler     tool-read-failures}
 
    ;; ---- Write (v1.1, gated) --------------------------------------------
-   {:name        "register-variant"
-    :category    :write
-    :description "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix."
+   {:name           "register-variant"
+    :category       :write
+    :description    "Register a variant programmatically. GATED behind `:rf.story-mcp/allow-writes?` (default false). Enables the self-healing loop: write story → run → read failures → fix."
+    :typicalTokens  100
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string
                                :body {:oneOf [{:type "object"}
@@ -830,18 +845,20 @@
                   :additionalProperties false}
     :handler     tool-register-variant}
 
-   {:name        "unregister-variant"
-    :category    :write
-    :description "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`."
+   {:name           "unregister-variant"
+    :category       :write
+    :description    "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`."
+    :typicalTokens  100
     :inputSchema {:type "object"
                   :properties {:variant-id kw-or-string}
                   :required ["variant-id"]
                   :additionalProperties false}
     :handler     tool-unregister-variant}
 
-   {:name        "record-as-variant"
-    :category    :write
-    :description "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
+   {:name           "record-as-variant"
+    :category       :write
+    :description    "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back?` re-registers the variant with the captured `:play` slot — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`)."
+    :typicalTokens  1500
     :inputSchema {:type "object"
                   :properties {:variant-id     kw-or-string
                                :duration-ms    {:type "integer" :minimum 0
@@ -862,14 +879,20 @@
 
 (defn tool-descriptors
   "Build the `tools/list` response payload: each tool's name +
-  description + inputSchema, in registry order. The MCP spec also
-  allows a `title` field; we omit it (the names are already
-  human-readable dash-separated forms)."
+  description + inputSchema + typicalTokens, in registry order. The
+  MCP spec also allows a `title` field; we omit it (the names are
+  already human-readable dash-separated forms).
+
+  `typicalTokens` (rf2-6sddv) is an informational hint — an integer
+  ballpark of the response payload size in tokens. AI clients use it
+  to budget calls and pick size-conscious args without trial-and-error.
+  Not a cap (the host enforces real budgets elsewhere); a hint only."
   []
-  (mapv (fn [{:keys [name description inputSchema]}]
-          {:name        name
-           :description description
-           :inputSchema inputSchema})
+  (mapv (fn [{:keys [name description inputSchema typicalTokens]}]
+          (cond-> {:name        name
+                   :description description
+                   :inputSchema inputSchema}
+            typicalTokens (assoc :typicalTokens typicalTokens)))
         tool-registry))
 
 (defn tool-by-name
