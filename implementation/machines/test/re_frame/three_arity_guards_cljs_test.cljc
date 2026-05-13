@@ -1,43 +1,32 @@
 (ns re-frame.three-arity-guards-cljs-test
   "Coverage for the machine guard / action 3-arity escape hatch (rf2-1e0n,
   discovered-from rf2-o423; CLJS arity + initial-snapshot meta
-  convergence rf2-l04j).
+  convergence rf2-l04j; explicit `:rf.machine/wants-ctx` metadata opt-in
+  rf2-2yupx).
 
-  Per Spec 005 and `re-frame.machines`'s contract documented at
-  `machines.cljc` lines 74-121, guards and actions accept two canonical
-  signatures:
+  Per Spec 005 §3-arity escape hatch, guards and actions accept two
+  canonical signatures:
 
-      (fn [data event] ...)              ; 2-arity — the 99% case
-      (fn [data event ctx] ...)          ; 3-arity — opt-in introspection
+      (fn [data event] ...)                  ; 2-arity — the 99% case
+      ^:rf.machine/wants-ctx                 ; 3-arity — opt-in introspection
+      (fn [data event ctx] ...)
 
   where `ctx` is `{:state (:state snapshot) :meta (:meta snapshot)}`.
 
-  The dispatcher (`declares-3-arity?`) inspects the fn's declared
-  invocation surface at runtime and routes 3-fixed-arg fns through the
-  3-arity path; everything else (including variadic helpers like
-  `(constantly ...)` and 2-plus-rest fns) routes through the 2-arity
-  path. The docstring flags variadics as a footgun: a user who expects
-  `& rest` to receive the ctx will silently see it called as 2-arity
-  instead.
+  Per rf2-2yupx the dispatcher is **metadata-driven**, not structural:
+  the runtime calls `(g data event ctx)` iff `(:rf.machine/wants-ctx
+  (meta g))` is truthy. Plain 3-arity fns WITHOUT the metadata flag
+  route through the 2-arity path (and will error at call time if the
+  fn body actually requires a third positional). The previous
+  structural arity-detection rule (Java reflection on JVM, compiled-fn
+  surface introspection on CLJS) is gone — the metadata flag makes the
+  user's intent explicit and eliminates per-call platform reflection.
 
-  Before this file, not a single test in the suite exercised 3-arity
-  guards or actions. A `declares-3-arity?` refactor — especially around
-  variadics — would have been invisible.
-
-  rf2-l04j convergence: previously the CLJS check classified a
-  2-plus-rest fn `(fn [data event & rest] ...)` as 3-arity, so the
-  user's `& rest` silently received `(ctx)`. JVM matched the docstring
-  (returns false). The fix at `machines.cljc:declares-3-arity?` consults
-  `cljs$lang$maxFixedArity` to detect variadicity: every variadic now
-  routes through the 2-arity path on CLJS, matching JVM. The
-  previously-divergent assertions below are now consistent across
-  platforms.
-
-  rf2-l04j also fixes the live initial-snapshot synthesis at
-  `machines.cljc:808` so a spec-level `:meta` propagates into the
-  initial snapshot. The CLJS live tests can now assert a non-nil
-  user-tagged `:meta` in ctx — the same payload the JVM pure-surface
-  tests pin.
+  The variadic-fn footgun (`(fn [d e & rest] ...)` previously routed
+  through 2-arity unexpectedly when the user wanted ctx) is also
+  resolved: with metadata-driven opt-in, the user's flag governs
+  dispatch regardless of arglist shape — `^:rf.machine/wants-ctx (fn
+  [d e & rest] ...)` correctly sees ctx as the first element of rest.
 
   This file uses reader conditionals so its assertions run on both
   JVM and CLJS:
@@ -70,90 +59,65 @@
 
 ;; ---- access to the private dispatcher -------------------------------------
 ;;
-;; `declares-3-arity?` is `defn-`-private; tests reach it through its var.
+;; `wants-ctx?` is `defn-`-private; tests reach it through its var.
 ;; The var-quote (`#'ns/private-fn`) is invocable on both JVM and CLJS —
 ;; the same idiom hash-check-cljs-test.cljs uses for ssr/canonical-edn.
 ;; This is the only direct internal poke; everything else goes through
 ;; the pure `machine-transition` surface (JVM) or the live event surface
 ;; (CLJS).
 
-(defn- declares-3-arity? [f]
-  (#'re-frame.machines.transition/declares-3-arity? f))
+(defn- wants-ctx? [f]
+  (#'re-frame.machines.transition/wants-ctx? f))
 
-;; ---- (1) declares-3-arity? unit tests -------------------------------------
+;; ---- (1) wants-ctx? unit tests --------------------------------------------
+;;
+;; Per rf2-2yupx the dispatcher is metadata-driven: only the
+;; `:rf.machine/wants-ctx true` flag in the fn's metadata routes the
+;; call through the 3-arity path. The fn's arglist shape (fixed-arity,
+;; variadic, multi-arity, RestFn) is irrelevant.
 
-(deftest declares-3-arity-classifies-plain-3-arity-as-true
-  (testing "a plain 3-arity fn with three FIXED parameters is classified
-            as 3-arity (true) — this is the user opt-in path"
-    (is (true? (boolean (declares-3-arity? (fn [_ _ _] :ok)))))))
+(deftest wants-ctx-recognises-explicit-opt-in
+  (testing "a fn carrying `^:rf.machine/wants-ctx` metadata is classified
+            as wanting ctx — this is the user opt-in path"
+    (is (true? (wants-ctx? ^:rf.machine/wants-ctx (fn [_ _ _] :ok))))))
 
-(deftest declares-3-arity-classifies-plain-2-arity-as-false
-  (testing "a plain 2-arity fn (the canonical 99% case) is classified as
-            non-3-arity (false) — routes through the 2-arity dispatch path"
-    (is (false? (boolean (declares-3-arity? (fn [_ _] :ok)))))))
+(deftest wants-ctx-recognises-helper-wrapper
+  (testing "the `machines/wants-ctx` helper attaches the metadata flag —
+            equivalent to the reader-macro form, useful for fns built
+            by combinators or wrappers"
+    (is (true? (wants-ctx? (machines/wants-ctx (fn [_ _ _] :ok)))))))
 
-(deftest declares-3-arity-classifies-constantly-as-false
-  (testing "(constantly ...) returns a variadic-from-zero fn — per the
-            docstring (machines.cljc:88-90), this is the canonical
-            footgun. The dispatcher treats it as non-3-arity so the
-            2-arity contract holds, and the variadic helper just
-            absorbs whatever args it's called with."
-    (is (false? (boolean (declares-3-arity? (constantly true)))))
-    (is (false? (boolean (declares-3-arity? (constantly nil)))))))
+(deftest wants-ctx-plain-fn-without-metadata-is-false
+  (testing "a plain fn (no opt-in metadata) routes through the 2-arity
+            path regardless of its declared arity — there is no
+            structural arity-detection anymore"
+    (is (false? (wants-ctx? (fn [_ _] :ok))))
+    (is (false? (wants-ctx? (fn [_ _ _] :ok))) ;; no metadata → 2-arity
+        "plain 3-fixed-arity without metadata routes through 2-arity")
+    (is (false? (wants-ctx? (fn [_ _ & _] :ok)))
+        "2-plus-rest without metadata routes through 2-arity")
+    (is (false? (wants-ctx? (fn [_ _ _ & _] :ok)))
+        "3-plus-rest without metadata routes through 2-arity")
+    (is (false? (wants-ctx? (constantly true)))
+        "variadic-from-zero (e.g. (constantly ...)) routes through 2-arity")))
 
-(deftest declares-3-arity-classifies-2-plus-rest-as-false
-  (testing "a 2-fixed-plus-rest fn (fn [data event & extras]) is
-            classified as non-3-arity on BOTH JVM and CLJS (rf2-l04j).
-
-            Previously CLJS classified this as 3-arity because the
-            compiled variadic surfaces a `cljs$core$IFn$_invoke$arity$3`
-            slot used by the rest dispatcher; the user's `& extras`
-            silently received `(ctx)` as a single element. The fix at
-            `declares-3-arity?` consults `cljs$lang$maxFixedArity` to
-            detect variadicity — a variadic with max-fixed < 3 is a
-            2-plus-rest helper and is NOT a 3-arity declaration, so
-            CLJS now matches the JVM behaviour and the docstring's
-            'distinguishes user opt-in 3-arity from variadic helpers'
-            promise."
-    (is (false? (boolean (declares-3-arity? (fn [_ _ & _] :ok))))
-        "2-plus-rest classifies as non-3-arity on both JVM and CLJS")))
-
-(deftest declares-3-arity-classifies-3-plus-rest-as-false
-  (testing "a 3-fixed-plus-rest fn (fn [data event ctx & extras]) is a
-            RestFn; on JVM it doesn't expose a declared `invoke(O,O,O)`
-            on the user's class, so it classifies as non-3-arity. To
-            keep the rule simple and platform-consistent, CLJS treats
-            ANY variadic as non-3-arity (rf2-l04j) — including
-            3-plus-rest. A user who wants the 3-arity surface should
-            declare three FIXED args without `& rest`, as the canonical
-            shape `(fn [data event ctx] ...)`."
-    (is (false? (boolean (declares-3-arity? (fn [_ _ _ & _] :ok)))))))
-
-(deftest declares-3-arity-classifies-multi-arity-with-3-as-true
-  (testing "a multi-arity fn that includes a 3-arity case — e.g.
-            `(fn ([a] :one) ([a b c] :three))` — has an explicit 3-arity
-            dispatch slot and IS a 3-arity declaration on both JVM and
-            CLJS. The dispatcher routes through the user's 3-arity case."
-    (let [f (fn ([_a] :one) ([_a _b _c] :three))]
-      (is (true? (boolean (declares-3-arity? f)))))))
-
-(deftest declares-3-arity-classifies-multi-arity-without-3-as-false
-  (testing "a multi-arity fn whose only fixed cases are 1 and 2
-            (no 3-arity case) is NOT a 3-arity declaration on either
-            platform."
-    (let [f (fn ([_a] :one) ([_a _b] :two))]
-      (is (false? (boolean (declares-3-arity? f)))))))
+(deftest wants-ctx-resolves-variadic-footgun
+  (testing "a variadic 2-plus-rest fn that DOES carry the opt-in flag
+            correctly routes through 3-arity — the metadata flag wins
+            over the arglist shape, resolving the pre-rf2-2yupx footgun
+            where a variadic intended for ctx silently got 2-arity"
+    (is (true? (wants-ctx? ^:rf.machine/wants-ctx (fn [_ _ & _] :ok))))))
 
 ;; ---- (2) shared machine spec for guard / action exercises -----------------
 ;;
 ;; The same machine shape is used for the live tests below. Each fn is
-;; placed DIRECTLY in the slot (no wrapper) so `declares-3-arity?` sees
-;; its true arglist surface.
+;; placed DIRECTLY in the slot (no wrapper) so the metadata it carries
+;; reaches the dispatcher unmodified.
 
 (defn- machine-with-guard
   "Build a machine whose :go transition's :guard slot IS exactly
-  `guard-fn` (no wrapper) — so the dispatcher classifies it on its real
-  arity surface. The :action is a plain 2-arity bumper so the snapshot's
+  `guard-fn` (no wrapper) — so the dispatcher reads the fn's metadata
+  unchanged. The :action is a plain 2-arity bumper so the snapshot's
   :data evolves observably when the transition fires.
 
   A spec-level `:meta {:user-tag :probe}` is seeded so the live CLJS
@@ -174,8 +138,8 @@
 
 (defn- machine-with-action
   "Build a machine whose :go transition's :action slot IS exactly
-  `action-fn` — so the dispatcher classifies it on its real arity
-  surface. The :guard is omitted (defaults to `(constantly true)`).
+  `action-fn` — so the dispatcher reads the fn's metadata unchanged.
+  The :guard is omitted (defaults to `(constantly true)`).
 
   A spec-level `:meta {:user-tag :probe}` is seeded for the same
   reason as `machine-with-guard`."
@@ -191,12 +155,12 @@
 ;; ---- (3) JVM: pure machine-transition exercises ---------------------------
 ;;
 ;; The pure surface is the simpler harness: no registrar, no adapter,
-;; no event-loop pumping. Per `machines.cljc` line 18 (and the comment
-;; at line 532) the pure fn is JVM- and CLJS-runnable; testing it on JVM
-;; alone is meaningful because the guard / action dispatcher path
-;; (`call-guard` / `call-action`) is platform-independent below the
-;; `declares-3-arity?` check itself, which IS platform-specific and is
-;; covered by the unit tests above.
+;; no event-loop pumping. The pure fn is JVM- and CLJS-runnable; testing
+;; it on JVM alone is meaningful because the guard / action dispatcher
+;; path (`call-guard` / `call-action`) is platform-independent below the
+;; `wants-ctx?` metadata check itself — and that check IS now platform-
+;; independent too (a single `meta` lookup, no reflection), covered by
+;; the unit tests above.
 ;;
 ;; The pure surface also lets us seed `:meta` directly on the snapshot.
 ;; Post-rf2-l04j the live event handler also propagates a spec-level
@@ -205,13 +169,14 @@
 ;; ctx shape — platform parity.
 
 #?(:clj
-   (deftest plain-3-arity-guard-receives-ctx
-     (testing "Case (1) plain-3-arity guard: a guard fn with three FIXED
-               args is called with [data event {:state ... :meta ...}].
-               The third arg is the snapshot's :state and :meta merged
-               into a ctx map (per machines.cljc:110)."
+   (deftest opt-in-3-arity-guard-receives-ctx
+     (testing "Case (1) opt-in 3-arity guard: a guard fn carrying the
+               `^:rf.machine/wants-ctx` metadata flag is called with
+               [data event {:state ... :meta ...}]. The third arg is
+               the snapshot's :state and :meta merged into a ctx map."
        (let [seen     (atom nil)
-             guard    (fn [data event ctx]
+             guard    ^:rf.machine/wants-ctx
+                      (fn [data event ctx]
                         (reset! seen {:data data :event event :ctx ctx})
                         true)
              machine  (machine-with-guard guard)
@@ -229,16 +194,17 @@
                "the guard received the inbound event vector as its second arg")
            (is (= {:state :idle :meta {:user-tag :probe}} ctx)
                "the guard received {:state ... :meta ...} as its third arg
-                — exactly the contract documented at machines.cljc:106-110"))))))
+                — the contract documented at transition.cljc"))))))
 
 #?(:clj
-   (deftest plain-3-arity-action-receives-ctx
-     (testing "Case (2) plain-3-arity action: an action fn with three
-               FIXED args is called with [data event {:state ... :meta ...}]
-               (per machines.cljc:120). The action's return value
-               (`{:data ...}`) merges into the snapshot as usual."
+   (deftest opt-in-3-arity-action-receives-ctx
+     (testing "Case (2) opt-in 3-arity action: an action fn carrying the
+               `^:rf.machine/wants-ctx` metadata flag is called with
+               [data event {:state ... :meta ...}]. The action's return
+               value (`{:data ...}`) merges into the snapshot as usual."
        (let [seen     (atom nil)
-             action   (fn [data event ctx]
+             action   ^:rf.machine/wants-ctx
+                      (fn [data event ctx]
                         (reset! seen {:data data :event event :ctx ctx})
                         {:data (assoc data :saw-ctx? (some? ctx))})
              machine  (machine-with-action action)
@@ -255,16 +221,59 @@
            (is (= {:state :idle :meta {:user-tag :probe}} ctx)))))))
 
 #?(:clj
-   (deftest variadic-from-zero-guard-routes-as-2-arity
-     (testing "Case (3) variadic guard `(constantly true)`: per the
-               docstring (machines.cljc:88-90) this is the canonical
-               footgun — variadic helpers route through the 2-arity
-               path. The transition still fires (the guard returns
-               true regardless of args) but no ctx is offered.
+   (deftest wants-ctx-helper-action-receives-ctx
+     (testing "Case (2b) opt-in via `machines/wants-ctx` helper: the
+               wrapper attaches the metadata flag programmatically,
+               equivalent to the reader-macro form. The action is
+               still called with [data event ctx]."
+       (let [seen     (atom nil)
+             action   (machines/wants-ctx
+                        (fn [data event ctx]
+                          (reset! seen {:data data :event event :ctx ctx})
+                          {:data (assoc data :saw-ctx? (some? ctx))}))
+             machine  (machine-with-action action)
+             snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
+         (is (= :gone (:state snap-after)))
+         (is (true? (get-in snap-after [:data :saw-ctx?])))
+         (let [{:keys [ctx]} @seen]
+           (is (= {:state :idle :meta {:user-tag :probe}} ctx)
+               "the `wants-ctx` helper opts the fn into the 3-arity path
+                just like the reader-macro form"))))))
 
-               Documented behaviour: NOT classified as 3-arity. The
-               dispatcher calls `(g data event)` only. We assert the
-               transition fires and reaches :gone."
+#?(:clj
+   (deftest plain-3-arity-without-opt-in-routes-as-2-arity
+     (testing "Case (3) plain 3-arity guard WITHOUT the opt-in flag:
+               post-rf2-2yupx, arity is no longer structurally detected.
+               A `(fn [_ _ _] ...)` without `^:rf.machine/wants-ctx` is
+               called as 2-arity. Clojure raises
+               ArityException — we assert the transition does NOT
+               commit (engine catches the arity throw at run-action).
+
+               The point: the user's metadata flag, not the arglist
+               shape, governs dispatch. This is what makes the rule
+               declarative and footgun-free."
+       (let [guard    (fn [_data _event _ctx] true) ;; no opt-in metadata
+             machine  (machine-with-guard guard)
+             snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}]
+         (is (thrown? Throwable
+               (machines/machine-transition machine snapshot [:go]))
+             "without the opt-in flag, the engine calls (g data event);
+              a fn whose body requires three fixed positionals throws
+              an ArityException which propagates out of the pure
+              transition fn")))))
+
+#?(:clj
+   (deftest variadic-from-zero-guard-routes-as-2-arity
+     (testing "Case (4) variadic guard `(constantly true)`: no opt-in
+               metadata, routes through the 2-arity path. The transition
+               still fires (the guard returns true regardless of args).
+
+               This shows that variadic helpers continue to work the
+               same way as before — they were always 2-arity, and they
+               stay 2-arity, just for the simpler reason: no metadata
+               flag means no ctx."
        (let [machine  (machine-with-guard (constantly true))
              snapshot {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
              {snap-after ::result/snap} (machines/machine-transition
@@ -273,18 +282,14 @@
              "(constantly true) returns true regardless of how many args
               it's called with — transition fires either way; the
               point is which arity the dispatcher uses, asserted by
-              declares-3-arity-classifies-constantly-as-false above")))))
+              wants-ctx-plain-fn-without-metadata-is-false above")))))
 
 #?(:clj
-   (deftest variadic-2-plus-rest-guard-routes-as-2-arity
-     (testing "Case (4) variadic guard `(fn [data event & rest] ...)`:
-               2-fixed-plus-rest fns are RestFns and classify as
-               non-3-arity (declares-3-arity-classifies-2-plus-rest-as-false
-               above asserts this). Documented behaviour: the dispatcher
-               calls `(g data event)`, NOT `(g data event ctx)`. The
-               user's `& rest` is therefore ALWAYS empty / nil — the
-               ctx never reaches a variadic guard. This test pins that
-               behaviour by asserting `& rest` is empty / nil."
+   (deftest variadic-2-plus-rest-guard-routes-as-2-arity-when-no-opt-in
+     (testing "Case (5) variadic guard `(fn [data event & rest] ...)`
+               WITHOUT the opt-in flag: routes through 2-arity. The
+               user's `& rest` is empty / nil — the ctx never reaches a
+               variadic guard that didn't opt in."
        (let [seen-rest (atom :unset)
              guard     (fn [data _event & rest]
                          (reset! seen-rest rest)
@@ -297,14 +302,38 @@
              "transition fired — guard saw data + event correctly")
          (is (or (nil? @seen-rest)
                  (and (sequential? @seen-rest) (empty? @seen-rest)))
-             "documented behaviour: `& rest` is empty / nil (the
-              dispatcher called the variadic as 2-arity, NOT 3-arity)")))))
+             "no opt-in flag: `& rest` is empty / nil (the dispatcher
+              called the variadic as 2-arity, NOT 3-arity)")))))
+
+#?(:clj
+   (deftest variadic-2-plus-rest-guard-routes-as-3-arity-when-opt-in
+     (testing "Case (5b) variadic guard `(fn [data event & rest] ...)` WITH
+               the opt-in flag: routes through 3-arity. The user's
+               `& rest` now receives the ctx as its sole element.
+
+               This is the rf2-2yupx footgun fix — pre-refactor, the
+               structural arity-detection rule classified every variadic
+               as 2-arity regardless of the user's intent. The
+               metadata-driven rule respects the user's flag."
+       (let [seen-rest (atom :unset)
+             guard     ^:rf.machine/wants-ctx
+                       (fn [_data _event & rest]
+                         (reset! seen-rest rest)
+                         true)
+             machine   (machine-with-guard guard)
+             snapshot  {:state :idle :data {:bumps 0} :meta {:user-tag :probe}}
+             {snap-after ::result/snap} (machines/machine-transition
+                                          machine snapshot [:go])]
+         (is (= :gone (:state snap-after)))
+         (is (= [{:state :idle :meta {:user-tag :probe}}] (vec @seen-rest))
+             "with the opt-in flag, the variadic correctly received the
+              ctx as the sole element of its `& rest`")))))
 
 #?(:clj
    (deftest plain-2-arity-guard-still-works
-     (testing "Case (5) plain-2-arity guard `(fn [data event] ...)`:
+     (testing "Case (6) plain-2-arity guard `(fn [data event] ...)`:
                the canonical case. Sanity-check that the 99% path still
-               works after introducing the 3-arity escape hatch."
+               works after introducing the metadata-driven opt-in."
        (let [seen     (atom nil)
              guard    (fn [data event]
                         (reset! seen {:data data :event event :argc 2})
@@ -328,10 +357,10 @@
 ;; the JVM cases above.
 ;;
 ;; Note on :meta: per rf2-l04j, the live initial-snapshot synthesis
-;; (`machines.cljc:808`) now propagates a spec-level `:meta` into the
-;; synthesised snapshot. The 3-arity ctx therefore carries the spec's
-;; `:meta {:user-tag :probe}` (seeded by `machine-with-guard` /
-;; `machine-with-action`), matching the JVM pure-surface assertions.
+;; propagates a spec-level `:meta` into the synthesised snapshot. The
+;; 3-arity ctx therefore carries the spec's `:meta {:user-tag :probe}`
+;; (seeded by `machine-with-guard` / `machine-with-action`), matching
+;; the JVM pure-surface assertions.
 
 #?(:cljs
    (defn- snapshot-of
@@ -341,12 +370,14 @@
      (get-in (rf/get-frame-db :rf/default) [:rf/machines machine-id])))
 
 #?(:cljs
-   (deftest plain-3-arity-guard-cljs-receives-ctx
-     (testing "Case (1) live-CLJS: a 3-arity guard registered through
+   (deftest opt-in-3-arity-guard-cljs-receives-ctx
+     (testing "Case (1) live-CLJS: a 3-arity guard with
+               `^:rf.machine/wants-ctx` metadata registered through
                reg-machine receives [data event ctx] when the runtime
                processes a real :go event"
        (let [seen     (atom nil)
-             guard    (fn [data event ctx]
+             guard    ^:rf.machine/wants-ctx
+                      (fn [data event ctx]
                         (reset! seen {:data data :event event :ctx ctx})
                         true)
              machine  (machine-with-guard guard)]
@@ -367,12 +398,13 @@
                 ctx; :meta carries the spec-level :meta after rf2-l04j"))))))
 
 #?(:cljs
-   (deftest plain-3-arity-action-cljs-receives-ctx
-     (testing "Case (2) live-CLJS: a 3-arity action registered through
-               reg-machine receives [data event ctx] when its transition
-               fires"
+   (deftest opt-in-3-arity-action-cljs-receives-ctx
+     (testing "Case (2) live-CLJS: a 3-arity action with the opt-in
+               flag registered through reg-machine receives
+               [data event ctx] when its transition fires"
        (let [seen     (atom nil)
-             action   (fn [data event ctx]
+             action   ^:rf.machine/wants-ctx
+                      (fn [data event ctx]
                         (reset! seen {:data data :event event :ctx ctx})
                         {:data (assoc data :saw-ctx? (some? ctx))})
              machine  (machine-with-action action)]
@@ -394,7 +426,7 @@
 #?(:cljs
    (deftest variadic-from-zero-guard-cljs-routes-as-2-arity
      (testing "Case (3) live-CLJS: `(constantly true)` as a guard —
-               routes through the 2-arity path (declares-3-arity? false).
+               no opt-in metadata, routes through the 2-arity path.
                Transition still fires."
        (let [machine (machine-with-guard (constantly true))]
          (rf/reg-machine :rf2-1e0n/v0 machine)
@@ -404,20 +436,12 @@
                "transition fired under the variadic-from-zero guard"))))))
 
 #?(:cljs
-   (deftest variadic-2-plus-rest-guard-cljs-routes-as-2-arity
-     (testing "Case (4) live-CLJS: a variadic 2-plus-rest guard.
-
-               Documented intent (machines.cljc:declares-3-arity?):
-               variadics with max-fixed < 3 classify as non-3-arity, so
-               the dispatcher calls `(g data event)` and `& rest` stays
-               empty.
-
-               After rf2-l04j, CLJS now agrees with JVM here (the check
-               consults `cljs$lang$maxFixedArity` to detect the variadic
-               and ignore the auto-generated arity-3 dispatch slot). The
-               assertion below is now consistent across platforms — the
-               same shape pinned by `variadic-2-plus-rest-guard-routes-
-               as-2-arity` on JVM."
+   (deftest variadic-2-plus-rest-guard-cljs-routes-as-2-arity-without-opt-in
+     (testing "Case (4) live-CLJS: a variadic 2-plus-rest guard WITHOUT
+               the opt-in flag routes through 2-arity. `& rest` stays
+               empty (no ctx delivered). Platform-independent post-
+               rf2-2yupx — the rule is metadata-driven, identical on
+               JVM and CLJS."
        (let [seen-rest (atom :unset)
              guard     (fn [_data _event & rest]
                          (reset! seen-rest rest)
@@ -431,10 +455,8 @@
                "transition fired (guard returned true)")
            (is (or (nil? @seen-rest)
                    (and (sequential? @seen-rest) (empty? @seen-rest)))
-               "post-rf2-l04j: `& rest` is empty / nil — the dispatcher
-                routed the variadic through the 2-arity path, matching
-                JVM and the docstring's 'distinguishes variadic helpers'
-                promise"))))))
+               "no opt-in: `& rest` is empty / nil — the dispatcher
+                routed the variadic through the 2-arity path"))))))
 
 #?(:cljs
    (deftest plain-2-arity-guard-cljs-still-works

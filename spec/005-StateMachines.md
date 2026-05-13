@@ -32,7 +32,7 @@ The snapshot is `{:state :data}`:
 
 The pair `{:state :data}` reads as the natural English idiom and matches a vocabulary that's well-represented in AI training corpora. We use `:data` to avoid the existing "context" overloading in re-frame's interceptor pipeline and React-context affordances.
 
-> **`:data` is the parameter name passed to guards and actions, not a destructure key.** Per [§Guards](#guards) / [§Actions](#actions), guards and actions receive `(fn [data event] ...)` — `data` is the snapshot's `:data` slot directly, a plain map. Bodies that read individual fields write `(:circle-id data)`, not `(get-in snapshot [:data :circle-id])`. The 3-arity opt-in `(fn [data event {:state :meta}] ...)` adds the introspection slot when needed; users that don't declare it never see the snapshot wrapper.
+> **`:data` is the parameter name passed to guards and actions, not a destructure key.** Per [§Guards](#guards) / [§Actions](#actions), guards and actions receive `(fn [data event] ...)` — `data` is the snapshot's `:data` slot directly, a plain map. Bodies that read individual fields write `(:circle-id data)`, not `(get-in snapshot [:data :circle-id])`. The 3-arity opt-in `^:rf.machine/wants-ctx (fn [data event {:state :meta}] ...)` adds the introspection slot when needed; users that don't opt in never see the snapshot wrapper.
 
 ## Snapshot shape
 
@@ -262,26 +262,41 @@ A guard is **`(fn [data event] boolean)`** — 2-arity is canonical. **One inlin
 
 #### 3-arity escape hatch — `:state` / `:meta` introspection
 
-The 3-arity overload is **opt-in** by declaring a third parameter:
+The 3-arity overload is **opt-in** via the `^:rf.machine/wants-ctx` metadata flag on the fn:
 
 ```clojure
-:guard (fn [data event {:keys [state meta]}]
+:guard ^:rf.machine/wants-ctx
+       (fn [data event {:keys [state meta]}]
          ...)
+
+;; or, for a named guard in the machine's :guards map:
+(defn my-guard
+  {:rf.machine/wants-ctx true}
+  [data event {:keys [state meta]}]
+  ...)
 ```
 
-`{:state :meta}` is the snapshot's introspection slot — the discrete state and any user `:meta`. Use it for the rare guard or action that needs to branch on the current state name (e.g. dispatch on `:state` itself rather than `:data`). The vast majority of guards and actions are state-blind and don't need the third arg; declaring it is the explicit signal to the runtime that introspection is wanted.
+`{:state :meta}` is the snapshot's introspection slot — the discrete state and any user `:meta`. Use it for the rare guard or action that needs to branch on the current state name (e.g. dispatch on `:state` itself rather than `:data`). The vast majority of guards and actions are state-blind and don't need the third arg; the metadata flag is the explicit signal to the runtime that introspection is wanted.
 
-**Why opt-in.** The 99% case stays monomorphic on `[data event]`, so most fns avoid `:keys [data]` destructure boilerplate at the call site (see the rationale at [§Naming — `:state` and `:data`](#naming--state-and-data)). The 3-arity overload exists precisely so the introspection slot does not bleed into bodies that don't need it. Implementation-wise, structural arity-detection works because both JVM (Java reflection on declared invoke methods) and CLJS (`.-length` / `cljs$core$IFn$_invoke$arity$3`) expose declared-fixed-arity at runtime; multi-arity and variadic fn forms are treated as 2-arity and called without the introspection slot.
+**Why opt-in.** The 99% case stays monomorphic on `[data event]`, so most fns avoid `:keys [data]` destructure boilerplate at the call site (see the rationale at [§Naming — `:state` and `:data`](#naming--state-and-data)). The 3-arity overload exists precisely so the introspection slot does not bleed into bodies that don't need it.
 
-Implementations arity-detect the fn at call time: a fn that declares a fixed 3-arg invocation is called with `[data event {:state :meta}]`; everything else (the canonical 2-arity, plus variadic helpers like `(constantly true)`) is called with `[data event]`. The detection is structural — no metadata needed on the fn — so inline `(fn [data ev ctx] ...)` vs `(fn [data ev] ...)` is the only declaration the user makes.
+**Why metadata, not structural arity-detection.** The opt-in is declarative — the user's intent is on the fn itself, not inferred from its arglist shape. Per rf2-2yupx this replaces an earlier structural rule (Java reflection on JVM, compiled-fn-surface introspection on CLJS) that was fragile (a CLJS bug rf2-l04j misclassified 2-plus-rest variadics) and per-call expensive (~80–200ns of reflection per guard or action invocation on JVM). The metadata-driven rule is a single map lookup, platform-uniform, and immune to the variadic-fn footgun: a `(fn [d e & rest] ...)` that wants the ctx flags itself explicitly and the runtime delivers it as the first element of `rest` — the user's intent governs dispatch, not the arglist shape.
 
-**Variadic-fn footgun.** Because arity-detection is structural, variadic fns like `(constantly nil)` or `(fn [& args] ...)` are detected as 2-arity and called *without* the introspection slot — even if the body would have used a third positional `ctx`. If you actually want the introspection slot, write a real 3-arity fn (`(fn [data event ctx] ...)`); reaching for a variadic shorthand silently strips the slot. The footgun is intentional: the variadic case is overwhelmingly the "don't care about extra args" idiom (`constantly`, ignoring lambdas), and 2-arity invocation is the safer default.
+**Helper form.** For cases where the reader-macro form is awkward (anonymous fns built by combinators, dynamically-wrapped fns), `re-frame.machines/wants-ctx` attaches the flag programmatically:
+
+```clojure
+:guard (machines/wants-ctx (fn [data event ctx] ...))
+```
+
+Equivalent to the `^:rf.machine/wants-ctx` form.
+
+**Plain 3-arity without the flag.** A `(fn [data event ctx] ...)` *without* the metadata flag routes through the 2-arity path and the runtime calls `(fn data event)` — which raises an `ArityException` at call time. The arity throw is the deliberate signal: a fn whose body requires three positionals must opt in explicitly. No silent misdispatch.
 
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
 
 ### Actions
 
-An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (or `nil`). 2-arity is canonical; 3-arity opt-in is the same `[data event {:state :meta}]` escape hatch as for guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
+An action is **`(fn [data event] effects)`** returning the `{:data :fx}` shape (or `nil`). 2-arity is canonical; 3-arity opt-in is the same `^:rf.machine/wants-ctx (fn [data event {:state :meta}] ...)` escape hatch as for guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
 
 ```clojure
 ;; inline — data is the snapshot's :data slot, passed directly
@@ -368,8 +383,8 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 
 > **Why this is locked.** Strict encapsulation is one of the named consequences of [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility). If actions could read or write `app-db` outside `[:rf/machines <id>]`, machine logic would create state changes that don't show up in any machine snapshot and don't roll back when the surrounding machine snapshot does. The whole machine's state has to live inside the frame's persistent value to revert with it; encapsulation is what stops machines from leaking state into parts of the value that aren't theirs.
 
-- **Action signature:** `(fn [data event] effects)` — 2-arity canonical; 3-arity opt-in is `(fn [data event {:state :meta}] effects)`.
-- **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `(fn [data event {:state :meta}] boolean)`.
+- **Action signature:** `(fn [data event] effects)` — 2-arity canonical; 3-arity opt-in is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] effects)`.
+- **Guard signature:** `(fn [data event] boolean)` — 2-arity canonical; 3-arity opt-in is `^:rf.machine/wants-ctx (fn [data event {:state :meta}] boolean)`.
 - **What the fn sees:** the snapshot's `:data` slot directly (a map). The full `{:state :data :meta}` snapshot is reachable only via the 3-arity opt-in. Never `app-db`; never cofx.
 
 The impure plumbing (reading the snapshot from `app-db` at `[:rf/machines <id>]`, writing `:data` back as a `:db` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `create-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
@@ -420,14 +435,14 @@ The same principle holds for any data DSL the conformance corpus or a tooling la
 
 ### 3-arity escape hatch — snapshot introspection
 
-When a callback truly needs the discrete `:state` or any user `:meta` (rare), declare the third parameter:
+When a callback truly needs the discrete `:state` or any user `:meta` (rare), opt in via the `^:rf.machine/wants-ctx` metadata flag and declare the third parameter:
 
-- `:guard (fn [data event {:keys [state meta]}] ...)`
-- `:action (fn [data event {:keys [state meta]}] ...)`
+- `:guard ^:rf.machine/wants-ctx (fn [data event {:keys [state meta]}] ...)`
+- `:action ^:rf.machine/wants-ctx (fn [data event {:keys [state meta]}] ...)`
 
-`:on-spawn` doesn't currently take an introspection slot — the snapshot's `:state` at spawn time is the entry-bearing leaf state by definition, so the slot would carry no information beyond the lexical position of the `:invoke`. If a future use case needs it, the same 3-arity opt-in pattern applies.
+`:on-spawn` doesn't currently take an introspection slot — the snapshot's `:state` at spawn time is the entry-bearing leaf state by definition, so the slot would carry no information beyond the lexical position of the `:invoke`. If a future use case needs it, the same metadata-driven opt-in pattern applies.
 
-The 3-arity overload is **structurally detected** — implementations distinguish a fn that declares three fixed parameters from variadics like `(constantly true)`. No metadata is required on the fn.
+The 3-arity overload is **explicitly opted-in via metadata** — `(:rf.machine/wants-ctx (meta fn))` governs dispatch. Per rf2-2yupx this replaces an earlier structural arity-detection rule; see [§3-arity escape hatch — `:state` / `:meta` introspection](#3-arity-escape-hatch--state--meta-introspection) for the rationale.
 
 ## Registration — the machine IS the event handler
 

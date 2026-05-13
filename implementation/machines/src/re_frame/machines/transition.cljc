@@ -66,74 +66,81 @@
 ;; Per Spec 005 §Guards / §Actions, the canonical signature is:
 ;;
 ;;   (fn [data event] ...)              ; 2-arity — the 99% case
-;;   (fn [data event ctx] ...)          ; 3-arity — opt-in introspection
+;;   ^:rf.machine/wants-ctx              ; 3-arity — opt-in introspection
+;;   (fn [data event ctx] ...)
 ;;
 ;; `data` is the machine's :data slot directly (a map). `event` is the inbound
 ;; event vector. `ctx` (3-arity escape hatch) is `{:state ... :meta ...}` —
 ;; the snapshot's discrete-state and any user `:meta`. Returning to the 2-
-;; arity surface from the 3-arity body is a one-line `(let [data data] ...)`;
-;; no migration cost when introspection is no longer needed.
+;; arity surface from the 3-arity body is dropping the third positional and
+;; the metadata flag; no migration cost when introspection is no longer needed.
+;;
+;; The opt-in is metadata-driven (`:rf.machine/wants-ctx true`) rather than
+;; structurally arity-detected. This makes the user's intent explicit and
+;; declarative, eliminates per-call platform reflection (`getDeclaredMethods`
+;; on JVM, `cljs$lang$maxFixedArity` + `unchecked-get` on CLJS), and removes
+;; the variadic-fn footgun the structural rule had — a `(fn [d e & rest] ...)`
+;; that wants to see ctx now declares its intent on the fn itself, not on its
+;; arglist shape.
+;;
+;; Ergonomic forms (any value-equivalent encoding works):
+;;
+;;   ;; inline metadata on the fn literal
+;;   :guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
+;;
+;;   ;; defn attr-map for a named guard
+;;   (defn my-guard {:rf.machine/wants-ctx true} [data event ctx] ...)
+;;
+;;   ;; helper for wrapping an existing 3-arity fn — see `wants-ctx`
+;;   :guard (wants-ctx (fn [data event ctx] ...))
+;;
+;; `chase-ref` carries metadata via the var-reference value, so a keyword
+;; reference into the machine's `:guards` / `:actions` map preserves the
+;; opt-in flag the user attached at definition site.
 
-(defn- declares-3-arity?
-  "True iff f explicitly declares a 3-fixed-arg invocation. Distinguishes
-  user opt-in 3-arity from variadic helpers like (constantly ...) or
-  (fn [data event & rest] ...). On the JVM, walks the fn class's
-  declared invoke methods (variadics are RestFns with no declared
-  invoke(O,O,O) on the fn class itself); on CLJS, inspects the compiled
-  fn surface — `cljs$lang$maxFixedArity` is set on every variadic and
-  records its max-fixed-arg count, so a variadic with max-fixed < 3 is a
-  2-plus-rest helper and is NOT a 3-arity declaration. A non-variadic fn
-  whose `.-length` is 3, or a multi-arity fn carrying an explicit
-  `cljs$core$IFn$_invoke$arity$3` dispatch slot, IS a 3-arity declaration."
+(defn- wants-ctx?
+  "True iff f explicitly opts in to the 3-arity ctx surface via the
+  `:rf.machine/wants-ctx true` metadata flag. Cheap — a single map
+  lookup on the fn's metadata. No platform reflection."
   [f]
-  #?(:clj  (boolean
-             (some
-               (fn [^java.lang.reflect.Method m]
-                 (and (= "invoke" (.getName m))
-                      (= 3 (.getParameterCount m))))
-               (.getDeclaredMethods (class f))))
-     :cljs (let [variadic? (some? (.-cljs$lang$maxFixedArity f))]
-             (cond
-               ;; Variadic of any flavour — (constantly ...), 2-plus-rest,
-               ;; 3-plus-rest. RestFns on the JVM don't expose a declared
-               ;; `invoke(O,O,O)` on the user's class, so the JVM check
-               ;; classifies all variadics as non-3-arity. To converge,
-               ;; CLJS treats every variadic the same way: routes through
-               ;; the 2-arity path per the docstring's "distinguishes
-               ;; variadic helpers" promise. The previously-buggy CLJS
-               ;; check matched 2-plus-rest as 3-arity via the auto-
-               ;; generated `cljs$core$IFn$_invoke$arity$3` rest-dispatch
-               ;; slot — that's what this branch fixes (rf2-l04j).
-               variadic?
-               false
-               ;; Plain 3-fixed-arity (e.g. `(fn [a b c] ...)`).
-               (= 3 (.-length f))
-               true
-               ;; Multi-arity fn with an explicit 3-arity dispatch case
-               ;; — `(fn ([a] ...) ([a b c] ...))`. The user IS opting
-               ;; in to a 3-arity surface; route through it.
-               (some? (unchecked-get f "cljs$core$IFn$_invoke$arity$3"))
-               true
-               :else
-               false))))
+  (boolean (:rf.machine/wants-ctx (meta f))))
+
+(defn wants-ctx
+  "Wrap a 3-arity guard or action fn so the runtime calls it with the
+  introspection ctx `{:state :meta}`. Sugar over the
+  `^:rf.machine/wants-ctx` metadata flag for cases where attaching
+  metadata to the source form is awkward (anonymous fns inside a
+  reduce, fns built by combinators, etc.).
+
+      :guard (wants-ctx (fn [data event ctx] ...))
+
+  Equivalent to:
+
+      :guard ^:rf.machine/wants-ctx (fn [data event ctx] ...)
+
+  Per Spec 005 §3-arity escape hatch — `:state` / `:meta` introspection."
+  [f]
+  (vary-meta f assoc :rf.machine/wants-ctx true))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the
-  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  canonical contract. 2-arity (default) sees [data event]; 3-arity
+  opt-in (`^:rf.machine/wants-ctx` metadata on the fn) sees
   [data event {:state :meta}]."
   [g snapshot event]
   (let [data (:data snapshot)]
-    (if (declares-3-arity? g)
+    (if (wants-ctx? g)
       (g data event {:state (:state snapshot) :meta (:meta snapshot)})
       (g data event))))
 
 (defn- call-action
   "Invoke a resolved action fn against a snapshot + event with the
-  canonical contract. 2-arity sees [data event]; 3-arity opt-in sees
+  canonical contract. 2-arity (default) sees [data event]; 3-arity
+  opt-in (`^:rf.machine/wants-ctx` metadata on the fn) sees
   [data event {:state :meta}]."
   [f snapshot event]
   (let [data (:data snapshot)]
-    (if (declares-3-arity? f)
+    (if (wants-ctx? f)
       (f data event {:state (:state snapshot) :meta (:meta snapshot)})
       (f data event))))
 

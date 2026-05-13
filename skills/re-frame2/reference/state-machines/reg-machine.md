@@ -111,7 +111,7 @@ Per the inspectability bias (`SKILL.md` cardinal rule 5 / Spec 005 §Inspectabil
 
 Both fns receive `(data event)` — `:data` directly, not the snapshot wrapper. Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `implementation/machines/src/re_frame/machines.cljc:146` (`call-guard`) and `:156` (`call-action`).
 
-A 3-arity escape hatch `(fn [data event {:state ... :meta ...}])` exists for introspecting the snapshot's discrete state, but reach for it only when 2-arity cannot express what you need (Spec 005 §3-arity escape hatch).
+A 3-arity escape hatch `^:rf.machine/wants-ctx (fn [data event {:state ... :meta ...}] ...)` exists for introspecting the snapshot's discrete state, but reach for it only when 2-arity cannot express what you need (Spec 005 §3-arity escape hatch). The metadata flag is the explicit opt-in; without it the runtime calls the fn as 2-arity.
 
 ## Subscribing to a machine
 
