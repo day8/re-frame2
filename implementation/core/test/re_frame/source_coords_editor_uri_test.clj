@@ -22,6 +22,26 @@
     (is (= "cursor://file/src/app/views.cljs:42:7"
            (eu/editor-uri :cursor sample-coord)))))
 
+(deftest windsurf-scheme
+  (testing ":windsurf produces windsurf://file/<path>:<line>:<column>"
+    (is (= "windsurf://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :windsurf sample-coord))))
+  (testing ":windsurf with missing :line / :column defaults to 1:1"
+    (is (= "windsurf://file/src/x.cljs:1:1"
+           (eu/editor-uri :windsurf {:file "src/x.cljs"}))))
+  (testing ":windsurf with missing :file → nil URI"
+    (is (nil? (eu/editor-uri :windsurf {:line 10 :column 1})))))
+
+(deftest zed-scheme
+  (testing ":zed produces zed://file/<path>:<line>:<column>"
+    (is (= "zed://file/src/app/views.cljs:42:7"
+           (eu/editor-uri :zed sample-coord))))
+  (testing ":zed with missing :line / :column defaults to 1:1"
+    (is (= "zed://file/src/x.cljs:1:1"
+           (eu/editor-uri :zed {:file "src/x.cljs"}))))
+  (testing ":zed with missing :file → nil URI"
+    (is (nil? (eu/editor-uri :zed {:line 10 :column 1})))))
+
 (deftest idea-scheme
   (testing ":idea produces idea://open?file=&line=&column="
     (is (= "idea://open?file=src/app/views.cljs&line=42&column=7"
@@ -99,6 +119,8 @@
   (testing "known-editors enumerates the built-in scheme keywords"
     (is (contains? eu/known-editors :vscode))
     (is (contains? eu/known-editors :cursor))
+    (is (contains? eu/known-editors :windsurf))
+    (is (contains? eu/known-editors :zed))
     (is (contains? eu/known-editors :idea))
     ;; :custom is a map-shape, not a member of the keyword set.
     (is (not (contains? eu/known-editors :custom)))))
