@@ -168,18 +168,27 @@
 
 (deftest interceptor-is-frame-scoped
   (testing "an interceptor registered on frame A does not transform frame B's requests"
+    ;; The two "seen-on-*" atoms hold the X-Marker header value the server
+    ;; observed; the two "hit-*" atoms are independent "the request landed"
+    ;; latches. We need the latter because :other-frame's request is *expected*
+    ;; to carry a nil header, so we cannot use header-value-is-non-nil as a
+    ;; readiness signal for that branch.
     (let [seen-on-default (atom nil)
           seen-on-other   (atom nil)
+          hit-default     (atom false)
+          hit-other       (atom false)
           {:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (let [path (.getPath (.getRequestURI ex))]
                 (cond
                   (.startsWith path "/from-default")
-                  (reset! seen-on-default (header-of ex "X-Marker"))
+                  (do (reset! seen-on-default (header-of ex "X-Marker"))
+                      (reset! hit-default true))
 
                   (.startsWith path "/from-other")
-                  (reset! seen-on-other (header-of ex "X-Marker")))
+                  (do (reset! seen-on-other (header-of ex "X-Marker"))
+                      (reset! hit-other true)))
                 (write-response! ex 200 "application/json" "{}"))))]
       (try
         (rf/reg-frame :other-frame {:doc "alt frame"})
@@ -204,19 +213,21 @@
                     :on-success nil}]]}))
         (rf/dispatch-sync [:load-default])
         (rf/dispatch-sync [:load-other] {:frame :other-frame})
-        ;; Wait for both server hits.
+        ;; Wait for both server hits using the dedicated readiness latches.
+        ;; Header values are NOT a valid readiness signal here — the
+        ;; :other-frame request is expected to carry a nil header, which is
+        ;; indistinguishable from "request has not yet landed".
         (let [deadline (+ (System/currentTimeMillis) 5000)]
           (loop []
-            (when (and (< (System/currentTimeMillis) deadline)
-                       (or (nil? @seen-on-default)
-                           (and (nil? @seen-on-other)
-                                ;; for the other frame, we expect nil header but
-                                ;; we still need to know the request fired —
-                                ;; sleep a beat then check again
-                                true)))
-              (Thread/sleep 50)
-              (recur))))
-        (Thread/sleep 200) ;; give the second request time to land
+            (cond
+              (and @hit-default @hit-other) :done
+
+              (> (System/currentTimeMillis) deadline)
+              (throw (ex-info "timed out awaiting both server hits"
+                              {:hit-default @hit-default
+                               :hit-other   @hit-other}))
+
+              :else (do (Thread/sleep 5) (recur)))))
         (is (= "default-only" @seen-on-default)
             "default-frame request carried the interceptor's header")
         (is (nil? @seen-on-other)
