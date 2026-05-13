@@ -75,7 +75,23 @@
   `:credentials`, etc.) without losing the helper's verb-pinning.
 
   See Spec 014 for the canonical args-map shape."
-  (:refer-clojure :exclude [get]))
+  (:refer-clojure :exclude [get])
+  (:require [re-frame.http-privacy :as privacy]))
+
+;; Privacy surface — Spec 014 §Privacy (rf2-bma05). Re-exported here so
+;; users who alias `re-frame.http :as rf.http` get a uniform call site
+;; for all the HTTP-side facilities (verbs + privacy helpers).
+(def declare-sensitive-header!
+  "Spec 014 §Privacy — extend the header-denylist with an app-specific
+  sensitive header. Names stored lower-cased; matching is case-insensitive.
+  See `re-frame.http-privacy/declare-sensitive-header!`."
+  privacy/declare-sensitive-header!)
+
+(def clear-sensitive-headers!
+  "Spec 014 §Privacy — reset the app-extended header-denylist (defaults
+  remain). Test-only; production code should not need this.
+  See `re-frame.http-privacy/clear-sensitive-headers!`."
+  privacy/clear-sensitive-headers!)
 
 (defn- build
   "Build a `[:rf.http/managed args-map]` fx vector for the given verb,

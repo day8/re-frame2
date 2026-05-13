@@ -914,6 +914,114 @@ Each child gets its own wrapper actor; cancel-on-decision (default `true`) tears
 
 Apps may mix both freely. The two registrations coexist under `:rf.http/managed` in the registrar (`:fx` kind for the fx, `:event` kind for the machine).
 
+## Privacy
+
+Per [rf2-bma05](#) (motivated by the [rf2-ok47g §Completeness matrix G3](#) — the sensitive-elision audit). HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
+
+Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
+
+### 1. Header denylist (always-on)
+
+A canonical set of HTTP header names is **always sensitive** — the names themselves declare the value secret regardless of the surrounding handler's `:sensitive?` flag. Implementations MUST redact (substitute the framework-reserved `:rf/redacted` sentinel per [Spec 009 §`with-redacted`](009-Instrumentation.md#the-with-redacted-interceptor)) the values of these headers in every `:rf.http/*` trace event that carries a `:headers` slot. Header-name matching is **case-insensitive**.
+
+The v1 closed denylist:
+
+| Header name | Why |
+|---|---|
+| `Authorization` | Bearer tokens, Basic auth credentials |
+| `Proxy-Authorization` | Proxy credentials |
+| `Cookie` | Session identifiers |
+| `Set-Cookie` | Session identifiers (response side) |
+| `X-API-Key` | API key in the bearer-key idiom |
+| `X-Auth-Token` | Bearer-token variant |
+| `X-Session-Token` | Session-token variant |
+| `X-CSRF-Token` | CSRF anti-forgery token |
+| `X-XSRF-Token` | CSRF anti-forgery token (XSRF spelling) |
+| `Authentication` | Some SaaS APIs use the non-standard spelling |
+| `WWW-Authenticate` | Challenge response carries scheme + realm details |
+| `Proxy-Authenticate` | Same as WWW-Authenticate at the proxy layer |
+
+Apps extend the denylist for app-specific tokens (e.g. `X-Honeycomb-Team`, `X-Stripe-Signature`) via:
+
+```clojure
+(rf.http/declare-sensitive-header! "X-Honeycomb-Team")
+```
+
+Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-headers!)`.
+
+### 2. Per-call / per-request / per-handler `:sensitive?`
+
+Three OR-reduced sources contribute the request-side `:sensitive?` flag for a given `:rf.http/managed` invocation:
+
+1. **Handler-level** — `:sensitive? true` on the originating event handler's `:rf/registration-metadata` map (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). The conventional site: the event handler that owns the request. Every `:rf.http/managed` dispatched from within a `:sensitive?`-marked handler inherits the flag.
+
+2. **Per-request** — `:sensitive? true` under the `:request` map of the `:rf.http/managed` args. For requests where the handler itself is not sensitive but **this specific call** is (e.g. a generic POST handler that becomes sensitive only when posting to `/auth/login`). Composes with `:request-content-type`, `:body`, etc. unchanged.
+
+3. **Per-call** — `:sensitive? true` at the top level of the `:rf.http/managed` args map. Pragmatic sugar for callers that prefer the flag alongside `:on-success` / `:on-failure` rather than nested under `:request`. Semantically identical to per-request.
+
+Any source set to `true` makes the request sensitive; all sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
+
+```clojure
+;; Handler-level (Spec 009 §Privacy — the inherited form):
+(rf/reg-event-fx :auth/sign-in
+  {:doc        "Verify credentials and start a session."
+   :sensitive? true}
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request {:method :post :url "/auth" :body creds}}]]}))
+
+;; Per-request — a non-sensitive handler with one sensitive call:
+(rf/reg-event-fx :api/proxy
+  (fn [_ [_ {:keys [target body]}]]
+    {:fx [[:rf.http/managed
+           {:request    {:method :post :url target :body body
+                         :sensitive? (= target "/auth/login")}}]]}))
+
+;; Per-call — same effect, top-level:
+(rf/reg-event-fx :api/login
+  (fn [_ [_ creds]]
+    {:fx [[:rf.http/managed
+           {:request    {:method :post :url "/auth/login" :body creds}
+            :sensitive? true}]]}))
+```
+
+### 3. Trace-event redaction + stamping rules
+
+For every `:rf.http/*` trace event the runtime emits (`:rf.http/retry-attempt`, `:rf.http/aborted-on-actor-destroy`, the eight `:rf.http/*` failure categories from [§Failure categories](#failure-categories-closed-set), `:rf.warning/decode-defaulted`), implementations MUST:
+
+1. **Redact denylisted headers** in `:headers` slots regardless of the effective `:sensitive?` flag.
+2. **Redact body / body-text / decoded / detail** slots when the effective `:sensitive?` is true. Specifically: `:body` (request and response), `:body-text` (decode-failure raw text), `:decoded` (the pre-`:accept` decoded value carried by `:rf.http/accept-failure`), and `:detail` (the user-supplied failure map carried by `:rf.http/accept-failure`). All slot values become `:rf/redacted`.
+3. **Redact `:params`** (query-string params) when the effective `:sensitive?` is true. Query parameters frequently carry tokens (`?api_key=…`) and the redaction rule matches the body — when the request is sensitive, anything that rides the wire is.
+4. **Stamp `:sensitive?`** on the trace event per [Spec 009 §Trace-event field](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level). The canonical contract is that the flag rides at the top level of the trace envelope (consumers consult `(:sensitive? ev)` for a one-keyword read). The HTTP layer stamps `:sensitive? true` on the tags map passed to `trace/emit!` / `trace/emit-error!`. If the core trace surface implements the [rf2-isdwf](#) hoist (Spec 009 §Privacy core-stamping), the flag is moved from tags to top-level by the emit walker; if core does not yet hoist, the flag stays under `:tags`. Once core lands the hoist universally, the tags-slot becomes redundant but harmless. Absent (NOT `false`) when not sensitive — per Spec 009 line 1176 "Consumers treat absent as false."
+
+The cascade-wide stamping uses the **innermost in-scope handler** rule from [Spec 009 §Privacy](009-Instrumentation.md#the-sensitive-registration-metadata-key): each handler in a cascade contributes its own `:sensitive?` reading. A sensitive handler dispatching a non-sensitive child event does NOT transitively widen the flag — the HTTP fx fired inside the child handler's scope reflects the child's flag. The OR-reduce-by-cascade rollup is the consumer's responsibility (group by `:dispatch-id`).
+
+### Composition
+
+| Surface | Behaviour |
+|---|---|
+| × `:large?` ([Spec 009 §Size elision](009-Instrumentation.md#size-elision-in-traces)) | A trace-event slot that is BOTH sensitive AND large drops (no `:rf.size/large-elided` marker — the marker would leak `:path` / `:bytes` / `:digest`). Sensitive wins per Spec 009's unified `rf/elide-wire-value` walker. |
+| × `with-redacted` (Spec 009 §Privacy) | `with-redacted` operates on event-vector slots; the HTTP redactor operates on `:rf.http/*` trace-event slots. Both compose additively — a handler that uses both gets event-vector redaction AND HTTP trace redaction. |
+| × Spec 014 §Middleware | Request-side interceptors run **before** the privacy machinery reads `:sensitive?` (the interceptor chain may itself attach an `Authorization` header). Headers added by interceptors are subject to the same denylist. |
+| × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets the redaction treatment when sensitive. `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
+| × Spec 005 actor-destroy abort | The in-flight handle propagates the effective `:sensitive?` flag, so the `:rf.http/aborted-on-actor-destroy` emit (issued from the registry namespace, distant from the originating fx ctx) still stamps correctly. |
+| × WebSockets (future) | When `:rf.ws/*` (per [Pattern-WebSocket](Pattern-WebSocket.md)) lands, it inherits the same denylist + per-handler / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
+
+### Production elision
+
+The HTTP privacy machinery rides the trace surface and elides with it:
+
+- The redact / stamp helpers all gate on `interop/debug-enabled?` at their call sites (the same gate as `trace/emit!` and `trace/emit-error!`). In `:advanced` + `goog.DEBUG=false` builds Closure DCE removes the trace emits AND the redaction step that prepares them.
+- The header denylist atom itself ships in production (it's read by `declare-sensitive-header!`). The walker only runs against it when a trace emit fires, so production builds that elide the trace surface incur no runtime cost.
+- The `:sensitive?` registration-metadata key survives production builds per Spec 009 §Privacy §Production-elision — `(rf/handler-meta :event id)` reports the flag in dev and production alike for diagnostic-dump tooling that consults the registrar without depending on the trace surface.
+
+### Cross-references
+
+- [Spec 009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the canonical `:sensitive?` contract this section extends into HTTP.
+- [Spec 009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the parallel-axis `:large?` predicate; both share the unified `rf/elide-wire-value` walker.
+- [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — every `:rf.http/*` failure-category row; the redaction rules above apply to each row's `:tags`.
+- [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf/redacted` sentinel keyword lives in the framework-reserved `:rf/` namespace.
+
 ## What Spec 014 does NOT cover
 
 Adjacent surfaces that are first-class re-frame2 commitments but live in their own specs:

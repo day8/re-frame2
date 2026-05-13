@@ -20,6 +20,7 @@
   retry / final-failure decision identical to the CLJS path."
   (:require [clojure.string         :as str]
             [re-frame.http-encoding :as encoding]
+            [re-frame.http-privacy  :as privacy]
             [re-frame.http-registry :as registry]
             [re-frame.interop       :as interop]
             [re-frame.late-bind     :as late-bind]
@@ -156,11 +157,17 @@
      [ctx failure]
      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
      (when interop/debug-enabled?
-       (trace/emit-error! (:kind failure)
+       ;; rf2-bma05 — redact response-side payload + denylisted headers
+       ;; before the trace surface sees them; stamp :sensitive? when in
+       ;; scope. The CLJS / JVM transports share the same contract.
+       (let [sensitive? (true? (:sensitive? ctx))
+             redacted   (privacy/prepare-emit-failure
                           (assoc failure
                                  :request-id (:request-id ctx)
                                  :url        (:url ctx)
-                                 :recovery   :no-recovery)))
+                                 :recovery   :no-recovery)
+                          sensitive?)]
+         (trace/emit-error! (:kind failure) redacted)))
      (let [superseded? (and (= :rf.http/aborted (:kind failure))
                             (= :request-id-superseded (:reason failure)))]
        (when-not superseded?
@@ -184,12 +191,14 @@
          (let [delay-ms (encoding/compute-backoff-ms (or backoff {}) attempt)]
            (when interop/debug-enabled?
              (trace/emit! :info :rf.http/retry-attempt
-                          {:request-id   request-id
-                           :url          (:url ctx)
-                           :attempt      attempt
-                           :max-attempts max-attempts
-                           :failure      failure
-                           :next-backoff-ms delay-ms}))
+                          (privacy/prepare-emit-tags
+                            {:request-id   request-id
+                             :url          (:url ctx)
+                             :attempt      attempt
+                             :max-attempts max-attempts
+                             :failure      failure
+                             :next-backoff-ms delay-ms}
+                            (true? (:sensitive? ctx)))))
            ;; Clear the prior attempt's handle from both indexes before
            ;; scheduling the retry — same rationale as the CLJS path
            ;; (rf2-wvkn).
@@ -207,12 +216,14 @@
                       (some? max-attempts)
                       (> max-attempts 1))
              (trace/emit! :info :rf.http/retry-attempt
-                          {:request-id      request-id
-                           :url             (:url ctx)
-                           :attempt         attempt
-                           :max-attempts    max-attempts
-                           :failure         failure
-                           :next-backoff-ms nil}))
+                          (privacy/prepare-emit-tags
+                            {:request-id      request-id
+                             :url             (:url ctx)
+                             :attempt         attempt
+                             :max-attempts    max-attempts
+                             :failure         failure
+                             :next-backoff-ms nil}
+                            (true? (:sensitive? ctx)))))
            (finalise-failure! ctx failure))))))
 
 #?(:clj
@@ -257,7 +268,13 @@
                                                          {:request-id request-id
                                                           :reason     reason
                                                           :actor-id   actor-id})))
-                     :url url})
+                     :url url
+                     ;; rf2-bma05 — propagate the :sensitive? flag onto
+                     ;; the in-flight handle so the actor-destroy abort
+                     ;; emit (lives in the registry ns) can stamp the
+                     ;; trace event without re-resolving registration
+                     ;; metadata.
+                     :sensitive? (true? (:sensitive? ctx))})
            ctx' (assoc ctx-no-handle :handle handle)]
        (try
          (let [^CompletableFuture cf

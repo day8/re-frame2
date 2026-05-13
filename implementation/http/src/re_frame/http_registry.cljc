@@ -26,9 +26,10 @@
   shape wrapper) because the operation is atomic state — it walks
   both atoms and mutates them under one `swap!` per slot. Keeping it
   next to the atoms makes the invariant local."
-  (:require [re-frame.frame   :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.trace   :as trace]))
+  (:require [re-frame.frame        :as frame]
+            [re-frame.http-privacy :as privacy]
+            [re-frame.interop      :as interop]
+            [re-frame.trace        :as trace]))
 
 ;; ---- in-flight request registry -------------------------------------------
 
@@ -185,10 +186,15 @@
       (swap! actor-in-flight dissoc actor-id)
       (doseq [handle handles]
         (when interop/debug-enabled?
+          ;; rf2-bma05 — the handle carries the originating request's
+          ;; effective :sensitive? flag; stamp the trace event so off-box
+          ;; consumers honour the privacy contract on actor-destroy aborts.
           (trace/emit! :info :rf.http/aborted-on-actor-destroy
-                       {:request-id (:request-id handle)
-                        :actor-id   actor-id
-                        :url        (:url handle)}))
+                       (privacy/prepare-emit-tags
+                         {:request-id (:request-id handle)
+                          :actor-id   actor-id
+                          :url        (:url handle)}
+                         (true? (:sensitive? handle)))))
         ;; Remove from the request-id index too so the natural failure
         ;; path doesn't try to clear a slot we already swept.
         (when-let [rid (:request-id handle)]

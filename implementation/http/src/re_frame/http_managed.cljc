@@ -80,6 +80,7 @@
   (:require [re-frame.fx                :as fx]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware   :as middleware]
+            [re-frame.http-privacy      :as privacy]
             [re-frame.http-registry     :as registry]
             #?(:cljs [re-frame.http-transport-cljs :as transport-cljs]
                :clj  [re-frame.http-transport-jvm  :as transport-jvm])
@@ -113,6 +114,11 @@
 (def uninstall-managed-request-stubs! machine-wrapper/uninstall-managed-request-stubs!)
 (def with-managed-request-stubs*      machine-wrapper/with-managed-request-stubs*)
 
+;; Privacy surface — Spec 014 §Privacy (rf2-bma05).
+(def declare-sensitive-header!  privacy/declare-sensitive-header!)
+(def clear-sensitive-headers!   privacy/clear-sensitive-headers!)
+(def default-header-denylist    privacy/default-header-denylist)
+
 ;; ---- normalise-args + managed-handler -------------------------------------
 ;;
 ;; The fx entry point lives here in the façade — it threads the request
@@ -141,7 +147,14 @@
         ;; we look up the id in the frame's [:rf/spawned ...] runtime
         ;; registry (per Spec 005 §Declarative :invoke); ordinary event
         ;; handlers' dispatches yield nil and are not tracked.
-        actor-id     (registry/compute-actor-id frame origin-event)]
+        actor-id     (registry/compute-actor-id frame origin-event)
+        ;; rf2-bma05 — compute the effective :sensitive? flag once and
+        ;; thread it through the attempt-and-retry loop. Three sources
+        ;; (OR-reduced): per-call args, per-request, and the originating
+        ;; handler's registration metadata. The flag rides every
+        ;; :rf.http/* trace event emitted within the cascade so
+        ;; consumers honour the privacy contract per Spec 009 §Privacy.
+        sensitive?   (privacy/request-sensitive? args-map origin-event)]
     {:request           request
      :decode            decode
      :decode-supplied?  (some? decode)
@@ -159,7 +172,8 @@
      :actor-id          actor-id
      :abort-signal      abort-signal
      :frame             frame
-     :attempt           1}))
+     :attempt           1
+     :sensitive?        sensitive?}))
 
 (defn- managed-handler
   "The public `:rf.http/managed` fx body. `frame-ctx` carries `:frame`
