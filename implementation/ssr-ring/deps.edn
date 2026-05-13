@@ -23,9 +23,11 @@
 ;;   6. Materialises :cookies → Set-Cookie wire form per RFC 6265.
 ;;   7. Destroys the per-request frame in a `finally` block.
 ;;
-;; Plus an `ssr-middleware` fn for composing with other Ring middlewares,
-;; and the binding site for the `*current-request*` var the
-;; `:rf.server/request` cofx (rf2-e825b) reads from.
+;; Plus an `ssr-middleware` fn for composing with other Ring middlewares.
+;; Per Spec 011 §Request storage substrate, the adapter populates the
+;; per-frame request slot via `re-frame.ssr/set-request!` before the
+;; drain so the `:rf.server/request` cofx (rf2-e825b) surfaces the
+;; Ring request to handlers via `(inject-cofx :rf.server/request)`.
 ;;
 ;; Consumers add this artefact alongside core and ssr:
 ;;
