@@ -317,30 +317,23 @@
     (rf/destroy-frame frame-id)
     (catch Throwable _ nil)))
 
-(defn- render-body
-  "Render the root view against the per-request frame. Wrapped here so
-  view-time exceptions can be projected through the SSR error path
-  per Spec 011 §View-time exceptions. Returns the HTML string."
-  [frame-id root-view emit-hash?]
-  (rf/with-frame frame-id
-    (let [hiccup (cond
-                   (vector? root-view) root-view
-                   (fn?     root-view) (root-view)
-                   :else
-                   (throw (ex-info ":rf.error/invalid-root-view"
-                                   {:reason   "root-view must be a hiccup vector or a 0-arity fn"
-                                    :received root-view})))]
-      (ssr/render-to-string hiccup {:doctype?   false
-                                    :emit-hash? emit-hash?}))))
-
-(defn- render-hash-for
-  "Compute the structural render-tree hash. Mirrors render-body's
-  root-view resolution so the payload's :rf/render-hash matches the
-  data-rf-render-hash embedded in the wire HTML."
-  [frame-id root-view]
-  (rf/with-frame frame-id
-    (let [hiccup (if (fn? root-view) (root-view) root-view)]
-      (ssr/render-tree-hash hiccup))))
+(defn- resolve-root-view
+  "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
+  either a hiccup vector directly OR a 0-arity fn that returns hiccup.
+  Per rf2-6t36h this MUST run exactly once per request — the fn-form
+  branch is not guaranteed to be idempotent (unsorted-map iteration,
+  gensym'd keys, time-of-day props can all vary between calls) and any
+  variance between two invocations produces a hash mismatch on the wire
+  vs the payload, firing a spurious `:rf.ssr/hydration-mismatch` on a
+  perfectly successful hydration. Resolve once, thread the result."
+  [root-view]
+  (cond
+    (vector? root-view) root-view
+    (fn?     root-view) (root-view)
+    :else
+    (throw (ex-info ":rf.error/invalid-root-view"
+                    {:reason   "root-view must be a hiccup vector or a 0-arity fn"
+                     :received root-view}))))
 
 (defn- resolve-head-html
   "Resolve the active route's `:head` against `frame-id` (or the default
@@ -515,8 +508,20 @@
               (ssr-response->ring-response response nil)
 
               :else
-              (let [body-html   (render-body frame-id root-view emit-hash?)
-                    hash-str    (render-hash-for frame-id root-view)
+              ;; rf2-6t36h: resolve root-view EXACTLY ONCE per request.
+              ;; Both the wire HTML (via render-to-string + its embedded
+              ;; data-rf-render-hash) and the payload's :rf/render-hash
+              ;; must derive from the same hiccup tree, otherwise a
+              ;; non-idempotent fn-form root-view produces two trees and
+              ;; the on-client mismatch check fires on a successful
+              ;; hydration. `with-frame` binds *current-frame* for the
+              ;; view-time subscribes / view-registry lookups.
+              (let [hiccup      (rf/with-frame frame-id (resolve-root-view root-view))
+                    body-html   (rf/with-frame frame-id
+                                  (ssr/render-to-string hiccup
+                                                        {:doctype?   false
+                                                         :emit-hash? emit-hash?}))
+                    hash-str    (ssr/render-tree-hash hiccup)
                     payload     (build-payload frame-id app-db hash-str
                                                {:version       version
                                                 :schema-digest schema-digest

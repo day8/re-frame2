@@ -293,6 +293,91 @@
       (is (str/includes? (:body response) "caught: boom-2")))))
 
 ;; ===========================================================================
+;; ssr-handler — fn-form :root-view invoked exactly once per request (rf2-6t36h)
+;;
+;; The fn-form branch of `:root-view` is not guaranteed to be idempotent —
+;; unsorted-map iteration order, gensym'd react keys, and time-of-day
+;; props all vary between calls. Pre-rf2-6t36h the adapter invoked the
+;; root-view fn twice per request (once for the wire HTML / its embedded
+;; data-rf-render-hash, once for the payload's :rf/render-hash). Two
+;; non-identical trees → two non-equal hashes → spurious
+;; :rf.ssr/hydration-mismatch on the client for an otherwise successful
+;; hydration.
+;;
+;; These tests pin the contract: ONE invocation per request, and the wire
+;; hash equals the payload hash even when the fn is technically
+;; non-idempotent.
+;; ===========================================================================
+
+(deftest fn-form-root-view-invoked-exactly-once-per-request
+  (testing "rf2-6t36h: a 0-arity fn :root-view fires exactly once per request"
+    (let [call-count (atom 0)]
+      (rf/reg-event-fx :init/ok-once
+        {:platforms #{:server}}
+        (fn [_ _] {}))
+
+      (rf/reg-view* :pages/once
+        (fn [] [:div.page "once"]))
+
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create [:init/ok-once]
+                        :root-view (fn []
+                                     (swap! call-count inc)
+                                     [:pages/once])})
+            response (handler {:uri "/once" :request-method :get})]
+        (is (= 200 (:status response)))
+        (is (= 1 @call-count)
+            "fn-form :root-view must be invoked exactly once per request
+             (rf2-6t36h: was 2 — once for wire HTML, once for hash)")))))
+
+(deftest fn-form-root-view-non-idempotent-still-hashes-consistently
+  (testing "rf2-6t36h: a non-idempotent fn-form :root-view produces a wire
+            hash that matches the payload hash — the same tree is used for
+            both, so the client mismatch check does NOT fire spuriously"
+    (let [counter (atom 0)]
+      (rf/reg-event-fx :init/ok-noni
+        {:platforms #{:server}}
+        (fn [_ _] {}))
+
+      ;; A view fn that produces a DIFFERENT tree on every call — its
+      ;; key includes a monotonic counter. Pre-rf2-6t36h the wire HTML
+      ;; would carry hash(tree_1) and the payload would carry
+      ;; hash(tree_2); they would differ and the client's hydration
+      ;; verifier would fire a spurious mismatch.
+      (rf/reg-view* :pages/noni
+        (fn [n] [:div {:data-call n} "noni"]))
+
+      (let [handler  (ssr-ring/ssr-handler
+                       {:on-create [:init/ok-noni]
+                        :root-view (fn []
+                                     [:pages/noni (swap! counter inc)])})
+            response (handler {:uri "/noni" :request-method :get})
+            body     (:body response)
+            wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""
+                                       body))
+            payload-edn (second (re-find
+                                  #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                                  body))
+            ;; Payload EDN uses the `#:rf{...}` namespace-map shorthand
+            ;; (pr-str's default rendering for a map whose keys all share
+            ;; the `:rf/` namespace) — so `:rf/render-hash` collapses to
+            ;; `:render-hash` inside that block. Match either rendering
+            ;; so the test is robust against the pr-str-shape choice.
+            payload-hash (second (re-find
+                                   #":(?:rf/)?render-hash \"([0-9a-f]{8})\""
+                                   payload-edn))]
+        (is (= 200 (:status response)))
+        (is (some? wire-hash)
+            "data-rf-render-hash present on wire root element")
+        (is (some? payload-hash)
+            ":rf/render-hash present in hydration payload")
+        (is (= wire-hash payload-hash)
+            "rf2-6t36h: wire hash MUST equal payload hash — both derive
+             from the same single invocation of the fn-form root-view")
+        (is (= 1 @counter)
+            "side-effect counter confirms the fn was invoked exactly once")))))
+
+;; ===========================================================================
 ;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)
 ;;
 ;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
